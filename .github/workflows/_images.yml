@@ -61,8 +61,9 @@ jobs:
           ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: printf '%s' "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin "https://$REGISTRY"
 
-      # Layer cache in the Actions cache: needs a docker-container builder and
-      # the runtime token exposed to `docker buildx` (only GitHub-owned and
+      # Layer cache in the Actions cache (service v2; v1 is retired): needs a
+      # docker-container builder and the runtime token exposed to `docker
+      # buildx` (only GitHub-owned and
       # allowlisted actions may run here, so no third-party setup actions).
       - name: Set up buildx with the Actions cache
         run: docker buildx create --use --driver docker-container
@@ -71,7 +72,6 @@ jobs:
           script: |
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN);
             core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL);
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
 
       - name: Build and push changed services
         env:
@@ -93,7 +93,8 @@ jobs:
                 --provenance=false --sbom=false \
                 --label "org.opencontainers.image.revision=$GITHUB_SHA" \
                 --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-                --cache-from "type=gha,scope=$svc" --cache-to "type=gha,scope=$svc,mode=max"
+                --cache-from "type=gha,version=2,scope=$svc" \
+                --cache-to "type=gha,version=2,scope=$svc,mode=max"
               state=pushed
             fi
             digest=$(docker buildx imagetools inspect "$image" --format '{{json .Manifest}}' | jq -r .digest)
