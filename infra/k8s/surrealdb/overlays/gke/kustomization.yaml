@@ -1,0 +1,28 @@
+# Shared GKE layer: External Secrets Operator wiring (Secret Manager ->
+# Kubernetes Secrets) and Workload Identity annotations. Environment overlays
+# (gke-dev, later gke-prod) add the real project values, sizing and images.
+# Applied by Terraform (infra/terraform/live/<env>/cluster), never by hand.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: database
+resources:
+  - ../../base
+  - secretstore.yaml
+  - externalsecrets.yaml
+
+patches:
+  - target:
+      kind: StatefulSet
+      name: surrealdb
+    patch: |-
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: premium-rwo # SSD persistent disk (prod default; dev overrides)
+  - target:
+      kind: ServiceAccount
+      name: surrealdb-backup
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          iam.gke.io/gcp-service-account: SET_BY_KUSTOMIZE

@@ -1,0 +1,12 @@
+# Scale-up cap for the database namespace: anything beyond this is refused.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: database-cap
+spec:
+  hard:
+    pods: '6'
+    requests.cpu: '1'
+    requests.memory: 2Gi
+    persistentvolumeclaims: '1'
+    requests.storage: 10Gi

@@ -1,0 +1,57 @@
+# Creates the namespace, database and one least-privilege user per service
+# (see init.surql in the surrealdb-init Secret). Safe to re-run: every
+# statement uses IF NOT EXISTS / OVERWRITE, so re-running also rotates passwords.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: surrealdb-init-users
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 600 # removed after 10 min so it can be re-applied
+  template:
+    metadata:
+      labels:
+        heisreal.today/db-client: 'true'
+    spec:
+      serviceAccountName: surrealdb-init
+      # Retry in the same pod until SurrealDB is ready (DNS resolves once it passes readiness).
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: import
+          image: surrealdb/surrealdb
+          args:
+            - import
+            - --endpoint=http://surrealdb:8000
+            - --namespace=$(SURREAL_NAMESPACE)
+            - --database=$(SURREAL_DATABASE)
+            - /init/init.surql
+          envFrom:
+            - configMapRef:
+                name: surrealdb-settings
+            - secretRef:
+                name: surrealdb-root # SURREAL_USER / SURREAL_PASS (root)
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: init
+              mountPath: /init
+              readOnly: true
+      volumes:
+        - name: init
+          secret:
+            secretName: surrealdb-init

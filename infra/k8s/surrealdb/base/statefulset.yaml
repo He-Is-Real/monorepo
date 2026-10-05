@@ -1,0 +1,96 @@
+# Single-node SurrealDB on RocksDB with a persistent disk (Option A in
+# project/context/research/surrealdb-kubernetes-options.html).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: surrealdb
+spec:
+  serviceName: surrealdb
+  replicas: 1 # RocksDB is single-writer: never scale this above 1.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: surrealdb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: surrealdb
+    spec:
+      serviceAccountName: surrealdb
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60 # let RocksDB flush cleanly
+      containers:
+        - name: surrealdb
+          image: surrealdb/surrealdb
+          args:
+            - start
+            - --log=info
+            - rocksdb:///data/surreal.db
+          env:
+            # Durability: fsync every commit before acknowledging it, so an
+            # abrupt stop (Spot reclaim, crash) never loses confirmed writes.
+            # This is SurrealDB's default; pinned so an upgrade can't change it.
+            - name: SURREAL_DATASTORE_SYNC_DATA
+              value: every
+            # Creates the root user on first start only (ignored once a root user exists).
+            - name: SURREAL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: surrealdb-root
+                  key: SURREAL_USER
+            - name: SURREAL_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: surrealdb-root
+                  key: SURREAL_PASS
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: logs
+              mountPath: /logs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi

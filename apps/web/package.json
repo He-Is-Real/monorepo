@@ -1,0 +1,31 @@
+{
+  "name": "@heisreal/web",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "web",
+    "sourceRoot": "apps/web/src",
+    "tags": [
+      "type:app",
+      "scope:web"
+    ],
+    "targets": {
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "inputs": [
+          "default",
+          "^default"
+        ],
+        "options": {
+          "command": "tsc --noEmit -p apps/web/tsconfig.json"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "next": "~16.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: database
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: heisreal
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - serviceaccounts.yaml
+  - settings.yaml
+  - service.yaml
+  - statefulset.yaml
+  - networkpolicy.yaml
+  - init-users-job.yaml
+  - backup-cronjob.yaml
+images:
+  # Pinned by tag and digest: upgrades are deliberate PRs.
+  - name: surrealdb/surrealdb
+    newTag: v3.2.4@sha256:51baed8709f57f67dcf04b30e3177db846803fa9342dae2be58c6fa5f8d59843
+  - name: google/cloud-sdk
+    newTag: 586.0.0-slim@sha256:cfca8415b7ce1abccf4c7a1a9c78b4da2c3718ac668806480a4471cb052e1ca9
+configMapGenerator:
+  # Template for the surrealdb-init Secret (see init.surql.tmpl).
+  - name: surrealdb-init-template
+    files:
+      - init.surql=init.surql.tmpl
+    options:
+      disableNameSuffixHash: true # referenced by name from the ExternalSecret

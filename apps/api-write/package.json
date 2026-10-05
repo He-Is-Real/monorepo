@@ -1,0 +1,120 @@
+{
+  "name": "@heisreal/api-write",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "api-write",
+    "targets": {
+      "prune-lockfile": {
+        "dependsOn": [
+          "build"
+        ],
+        "cache": true,
+        "executor": "@nx/js:prune-lockfile",
+        "inputs": [
+          "default",
+          "^default",
+          "{workspaceRoot}/pnpm-workspace.yaml",
+          "{workspaceRoot}/package.json",
+          {
+            "runtime": "node -e \"try{console.log('pnpm major '+require('child_process').execSync('pnpm --version',{stdio:['ignore','pipe','ignore']}).toString().trim().split('.')[0])}catch{console.log('pnpm major unavailable')}\""
+          }
+        ],
+        "outputs": [
+          "{workspaceRoot}/apps/api-write/dist/package.json",
+          "{workspaceRoot}/apps/api-write/dist/pnpm-lock.yaml",
+          "{workspaceRoot}/apps/api-write/dist/pnpm-workspace.yaml",
+          "{workspaceRoot}/apps/api-write/dist/patches",
+          "{workspaceRoot}/apps/api-write/dist/local_path_modules"
+        ],
+        "options": {
+          "buildTarget": "build"
+        }
+      },
+      "copy-workspace-modules": {
+        "dependsOn": [
+          "build"
+        ],
+        "cache": true,
+        "outputs": [
+          "{workspaceRoot}/apps/api-write/dist/workspace_modules"
+        ],
+        "executor": "@nx/js:copy-workspace-modules",
+        "options": {
+          "buildTarget": "build"
+        }
+      },
+      "prune": {
+        "dependsOn": [
+          "prune-lockfile",
+          "copy-workspace-modules",
+          "copy-dockerfile"
+        ],
+        "executor": "nx:noop"
+      },
+      "serve": {
+        "continuous": true,
+        "executor": "@nx/js:node",
+        "defaultConfiguration": "development",
+        "dependsOn": [
+          "build"
+        ],
+        "options": {
+          "buildTarget": "api-write:build",
+          "runBuildTargetDependencies": false
+        },
+        "configurations": {
+          "development": {
+            "buildTarget": "api-write:build:development"
+          },
+          "production": {
+            "buildTarget": "api-write:build:production"
+          }
+        }
+      },
+      "container": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "prune"
+        ],
+        "options": {
+          "command": "docker build -t ${IMAGE:-heisreal/api-write:local} apps/api-write/dist"
+        }
+      },
+      "copy-dockerfile": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build"
+        ],
+        "cache": true,
+        "inputs": [
+          "{workspaceRoot}/tools/docker/nest-service.Dockerfile"
+        ],
+        "outputs": [
+          "{workspaceRoot}/apps/api-write/dist/Dockerfile"
+        ],
+        "options": {
+          "command": "cp tools/docker/nest-service.Dockerfile apps/api-write/dist/Dockerfile"
+        }
+      }
+    },
+    "tags": [
+      "type:app",
+      "scope:api"
+    ]
+  },
+  "dependencies": {
+    "@heisreal/database": "workspace:*",
+    "@heisreal/health": "workspace:*",
+    "@heisreal/secrets": "workspace:*",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.0.0"
+  }
+}
