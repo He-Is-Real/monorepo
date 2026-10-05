@@ -63,8 +63,8 @@ jobs:
 
       # Layer cache in the Actions cache (service v2; v1 is retired): needs a
       # docker-container builder and the runtime token exposed to `docker
-      # buildx` (only GitHub-owned and
-      # allowlisted actions may run here, so no third-party setup actions).
+      # buildx`. Only GitHub-owned and allowlisted actions may run here, so no
+      # third-party setup actions.
       - name: Set up buildx with the Actions cache
         run: docker buildx create --use --driver docker-container
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
