@@ -1,0 +1,32 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compileOnSave": false,
+  "files": [],
+  "references": [
+    {
+      "path": "./apps/api-read"
+    },
+    {
+      "path": "./apps/api-write"
+    },
+    {
+      "path": "./apps/api-admin"
+    },
+    {
+      "path": "./apps/workflow"
+    },
+    {
+      "path": "./apps/web"
+    },
+    {
+      "path": "./libs/secrets"
+    },
+    {
+      "path": "./libs/database"
+    },
+    {
+      "path": "./libs/health"
+    }
+  ],
+  "compilerOptions": {}
+}

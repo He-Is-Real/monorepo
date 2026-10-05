@@ -1,0 +1,18 @@
+-- Rendered into the surrealdb-init Secret (by External Secrets Operator on
+-- clusters, by scripts/local-secrets.mjs on local developer machines); placeholders are
+-- replaced with passwords from Secret Manager, JSON-quoted.
+-- Namespace/database names must match surrealdb-settings (settings.yaml).
+OPTION IMPORT;
+
+DEFINE NAMESPACE IF NOT EXISTS heisreal;
+USE NS heisreal;
+DEFINE DATABASE IF NOT EXISTS main;
+USE NS heisreal DB main;
+
+-- One least-privilege user per service (see service-topology.md).
+DEFINE USER OVERWRITE api_read  ON DATABASE PASSWORD {{ .api_read | toJson }}  ROLES VIEWER COMMENT "api-read: public read API (read-only)";
+DEFINE USER OVERWRITE api_write ON DATABASE PASSWORD {{ .api_write | toJson }} ROLES EDITOR COMMENT "api-write: authenticated writes + webhooks";
+DEFINE USER OVERWRITE api_admin ON DATABASE PASSWORD {{ .api_admin | toJson }} ROLES EDITOR COMMENT "api-admin: moderation/admin";
+DEFINE USER OVERWRITE workflow  ON DATABASE PASSWORD {{ .workflow | toJson }}  ROLES EDITOR COMMENT "workflow: Dapr pipeline orchestrator";
+DEFINE USER OVERWRITE backup    ON DATABASE PASSWORD {{ .backup | toJson }}    ROLES VIEWER COMMENT "backup: nightly export CronJob";
+DEFINE USER OVERWRITE migrator  ON DATABASE PASSWORD {{ .migrator | toJson }}  ROLES OWNER  COMMENT "migrator: schema migrations at deploy time only";

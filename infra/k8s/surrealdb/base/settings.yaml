@@ -1,0 +1,10 @@
+# Non-secret settings shared by the Jobs. The database *names* are not secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: surrealdb-settings
+data:
+  SURREAL_NAMESPACE: heisreal
+  SURREAL_DATABASE: main
+  # Cloud Storage bucket for nightly backups (gke overlay sets the real name).
+  BACKUP_BUCKET: REPLACE_ME

@@ -1,0 +1,35 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "surrealdb-k8s",
+  "projectType": "application",
+  "tags": ["type:infra", "scope:database"],
+  "targets": {
+    "validate": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["{projectRoot}/**/*"],
+      "options": {
+        "cwd": "{projectRoot}",
+        "parallel": false,
+        "commands": [
+          "kubectl kustomize base > /dev/null",
+          "kubectl kustomize overlays/local > /dev/null",
+          "kubectl kustomize overlays/gke > /dev/null",
+          "kubectl kustomize overlays/gke-dev > /dev/null"
+        ]
+      }
+    },
+    "local-up": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "kubectl --context kind-heisreal -n database scale statefulset/surrealdb --replicas=1"
+      }
+    },
+    "local-down": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "kubectl --context kind-heisreal -n database scale statefulset/surrealdb --replicas=0"
+      }
+    }
+  }
+}

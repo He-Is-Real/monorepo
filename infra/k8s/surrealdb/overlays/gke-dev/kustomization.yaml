@@ -1,0 +1,125 @@
+# Dev on GKE Autopilot (heisreal-dev, europe-west2). Applied by Terraform:
+#   infra/terraform/live/dev/cluster  (replicas come from var.surrealdb_replicas)
+# Cost-tuned per project/context/research/gke-pods-and-costs.html:
+# Spot Pods, right-sized requests, 5 GiB balanced disk.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: database
+resources:
+  - ../gke
+  - resourcequota.yaml
+
+images:
+  # Pulled through Artifact Registry remote repositories (private nodes, no NAT).
+  # Tags/digests stay pinned in base/kustomization.yaml.
+  - name: surrealdb/surrealdb
+    newName: europe-west2-docker.pkg.dev/heisreal-dev/dockerhub/surrealdb/surrealdb
+  - name: google/cloud-sdk
+    newName: europe-west2-docker.pkg.dev/heisreal-dev/dockerhub/google/cloud-sdk
+
+configMapGenerator:
+  - name: gke-settings
+    envs:
+      - settings.env
+    options:
+      annotations:
+        config.kubernetes.io/local-config: 'true' # used for replacements only, not deployed
+
+patches:
+  # Spot Pods (60-91% cheaper; may be reclaimed with ~15 s notice, data on
+  # the disk is kept). Smaller requests than base for dev traffic.
+  - target:
+      kind: StatefulSet
+      name: surrealdb
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          cloud.google.com/gke-spot: "true"
+      - op: replace
+        path: /spec/template/spec/terminationGracePeriodSeconds
+        value: 15
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 512Mi
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: standard-rwo # balanced PD
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 5Gi
+  - target:
+      kind: Job
+      name: surrealdb-init-users
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          cloud.google.com/gke-spot: "true"
+  - target:
+      kind: CronJob
+      name: surrealdb-backup
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/nodeSelector
+        value:
+          cloud.google.com/gke-spot: "true"
+  # Cloud Run (Direct VPC egress subnet) may reach SurrealDB.
+  - target:
+      kind: NetworkPolicy
+      name: surrealdb-allow-clients
+    patch: |-
+      - op: add
+        path: /spec/ingress/-
+        value:
+          from:
+            - ipBlock:
+                cidr: SET_BY_KUSTOMIZE # RUN_SUBNET_CIDR
+          ports:
+            - port: 8000
+              protocol: TCP
+
+replacements:
+  - source: { kind: ConfigMap, name: gke-settings, fieldPath: data.GCP_PROJECT }
+    targets:
+      - select: { kind: SecretStore, name: gcp-secret-manager }
+        fieldPaths:
+          - spec.provider.gcpsm.projectID
+          - spec.provider.gcpsm.auth.workloadIdentity.clusterProjectID
+  - source:
+      { kind: ConfigMap, name: gke-settings, fieldPath: data.GKE_CLUSTER_NAME }
+    targets:
+      - select: { kind: SecretStore, name: gcp-secret-manager }
+        fieldPaths: [spec.provider.gcpsm.auth.workloadIdentity.clusterName]
+  - source:
+      {
+        kind: ConfigMap,
+        name: gke-settings,
+        fieldPath: data.GKE_CLUSTER_LOCATION,
+      }
+    targets:
+      - select: { kind: SecretStore, name: gcp-secret-manager }
+        fieldPaths: [spec.provider.gcpsm.auth.workloadIdentity.clusterLocation]
+  - source:
+      { kind: ConfigMap, name: gke-settings, fieldPath: data.BACKUP_BUCKET }
+    targets:
+      - select: { kind: ConfigMap, name: surrealdb-settings }
+        fieldPaths: [data.BACKUP_BUCKET]
+  - source: { kind: ConfigMap, name: gke-settings, fieldPath: data.SECRETS_GSA }
+    targets:
+      - select: { kind: ServiceAccount, name: surrealdb-secrets }
+        fieldPaths: [metadata.annotations.iam\.gke\.io/gcp-service-account]
+  - source: { kind: ConfigMap, name: gke-settings, fieldPath: data.BACKUP_GSA }
+    targets:
+      - select: { kind: ServiceAccount, name: surrealdb-backup }
+        fieldPaths: [metadata.annotations.iam\.gke\.io/gcp-service-account]
+  - source:
+      { kind: ConfigMap, name: gke-settings, fieldPath: data.RUN_SUBNET_CIDR }
+    targets:
+      - select: { kind: NetworkPolicy, name: surrealdb-allow-clients }
+        fieldPaths: [spec.ingress.1.from.0.ipBlock.cidr]

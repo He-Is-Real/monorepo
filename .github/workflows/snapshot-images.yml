@@ -1,0 +1,25 @@
+name: Snapshot images
+
+# Manual, any branch: builds development images of that branch and pushes the
+# changed ones to apps-scratch. Run one in dev with "snapshot" (see
+# infra/terraform/README.md "Images"); prod never accepts apps-scratch.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  images:
+    uses: ./.github/workflows/_images.yml
+    with:
+      repository: apps-scratch
+      # Only manual runs of this workflow may use it, and it can only write
+      # apps-scratch (snapshot_gate in the bootstrap root).
+      service_account: ci-snapshot-pusher@heisreal-dev.iam.gserviceaccount.com

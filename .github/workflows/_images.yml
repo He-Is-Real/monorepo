@@ -1,0 +1,93 @@
+name: Build images (reusable)
+
+# Shared by images.yml (main -> apps) and snapshot-images.yml (any branch ->
+# apps-scratch). Tag = hash of the service's pruned build output
+# (tools/scripts/image-tag.sh), so unchanged services are skipped; the git SHA
+# goes in an OCI label instead. Decision doc:
+# project context/research/image-build-efficiency.html.
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: Artifact Registry repository (apps or apps-scratch)
+        type: string
+        required: true
+      service_account:
+        description: Identity allowed to push to that repository
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # keyless Google auth (Workload Identity Federation)
+
+env:
+  REGISTRY: europe-west2-docker.pkg.dev
+  SERVICES: api-read api-write api-admin workflow
+  NX_CACHE_DIRECTORY: .nx/cache
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Nx build cache across runs (branch-scoped by GitHub: a branch can read
+      # main's cache but never write to it).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .nx/cache
+          key: nx-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: nx-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - run: pnpm nx run-many -t prune -p ${{ env.SERVICES }}
+
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: projects/236063168938/locations/global/workloadIdentityPools/github/providers/github-actions
+          service_account: ${{ inputs.service_account }}
+          token_format: access_token
+
+      - name: Log in to Artifact Registry
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: printf '%s' "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin "https://$REGISTRY"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Exposes the Actions cache to `docker buildx` for layer caching.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+
+      - name: Build and push changed services
+        env:
+          REPO: ${{ env.REGISTRY }}/heisreal-dev/${{ inputs.repository }}
+        run: |
+          {
+            echo "### ${{ inputs.repository }} @ ${GITHUB_SHA::12}"
+            echo '| Service | Image | |'
+            echo '| --- | --- | --- |'
+          } >> "$GITHUB_STEP_SUMMARY"
+          for svc in $SERVICES; do
+            image="$REPO/$svc:$(tools/scripts/image-tag.sh "$svc")"
+            if docker buildx imagetools inspect "$image" > /dev/null 2>&1; then
+              state=unchanged
+            else
+              # No provenance/SBOM manifests: one registry version per build,
+              # so the cleanup policy's keep_count counts builds.
+              docker buildx build "apps/$svc/dist" --push --tag "$image" \
+                --provenance=false --sbom=false \
+                --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+                --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+                --cache-from "type=gha,scope=$svc" --cache-to "type=gha,scope=$svc,mode=max"
+              state=pushed
+            fi
+            digest=$(docker buildx imagetools inspect "$image" --format '{{json .Manifest}}' | jq -r .digest)
+            echo "| \`$svc\` | \`$REPO/$svc@$digest\` | $state |" >> "$GITHUB_STEP_SUMMARY"
+          done

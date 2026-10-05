@@ -1,0 +1,30 @@
+# Deny all inbound traffic to the namespace, then allow only known clients to
+# reach SurrealDB on port 8000.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: surrealdb-allow-clients
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: surrealdb
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # The init Job and backup CronJob. Same namespace only: a pod elsewhere
+        # can't get in just by setting this label. Clients in other namespaces
+        # (e.g. workflow in M7) get their own rule naming their namespace.
+        - podSelector:
+            matchLabels:
+              heisreal.today/db-client: 'true'
+      ports:
+        - port: 8000
+          protocol: TCP

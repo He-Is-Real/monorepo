@@ -1,0 +1,121 @@
+# Nightly logical backup: `surreal export` (as the read-only `backup` user)
+# then upload to Cloud Storage. Retention (30 days) is a bucket lifecycle rule
+# managed by Terraform. Backups contain Article 9 data: UK (europe-west2) bucket, encrypted,
+# included in the GDPR erasure/retention map.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: surrealdb-backup
+spec:
+  schedule: '30 2 * * *'
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            heisreal.today/db-client: 'true'
+        spec:
+          serviceAccountName: surrealdb-backup
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: export
+              image: surrealdb/surrealdb
+              args:
+                - export
+                - --endpoint=http://surrealdb:8000
+                - --auth-level=database
+                - --namespace=$(SURREAL_NAMESPACE)
+                - --database=$(SURREAL_DATABASE)
+                - /backup/dump.surql
+              envFrom:
+                - configMapRef:
+                    name: surrealdb-settings
+                - secretRef:
+                    name: surrealdb-backup # SURREAL_USER / SURREAL_PASS (backup, VIEWER)
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          containers:
+            - name: upload
+              image: google/cloud-sdk
+              command: [sh, -c]
+              args:
+                # Plain XML-API PUT rather than `gcloud storage cp`: gcloud also
+                # reads the object back, which needs storage.objects.get, and the
+                # backup identity may only create objects (it can't read or
+                # overwrite earlier backups). Content-MD5 makes GCS reject a
+                # corrupted upload; generation-match 0 forbids overwriting.
+                - |
+                  set -eu
+                  dump=/backup/dump.surql
+                  if ! head -c 4096 "$dump" | grep -q 'OPTION IMPORT'; then
+                    echo "Export looks wrong (no OPTION IMPORT header); not uploading" >&2
+                    exit 1
+                  fi
+                  ts=$(date -u +%Y%m%dT%H%M%SZ)
+                  object="surrealdb/${SURREAL_NAMESPACE}-${SURREAL_DATABASE}-${ts}.surql"
+                  meta=$(curl -sSf -H 'Metadata-Flavor: Google' \
+                    http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token)
+                  token=$(printf '%s' "$meta" | python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])')
+                  md5=$(openssl dgst -md5 -binary "$dump" | base64)
+                  curl -sSf -X PUT --upload-file "$dump" \
+                    -H "Authorization: Bearer ${token}" \
+                    -H "Content-MD5: ${md5}" \
+                    -H 'Content-Type: text/plain' \
+                    -H 'x-goog-if-generation-match: 0' \
+                    "https://storage.googleapis.com/${BACKUP_BUCKET}/${object}"
+                  echo "Uploaded gs://${BACKUP_BUCKET}/${object} ($(wc -c < "$dump") bytes)"
+              envFrom:
+                - configMapRef:
+                    name: surrealdb-settings
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: CLOUDSDK_CONFIG
+                  value: /tmp/gcloud
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: backup
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}

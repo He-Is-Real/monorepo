@@ -1,0 +1,25 @@
+name: Images
+
+# Every push to main builds the services whose code changed and pushes them to
+# apps. Dev's "main" entries pick them up on the next manual gcp apply;
+# deploying is never automatic (AGENTS.md).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: images-main
+  cancel-in-progress: false
+
+jobs:
+  images:
+    uses: ./.github/workflows/_images.yml
+    with:
+      repository: apps
+      # Only pushes to main may use it (push_gate in the bootstrap root).
+      service_account: ci-image-pusher@heisreal-dev.iam.gserviceaccount.com
