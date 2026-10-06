@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Matches the Node LTS runtime; bumped together with it by hand.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       nx:
         patterns: ['nx', '@nx/*']
@@ -17,6 +21,10 @@ updates:
     directory: /tools/docker
     schedule:
       interval: weekly
+    ignore:
+      # Node majors are chosen by hand: LTS only (24 now). Patches/minors still flow.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
   - package-ecosystem: terraform
     directories:
       - /infra/terraform/live/dev/*

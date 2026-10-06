@@ -9,3 +9,10 @@ allowBuilds:
   '@nestjs/core': false
   sharp: false
   protobufjs: false
+# Security floors for packages other dependencies pin below a fixed release
+# (Dependabot can't raise these itself). Remove once the parents catch up.
+overrides:
+  axios: ^1.20.0 # pinned by nx
+  smol-toml: ^1.7.1 # pinned by nx
+  brace-expansion@>=4.0.0 <5.0.12: ^5.0.12
+  source-map-js@<1.2.2: ^1.2.2
