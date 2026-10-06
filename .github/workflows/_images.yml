@@ -26,6 +26,10 @@ env:
   REGISTRY: europe-west2-docker.pkg.dev
   SERVICES: api-read api-write api-admin workflow
   NX_CACHE_DIRECTORY: .nx/cache
+  NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+  NX_CACHE_PATHS: |
+    .nx/cache
+    .nx/workspace-data/*.db
 
 jobs:
   push:
@@ -39,15 +43,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      # Nx build cache across runs (branch-scoped by GitHub: a branch can read
-      # main's cache but never write to it).
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Nx build cache across runs: restores main's latest, only main saves
+      # (snapshot runs on branches only read it). See ci.yml for the key.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .nx/cache
-          key: nx-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: nx-${{ hashFiles('pnpm-lock.yaml') }}-
+          path: ${{ env.NX_CACHE_PATHS }}
+          key: nx-images-${{ github.sha }}
+          restore-keys: nx-images-
+      - run: tools/scripts/nx-cache-adopt.sh
 
       - run: pnpm nx run-many -t prune -p ${{ env.SERVICES }}
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.NX_CACHE_PATHS }}
+          key: nx-images-${{ github.sha }}
 
       - id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3

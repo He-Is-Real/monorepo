@@ -1,0 +1,4 @@
+# Command-line tools the repo's Nx targets need beyond Node/pnpm.
+# `mise install` in this directory installs them. CI pins the same versions.
+[tools]
+kubeconform = "0.8.0"

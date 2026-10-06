@@ -12,6 +12,10 @@
 terraform {
   required_version = ">= 1.11"
   required_providers {
+    external = {
+      source  = "hashicorp/external"
+      version = "~> 2.3"
+    }
     google = {
       source  = "hashicorp/google"
       version = "~> 8.5"
@@ -41,13 +45,19 @@ locals {
   app_root = "${path.root}/../../../../../apps"
 
   # Tag = hash of the pruned build output, so unchanged builds aren't re-pushed.
-  # Same formula as tools/scripts/image-tag.sh (used by CI); keep them in step.
-  content_hash = {
-    for s in local.services : s => substr(sha1(join("", [
-      for f in sort(fileset("${local.app_root}/${s}/dist", "**")) :
-      filesha1("${local.app_root}/${s}/dist/${f}")
-      if !endswith(f, ".map")
-    ])), 0, 12)
+  tag = { for s in local.services : s => data.external.image[s].result.tag }
+}
+
+# Tag from tools/scripts/image-tag.sh (the script CI uses, so the two can't
+# drift), and whether that tag is still in apps-scratch: its cleanup policy
+# deletes old snapshots, and a deleted tag must be pushed again.
+data "external" "image" {
+  for_each = local.services
+
+  program = ["${path.module}/image-state.sh"]
+  query = {
+    service    = each.value
+    repository = local.registry
   }
 }
 
@@ -57,17 +67,28 @@ locals {
 resource "terraform_data" "image" {
   for_each = local.services
 
-  triggers_replace = local.content_hash[each.value]
+  # A tag missing from the registry (new, or deleted by cleanup) changes the
+  # trigger, so it is pushed. The plan after a push shows one more no-op
+  # replacement (missing flips back to false); the provisioner skips it.
+  triggers_replace = {
+    tag     = local.tag[each.value]
+    missing = data.external.image[each.value].result.exists == "false"
+  }
 
   provisioner "local-exec" {
     interpreter = ["bash", "-euo", "pipefail", "-c"]
     environment = {
-      IMAGE    = "${local.registry}/${each.value}:${local.content_hash[each.value]}"
+      IMAGE    = "${local.registry}/${each.value}:${local.tag[each.value]}"
       CONTEXT  = "${local.app_root}/${each.value}/dist"
       REGISTRY = split("/", local.registry)[0]
       TOKEN    = ephemeral.google_client_config.current.access_token
     }
     command = <<-EOT
+      # Replaced only because a re-pushed tag is back: nothing to do.
+      if gcloud artifacts docker images describe "$IMAGE" --quiet > /dev/null 2>&1; then
+        echo "$IMAGE is already in the registry, skipping"
+        exit 0
+      fi
       # Pin the engine of the current Docker context (e.g. Docker Desktop):
       # the throwaway DOCKER_CONFIG below would otherwise reset it to default.
       export DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
@@ -86,7 +107,7 @@ data "google_artifact_registry_docker_image" "service" {
 
   location      = "europe-west2"
   repository_id = "apps-scratch"
-  image_name    = "${each.value}:${local.content_hash[each.value]}"
+  image_name    = "${each.value}:${local.tag[each.value]}"
 
   depends_on = [terraform_data.image]
 }

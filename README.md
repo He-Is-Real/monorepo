@@ -27,7 +27,9 @@ Services never call each other; each API only talks to SurrealDB (and, later, qu
 ## Getting started
 
 Needs **Node.js 24 LTS** (`.nvmrc`), **pnpm 11** (`packageManager`), and **gcloud** logged in with
-`gcloud auth application-default login`. `kubectl` only for the database manifests.
+`gcloud auth application-default login` (plus `gcloud auth login`, same account, for the local
+`images` Terraform root). `kubectl` and kubeconform (`mise install`, pinned in
+`mise.toml`) only for the database manifests.
 
 ```bash
 pnpm install
@@ -55,10 +57,12 @@ All cloud changes go through Terraform; see [infra/terraform/README.md](infra/te
 Dev runs in GCP project `heisreal-dev` (London): `api-read` on Cloud Run (private, scales to zero,
 max 2 instances) and SurrealDB on GKE Autopilot Spot Pods, about £3–5/month.
 
-- **`ci.yml`** (every PR): format check, `lint test build typecheck validate` for affected
-  projects, container builds, and kubeconform on the Kubernetes manifests.
-- **`images.yml`** (pushes to `main`) and **`snapshot-images.yml`** (manual, any branch): build the
-  services whose code changed and push them to `apps` / `apps-scratch`. Which build each
+- **`ci.yml`** (every PR): format check, then `lint test build typecheck validate` and container
+  builds for affected projects (`validate` includes kubeconform on the Kubernetes manifests). The Nx
+  cache is kept between runs in the Actions cache.
+- **`images.yml`** ("Release Images", pushes to `main` that affect a service) and
+  **`snapshot-images.yml`** (manual, any branch): build the services whose code changed and push
+  them to `apps` / `apps-scratch`. Which build each
   environment runs is committed in `infra/terraform/live/<env>/gcp/images.auto.tfvars`.
 - **`terraform-plan.yml`**: automatic, read-only plans.
 - **`terraform-apply.yml`**: the only CI path that changes the cloud. Manual, on `main`; shows the

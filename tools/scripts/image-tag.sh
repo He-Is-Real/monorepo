@@ -2,7 +2,7 @@
 # Prints the image tag for a service: a hash of its pruned build output
 # (apps/<service>/dist, source maps excluded). Same code -> same tag, so a
 # build whose tag already exists in the registry can be skipped.
-# Must match content_hash in infra/terraform/live/dev/images/main.tf.
+# Also used by the local images root (infra/terraform/live/dev/images).
 #
 #   tools/scripts/image-tag.sh api-read   (after `pnpm nx run api-read:prune`)
 set -euo pipefail
