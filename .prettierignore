@@ -5,3 +5,4 @@
 .nx/self-healing
 next-env.d.ts
 
+pnpm-lock.yaml
