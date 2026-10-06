@@ -14,6 +14,13 @@ concurrency:
 
 env:
   NX_CACHE_DIRECTORY: .nx/cache
+  NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+  NX_CACHE_PATHS: |
+    .nx/cache
+    .nx/workspace-data/*.db
+  # Keep in step with mise.toml. Checksum from the release's CHECKSUMS file.
+  KUBECONFORM_VERSION: v0.8.0
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
 
 jobs:
   main:
@@ -33,12 +40,25 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Nx build cache across runs (branch-scoped: PRs read main's cache, never write it).
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Nx build cache across runs: every run restores main's latest, only main
+      # saves (so PR entries can't evict it). The cache index goes with it; no
+      # lockfile hash in the key, as Nx already hashes dependency versions per
+      # project. The nx-ci- prefix keeps it apart from _images.yml.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .nx/cache
-          key: nx-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: nx-${{ hashFiles('pnpm-lock.yaml') }}-
+          path: ${{ env.NX_CACHE_PATHS }}
+          key: nx-ci-${{ github.sha }}
+          restore-keys: nx-ci-
+      - run: tools/scripts/nx-cache-adopt.sh
+
+      # Used by the surrealdb-k8s:validate target.
+      - name: Install kubeconform
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSLo "$RUNNER_TEMP/kubeconform.tar.gz" "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP/bin" kubeconform
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       # Base/head SHAs so `nx affected` only runs what a change touches.
       - uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
@@ -49,13 +69,8 @@ jobs:
       # Proves the Dockerfiles still build; pushing happens in _images.yml.
       - run: pnpm nx affected -t container
 
-      - name: Validate Kubernetes manifests against schemas
-        env:
-          KUBECONFORM_VERSION: v0.8.0
-        run: |
-          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar xz kubeconform
-          for overlay in base overlays/local overlays/gke overlays/gke-dev; do
-            kubectl kustomize "infra/k8s/surrealdb/${overlay}" | ./kubeconform -strict -summary \
-              -schema-location default \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
-          done
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.NX_CACHE_PATHS }}
+          key: nx-ci-${{ github.sha }}

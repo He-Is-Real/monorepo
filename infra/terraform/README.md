@@ -67,7 +67,7 @@ are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes
 | --------------------- | ------------------------------------------ | ------------------------------------------- | ------------------------ |
 | `terraform-plan.yml`  | automatically on PRs/pushes touching infra | `tf-planner`: read-only, any workflow here  | No                       |
 | `terraform-apply.yml` | **manual** Run workflow on `main`          | `tf-deployer`: only that workflow, manually | Yes                      |
-| `images.yml`          | pushes to `main`                           | `ci-image-pusher`: only `main` pushes       | Pushes to `apps`         |
+| `images.yml`          | pushes to `main` that affect a service     | `ci-image-pusher`: only `main` pushes       | Pushes to `apps`         |
 | `snapshot-images.yml` | **manual** Run workflow, any branch        | `ci-snapshot-pusher`: only that workflow    | Pushes to `apps-scratch` |
 
 All keyless (Workload Identity Federation, limited to this repository's ID; forks get nothing).

@@ -7,16 +7,15 @@
     "validate": {
       "executor": "nx:run-commands",
       "cache": true,
-      "inputs": ["{projectRoot}/**/*"],
+      "inputs": [
+        "{projectRoot}/**/*",
+        { "runtime": "kubeconform -v 2>/dev/null || echo missing" },
+        {
+          "runtime": "kubectl version --client -o json 2>/dev/null | jq -r .kustomizeVersion"
+        }
+      ],
       "options": {
-        "cwd": "{projectRoot}",
-        "parallel": false,
-        "commands": [
-          "kubectl kustomize base > /dev/null",
-          "kubectl kustomize overlays/local > /dev/null",
-          "kubectl kustomize overlays/gke > /dev/null",
-          "kubectl kustomize overlays/gke-dev > /dev/null"
-        ]
+        "command": "infra/k8s/surrealdb/scripts/validate.sh"
       }
     },
     "local-up": {

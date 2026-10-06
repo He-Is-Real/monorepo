@@ -12,7 +12,7 @@
       "!{projectRoot}/src/test-setup.[jt]s",
       "!{projectRoot}/test-setup.[jt]s"
     ],
-    "sharedGlobals": []
+    "sharedGlobals": ["{workspaceRoot}/.nvmrc"]
   },
   "plugins": [
     {
@@ -65,6 +65,12 @@
     }
   ],
   "analytics": false,
+  "maxCacheSize": "256MB",
+  "pluginsConfig": {
+    "@nx/js": {
+      "projectsAffectedByDependencyUpdates": "auto"
+    }
+  },
   "targetDefaults": {
     "test": {
       "dependsOn": ["^build"]
