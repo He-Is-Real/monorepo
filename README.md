@@ -4,7 +4,8 @@ Platform monorepo for [heisreal.today](https://www.heisreal.today/): an Nx works
 Next.js site, the NestJS services and the SurrealDB Kubernetes configuration.
 
 Architecture and decisions live in the separate `project` repository (`context/future/architecture/`),
-notably `service-topology.md`, `stack-decisions.md` and `gdpr-consent.md`.
+notably `service-topology.md`, `stack-decisions.md` and `gdpr-consent.md`. Progress against the
+plan, and the decisions that override it, are in [docs/delivery-status.md](docs/delivery-status.md).
 
 ## Layout
 
