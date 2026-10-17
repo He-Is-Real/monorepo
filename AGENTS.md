@@ -12,6 +12,9 @@ task finishes or a recorded decision changes.
   (api-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
   through External Secrets Operator on clusters. Never commit secret values or add key files.
+- Nothing on GKE is reachable from the internet: private nodes only, and no `LoadBalancer` or
+  `NodePort` Services and no Ingress/Gateway. Workers (Dapr workflow, inference workers) connect
+  outbound only, to Pub/Sub. Public entry points are Cloud Run services only.
 - Testimonies are GDPR Article 9 data. New personal data must fit the consent and erasure model.
 - **All cloud deployments and modifications go through Terraform (`infra/terraform`), including
   proofs of concept.** Never use console clicks, `gcloud … create/update`, or `kubectl apply` against
