@@ -29,17 +29,17 @@ recorded here.
 
 ## M0: Walking skeleton
 
-| Task                          | Status         | Where                                                                    |
-| ----------------------------- | -------------- | ------------------------------------------------------------------------ |
-| 0.1 Repo setup                | ✅ Done        | #1                                                                       |
-| 0.2 Backend scaffold          | ✅ Done        | #1, CI fixes in #3, #10, #12                                             |
-| 0.3 Database schema v1        | ⚪ Next        |                                                                          |
-| 0.8 Consent foundation (GDPR) | ⚪ Next        | Built alongside 0.3                                                      |
-| 0.4 Frontend scaffold         | ⚪ To do       | `apps/web` is a placeholder (Next.js 16.3, #11)                          |
-| 0.5 Auth (Clerk)              | ⚪ To do       | Clerk app exists, dev instance only (see below)                          |
-| 0.6 Sentry + Umami            | ⚪ To do       |                                                                          |
-| 0.7 Terraform                 | 🟡 Partly done | GCP done. Still to add: Cloudflare DNS, Bunny.net, Cloud Tasks / Pub/Sub |
-| 0.9 Walking-skeleton page     | ⚪ To do       | Needs 0.3, 0.4, 0.5 and the edge decision                                |
+| Task                          | Status         | Where                                                                        |
+| ----------------------------- | -------------- | ---------------------------------------------------------------------------- |
+| 0.1 Repo setup                | ✅ Done        | #1                                                                           |
+| 0.2 Backend scaffold          | ✅ Done        | #1, CI fixes in #3, #10, #12                                                 |
+| 0.3 Database schema v1        | ⚪ Next        |                                                                              |
+| 0.8 Consent foundation (GDPR) | ⚪ Next        | Built alongside 0.3                                                          |
+| 0.4 Frontend scaffold         | ⚪ To do       | `apps/web` is a placeholder (Next.js 16.3, #11)                              |
+| 0.5 Auth (Clerk)              | ⚪ To do       | Clerk app exists, dev instance only (see below)                              |
+| 0.6 Sentry + Umami            | ⚪ To do       |                                                                              |
+| 0.7 Terraform                 | 🟡 Partly done | GCP done. Still to add: Bunny.net. Cloudflare DNS is out of this phase (D7)  |
+| 0.9 Walking-skeleton page     | ⚪ To do       | Needs 0.3, 0.4 and 0.5. Served on Cloud Run's generated `*.run.app` URL (D7) |
 
 ### Decisions implemented in M0
 
@@ -69,19 +69,37 @@ Manager and no production instance.
 The dev instance currently has:
 
 - **Sign-in:** email code and Google, with Google on Clerk's shared dev credentials.
-- **Passwords:** required, 15-character minimum, but password isn't offered as a sign-in method.
+- **Passwords:** enabled for sign-in, and required for email sign-ups with a 15-character minimum.
 - **Protection:** CAPTCHA, lockout and leaked-password (HIBP) checks are on.
 - **Not set up:** the legal-consent checkbox is off, the session token has no custom claims, and
   multi-factor login is off.
+
+### Decisions made, not yet implemented (2026-10-17)
+
+These were decided from `project/context/research/required-decisions.html` and override the plan.
+Move each one into the table above once it's built.
+
+| #   | Decision                                                                                                                                                                                                              | Plan said                                               |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| D1  | **Clerk is the source of truth for roles** (`publicMetadata.role`, exposed as a session-token claim). SurrealDB keeps no authoritative role.                                                                          | Undecided (Clerk or SurrealDB)                          |
+| D4  | **`web` runs on Cloud Run,** with the same image and Terraform pattern as the APIs.                                                                                                                                   | Cloud Run or Firebase App Hosting                       |
+| D6  | **Clerk's US hosting is accepted.** Clerk is listed as a sub-processor under its DPA with SCCs / the UK addendum.                                                                                                     | Safeguards to be confirmed                              |
+| D7  | **No `heisreal.today` DNS in this phase.** The domain stays with the prototype; services use Cloud Run's generated `*.run.app` URLs. Clerk stays on its development instance, since production needs a domain we own. | Cloudflare DNS in 0.7; staging behind Cloudflare in 0.9 |
+| D8  | **YouTube is a later feature,** out of the current phase. Bunny.net is the only video host for now.                                                                                                                   | Open Question 10 parked                                 |
+| D9  | **SurrealDB stays a single node, in production too.**                                                                                                                                                                 | HA left open                                            |
+| —   | **Budget raised to £15/month** (alerts at £3, £7.50, £15), #20.                                                                                                                                                       | £10                                                     |
+
+**Deferred until the milestone needs them:** D10 transcription engine, D11 worker queue, D12 Dapr
+state store (all M7). **Still open:** D2 sign-in methods, D3 edge / load balancer, D5 Sentry and
+Umami.
 
 ## Resolved backlog notes
 
 Items from `project/thingstoremember.txt` that the implementation has settled:
 
 - **"TypeScript – Express":** NestJS on Express (decision 2).
-- **"SurrealDB single node or HA for day one":** single node for dev (decision 5). Production is
-  in the required-decisions doc.
+- **"SurrealDB single node or HA for day one":** single node, in production too (decision 5, D9).
 
 ## Changelog
 
-- **2026-10-17:** file created; M0 status and decisions 1–13 recorded.
+- **2026-10-17:** file created; M0 status and decisions 1–13 recorded. D1, D4, D6–D9 decided; D10–D12 deferred.
