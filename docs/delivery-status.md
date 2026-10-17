@@ -37,7 +37,7 @@ recorded here.
 | 0.8 Consent foundation (GDPR) | ⚪ Next        | Built alongside 0.3                                                          |
 | 0.4 Frontend scaffold         | ⚪ To do       | `apps/web` is a placeholder (Next.js 16.3, #11)                              |
 | 0.5 Auth (Clerk)              | ⚪ To do       | Clerk app exists, dev instance only (see below)                              |
-| 0.6 Sentry + Umami            | ⚪ To do       |                                                                              |
+| 0.6 Sentry + Umami            | ⏸ Deferred     | Out of the current phase (D5). GCP Cloud Logging / Error Reporting meanwhile |
 | 0.7 Terraform                 | 🟡 Partly done | GCP done. Still to add: Bunny.net. Cloudflare DNS is out of this phase (D7)  |
 | 0.9 Walking-skeleton page     | ⚪ To do       | Needs 0.3, 0.4 and 0.5. Served on Cloud Run's generated `*.run.app` URL (D7) |
 
@@ -86,12 +86,13 @@ Move each one into the table above once it's built.
 | D6  | **Clerk's US hosting is accepted.** Clerk is listed as a sub-processor under its DPA with SCCs / the UK addendum.                                                                                                     | Safeguards to be confirmed                              |
 | D7  | **No `heisreal.today` DNS in this phase.** The domain stays with the prototype; services use Cloud Run's generated `*.run.app` URLs. Clerk stays on its development instance, since production needs a domain we own. | Cloudflare DNS in 0.7; staging behind Cloudflare in 0.9 |
 | D8  | **YouTube is a later feature,** out of the current phase. Bunny.net is the only video host for now.                                                                                                                   | Open Question 10 parked                                 |
+| D5  | **Sentry and Umami are out of the current phase,** to be scheduled later.                                                                                                                                             | Wired in from day one (0.6)                             |
+| —   | **Project opinion: no Apple-specific technology.** No Sign in with Apple, no Apple Pay, no Apple-only services; open standards such as passkeys are fine. See `project/CLAUDE.md`.                                    | Google + Apple social login; Apple Pay                  |
 | D9  | **SurrealDB stays a single node, in production too.**                                                                                                                                                                 | HA left open                                            |
 | —   | **Budget raised to £15/month** (alerts at £3, £7.50, £15), #20.                                                                                                                                                       | £10                                                     |
 
 **Deferred until the milestone needs them:** D10 transcription engine, D11 worker queue, D12 Dapr
-state store (all M7). **Still open:** D2 sign-in methods, D3 edge / load balancer, D5 Sentry and
-Umami.
+state store (all M7). **Still open:** D2 sign-in methods, D3 edge / load balancer.
 
 ## Resolved backlog notes
 
@@ -102,4 +103,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 
 ## Changelog
 
-- **2026-10-17:** file created; M0 status and decisions 1–13 recorded. D1, D4, D6–D9 decided; D10–D12 deferred.
+- **2026-10-17:** file created; M0 status and decisions 1–13 recorded. D1, D4–D9 decided (D5 = deferred), Apple opinion added; D10–D12 deferred.
