@@ -93,7 +93,7 @@ take the state lock.
 
 ## Cost guardrails
 
-- **Budget:** £10/month, alert emails at £2, £5 and £10. **No automatic stop**: billing is never
+- **Budget:** £15/month, alert emails at £3, £7.50 and £15. **No automatic stop**: billing is never
   unlinked and nothing is scaled down for you. If spend runs away, stop SurrealDB (above) and look
   at the billing report. (The automatic stop was dropped on 2026-10-05: it needed an org-policy
   exception because of the org's domain-restricted sharing.)

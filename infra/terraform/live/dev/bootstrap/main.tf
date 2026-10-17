@@ -49,8 +49,8 @@ module "bootstrap" {
   github_repository    = "He-Is-Real/monorepo"
   github_repository_id = "1390930896"
 
-  budget_amount          = 10
-  budget_alert_fractions = [0.2, 0.5] # emails at 2 and 5 (10 is always added)
+  budget_amount          = 15
+  budget_alert_fractions = [0.2, 0.5] # emails at 3 and 7.50 (15 is always added)
 
   developers = [
     "user:joel@heisreal.today",

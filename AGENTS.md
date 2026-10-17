@@ -22,7 +22,7 @@ task finishes or a recorded decision changes.
   auto-apply: plans may run automatically, applies are manual (local developer machine or `terraform-apply.yml`).
   Solo project: gates mean "deliberate", never "needs a second person".
 - Terraform state must never hold secrets: write-only attributes for values, `ephemeral` for tokens.
-- Budget guardrail: £10/month budget with alert emails at £2/£5/£10 (no automatic stop). Never
+- Budget guardrail: £15/month budget with alert emails at £3/£7.50/£15 (no automatic stop). Never
   unlink billing; storage is always kept.
 
 ## Working in the workspace
