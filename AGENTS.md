@@ -4,6 +4,10 @@ Nx + pnpm workspace on Node 24 LTS: Next.js (`apps/web`), NestJS on Express (`ap
 `apps/workflow`), shared libs (`libs/*`), and SurrealDB Kubernetes manifests
 (`infra/k8s/surrealdb`). Read `README.md` first.
 
+`docs/delivery-status.md` tracks progress against the delivery plan (`project` repo) and the
+decisions that override it. Read it before starting a task, and update it in the same PR when a
+task finishes or a recorded decision changes.
+
 - Services never call each other. Each API connects to SurrealDB as its own least-privilege user
   (api-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
