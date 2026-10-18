@@ -61,7 +61,13 @@ jobs:
       # -lock=false: the planner can read state but not take the lock.
       - name: terraform plan (${{ matrix.root }})
         working-directory: infra/terraform/live/dev/${{ matrix.root }}
+        # pipefail: without it the step's status is tee's, so a failing plan
+        # showed green. The summary is still written, then the plan's own exit
+        # code decides the step.
         run: |
+          set -o pipefail
           terraform init -input=false
-          terraform plan -input=false -refresh=false -lock=false -no-color | tee plan.txt
-          { echo "### dev/${{ matrix.root }}"; echo '```'; grep -E '^(Plan:|No changes)' plan.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          code=0
+          terraform plan -input=false -refresh=false -lock=false -no-color | tee plan.txt || code=$?
+          { echo "### dev/${{ matrix.root }}"; echo '```'; grep -E '^(Plan:|No changes|Error:)' plan.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
