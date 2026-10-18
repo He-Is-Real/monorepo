@@ -95,10 +95,18 @@ components:
 
   headers:
     ETag:
-      description: Strong entity tag holding the resource's `version` (D29), e.g. `"3"`. Send it back in `If-Match`.
+      description: Strong entity tag holding a single resource's `version` (D29), e.g. `"3"`. Send it back in `If-Match`.
       schema:
         type: string
         example: '"3"'
+    CollectionETag:
+      description: |
+        Weak, representation-based validator (e.g. `W/"<hash of the response body>"`) for collections,
+        composite views and resources without a database version. Use it only with `If-None-Match`
+        (`304`), never with `If-Match`: commands take the individual resource's `version`.
+      schema:
+        type: string
+        example: W/"5f2b9c"
     Location:
       description: URL of the created resource or of the current slug.
       schema:
@@ -256,7 +264,8 @@ components:
       description: |
         What every command returns (D28): the aggregate's ID and its version after the command. No
         read-model data: re-query instead (read models update in the same transaction, D25).
-        `version` is `null` when the target has no version (append-only ledger events, Clerk-owned roles).
+        `version` is `null` when the target has no version: append-only ledger events, and what Clerk
+        holds (roles, account settings).
       required: [id, version]
       properties:
         id:
@@ -309,7 +318,7 @@ components:
 
     Tag:
       type: object
-      required: [slug, name, category]
+      required: [slug, name, category, version]
       properties:
         slug:
           type: string
@@ -573,8 +582,10 @@ components:
     CreateDraftStory:
       type: object
       description: |
-        Creates a `draft` before any upload. Consent isn't part of the story (D17): the person grants it
-        through `POST /v1/account/consents`, and `/submit` checks it.
+        Creates a `draft` before any upload. The body carries no consent: consent stays in the person's
+        ledger (D17), granted through `POST /v1/account/consents`, and is checked, not carried. Creating,
+        editing or uploading to a draft needs current Art 9 consent; `/submit` also needs `publish` and
+        `age_18plus`.
       required: [title, primaryFormat]
       additionalProperties: false
       properties:
@@ -862,18 +873,22 @@ components:
     Account:
       type: object
       description: |
-        The signed-in person's account. Email, name and country live in Clerk and are edited through
-        Clerk's components (D16); the role is the Clerk claim (D1).
-      required: [id, version, role, createdAt]
+        The signed-in person's account, assembled from Clerk: email, name and country are edited through
+        Clerk's components, `notificationPrefs` is Clerk `privateMetadata` (D16), and the role is the
+        Clerk claim (D1). Only `id` and `createdAt` come from the SurrealDB `user` record, which holds
+        no settings.
+      required: [id, role, createdAt]
       properties:
         id:
           type: string
         version:
-          $ref: '#/components/schemas/Version'
+          type: 'null'
+          description: Always `null`; Clerk holds no version, so account settings take no `If-Match`.
         role:
           $ref: '#/components/schemas/Role'
         notificationPrefs:
           type: object
+          description: Stored in Clerk `privateMetadata`, not in SurrealDB.
           additionalProperties:
             type: boolean
         createdAt:
@@ -882,7 +897,7 @@ components:
 
     AccountPatch:
       type: object
-      description: JSON Merge Patch (RFC 7396).
+      description: JSON Merge Patch (RFC 7396), applied to Clerk `privateMetadata` through Clerk's Backend API.
       additionalProperties: false
       properties:
         notificationPrefs:

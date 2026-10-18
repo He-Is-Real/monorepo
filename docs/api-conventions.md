@@ -58,7 +58,7 @@ brackets).
 **What a command returns:** `{ id, version }` and nothing from the read model. Creates answer `201`
 with `Location` (when the resource can be read); work that continues asynchronously (erasure,
 consent withdrawal) answers `202`. `version` is `null` only where the target has none (consent
-ledger events, roles held in Clerk). The one exception is `/upload-url`, which also returns
+ledger events, and what Clerk holds: roles and account settings). The one exception is `/upload-url`, which also returns
 short-lived upload credentials.
 
 **Naming rules:**
@@ -76,11 +76,21 @@ short-lived upload credentials.
 
 ## Concurrency and idempotency (D29)
 
-- **Versions:** every aggregate (story, tag, dpaVersion, the featured list, the account) has a
-  `version` integer, +1 on every command. Queries return it as `ETag: "<version>"`.
+- **Versions:** every aggregate (story, tag, dpaVersion, the featured list) has a `version`
+  integer, +1 on every command. A query for one resource returns it as a strong
+  `ETag: "<version>"`.
+- **Collections** (lists, pages, composite views such as consent state) and resources without a
+  database version (the account) return a **weak, representation-based `ETag`** (`W/"<hash>"`).
+  It is only for `If-None-Match`/`304`; to modify an item, use that item's `version`.
 - **`If-Match` is required on commands that modify an existing resource.** Wrong version → `412`
   (re-read and retry); missing → `428`. This covers the real race: a submitter editing while a
   moderator approves.
+- **Exceptions to `If-Match`**, each because there is no version to match:
+  - `PATCH /v1/account`: account settings (`notificationPrefs`) live in Clerk `privateMetadata`
+    (D16), written by `api-user` through Clerk's Backend API, and nothing is stored in SurrealDB.
+    They are single-owner settings, so the last write wins. `version` is `null`.
+  - `POST /v1/admin/users/{id}/assign-role`: the role lives in Clerk (D1).
+  - Appends to the consent ledger (grant, withdraw): nothing to conflict with.
 - **`Idempotency-Key` is required on non-idempotent `POST`s:** create draft, submit, grant and
   withdraw consent, concerns, and donations later. The `idempotencyKey` table stores key + user +
   request hash + the `{ id, version }` response for 24 hours (pruned nightly). A retry with the same
@@ -117,7 +127,8 @@ short-lived upload credentials.
 - **Fields:** camelCase, RFC 3339 UTC timestamps, opaque IDs (record IDs without the table prefix;
   clients never parse them).
 - **Caching:** public queries send `Cache-Control: public, max-age=60, stale-while-revalidate=300`
-  and an `ETag`, and answer `304` to a matching `If-None-Match`. Personal and admin queries send
+  and an `ETag` (weak for collections, see above), and answer `304` to a matching
+  `If-None-Match`. Personal and admin queries send
   `Cache-Control: private, no-store`.
 
 ## Consent on routes (D21)
@@ -127,8 +138,18 @@ short-lived upload credentials.
   global guard rejects any route with neither (fail closed), and a unit test lists every registered
   route and fails if one is undecorated.
 - The specs mark guarded routes with `x-requires-consent: { subject, types }`: `subject: caller`
-  checks the signed-in person, `subject: submitter` the story's submitter. Today that's `submit` and
-  `approve`.
+  checks the signed-in person, `subject: submitter` the story's submitter.
+- **No testimony content is stored without current Art 9 consent** (plan task 2.3: consent comes
+  before "create draft story"):
+
+  | Route                                                       | Needs                                                              |
+  | ----------------------------------------------------------- | ------------------------------------------------------------------ |
+  | Create a draft, edit it, request an upload URL (`api-user`) | The caller's `special_category_religious`                          |
+  | `POST /v1/stories/{id}/submit` (`api-user`)                 | The caller's `special_category_religious`, `publish`, `age_18plus` |
+  | `POST /v1/moderation/stories/{id}/approve` (`api-admin`)    | The same three, for the story's submitter                          |
+
+- Request bodies never carry consent. It stays in the person's ledger, granted through
+  `POST /v1/account/consents`, and is checked, not carried.
 - Consent is per person and read from the ledger at that moment (D17, D18): no cached copy. A stored
   story is only processed (approved, transcribed) after a fresh ledger check, not just the one at
   submission. That includes the M7 workers.

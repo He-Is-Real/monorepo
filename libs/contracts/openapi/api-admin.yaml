@@ -75,6 +75,8 @@ paths:
         '200':
           description: A page of the queue.
           headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPrivate'
           content:
@@ -337,6 +339,8 @@ paths:
         '200':
           description: A page of flagged stories.
           headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPrivate'
           content:
@@ -380,6 +384,8 @@ paths:
         '200':
           description: A page of users.
           headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPrivate'
           content:
@@ -598,6 +604,8 @@ paths:
         '200':
           description: Versions, newest first.
           headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPrivate'
           content:

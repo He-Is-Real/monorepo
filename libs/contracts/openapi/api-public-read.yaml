@@ -89,7 +89,7 @@ paths:
           description: A page of story cards.
           headers:
             ETag:
-              $ref: './components.yaml#/components/headers/ETag'
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPublic'
           content:
@@ -158,7 +158,7 @@ paths:
           description: Related story cards.
           headers:
             ETag:
-              $ref: './components.yaml#/components/headers/ETag'
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPublic'
           content:
@@ -191,7 +191,7 @@ paths:
           description: All tags (about 30, so unpaged).
           headers:
             ETag:
-              $ref: './components.yaml#/components/headers/ETag'
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPublic'
           content:
@@ -228,7 +228,7 @@ paths:
           description: The current (or requested) version and the published history.
           headers:
             ETag:
-              $ref: './components.yaml#/components/headers/ETag'
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPublic'
           content:
