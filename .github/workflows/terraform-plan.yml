@@ -62,12 +62,13 @@ jobs:
       - name: terraform plan (${{ matrix.root }})
         working-directory: infra/terraform/live/dev/${{ matrix.root }}
         # pipefail: without it the step's status is tee's, so a failing plan
-        # showed green. The summary is still written, then the plan's own exit
-        # code decides the step.
+        # showed green. 2>&1: Terraform writes errors to stderr, which tee
+        # would otherwise miss. The summary is still written, then the plan's
+        # own exit code decides the step.
         run: |
           set -o pipefail
           terraform init -input=false
           code=0
-          terraform plan -input=false -refresh=false -lock=false -no-color | tee plan.txt || code=$?
+          terraform plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee plan.txt || code=$?
           { echo "### dev/${{ matrix.root }}"; echo '```'; grep -E '^(Plan:|No changes|Error:)' plan.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
