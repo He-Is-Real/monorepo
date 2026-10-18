@@ -1,0 +1,249 @@
+openapi: 3.1.0
+info:
+  title: He Is Real Today — api-public-read
+  version: 1.0.0-draft
+  description: |
+    **Anonymous public queries only** (D33, D35). No authentication, no personal reads: anything that
+    needs to know who you are is on `api-user`. Reads only read models and reference data
+    (`publicStory`, `tag`, published `dpaVersion`, D26), through a database login that sees nothing else
+    (D13). Scales on its own.
+
+    - Called by the browser, and server-side by `web` to prerender pages (D32).
+    - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
+    - Queries return an `ETag` and `Cache-Control: public, max-age=60, stale-while-revalidate`.
+    - Public stories are addressed by slug; an old slug answers `301` (D30).
+    - Cursor pagination (`?limit=&cursor=` → `{ data, nextCursor }`), no totals, no engagement metrics.
+    - `x-milestone` on each operation is the delivery milestone that builds it.
+
+    Conventions: `docs/api-conventions.md`.
+  contact:
+    name: He Is Real Today
+    url: https://www.heisreal.today
+
+servers:
+  - url: https://{host}
+    description: The service's generated Cloud Run URL this phase (D31); no custom domain yet.
+    variables:
+      host:
+        default: api-public-read.run.app
+        description: '`api-public-read-<hash>.europe-west2.run.app`'
+
+# Anonymous only: no operation accepts credentials.
+security: []
+
+tags:
+  - name: Health
+    description: 'Liveness and readiness.'
+  - name: Stories
+    description: 'Published stories, read from `publicStory`.'
+  - name: Tags
+    description: 'The tag taxonomy.'
+  - name: Legal
+    description: 'Published Data Processing Agreement versions.'
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealthPublicRead
+      summary: Liveness and readiness probe
+      description: Unversioned (D30).
+      x-milestone: M0
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/Health'
+        '503':
+          $ref: './components.yaml#/components/responses/HealthDown'
+
+  /v1/stories:
+    get:
+      tags: [Stories]
+      operationId: browseStories
+      summary: Browse and search published stories
+      description: Full-text search (BM25 on `searchText`) is folded in as `q`. Approved stories only.
+      x-milestone: M1
+      parameters:
+        - name: tag
+          in: query
+          description: Tag slug to filter by.
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Full-text query.
+          schema:
+            type: string
+            maxLength: 200
+        - name: sort
+          in: query
+          description: '`relevance` needs `q`.'
+          schema:
+            type: string
+            enum: [latest, oldest, relevance]
+            default: latest
+        - $ref: './components.yaml#/components/parameters/limit'
+        - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: A page of story cards.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './components.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: './components.yaml#/components/schemas/StorySummary'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+
+  /v1/stories/{slug}:
+    get:
+      tags: [Stories]
+      operationId: getStoryBySlug
+      summary: Get a published story by slug
+      description: The one route built in M0 (task 0.9). A previous slug returns `301` to the current one.
+      x-milestone: M0
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storySlug'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: Public story detail.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/StoryPublic'
+        '301':
+          $ref: './components.yaml#/components/responses/MovedToCurrentSlug'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+
+  /v1/stories/{slug}/related:
+    get:
+      tags: [Stories]
+      operationId: getRelatedStories
+      summary: Related stories (shared tags)
+      x-milestone: M1
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storySlug'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 6
+            minimum: 1
+            maximum: 12
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: Related story cards.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: './components.yaml#/components/schemas/StorySummary'
+        '301':
+          $ref: './components.yaml#/components/responses/MovedToCurrentSlug'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+
+  /v1/tags:
+    get:
+      tags: [Tags]
+      operationId: listTags
+      summary: List the tag taxonomy
+      x-milestone: M1
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: All tags (about 30, so unpaged).
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: './components.yaml#/components/schemas/Tag'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+
+  /v1/legal/dpa:
+    get:
+      tags: [Legal]
+      operationId: getDpa
+      summary: Current Data Processing Agreement and its published history
+      description: Published versions only; drafts are never visible here (D20).
+      x-milestone: M2
+      parameters:
+        - name: version
+          in: query
+          description: A specific version ID (e.g. `v1`); omit for the current one.
+          schema:
+            type: string
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The current (or requested) version and the published history.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [current, history]
+                properties:
+                  current:
+                    $ref: './components.yaml#/components/schemas/DpaVersion'
+                  history:
+                    type: array
+                    items:
+                      $ref: './components.yaml#/components/schemas/DpaVersion'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'

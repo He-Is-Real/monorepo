@@ -1,0 +1,692 @@
+openapi: 3.1.0
+info:
+  title: He Is Real Today — api-user
+  version: 1.0.0-draft
+  description: |
+    **The signed-in person's own data** (D33, renamed from `api-write`): every read that needs to know
+    who you are (D35) and every command a person can issue, plus signed inbound webhooks.
+
+    - Clerk JWT on every route except `/health` and `/v1/webhooks/*` (which are signature-verified).
+      Called directly by the browser with the Clerk token (D31); `web` never calls it (D32).
+    - Personal reads and the person's commands run in a SurrealDB session **as that person**, opened
+      with their Clerk token, so the database checks ownership (D27, D13).
+    - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
+    - Commands return `{ id, version }` (D28): `201` + `Location` for creates, `202` for async work.
+      Modifying commands need `If-Match` (`412`/`428`); non-idempotent POSTs need `Idempotency-Key`
+      (`422` on reuse with a different body) (D29).
+    - Queries return an `ETag` and `Cache-Control: private, no-store`.
+    - `x-requires-consent` marks routes guarded by `@RequiresConsent` (D21); every other route carries
+      `@NoConsentRequired(reason)` in code. `x-required-role` is the minimum Clerk role.
+    - `x-milestone` on each operation is the delivery milestone that builds it.
+
+    Conventions: `docs/api-conventions.md`.
+  contact:
+    name: He Is Real Today
+    url: https://www.heisreal.today
+
+servers:
+  - url: https://{host}
+    description: The service's generated Cloud Run URL this phase (D31); no custom domain yet.
+    variables:
+      host:
+        default: api-user.run.app
+        description: '`api-user-<hash>.europe-west2.run.app`'
+
+security:
+  - clerkBearer: []
+
+tags:
+  - name: Health
+    description: 'Liveness and readiness.'
+  - name: My stories
+    description: "The person's own stories in any status, read as the person (D27)."
+  - name: Submission
+    description: 'Create a draft, upload media, submit, edit, withdraw.'
+  - name: Account
+    description: 'Account settings, erasure, favourites and the feed.'
+  - name: Consent
+    description: 'Explicit, versioned consent (GDPR Art 9): grant and withdraw.'
+  - name: Community
+    description: '"This helped me" and concerns.'
+  - name: Webhooks
+    description: 'Inbound from Clerk and Stripe. Signature-verified, no Clerk JWT.'
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealthUser
+      summary: Liveness and readiness probe
+      description: Unversioned (D30).
+      security: []
+      x-milestone: M0
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/Health'
+        '503':
+          $ref: './components.yaml#/components/responses/HealthDown'
+
+  # ------------------------------------------------------------------ personal queries (D27, D35)
+  /v1/account/stories:
+    get:
+      tags: [My stories]
+      operationId: listMyStories
+      summary: My submissions, any status
+      description: Drafts, pending, feedback and approved. Read as the person (D27).
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: './components.yaml#/components/schemas/StoryStatus'
+        - $ref: './components.yaml#/components/parameters/limit'
+        - $ref: './components.yaml#/components/parameters/cursor'
+      responses:
+        '200':
+          description: A page of my stories.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './components.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: './components.yaml#/components/schemas/StoryMine'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+
+  /v1/account/stories/{id}:
+    get:
+      tags: [My stories]
+      operationId: getMyStory
+      summary: One of my stories
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+      responses:
+        '200':
+          description: My story, with its derived consent (D17).
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/StoryMine'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+
+  /v1/account:
+    get:
+      tags: [Account]
+      operationId: getAccount
+      summary: My account settings
+      x-required-role: User
+      x-milestone: M2
+      responses:
+        '200':
+          description: My account.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/Account'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+    patch:
+      tags: [Account]
+      operationId: updateAccount
+      summary: Update my account settings
+      description: CRUD with JSON Merge Patch. Email, name and country are changed in Clerk, not here (D16).
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: './components.yaml#/components/schemas/AccountPatch'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+    delete:
+      tags: [Account]
+      operationId: eraseAccount
+      summary: Erase my account (GDPR)
+      description: |
+        Command `EraseAccount`. Deletes the person's stories, `publicStory` rows, reviews, edges and
+        Clerk user; the consent ledger is kept as proof without personal data. Continues asynchronously.
+      x-required-role: User
+      x-milestone: M2
+      responses:
+        '202':
+          $ref: './components.yaml#/components/responses/Accepted'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+
+  /v1/account/consents:
+    get:
+      tags: [Consent]
+      operationId: getMyConsents
+      summary: My consent state and history
+      description: The current state per type and the append-only ledger. Flags `reconsentRequired` after a material DPA change.
+      x-required-role: User
+      x-milestone: M2
+      responses:
+        '200':
+          description: Consent state.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/ConsentState'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+    post:
+      tags: [Consent]
+      operationId: grantConsent
+      summary: Grant (or re-affirm) one consent against a published DPA version
+      description: |
+        Command `GrantConsent`: appends one `granted` event to the ledger, in the person's own session.
+        The database refuses a draft DPA version (D20). Used at first opt-in and for re-consent. No
+        `If-Match`: the ledger is append-only, so there is nothing to conflict with.
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/GrantConsent'
+      responses:
+        '201':
+          description: Recorded. `id` is the ledger event; `version` is `null`.
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '422':
+          $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
+
+  /v1/account/consents/{type}/withdraw:
+    post:
+      tags: [Consent]
+      operationId: withdrawConsent
+      summary: Withdraw a consent (as easy as giving it, Art 7(3))
+      description: |
+        Command `WithdrawConsent`: appends a `withdrawn` event. Applies to all the person's stories (D17):
+        withdrawing `publish` or `special_category_religious` deletes their `publicStory` rows in the same
+        transaction, and withdrawing `special_category_religious` also starts erasure, which continues
+        asynchronously.
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/consentType'
+        - $ref: './components.yaml#/components/parameters/idempotencyKey'
+      responses:
+        '202':
+          $ref: './components.yaml#/components/responses/Accepted'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '422':
+          $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
+
+  /v1/account/favourites:
+    get:
+      tags: [Account]
+      operationId: listMyFavourites
+      summary: My favourite stories
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/limit'
+        - $ref: './components.yaml#/components/parameters/cursor'
+      responses:
+        '200':
+          description: A page of story cards.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './components.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: './components.yaml#/components/schemas/StorySummary'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+
+  /v1/account/favourites/{storyId}:
+    put:
+      tags: [Account]
+      operationId: addFavourite
+      summary: Favourite a story
+      description: Idempotent relationship (CRUD, D28). Repeating it changes nothing.
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyIdRelation'
+      responses:
+        '204':
+          description: Favourited.
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+    delete:
+      tags: [Account]
+      operationId: removeFavourite
+      summary: Remove a favourite
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyIdRelation'
+      responses:
+        '204':
+          description: Removed (or wasn't a favourite).
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+
+  /v1/account/helped/{storyId}:
+    put:
+      tags: [Community]
+      operationId: markHelped
+      summary: '"This helped me"'
+      description: |
+        Idempotent relationship (D28, naming rules). Feeds the hidden, trust-weighted quality signal;
+        never shown as a public count.
+      x-required-role: User
+      x-milestone: M6
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyIdRelation'
+      responses:
+        '204':
+          description: Recorded.
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+    delete:
+      tags: [Community]
+      operationId: unmarkHelped
+      summary: Undo "This helped me"
+      x-required-role: User
+      x-milestone: M6
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyIdRelation'
+      responses:
+        '204':
+          description: Removed (or wasn't set).
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+
+  /v1/feed:
+    get:
+      tags: [Account]
+      operationId: getMyFeed
+      summary: '"New for you" feed'
+      description: Unseen stories for the person (needs "seen" tracking, M2 tasks 2.2/2.6).
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/limit'
+        - $ref: './components.yaml#/components/parameters/cursor'
+      responses:
+        '200':
+          description: A page of story cards.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './components.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: './components.yaml#/components/schemas/StorySummary'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+
+  # ------------------------------------------------------------------ the person's commands
+  /v1/stories:
+    post:
+      tags: [Submission]
+      operationId: createDraftStory
+      summary: Create a draft story (before any upload)
+      description: |
+        Command `CreateDraftStory`, in the person's own session. The draft exists before any media
+        upload, so an abandoned upload leaves recoverable context. `Location` is the story under
+        `/v1/account/stories/{id}`.
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/CreateDraftStory'
+      responses:
+        '201':
+          description: Draft created.
+          headers:
+            Location:
+              $ref: './components.yaml#/components/headers/Location'
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '422':
+          $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
+
+  /v1/stories/{id}:
+    patch:
+      tags: [Submission]
+      operationId: editStory
+      summary: Edit my story (draft or changes_requested only)
+      description: |
+        CRUD with JSON Merge Patch on the editable fields; never the status (D28). The database locks
+        the content once the story leaves `draft`/`changes_requested` (`409`).
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: './components.yaml#/components/schemas/StoryPatch'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/stories/{id}/upload-url:
+    post:
+      tags: [Submission]
+      operationId: requestUploadUrl
+      summary: Get a short-lived direct-upload target for my draft
+      description: |
+        Command `RequestUpload`. The documented exception to "commands return `{ id, version }`": it also
+        returns short-lived Bunny Stream TUS credentials. The client uploads straight to Bunny.net.
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/UploadUrlRequest'
+      responses:
+        '200':
+          description: Upload target.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/UploadTarget'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/stories/{id}/submit:
+    post:
+      tags: [Submission]
+      operationId: submitStory
+      summary: Submit my draft for moderation
+      description: |
+        Command `SubmitStory`: moves `draft`/`changes_requested` → `pending` and publishes
+        `story-submitted` for the worker tier. Needs the person's current Art 9, publish and age consent
+        (D17); `403` if any is missing or withdrawn.
+      x-required-role: User
+      x-requires-consent:
+        subject: caller
+        types: [special_category_religious, publish, age_18plus]
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+        - $ref: './components.yaml#/components/parameters/idempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/SubmitStory'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '422':
+          $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/stories/{id}/withdraw:
+    post:
+      tags: [Submission]
+      operationId: withdrawStory
+      summary: Withdraw my story
+      description: Command `WithdrawStory`. Deletes its `publicStory` row in the same transaction.
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/stories/{id}/concerns:
+    post:
+      tags: [Community]
+      operationId: raiseConcern
+      summary: Raise a concern about a published story
+      description: Creates a `concern`; may put the story back in front of moderators (api-admin's flag queue).
+      x-required-role: User
+      x-milestone: M6
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/CreateConcern'
+      responses:
+        '201':
+          description: Concern recorded. Concerns aren't readable by their author, so there is no `Location`.
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '422':
+          $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
+
+  # ------------------------------------------------------------------ webhooks
+  /v1/webhooks/clerk:
+    post:
+      tags: [Webhooks]
+      operationId: clerkWebhook
+      summary: Clerk events (user.created, user.updated, user.deleted)
+      description: |
+        Verified with the Svix signature headers, not a Clerk JWT. Deduplicated on `svix-id` in the
+        `idempotencyKey` table (D29): a redelivered event is acknowledged without being applied again.
+      security: []
+      x-milestone: M2
+      parameters:
+        - name: svix-id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: svix-timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: svix-signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw Clerk event payload.
+      responses:
+        '204':
+          description: Acknowledged (including duplicates).
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+
+  /v1/webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      operationId: stripeWebhook
+      summary: Stripe events (donations)
+      description: Verified with `Stripe-Signature`. Deduplicated on `event.id` (D29).
+      security: []
+      x-milestone: M4
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw Stripe event payload.
+      responses:
+        '204':
+          description: Acknowledged (including duplicates).
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+
+components:
+  securitySchemes:
+    clerkBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Clerk session JWT, sent by the browser. Required on every route except `/health` and webhooks.

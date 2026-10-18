@@ -6,22 +6,26 @@ Next.js site, the NestJS services and the SurrealDB Kubernetes configuration.
 Architecture and decisions live in the separate `project` repository (`context/future/architecture/`),
 notably `service-topology.md`, `stack-decisions.md` and `gdpr-consent.md`. Progress against the
 plan, and the decisions that override it, are in [docs/delivery-status.md](docs/delivery-status.md).
+The API contracts are in [`libs/contracts`](libs/contracts), and the rules they follow (CQRS-lite,
+commands vs CRUD, errors, versioning, concurrency, consent guards) in
+[docs/api-conventions.md](docs/api-conventions.md).
 
 ## Layout
 
-| Path                  | What                                           | Notes                                                        |
-| --------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
-| `apps/web`            | Next.js (App Router) site                      | Tailwind + shadcn/ui arrive in M0 task 0.4                   |
-| `apps/api-read`       | Public read API (NestJS/Express)               | DB user `api_read`, **VIEWER** (read-only)                   |
-| `apps/api-write`      | Authenticated write API                        | DB user `api_write`, EDITOR                                  |
-| `apps/api-admin`      | Moderation/admin API (restricted hostname)     | DB user `api_admin`, EDITOR                                  |
-| `apps/workflow`       | Dapr Workflow orchestrator (M7, GKE)           | DB user `workflow`, EDITOR                                   |
-| `libs/secrets`        | Reads GCP Secret Manager via the SDK           | Fetched once at startup; missing secret = clear failure      |
-| `libs/database`       | SurrealDB client (surrealdb.js)                | Own user per service; startup fails after 15 s if DB is down |
-| `libs/health`         | `GET /health` → `{ status, service, db }`      | 503 when the DB is down; `/testing` boots an app in tests    |
-| `infra/k8s/surrealdb` | SurrealDB on Kubernetes (Kustomize)            | [README](infra/k8s/surrealdb/README.md)                      |
-| `infra/terraform`     | All cloud infrastructure (GCP, GKE, Cloud Run) | [README](infra/terraform/README.md)                          |
-| `tools/docker`        | Shared Dockerfile for the NestJS services      | `pnpm nx run <service>:container`                            |
+| Path                  | What                                           | Notes                                                                    |
+| --------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| `apps/web`            | Next.js (App Router) site                      | Tailwind + shadcn/ui arrive in M0 task 0.4                               |
+| `apps/api-read`       | Public read API (NestJS/Express)               | DB user `api_read`, **VIEWER** (read-only)                               |
+| `apps/api-write`      | Authenticated write API                        | DB user `api_write`, EDITOR                                              |
+| `apps/api-admin`      | Moderation/admin API (restricted hostname)     | DB user `api_admin`, EDITOR                                              |
+| `apps/workflow`       | Dapr Workflow orchestrator (M7, GKE)           | DB user `workflow`, EDITOR                                               |
+| `libs/secrets`        | Reads GCP Secret Manager via the SDK           | Fetched once at startup; missing secret = clear failure                  |
+| `libs/database`       | SurrealDB client (surrealdb.js)                | Own user per service; startup fails after 15 s if DB is down             |
+| `libs/health`         | `GET /health` → `{ status, service, db }`      | 503 when the DB is down; `/testing` boots an app in tests                |
+| `libs/contracts`      | OpenAPI 3.1 specs, the API source of truth     | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
+| `infra/k8s/surrealdb` | SurrealDB on Kubernetes (Kustomize)            | [README](infra/k8s/surrealdb/README.md)                                  |
+| `infra/terraform`     | All cloud infrastructure (GCP, GKE, Cloud Run) | [README](infra/terraform/README.md)                                      |
+| `tools/docker`        | Shared Dockerfile for the NestJS services      | `pnpm nx run <service>:container`                                        |
 
 Services never call each other; each API only talks to SurrealDB (and, later, queues).
 
