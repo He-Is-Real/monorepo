@@ -9,7 +9,7 @@ const swcJestConfig = JSON.parse(
 swcJestConfig.swcrc = false;
 
 module.exports = {
-  displayName: 'api-read',
+  displayName: 'api-user',
   preset: '../../jest.preset.js',
   testEnvironment: 'node',
   transform: {

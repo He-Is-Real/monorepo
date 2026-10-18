@@ -4,7 +4,7 @@
 # build whose tag already exists in the registry can be skipped.
 # Also used by the local images root (infra/terraform/live/dev/images).
 #
-#   tools/scripts/image-tag.sh api-read   (after `pnpm nx run api-read:prune`)
+#   tools/scripts/image-tag.sh api-public-read   (after `pnpm nx run api-public-read:prune`)
 set -euo pipefail
 dist="apps/${1:?usage: image-tag.sh <service>}/dist"
 cd "$dist"

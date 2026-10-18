@@ -188,7 +188,7 @@ importers:
         specifier: ^11.0.0
         version: 11.2.6(@nestjs/common@11.2.6(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.6)(@nestjs/platform-express@11.2.6)
 
-  apps/api-read:
+  apps/api-public-read:
     dependencies:
       '@heisreal/database':
         specifier: workspace:*
@@ -222,7 +222,7 @@ importers:
         specifier: ^11.0.0
         version: 11.2.6(@nestjs/common@11.2.6(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.6)(@nestjs/platform-express@11.2.6)
 
-  apps/api-write:
+  apps/api-user:
     dependencies:
       '@heisreal/database':
         specifier: workspace:*

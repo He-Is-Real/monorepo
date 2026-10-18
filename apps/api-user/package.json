@@ -1,9 +1,9 @@
 {
-  "name": "@heisreal/api-read",
+  "name": "@heisreal/api-user",
   "version": "0.0.1",
   "private": true,
   "nx": {
-    "name": "api-read",
+    "name": "api-user",
     "targets": {
       "prune-lockfile": {
         "dependsOn": [
@@ -21,11 +21,11 @@
           }
         ],
         "outputs": [
-          "{workspaceRoot}/apps/api-read/dist/package.json",
-          "{workspaceRoot}/apps/api-read/dist/pnpm-lock.yaml",
-          "{workspaceRoot}/apps/api-read/dist/pnpm-workspace.yaml",
-          "{workspaceRoot}/apps/api-read/dist/patches",
-          "{workspaceRoot}/apps/api-read/dist/local_path_modules"
+          "{workspaceRoot}/apps/api-user/dist/package.json",
+          "{workspaceRoot}/apps/api-user/dist/pnpm-lock.yaml",
+          "{workspaceRoot}/apps/api-user/dist/pnpm-workspace.yaml",
+          "{workspaceRoot}/apps/api-user/dist/patches",
+          "{workspaceRoot}/apps/api-user/dist/local_path_modules"
         ],
         "options": {
           "buildTarget": "build"
@@ -37,7 +37,7 @@
         ],
         "cache": true,
         "outputs": [
-          "{workspaceRoot}/apps/api-read/dist/workspace_modules"
+          "{workspaceRoot}/apps/api-user/dist/workspace_modules"
         ],
         "executor": "@nx/js:copy-workspace-modules",
         "options": {
@@ -60,15 +60,15 @@
           "build"
         ],
         "options": {
-          "buildTarget": "api-read:build",
+          "buildTarget": "api-user:build",
           "runBuildTargetDependencies": false
         },
         "configurations": {
           "development": {
-            "buildTarget": "api-read:build:development"
+            "buildTarget": "api-user:build:development"
           },
           "production": {
-            "buildTarget": "api-read:build:production"
+            "buildTarget": "api-user:build:production"
           }
         }
       },
@@ -78,7 +78,7 @@
           "prune"
         ],
         "options": {
-          "command": "docker build -t ${IMAGE:-heisreal/api-read:local} apps/api-read/dist"
+          "command": "docker build -t ${IMAGE:-heisreal/api-user:local} apps/api-user/dist"
         }
       },
       "copy-dockerfile": {
@@ -91,10 +91,10 @@
           "{workspaceRoot}/tools/docker/nest-service.Dockerfile"
         ],
         "outputs": [
-          "{workspaceRoot}/apps/api-read/dist/Dockerfile"
+          "{workspaceRoot}/apps/api-user/dist/Dockerfile"
         ],
         "options": {
-          "command": "cp tools/docker/nest-service.Dockerfile apps/api-read/dist/Dockerfile"
+          "command": "cp tools/docker/nest-service.Dockerfile apps/api-user/dist/Dockerfile"
         }
       }
     },
