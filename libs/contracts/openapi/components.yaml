@@ -173,10 +173,15 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     NotModified:
-      description: The `If-None-Match` ETag is still current.
+      description: |
+        The `If-None-Match` validator still matches. Echoes the same validator the matching `200`
+        returned (RFC 9110 §15.4.5): the strong `ETag` for a single resource, the weak `CollectionETag`
+        for a collection.
       headers:
         ETag:
-          $ref: '#/components/headers/ETag'
+          description: The validator the matching `200` returned, strong (`"3"`) or weak (`W/"5f2b9c"`).
+          schema:
+            type: string
     MovedToCurrentSlug:
       description: An old slug (from `slugHistory`); `Location` holds the current URL (D30).
       headers:

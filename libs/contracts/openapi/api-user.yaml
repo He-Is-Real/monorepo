@@ -85,6 +85,7 @@ paths:
             $ref: './components.yaml#/components/schemas/StoryStatus'
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: A page of my stories.
@@ -104,6 +105,8 @@ paths:
                         type: array
                         items:
                           $ref: './components.yaml#/components/schemas/StoryMine'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
@@ -118,6 +121,7 @@ paths:
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: My story, with its derived consent (D17).
@@ -130,6 +134,8 @@ paths:
             application/json:
               schema:
                 $ref: './components.yaml#/components/schemas/StoryMine'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '404':
@@ -142,6 +148,8 @@ paths:
       summary: My account settings
       x-required-role: User
       x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: 'My account. `version` is `null` because the settings live in Clerk (D16).'
@@ -154,6 +162,8 @@ paths:
             application/json:
               schema:
                 $ref: './components.yaml#/components/schemas/Account'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
     patch:
@@ -208,6 +218,8 @@ paths:
       description: The current state per type and the append-only ledger. Flags `reconsentRequired` after a material DPA change.
       x-required-role: User
       x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: Consent state.
@@ -220,6 +232,8 @@ paths:
             application/json:
               schema:
                 $ref: './components.yaml#/components/schemas/ConsentState'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
     post:
@@ -291,6 +305,7 @@ paths:
       parameters:
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: A page of story cards.
@@ -310,6 +325,8 @@ paths:
                         type: array
                         items:
                           $ref: './components.yaml#/components/schemas/StorySummary'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
 
@@ -388,6 +405,7 @@ paths:
       parameters:
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: A page of story cards.
@@ -407,6 +425,8 @@ paths:
                         type: array
                         items:
                           $ref: './components.yaml#/components/schemas/StorySummary'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
 

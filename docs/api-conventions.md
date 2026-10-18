@@ -85,12 +85,18 @@ short-lived upload credentials.
 - **`If-Match` is required on commands that modify an existing resource.** Wrong version → `412`
   (re-read and retry); missing → `428`. This covers the real race: a submitter editing while a
   moderator approves.
-- **Exceptions to `If-Match`**, each because there is no version to match:
+- **Exceptions to `If-Match`**, each because there is no version to match, or nothing a stale
+  client could overwrite:
   - `PATCH /v1/account`: account settings (`notificationPrefs`) live in Clerk `privateMetadata`
     (D16), written by `api-user` through Clerk's Backend API, and nothing is stored in SurrealDB.
     They are single-owner settings, so the last write wins. `version` is `null`.
   - `POST /v1/admin/users/{id}/assign-role`: the role lives in Clerk (D1).
   - Appends to the consent ledger (grant, withdraw): nothing to conflict with.
+  - `DELETE /v1/account` (`EraseAccount`): erasure must always succeed, whatever the person's
+    data looks like at that moment, and there is no single version across everything it deletes.
+  - `PUT`/`DELETE /v1/account/favourites/{storyId}` and `/v1/account/helped/{storyId}`: unversioned
+    relationships that either exist or don't. The methods are idempotent, and repeating one gives the
+    same result, so there is no lost update to prevent.
 - **`Idempotency-Key` is required on non-idempotent `POST`s:** create draft, submit, grant and
   withdraw consent, concerns, and donations later. The `idempotencyKey` table stores key + user +
   request hash + the `{ id, version }` response for 24 hours (pruned nightly). A retry with the same
@@ -126,10 +132,10 @@ short-lived upload credentials.
   the last page. No total counts, and no engagement metrics anywhere public.
 - **Fields:** camelCase, RFC 3339 UTC timestamps, opaque IDs (record IDs without the table prefix;
   clients never parse them).
-- **Caching:** public queries send `Cache-Control: public, max-age=60, stale-while-revalidate=300`
-  and an `ETag` (weak for collections, see above), and answer `304` to a matching
-  `If-None-Match`. Personal and admin queries send
-  `Cache-Control: private, no-store`.
+- **Caching:** public queries send `Cache-Control: public, max-age=60, stale-while-revalidate=300`;
+  personal and admin queries send `Cache-Control: private, no-store`. **Every query** returns an
+  `ETag` (weak for collections, see above), accepts `If-None-Match`, and answers `304` with the same
+  validator the `200` would carry (RFC 9110 §15.4.5).
 
 ## Consent on routes (D21)
 

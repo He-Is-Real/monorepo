@@ -71,6 +71,7 @@ paths:
       parameters:
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: A page of the queue.
@@ -90,6 +91,8 @@ paths:
                         type: array
                         items:
                           $ref: './components.yaml#/components/schemas/StoryModeration'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -104,6 +107,7 @@ paths:
       x-milestone: M3
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: The story write model, with lock state and derived consent.
@@ -116,6 +120,8 @@ paths:
             application/json:
               schema:
                 $ref: './components.yaml#/components/schemas/StoryModeration'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -335,6 +341,7 @@ paths:
       parameters:
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: A page of flagged stories.
@@ -354,6 +361,8 @@ paths:
                         type: array
                         items:
                           $ref: './components.yaml#/components/schemas/FlaggedStory'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -380,6 +389,7 @@ paths:
             $ref: './components.yaml#/components/schemas/Role'
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: A page of users.
@@ -399,6 +409,8 @@ paths:
                         type: array
                         items:
                           $ref: './components.yaml#/components/schemas/UserAdmin'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -452,6 +464,8 @@ paths:
       description: Gives the `ETag` the replace below needs.
       x-required-role: Admin
       x-milestone: M5
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: Featured story IDs, in order.
@@ -464,6 +478,8 @@ paths:
             application/json:
               schema:
                 $ref: './components.yaml#/components/schemas/FeaturedStories'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -600,6 +616,8 @@ paths:
       summary: All DPA versions, drafts included
       x-required-role: SuperAdmin
       x-milestone: M5
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: Versions, newest first.
@@ -618,6 +636,8 @@ paths:
                     type: array
                     items:
                       $ref: './components.yaml#/components/schemas/DpaVersion'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
