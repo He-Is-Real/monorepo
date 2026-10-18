@@ -97,6 +97,10 @@ module "gcp" {
   images            = local.resolved_images
   api_read_public   = false
   api_read_invokers = ["user:joel@heisreal.today"]
+
+  # Transitional (D33 rename): apply this alone first, so the next apply can
+  # replace api-read with api-public-read. The rename commit sets it back.
+  run_deletion_protection = false
 }
 
 # --- Adopt the SurrealDB secrets created by hand on 2026-09-27 ---------------

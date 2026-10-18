@@ -20,7 +20,7 @@ resource "google_cloud_run_v2_service" "api_read" {
   name                = "api-read"
   location            = var.region
   ingress             = "INGRESS_TRAFFIC_ALL"
-  deletion_protection = var.deletion_protection
+  deletion_protection = var.run_deletion_protection
   labels              = local.labels
 
   template {

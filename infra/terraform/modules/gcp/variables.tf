@@ -34,7 +34,13 @@ variable "cluster_dns_domain" {
 }
 
 variable "deletion_protection" {
-  description = "Protect the cluster and Cloud Run services from terraform destroy."
+  description = "Protect the GKE cluster from terraform destroy."
+  type        = bool
+  default     = true
+}
+
+variable "run_deletion_protection" {
+  description = "Protect the Cloud Run services from terraform destroy. Set to false and apply before replacing a service (e.g. a rename): the provider refuses to delete a protected one."
   type        = bool
   default     = true
 }
