@@ -41,6 +41,7 @@ pnpm nx serve api-read            # http://localhost:3001/health (needs a local 
 pnpm nx run-many -t lint test build typecheck   # everything
 pnpm nx affected -t lint test build typecheck   # only what your branch changed
 pnpm nx validate surrealdb-k8s                   # render the Kubernetes manifests
+pnpm nx run database:test-integration            # schema + permission tests on SurrealDB (needs Docker)
 ```
 
 ## Secrets
@@ -58,7 +59,8 @@ All cloud changes go through Terraform; see [infra/terraform/README.md](infra/te
 Dev runs in GCP project `heisreal-dev` (London): `api-read` on Cloud Run (private, scales to zero,
 max 2 instances) and SurrealDB on GKE Autopilot Spot Pods, about £3–5/month.
 
-- **`ci.yml`** (every PR): format check, then `lint test build typecheck validate` and container
+- **`ci.yml`** (every PR): format check, then `lint test build typecheck validate`, `test-integration`
+  (`libs/database` against a SurrealDB container, see [docs/db-permissions.md](docs/db-permissions.md)) and container
   builds for affected projects (`validate` includes kubeconform on the Kubernetes manifests). The Nx
   cache is kept between runs in the Actions cache.
 - **`images.yml`** ("Release Images", pushes to `main` that affect a service) and

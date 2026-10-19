@@ -17,7 +17,28 @@
     "tags": [
       "type:lib",
       "scope:shared"
-    ]
+    ],
+    "targets": {
+      "test-integration": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
+          {
+            "externalDependencies": [
+              "surrealdb",
+              "jest"
+            ]
+          }
+        ],
+        "outputs": [],
+        "options": {
+          "command": "jest --config jest.integration.config.cts",
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
   },
   "dependencies": {
     "@heisreal/secrets": "workspace:*",

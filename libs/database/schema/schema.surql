@@ -3,9 +3,15 @@
 -- OVERWRITE, so re-running is safe. Data changes go in data/NNNN-*.surql (run once,
 -- recorded in _migration). CI applies this file to SurrealDB 3.2.4 on every PR, so any
 -- syntax below that 3.2.4 rejects is caught before merge.
--- 3.2.4 gotchas found in testing (2026-10-18), each covered by a CI test:
+-- 3.2.4 gotchas found in testing (2026-10-18/19), each covered by a test in ../integration:
 --   * a correlated subquery with ORDER BY … LIMIT 1 returns wrong rows; use array::last(… ORDER BY ASC)
---   * a COMPUTED field sees $parent as the outermost record being read, so never chain computed fields
+--   * inside a subquery, a COMPUTED field's $parent is the OUTER query's record, not its own
+--     (`SELECT (SELECT consent FROM story …) FROM user` saw the user): computed fields refer to
+--     their own record's fields directly (`submitter`), never through $parent
+--   * a write the PERMISSIONS deny returns an empty result, not an error; so does an ALLOWED
+--     write on a table the caller can't SELECT (e.g. api_user creating auditLog rows)
+--   * for a `service` session, `$auth.id` is NONE in queries (the service table is PERMISSIONS
+--     NONE) but resolves inside PERMISSIONS clauses; in queries use `$auth` itself
 --   * $auth is not usable in a field VALUE (it is in events), so identity checks live in PERMISSIONS/events
 --   * DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (… READONLY)
 
@@ -65,7 +71,8 @@ DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now
 -- api-user's own login can only delete (erasure): it can't read, create, reassign or edit stories.
 DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:<ulid>
   FOR select WHERE submitter = $auth.id OR $auth.id IN [service:api_admin, service:workflow],
-  FOR create WHERE submitter = $auth.id AND status = 'draft',
+  FOR create WHERE submitter = $auth.id AND status = 'draft'                -- own draft only, and only
+    AND fn::consent::current(submitter, 'special_category_religious').event = 'granted',  -- with current Art 9 consent
   FOR update WHERE submitter = $auth.id OR $auth.id IN [service:api_admin, service:workflow],
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
 DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY;   -- owner can never be reassigned
@@ -91,11 +98,12 @@ DEFINE FIELD OVERWRITE media[*].durationSeconds ON story TYPE option<int>;
 -- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary.
 -- D17: consent is per person; a story derives it from its submitter's current ledger state.
 -- Not stored, so it can't drift: withdrawing or re-consenting changes every story at once.
+-- Uses the record's own `submitter`, never $parent (see the 3.2.4 gotchas at the top).
 DEFINE FIELD OVERWRITE consent ON story COMPUTED {
-  religious: fn::consent::current($parent.submitter, 'special_category_religious'),
-  publish:   fn::consent::current($parent.submitter, 'publish'),
-  share:     fn::consent::current($parent.submitter, 'share_socials'),
-  age18plus: fn::consent::current($parent.submitter, 'age_18plus')
+  religious: fn::consent::current(submitter, 'special_category_religious'),
+  publish:   fn::consent::current(submitter, 'publish'),
+  share:     fn::consent::current(submitter, 'share_socials'),
+  age18plus: fn::consent::current(submitter, 'age_18plus')
 };
 DEFINE FIELD OVERWRITE submittedAt   ON story TYPE option<datetime>   -- set by the server on first submit
   VALUE IF $this.status = 'pending' { $before OR time::now() } ELSE { $before };
@@ -126,6 +134,15 @@ DEFINE EVENT OVERWRITE story_owner_transitions ON story
    AND !(($before.status IN ['draft', 'changes_requested'] AND $after.status = 'pending')
          OR $after.status = 'withdrawn')
   THEN { THROW 'status change not allowed for the story owner' };
+-- Erasure: api-user's login may delete stories but can't read them, so it can't find their
+-- read-model rows or reviews (both are reached through story.submitter). Deleting a story
+-- removes them in the same transaction, whoever deletes it.
+DEFINE EVENT OVERWRITE story_erasure_cascade ON story
+  WHEN $event = 'DELETE'
+  THEN {
+    DELETE type::record('publicStory', record::id($before.id));
+    DELETE moderationReview WHERE story = $before.id;
+  };
 DEFINE INDEX OVERWRITE story_slug      ON story FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE story_queue     ON story FIELDS status, submittedAt;
 DEFINE INDEX OVERWRITE story_submitter ON story FIELDS submitter, createdAt;
