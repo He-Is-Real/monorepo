@@ -1,0 +1,187 @@
+import type { Surreal } from 'surrealdb';
+import {
+  consentEvent,
+  createPeople,
+  outcome,
+  publishDpa,
+  rows,
+  run,
+  TestDatabase,
+} from './support/harness';
+import { approve, draft, submit } from './support/world';
+
+/**
+ * Consent at every step that processes testimony, enforced by the database (review round 1,
+ * finding 1). The consent types per command come from the API plan (decision doc, "Updated API
+ * plan (v1)", ⚑ routes) and libs/contracts (`x-requires-consent`, PR #28):
+ *   create draft, edit, upload-url  → special_category_religious
+ *   submit; approve (for the submitter) → special_category_religious, publish, age_18plus
+ * Withdrawing a story and erasure need none.
+ */
+describe('consent gates on edit, submit, approve and publish', () => {
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let admin: Surreal;
+  const truth = <T = unknown>(sql: string, vars?: Record<string, unknown>) =>
+    rows<T>(migrator, sql, vars);
+  const ALL = ['special_category_religious', 'publish', 'age_18plus'] as const;
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    admin = await t.service('api_admin');
+    await createPeople(t, {
+      codex: 'user_codex',
+      art9only: 'user_art9only',
+      eve: 'user_eve',
+      wd: 'user_wd',
+      moderator: 'user_mod',
+    });
+    await publishDpa(t, 'v1');
+  });
+  afterAll(() => t?.close());
+
+  it('Codex’s reproduction: after Art 9 withdrawal, edits, submit and approval all fail', async () => {
+    const p = await t.person('user_codex');
+    await consentEvent(p, 'special_category_religious', 'granted');
+    await consentEvent(p, 'publish', 'granted');
+    await consentEvent(p, 'age_18plus', 'granted');
+    expect(await draft(p, 'codex_story')).toHaveLength(1);
+    await consentEvent(p, 'special_category_religious', 'withdrawn');
+
+    expect(
+      await outcome(
+        p,
+        `UPDATE story:codex_story SET body = 'new testimony text'`,
+      ),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('needs current Art 9 consent'),
+    });
+    expect(
+      await outcome(
+        p,
+        `UPDATE story:codex_story SET media = [{ format: 'video', bunnyVideoId: 'v1' }]`,
+      ),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('needs current Art 9 consent'),
+    });
+    expect(
+      await outcome(p, `UPDATE story:codex_story SET status = 'pending'`),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('submitting a story needs'),
+    });
+    expect(
+      await truth('SELECT body, media, status FROM story:codex_story'),
+    ).toEqual([{ body: 'Text of codex_story', media: [], status: 'draft' }]);
+
+    // Even if the story had reached pending earlier, approval is refused and nothing is published.
+    await run(migrator, `UPDATE story:codex_story SET status = 'pending'`);
+    await expect(approve(admin, 'codex_story')).rejects.toThrow();
+    expect(await truth('SELECT VALUE status FROM story:codex_story')).toEqual([
+      'pending',
+    ]);
+    expect(await truth('SELECT * FROM publicStory:codex_story')).toEqual([]);
+    expect(await truth('SELECT * FROM moderationReview')).toEqual([]);
+  });
+
+  it('Art 9 alone lets a person write a draft, but not submit it', async () => {
+    const p = await t.person('user_art9only');
+    await consentEvent(p, 'special_category_religious', 'granted');
+    expect(await draft(p, 'art9_story')).toHaveLength(1);
+    await run(
+      p,
+      `UPDATE story:art9_story SET title = 'Edited with Art 9 consent'`,
+    );
+    expect(
+      await outcome(p, `UPDATE story:art9_story SET status = 'pending'`),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('current Art 9, publish and age consent'),
+    });
+    await consentEvent(p, 'publish', 'granted');
+    expect(
+      (await outcome(p, `UPDATE story:art9_story SET status = 'pending'`)).ok,
+    ).toBe(false);
+    await consentEvent(p, 'age_18plus', 'granted');
+    expect(await submit(p, 'art9_story')).toHaveLength(1);
+    expect(await truth('SELECT title, status FROM story:art9_story')).toEqual([
+      { title: 'Edited with Art 9 consent', status: 'pending' },
+    ]);
+  });
+
+  it.each(ALL)(
+    'approval re-checks the ledger: refused once %s is withdrawn',
+    async (type) => {
+      const p = await t.person('user_eve');
+      for (const c of ALL) await consentEvent(p, c, 'granted');
+      const id = `eve_${type}`;
+      await draft(p, id);
+      await submit(p, id);
+      await consentEvent(p, type, 'withdrawn');
+      const result = await outcome(
+        admin,
+        `UPDATE type::record('story', $id) SET status = 'approved', approvedAt = time::now()`,
+        { id },
+      );
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringContaining('approving a story needs'),
+      });
+      expect(
+        await truth(`SELECT VALUE status FROM type::record('story', $id)`, {
+          id,
+        }),
+      ).toEqual(['pending']);
+    },
+  );
+
+  it('the read model refuses a row for a story that isn’t approved, or without consent', async () => {
+    const p = await t.person('user_eve');
+    for (const c of ALL) await consentEvent(p, c, 'granted');
+    await draft(p, 'eve_rm');
+    await submit(p, 'eve_rm');
+    const publish = () =>
+      outcome(
+        admin,
+        `LET $s = (SELECT * FROM ONLY story:eve_rm);
+         CREATE publicStory:eve_rm CONTENT {
+           version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
+           body: $s.body, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: [],
+           publishedAt: time::now() };`,
+      );
+    expect(await publish()).toEqual({
+      ok: false,
+      error: expect.stringContaining('needs an approved story'),
+    });
+    await approve(admin, 'eve_rm');
+    expect(await truth('SELECT VALUE id FROM publicStory:eve_rm')).toHaveLength(
+      1,
+    );
+    // Withdrawing publish later: the row can't be re-written (WithdrawConsent deletes it, D17).
+    await consentEvent(p, 'publish', 'withdrawn');
+    expect(
+      await outcome(
+        admin,
+        `UPDATE publicStory:eve_rm SET slugHistory = ['old-slug']`,
+      ),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('publishing needs'),
+    });
+  });
+
+  it('withdrawing a story still works with no consent left', async () => {
+    const p = await t.person('user_wd');
+    for (const c of ALL) await consentEvent(p, c, 'granted');
+    await draft(p, 'wd_story');
+    await submit(p, 'wd_story');
+    for (const c of ALL) await consentEvent(p, c, 'withdrawn');
+    await run(p, `UPDATE story:wd_story SET status = 'withdrawn'`);
+    expect(await truth('SELECT VALUE status FROM story:wd_story')).toEqual([
+      'withdrawn',
+    ]);
+  });
+});

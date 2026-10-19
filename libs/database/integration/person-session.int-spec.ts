@@ -101,7 +101,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
     it('rejects an erased person (gdprDeletedAt set)', async () => {
       await run(
         await t.service('api_user'),
-        'UPDATE user:erased SET gdprDeletedAt = time::now()',
+        'UPDATE user:erased SET gdprDeletedAt = time::now(), clerkUserId = NONE',
       );
       await expect(authenticateWith(t.token('user_erased'))).rejects.toThrow();
     });

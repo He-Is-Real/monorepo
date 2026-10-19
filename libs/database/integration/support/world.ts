@@ -47,13 +47,16 @@ export async function approve(admin: SurrealSession, id: string) {
      CREATE type::record('publicStory', $id) CONTENT {
        version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
        body: $s.body, bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-       tagRefs: $s.tagRefs, media: [], publishedAt: time::now()
+       tagRefs: $s.tagRefs, publishedAt: time::now(),
+       media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
+         thumbnailPath: $m.thumbnailPath, aspectRatio: $m.aspectRatio })
      };
      CREATE moderationReview CONTENT {
        story: $s.id, moderator: user:moderator, decision: 'approve', storyVersion: $s.version
      };
      CREATE auditLog CONTENT {
-       service: 'api-admin', action: 'ApproveStory', entity: $s.id, payload: { version: $s.version }
+       service: 'api-admin', action: 'ApproveStory', actor: user:moderator, actorRole: 'Moderator',
+       entity: $s.id, storyVersion: $s.version, fromStatus: 'pending', toStatus: 'approved'
      };
      COMMIT TRANSACTION;`,
     { id },

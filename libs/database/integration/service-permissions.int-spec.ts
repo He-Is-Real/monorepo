@@ -207,15 +207,29 @@ describe('service identities (D13 B)', () => {
         'user:bob',
         'user:moderator',
       ]);
-      // The field permission silently drops the change (no error), the rest of the update applies.
-      const updated = await rows(
-        db,
-        `UPDATE user:ann SET clerkUserId = 'user_attacker' RETURN clerkUserId`,
-      );
-      expect(updated).toEqual([{ clerkUserId: 'user_ann' }]);
-      expect(await truth('SELECT VALUE clerkUserId FROM user:ann')).toEqual([
-        'user_ann',
-      ]);
+      // Rebinding is refused by the user_clerk_binding event (D37: api_user may only clear it,
+      // once, at erasure, in the same update that sets gdprDeletedAt).
+      expect(
+        await outcome(db, `UPDATE user:ann SET clerkUserId = 'user_attacker'`),
+      ).toEqual({
+        ok: false,
+        error: expect.stringContaining('clerkUserId can only be'),
+      });
+      expect(
+        await outcome(db, 'UPDATE user:ann SET clerkUserId = NONE'),
+      ).toEqual({
+        ok: false,
+        error: expect.stringContaining('clerkUserId can only be'),
+      });
+      expect(
+        await outcome(db, 'UPDATE user:ann SET gdprDeletedAt = time::now()'),
+      ).toEqual({
+        ok: false,
+        error: expect.stringContaining('without a clerkUserId'),
+      });
+      expect(
+        await truth('SELECT clerkUserId, gdprDeletedAt FROM user:ann'),
+      ).toEqual([{ clerkUserId: 'user_ann' }]);
       expect(await rows(db, 'DELETE user:bob RETURN BEFORE')).toEqual([]);
       expect(await truth('SELECT id FROM user:bob')).toHaveLength(1);
     });
@@ -338,7 +352,7 @@ describe('service identities (D13 B)', () => {
         await outcome(db, `UPDATE user:legacy1 SET clerkUserId = 'user_other'`),
       ).toEqual({
         ok: false,
-        error: expect.stringContaining('clerkUserId cannot change once set'),
+        error: expect.stringContaining('clerkUserId can only be linked once'),
       });
     });
   });
@@ -395,14 +409,14 @@ describe('service identities (D13 B)', () => {
       expect(
         await rows(
           db,
-          `CREATE auditLog CONTENT { service: 'workflow', action: 'Transcribe' }`,
+          `CREATE auditLog CONTENT { service: 'workflow', action: 'ProcessMedia' }`,
         ),
       ).toEqual([]); // written, but not readable back (see the api_user audit test)
       expect(
         await truth(
           `SELECT VALUE action FROM auditLog WHERE service = 'workflow'`,
         ),
-      ).toEqual(['Transcribe']);
+      ).toEqual(['ProcessMedia']);
       expect(await rows(db, 'SELECT * FROM auditLog')).toEqual([]);
       expect(await rows(db, 'SELECT * FROM moderationReview')).toEqual([]);
       expect(await ids(db, 'SELECT id FROM dpaVersion')).not.toContain(
