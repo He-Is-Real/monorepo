@@ -18,6 +18,11 @@ data "kustomization_overlay" "surrealdb" {
     }
   }
 
+  # Mount the identity config's Secret and restart when it changes (identity.tf).
+  patches {
+    patch = module.identity.statefulset_patch
+  }
+
   patches {
     target {
       kind = "StatefulSet"
@@ -41,11 +46,14 @@ resource "kustomization_resource" "p0" {
 }
 
 resource "kustomization_resource" "p1" {
-  # Everything but the migrate Job template: migration.tf applies a copy named after its content.
-  for_each = setsubtract(data.kustomization_overlay.surrealdb.ids_prio[1], [local.migrate_template_id])
+  # Everything but the templates applied as hashed copies: the migrate Job (migration.tf), and
+  # the init template and its ExternalSecret (identity.tf).
+  for_each = setsubtract(
+    data.kustomization_overlay.surrealdb.ids_prio[1],
+    [local.migrate_template_id, local.init_template_id, local.init_secret_id],
+  )
   manifest = data.kustomization_overlay.surrealdb.manifests[each.value]
 
-  # The init Job is replaced, not patched, when its spec changes (Jobs are immutable).
   wait = false
 
   depends_on = [kustomization_resource.p0]

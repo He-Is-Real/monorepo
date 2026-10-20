@@ -11,7 +11,7 @@ variables {
     spec = {
       template = {
         spec = {
-          containers = [{ name = "migrate", image = "google/cloud-sdk:1" }]
+          containers = [{ name = "migrate", image = "google/cloud-sdk:1", env = [{ name = "A", value = "1" }] }]
           volumes = [
             { name = "runner", configMap = { name = "surrealdb-migrate-runner-abc" } },
             { name = "migration", configMap = { name = "surrealdb-migration" } },
@@ -34,8 +34,10 @@ run "repo_bundle" {
     error_message = "The bundle must hold the schema, the clerk access, the DPA sync, the data scripts, the runner and params.json."
   }
   assert {
-    condition     = output.params.dpa_v1_sha256 == filesha256("../../../../libs/legal/dpa/v1.md") && output.params.clerk_jwt_public_key == null
-    error_message = "dpa_v1_sha256 is the file's sha256 (D20); no Clerk key by default."
+    condition = (output.params.dpa_v1_sha256 == filesha256("../../../../libs/legal/dpa/v1.md")
+      && output.params.dpa_sha256["v1"] == output.params.dpa_v1_sha256
+    && output.params.clerk_jwt_public_key == null && output.params.identity_hash == null)
+    error_message = "dpa_v1_sha256 / dpa_sha256 are the files' sha256 (D20); no Clerk key or identity config by default."
   }
   assert {
     condition     = fileexists("../../../../libs/legal/dpa/legacy-squarespace.md") || contains(output.held_back, "0002-seed-legacy-dpa")
@@ -128,6 +130,29 @@ run "job_spec_changed" {
   assert {
     condition     = output.job_name != run.a.job_name
     error_message = "A new image (or runner, or any Job field) must give a new name: Jobs are immutable."
+  }
+}
+
+run "identity_config_changed" {
+  command = plan
+  variables {
+    identity_hash = "abc"
+  }
+  assert {
+    condition     = output.job_name != run.a.job_name && output.params.identity_hash == "abc"
+    error_message = "A new identity config re-runs the Job, which checks the restart happened."
+  }
+}
+
+run "generation_doesnt_rename" {
+  command = plan
+  variables {
+    generation = "2026-10-20T18:00:00Z"
+  }
+  assert {
+    condition = (output.job_name == run.a.job_name
+    && contains([for e in output.job.spec.template.spec.containers[0].env : "${e.name}=${e.value}"], "MIGRATE_GENERATION=2026-10-20T18:00:00Z"))
+    error_message = "The generation goes into the Job's environment without changing its name."
   }
 }
 

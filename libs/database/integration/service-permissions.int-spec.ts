@@ -108,6 +108,8 @@ describe('service identities (D13 B)', () => {
       'auditLog',
       'idempotencyKey',
       '_migration',
+      '_migrationRun',
+      '_identity',
     ])(
       'sees nothing in %s (not even approved stories in the write model)',
       async (table) => {

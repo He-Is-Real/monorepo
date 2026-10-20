@@ -1,9 +1,13 @@
--- Rendered into the surrealdb-init Secret (by External Secrets Operator on
--- clusters, by scripts/local-secrets.mjs on local developer machines); placeholders are
--- replaced with passwords from Secret Manager, JSON-quoted. Run as root by the init Job,
--- on every cluster apply, before or alongside the migrate Job (which waits for it).
+-- SurrealDB's startup init (`surreal start --import-file`, statefulset.yaml): runs on every
+-- start, before the server serves any request (until it finishes every request gets 503).
+-- Rendered into the init Secret (by External Secrets Operator on clusters, by
+-- scripts/local-secrets.mjs on local developer machines); placeholders are replaced with
+-- passwords from Secret Manager, JSON-quoted. On GKE, Terraform appends the identity marker
+-- (last statement) and names the Secret after this config's hash, so a change restarts the pod.
 -- Namespace/database names must match surrealdb-settings (settings.yaml).
-OPTION IMPORT;
+-- No OPTION IMPORT: in a startup import file it hangs the server in "starting up" (3.2.4).
+-- A failing statement here is logged and skipped, and the server starts anyway, so the migrate
+-- Job checks the result (system users, service logins, identity marker) before it migrates.
 
 DEFINE NAMESPACE IF NOT EXISTS heisreal;
 USE NS heisreal;
@@ -15,7 +19,8 @@ DEFINE USER OVERWRITE backup    ON DATABASE PASSWORD {{ .backup | toJson }}    R
 DEFINE USER OVERWRITE migrator  ON DATABASE PASSWORD {{ .migrator | toJson }}  ROLES OWNER  COMMENT "migrator: schema migrations (migrate Job) only";
 
 -- The per-service system users from before D13 are removed: an EDITOR can REMOVE EVENT, which
--- would switch off the schema's guards. Services sign in as `service` records instead.
+-- would switch off the schema's guards. Removing a user doesn't end its open sessions; running
+-- here does, because this only runs as the server starts (no session survives a restart).
 REMOVE USER IF EXISTS api_read        ON DATABASE;
 REMOVE USER IF EXISTS api_write       ON DATABASE;
 REMOVE USER IF EXISTS api_admin       ON DATABASE;
@@ -25,13 +30,17 @@ REMOVE USER IF EXISTS api_user        ON DATABASE;
 
 -- Service logins (D13 B, DEFINE ACCESS svc in schema.surql): the argon2 hash of each service's
 -- Secret Manager password, computed by the database, so only the hash is stored and the
--- plaintext stays in this Secret. Written here rather than by the migrator so the migrator and
--- its Terraform-built bundle never hold a service password, and so rotation is just this Job
--- re-running. The table is created here if the schema isn't applied yet; the schema's own
--- DEFINE … OVERWRITE stays authoritative.
+-- plaintext stays in the init Secret. Written here, not by the migrator, so the migrator and
+-- its Terraform-built bundle never hold a service password. The tables are created here if the
+-- schema isn't applied yet; the schema's own DEFINE … OVERWRITE stays authoritative.
 DEFINE TABLE IF NOT EXISTS service SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD IF NOT EXISTS secretHash ON service TYPE string;
 UPSERT service:api_public_read SET secretHash = crypto::argon2::generate({{ .api_public_read | toJson }}) RETURN NONE;
 UPSERT service:api_user        SET secretHash = crypto::argon2::generate({{ .api_user | toJson }})        RETURN NONE;
 UPSERT service:api_admin       SET secretHash = crypto::argon2::generate({{ .api_admin | toJson }})       RETURN NONE;
 UPSERT service:workflow        SET secretHash = crypto::argon2::generate({{ .workflow | toJson }})        RETURN NONE;
+
+-- Identity marker: Terraform appends `UPSERT _identity:current SET hash = "<config hash>", …`.
+DEFINE TABLE IF NOT EXISTS _identity SCHEMAFULL PERMISSIONS NONE;
+DEFINE FIELD IF NOT EXISTS hash      ON _identity TYPE string;
+DEFINE FIELD IF NOT EXISTS appliedAt ON _identity TYPE datetime;

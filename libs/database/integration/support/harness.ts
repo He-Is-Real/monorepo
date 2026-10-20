@@ -34,6 +34,12 @@ export interface MigrationParams {
   clerk_jwt_public_key: string | null;
   dpa_v1_sha256: string | null;
   legacy_sha256: string | null;
+  /** { <dpaVersion id>: sha256 of libs/legal/dpa/<id>.md } for every file there */
+  dpa_sha256: Record<string, string>;
+  /** The identity config the server must have restarted with (GKE); null = don't check */
+  identity_hash: string | null;
+  /** The generation fence (Terraform: MIGRATE_GENERATION); RFC 3339 UTC */
+  generation?: string;
 }
 
 export interface MigrationSummary {
@@ -55,6 +61,8 @@ export interface MigrationOptions {
   bundleDir?: string;
   /** Extra environment, e.g. MIGRATE_EXPECT_USERS as the Job sets it. */
   env?: Record<string, string>;
+  /** Called with the runner's output as it arrives (to act at a given step). */
+  onOutput?: (chunk: string) => void;
 }
 
 /** Runs SurrealQL and returns every statement's result as JSON; throws on the first error. */
@@ -131,6 +139,11 @@ export class TestDatabase {
     readonly database: string,
   ) {}
 
+  /** A handle on an existing server and database (e.g. a dedicated container); creates nothing. */
+  static at(url: string, namespace: string, database: string): TestDatabase {
+    return new TestDatabase(url, namespace, database);
+  }
+
   /**
    * migrate: false leaves an empty database with only the migrator user (no schema, no
    * services), for tests of the migration itself.
@@ -163,6 +176,9 @@ export class TestDatabase {
       clerk_jwt_public_key: this.keys.publicKeyPem,
       dpa_v1_sha256: DPA_V1_SHA256,
       legacy_sha256: LEGACY_SHA256,
+      dpa_sha256: { v1: DPA_V1_SHA256, 'legacy-squarespace': LEGACY_SHA256 },
+      identity_hash: null,
+      generation: nextGeneration(),
       ...overrides,
     };
   }
@@ -170,19 +186,20 @@ export class TestDatabase {
   /** Runs the migrate Job's runner against this database as the migrator; never throws. */
   async runMigration(
     params: MigrationParams = this.params(),
-    { bundleDir = SCHEMA_DIR, env = {} }: MigrationOptions = {},
+    { bundleDir = SCHEMA_DIR, env = {}, onOutput }: MigrationOptions = {},
   ): Promise<MigrationRun> {
     const dir = await mkdtemp(join(tmpdir(), 'migration-params-'));
     const paramsFile = join(dir, 'params.json');
     await writeFile(paramsFile, JSON.stringify(params));
     try {
       return await new Promise<MigrationRun>((resolve) => {
-        execFile(
+        const child = execFile(
           'python3',
           [RUNNER, bundleDir, '--params', paramsFile],
           {
             env: {
               PATH: process.env['PATH'],
+              PYTHONDONTWRITEBYTECODE: '1', // no __pycache__ in libs/database/schema
               SURREAL_ENDPOINT: this.url.replace(/^ws/, 'http'),
               SURREAL_NAMESPACE: this.namespace,
               SURREAL_DATABASE: this.database,
@@ -208,6 +225,7 @@ export class TestDatabase {
             });
           },
         );
+        if (onOutput) child.stdout?.on('data', (d) => onOutput(String(d)));
       });
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -335,6 +353,13 @@ export class TestDatabase {
 }
 
 export const LEGACY_SHA256 = sha256('legacy-squarespace placeholder');
+
+let lastGeneration = 0;
+/** A new, strictly later generation each call (as Terraform fixes one per bundle change). */
+export function nextGeneration(): string {
+  lastGeneration = Math.max(Date.now(), lastGeneration + 1);
+  return new Date(lastGeneration).toISOString();
+}
 export const DPA_V1_SHA256 = sha256('dpa v1 placeholder');
 
 // ---------------------------------------------------------------- fixtures

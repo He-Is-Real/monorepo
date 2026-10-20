@@ -41,6 +41,11 @@ output "surrealdb_backup_gsa" {
   value = google_service_account.surrealdb_backup.email
 }
 
+output "surreal_secret_rotation" {
+  description = "Read by the cluster root: a new rotation restarts SurrealDB with the new passwords."
+  value       = var.secret_rotation
+}
+
 output "api_read_url" {
   value = google_cloud_run_v2_service.api_read.uri
 }

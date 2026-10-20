@@ -55,7 +55,7 @@ patches:
         value: 5Gi
   - target:
       kind: Job
-      name: surrealdb-(init-users|migrate)
+      name: surrealdb-migrate
     patch: |-
       - op: add
         path: /spec/template/spec/nodeSelector

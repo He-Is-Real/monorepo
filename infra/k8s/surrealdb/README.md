@@ -7,12 +7,13 @@ explains the Kubernetes terms used here).
 ```
 base/                     shared by every environment
   statefulset.yaml        1 pod + disk; never more than 1 (RocksDB is single-writer);
-                          fsync on every commit (SURREAL_DATASTORE_SYNC_DATA=every)
+                          fsync on every commit (SURREAL_DATASTORE_SYNC_DATA=every);
+                          runs the init script at every start (--import-file)
   service.yaml            internal name surrealdb.database.svc; never public
   networkpolicy.yaml      deny all inbound, except pods in this namespace labelled
-                          heisreal.today/db-client=true (the init, migrate and backup Jobs)
-  init-users-job.yaml     namespace/database, system users, service logins (re-runnable)
-  init.surql.tmpl         what it runs; passwords filled in from Secret Manager
+                          heisreal.today/db-client=true (the migrate and backup Jobs)
+  init.surql.tmpl         startup init: namespace/database, system users, service logins;
+                          passwords filled in from Secret Manager
   migrate-job.yaml        schema migrations (D14); a template, see "Schema migrations"
   backup-cronjob.yaml     nightly `surreal export` → Cloud Storage
 overlays/local/           kind/k3d/minikube: 1 GiB disk, no backups
@@ -37,13 +38,25 @@ Only the in-cluster Jobs are system users. Each identity has its own Secret Mana
 | `service:workflow`        | service login      | `surreal-workflow-password`        | workflow (M7)                         |
 | `backup`                  | system user VIEWER | `surreal-backup-password`          | backup CronJob                        |
 | `migrator`                | system user OWNER  | `surreal-migrator-password`        | migrate Job only                      |
-| `root`                    | root OWNER         | `surreal-root-password`            | init Job only (and the SurrealDB pod) |
+| `root`                    | root OWNER         | `surreal-root-password`            | people only (restore drill, rotation) |
 
-The init Job (as root) defines `migrator` and `backup`, **removes** the old per-service system
-users (`api_read`, `api_write`, `api_admin`, `workflow`: an EDITOR could `REMOVE EVENT`), and
-writes each service's argon2 hash with `crypto::argon2::generate`, so only the hash is stored.
-The plaintext stays in the `surrealdb-init` Secret (rendered in-cluster by ESO): never in
+**The init runs inside SurrealDB, at every start** (`surreal start --import-file`, from the
+`surrealdb-init-<hash>` Secret). It defines `migrator` and `backup`, **removes** the old
+per-service system users (`api_read`, `api_write`, `api_admin`, `workflow`: an EDITOR could
+`REMOVE EVENT`), and writes each service's argon2 hash with `crypto::argon2::generate`, so only
+the hash is stored. The plaintext stays in that Secret (rendered in-cluster by ESO): never in
 Terraform state, the repo, the migration bundle or logs.
+
+Why at startup and not a Job: on 3.2.4, removing a user **doesn't end its open sessions** (an
+EDITOR session kept reading `PERMISSIONS NONE` tables; pinned by a test). A restart does, and the
+server answers nothing (503) until the import has finished, so nobody can sign in in between.
+Terraform names the ExternalSecret, its Secret and the template ConfigMap after a hash of the
+template, the ExternalSecret definitions and the gcp root's `secret_rotation`, and stamps the hash
+on the pod (`heisreal.today/identity-config`). A change therefore restarts SurrealDB once, and the
+new pod can only start when ESO has rendered the new Secret: never with a stale script. Dev cost:
+a pod restart (seconds of downtime) whenever the identity config changes. Two 3.2.4 quirks: a
+startup file with `OPTION IMPORT` hangs the server, and a failing statement in it is only logged,
+so the migrate Job verifies the result (below).
 
 Checked against a real 3.2.4 server: VIEWER can't create records and a VIEWER export equals a
 root export (backups need no write access). Exports include the password and secret hashes; the
@@ -59,16 +72,14 @@ node infra/k8s/surrealdb/scripts/local-secrets.mjs --project heisreal-dev   # lo
 node infra/k8s/surrealdb/scripts/local-migration.mjs                       # the schema bundle
 kubectl apply -k infra/k8s/surrealdb/overlays/local
 kubectl -n database rollout status statefulset/surrealdb
-kubectl -n database wait --for=condition=complete job/surrealdb-init-users --timeout=180s
 kubectl -n database wait --for=condition=complete job/surrealdb-migrate --timeout=600s
 kubectl -n database port-forward svc/surrealdb 8000:8000   # apps use ws://localhost:8000
 ```
 
 - Stop/start without deleting anything: `pnpm nx run surrealdb-k8s:local-down` / `local-up`.
-- The first one or two init Job runs fail with a DNS error: `surrealdb` only resolves once the pod
-  is ready, and the Job retries until then.
-- After passwords are rotated, re-run `local-secrets.mjs`, delete `job/surrealdb-init-users` and
-  re-apply the overlay (for root, see "Rotating passwords" first).
+- The pod waits for the `surrealdb-init` Secret, so run `local-secrets.mjs` first.
+- After passwords are rotated or `init.surql.tmpl` changes, re-run `local-secrets.mjs` and
+  `kubectl -n database rollout restart statefulset/surrealdb` (the init runs at startup).
 - After a schema change, re-run `local-migration.mjs` (it deletes the old migrate Job) and
   re-apply the overlay. `--clerk-public-key-file <pem>` turns on person sessions.
 
@@ -91,9 +102,28 @@ them afterwards (disks can be grown by editing the PVC).
 `access-clerk.surql`, numbered `data/NNNN-*.surql` scripts (each runs once), `dpa-sync.surql`
 and the runner, `migrate.py` (its header has the details). On GKE the `cluster` root ships it as
 the ConfigMap `surrealdb-migration-<hash>` and runs the Job `surrealdb-migrate-<hash>` as
-`migrator`. The hash covers every file, the Terraform parameters (DPA hashes, Clerk key) and the
-Job spec: change any of them and the next apply replaces the Job, which runs; change nothing and
-there's no diff. Each step is one transaction, so a failure keeps nothing from that step.
+`migrator`. The hash covers every file, the Terraform parameters (DPA hashes, Clerk key, identity
+config) and the Job spec: change any of them and the next apply replaces the Job, which runs;
+change nothing and there's no diff.
+
+What a run does, in order (validate first, then change):
+
+1. **Waits** until SurrealDB has restarted with the current identity config (the `_identity`
+   marker), the system users are exactly `backup` and `migrator`, and every service has a login.
+2. **Checks, read-only:** every file parses without its own transaction or `RETURN` statement; no
+   applied data script has changed (sha256 in `_migration`); no newer bundle has been applied
+   (`_migrationRun`, below); every seeded DPA version still has its file and a published one's
+   text hasn't changed (`dpa-sync.surql` in a cancelled transaction). Any failure here changes
+   nothing.
+3. **Schema:** `schema.surql`, the Clerk access and the generation fence, in one transaction.
+4. **Data scripts:** each new one in its own transaction, recorded in `_migration`.
+5. **DPA sync:** draft hashes follow their files.
+
+**Generation fence.** Terraform fixes a generation (the plan time at which the bundle first
+appeared) and passes it to the Job. The schema step refuses to run if a newer generation has
+been applied, and every step of a run re-checks it and writes `_migrationRun:current`, so an
+older Job still running when a newer one starts fails at its next commit instead of restoring
+the old schema.
 
 The runner uses the `google/cloud-sdk` image (already pinned for backups): the SurrealDB image has
 no shell, and `surreal import` requires `OPTION IMPORT`, which switches off events and field
@@ -112,22 +142,40 @@ code; a breaking change is split over two releases.
    kubectl -n database logs "job/$JOB"   # ends with MIGRATION SUMMARY {...}
    ```
 
-   The summary lists what was `applied`, `alreadyApplied` and `heldBack`. The Job only completes
-   once the init Job's work is visible: system users exactly `backup` and `migrator`, and a login
-   for every service.
+   The summary lists what was `applied`, `alreadyApplied` and `heldBack`. While SurrealDB
+   restarts with a new identity config, the log shows `waiting for the startup init's
+identities`; check the pod with `kubectl -n database get pod surrealdb-0` and
+   `kubectl -n database logs surrealdb-0 | grep -i import`.
 
 3. Then apply `gcp` to deploy the services that need the new schema.
 
-**If it fails**, `kubectl -n database logs job/<name>` (and `describe job/<name>`) says which step
-and why; nothing from the failed step was kept (earlier data scripts stay applied). Fix it in a PR
-(never edit a data script that has already run anywhere: add a new one) and apply again: the
-fixed bundle has a new hash, so a new Job runs. To re-run the same bundle (for example after a
-Spot reclaim), apply with `-replace='module.cluster.kustomization_resource.migrate'`. The previous
-schema stays in force meanwhile, so don't deploy code that needs the new one.
+**If it fails**, read `kubectl -n database logs job/<name>` (and `describe job/<name>`). The
+`ERROR:` line names the step. Don't deploy services that need the new schema until a run succeeds.
+
+- **Waiting or checks failed** (`gave up waiting…`, `changed after it was applied`, `is stale`,
+  `does not: restore the file`, `is published, but…`): **nothing was changed**. Fix the cause (a
+  restored file, the init, a newer bundle that should win) and apply again.
+- **`schema.surql:` failed:** that transaction was rolled back, so the previous schema and all data
+  are as before.
+- **A data script (`NNNN-…surql:`) or `dpa-sync.surql:` failed:** the **new schema is in place**,
+  and so is every data script before the failing one; the failing script left nothing. See what
+  ran: the log's `applied` lines, or as the migrator
+  `SELECT record::id(id), appliedAt FROM _migration ORDER BY id` (port-forward, migrator password
+  from Secret Manager). Recover **forward**: fix the script in a PR (it never ran, so editing it
+  is fine; never edit one that has run anywhere, add a new one) and apply. The services already
+  running must cope with the new schema, which is why a breaking change is split over two
+  releases.
+
+A fixed bundle has a new hash, so a new Job runs. To re-run the same bundle (for example after a
+Spot reclaim), apply with `-replace='module.cluster.terraform_data.migration_generation'` (a new
+generation, and the Job is replaced with it).
 
 **Adding a data script:** `libs/database/schema/data/NNNN-what-it-does.surql`, next number,
-plain statements (no `BEGIN`/`COMMIT` and no top-level `RETURN`: the runner wraps each script
-in its own transaction and records it in `_migration` with a checksum). Add tests in
+plain statements. No `BEGIN`/`COMMIT`/`CANCEL`/`OPTION`, and no `RETURN` statement anywhere outside
+a `DEFINE` body, not even inside an `IF` or `FOR` block: on 3.2.4 it ends the transaction early.
+The runner refuses them, and fails any step whose result count doesn't match its statements. It
+wraps each script in its own transaction and records it in `_migration` with a checksum. Also
+avoid `FOR $x IN (SELECT …)` (fails on 3.2.4; `LET` the rows first). Add tests in
 `libs/database/integration`. A script that uses a parameter Terraform passes as null (e.g.
 `$legacy_sha256` while `libs/legal/dpa/legacy-squarespace.md` doesn't exist) is **held back**,
 with every later script, until it's set; the plan warns about it. Today 0002 (D22) is held back
@@ -140,17 +188,22 @@ refuses one).
 
 **DPA text** (D20): Terraform passes each `libs/legal/dpa/*.md` file's sha256. While a version is a
 draft, its `contentHash` follows the file; once published, a changed file fails the migration.
+Every seeded version, draft or published, must keep its file: a missing one fails the migration
+(only a version that isn't seeded yet may lack it). A version created through api-admin needs its
+file committed before the next migration.
 
 **First apply of this (one-time switch to service logins).** The services' new secrets must
-exist before the cluster renders them, and the deployed api-public-read still signs in as the
-old `api_read` user until it's redeployed:
+exist before SurrealDB's new init Secret can be rendered (until then the restarted pod waits, so
+SurrealDB is down), and the deployed api-public-read signs in as the old `api_read` user until
+it's redeployed:
 
 1. Wait for "Release Images" to build `main` (libs/database now signs in through `svc`).
 2. `gcp`: `terraform apply -target='module.gcp.google_secret_manager_secret_version.surreal' -target='module.gcp.google_secret_manager_secret_iam_member.surrealdb_secrets'`
    creates `surreal-api-public-read-password` and `surreal-api-user-password` and gives ESO
    access.
-3. `cluster`: apply and check the Job as above. The old system users are gone from here on, so
-   dev's api-public-read can't sign in until step 4.
+3. `cluster`: apply. It deletes the old init Job, applies `surrealdb-init-<hash>`, restarts
+   SurrealDB (the cutover: old users removed, their sessions ended) and runs the migrate Job;
+   check it as above. Dev's api-public-read can't sign in from here until step 4.
 4. `gcp`: a full apply deploys api-public-read with its service login and deletes the two old
    secrets.
 
@@ -183,11 +236,11 @@ Always export to a **file**: on stdout the CLI mixes its log lines into the dump
 Terraform generates the passwords (`infra/terraform/modules/gcp/secrets.tf`, write-only).
 Rotating adds a new Secret Manager version and leaves the previous one in place.
 
-- **Services, migrator and backup:** bump `secret_rotation` in the gcp root and apply. ESO syncs
-  within an hour (annotate the ExternalSecret `surrealdb-init` with `force-sync=$(date +%s)` to
-  hurry it). Then apply the cluster root: the init Job is recreated on every apply (once the
-  previous one is 10 minutes old) and writes the new service hashes and system-user passwords.
-  Finally restart the services, which read their secret at startup.
+- **Services, migrator and backup:** bump `secret_rotation` in the gcp root and apply, then apply
+  the cluster root. The cluster root reads the rotation number, so the identity hash changes:
+  a new ExternalSecret fetches the latest versions, SurrealDB restarts with them (ending every
+  session that used an old password) and the migrate Job re-checks the result. Finally restart
+  the services, which read their secret at startup.
 - **Root:** SurrealDB only reads the root password on _first_ start, so tell the running database.
   Bump `root_secret_rotation` in the gcp root and apply, then sign in with the previous version
   and set the new one (port-forward as above):
@@ -200,7 +253,8 @@ Rotating adds a new Secret Manager version and leaves the previous one in place.
   unset SURREAL_PASS NEW
   ```
 
-  Skip this and the init Job fails with "There was a problem with authentication".
+  Nothing in the cluster signs in as root (the init runs inside the server), so only people
+  notice a stale root password.
 
 ## Upgrading SurrealDB
 

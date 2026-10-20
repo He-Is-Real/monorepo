@@ -1,15 +1,17 @@
 # Applies the schema bundle (libs/database/schema) to heisreal/main as the migrator (D14), with
-# the bundle's own runner, migrate.py (see its header). Needs the init Job's namespace, database and migrator user, and
-# waits for them.
+# the bundle's own runner, migrate.py (see its header). It waits for the namespace, database and
+# migrator user from SurrealDB's startup init and, on GKE, for the restart with the current
+# identity config (the D13 B cutover) before it changes anything.
 #
 # This is a template. On GKE, Terraform (infra/terraform/modules/cluster/migration.tf) applies a
 # copy named after the bundle's content hash, surrealdb-migrate-<hash>, with its own immutable
-# ConfigMap surrealdb-migration-<hash>: a schema, data, parameter, runner or Job change gives a new
-# name (Terraform replaces the Job, so it runs again), and no change gives no diff. Locally,
+# ConfigMap surrealdb-migration-<hash>: a schema, data, parameter, runner or Job change gives a
+# new name (Terraform replaces the Job, so it runs again), and no change gives no diff. It also
+# sets MIGRATE_GENERATION, the generation fence (see migrate.py). Locally,
 # scripts/local-migration.mjs creates the surrealdb-migration ConfigMap this name points at.
 #
-# No ttlSecondsAfterFinished (unlike the init Job): a Job that disappears would be recreated, and
-# re-run, by every apply. Terraform deletes the previous Job when it applies a new one.
+# No ttlSecondsAfterFinished: a Job that disappears would be recreated, and re-run, by every
+# apply. Terraform deletes the previous Job when it applies a new one.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -41,8 +43,8 @@ spec:
               value: http://surrealdb:8000
             - name: MIGRATE_WAIT_SECONDS
               value: '900'
-            # Fail unless the init Job has left exactly these system users and every service
-            # can sign in (D13 B).
+            # Wait until the startup init has left exactly these system users and every
+            # service can sign in (D13 B); fail if that doesn't happen.
             - name: MIGRATE_EXPECT_USERS
               value: backup,migrator
             - name: MIGRATE_EXPECT_SERVICES

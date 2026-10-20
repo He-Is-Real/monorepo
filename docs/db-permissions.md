@@ -13,7 +13,7 @@ automated tests. It also records what had to change in the draft and what is sti
 | `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
 | `libs/database/schema/data/000N-*.surql`    | Run-once seeds 0001 (draft DPA v1) and 0002 (legacy DPA)        |
 | `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
-| `libs/database/integration/*.int-spec.ts`   | 243 integration tests against a real SurrealDB                  |
+| `libs/database/integration/*.int-spec.ts`   | 264 integration tests against a real SurrealDB                  |
 | `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
 
 ```bash
@@ -32,7 +32,7 @@ pnpm nx run database:test-integration    # needs Docker; about 20 s
 - **Isolation.** Each spec file gets its own namespace, so the files run in parallel.
 - **Setup.** An OWNER `migrator` applies the bundle with the D14 Job's own runner
   (`migrate.py`), from the same files. Each service gets a `service` record with a random
-  password, argon2-hashed by `crypto::argon2::generate` (in the cluster the init Job does this;
+  password, argon2-hashed by `crypto::argon2::generate` (in the cluster SurrealDB's startup init does this;
   `migration.int-spec.ts` runs the real init template). Clerk is simulated by an RS256 key pair
   generated per run; the public PEM is passed as `clerk_jwt_public_key`, as Terraform passes
   Clerk's.
@@ -70,7 +70,7 @@ bypasses permissions) that the row is unchanged or absent.
 | D38 retention: only the migrator, and only for subjects erased more than 6 years ago (2192 days), can delete consent; live, recently erased and 2191-day-old subjects are refused, and so is every service and person. Audit rows: the migrator can prune; no service or person can.                                                                                                                                                                                                                     | `retention`                      |
 | Round 3 sweep: every table is classified (a new, unclassified table fails the test). For each person-linked table (`story`, `publicStory`, `consent`, `moderationReview`, `idempotencyKey`), a control write works, the same write is refused after erasure from a session opened before it, and a write racing erasure loses at commit with nothing stored. Root (`user`): two racing erasures, one wins, the retry is a no-op. Kept (`auditLog`): a racing audit write commits with typed fields only. | `person-linked`                  |
 | Round 3, P2: a service-supplied `gdprDeletedAt` (2200 days ago) is replaced by the server time and can't be re-dated, so the nightly prune keeps the consent.                                                                                                                                                                                                                                                                                                                                            | `retention`                      |
-| D14 migration: after init + migrate only `migrator`/`backup` are system users, old system-user logins fail, every service signs in via `svc`. A re-run changes nothing. New scripts run once; a failed script or schema keeps nothing; edited, self-transacting or top-level-`RETURN` scripts are refused; a null parameter holds scripts back. No Clerk key, no `clerk` access. Draft DPA hash follows its file.                                                                                        | `migration`                      |
+| D14 + cutover: a restart with the startup init ends old system-user sessions (REMOVE USER alone doesn't, pinned); only `migrator`/`backup` remain; services sign in via `svc`. Re-runs change nothing; scripts run once; failures keep nothing; RETURN/BEGIN statements (blocks too) and early exits are refused; checks run before changes; stale or overtaken runners fail; seeded DPAs keep their files.                                                                                              | `migration`                      |
 | One connection, one session per request, concurrent people isolated; dangers pinned; cost measured.                                                                                                                                                                                                                                                                                                                                                                                                      | `request-sessions`               |
 
 ## Changes to the draft schema (port back to the decision doc)
@@ -255,17 +255,17 @@ retried`, on both RocksDB and the in-memory engine.
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
 
-| Table                                        | Holds or links                                 | Class      | On create/update                                                           | After erasure                                                     |
-| -------------------------------------------- | ---------------------------------------------- | ---------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `user`                                       | the person (Clerk id until erasure)            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB | stub: id, `createdAt`, `gdprDeletedAt`                            |
-| `story`                                      | testimony; `submitter`                         | linked     | submitter live + fence (and owner/consent rules)                           | deleted                                                           |
-| `publicStory`                                | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
-| `consent`                                    | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
-| `moderationReview`                           | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
-| `idempotencyKey`                             | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt)                                    | deleted by erasure; others expire in 24 h                         |
-| `auditLog`                                   | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
-| `personFence`                                | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
-| `tag`, `dpaVersion`, `service`, `_migration` | no person data                                 | none       | —                                                                          | —                                                                 |
+| Table                                                                      | Holds or links                                 | Class      | On create/update                                                           | After erasure                                                     |
+| -------------------------------------------------------------------------- | ---------------------------------------------- | ---------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `user`                                                                     | the person (Clerk id until erasure)            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB | stub: id, `createdAt`, `gdprDeletedAt`                            |
+| `story`                                                                    | testimony; `submitter`                         | linked     | submitter live + fence (and owner/consent rules)                           | deleted                                                           |
+| `publicStory`                                                              | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
+| `consent`                                                                  | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
+| `moderationReview`                                                         | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
+| `idempotencyKey`                                                           | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt)                                    | deleted by erasure; others expire in 24 h                         |
+| `auditLog`                                                                 | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
+| `personFence`                                                              | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
+| `tag`, `dpaVersion`, `service`, `_migration`, `_migrationRun`, `_identity` | no person data                                 | none       | —                                                                          | —                                                                 |
 
 - **Audit writes that race erasure.** These are allowed to commit, because audit rows are kept
   anyway (D38). They can't carry testimony text: every field is typed or an enum, and unknown
@@ -309,8 +309,13 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
   ledger whoever writes.
 - **Events run with elevated privileges.** An event fired by a person's or service's write can
   write any table. Keep events small and deliberate.
-- **A top-level `RETURN` inside a transaction commits it early** and skips the statements after
-  it (3.2.4). The runner refuses one in any bundled file. **`surreal import` requires
+- **A `RETURN` statement inside a transaction commits it early** and skips the statements after
+  it (3.2.4), even inside an `IF` or `FOR` block. The runner refuses one anywhere outside a
+  `DEFINE` body, and checks each step's result count. **`FOR $x IN (SELECT …)` fails** ("Cannot
+  execute statement using value"); `LET` the rows, then loop. **`REMOVE USER` doesn't end that
+  user's open sessions**: the cutover is a restart (infra/k8s/surrealdb/README.md). **A startup
+  `--import-file` with `OPTION IMPORT` hangs the server**, and a failing statement in it is only
+  logged. **`surreal import` requires
   `OPTION IMPORT`**, which switches off events and field `VALUE`/`ASSERT`, so it can't run data
   scripts; the runner uses `/rpc` instead.
 - **In a failed transaction, surrealdb.js 2.0.x's `collect()` throws "The query was not

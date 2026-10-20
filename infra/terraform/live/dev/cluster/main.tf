@@ -108,6 +108,8 @@ module "cluster" {
   schema_dir           = "${path.root}/../../../../../libs/database/schema"
   dpa_dir              = "${path.root}/../../../../../libs/legal/dpa"
   clerk_jwt_public_key = var.clerk_jwt_public_key
+  # Rotating service passwords (gcp root) restarts SurrealDB with the new ones (identity.tf).
+  identity_rotation = try(tostring(local.gcp.surreal_secret_rotation), "1")
 
   surrealdb_expected_settings = {
     GCP_PROJECT          = "heisreal-dev"
@@ -124,4 +126,8 @@ module "cluster" {
 
 output "migrate_job" {
   value = module.cluster.migrate_job
+}
+
+output "identity_config" {
+  value = module.cluster.identity_config
 }

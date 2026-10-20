@@ -49,6 +49,12 @@ variable "dpa_dir" {
   type        = string
 }
 
+variable "identity_rotation" {
+  description = "The gcp root's secret_rotation. A change gives SurrealDB a new init Secret (latest password versions) and restarts it."
+  type        = string
+  default     = "1"
+}
+
 variable "clerk_jwt_public_key" {
   description = "Clerk's RS256 PEM public key (public, not a secret). Empty until Clerk is set up (task 0.5): the migration then removes DEFINE ACCESS clerk, so no person sessions."
   type        = string

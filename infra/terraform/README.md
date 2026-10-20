@@ -15,6 +15,7 @@ modules/
   gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run
   cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
   db-migration/ the D14 migration bundle and Job name (no providers; `terraform test` offline)
+  db-identity/ SurrealDB's identity config: init Secret names, restart hash (same)
 live/dev/      one root per concern, applied in this order:
   bootstrap/   developer only (needs billing permissions)        state: dev/bootstrap
   gcp/         developer or the manual GitHub workflow            state: dev/gcp
@@ -67,12 +68,22 @@ are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes
 
 | Workflow              | When                                       | Identity                                    | Changes the cloud?       |
 | --------------------- | ------------------------------------------ | ------------------------------------------- | ------------------------ |
-| `terraform-plan.yml`  | automatically on PRs/pushes touching infra | `tf-planner`: read-only, any workflow here  | No                       |
+| `terraform-plan.yml`  | automatically on PRs/pushes touching infra | `tf-planner`: read-only, any workflow here  | No (`cluster`: no plan)  |
 | `terraform-apply.yml` | **manual** Run workflow on `main`          | `tf-deployer`: only that workflow, manually | Yes                      |
 | `images.yml`          | pushes to `main` that affect a service     | `ci-image-pusher`: only `main` pushes       | Pushes to `apps`         |
 | `snapshot-images.yml` | **manual** Run workflow, any branch        | `ci-snapshot-pusher`: only that workflow    | Pushes to `apps-scratch` |
 
 All keyless (Workload Identity Federation, limited to this repository's ID; forks get nothing).
+
+**The `cluster` root isn't planned automatically.** Its kustomization diffs are server-side dry
+runs, and Kubernetes authorises a dry run exactly like the real write, so a planner that could
+plan it could also write in the cluster. The planner stays read-only instead. Every PR gets
+render-only checks that fail the run on any error: `terraform fmt`, `validate` of every root,
+`terraform test` of `modules/db-migration` and `modules/db-identity` (offline), and every
+Kustomize overlay rendered and checked with kubeconform. `ci.yml` runs the database
+integration suite. The real `cluster` plan is the deliberate one: the manual apply workflow
+(`tf-deployer`, shown before you approve) or your own machine. Locally:
+`terraform -chdir=infra/terraform/modules/<db-migration|db-identity> init -backend=false && … test`.
 
 The manual apply has two jobs. **plan** runs a full-refresh plan, shows it in the run summary and
 saves it in the state bucket. **apply** waits for approval of the `dev` environment, then applies

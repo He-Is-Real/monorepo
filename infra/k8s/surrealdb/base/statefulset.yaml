@@ -30,6 +30,10 @@ spec:
           args:
             - start
             - --log=info
+            # Startup init (init.surql.tmpl): system users, service logins, removal of old
+            # users. Runs on every start before the server answers anything, so a restart
+            # with a new init is also the moment every older session ends (D13 B cutover).
+            - --import-file=/init/init.surql
             - rocksdb:///data/surreal.db
           env:
             # Durability: fsync every commit before acknowledging it, so an
@@ -77,11 +81,20 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: init
+              mountPath: /init
+              readOnly: true
             - name: logs
               mountPath: /logs
             - name: tmp
               mountPath: /tmp
       volumes:
+        # On GKE, Terraform points this at surrealdb-init-<identity hash> and puts the same hash
+        # in a pod annotation: a new init config restarts the pod, which can only start once
+        # External Secrets Operator has rendered that new Secret (never a stale one).
+        - name: init
+          secret:
+            secretName: surrealdb-init
         - name: logs
           emptyDir: {}
         - name: tmp

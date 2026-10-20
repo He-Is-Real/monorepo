@@ -6,8 +6,10 @@
  *
  *   - every *.surql in libs/database/schema and libs/database/schema/data (flattened), and the
  *     runner, libs/database/schema/migrate.py;
- *   - params.json: dpa_v1_sha256 / legacy_sha256 = sha256 of libs/legal/dpa/{v1,legacy-squarespace}.md
- *     (null if the file doesn't exist yet), clerk_jwt_public_key = the PEM file given, or null.
+ *   - params.json: dpa_sha256 = { <id>: sha256 of libs/legal/dpa/<id>.md } for every file there,
+ *     dpa_v1_sha256 / legacy_sha256 = the same for v1 and legacy-squarespace (null if missing),
+ *     clerk_jwt_public_key = the PEM file given, or null, and generation = now (the fence).
+ *     No identity_hash: locally, restart SurrealDB yourself after changing the init Secret.
  *
  * It then deletes a finished surrealdb-migrate Job so that re-applying the overlay runs it again:
  *
@@ -18,7 +20,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -56,17 +58,26 @@ const surql = (dir) =>
   readdirSync(dir)
     .filter((f) => f.endsWith('.surql'))
     .map((f) => [f, readFileSync(join(dir, f), 'utf8')]);
-const fileSha256 = (path) =>
-  existsSync(path)
-    ? createHash('sha256').update(readFileSync(path)).digest('hex')
-    : null;
+const dpaSha256 = Object.fromEntries(
+  readdirSync(dpaDir)
+    .filter((f) => f.endsWith('.md'))
+    .map((f) => [
+      f.slice(0, -'.md'.length),
+      createHash('sha256')
+        .update(readFileSync(join(dpaDir, f)))
+        .digest('hex'),
+    ]),
+);
 const clerkKeyFile = args['clerk-public-key-file'];
 const params = {
   clerk_jwt_public_key: clerkKeyFile
     ? readFileSync(clerkKeyFile, 'utf8')
     : null,
-  dpa_v1_sha256: fileSha256(join(dpaDir, 'v1.md')),
-  legacy_sha256: fileSha256(join(dpaDir, 'legacy-squarespace.md')),
+  dpa_v1_sha256: dpaSha256['v1'] ?? null,
+  legacy_sha256: dpaSha256['legacy-squarespace'] ?? null,
+  dpa_sha256: dpaSha256,
+  identity_hash: null,
+  generation: new Date().toISOString(),
 };
 if (params.clerk_jwt_public_key?.includes('PRIVATE KEY')) {
   console.error('That is a private key: pass the PEM *public* key only.');

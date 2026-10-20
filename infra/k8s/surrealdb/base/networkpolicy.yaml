@@ -19,7 +19,7 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
-        # The init and migrate Jobs and the backup CronJob. Same namespace only: a pod elsewhere
+        # The migrate Job and the backup CronJob. Same namespace only: a pod elsewhere
         # can't get in just by setting this label. Clients in other namespaces
         # (e.g. workflow in M7) get their own rule naming their namespace.
         - podSelector:

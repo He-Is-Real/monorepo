@@ -32,14 +32,28 @@
 DEFINE TABLE OVERWRITE _migration SCHEMAFULL PERMISSIONS NONE; -- id = _migration:`0001-seed-dpa-v1`
 DEFINE FIELD OVERWRITE appliedAt ON _migration TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE FIELD OVERWRITE checksum  ON _migration TYPE string ASSERT string::len($value) = 64 READONLY;
+-- The generation fence: the bundle generation (a time Terraform fixes when the bundle changes)
+-- that last took over. A runner refuses to start below it and every transaction it runs writes
+-- this row, so overlapping runners conflict instead of interleaving (migrate.py).
+DEFINE TABLE OVERWRITE _migrationRun SCHEMAFULL PERMISSIONS NONE; -- id = _migrationRun:current
+DEFINE FIELD OVERWRITE generation ON _migrationRun TYPE datetime;
+DEFINE FIELD OVERWRITE bundle     ON _migrationRun TYPE string;   -- sha256 of the bundle's files
+DEFINE FIELD OVERWRITE startedAt  ON _migrationRun TYPE datetime;
+DEFINE FIELD OVERWRITE touchedAt  ON _migrationRun TYPE option<datetime>;
+-- Written by SurrealDB's startup init (init.surql.tmpl): the identity config the running server
+-- started with. The migrate Job waits for the expected hash, i.e. for the restart that removed
+-- old system users and ended their sessions. Same definition as there.
+DEFINE TABLE OVERWRITE _identity SCHEMAFULL PERMISSIONS NONE;     -- id = _identity:current
+DEFINE FIELD OVERWRITE hash      ON _identity TYPE string;
+DEFINE FIELD OVERWRITE appliedAt ON _identity TYPE datetime;
 
 -- ---------------------------------------------------------------- identities (D13 B, D27 B)
 -- Services sign in as `service` records: service:api_public_read, :api_user, :api_admin,
--- :workflow. The init Job (root) writes their argon2 secret hashes from the Secret Manager
+-- :workflow. SurrealDB's startup init writes their argon2 secret hashes from the Secret Manager
 -- passwords (infra/k8s/surrealdb/base/init.surql.tmpl); the migrator never sees them. People
 -- reach SurrealDB only through api-user, in a session opened with their own Clerk token
 -- (DEFINE ACCESS clerk, access-clerk.surql). In-cluster system users remain: migrator (OWNER,
--- schema + seeds) and backup (VIEWER, nightly export); the init Job removes any other.
+-- schema + seeds) and backup (VIEWER, nightly export); the startup init removes any other.
 DEFINE TABLE OVERWRITE service SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD OVERWRITE secretHash ON service TYPE string;
 -- Re-defining svc generates a new signing key (no KEY given: a fixed one would be a secret).
