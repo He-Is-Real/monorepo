@@ -5,6 +5,7 @@ import {
   createPeople,
   grantAll,
   LEGACY_SHA256,
+  seedLegacyDpaFixture,
   outcome,
   publishDpa,
   rows,
@@ -54,6 +55,7 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
 
   beforeAll(async () => {
     t = await TestDatabase.create();
+    await seedLegacyDpaFixture(t); // the D22 rules below; seed 0002 is gone (D44)
     migrator = await t.migrator();
     admin = await t.service('api_admin');
     await createPeople(t, {

@@ -32,17 +32,22 @@
 DEFINE TABLE OVERWRITE _migration SCHEMAFULL PERMISSIONS NONE; -- id = _migration:`0001-seed-dpa-v1`
 DEFINE FIELD OVERWRITE appliedAt ON _migration TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE FIELD OVERWRITE checksum  ON _migration TYPE string ASSERT string::len($value) = 64 READONLY;
--- The generation fence: the bundle generation (a time Terraform fixes when the bundle changes)
--- that last took over. A runner refuses to start below it and every transaction it runs writes
--- this row, so overlapping runners conflict instead of interleaving (migrate.py).
-DEFINE TABLE OVERWRITE _migrationRun SCHEMAFULL PERMISSIONS NONE; -- id = _migrationRun:current
-DEFINE FIELD OVERWRITE generation ON _migrationRun TYPE datetime;
-DEFINE FIELD OVERWRITE bundle     ON _migrationRun TYPE string;   -- sha256 of the bundle's files
-DEFINE FIELD OVERWRITE startedAt  ON _migrationRun TYPE datetime;
-DEFINE FIELD OVERWRITE touchedAt  ON _migrationRun TYPE option<datetime>;
--- Written by SurrealDB's startup init (init.surql.tmpl): the identity config the running server
--- started with. The migrate Job waits for the expected hash, i.e. for the restart that removed
--- old system users and ended their sessions. Same definition as there.
+-- Fencing token (migrate.py): each run takes the next token; every mutating step checks it is
+-- still the newest and writes this row, so a run that started later always wins.
+DEFINE TABLE OVERWRITE _migrationRun SCHEMAFULL PERMISSIONS NONE;     -- id = _migrationRun:lock
+DEFINE FIELD OVERWRITE token     ON _migrationRun TYPE int;
+DEFINE FIELD OVERWRITE bundle    ON _migrationRun TYPE string;          -- sha256 of files + parameters
+DEFINE FIELD OVERWRITE takenAt   ON _migrationRun TYPE datetime;
+DEFINE FIELD OVERWRITE touchedAt ON _migrationRun TYPE option<datetime>;
+-- A step in progress: committed before the step, deleted as the step's last write. A row left
+-- behind means the step may have committed partly: migrations stop until an operator clears it.
+DEFINE TABLE OVERWRITE _migrationPending SCHEMAFULL PERMISSIONS NONE; -- id = the step
+DEFINE FIELD OVERWRITE token     ON _migrationPending TYPE int;
+DEFINE FIELD OVERWRITE startedAt ON _migrationPending TYPE datetime;
+-- _identity:current is written by SurrealDB's startup init (init.surql.tmpl), last in its
+-- transaction: the identity config the running server started with. _identity:verified is
+-- written by the identity-check sidecar once it has signed in with the intended credentials;
+-- the migrate Job waits for it. Same definition as in the init.
 DEFINE TABLE OVERWRITE _identity SCHEMAFULL PERMISSIONS NONE;     -- id = _identity:current
 DEFINE FIELD OVERWRITE hash      ON _identity TYPE string;
 DEFINE FIELD OVERWRITE appliedAt ON _identity TYPE datetime;
@@ -351,7 +356,7 @@ DEFINE TABLE OVERWRITE dpaVersion SCHEMAFULL PERMISSIONS        -- id = dpaVersi
   FOR create, update WHERE $auth.id = service:api_admin,
   FOR delete NONE;
 DEFINE FIELD OVERWRITE kind          ON dpaVersion TYPE string DEFAULT 'standard'
-  ASSERT $value IN ['standard', 'legacy'];                    -- D22: dpaVersion:legacy-squarespace
+  ASSERT $value IN ['standard', 'legacy'];                    -- 'legacy': D22's rules, until the M1 import (D44)
 DEFINE FIELD OVERWRITE status        ON dpaVersion TYPE string DEFAULT 'draft'
   ASSERT $value IN ['draft', 'published'];
 DEFINE FIELD OVERWRITE materiality   ON dpaVersion TYPE string ASSERT $value IN ['minor', 'material'];

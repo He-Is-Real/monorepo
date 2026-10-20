@@ -35,7 +35,8 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   dpaVersion: 'none',
   service: 'none',
   _migration: 'none',
-  _migrationRun: 'none', // the migration generation fence
+  _migrationRun: 'none', // the migration fencing token
+  _migrationPending: 'none', // a migration step in progress
   _identity: 'none', // the identity config SurrealDB started with
 };
 

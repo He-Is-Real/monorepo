@@ -42,12 +42,6 @@ variable "identity_hash" {
   default     = null
 }
 
-variable "generation" {
-  description = "The generation fence (RFC 3339 UTC), fixed when the bundle changes. Injected into the Job after hashing, so it never changes the name."
-  type        = string
-  default     = null
-}
-
 variable "job_template" {
   description = "The rendered surrealdb-migrate Job from the Kustomize overlay (decoded)."
   type        = any
@@ -57,14 +51,11 @@ locals {
   top_files  = fileset(var.schema_dir, "*.surql")
   data_files = fileset("${var.schema_dir}/data", "*.surql")
 
-  # Every DPA text, keyed by its dpaVersion id (dpa-sync.surql); the seeds' own parameters are
-  # the same hashes, null while the file doesn't exist (the runner then holds the seed back).
+  # Every DPA text, keyed by its dpaVersion id (0001 and dpa-sync.surql use it).
   dpa_sha256 = { for f in fileset(var.dpa_dir, "*.md") : trimsuffix(f, ".md") => filesha256("${var.dpa_dir}/${f}") }
 
   params = {
     clerk_jwt_public_key = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
-    dpa_v1_sha256        = lookup(local.dpa_sha256, "v1", null)
-    legacy_sha256        = lookup(local.dpa_sha256, "legacy-squarespace", null)
     dpa_sha256           = local.dpa_sha256
     identity_hash        = var.identity_hash
   }
@@ -82,13 +73,6 @@ locals {
   job_name        = "surrealdb-migrate-${local.hash}"
 
   template_spec = var.job_template.spec.template.spec
-
-  # Data scripts the runner will hold back (with every later one) because a parameter they use
-  # is null; same rule as migrate.py.
-  held_back = sort([
-    for f in local.data_files : trimsuffix(f, ".surql")
-    if anytrue([for p, v in local.params : v == null && can(regex(format("\\$%s\\b", p), local.bundle[f]))])
-  ])
 }
 
 output "hash" {
@@ -102,10 +86,6 @@ output "job_name" {
 output "params" {
   description = "What the runner gets (all public: hashes and a public key)."
   value       = local.params
-}
-
-output "held_back" {
-  value = local.held_back
 }
 
 output "config_map" {
@@ -145,13 +125,6 @@ output "job" {
     spec = merge(var.job_template.spec, {
       template = merge(var.job_template.spec.template, {
         spec = merge(local.template_spec, {
-          containers = [
-            for c in local.template_spec.containers : merge(c, {
-              env = concat(try(c.env, []), [
-                for g in compact([var.generation]) : { name = "MIGRATE_GENERATION", value = g }
-              ])
-            })
-          ]
           volumes = [
             for v in local.template_spec.volumes :
             v.name == "migration" ? merge(v, { configMap = merge(v.configMap, { name = local.config_map_name }) }) : v

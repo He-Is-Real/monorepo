@@ -1,1 +1,1 @@
-CREATE t:two SET h = $legacy_sha256;
+CREATE t:two SET h = $dpa_sha256.v1;

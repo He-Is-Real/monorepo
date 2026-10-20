@@ -2,7 +2,9 @@
 # short-lived OIDC token per job; Google exchanges it for a short-lived token of
 # one of three service accounts, depending on *what* the job is:
 #
-#   tf-planner          any workflow in this repo              read-only; automatic plans
+#   tf-planner          any workflow in this repo              read-only; automatic gcp plans
+#   tf-cluster-planner  terraform-plan.yml, environment        dry-run writes in the database
+#                       cluster-plan (maintainer-approved)     namespace; automatic cluster plans
 #   ci-image-pusher     images.yml on a push to main          push to apps
 #   ci-snapshot-pusher  manual snapshot-images.yml, any branch push to apps-scratch only
 #   tf-deployer         manual terraform-apply.yml on main     manual applies
@@ -42,6 +44,19 @@ resource "google_iam_workload_identity_pool_provider" "github" {
       " && assertion.workflow_ref.startsWith('${var.github_repository}/.github/workflows/snapshot-images.yml@'))",
       " ? 'allowed' : 'denied'",
     ])
+    # D42: the cluster plan's server-side dry runs need create/patch in the database namespace
+    # (Kubernetes authorises a dry run like the real write), so this gate is narrow: the
+    # protected `cluster-plan` environment (maintainer approval, configured in GitHub), the plan
+    # workflow file, and a pull request or a push to main. Forks get no OIDC token at all.
+    # has(): other workflows' tokens have no environment claim.
+    "attribute.cluster_plan_gate" = join("", [
+      "(has(assertion.environment) && assertion.environment == 'cluster-plan'",
+      " && assertion.repository == '${var.github_repository}'",
+      " && assertion.job_workflow_ref.startsWith('${var.github_repository}/.github/workflows/terraform-plan.yml@')",
+      " && (assertion.event_name == 'pull_request'",
+      "     || (assertion.event_name == 'push' && assertion.ref == 'refs/heads/main')))",
+      " ? 'allowed' : 'denied'",
+    ])
     "attribute.deploy_gate" = join("", [
       "(assertion.ref == 'refs/heads/main' && assertion.event_name == 'workflow_dispatch'",
       " && assertion.job_workflow_ref == '${var.github_repository}/.github/workflows/terraform-apply.yml@refs/heads/main')",
@@ -79,6 +94,31 @@ resource "google_service_account_iam_member" "tf_planner_wif" {
   service_account_id = google_service_account.tf_planner.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "${local.pool}/attribute.repository/${var.github_repository}"
+}
+
+# --- cluster planner: automatic cluster plans (D42) ------------------------
+# Separate from tf-planner because it can create and change objects in the
+# `database` namespace: the dry-run RBAC (modules/cluster/planner_rbac.tf)
+# can't tell a dry run from a real write, so treat this identity as having
+# apply rights there. It gets no project-wide write role, can't read Secrets
+# (container.viewer excludes them) or secret values, and only the
+# cluster_plan_gate above can impersonate it.
+resource "google_service_account" "tf_cluster_planner" {
+  project      = google_project.this.project_id
+  account_id   = "tf-cluster-planner"
+  display_name = "Terraform cluster planner (CI, cluster-plan environment)"
+}
+
+resource "google_project_iam_member" "tf_cluster_planner" {
+  project = google_project.this.project_id
+  role    = "roles/container.viewer" # reach the cluster, read objects (not Secrets)
+  member  = google_service_account.tf_cluster_planner.member
+}
+
+resource "google_service_account_iam_member" "tf_cluster_planner_wif" {
+  service_account_id = google_service_account.tf_cluster_planner.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "${local.pool}/attribute.cluster_plan_gate/allowed"
 }
 
 # --- image pusher: push to main only ---------------------------------------

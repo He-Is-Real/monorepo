@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,26 +10,25 @@ import { pinnedSurrealImage } from './support/global-setup';
 import {
   createPeople,
   DPA_V1_SHA256,
-  LEGACY_SHA256,
   type MigrationRun,
-  nextGeneration,
   outcome,
-  RUNNER,
   rows,
   run,
   SCHEMA_DIR,
   SERVICES,
+  type ServiceName,
   sha256,
   TestDatabase,
 } from './support/harness';
 
 /**
  * D14 + the D13 B cutover, with the files they ship with: libs/database/schema through the Job's
- * runner (libs/database/schema/migrate.py), and infra/k8s/surrealdb/base/init.surql.tmpl rendered
- * the way External Secrets Operator renders it, with the identity marker Terraform appends. On
- * the shared test server the init runs as root over /sql (what `surreal start --import-file`
- * does, without the restart); the cutover suite at the end restarts a dedicated container with
- * --import-file, exactly as the StatefulSet does.
+ * runner (libs/database/schema/migrate.py), infra/k8s/surrealdb/base/init.surql.tmpl rendered the
+ * way External Secrets Operator renders it (with the identity marker Terraform substitutes), and
+ * infra/k8s/surrealdb/base/identity_check.py, the readiness check of the identity-check sidecar.
+ * On the shared test server the init runs as root over /sql (what `surreal start --import-file`
+ * does, without the restart); the last suite restarts a dedicated container with --import-file,
+ * exactly as the StatefulSet does.
  */
 
 const INIT_TEMPLATE = join(
@@ -41,44 +40,53 @@ const JOB_ENV = {
   MIGRATE_EXPECT_USERS: 'backup,migrator',
   MIGRATE_EXPECT_SERVICES: SERVICES.join(','),
 };
-const SEEDS = ['0001-seed-dpa-v1', '0002-seed-legacy-dpa'];
-
-/** The line Terraform appends to the init template (modules/db-identity). */
-const identityMarker = (hash: string) =>
-  `\nUPSERT _identity:current SET hash = ${JSON.stringify(hash)}, appliedAt = time::now() RETURN NONE;\n`;
+const SEEDS = ['0001-seed-dpa-v1'];
+const CODEX_EXAMPLES = [
+  'LET $x = [RETURN 17];',
+  'IF true THEN RETURN 17 END;',
+  'LET $x = 1 + RETURN 17;',
+];
 
 /**
- * ESO's rendering of init.surql.tmpl ({{ .key | toJson }}), plus Terraform's identity marker.
- * On the shared server it goes in the test's namespace.
+ * ESO's rendering of init.surql.tmpl ({{ .key | toJson }}) and, given a hash, Terraform's
+ * identity marker in place of the `-- @identity-marker` line (modules/db-identity). On the shared
+ * server it goes in the test's namespace. `breakApiUser` injects a runtime error into the
+ * api_user hash assignment (Codex's fault probe).
  */
 async function renderInit(
   t: TestDatabase,
-  passwords: Record<string, string>,
   identityHash?: string,
+  { breakApiUser = false, namespace = t.namespace } = {},
 ): Promise<string> {
-  const template = await readFile(INIT_TEMPLATE, 'utf8');
-  return (
-    template
-      .replace(/\{\{\s*\.(\w+)\s*\|\s*toJson\s*\}\}/g, (_, key: string) => {
-        if (!(key in passwords)) throw new Error(`no value for ${key}`);
-        return JSON.stringify(passwords[key]);
-      })
-      .replace(/\bheisreal\b/g, t.namespace) +
-    (identityHash ? identityMarker(identityHash) : '')
-  );
-}
-
-/** Runs the init as root, as the server's startup import does (no OPTION IMPORT). */
-async function initAsRoot(t: TestDatabase, sql: string): Promise<void> {
-  await run(await t.root(), sql);
-}
-
-function initPasswords(t: TestDatabase): Record<string, string> {
-  return {
+  const passwords: Record<string, string> = {
     ...Object.fromEntries(t.servicePasswords),
     migrator: t.migratorPassword,
     backup: t.backupPassword,
   };
+  let text = (await readFile(INIT_TEMPLATE, 'utf8'))
+    .replace(/\{\{\s*\.(\w+)\s*\|\s*toJson\s*\}\}/g, (_, key: string) => {
+      if (!(key in passwords)) throw new Error(`no value for ${key}`);
+      return JSON.stringify(passwords[key]);
+    })
+    .replace(/\bheisreal\b/g, namespace);
+  if (identityHash) {
+    text = text.replace(
+      '-- @identity-marker',
+      `UPSERT _identity:current SET hash = ${JSON.stringify(identityHash)}, appliedAt = time::now();`,
+    );
+  }
+  if (breakApiUser) {
+    text = text.replace(
+      /(UPSERT service:api_user\s+SET secretHash = )crypto::argon2::generate\([^)]*\)/,
+      '$1<int> "not a number"',
+    );
+  }
+  return text;
+}
+
+/** Runs the init as root, as the server's startup import does. Returns whether it committed. */
+async function initAsRoot(t: TestDatabase, sql: string): Promise<boolean> {
+  return (await outcome(await t.root(), sql)).ok;
 }
 
 const bundles: string[] = [];
@@ -106,21 +114,40 @@ async function withScratchTable(): Promise<string> {
     'schema.surql': `${schema}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
   });
 }
-const scratchTableExists = async (t: TestDatabase) => {
+async function tables(t: TestDatabase): Promise<Record<string, string>> {
   const [info] = await rows<{ tables: Record<string, string> }>(
     await t.migrator(),
     'INFO FOR DB',
   );
-  return 'scratch_marker' in info.tables;
-};
-
+  return info.tables;
+}
+const scratchTableExists = async (t: TestDatabase) =>
+  'scratch_marker' in (await tables(t));
 const appliedIds = async (t: TestDatabase) =>
   rows(
     await t.migrator(),
     'SELECT VALUE record::id(id) FROM _migration ORDER BY id',
   );
+const pendingSteps = async (t: TestDatabase) =>
+  '_migrationPending' in (await tables(t))
+    ? rows(
+        await t.migrator(),
+        'SELECT VALUE record::id(id) FROM _migrationPending',
+      )
+    : [];
+const tagIds = async (t: TestDatabase, ...ids: string[]) =>
+  (
+    await rows<string>(
+      await t.migrator(),
+      `SELECT VALUE record::id(id) FROM ${ids.map((i) => `tag:${i}`).join(', ')}`,
+    )
+  ).sort();
+const tag = (id: string) =>
+  `CREATE tag:${id} SET name = '${id}', category = 'theme';\n`;
 
-describe('init + migrate on an empty database', () => {
+// ---------------------------------------------------------------- identities (D13 B)
+
+describe('init + identity check + migrate on an empty database', () => {
   let t: TestDatabase;
   let first: MigrationRun;
   let oldEditor: Surreal;
@@ -144,24 +171,29 @@ describe('init + migrate on an empty database', () => {
       );
     }
     oldEditor = await t.systemUser('api_admin', old['api_admin']); // opened before the init
-    await initAsRoot(t, await renderInit(t, initPasswords(t), 'config-1'));
+    expect(await initAsRoot(t, await renderInit(t, 'config-1'))).toBe(true);
+    expect(await t.identityCheck(t.credentials(), 'config-1')).toMatchObject({
+      ready: true,
+    });
     first = await t.runMigration(t.params({ identity_hash: 'config-1' }), {
       env: JOB_ENV,
     });
   });
   afterAll(() => t?.close());
 
-  it('migrates, and the Job’s identity check passes', () => {
+  it('migrates once the identity config is verified', () => {
     expect(first.exitCode).toBe(0);
+    expect(first.output).toContain(
+      'identities: as expected (identity config config-1 verified)',
+    );
     expect(first.summary).toMatchObject({
       clerk: true,
       applied: SEEDS,
       alreadyApplied: [],
-      heldBack: [],
     });
   });
 
-  it('records every data script once, with its checksum, in _migration', async () => {
+  it('records every data script once, with its checksum, and leaves no pending step', async () => {
     const recorded = await rows<{ id: string; checksum: string }>(
       await t.migrator(),
       'SELECT record::id(id) AS id, checksum FROM _migration ORDER BY id',
@@ -176,6 +208,7 @@ describe('init + migrate on an empty database', () => {
         })),
       ),
     );
+    expect(await pendingSteps(t)).toEqual([]);
   });
 
   it('leaves only the migrator and backup system users', async () => {
@@ -190,10 +223,7 @@ describe('init + migrate on an empty database', () => {
     // Fails when an upgrade makes REMOVE USER end sessions; the restart-based cutover (last
     // suite) is what ends them on 3.2.4.
     expect(
-      await rows(
-        oldEditor,
-        'SELECT VALUE record::id(id) FROM _migration ORDER BY id',
-      ),
+      await rows(oldEditor, 'SELECT VALUE record::id(id) FROM _migration'),
     ).toEqual(SEEDS); // an EDITOR reads a PERMISSIONS NONE table
   });
 
@@ -232,9 +262,8 @@ describe('init + migrate on an empty database', () => {
       expect(await rows(db, 'RETURN $auth')).toEqual([
         'service:api_public_read',
       ]);
-      expect(
-        await rows(db, 'SELECT VALUE record::id(id) FROM dpaVersion'),
-      ).toEqual(['legacy-squarespace']); // published only: the draft v1 is invisible to it
+      // The only DPA version is the draft v1, which the public can't see.
+      expect(await rows(db, 'SELECT VALUE id FROM dpaVersion')).toEqual([]);
     } finally {
       await db.close();
     }
@@ -242,19 +271,17 @@ describe('init + migrate on an empty database', () => {
 
   it('backup is a read-only system user', async () => {
     const backup = await t.systemUser('backup', t.backupPassword);
-    expect((await rows(backup, 'SELECT VALUE id FROM dpaVersion')).length).toBe(
-      2,
-    );
-    await outcome(backup, `CREATE tag:x SET name = 'x', category = 'theme'`); // refused or a no-op
-    expect(
-      await rows(await t.migrator(), 'SELECT VALUE id FROM tag:x'),
-    ).toEqual([]);
+    expect(await rows(backup, 'SELECT VALUE id FROM dpaVersion')).toEqual([
+      'dpaVersion:v1',
+    ]);
+    await outcome(backup, tag('x')); // refused or a no-op
+    expect(await tagIds(t, 'x')).toEqual([]);
   });
 
   it('a second run is a no-op: same schema, no script re-run, data and sessions intact', async () => {
     const migrator = await t.migrator();
     const admin = await t.service('api_admin'); // a WebSocket session opened before
-    await run(admin, `CREATE tag:kept SET name = 'Kept', category = 'theme'`);
+    await run(admin, tag('kept'));
     const before = {
       info: await rows(migrator, 'INFO FOR DB'),
       migrations: await rows(migrator, 'SELECT * FROM _migration ORDER BY id'),
@@ -266,7 +293,11 @@ describe('init + migrate on an empty database', () => {
       { env: JOB_ENV },
     );
     expect(again.exitCode).toBe(0);
-    expect(again.summary).toMatchObject({ applied: [], alreadyApplied: SEEDS });
+    expect(again.summary).toMatchObject({
+      applied: [],
+      alreadyApplied: SEEDS,
+      token: (first.summary?.token ?? 0) + 1,
+    });
 
     expect(await rows(migrator, 'INFO FOR DB')).toEqual(before.info);
     expect(
@@ -276,19 +307,116 @@ describe('init + migrate on an empty database', () => {
       await rows(migrator, 'SELECT * FROM dpaVersion ORDER BY id'),
     ).toEqual(before.dpa);
     expect(await rows(admin, 'SELECT VALUE name FROM tag:kept')).toEqual([
-      'Kept',
+      'kept',
     ]);
   });
 
-  it('re-running init rotates a service password', async () => {
+  it('re-running the init rotates a service password, and the check verifies the new one', async () => {
     const previous = t.servicePasswords.get('api_user') as string;
-    const rotated = randomBytes(18).toString('hex');
-    t.servicePasswords.set('api_user', rotated);
-    await initAsRoot(t, await renderInit(t, initPasswords(t), 'config-2'));
+    t.servicePasswords.set('api_user', randomBytes(18).toString('hex'));
+    expect(await initAsRoot(t, await renderInit(t, 'config-2'))).toBe(true);
     await expect(t.service('api_user', previous)).rejects.toThrow();
     expect(await rows(await t.service('api_user'), 'RETURN $auth')).toEqual([
       'service:api_user',
     ]);
+    expect(await t.identityCheck(t.credentials(), 'config-2')).toMatchObject({
+      ready: true,
+    });
+    expect(
+      await rows(
+        await t.migrator(),
+        'SELECT VALUE hash FROM _identity:verified',
+      ),
+    ).toEqual(['config-2']);
+  });
+});
+
+describe('P2: a failed startup init fails closed', () => {
+  let t: TestDatabase;
+  let oldPasswords: Map<ServiceName, string>;
+  beforeAll(async () => {
+    t = await TestDatabase.create({ migrate: false });
+    expect(await initAsRoot(t, await renderInit(t, 'config-1'))).toBe(true);
+    await t.migrate(t.params());
+    expect(await t.identityCheck(t.credentials(), 'config-1')).toMatchObject({
+      ready: true,
+    });
+    oldPasswords = new Map(t.servicePasswords);
+  });
+  afterAll(() => t?.close());
+
+  it('a runtime error in a rotation keeps every old identity and no new marker, and the check stays not Ready', async () => {
+    // Rotate every service password, with an error injected into api_user's new hash.
+    for (const name of SERVICES) {
+      t.servicePasswords.set(name, randomBytes(18).toString('hex'));
+    }
+    const sql = await renderInit(t, 'config-2', { breakApiUser: true });
+    expect(await initAsRoot(t, sql)).toBe(false);
+
+    const migrator = await t.migrator();
+    expect(
+      await rows(migrator, 'SELECT VALUE hash FROM _identity:current'),
+    ).toEqual(['config-1']);
+    // The whole transaction rolled back: old passwords still work, new ones don't.
+    for (const name of SERVICES) {
+      expect(
+        await rows(
+          await t.service(name, oldPasswords.get(name)),
+          'RETURN $auth',
+        ),
+      ).toEqual([`service:${name}`]);
+      await expect(t.service(name)).rejects.toThrow();
+    }
+
+    const check = await t.identityCheck(t.credentials(), 'config-2');
+    expect(check.ready).toBe(false);
+    expect(check.output).toContain('NOT READY');
+    for (const password of [
+      ...t.servicePasswords.values(),
+      t.migratorPassword,
+    ]) {
+      expect(check.output).not.toContain(password);
+    }
+    expect(
+      await rows(migrator, 'SELECT VALUE hash FROM _identity:verified'),
+    ).toEqual(['config-1']);
+
+    // The migrate Job waits for config-2 to be verified, and changes nothing.
+    const result = await t.runMigration(
+      t.params({ identity_hash: 'config-2' }),
+      {
+        env: { ...JOB_ENV, MIGRATE_WAIT_SECONDS: '1' },
+        bundleDir: await withScratchTable(),
+      },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain(
+      'identity config config-2 not verified yet',
+    );
+    expect(await scratchTableExists(t)).toBe(false);
+  });
+
+  it('is not Ready while an old system user remains or a password is wrong', async () => {
+    t.servicePasswords = new Map(oldPasswords);
+    expect(await t.identityCheck(t.credentials(), 'config-1')).toMatchObject({
+      ready: true,
+    });
+    const wrong = { ...t.credentials(), backup: 'not-the-password' };
+    expect(await t.identityCheck(wrong, 'config-1')).toMatchObject({
+      ready: false,
+      output: expect.stringContaining("backup can't sign in"),
+    });
+    await run(
+      await t.root(),
+      `USE NS ${t.namespace} DB ${t.database};
+       DEFINE USER api_admin ON DATABASE PASSWORD 'x' ROLES EDITOR;`,
+    );
+    expect(await t.identityCheck(t.credentials(), 'config-1')).toMatchObject({
+      ready: false,
+      output: expect.stringContaining(
+        "system users are ['api_admin', 'backup', 'migrator']",
+      ),
+    });
   });
 });
 
@@ -313,27 +441,144 @@ describe('the Job’s identity check', () => {
       "system users are ['api_admin', 'migrator']",
     );
     expect(result.output).toContain('no service login yet');
-  });
-
-  it('waits for the restart with the expected identity config, and changes nothing until then', async () => {
-    await initAsRoot(t, await renderInit(t, initPasswords(t), 'config-old'));
-    const result = await t.runMigration(
-      t.params({ identity_hash: 'config-new' }),
-      {
-        env: { ...JOB_ENV, MIGRATE_WAIT_SECONDS: '1' },
-      },
-    );
-    expect(result.exitCode).toBe(1);
-    expect(result.output).toContain(
-      "SurrealDB hasn't restarted with identity config config-new yet (it has config-old)",
-    );
-    const [info] = await rows<{ tables: Record<string, string> }>(
-      await t.migrator(),
-      'INFO FOR DB',
-    );
-    expect(info.tables['story']).toBeUndefined(); // no schema applied
+    expect('story' in (await tables(t))).toBe(false); // nothing applied
   });
 });
+
+// ---------------------------------------------------------------- P1: the transaction guard
+
+describe('P1: scripts can never commit partly', () => {
+  let t: TestDatabase;
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+  });
+  afterAll(() => t?.close());
+
+  // On 3.2.4 each of these ends the transaction early (tested): data scripts may not contain
+  // the RETURN token at all; BEGIN/COMMIT/CANCEL nowhere; no OPTION statement.
+  it.each([
+    ...CODEX_EXAMPLES.map((x) => [`Codex: ${x}`, x, 'RETURN']),
+    ['an indented RETURN', '    RETURN 123;', 'RETURN'],
+    ['inline ; RETURN', `${tag('mid').trim()} RETURN 1;`, 'RETURN'],
+    ['RETURN in an IF block', 'IF true { RETURN 1 };', 'RETURN'],
+    [
+      'a RETURN NONE clause',
+      `CREATE tag:c SET name = 'c', category = 'theme' RETURN NONE;`,
+      'RETURN',
+    ],
+    [
+      'a function with RETURN',
+      'DEFINE FUNCTION OVERWRITE fn::x() { RETURN 1 };',
+      'RETURN',
+    ],
+    ['its own transaction', 'BEGIN TRANSACTION;', 'BEGIN'],
+    ['lower-case commit', 'commit;', 'COMMIT'],
+    ['CANCEL', 'CANCEL TRANSACTION;', 'CANCEL'],
+    ['OPTION IMPORT', 'OPTION IMPORT;', 'OPTION'],
+  ] as [string, string, string][])(
+    'refuses %s before anything runs: no writes, no marker',
+    async (_, middle, word) => {
+      const result = await t.runMigration(t.params(), {
+        bundleDir: await bundleWith({
+          'data/0009-refused.surql': `${tag('before')}${middle}\n${tag('after')}`,
+        }),
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.output).toContain(word);
+      expect(result.output).toContain('nothing was run');
+      expect(await tagIds(t, 'before', 'after')).toEqual([]);
+      expect(await appliedIds(t)).toEqual(SEEDS);
+      expect(await pendingSteps(t)).toEqual([]);
+    },
+  );
+
+  it('allows the RETURN word in strings, comments and ids, and BREAK (tested harmless)', async () => {
+    const text = [
+      `CREATE tag:s SET name = 'RETURN 1; COMMIT;', category = 'theme';`,
+      '-- RETURN 1;',
+      '// RETURN 1;',
+      '# COMMIT;',
+      '/* BEGIN; RETURN 1; */',
+      `CREATE tag:⟨RETURN; x⟩ SET name = "it\\"s; RETURN", category = 'theme';`,
+      'FOR $i IN [1, 2] { IF $i = 2 { BREAK }; };',
+      tag('last'),
+    ].join('\n');
+    expect(
+      await t.migrate(t.params(), {
+        bundleDir: await bundleWith({ 'data/0006-allowed.surql': text }),
+      }),
+    ).toMatchObject({ applied: ['0006-allowed'] });
+    expect(await tagIds(t, 'last')).toEqual(['last']);
+  });
+
+  it('schema files are DDL only; RETURN only inside a DEFINE (tested contained)', async () => {
+    const schema = await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
+    const dml = await t.runMigration(t.params(), {
+      bundleDir: await bundleWith({
+        'schema.surql': `${schema}\n${tag('in_schema')}`,
+      }),
+    });
+    expect(dml.exitCode).toBe(2);
+    expect(dml.output).toContain('CREATE statement (only DEFINE/REMOVE here)');
+    expect(await tagIds(t, 'in_schema')).toEqual([]);
+
+    expect(
+      (
+        await t.runMigration(t.params(), {
+          bundleDir: await bundleWith({
+            'schema.surql': `${schema}\nDEFINE FUNCTION OVERWRITE fn::scratch::one() { RETURN 1; };\n`,
+          }),
+        })
+      ).exitCode,
+    ).toBe(0);
+  });
+
+  it('defence in depth: a RETURN that got past the grammar fails loudly and blocks every later run', async () => {
+    const leaky = `${tag('dd_before')}${CODEX_EXAMPLES[0]}\n${tag('dd_after')}`;
+    const bypassed = await t.runMigration(t.params(), {
+      bundleDir: await bundleWith({ 'data/0007-leaky.surql': leaky }),
+      bypassGrammar: true,
+    });
+    expect(bypassed.exitCode).toBe(3);
+    expect(bypassed.output).toContain(
+      'PARTIAL COMMIT POSSIBLE, MANUAL RECOVERY NEEDED',
+    );
+    // What 3.2.4 committed before the early exit stays; the rest and the marker don't.
+    expect(await tagIds(t, 'dd_before', 'dd_after')).toEqual(['dd_before']);
+    expect(await appliedIds(t)).not.toContain('0007-leaky');
+    expect(await pendingSteps(t)).toEqual(['0007-leaky']);
+
+    // A retry, even with the script fixed, refuses to start: it can't mark 0007 as done.
+    const retry = await t.runMigration(t.params(), {
+      bundleDir: await bundleWith({
+        'data/0007-leaky.surql': `${tag('dd_before')}${tag('dd_after')}`,
+      }),
+      env: { MIGRATE_PENDING_WAIT_SECONDS: '1' },
+    });
+    expect(retry.exitCode).toBe(3);
+    expect(retry.output).toContain('blocked: unfinished step(s) 0007-leaky');
+    expect(await appliedIds(t)).not.toContain('0007-leaky');
+
+    // The operator checks the data, undoes the partial write, clears the row (README).
+    await run(
+      await t.migrator(),
+      'DELETE tag:dd_before; DELETE _migrationPending:⟨0007-leaky⟩;',
+    );
+    expect(
+      await t.migrate(t.params(), {
+        bundleDir: await bundleWith({
+          'data/0007-leaky.surql': `${tag('dd_before')}${tag('dd_after')}`,
+        }),
+      }),
+    ).toMatchObject({ applied: ['0007-leaky'] });
+    expect(await tagIds(t, 'dd_before', 'dd_after')).toEqual([
+      'dd_after',
+      'dd_before',
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------- data scripts
 
 describe('data scripts on an already-migrated database', () => {
   let t: TestDatabase;
@@ -344,7 +589,7 @@ describe('data scripts on an already-migrated database', () => {
 
   it('runs a new script exactly once', async () => {
     const bundle = await bundleWith({
-      'data/0003-add-tag.surql': `CREATE tag:migrated SET name = 'Migrated', category = 'theme';\n`,
+      'data/0003-add-tag.surql': tag('migrated'),
     });
     expect(await t.migrate(t.params(), { bundleDir: bundle })).toMatchObject({
       applied: ['0003-add-tag'],
@@ -355,32 +600,25 @@ describe('data scripts on an already-migrated database', () => {
       applied: [],
       alreadyApplied: [...SEEDS, '0003-add-tag'],
     });
-    expect(
-      await rows(await t.migrator(), 'SELECT VALUE name FROM tag:migrated'),
-    ).toEqual(['Migrated']);
+    expect(await tagIds(t, 'migrated')).toEqual(['migrated']);
   });
 
-  it('a failing script leaves no _migration row and none of its writes, and stops there', async () => {
+  it('a failing script leaves no _migration row, none of its writes and no pending row, and stops there', async () => {
     const failing = await bundleWith({
-      'data/0004-fails.surql': `CREATE tag:partial SET name = 'Partial', category = 'theme';\nTHROW 'boom';\n`,
-      'data/0005-after.surql': `CREATE tag:after SET name = 'After', category = 'theme';\n`,
+      'data/0004-fails.surql': `${tag('partial')}THROW 'boom';\n`,
+      'data/0005-after.surql': tag('after'),
     });
     const result = await t.runMigration(t.params(), { bundleDir: failing });
     expect(result.exitCode).toBe(1);
-    expect(result.output).toContain(
-      '0004-fails.surql: An error occurred: boom',
-    );
+    expect(result.output).toContain('0004-fails: An error occurred: boom');
+    expect(result.output).toContain('it was rolled back');
     expect(await appliedIds(t)).toEqual([...SEEDS, '0003-add-tag']);
-    expect(
-      await rows(
-        await t.migrator(),
-        'SELECT VALUE id FROM tag:partial, tag:after',
-      ),
-    ).toEqual([]);
+    expect(await tagIds(t, 'partial', 'after')).toEqual([]);
+    expect(await pendingSteps(t)).toEqual([]);
 
     const fixed = await bundleWith({
-      'data/0004-fails.surql': `CREATE tag:partial SET name = 'Partial', category = 'theme';\n`,
-      'data/0005-after.surql': `CREATE tag:after SET name = 'After', category = 'theme';\n`,
+      'data/0004-fails.surql': tag('partial'),
+      'data/0005-after.surql': tag('after'),
     });
     expect(await t.migrate(t.params(), { bundleDir: fixed })).toMatchObject({
       applied: ['0004-fails', '0005-after'],
@@ -392,154 +630,56 @@ describe('data scripts on an already-migrated database', () => {
       join(SCHEMA_DIR, 'data/0001-seed-dpa-v1.surql'),
       'utf8',
     );
-    const edited = await bundleWith({
-      'data/0001-seed-dpa-v1.surql': `${original}-- edited\n`,
+    const result = await t.runMigration(t.params(), {
+      bundleDir: await bundleWith({
+        'data/0001-seed-dpa-v1.surql': `${original}-- edited\n`,
+      }),
     });
-    const result = await t.runMigration(t.params(), { bundleDir: edited });
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain(
       '0001-seed-dpa-v1.surql changed after it was applied',
     );
   });
 
-  // On 3.2.4 a RETURN statement inside a transaction commits it early and skips the rest, at the
-  // top level and inside IF/FOR blocks alike, so a RETURN statement is refused anywhere outside a
-  // DEFINE body (stored, not run). BEGIN/COMMIT/CANCEL/OPTION would break the runner's transaction.
-  it.each([
-    [
-      'indented RETURN',
-      `CREATE tag:a SET name = 'a', category = 'theme';\n    RETURN 123;\nCREATE tag:b SET name = 'b', category = 'theme';\n`,
-      'RETURN',
-    ],
-    [
-      'inline ; RETURN',
-      `CREATE tag:a SET name = 'a', category = 'theme'; RETURN 1; CREATE tag:b SET name = 'b', category = 'theme';\n`,
-      'RETURN',
-    ],
-    [
-      'RETURN in an IF block',
-      `CREATE tag:a SET name = 'a', category = 'theme';\nIF true { RETURN 1 };\nCREATE tag:b SET name = 'b', category = 'theme';\n`,
-      'RETURN',
-    ],
-    ['RETURN in a FOR block', `FOR $x IN [1] {\n  RETURN $x;\n};\n`, 'RETURN'],
-    [
-      'its own transaction',
-      'BEGIN TRANSACTION;\nCREATE tag:a;\nCOMMIT TRANSACTION;\n',
-      'BEGIN',
-    ],
-    [
-      'lower-case commit',
-      `CREATE tag:a SET name = 'a', category = 'theme';\ncommit;\n`,
-      'COMMIT',
-    ],
-    ['OPTION IMPORT', 'OPTION IMPORT;\nCREATE tag:a;\n', 'OPTION'],
-  ])(
-    'refuses a script with %s, before changing anything',
-    async (_, text, word) => {
-      const result = await t.runMigration(t.params(), {
-        bundleDir: await bundleWith({ 'data/0009-refused.surql': text }),
-      });
-      expect(result.exitCode).toBe(2);
-      expect(result.output).toContain(`${word} statement`);
-      expect(await appliedIds(t)).not.toContain('0009-refused');
-    },
-  );
-
-  it('allows RETURN in strings, comments, record ids, DEFINE bodies and as a clause', async () => {
-    const text = [
-      `CREATE tag:s SET name = 'RETURN 1; COMMIT;', category = 'theme';`,
-      '-- RETURN 1;',
-      '// RETURN 1;',
-      '# COMMIT;',
-      '/* BEGIN; RETURN 1; */',
-      `CREATE tag:⟨RETURN; x⟩ SET name = "it\\"s; RETURN", category = 'theme' RETURN NONE;`,
-      'DEFINE FUNCTION OVERWRITE fn::scratch::one() { RETURN 1; };',
-      `CREATE tag:last SET name = 'Last', category = 'theme';`,
-    ].join('\n');
-    expect(
-      await t.migrate(t.params(), {
-        bundleDir: await bundleWith({ 'data/0006-allowed.surql': text }),
-      }),
-    ).toMatchObject({ applied: ['0006-allowed'] });
-    expect(
-      await rows(await t.migrator(), 'SELECT VALUE name FROM tag:last'),
-    ).toEqual(['Last']);
-  });
-
-  it('fails a step whose results don’t match its statements (an early exit the scanner missed)', async () => {
-    const probe = `
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("m", sys.argv[1])
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-class Client:
-    def query(self, sql, variables):
-        return [{"status": "OK", "result": None}] * 3  # BEGIN, CREATE, COMMIT: one CREATE missing
-try:
-    m.run(Client(), "0007-x.surql", "BEGIN TRANSACTION; CREATE a:1; CREATE a:2; COMMIT TRANSACTION;", {})
-    print("not caught")
-except m.MigrationError as err:
-    print("caught:", err)
-`;
-    const output = await new Promise<string>((resolve, reject) =>
-      execFile(
-        'python3',
-        ['-c', probe, RUNNER],
-        { env: { PATH: process.env['PATH'], PYTHONDONTWRITEBYTECODE: '1' } },
-        (err, stdout) => (err ? reject(err) : resolve(stdout)),
-      ),
-    );
-    expect(output).toContain(
-      'caught: 0007-x.surql: 3 results for 4 statements: something ended the transaction early',
-    );
-  });
-
   it('a failing schema leaves the previous schema in place', async () => {
     const schema = await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
     const broken = await bundleWith({
-      'schema.surql': `${schema}\nDEFINE TABLE OVERWRITE scratch SCHEMALESS;\nDEFINE FIELD OVERWRITE note ON story TYPE string;\nTHROW 'broken schema';\n`,
+      // DDL only, failing at run time (no IF EXISTS).
+      'schema.surql': `${schema}\nDEFINE TABLE OVERWRITE scratch SCHEMALESS;\nDEFINE FIELD OVERWRITE note ON story TYPE string;\nREMOVE TABLE does_not_exist;\n`,
     });
     const result = await t.runMigration(t.params(), { bundleDir: broken });
     expect(result.exitCode).toBe(1);
-    expect(result.output).toContain('broken schema');
-    const [info] = await rows<{ tables: Record<string, string> }>(
-      await t.migrator(),
-      'INFO FOR DB',
-    );
-    expect(info.tables['scratch']).toBeUndefined();
+    expect(result.output).toContain('schema:');
+    expect('scratch' in (await tables(t))).toBe(false);
     const [story] = await rows<{ fields: Record<string, string> }>(
       await t.migrator(),
       'INFO FOR TABLE story',
     );
     expect(story.fields['note']).toBeUndefined();
+    expect(await pendingSteps(t)).toEqual([]);
   });
 });
 
-describe('parameters (Terraform values)', () => {
-  it('holds back a script whose parameter is null, and every later one, until it is set', async () => {
-    const t = await TestDatabase.create({ migrate: false });
-    try {
-      const bundle = await bundleWith({
-        'data/0003-after-legacy.surql': `CREATE tag:later SET name = 'Later', category = 'theme';\n`,
-      });
-      const held = await t.runMigration(t.params({ legacy_sha256: null }), {
-        bundleDir: bundle,
-      });
-      expect(held.output).toContain('HELD BACK');
-      expect(held.exitCode).toBe(0);
-      expect(held.summary).toMatchObject({
-        applied: ['0001-seed-dpa-v1'],
-        heldBack: ['0002-seed-legacy-dpa', '0003-after-legacy'],
-      });
-      expect(held.output).toContain(
-        '0002-seed-legacy-dpa.surql needs legacy_sha256',
-      );
-      expect(await appliedIds(t)).toEqual(['0001-seed-dpa-v1']);
+// ---------------------------------------------------------------- parameters, DPA texts
 
-      expect(await t.migrate(t.params(), { bundleDir: bundle })).toMatchObject({
-        applied: ['0002-seed-legacy-dpa', '0003-after-legacy'],
-        heldBack: [],
-      });
+describe('parameters (Terraform values)', () => {
+  it('refuses, before changing anything, a script that uses a parameter passed as null', async () => {
+    const t = await TestDatabase.create();
+    try {
+      const result = await t.runMigration(
+        t.params({ clerk_jwt_public_key: null }),
+        {
+          bundleDir: await bundleWith({
+            'schema.surql': `${await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8')}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
+            'data/0003-needs-key.surql': `CREATE tag:k SET name = $clerk_jwt_public_key, category = 'theme';\n`,
+          }),
+        },
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toContain(
+        '0003-needs-key.surql uses clerk_jwt_public_key, which Terraform passed as null',
+      );
+      expect(await scratchTableExists(t)).toBe(false);
     } finally {
       await t.close();
     }
@@ -552,146 +692,135 @@ describe('parameters (Terraform values)', () => {
       const hash = () =>
         rows(migrator, 'SELECT VALUE contentHash FROM dpaVersion:v1');
       const edited = sha256('dpa v1, edited by the lawyer');
-      const files = (v1: string, legacy = LEGACY_SHA256) => ({
-        dpa_sha256: { v1, 'legacy-squarespace': legacy },
-      });
-      await t.migrate(t.params(files(edited)));
+      await t.migrate(t.params({ dpa_sha256: { v1: edited } }));
       expect(await hash()).toEqual([edited]);
 
       await run(
         await t.service('api_admin'),
         `UPDATE dpaVersion:v1 SET status = 'published', effectiveFrom = time::now()`,
       );
-      const changedAfterPublishing = await t.runMigration(
-        t.params(files(sha256('changed after publishing'))),
+      const changed = await t.runMigration(
+        t.params({ dpa_sha256: { v1: sha256('changed after publishing') } }),
         { bundleDir: await withScratchTable() },
       );
-      expect(changedAfterPublishing.exitCode).toBe(1);
-      expect(changedAfterPublishing.output).toContain(
+      expect(changed.exitCode).toBe(1);
+      expect(changed.output).toContain(
         'dpaVersion:v1 is published, but its file in libs/legal/dpa has changed',
       );
       expect(await hash()).toEqual([edited]);
       expect(await scratchTableExists(t)).toBe(false); // checked before the schema step
 
-      const legacyChanged = await t.runMigration(
-        t.params(files(edited, sha256('other'))),
+      const missing = await t.runMigration(t.params({ dpa_sha256: {} }), {
+        bundleDir: await withScratchTable(),
+      });
+      expect(missing.exitCode).toBe(1);
+      expect(missing.output).toContain(
+        'dpaVersion:v1 exists, but libs/legal/dpa/v1.md does not',
       );
-      expect(legacyChanged.exitCode).toBe(1);
-      expect(legacyChanged.output).toContain('legacy-squarespace');
+      expect(await scratchTableExists(t)).toBe(false);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it('P2-5: a seeded draft without its file fails too; a version not seeded yet may lack one', async () => {
+    const t = await TestDatabase.create();
+    try {
+      const result = await t.runMigration(t.params({ dpa_sha256: {} }), {
+        bundleDir: await withScratchTable(),
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toContain(
+        'dpaVersion:v1 exists, but libs/legal/dpa/v1.md does not',
+      );
+      expect(await scratchTableExists(t)).toBe(false);
+      expect(
+        (
+          await t.runMigration(
+            t.params({ dpa_sha256: { v1: DPA_V1_SHA256, v2: sha256('v2') } }),
+          )
+        ).exitCode,
+      ).toBe(0);
     } finally {
       await t.close();
     }
   });
 });
 
-describe('P2-5: a seeded DPA version must keep its file', () => {
+// ---------------------------------------------------------------- fencing token
+
+describe('P2: overlapping runners (fencing token from the database)', () => {
   let t: TestDatabase;
   beforeAll(async () => {
     t = await TestDatabase.create();
   });
   afterAll(() => t?.close());
 
-  it.each([
-    [
-      'a draft (v1)',
-      { 'legacy-squarespace': LEGACY_SHA256 },
-      'dpaVersion:v1 exists, but libs/legal/dpa/v1.md does not',
-    ],
-    [
-      'a published version (legacy)',
-      { v1: DPA_V1_SHA256 },
-      'dpaVersion:`legacy-squarespace` exists, but libs/legal/dpa/legacy-squarespace.md does not',
-    ],
-  ])(
-    'fails, before changing anything, when %s has lost its file',
-    async (_, hashes, message) => {
-      const result = await t.runMigration(t.params({ dpa_sha256: hashes }), {
-        bundleDir: await withScratchTable(),
-      });
-      expect(result.exitCode).toBe(1);
-      expect(result.output).toContain(message);
-      expect(await scratchTableExists(t)).toBe(false);
-    },
-  );
+  const lockToken = async () =>
+    (
+      await rows<number>(
+        await t.migrator(),
+        'SELECT VALUE token FROM _migrationRun:lock',
+      )
+    )[0];
 
-  it('a version that isn’t seeded yet may lack its file', async () => {
-    const fresh = await TestDatabase.create({ migrate: false });
-    try {
-      const held = await fresh.runMigration(
-        fresh.params({
-          legacy_sha256: null,
-          dpa_sha256: { v1: DPA_V1_SHA256 },
-        }),
-      );
-      expect(held.output).toContain('HELD BACK');
-      expect(held.exitCode).toBe(0);
-      expect(held.summary?.heldBack).toEqual(['0002-seed-legacy-dpa']);
-    } finally {
-      await fresh.close();
-    }
-  });
-});
-
-describe('P2-4: overlapping runners and stale bundles', () => {
-  let t: TestDatabase;
-  beforeAll(async () => {
-    t = await TestDatabase.create();
-  });
-  afterAll(() => t?.close());
-
-  const generation = async () =>
-    rows(
-      await t.migrator(),
-      'SELECT VALUE generation FROM _migrationRun:current',
+  it('two identical runners at once: distinct tokens, the script applied exactly once, nothing left pending', async () => {
+    const bundle = await bundleWith({ 'data/0003-once.surql': tag('once') });
+    const before = await lockToken();
+    const [a, b] = await Promise.all([
+      t.runMigration(t.params(), { bundleDir: bundle }),
+      t.runMigration(t.params(), { bundleDir: bundle }),
+    ]);
+    expect([a.exitCode, b.exitCode].every((c) => c === 0 || c === 1)).toBe(
+      true,
     );
-
-  it('refuses a bundle older than the last one applied, without changing the schema', async () => {
-    const older = nextGeneration();
-    await t.migrate(t.params({ generation: nextGeneration() })); // a newer bundle ran first
-    const stale = await t.runMigration(t.params({ generation: older }), {
-      bundleDir: await withScratchTable(),
-    });
-    expect(stale.exitCode).toBe(1);
-    expect(stale.output).toContain('is stale');
-    expect(await scratchTableExists(t)).toBe(false);
+    expect([a.exitCode, b.exitCode]).toContain(0);
+    expect(await lockToken()).toBe(before + 2);
+    expect(await appliedIds(t)).toEqual([...SEEDS, '0003-once']);
+    expect(await tagIds(t, 'once')).toEqual(['once']);
+    expect(await pendingSteps(t)).toEqual([]);
   });
 
-  it('a runner overtaken mid-run by a newer one fails, keeping nothing of its step, and can’t resume', async () => {
-    const genA = nextGeneration();
-    const genB = nextGeneration();
+  it('a run paused mid-step loses to a run that started after it, keeping nothing of that step', async () => {
     const slowA = await bundleWith({
-      'data/0010-slow.surql': `SLEEP 10s;\nCREATE tag:slow SET name = 'Slow', category = 'theme';\n`,
+      // About 9 s of work inside the step's transaction (SLEEP needs root, which the migrator
+      // isn't; tested: 'IAM error: Not enough permissions').
+      'data/0010-slow.surql': `FOR $i IN 1..50 { LET $h = crypto::bcrypt::generate('slow'); };\n${tag('slow')}`,
     });
-    // A: schema step done, then sits in 0010's transaction (10 s) while B runs.
-    let schemaDone: () => void = () => undefined;
-    const aInData = new Promise<void>((r) => (schemaDone = r));
-    const a = t.runMigration(t.params({ generation: genA }), {
+    let inSlowStep: () => void = () => undefined;
+    const aInStep = new Promise<void>((r) => (inSlowStep = r));
+    const a = t.runMigration(t.params(), {
       bundleDir: slowA,
       onOutput: (chunk) => {
-        if (chunk.includes('schema.surql:')) schemaDone();
+        if (chunk.includes('schema.surql:')) inSlowStep(); // next: 0010's transaction
       },
     });
-    await aInData;
-    // B: a newer bundle (without 0010) runs to completion meanwhile.
-    expect(await t.migrate(t.params({ generation: genB }))).toMatchObject({
-      applied: [],
-    });
+    await aInStep;
+    const b = await t.runMigration(t.params()); // the newer bundle, without 0010
     const resultA = await a;
+    expect(b.exitCode).toBe(0);
     expect(resultA.exitCode).toBe(1);
+    expect(resultA.output).toMatch(/superseded|conflict/i);
     expect(await appliedIds(t)).not.toContain('0010-slow');
-    expect(
-      await rows(await t.migrator(), 'SELECT VALUE id FROM tag:slow'),
-    ).toEqual([]);
-    expect(await generation()).toEqual([new Date(genB).toISOString()]);
-
-    // A's Job retrying: refused before it touches anything.
-    const retry = await t.runMigration(t.params({ generation: genA }), {
-      bundleDir: slowA,
-    });
-    expect(retry.exitCode).toBe(1);
-    expect(retry.output).toContain('is stale');
+    expect(await tagIds(t, 'slow')).toEqual([]);
+    expect(await pendingSteps(t)).toEqual([]);
+    expect(await lockToken()).toBe(b.summary?.token);
   }, 60_000);
+
+  it('a rollback to an older bundle is simply a newer run, and succeeds', async () => {
+    const newer = await bundleWith({ 'data/0011-newer.surql': tag('newer') });
+    expect(await t.migrate(t.params(), { bundleDir: newer })).toMatchObject({
+      applied: ['0011-newer'],
+    });
+    const rolledBack = await t.runMigration(t.params()); // the older bundle
+    expect(rolledBack.exitCode).toBe(0);
+    expect(rolledBack.output).toContain(
+      "_migration:0011-newer was applied but its script isn't in the bundle",
+    );
+  });
 });
+
+// ---------------------------------------------------------------- Clerk
 
 describe('Clerk access (person sessions)', () => {
   let t: TestDatabase;
@@ -732,6 +861,8 @@ describe('Clerk access (person sessions)', () => {
   });
 });
 
+// ---------------------------------------------------------------- the real restart
+
 const hasDocker = (() => {
   try {
     execFileSync('docker', ['version'], { stdio: 'ignore' });
@@ -742,11 +873,9 @@ const hasDocker = (() => {
 })();
 
 /**
- * P1-1: removing a system user doesn't end its open sessions on 3.2.4 (an EDITOR session kept
- * reading PERMISSIONS NONE tables). The cutover is therefore SurrealDB restarting with the new
- * startup init (`--import-file`), as the StatefulSet does when Terraform changes the identity
- * hash: every older session ends with the old process, and the server answers nothing until
- * the init has run. A dedicated container on a persistent volume, so it can restart.
+ * P1-1 (round 1) and P2 (round 2) on a dedicated container with a persistent volume, restarted
+ * with `--import-file` as the StatefulSet does: the restart ends old sessions; a failed init
+ * (runtime or syntax error) keeps the old identities and leaves the check not Ready.
  */
 (hasDocker ? describe : describe.skip)(
   'D13 B cutover: restart with the startup init',
@@ -757,6 +886,7 @@ const hasDocker = (() => {
     let t: TestDatabase;
     let oldEditor: Surreal;
     const oldPassword = randomBytes(12).toString('hex');
+    const handles: TestDatabase[] = [];
 
     async function start(withInit: boolean): Promise<string> {
       execFileSync('docker', [
@@ -812,6 +942,21 @@ const hasDocker = (() => {
     }
     const stop = () =>
       execFileSync('docker', ['rm', '--force', name], { stdio: 'ignore' });
+    /**
+     * Restart with an init script; the new handle keeps the credentials. Connections opened
+     * before are NOT closed here: only the restart may end them.
+     */
+    async function restartWith(init: string): Promise<void> {
+      await writeFile(join(initDir, 'init.surql'), init, { mode: 0o644 });
+      handles.push(t);
+      stop();
+      const url = await start(true);
+      t = Object.assign(TestDatabase.at(url, 'heisreal', 'main'), {
+        migratorPassword: t.migratorPassword,
+        backupPassword: t.backupPassword,
+        servicePasswords: t.servicePasswords,
+      });
+    }
 
     beforeAll(async () => {
       initDir = await mkdtemp(join(tmpdir(), 'cutover-init-'));
@@ -821,31 +966,22 @@ const hasDocker = (() => {
       await run(
         await t.root(),
         `DEFINE NAMESPACE heisreal; USE NS heisreal; DEFINE DATABASE main; USE NS heisreal DB main;
-       DEFINE USER api_admin ON DATABASE PASSWORD '${oldPassword}' ROLES EDITOR;
-       DEFINE USER api_read ON DATABASE PASSWORD '${oldPassword}' ROLES VIEWER;
-       DEFINE TABLE secret SCHEMALESS PERMISSIONS NONE; CREATE secret:x;`,
+         DEFINE USER api_admin ON DATABASE PASSWORD '${oldPassword}' ROLES EDITOR;
+         DEFINE USER api_read ON DATABASE PASSWORD '${oldPassword}' ROLES VIEWER;
+         DEFINE TABLE secret SCHEMALESS PERMISSIONS NONE; CREATE secret:x;`,
       );
       oldEditor = await t.systemUser('api_admin', oldPassword);
       expect(await rows(oldEditor, 'SELECT VALUE id FROM secret')).toEqual([
         'secret:x',
       ]);
-
       // The cutover: the rendered init (real template, real namespace) at startup.
-      const init = (await renderInit(t, initPasswords(t), 'cutover-1')).replace(
-        new RegExp(`\\b${t.namespace}\\b`, 'g'),
-        'heisreal',
+      await restartWith(
+        await renderInit(t, 'cutover-1', { namespace: 'heisreal' }),
       );
-      await writeFile(join(initDir, 'init.surql'), init, { mode: 0o644 });
-      stop();
-      const restarted = await start(true);
-      t = Object.assign(TestDatabase.at(restarted, 'heisreal', 'main'), {
-        migratorPassword: t.migratorPassword,
-        backupPassword: t.backupPassword,
-        servicePasswords: t.servicePasswords,
-      });
     }, 90_000);
     afterAll(async () => {
       await t?.close().catch(() => undefined);
+      for (const h of handles) await h.closeConnections();
       stop();
       execFileSync('docker', ['volume', 'rm', '--force', name], {
         stdio: 'ignore',
@@ -871,33 +1007,61 @@ const hasDocker = (() => {
       },
     );
 
-    it('leaves only migrator and backup, and the identity marker', async () => {
-      const migrator = await t.migrator();
-      const [info] = await rows<{ users: Record<string, string> }>(
-        migrator,
-        'INFO FOR DB',
+    it('the identity check is Ready, then the migrate Job runs and every service signs in', async () => {
+      expect(await t.identityCheck(t.credentials(), 'cutover-1')).toMatchObject(
+        {
+          ready: true,
+        },
       );
-      expect(Object.keys(info.users).sort()).toEqual(['backup', 'migrator']);
-      expect(
-        await rows(migrator, 'SELECT VALUE hash FROM _identity:current'),
-      ).toEqual(['cutover-1']);
-    });
-
-    it('then the migrate Job runs, after checking the restart happened, and every service signs in', async () => {
       const result = await t.runMigration(
         t.params({ identity_hash: 'cutover-1' }),
         { env: JOB_ENV },
       );
       expect(result.exitCode).toBe(0);
-      expect(result.output).toContain(
-        'identities: as expected (identity config cutover-1)',
-      );
       expect(result.summary).toMatchObject({ applied: SEEDS });
       for (const service of SERVICES) {
         expect(await rows(await t.service(service), 'RETURN $auth')).toEqual([
           `service:${service}`,
         ]);
       }
+    });
+
+    it('a restart whose init fails at runtime keeps the old identities and is not Ready', async () => {
+      const previous = new Map(t.servicePasswords);
+      for (const s of SERVICES)
+        t.servicePasswords.set(s, randomBytes(18).toString('hex'));
+      await restartWith(
+        await renderInit(t, 'cutover-2', {
+          namespace: 'heisreal',
+          breakApiUser: true,
+        }),
+      );
+      expect(
+        await rows(
+          await t.migrator(),
+          'SELECT VALUE hash FROM _identity:current',
+        ),
+      ).toEqual(['cutover-1']);
+      const check = await t.identityCheck(t.credentials(), 'cutover-2');
+      expect(check.ready).toBe(false);
+      expect(check.output).toContain('NOT READY');
+      expect(
+        await rows(
+          await t.service('api_user', previous.get('api_user')),
+          'RETURN $auth',
+        ),
+      ).toEqual(['service:api_user']); // the old password still works: nothing changed
+      t.servicePasswords = previous;
+    });
+
+    it('a restart with a syntactically invalid init is not Ready', async () => {
+      await restartWith('THIS IS NOT SURREALQL;\n');
+      expect((await t.identityCheck(t.credentials(), 'cutover-3')).ready).toBe(
+        false,
+      );
+      // …while the server itself answers /health (why readiness can't rely on it).
+      const health = await fetch(`${t.url.replace(/^ws/, 'http')}/health`);
+      expect(health.status).toBe(200);
     });
   },
 );

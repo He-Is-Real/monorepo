@@ -8,7 +8,10 @@
 #   * restarts SurrealDB, which ends every open session (removing a user doesn't, on 3.2.4);
 #   * can only start once ESO has rendered the NEW Secret: the pod mounts it by name, so it can
 #     never run a stale script that happened to satisfy the mount (review P1-3);
-#   * appends an identity marker to the script, which the migrate Job waits for.
+#   * writes an identity marker as the script's last statement (inside its transaction, in place
+#     of the `-- @identity-marker` line), and gives the identity-check sidecar the expected hash
+#     (Secret key identity-hash); the sidecar verifies the intended credentials and records it,
+#     and the migrate Job waits for that.
 # No secret value passes through here: only the template and secret *names*.
 
 terraform {
@@ -48,8 +51,10 @@ locals {
   })), 0, 10)
   secret_name   = "surrealdb-init-${local.hash}"
   template_name = "surrealdb-init-template-${local.hash}"
-  marker        = "\nUPSERT _identity:current SET hash = ${jsonencode(local.hash)}, appliedAt = time::now() RETURN NONE;\n"
+  sentinel      = "-- @identity-marker"
+  marker        = "UPSERT _identity:current SET hash = ${jsonencode(local.hash)}, appliedAt = time::now();"
   es            = var.external_secret
+  script        = var.config_map.data["init.surql"]
 }
 
 output "hash" {
@@ -64,8 +69,13 @@ output "config_map" {
   value = merge(var.config_map, {
     metadata  = merge(var.config_map.metadata, { name = local.template_name })
     immutable = true
-    data      = { "init.surql" = "${var.config_map.data["init.surql"]}${local.marker}" }
+    data      = { "init.surql" = replace(local.script, local.sentinel, local.marker) }
   })
+
+  precondition {
+    condition     = length(split(local.sentinel, local.script)) == 2
+    error_message = "init.surql.tmpl must contain the line `-- @identity-marker` exactly once (inside its transaction, last)."
+  }
 }
 
 output "external_secret" {
@@ -75,6 +85,7 @@ output "external_secret" {
       target = merge(local.es.spec.target, {
         name = local.secret_name
         template = merge(local.es.spec.target.template, {
+          data = merge(try(local.es.spec.target.template.data, {}), { "identity-hash" = local.hash })
           templateFrom = [
             for t in local.es.spec.target.template.templateFrom :
             merge(t, { configMap = merge(t.configMap, { name = local.template_name }) })

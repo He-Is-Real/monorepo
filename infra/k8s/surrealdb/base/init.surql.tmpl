@@ -6,13 +6,17 @@
 -- (last statement) and names the Secret after this config's hash, so a change restarts the pod.
 -- Namespace/database names must match surrealdb-settings (settings.yaml).
 -- No OPTION IMPORT: in a startup import file it hangs the server in "starting up" (3.2.4).
--- A failing statement here is logged and skipped, and the server starts anyway, so the migrate
--- Job checks the result (system users, service logins, identity marker) before it migrates.
+-- Fail closed: everything after USE is one transaction, with the identity marker written last,
+-- so any failure (tested: a runtime error, a syntax error) keeps the previous users, hashes and
+-- marker. SurrealDB still starts after a failed import, so the identity-check sidecar keeps the
+-- pod un-Ready until the intended credentials work and the marker matches (statefulset.yaml).
 
 DEFINE NAMESPACE IF NOT EXISTS heisreal;
 USE NS heisreal;
 DEFINE DATABASE IF NOT EXISTS main;
 USE NS heisreal DB main;
+
+BEGIN TRANSACTION;
 
 -- System users: only the in-cluster Jobs (D13 B).
 DEFINE USER OVERWRITE backup    ON DATABASE PASSWORD {{ .backup | toJson }}    ROLES VIEWER COMMENT "backup: nightly export CronJob";
@@ -35,12 +39,16 @@ REMOVE USER IF EXISTS api_user        ON DATABASE;
 -- schema isn't applied yet; the schema's own DEFINE … OVERWRITE stays authoritative.
 DEFINE TABLE IF NOT EXISTS service SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD IF NOT EXISTS secretHash ON service TYPE string;
-UPSERT service:api_public_read SET secretHash = crypto::argon2::generate({{ .api_public_read | toJson }}) RETURN NONE;
-UPSERT service:api_user        SET secretHash = crypto::argon2::generate({{ .api_user | toJson }})        RETURN NONE;
-UPSERT service:api_admin       SET secretHash = crypto::argon2::generate({{ .api_admin | toJson }})       RETURN NONE;
-UPSERT service:workflow        SET secretHash = crypto::argon2::generate({{ .workflow | toJson }})        RETURN NONE;
+UPSERT service:api_public_read SET secretHash = crypto::argon2::generate({{ .api_public_read | toJson }});
+UPSERT service:api_user        SET secretHash = crypto::argon2::generate({{ .api_user | toJson }});
+UPSERT service:api_admin       SET secretHash = crypto::argon2::generate({{ .api_admin | toJson }});
+UPSERT service:workflow        SET secretHash = crypto::argon2::generate({{ .workflow | toJson }});
 
--- Identity marker: Terraform appends `UPSERT _identity:current SET hash = "<config hash>", …`.
 DEFINE TABLE IF NOT EXISTS _identity SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD IF NOT EXISTS hash      ON _identity TYPE string;
 DEFINE FIELD IF NOT EXISTS appliedAt ON _identity TYPE datetime;
+-- The identity marker, last: on GKE Terraform replaces the next line with
+-- `UPSERT _identity:current SET hash = "<config hash>", appliedAt = time::now();`
+-- @identity-marker
+
+COMMIT TRANSACTION;

@@ -7,9 +7,9 @@
  *   - every *.surql in libs/database/schema and libs/database/schema/data (flattened), and the
  *     runner, libs/database/schema/migrate.py;
  *   - params.json: dpa_sha256 = { <id>: sha256 of libs/legal/dpa/<id>.md } for every file there,
- *     dpa_v1_sha256 / legacy_sha256 = the same for v1 and legacy-squarespace (null if missing),
- *     clerk_jwt_public_key = the PEM file given, or null, and generation = now (the fence).
- *     No identity_hash: locally, restart SurrealDB yourself after changing the init Secret.
+ *     clerk_jwt_public_key = the PEM file given, or null. No identity_hash: locally, restart
+ *     SurrealDB yourself after changing the init Secret (the identity-check sidecar still gates
+ *     readiness on the credentials).
  *
  * It then deletes a finished surrealdb-migrate Job so that re-applying the overlay runs it again:
  *
@@ -73,11 +73,8 @@ const params = {
   clerk_jwt_public_key: clerkKeyFile
     ? readFileSync(clerkKeyFile, 'utf8')
     : null,
-  dpa_v1_sha256: dpaSha256['v1'] ?? null,
-  legacy_sha256: dpaSha256['legacy-squarespace'] ?? null,
   dpa_sha256: dpaSha256,
   identity_hash: null,
-  generation: new Date().toISOString(),
 };
 if (params.clerk_jwt_public_key?.includes('PRIVATE KEY')) {
   console.error('That is a private key: pass the PEM *public* key only.');

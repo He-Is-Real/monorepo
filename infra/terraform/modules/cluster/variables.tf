@@ -49,6 +49,12 @@ variable "dpa_dir" {
   type        = string
 }
 
+variable "cluster_planner_email" {
+  description = "Google identity of the automatic cluster plan (D42), given dry-run create/patch in `database` (planner_rbac.tf). Empty: none."
+  type        = string
+  default     = ""
+}
+
 variable "identity_rotation" {
   description = "The gcp root's secret_rotation. A change gives SurrealDB a new init Secret (latest password versions) and restarts it."
   type        = string

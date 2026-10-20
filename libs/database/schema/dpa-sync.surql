@@ -6,7 +6,7 @@
 --   * a published version is frozen: a changed file fails the migration (publish a new version);
 --   * a seeded version, draft or published, whose file is missing fails the migration: the text
 --     consent was (or will be) given against must stay in the repo. Only a version that isn't
---     seeded yet may lack a file (e.g. 0002's legacy DPA, held back until its text exists).
+--     seeded yet may lack a file.
 -- 3.2.4: FOR over a subquery fails ("Cannot execute statement using value"); over a LET works.
 LET $versions = (SELECT id, status, contentHash FROM dpaVersion);
 FOR $d IN $versions {
@@ -16,7 +16,7 @@ FOR $d IN $versions {
   };
   IF $h != $d.contentHash {
     IF $d.status = 'draft' {
-      UPDATE $d.id SET contentHash = $h RETURN NONE;
+      UPDATE $d.id SET contentHash = $h;
     } ELSE {
       THROW <string> $d.id + ' is published, but its file in libs/legal/dpa has changed: publish a new version instead';
     };

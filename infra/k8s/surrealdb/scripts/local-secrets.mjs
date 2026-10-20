@@ -124,4 +124,17 @@ applySecret('surrealdb-migrator', {
   SURREAL_USER: 'migrator',
   SURREAL_PASS: passwords.migrator,
 });
-applySecret('surrealdb-init', { 'init.surql': render(template, passwords) });
+applySecret('surrealdb-init', {
+  'init.surql': render(template, passwords),
+  // For the identity-check sidecar, as the ExternalSecret renders it on GKE.
+  'credentials.json': JSON.stringify({
+    migrator: passwords.migrator,
+    backup: passwords.backup,
+    services: {
+      api_public_read: passwords.api_public_read,
+      api_user: passwords.api_user,
+      api_admin: passwords.api_admin,
+      workflow: passwords.workflow,
+    },
+  }),
+});

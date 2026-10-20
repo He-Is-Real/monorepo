@@ -108,6 +108,9 @@ module "cluster" {
   schema_dir           = "${path.root}/../../../../../libs/database/schema"
   dpa_dir              = "${path.root}/../../../../../libs/legal/dpa"
   clerk_jwt_public_key = var.clerk_jwt_public_key
+  # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
+  cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
+
   # Rotating service passwords (gcp root) restarts SurrealDB with the new ones (identity.tf).
   identity_rotation = try(tostring(local.gcp.surreal_secret_rotation), "1")
 

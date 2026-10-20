@@ -8,7 +8,7 @@ variables {
   config_map = {
     apiVersion = "v1", kind = "ConfigMap"
     metadata   = { name = "surrealdb-init-template", namespace = "database" }
-    data       = { "init.surql" = "DEFINE USER OVERWRITE migrator ON DATABASE PASSWORD {{ .migrator | toJson }} ROLES OWNER;\n" }
+    data       = { "init.surql" = "BEGIN TRANSACTION;\nDEFINE USER OVERWRITE migrator ON DATABASE PASSWORD {{ .migrator | toJson }} ROLES OWNER;\n-- @identity-marker\nCOMMIT TRANSACTION;\n" }
   }
   external_secret = {
     apiVersion = "external-secrets.io/v1", kind = "ExternalSecret"
@@ -19,6 +19,7 @@ variables {
         name = "surrealdb-init", creationPolicy = "Owner"
         template = {
           engineVersion = "v2"
+          data          = { "credentials.json" = "{}" }
           templateFrom  = [{ configMap = { name = "surrealdb-init-template", items = [{ key = "init.surql", templateAs = "Values" }] } }]
         }
       }
@@ -37,8 +38,13 @@ run "base" {
     error_message = "ExternalSecret, its Secret and its template are all named after the hash."
   }
   assert {
-    condition     = endswith(output.config_map.data["init.surql"], "UPSERT _identity:current SET hash = \"${output.hash}\", appliedAt = time::now() RETURN NONE;\n")
-    error_message = "The script ends with the identity marker the migrate Job waits for."
+    condition     = endswith(output.config_map.data["init.surql"], "UPSERT _identity:current SET hash = \"${output.hash}\", appliedAt = time::now();\nCOMMIT TRANSACTION;\n")
+    error_message = "The identity marker is the last statement inside the init's transaction."
+  }
+  assert {
+    condition = (output.external_secret.spec.target.template.data["identity-hash"] == output.hash
+    && output.external_secret.spec.target.template.data["credentials.json"] == "{}")
+    error_message = "The sidecar gets the expected hash next to the credentials."
   }
   assert {
     condition = (yamldecode(output.statefulset_patch).spec.template.metadata.annotations["heisreal.today/identity-config"] == output.hash
@@ -90,4 +96,16 @@ run "rotated" {
     condition     = output.hash != run.base.hash
     error_message = "A password rotation means a new Secret (latest versions) and a restart."
   }
+}
+
+run "no_sentinel" {
+  command = plan
+  variables {
+    config_map = {
+      apiVersion = "v1", kind = "ConfigMap"
+      metadata   = { name = "surrealdb-init-template", namespace = "database" }
+      data       = { "init.surql" = "DEFINE USER OVERWRITE migrator ON DATABASE PASSWORD {{ .migrator | toJson }} ROLES OWNER;\n" }
+    }
+  }
+  expect_failures = [output.config_map]
 }

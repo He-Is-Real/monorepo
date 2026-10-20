@@ -6,8 +6,7 @@
 # This is a template. On GKE, Terraform (infra/terraform/modules/cluster/migration.tf) applies a
 # copy named after the bundle's content hash, surrealdb-migrate-<hash>, with its own immutable
 # ConfigMap surrealdb-migration-<hash>: a schema, data, parameter, runner or Job change gives a
-# new name (Terraform replaces the Job, so it runs again), and no change gives no diff. It also
-# sets MIGRATE_GENERATION, the generation fence (see migrate.py). Locally,
+# new name (Terraform replaces the Job, so it runs again), and no change gives no diff. Locally,
 # scripts/local-migration.mjs creates the surrealdb-migration ConfigMap this name points at.
 #
 # No ttlSecondsAfterFinished: a Job that disappears would be recreated, and re-run, by every
@@ -17,7 +16,9 @@ kind: Job
 metadata:
   name: surrealdb-migrate
 spec:
-  backoffLimit: 1 # each step is a transaction, so a retry is safe; mostly it fails the same way
+  # No automatic retry: each run takes a new fencing token and would win over a newer Job,
+  # and a failure needs a look first. Re-run deliberately (README, "If it fails").
+  backoffLimit: 0
   activeDeadlineSeconds: 1800
   template:
     metadata:

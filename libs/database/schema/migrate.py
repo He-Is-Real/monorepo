@@ -11,27 +11,43 @@ BUNDLE_DIR holds the files from libs/database/schema: flat (the Job's ConfigMap)
 scripts in data/ (the repo). FILE (default BUNDLE_DIR/params.json) maps parameter names to values,
 or null when not available yet; Terraform writes it.
 
-Validate first, then mutate:
-  0. Every file is scanned (strings, comments, blocks): a RETURN/BEGIN/COMMIT/CANCEL/OPTION
-     statement outside a DEFINE body is refused, because on 3.2.4 a RETURN inside a transaction,
-     even inside an IF or FOR block, commits it early and skips the rest. After each step the
-     number of results must equal the number of statements, so an early exit is caught anyway.
-  1. Read-only checks: the init's identities are in place (identity_hash marker, system users,
-     service logins), no applied data script has changed, no newer bundle generation has run,
-     and the DPA texts still match (dpa-sync.surql in a cancelled transaction).
-  2. schema.surql, plus access-clerk.surql when clerk_jwt_public_key is set (otherwise the clerk
-     access is removed), and the generation fence, in ONE transaction.
-  3. Each data script NNNN-*.surql not yet in _migration, in number order, each in its own
-     transaction that checks the fence and first creates its _migration row (id = file name,
-     checksum = sha256 of the file). A failure rolls back the script and its row. A script that
-     uses a parameter whose value is null is held back, with every later script.
-  4. dpa-sync.surql, in one transaction.
+Restricted grammar (checked before anything runs). On 3.2.4 a RETURN statement inside a
+transaction commits it early and skips the rest, wherever it hides (`[RETURN 1]`,
+`1 + RETURN 1`, `IF … THEN RETURN … END`, blocks). So:
+  * data scripts and dpa-sync.surql may not contain the RETURN token at all;
+  * schema.surql and access-clerk.surql are DDL only (every top-level statement is DEFINE or
+    REMOVE); RETURN may appear only inside a DEFINE (function, event, field and param bodies
+    were tested: their RETURN never ends the caller's transaction, even when defined and run in
+    the same one);
+  * BEGIN, COMMIT and CANCEL may not appear anywhere, nor an OPTION statement. (BREAK and
+    CONTINUE were tested and can't end a transaction.)
 
-Generation fence: MIGRATE_GENERATION (or params "generation"), an RFC 3339 time that Terraform
-fixes when the bundle changes. The schema transaction refuses to run if a newer generation has
-already been applied, and records its own in _migrationRun:current; every later transaction
-refuses if another generation has taken over meanwhile, and writes the row too, so overlapping
-runners conflict at commit instead of interleaving.
+Defence in depth, so a grammar gap can't be recorded as applied:
+  * before each step a _migrationPending:<step> row is committed; the step's own transaction ends
+    with its _migration row (data scripts) and the deletion of that pending row;
+  * the number of results must equal the number of statements. If the step's transaction failed
+    cleanly (all statements answered, one failed), it was rolled back and the pending row is
+    removed. Anything else (fewer results, no answer) means a partial commit is possible: the
+    pending row stays, the runner exits 3, and every later run refuses to start until an operator
+    has checked the data and deleted the row (infra/k8s/surrealdb/README.md, "If it fails").
+
+Fencing (overlapping runners): each run first takes a token from the database
+(_migrationRun:lock, incremented in a transaction), and every mutating transaction checks that
+the token is still its own and writes the lock row, so a run that started later always wins: an
+older one fails at its next check or at commit (write conflict). A rollback to an older bundle
+is just a newer run.
+
+Order, validate first:
+  1. wait until the startup init's identities are verified (identity_hash: _identity:verified,
+     written by the identity-check sidecar after it proved the intended credentials work), the
+     system users are exactly MIGRATE_EXPECT_USERS and every MIGRATE_EXPECT_SERVICES has a login;
+  2. take the token; refuse if a pending row exists (after waiting for an overtaken run to clean
+     up); read-only checks: no applied data script changed, DPA texts still match (dpa-sync.surql
+     in a cancelled transaction);
+  3. schema.surql + the Clerk access (or its removal), one step;
+  4. each data script not yet in _migration, in number order, one step each (a pending script that
+     uses a parameter whose value is null is refused in step 2, before anything changes);
+  5. dpa-sync.surql, one step.
 
 Why not `surreal import`: on 3.2.4 it requires `OPTION IMPORT`, which turns off events and field
 VALUE/ASSERT clauses. This uses the HTTP /rpc `query` method (the one surrealdb.js uses), with
@@ -39,9 +55,10 @@ parameters bound, never templated.
 
 Environment: SURREAL_ENDPOINT (default http://surrealdb:8000), SURREAL_NAMESPACE,
 SURREAL_DATABASE, SURREAL_USER, SURREAL_PASS, MIGRATE_WAIT_SECONDS (default 600),
-MIGRATE_GENERATION, MIGRATE_EXPECT_USERS, MIGRATE_EXPECT_SERVICES (comma-separated).
-Exit status: 0 done (held-back scripts are reported, not an error), 1 failed, 2 bad bundle.
-The password and tokens are never printed.
+MIGRATE_PENDING_WAIT_SECONDS (default 120), MIGRATE_EXPECT_USERS, MIGRATE_EXPECT_SERVICES.
+Exit status: 0 done; 1 failed, nothing from the
+failed step kept; 2 bad bundle, nothing run; 3 partial commit possible or blocked by one: manual
+recovery needed. The password and tokens are never printed.
 """
 
 import argparse
@@ -59,9 +76,10 @@ SCHEMA = "schema.surql"
 CLERK = "access-clerk.surql"
 DPA_SYNC = "dpa-sync.surql"
 TOP_LEVEL = {SCHEMA, CLERK, DPA_SYNC}
+DDL_FILES = {SCHEMA, CLERK}
 DATA_NAME = re.compile(r"^\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.surql$")
-FORBIDDEN_STATEMENTS = {"RETURN", "BEGIN", "COMMIT", "CANCEL", "OPTION"}
-RESERVED_PARAMS = {"migration_id", "migration_checksum", "migration_generation", "migration_bundle"}
+NEVER = {"BEGIN", "COMMIT", "CANCEL"}
+RESERVED_PARAMS = {"migration_id", "migration_checksum", "migration_token", "migration_bundle", "migration_step", "migration_current"}
 SUMMARY_PREFIX = "MIGRATION SUMMARY "
 
 
@@ -70,20 +88,25 @@ class BundleError(Exception):
 
 
 class MigrationError(Exception):
-    """A step failed in the database (exit 1)."""
+    """A step failed and was rolled back, or a check failed (exit 1)."""
+
+
+class PartialCommitError(Exception):
+    """A step may have committed partly, or an earlier one did (exit 3)."""
 
 
 def log(message):
     print(message, flush=True)
 
 
-def scan(text):
-    """Counts the top-level statements of SurrealQL text and finds forbidden statements.
+def scan(text, mode="data"):
+    """Counts the top-level statements of SurrealQL text and checks the restricted grammar.
 
-    Tracks strings ('', "", backtick and angle-bracket ids), comments (--, //, #, /* */) and
-    bracket depth. A keyword counts as a statement when it's the first token at the top level or
-    inside a { } or ( ) block. Conservative: anything it can't parse is reported as a problem.
-    Returns (statement_count, problems).
+    mode "data": no RETURN token anywhere. mode "ddl": every top-level statement starts with
+    DEFINE or REMOVE, and RETURN only inside a DEFINE. Both: no BEGIN/COMMIT/CANCEL token, no
+    OPTION statement. "runner": counting only (the runner's own SQL). Tracks strings ('', "",
+    backtick and angle-bracket ids), comments (--, //, #, /* */) and bracket depth; anything it
+    can't parse is a problem. Returns (statement_count, problems).
     """
     problems = []
     count = 0
@@ -96,6 +119,8 @@ def scan(text):
         nonlocal tokens_in_statement, top_keyword
         if len(stack) == 1 and tokens_in_statement == 0:
             top_keyword = word
+            if mode == "ddl" and word not in ("DEFINE", "REMOVE"):
+                problems.append(f"line {line}: {word or 'this'} statement (only DEFINE/REMOVE here)")
         tokens_in_statement += 1
         stack[-1] = False
 
@@ -151,13 +176,18 @@ def scan(text):
             while j < n and (text[j].isalnum() or text[j] == "_"):
                 j += 1
             word = text[i:j].upper()
-            k = j
-            while k < n and text[k] in " \t":
-                k += 1
-            is_key = k < n and text[k] == ":" and not text.startswith("::", k)  # { return: 1 }
-            if stack[-1] and word in FORBIDDEN_STATEMENTS and not is_key and top_keyword != "DEFINE":
-                problems.append(f"line {line}: {word} statement (the runner owns transactions)")
+            at_start = stack[-1]
             token(word)
+            if mode != "runner":
+                if word in NEVER:
+                    problems.append(f"line {line}: {word} (the runner owns transactions)")
+                elif word == "OPTION" and at_start:
+                    problems.append(f"line {line}: OPTION statement")
+                elif word == "RETURN" and (mode == "data" or top_keyword != "DEFINE"):
+                    problems.append(
+                        f"line {line}: RETURN (ends a 3.2.4 transaction early; "
+                        + ("not allowed in data scripts at all)" if mode == "data" else "only inside a DEFINE)")
+                    )
             i = j
         else:
             token()
@@ -203,8 +233,15 @@ class Client:
         return reply["result"]
 
 
-def run(client, label, sql, variables, check_count=True, cancelled=False):
-    """Runs SurrealQL; raises with the root cause if any statement failed or some didn't run.
+def root_cause(results):
+    failed = [r for r in results if r.get("status") != "OK"]
+    # In a failed transaction every other statement reports NotExecuted; show the cause.
+    cause = next((r for r in failed if (r.get("details") or {}).get("kind") != "NotExecuted"), failed[0])
+    return cause.get("result")
+
+
+def run(client, label, sql, variables, cancelled=False):
+    """Runs read-only or self-contained SurrealQL (not a migration step); raises on any failure.
 
     cancelled=True: a transaction that ends in CANCEL (a dry run); its statements report
     "Cancelled", which isn't a failure.
@@ -218,17 +255,10 @@ def run(client, label, sql, variables, check_count=True, cancelled=False):
         if r.get("status") != "OK" and not (cancelled and (r.get("details") or {}).get("kind") == "Cancelled")
     ]
     if failed:
-        # In a failed transaction every other statement reports NotExecuted; show the cause.
-        cause = next(
-            (r for r in failed if (r.get("details") or {}).get("kind") != "NotExecuted"), failed[0]
-        )
-        raise MigrationError(f"{label}: {cause.get('result')}")
-    expected, _ = scan(sql)
-    if check_count and len(results) != expected:
-        raise MigrationError(
-            f"{label}: {len(results)} results for {expected} statements: something ended the "
-            "transaction early, so it may have committed only part of the step"
-        )
+        raise MigrationError(f"{label}: {root_cause(failed)}")
+    expected, _ = scan(sql, "runner")
+    if not cancelled and len(results) != expected:
+        raise MigrationError(f"{label}: {len(results)} results for {expected} statements")
     return results
 
 
@@ -245,7 +275,7 @@ def wait_until(deadline, what, attempt):
         if time.monotonic() > deadline:
             raise MigrationError(f"gave up waiting for {what}: {reason}")
         log(f"waiting for {what}: {reason}")
-        time.sleep(5)
+        time.sleep(2)
 
 
 def load_bundle(bundle):
@@ -270,7 +300,7 @@ def load_bundle(bundle):
     if duplicates:
         raise BundleError(f"data script numbers used twice: {', '.join(duplicates)}")
     for name, text in {**top, **data}.items():
-        _, problems = scan(text)
+        _, problems = scan(text, "ddl" if name in DDL_FILES else "data")
         if problems:
             raise BundleError(f"{name}: {'; '.join(problems)}")
     return top, dict(sorted(data.items()))
@@ -280,27 +310,68 @@ def uses(text, param):
     return re.search(r"\$" + re.escape(param) + r"\b", text) is not None
 
 
-FENCE_TAKE = """
-IF (SELECT VALUE generation FROM ONLY _migrationRun:current) > <datetime> $migration_generation {
-  THROW 'a newer migration (generation ' + <string> _migrationRun:current.generation + ') has already been applied: this bundle is stale';
+# The bookkeeping tables, as in schema.surql, so the lease works before the schema exists.
+BOOKKEEPING = """
+DEFINE TABLE IF NOT EXISTS _migrationRun SCHEMAFULL PERMISSIONS NONE;
+DEFINE FIELD IF NOT EXISTS token     ON _migrationRun TYPE int;
+DEFINE FIELD IF NOT EXISTS bundle    ON _migrationRun TYPE string;
+DEFINE FIELD IF NOT EXISTS takenAt   ON _migrationRun TYPE datetime;
+DEFINE FIELD IF NOT EXISTS touchedAt ON _migrationRun TYPE option<datetime>;
+DEFINE TABLE IF NOT EXISTS _migrationPending SCHEMAFULL PERMISSIONS NONE;
+DEFINE FIELD IF NOT EXISTS token     ON _migrationPending TYPE int;
+DEFINE FIELD IF NOT EXISTS startedAt ON _migrationPending TYPE datetime"""
+TAKE_TOKEN = """
+LET $previous = (SELECT VALUE token FROM ONLY _migrationRun:lock) ?? 0;
+UPSERT _migrationRun:lock SET token = $previous + 1, bundle = $migration_bundle,
+  takenAt = time::now(), touchedAt = NONE"""
+# (3.2.4: a bare record path like _migrationRun:lock.token in an IF fails with "Specify a database
+# to use"; SELECT … FROM ONLY works.)
+FENCE = """
+LET $migration_current = (SELECT VALUE token FROM ONLY _migrationRun:lock);
+IF $migration_current != $migration_token {
+  THROW 'superseded: a newer migration run (token ' + <string> $migration_current + ') has started';
 };
-UPSERT _migrationRun:current SET generation = <datetime> $migration_generation,
-  bundle = $migration_bundle, startedAt = time::now() RETURN NONE"""
-FENCE_HOLD = """
-IF (SELECT VALUE generation FROM ONLY _migrationRun:current) != <datetime> $migration_generation {
-  THROW 'superseded: another migration (generation ' + <string> _migrationRun:current.generation + ') took over';
-};
-UPDATE _migrationRun:current SET touchedAt = time::now() RETURN NONE"""
+UPDATE _migrationRun:lock SET touchedAt = time::now()"""
 
 
-def migrate(client, top, data, params, generation, deadline):
-    variables = {k: v for k, v in params.items() if v is not None and k != "generation"}
-    fence = {}
-    if generation:
-        bundle_hash = hashlib.sha256(json.dumps([top, data], sort_keys=True).encode()).hexdigest()
-        fence = {"migration_generation": generation, "migration_bundle": bundle_hash}
+class Runner:
+    def __init__(self, client, token, base_vars):
+        self.client = client
+        self.token = token
+        self.vars = {**base_vars, "migration_token": token}
+
+    def step(self, name, parts, extra_vars=None):
+        """One mutating step: pending row, then the step's transaction ending with its markers."""
+        variables = {**self.vars, **(extra_vars or {}), "migration_step": name}
+        run(self.client, f"{name} (pending)", in_transaction(
+            FENCE,
+            "CREATE type::record('_migrationPending', $migration_step) SET token = $migration_token, startedAt = time::now()",
+        ), variables)
+        sql = in_transaction(FENCE, *parts, "DELETE type::record('_migrationPending', $migration_step)")
+        expected, _ = scan(sql, "runner")
+        try:
+            results = self.client.query(sql, variables)
+        except Exception as err:  # no answer: we can't know what committed
+            raise PartialCommitError(f"{name}: no complete answer ({err})")
+        statuses_ok = all(r.get("status") == "OK" for r in results)
+        if len(results) == expected and not statuses_ok:
+            # Every statement answered and one failed: the transaction was rolled back.
+            run(self.client, f"{name} (cleanup)",
+                "DELETE type::record('_migrationPending', $migration_step) WHERE token = $migration_token",
+                variables)
+            raise MigrationError(f"{name}: {root_cause(results)}")
+        if len(results) != expected or not statuses_ok:
+            raise PartialCommitError(
+                f"{name}: {len(results)} results for {expected} statements, so something ended the "
+                "transaction early: part of this step may have been committed without its marker"
+            )
+
+
+def migrate(client, top, data, params, deadline):
+    variables = {k: v for k, v in params.items() if v is not None}
+    bundle_id = hashlib.sha256(json.dumps([top, data, params], sort_keys=True).encode()).hexdigest()
     summary = {"schemaStatements": 0, "clerk": "clerk_jwt_public_key" in variables,
-               "applied": [], "alreadyApplied": [], "heldBack": []}
+               "applied": [], "alreadyApplied": [], "token": None, "bundle": bundle_id}
 
     def try_signin():
         try:
@@ -314,25 +385,24 @@ def migrate(client, top, data, params, generation, deadline):
     wait_until(deadline, "SurrealDB and the migrator user", try_signin)
     log(f"signed in as {client.user} on {client.namespace}/{client.database}")
 
-    # 1. Validate first: nothing below changes the database.
+    # 1. The startup init's identities, verified with the intended credentials.
     expect_identity = params.get("identity_hash")
     expect_users = sorted(filter(None, os.environ.get("MIGRATE_EXPECT_USERS", "").split(",")))
     expect_services = sorted(filter(None, os.environ.get("MIGRATE_EXPECT_SERVICES", "").split(",")))
-
-    def tables():
-        return run(client, "INFO FOR DB", "INFO FOR DB", {})[0]["result"]["tables"].keys()
-
     if expect_identity or expect_users or expect_services:
 
         def identities_ready():
             info = run(client, "identities", "INFO FOR DB", {})[0]["result"]
             problems = []
             if expect_identity:
-                marker = None
+                verified = None
                 if "_identity" in info["tables"]:
-                    marker = run(client, "identity", "SELECT VALUE hash FROM ONLY _identity:current", {})[0]["result"]
-                if marker != expect_identity:
-                    problems.append(f"SurrealDB hasn't restarted with identity config {expect_identity} yet (it has {marker})")
+                    verified = run(client, "identity", "SELECT VALUE hash FROM ONLY _identity:verified", {})[0]["result"]
+                if verified != expect_identity:
+                    problems.append(
+                        f"identity config {expect_identity} not verified yet (verified: {verified}); "
+                        "the identity-check sidecar verifies it once SurrealDB restarted with it"
+                    )
             users = sorted(info["users"].keys())
             if expect_users and users != expect_users:
                 problems.append(f"system users are {users}, expected {expect_users}")
@@ -345,9 +415,42 @@ def migrate(client, top, data, params, generation, deadline):
             return "; ".join(problems) or None
 
         wait_until(deadline, "the startup init's identities", identities_ready)
-        log("identities: as expected" + (f" (identity config {expect_identity})" if expect_identity else ""))
+        log("identities: as expected" + (f" (identity config {expect_identity} verified)" if expect_identity else ""))
 
-    existing = tables()
+    # 2. The token, then read-only checks.
+    lease = None
+    for attempt in range(10):
+        try:
+            lease = run(client, "token", in_transaction(BOOKKEEPING, TAKE_TOKEN), {"migration_bundle": bundle_id})
+            break
+        except MigrationError as err:
+            if "conflict" not in str(err).lower() or attempt == 9:
+                raise
+            time.sleep(0.2)
+    token = lease[-2]["result"][0]["token"]
+    summary["token"] = token
+    runner = Runner(client, token, variables)
+    log(f"token {token} (bundle {bundle_id[:12]})")
+
+    pending_deadline = time.monotonic() + float(os.environ.get("MIGRATE_PENDING_WAIT_SECONDS", "120"))
+
+    def no_pending():
+        rows = run(client, "_migrationPending", "SELECT record::id(id) AS step, token, startedAt FROM _migrationPending", {})[0]["result"]
+        if not rows:
+            return None
+        return ", ".join(f"{r['step']} (token {r['token']}, {r['startedAt']})" for r in rows)
+
+    while (reason := no_pending()) is not None:
+        if time.monotonic() > pending_deadline:
+            raise PartialCommitError(
+                f"blocked: unfinished step(s) {reason}. A run stopped without confirming whether that "
+                "step committed. Check the data, then delete the _migrationPending row (README, "
+                "'If it fails') and migrate again"
+            )
+        log(f"waiting for an overtaken run to clean up: {reason}")
+        time.sleep(2)
+
+    existing = run(client, "INFO FOR DB", "INFO FOR DB", {})[0]["result"]["tables"].keys()
     applied = {}
     if "_migration" in existing:
         rows = run(client, "_migration", "SELECT record::id(id) AS id, checksum FROM _migration", {})
@@ -362,56 +465,38 @@ def migrate(client, top, data, params, generation, deadline):
             )
     for script_id in sorted(set(applied) - {n[: -len('.surql')] for n in data}):
         log(f"warning: _migration:{script_id} was applied but its script isn't in the bundle")
-    if generation and "_migrationRun" in existing:
-        newer = run(
-            client, "_migrationRun",
-            "RETURN (SELECT VALUE generation FROM ONLY _migrationRun:current) > <datetime> $migration_generation",
-            fence,
-        )[0]["result"]
-        if newer:
-            raise MigrationError(
-                f"a newer migration has already been applied: this bundle (generation {generation}) is stale"
-            )
+    for name, text in data.items():
+        missing = [p for p, v in params.items() if v is None and uses(text, p)]
+        if name[: -len(".surql")] not in applied and missing:
+            raise MigrationError(f"{name} uses {', '.join(missing)}, which Terraform passed as null: set it first")
     if "dpaVersion" in existing:
         # The sync's own checks, in a transaction that is then cancelled.
         sql = "BEGIN TRANSACTION;\n" + top[DPA_SYNC] + "\n;\nCANCEL TRANSACTION;"
-        run(client, f"{DPA_SYNC} (check)", sql, variables, check_count=False, cancelled=True)
+        run(client, f"{DPA_SYNC} (check)", sql, variables, cancelled=True)
     log("checks passed: applying")
 
-    # 2. Declarative schema + Clerk access + fence, atomically.
+    # 3. Declarative schema + Clerk access, one step.
     access = top[CLERK] if summary["clerk"] else "REMOVE ACCESS IF EXISTS clerk ON DATABASE"
-    parts = [top[SCHEMA], access] + ([FENCE_TAKE] if fence else [])
-    run(client, SCHEMA, in_transaction(*parts), {**variables, **fence})
-    summary["schemaStatements"], _ = scan(top[SCHEMA])
+    runner.step("schema", [top[SCHEMA], access])
+    summary["schemaStatements"], _ = scan(top[SCHEMA], "runner")
     log(f"{SCHEMA}: {summary['schemaStatements']} statements applied; clerk access "
         + ("defined" if summary["clerk"] else "removed (no clerk_jwt_public_key)"))
 
-    # 3. Data scripts, each exactly once.
-    holding = None
+    # 4. Data scripts, each exactly once; the _migration row is the last write.
     for name, text in data.items():
         script_id = name[: -len(".surql")]
         if script_id in applied:
             summary["alreadyApplied"].append(script_id)
             continue
-        missing = [p for p, v in params.items() if v is None and uses(text, p)]
-        if holding is None and missing:
-            holding = f"{name} needs {', '.join(missing)}"
-        if holding is not None:
-            summary["heldBack"].append(script_id)
-            continue
-        parts = ([FENCE_HOLD] if fence else []) + [
-            "CREATE type::record('_migration', $migration_id) SET checksum = $migration_checksum",
+        runner.step(script_id, [
             text,
-        ]
-        run(client, name, in_transaction(*parts),
-            {**variables, **fence, "migration_id": script_id, "migration_checksum": checksums[name]})
+            "CREATE type::record('_migration', $migration_id) SET checksum = $migration_checksum",
+        ], {"migration_id": script_id, "migration_checksum": checksums[name]})
         summary["applied"].append(script_id)
         log(f"{name}: applied")
-    if holding:
-        log(f"HELD BACK: {', '.join(summary['heldBack'])} ({holding}; set it, then migrate again)")
 
-    # 4. DPA hashes follow their files (D20).
-    run(client, DPA_SYNC, in_transaction(*([FENCE_HOLD] if fence else []), top[DPA_SYNC]), {**variables, **fence})
+    # 5. DPA hashes follow their files (D20).
+    runner.step("dpa-sync", [top[DPA_SYNC]])
     log(f"{DPA_SYNC}: done")
     return summary
 
@@ -427,11 +512,8 @@ def main():
         params = json.loads(params_path.read_text(encoding="utf-8"))
         if not isinstance(params, dict) or RESERVED_PARAMS & params.keys():
             raise BundleError(f"{params_path}: an object without {sorted(RESERVED_PARAMS)}")
-        generation = os.environ.get("MIGRATE_GENERATION") or params.get("generation")
-        if generation and not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z", generation):
-            raise BundleError(f"generation {generation!r} isn't an RFC 3339 UTC time (…Z)")
     except (BundleError, OSError, ValueError) as err:
-        log(f"ERROR (bundle): {err}")
+        log(f"ERROR (bundle, nothing was run): {err}")
         return 2
     env = os.environ
     client = Client(
@@ -443,11 +525,16 @@ def main():
     )
     deadline = time.monotonic() + float(env.get("MIGRATE_WAIT_SECONDS", "600"))
     try:
-        summary = migrate(client, top, data, params, generation, deadline)
+        summary = migrate(client, top, data, params, deadline)
+    except PartialCommitError as err:
+        log(f"ERROR: PARTIAL COMMIT POSSIBLE, MANUAL RECOVERY NEEDED: {err}")
+        log("Migrations are blocked until the _migrationPending row is cleared "
+            "(infra/k8s/surrealdb/README.md, 'If it fails').")
+        return 3
     except MigrationError as err:
         log(f"ERROR: {err}")
-        log("Nothing from the failed step was kept (each step is one transaction); "
-            "earlier steps of this run stay applied. See the README's recovery section.")
+        log("Nothing from the failed step was kept (it was rolled back); earlier steps of this run "
+            "stay applied. See infra/k8s/surrealdb/README.md, 'If it fails'.")
         return 1
     log(SUMMARY_PREFIX + json.dumps(summary))
     return 0

@@ -15,6 +15,10 @@ import {
 export const SCHEMA_DIR = join(__dirname, '../../schema');
 /** The migrate Job's runner (D14): the tests apply the schema with it, exactly as the Job does. */
 export const RUNNER = join(SCHEMA_DIR, 'migrate.py');
+export const IDENTITY_CHECK = join(
+  __dirname,
+  '../../../../infra/k8s/surrealdb/base/identity_check.py',
+);
 
 export const SERVICES = [
   'api_public_read',
@@ -32,14 +36,10 @@ export const sha256 = (text: string) =>
 /** The parameters Terraform passes the runner (params.json); null = not available yet. */
 export interface MigrationParams {
   clerk_jwt_public_key: string | null;
-  dpa_v1_sha256: string | null;
-  legacy_sha256: string | null;
   /** { <dpaVersion id>: sha256 of libs/legal/dpa/<id>.md } for every file there */
   dpa_sha256: Record<string, string>;
-  /** The identity config the server must have restarted with (GKE); null = don't check */
+  /** The identity config that must be verified first (GKE); null = don't check */
   identity_hash: string | null;
-  /** The generation fence (Terraform: MIGRATE_GENERATION); RFC 3339 UTC */
-  generation?: string;
 }
 
 export interface MigrationSummary {
@@ -47,7 +47,9 @@ export interface MigrationSummary {
   clerk: boolean;
   applied: string[];
   alreadyApplied: string[];
-  heldBack: string[];
+  /** The fencing token this run took from the database */
+  token: number;
+  bundle: string;
 }
 
 export interface MigrationRun {
@@ -63,7 +65,23 @@ export interface MigrationOptions {
   env?: Record<string, string>;
   /** Called with the runner's output as it arrives (to act at a given step). */
   onOutput?: (chunk: string) => void;
+  /**
+   * Defence-in-depth tests only: run the real runner with its grammar check switched off (the
+   * statement count stays), to see what happens when a dangerous script gets past it.
+   */
+  bypassGrammar?: boolean;
 }
+
+const BYPASS_GRAMMAR = `
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("migrate", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+real_scan = m.scan
+m.scan = lambda text, mode="data": (real_scan(text, "runner")[0], [])
+sys.argv = sys.argv[1:]
+sys.exit(m.main())
+`;
 
 /** Runs SurrealQL and returns every statement's result as JSON; throws on the first error. */
 export async function run(
@@ -128,7 +146,7 @@ export class TestDatabase {
   readonly keys: SigningKeys = newSigningKeys();
   readonly migratorPassword = randomBytes(18).toString('hex');
   readonly backupPassword = randomBytes(18).toString('hex');
-  readonly servicePasswords = new Map<ServiceName, string>(
+  servicePasswords = new Map<ServiceName, string>(
     SERVICES.map((s) => [s, randomBytes(18).toString('hex')]),
   );
   private readonly connections: Surreal[] = [];
@@ -174,11 +192,8 @@ export class TestDatabase {
   params(overrides: Partial<MigrationParams> = {}): MigrationParams {
     return {
       clerk_jwt_public_key: this.keys.publicKeyPem,
-      dpa_v1_sha256: DPA_V1_SHA256,
-      legacy_sha256: LEGACY_SHA256,
-      dpa_sha256: { v1: DPA_V1_SHA256, 'legacy-squarespace': LEGACY_SHA256 },
+      dpa_sha256: { v1: DPA_V1_SHA256 },
       identity_hash: null,
-      generation: nextGeneration(),
       ...overrides,
     };
   }
@@ -186,7 +201,12 @@ export class TestDatabase {
   /** Runs the migrate Job's runner against this database as the migrator; never throws. */
   async runMigration(
     params: MigrationParams = this.params(),
-    { bundleDir = SCHEMA_DIR, env = {}, onOutput }: MigrationOptions = {},
+    {
+      bundleDir = SCHEMA_DIR,
+      env = {},
+      onOutput,
+      bypassGrammar = false,
+    }: MigrationOptions = {},
   ): Promise<MigrationRun> {
     const dir = await mkdtemp(join(tmpdir(), 'migration-params-'));
     const paramsFile = join(dir, 'params.json');
@@ -195,7 +215,13 @@ export class TestDatabase {
       return await new Promise<MigrationRun>((resolve) => {
         const child = execFile(
           'python3',
-          [RUNNER, bundleDir, '--params', paramsFile],
+          [
+            ...(bypassGrammar ? ['-c', BYPASS_GRAMMAR] : []),
+            RUNNER,
+            bundleDir,
+            '--params',
+            paramsFile,
+          ],
           {
             env: {
               PATH: process.env['PATH'],
@@ -206,6 +232,7 @@ export class TestDatabase {
               SURREAL_USER: 'migrator',
               SURREAL_PASS: this.migratorPassword,
               MIGRATE_WAIT_SECONDS: '20',
+              MIGRATE_PENDING_WAIT_SECONDS: '20',
               ...env,
             },
           },
@@ -230,6 +257,59 @@ export class TestDatabase {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * The identity-check sidecar's readiness check (infra/k8s/surrealdb/base/identity_check.py),
+   * with these credentials and, optionally, the expected identity config hash.
+   */
+  async identityCheck(
+    credentials: {
+      migrator: string;
+      backup: string;
+      services: Record<string, string>;
+    },
+    expected?: string,
+  ): Promise<{ ready: boolean; output: string }> {
+    const dir = await mkdtemp(join(tmpdir(), 'identity-check-'));
+    try {
+      await writeFile(
+        join(dir, 'credentials.json'),
+        JSON.stringify(credentials),
+      );
+      if (expected)
+        await writeFile(join(dir, 'identity-hash'), `${expected}\n`);
+      return await new Promise((resolve) => {
+        execFile(
+          'python3',
+          [IDENTITY_CHECK],
+          {
+            env: {
+              PATH: process.env['PATH'],
+              PYTHONDONTWRITEBYTECODE: '1',
+              SURREAL_ENDPOINT: this.url.replace(/^ws/, 'http'),
+              SURREAL_NAMESPACE: this.namespace,
+              SURREAL_DATABASE: this.database,
+              IDENTITY_CREDENTIALS: join(dir, 'credentials.json'),
+              IDENTITY_EXPECTED_FILE: join(dir, 'identity-hash'),
+            },
+          },
+          (error, stdout, stderr) =>
+            resolve({ ready: !error, output: `${stdout}${stderr}` }),
+        );
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  /** The credentials the init Secret holds for this database (as ESO renders credentials.json). */
+  credentials() {
+    return {
+      migrator: this.migratorPassword,
+      backup: this.backupPassword,
+      services: Object.fromEntries(this.servicePasswords),
+    };
   }
 
   /** Migrates (schema, Clerk access, data scripts, DPA sync); throws if the runner fails. */
@@ -335,6 +415,13 @@ export class TestDatabase {
     return db;
   }
 
+  /** Closes this handle's connections only (e.g. to a server that's gone). */
+  async closeConnections(): Promise<void> {
+    await Promise.all(
+      this.connections.map((c) => c.close().catch(() => undefined)),
+    );
+  }
+
   async close(): Promise<void> {
     await Promise.all(
       this.connections.map((c) => c.close().catch(() => undefined)),
@@ -352,13 +439,23 @@ export class TestDatabase {
   }
 }
 
+/** A legacy DPA hash for the schema's D22 legacy-consent rules, kept until the M1 import (D44). */
 export const LEGACY_SHA256 = sha256('legacy-squarespace placeholder');
 
-let lastGeneration = 0;
-/** A new, strictly later generation each call (as Terraform fixes one per bundle change). */
-export function nextGeneration(): string {
-  lastGeneration = Math.max(Date.now(), lastGeneration + 1);
-  return new Date(lastGeneration).toISOString();
+/**
+ * Test fixture: the published legacy DPA that seed 0002 used to create. D44 dropped the seed
+ * (the M1 import gets a `legacy-migration` consent category instead), but the schema's D22
+ * legacy-consent rules stay until then, so the tests that pin them create the row themselves.
+ */
+export async function seedLegacyDpaFixture(t: TestDatabase): Promise<void> {
+  await run(
+    await t.migrator(),
+    `CREATE dpaVersion:\`legacy-squarespace\` CONTENT {
+       kind: 'legacy', status: 'published', materiality: 'material',
+       documentPath: 'libs/legal/dpa/legacy-squarespace.md', contentHash: $h,
+       effectiveFrom: d'2024-01-01' }`,
+    { h: LEGACY_SHA256 },
+  );
 }
 export const DPA_V1_SHA256 = sha256('dpa v1 placeholder');
 

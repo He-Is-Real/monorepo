@@ -11,7 +11,7 @@ variables {
     spec = {
       template = {
         spec = {
-          containers = [{ name = "migrate", image = "google/cloud-sdk:1", env = [{ name = "A", value = "1" }] }]
+          containers = [{ name = "migrate", image = "google/cloud-sdk:1" }]
           volumes = [
             { name = "runner", configMap = { name = "surrealdb-migrate-runner-abc" } },
             { name = "migration", configMap = { name = "surrealdb-migration" } },
@@ -34,14 +34,9 @@ run "repo_bundle" {
     error_message = "The bundle must hold the schema, the clerk access, the DPA sync, the data scripts, the runner and params.json."
   }
   assert {
-    condition = (output.params.dpa_v1_sha256 == filesha256("../../../../libs/legal/dpa/v1.md")
-      && output.params.dpa_sha256["v1"] == output.params.dpa_v1_sha256
+    condition = (output.params.dpa_sha256["v1"] == filesha256("../../../../libs/legal/dpa/v1.md")
     && output.params.clerk_jwt_public_key == null && output.params.identity_hash == null)
-    error_message = "dpa_v1_sha256 / dpa_sha256 are the files' sha256 (D20); no Clerk key or identity config by default."
-  }
-  assert {
-    condition     = fileexists("../../../../libs/legal/dpa/legacy-squarespace.md") || contains(output.held_back, "0002-seed-legacy-dpa")
-    error_message = "Without the legacy DPA text, 0002 must be held back."
+    error_message = "dpa_sha256 holds the files' sha256 (D20); no Clerk key or identity config by default."
   }
   assert {
     condition     = output.job.metadata.name == output.job_name && output.config_map.metadata.name == "surrealdb-migration-${output.hash}"
@@ -57,8 +52,8 @@ run "repo_bundle" {
 run "a" {
   command = plan
   assert {
-    condition     = output.held_back == tolist(["0002-two"])
-    error_message = "A script using a null parameter is held back."
+    condition     = output.params.dpa_sha256 == { v1 = filesha256("tests/fixtures/a/dpa/v1.md") }
+    error_message = "dpa_sha256 maps each DPA file to its sha256."
   }
 }
 
@@ -91,7 +86,7 @@ run "dpa_text_changed" {
     dpa_dir = "tests/fixtures/dpa-changed"
   }
   assert {
-    condition     = output.job_name != run.a.job_name && output.params.dpa_v1_sha256 != run.a.params.dpa_v1_sha256
+    condition     = output.job_name != run.a.job_name && output.params.dpa_sha256.v1 != run.a.params.dpa_sha256.v1
     error_message = "A changed DPA text must give a new hash parameter and a new name."
   }
 }
@@ -141,18 +136,6 @@ run "identity_config_changed" {
   assert {
     condition     = output.job_name != run.a.job_name && output.params.identity_hash == "abc"
     error_message = "A new identity config re-runs the Job, which checks the restart happened."
-  }
-}
-
-run "generation_doesnt_rename" {
-  command = plan
-  variables {
-    generation = "2026-10-20T18:00:00Z"
-  }
-  assert {
-    condition = (output.job_name == run.a.job_name
-    && contains([for e in output.job.spec.template.spec.containers[0].env : "${e.name}=${e.value}"], "MIGRATE_GENERATION=2026-10-20T18:00:00Z"))
-    error_message = "The generation goes into the Job's environment without changing its name."
   }
 }
 
