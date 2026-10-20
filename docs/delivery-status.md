@@ -61,7 +61,7 @@ These refine or replace what the plan says.
 | 12  | **`main` is protected by the `protect-main` ruleset.** It's a solo project, so gates mean "deliberate", not "needs a second person".                                                                                                                | "Branch protection, PR templates"                     |
 | 13  | **The Clerk CLI is linked** to the "He Is Real" app (`app_3JuNErrA1fDnJI7SBa3Qx9iYkqU`) through the git remote; nothing is stored in the repo. Never `clerk env pull` keys into `.env` files: Clerk keys go in Secret Manager like everything else. | Not specified                                         |
 | D14 | **Schema migrations (D14):** a Job applied by the `cluster` root, named after the content hash of `libs/database/schema` (declarative schema + run-once data scripts) and its parameters. Migrate, then deploy, by hand.                            | "Used by CI/deploy" (no mechanism)                    |
-| D42 | **Automatic cluster plan (D42):** `tf-cluster-planner` gets dry-run (= real) create/patch in `database` only, used only by the maintainer-approved `cluster-plan` environment (WIF-gated).                                                          | Read-only planner (#32 round 1)                       |
+| D42 | **Automatic cluster plan (D42):** `tf-cluster-planner` may only send dry runs (admission policy) to the overlay's kinds in `database`; usable only from the reviewer-approved `cluster-plan` environment.                                           | Read-only planner (#32 round 1)                       |
 
 ### Clerk state (2026-10-17)
 

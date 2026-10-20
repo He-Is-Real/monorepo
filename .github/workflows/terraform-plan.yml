@@ -90,6 +90,10 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Render and check every Kustomize overlay
         run: infra/k8s/surrealdb/scripts/validate.sh
+      # The cluster planner's RBAC + dry-run-only admission policy (D42), against a real API
+      # server in a throwaway kind cluster (preinstalled on ubuntu-latest).
+      - name: Test the planner's dry-run-only policy
+        run: infra/terraform/modules/cluster/tests/planner-dry-run-only.sh
 
   plan:
     needs: validate

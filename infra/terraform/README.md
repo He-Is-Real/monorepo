@@ -80,31 +80,45 @@ of every root, `terraform test` of `modules/db-migration` and `modules/db-identi
 Kustomize overlay rendered and checked with kubeconform (`ci.yml` runs the database integration
 suite). Locally: `terraform -chdir=infra/terraform/modules/<module> init -backend=false && … test`.
 
-**The automatic `cluster` plan (D42) has write rights in `database`. Read this before changing
-it.** The kustomization provider diffs with server-side dry runs, and Kubernetes authorises a dry
-run exactly like the real request. So the identity that plans the cluster root,
-`tf-cluster-planner`, holds a Role in the `database` namespace (`modules/cluster/planner_rbac.tf`)
-with **create and patch** on every kind the overlay applies there: ConfigMaps, ServiceAccounts,
-Services, ResourceQuotas, the StatefulSet, Jobs, the CronJob, NetworkPolicies, ExternalSecrets
-and the SecretStore. **That is equivalent to apply rights in that namespace**: with this identity
-someone could, for example, change the SurrealDB StatefulSet or start a Job there. It has no
-`delete`, no cluster-scoped writes, no access to Kubernetes Secrets (none of these kinds is a
-Secret, and `roles/container.viewer` excludes them) and no Secret Manager or Terraform-state
-write access. What contains it:
+**The automatic `cluster` plan (D42), and why it's safe.** The kustomization provider diffs with
+server-side dry runs, and Kubernetes authorises a dry run exactly like the real request, so the
+identity that plans the cluster root, `tf-cluster-planner`, needs create/patch RBAC. Three layers
+keep that from becoming write access:
 
-- **GitHub:** the `plan-cluster` job runs only for this repository's own pull requests and pushes
-  to `main` (never forks, which also get no OIDC token), in the protected `cluster-plan`
-  environment, which needs a maintainer's approval for every run.
-- **Google:** the token can only be exchanged for `tf-cluster-planner` through
-  `attribute.cluster_plan_gate` (`modules/bootstrap/ci_identity.tf`): environment
-  `cluster-plan`, this repository, the `terraform-plan.yml` workflow, and a pull request or a
-  push to `main`. Any other workflow, environment, branch push or fork is refused.
-- The gcp plan keeps the separate read-only `tf-planner`.
-- The job only runs once the repository variable `CLUSTER_PLAN_ENABLED` is `true`, set after the
-  environment is protected and the bootstrap and cluster roots have created the identity and Role.
+1. **Kubernetes, by construction:** a ValidatingAdmissionPolicy rejects **every write from
+   `tf-cluster-planner` that isn't a dry run**, in every namespace and for every kind. Its Role is
+   namespaced to `database`: get, create and patch on the overlay's kinds (ConfigMaps,
+   ServiceAccounts, Services, ResourceQuotas, the StatefulSet, Jobs, the CronJob,
+   NetworkPolicies, ExternalSecrets, the SecretStore). No Secrets, no list, no delete, nothing
+   cluster-scoped, and no Kubernetes IAM role: its Google IAM is a custom role that can only
+   reach the cluster's API. So even a stolen token can only read those objects and send dry runs:
+   it can't start a Job or Pod (which could mount credentials) or change anything. Both live in
+   `modules/cluster/planner_dry_run_policy.yaml.tftpl`, tested on a kind cluster in CI
+   (`modules/cluster/tests/planner-dry-run-only.sh`).
+2. **Google:** the token can only be exchanged for `tf-cluster-planner` through
+   `attribute.cluster_plan_gate` (`modules/bootstrap/ci_identity.tf`): environment
+   `cluster-plan` and this repository. (It also names the workflow file and the event, but on a
+   pull request the workflow comes from the PR's own branch, so those are no boundary: anyone who
+   can push a branch can edit the job. The environment and layer 1 are.)
+3. **GitHub:** the `cluster-plan` environment requires a reviewer (Joel) for every run, including
+   a PR that edits the workflow: GitHub only issues a token with that environment once the run is
+   approved. Fork PRs get no OIDC token at all, and the job runs only for this repository's own
+   PRs and pushes to `main`, once the repository variable `CLUSTER_PLAN_ENABLED` is `true`.
 
-A plan that needs more (a changed Namespace, the ESO Helm release) fails loudly here and is
-planned by the manual workflow (`tf-deployer`) or locally instead.
+The gcp plan keeps the separate read-only `tf-planner`. A plan that needs more (a changed
+Namespace, the ESO Helm release) fails loudly here and is planned by the manual workflow
+(`tf-deployer`) or locally instead.
+
+**Verify after applying the cluster root** (`kubectl auth can-i` doesn't see admission
+policies, so try a real write as the planner; you, as a cluster admin, may impersonate it):
+
+```bash
+P=tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com
+kubectl -n database create configmap planner-probe --from-literal=a=1 --as "$P" --dry-run=server  # allowed
+kubectl -n database create configmap planner-probe --from-literal=a=1 --as "$P"   # must be refused:
+#   … denied request: tf-cluster-planner may only send dry-run requests
+kubectl -n database get secrets --as "$P"                                         # must be forbidden
+```
 
 The manual apply has two jobs. **plan** runs a full-refresh plan, shows it in the run summary and
 saves it in the state bucket. **apply** waits for approval of the `dev` environment, then applies
@@ -123,8 +137,9 @@ take the state lock.
   a secret's), but only by changing Terraform code on `main`. GKE admin also lets it read
   in-cluster Kubernetes Secrets, which ESO copies from Secret Manager.
 - **tf-planner:** `roles/viewer` and read access to state. It can't read secret values or backups.
-- **tf-cluster-planner** (D42): `roles/container.viewer`, read access to state, and create/patch
-  in the `database` namespace (see CI above). Only the gated `cluster-plan` job can use it.
+- **tf-cluster-planner** (D42): reach the cluster's API, read state, and in Kubernetes only dry
+  runs plus reads of the overlay's kinds in `database` (see CI above). Only runs approved in the
+  `cluster-plan` environment can use it.
 - **Backups bucket:** only the backup job (create-only) and developers (restores).
 
 ## Cost guardrails
