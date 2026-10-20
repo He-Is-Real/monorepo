@@ -17,7 +17,8 @@
 --   * transactions read a SNAPSHOT: a permission/consent/erasure check can pass while another
 --     transaction commits the opposite. Only write-write conflicts abort (the second commit
 --     fails, "Transaction conflict … can be retried"); hence personFence below
---   * $auth is not usable in a field VALUE (it is in events), so identity checks live in PERMISSIONS/events
+--   * $auth IS usable in a field VALUE (the 2026-10-18 draft said otherwise; tested 2026-10-20):
+--     user.gdprDeletedAt uses it to let only the migrator supply a historical date
 --   * DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (… READONLY)
 
 -- ---------------------------------------------------------------- bookkeeping
@@ -80,7 +81,15 @@ DEFINE EVENT OVERWRITE user_erasure_final ON user
      OR ($after.gdprDeletedAt != NONE AND $after.clerkUserId != NONE))
   THEN { THROW 'an erased user stays erased, without a clerkUserId' };
 DEFINE FIELD OVERWRITE createdAt     ON user TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE FIELD OVERWRITE gdprDeletedAt ON user TYPE option<datetime>;
+-- Set by the database at erasure, never by the caller, and immutable afterwards (review round 3:
+-- a service could backdate it and get consent pruned early). Only a system user (the migrator;
+-- $auth = NONE) may supply a historical date; D22's legacy import doesn't need one (legacy
+-- people aren't erased). A client value is ignored: the server time is stored instead.
+DEFINE FIELD OVERWRITE gdprDeletedAt ON user TYPE option<datetime>
+  VALUE IF $before != NONE { $before }
+        ELSE IF $value = NONE { NONE }
+        ELSE IF $auth = NONE { $value }
+        ELSE { time::now() };
 DEFINE INDEX OVERWRITE user_clerk    ON user FIELDS clerkUserId UNIQUE;
 
 -- ---------------------------------------------------------------- personFence (write fence)
@@ -96,6 +105,16 @@ DEFINE FUNCTION OVERWRITE fn::fence::bump($user: option<record<user>>) {
   IF $user != NONE {
     UPSERT type::record('personFence', record::id($user)) SET n += 1 RETURN NONE;
   };
+};
+-- Every table holding or linking person data (directly or through story) refuses a new or
+-- changed row for a person who doesn't exist or is erased, and bumps that person's fence, so a
+-- write racing erasure conflicts at commit. The per-table list is in docs/db-permissions.md;
+-- integration/person-linked.int-spec.ts fails if a table is added without being classified.
+DEFINE FUNCTION OVERWRITE fn::person::live($user: option<record<user>>) {
+  IF $user = NONE OR !record::exists($user) OR $user.gdprDeletedAt != NONE {
+    THROW 'this row belongs to a person who doesn’t exist or has been erased';
+  };
+  fn::fence::bump($user);
 };
 DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, binding changes
   WHEN $event IN ['CREATE', 'UPDATE'] THEN { fn::fence::bump($after.id) };
@@ -229,7 +248,10 @@ DEFINE EVENT OVERWRITE story_approval_consent ON story
 -- read-model rows or reviews (both are reached through story.submitter). Deleting a story
 -- removes them in the same transaction, whoever deletes it.
 DEFINE EVENT OVERWRITE story_fence ON story                       -- create, edit, submit, approve, delete
-  WHEN true THEN { fn::fence::bump($after.submitter ?? $before.submitter) };
+  WHEN true THEN {
+    IF $event = 'DELETE' { fn::fence::bump($before.submitter) }   -- erasure: no live check
+    ELSE { fn::person::live($after.submitter) };
+  };
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
   WHEN $event = 'DELETE'
   THEN {
@@ -274,7 +296,11 @@ DEFINE FIELD OVERWRITE searchText    ON publicStory TYPE string
 -- the person never wrote, or keep publishing after consent is withdrawn.
 DEFINE EVENT OVERWRITE publicStory_fence ON publicStory           -- publish, re-sync, unpublish
   WHEN true THEN {
-    fn::fence::bump(type::record('story', record::id($after.id ?? $before.id)).submitter);
+    IF $event = 'DELETE' {
+      fn::fence::bump(type::record('story', record::id($before.id)).submitter);
+    } ELSE {
+      fn::person::live(type::record('story', record::id($after.id)).submitter);
+    };
   };
 DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
   WHEN $event IN ['CREATE', 'UPDATE']
@@ -363,7 +389,10 @@ DEFINE EVENT OVERWRITE consent_legacy_only_migrator ON consent
    AND ($after.mechanism = 'legacy_import' OR $after.dpaVersion.kind = 'legacy' OR $after.legacyGivenAt != NONE)
   THEN { THROW 'legacy consent can only be imported by the migrator' };
 DEFINE EVENT OVERWRITE consent_fence ON consent                   -- grant, withdraw (and pruning)
-  WHEN true THEN { fn::fence::bump($after.subject ?? $before.subject) };
+  WHEN true THEN {
+    IF $event = 'DELETE' { fn::fence::bump($before.subject) }     -- retention pruning
+    ELSE { fn::person::live($after.subject) };
+  };
 -- Append-only, with one exit (D38): the nightly retention job, running as the migrator (a
 -- system user, so no record $auth), may delete the rows of a subject erased more than 6 years
 -- ago. 2192d = 6 × 365 days + 2 leap days, so nothing goes early. Nothing else can delete.
@@ -389,6 +418,14 @@ DEFINE FIELD OVERWRITE feedbackToSubmitter ON moderationReview TYPE option<strin
 DEFINE FIELD OVERWRITE storyVersion ON moderationReview TYPE int;      -- the version reviewed (D29)
 DEFINE FIELD OVERWRITE decidedAt   ON moderationReview TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE INDEX OVERWRITE review_story ON moderationReview FIELDS story, decidedAt;
+-- Review round 3: a review must belong to an existing story of a live person, and bumps that
+-- person's fence, so a review racing erasure can't outlive it (the cascade deletes the rest).
+DEFINE EVENT OVERWRITE review_live_story ON moderationReview
+  WHEN $event = 'CREATE'
+  THEN {
+    IF !record::exists($after.story) { THROW 'a moderation review needs an existing story' };
+    fn::person::live($after.story.submitter);
+  };
 DEFINE EVENT OVERWRITE review_append_only ON moderationReview
   WHEN $event = 'UPDATE' THEN { THROW 'moderation reviews are append-only' };  -- DELETE allowed for erasure
 
@@ -435,13 +472,28 @@ DEFINE EVENT OVERWRITE audit_append_only ON auditLog
   WHEN $event = 'UPDATE' THEN { THROW 'audit log is append-only' };      -- DELETE: retention pruning only
 
 -- ---------------------------------------------------------------- idempotencyKey (D29)
--- id = idempotencyKey:['api-user' | 'api-admin', <clerkUserId | 'svix' | 'stripe'>, <key>]
+-- id = idempotencyKey:['api-user' | 'api-admin', <user record | 'svix' | 'stripe'>, <key>]
+-- Scoped by the internal user record, not the Clerk id (review round 3): erasure clears the Clerk
+-- id, so a key must not carry it. A person-scoped key needs a live user and bumps their fence;
+-- erasure deletes their keys. Moderators and admins act through their own user record too (they
+-- already need one for moderationReview.moderator and auditLog.actor).
 DEFINE TABLE OVERWRITE idempotencyKey SCHEMAFULL PERMISSIONS
   FOR select, create, update, delete WHERE $auth.id IN [service:api_user, service:api_admin];
 DEFINE FIELD OVERWRITE requestHash ON idempotencyKey TYPE string;           -- same key + different body → 422
 DEFINE FIELD OVERWRITE status      ON idempotencyKey TYPE int;
-DEFINE FIELD OVERWRITE response    ON idempotencyKey TYPE option<object> FLEXIBLE;  -- {id, version} only
+DEFINE FIELD OVERWRITE response    ON idempotencyKey TYPE option<object>;   -- {id, version} only:
+DEFINE FIELD OVERWRITE response.id      ON idempotencyKey TYPE option<record>;  -- typed, so no
+DEFINE FIELD OVERWRITE response.version ON idempotencyKey TYPE option<int>;     -- text can go in
 DEFINE FIELD OVERWRITE expiresAt   ON idempotencyKey TYPE datetime VALUE $before OR time::now() + 24h;
+DEFINE EVENT OVERWRITE idempotencyKey_owner ON idempotencyKey
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    LET $owner = record::id($after.id)[1];
+    IF type::is_record($owner, 'user') { fn::person::live($owner) }
+    ELSE IF $owner NOT IN ['svix', 'stripe'] {
+      THROW 'an idempotency key is scoped to a user record or a webhook provider';
+    };
+  };
 DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- pruned by the nightly job
 
 -- Later milestones add (same file): favourited/seen edges (M2), donor/donation (M4),

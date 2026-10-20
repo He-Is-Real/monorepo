@@ -1,4 +1,4 @@
-import type { SurrealSession } from 'surrealdb';
+import type { SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
   grantAll,
@@ -12,7 +12,7 @@ import {
 
 /** The person creates a draft with a known id, in their own session. */
 export async function draft(
-  person: SurrealSession,
+  person: SurrealQueryable,
   id: string,
   fields: Row = {},
 ): Promise<Row[]> {
@@ -27,7 +27,7 @@ export async function draft(
 }
 
 /** The owner submits: draft/changes_requested → pending. */
-export function submit(person: SurrealSession, id: string): Promise<Row[]> {
+export function submit(person: SurrealQueryable, id: string): Promise<Row[]> {
   return rows(
     person,
     `UPDATE type::record('story', $id) SET status = 'pending'`,
@@ -39,7 +39,7 @@ export function submit(person: SurrealSession, id: string): Promise<Row[]> {
  * ApproveStory as api-admin will run it (D25/D26): story, read model, review and audit row in
  * one transaction.
  */
-export async function approve(admin: SurrealSession, id: string) {
+export async function approve(admin: SurrealQueryable, id: string) {
   await run(
     admin,
     `BEGIN TRANSACTION;
@@ -115,7 +115,7 @@ export const ERASE = `
   LET $u = (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId AND gdprDeletedAt = NONE)[0];
   IF $u = NONE { THROW 'unknown or already erased' };
   DELETE story WHERE submitter = $u;              -- cascades publicStory + moderationReview
-  DELETE idempotencyKey WHERE id[1] = $clerkUserId;
+  DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
   UPDATE $u SET gdprDeletedAt = time::now(), clerkUserId = NONE;   -- D37: a stub remains
   CREATE auditLog CONTENT { service: 'api-user', action: 'EraseAccount', entity: $u,
     reason: $reason };

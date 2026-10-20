@@ -25,8 +25,8 @@ describe('erasure on api_user’s service login', () => {
     apiUser = await t.service('api_user');
     await run(
       apiUser,
-      `CREATE idempotencyKey:['api-user', 'user_ann', 'k1'] SET requestHash = 'h', status = 201;
-       CREATE idempotencyKey:['api-user', 'user_bob', 'k1'] SET requestHash = 'h', status = 201;`,
+      `CREATE idempotencyKey:['api-user', user:ann, 'k1'] SET requestHash = 'h', status = 201;
+       CREATE idempotencyKey:['api-user', user:bob, 'k1'] SET requestHash = 'h', status = 201;`,
     );
     // Before: Ann has three stories, one live with a review; Bob has three, one live.
     expect(
@@ -76,7 +76,7 @@ describe('erasure on api_user’s service login', () => {
     ).toEqual([{ story: 'story:bob_live' }]);
     expect(
       await truth('SELECT VALUE record::id(id)[1] FROM idempotencyKey'),
-    ).toEqual(['user_bob']);
+    ).toEqual(['user:bob']);
   });
 
   it('leaves everyone else untouched', async () => {
@@ -120,12 +120,17 @@ describe('erasure on api_user’s service login', () => {
         ok: false,
         error: expect.stringContaining('clerkUserId can only be'),
       });
-      expect(
-        await outcome(db, 'UPDATE user:ann SET gdprDeletedAt = NONE'),
-      ).toEqual({
-        ok: false,
-        error: expect.stringContaining('an erased user stays erased'),
-      });
+      // gdprDeletedAt is immutable once set (its VALUE keeps $before): un-erasing or
+      // re-dating is ignored, and the stored date stays.
+      const [before] = await truth('SELECT VALUE gdprDeletedAt FROM user:ann');
+      await run(db, 'UPDATE user:ann SET gdprDeletedAt = NONE');
+      await run(
+        db,
+        `UPDATE user:ann SET gdprDeletedAt = d'2015-01-01T00:00:00Z'`,
+      );
+      expect(await truth('SELECT VALUE gdprDeletedAt FROM user:ann')).toEqual([
+        before,
+      ]);
     }
     expect(
       await rows(
@@ -196,22 +201,16 @@ describe('erasure on api_user’s service login', () => {
     expect(
       await truth('SELECT VALUE id FROM consent WHERE subject = user:bob'),
     ).toEqual(consentBefore);
-    // An update, on a row put back for the test (erasure deleted all of Bob's stories).
-    await run(
-      migrator,
-      `CREATE story:bob_ghost CONTENT { submitter: user:bob, slug: 'bob-ghost', title: 'Ghost',
-         description: 'x', primaryFormat: 'written' }`,
-    );
+    // There's no row left to update, and none can be put back: not even the migrator can
+    // attach a story to an erased person (fn::person::live, round 3).
     expect(
-      await rows(
-        bob,
-        `UPDATE story:bob_ghost SET title = 'Rewritten after erasure'`,
+      await outcome(
+        migrator,
+        `CREATE story:bob_ghost CONTENT { submitter: user:bob, slug: 'bob-ghost', title: 'Ghost',
+           description: 'x', primaryFormat: 'written' }`,
       ),
-    ).toEqual([]);
-    expect(await truth('SELECT VALUE title FROM story:bob_ghost')).toEqual([
-      'Ghost',
-    ]);
-    await run(migrator, 'DELETE story:bob_ghost');
+    ).toEqual({ ok: false, error: expect.stringContaining('has been erased') });
+    expect(await truth('SELECT * FROM story:bob_ghost')).toEqual([]);
     // And no new session: the Clerk id is gone (D37).
     await expect(t.person('user_bob')).rejects.toThrow();
   });

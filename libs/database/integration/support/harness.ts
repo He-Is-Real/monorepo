@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type AuthProvider, Surreal, type SurrealSession } from 'surrealdb';
+import { type AuthProvider, Surreal, type SurrealQueryable } from 'surrealdb';
 import {
   clerkClaims,
   type ClerkTokenOptions,
@@ -42,7 +42,7 @@ export const sha256 = (text: string) =>
 
 /** Runs SurrealQL and returns every statement's result as JSON; throws on the first error. */
 export async function run(
-  db: SurrealSession,
+  db: SurrealQueryable,
   sql: string,
   vars?: Record<string, unknown>,
 ): Promise<unknown[]> {
@@ -51,7 +51,7 @@ export async function run(
 
 /** The last statement's result, as an array of rows (empty when nothing matched or was allowed). */
 export async function rows<T = Row>(
-  db: SurrealSession,
+  db: SurrealQueryable,
   sql: string,
   vars?: Record<string, unknown>,
 ): Promise<T[]> {
@@ -66,7 +66,7 @@ export type Outcome =
 
 /** The last statement's outcome, without throwing: for asserting on refusals. */
 export async function outcome(
-  db: SurrealSession,
+  db: SurrealQueryable,
   sql: string,
   vars?: Record<string, unknown>,
 ): Promise<Outcome> {
@@ -298,7 +298,7 @@ export async function publishDpa(t: TestDatabase, id: string): Promise<void> {
 
 /** The person grants or withdraws one consent type in their own session. */
 export function consentEvent(
-  person: SurrealSession,
+  person: SurrealQueryable,
   type: ConsentType,
   event: 'granted' | 'withdrawn',
   dpa = 'v1',
@@ -316,7 +316,7 @@ export function consentEvent(
 }
 
 export async function grantAll(
-  person: SurrealSession,
+  person: SurrealQueryable,
   dpa = 'v1',
 ): Promise<void> {
   for (const type of CONSENT_TYPES) {
@@ -328,7 +328,7 @@ export async function grantAll(
 let storySeq = 0;
 /** The person creates a draft story in their own session. */
 export function createDraft(
-  person: SurrealSession,
+  person: SurrealQueryable,
   fields: Row = {},
 ): Promise<Row[]> {
   storySeq += 1;

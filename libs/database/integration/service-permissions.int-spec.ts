@@ -253,7 +253,7 @@ describe('service identities (D13 B)', () => {
       expect(
         await rows(
           db,
-          `CREATE idempotencyKey:['api-user', 'user_ann', 'k1'] SET requestHash = 'h', status = 201`,
+          `CREATE idempotencyKey:['api-user', user:ann, 'k1'] SET requestHash = 'h', status = 201`,
         ),
       ).toHaveLength(1);
       expect(await rows(db, 'SELECT * FROM idempotencyKey')).toHaveLength(1);

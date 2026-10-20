@@ -36,18 +36,20 @@ describe('retention pruning (D38)', () => {
     await publishDpa(t, 'v1');
     await createPeople(t, { live: 'user_live' });
     await consentEvent(await t.person('user_live'), 'publish', 'granted');
-    // Erased people, as the migrator would find them years later (stubs: no Clerk id).
+    // Erased people, as the nightly job would find them years later (stubs: no Clerk id).
     await run(
       migrator,
-      `CREATE user:old_erased SET gdprDeletedAt = time::now() - 2200d;
-       CREATE user:edge_erased SET gdprDeletedAt = time::now() - 2191d;
-       CREATE user:recent_erased SET gdprDeletedAt = time::now() - 365d;
-       FOR $u IN [user:old_erased, user:edge_erased, user:recent_erased] {
+      `FOR $u IN [user:old_erased, user:edge_erased, user:recent_erased] {
+         CREATE $u;
          FOR $t IN ['special_category_religious', 'publish'] {
            CREATE consent CONTENT { subject: $u, type: $t, event: 'granted',
              dpaVersion: dpaVersion:v1, mechanism: 'web_form_submission', evidenceHash: $h };
          };
-       };`,
+       };
+       -- Only a system user (the migrator) may supply a historical erasure date.
+       UPDATE user:old_erased SET gdprDeletedAt = time::now() - 2200d;
+       UPDATE user:edge_erased SET gdprDeletedAt = time::now() - 2191d;
+       UPDATE user:recent_erased SET gdprDeletedAt = time::now() - 365d;`,
       { h: 'c'.repeat(64) },
     );
   });
@@ -126,4 +128,40 @@ describe('retention pruning (D38)', () => {
       [],
     );
   });
+
+  it.each(['api_user', 'api_admin'] as const)(
+    'a backdated erasure by %s stores the server time, so nothing becomes prunable (round 3, P2)',
+    async (name) => {
+      const p = `backdate_${name}`;
+      await createPeople(t, { [p]: `user_${p}` });
+      await consentEvent(await t.person(`user_${p}`), 'publish', 'granted');
+      // Codex's reproduction: the full erasure, with a client-supplied date 2200 days ago.
+      await run(
+        await t.service('api_user'),
+        `UPDATE type::record('user', $p) SET gdprDeletedAt = time::now() - 2200d, clerkUserId = NONE`,
+        { p },
+      );
+      const [stored] = await rows<string>(
+        migrator,
+        `SELECT VALUE gdprDeletedAt FROM type::record('user', $p)`,
+        { p },
+      );
+      expect(Date.parse(stored)).toBeGreaterThan(Date.now() - 60_000);
+      // And it can't be re-dated afterwards, by this service or the other.
+      await run(
+        await t.service(name),
+        `UPDATE type::record('user', $p) SET gdprDeletedAt = time::now() - 2200d`,
+        { p },
+      );
+      expect(
+        await rows(
+          migrator,
+          `SELECT VALUE gdprDeletedAt FROM type::record('user', $p)`,
+          { p },
+        ),
+      ).toEqual([stored]);
+      await run(migrator, NIGHTLY_CONSENT_PRUNE);
+      expect(await consentOf(p)).toHaveLength(1);
+    },
+  );
 });
