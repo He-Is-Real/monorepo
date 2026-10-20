@@ -11,11 +11,11 @@ automated tests. It also records what had to change in the draft and what is sti
 | ------------------------------------------- | -------------------------------------------------------------------------- |
 | `libs/database/schema/schema.surql`         | Declarative schema (D14). Terraform placeholder: `${clerk_jwt_public_key}` |
 | `libs/database/schema/data/000N-*.surql`    | Run-once seeds 0001 (draft DPA v1) and 0002 (legacy DPA)                   |
-| `libs/database/integration/*.int-spec.ts`   | 173 integration tests against a real SurrealDB                             |
+| `libs/database/integration/*.int-spec.ts`   | 191 integration tests against a real SurrealDB                             |
 | `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests                          |
 
 ```bash
-pnpm nx run database:test-integration    # needs Docker; about 10 s
+pnpm nx run database:test-integration    # needs Docker; about 20 s
 ```
 
 - **Why `libs/database/schema` and not `infra/db`** (the doc's D14 layout): files under an Nx
@@ -41,27 +41,30 @@ pnpm nx run database:test-integration    # needs Docker; about 10 s
 Every **denied write** asserts the empty result **and** checks through the migrator (which
 bypasses permissions) that the row is unchanged or absent.
 
-| Claim                                                                                                                                                                                                                                                                                                                                                        | Spec                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
-| Schema (draft 122 statements, now 135) applies and re-applies cleanly; seeds run once.                                                                                                                                                                                                                                                                       | `schema`                         |
-| Only the migrator (OWNER) can `DEFINE`/`REMOVE` anything. Every service and person session is refused `DEFINE TABLE/FIELD/ACCESS/USER/FUNCTION`, `REMOVE EVENT`, `REMOVE TABLE`. The guard events are still present afterwards.                                                                                                                              | `schema`                         |
-| `svc` sign-in: argon2 hashes only. Wrong password, another service's password and unknown names are rejected. No service can read, rewrite or create `service` rows.                                                                                                                                                                                         | `service-permissions`            |
-| `api_public_read`: only `publicStory`, `tag` and published `dpaVersion`. Nothing in `story` (not even approved rows), `consent`, `user`, reviews, audit, idempotency keys or `_migration`. Every write is a no-op.                                                                                                                                           | `service-permissions`            |
-| `api_user` login: can't read, create, edit or reassign stories, or read or forge consent. It can delete stories (erasure), create/update users but not rebind or clear `clerkUserId` outside erasure, write but not read audit rows, own idempotency keys, and can't moderate.                                                                               | `service-permissions`            |
-| `api_admin`: reads all stories, consent, reviews and audit; can't write consent; manages DPAs (published = frozen, none deletable); links a legacy person's Clerk ID once.                                                                                                                                                                                   | `service-permissions`            |
-| D41 write scope: `workflow` writes media/processing fields only; content, status, approval, lock and feedback writes are dropped. `api_admin` writes moderation fields and status only; content and media writes (including `media[0].x`) are dropped, and `publicStory` must mirror the approved story.                                                     | `write-scope`                    |
-| Consent is append-only for every identity: permissions give an empty result; even the OWNER migrator is stopped by the event.                                                                                                                                                                                                                                | `service-permissions`, `consent` |
-| Clerk JWT (D27): `sub` maps to `user` by `clerkUserId`. Rejected: expired, wrong key, `ac` = `svc` or unknown, unknown `sub`, other database, no `exp`, HS256-with-public-key confusion, tampered payload, erased person. An `id` claim can't override `AUTHENTICATE`; `iss`/`azp` aren't checked.                                                           | `person-session`                 |
-| A person sees only their own stories (drafts and pending too), never anyone else's in the write model, approved included. They see only their own consent and user row, and only published DPAs. `fn::consent::current(otherUser)` returns nothing to them.                                                                                                  | `person-session`                 |
-| Draft creation: only for themselves, only as `draft`, only with current Art 9 consent. Moderation fields can't be pre-filled; `version`/`createdAt`/`submittedAt` are server-set.                                                                                                                                                                            | `person-session`                 |
-| Editing: own drafts only; `submitter` can't be reassigned; moderation fields are silently dropped; only submit or withdraw is allowed; no backdated `submittedAt`. Content is locked after submit, editable again after `changes_requested`. They can't delete stories, can withdraw (and unpublish) their own, and can't touch others'.                     | `person-session`                 |
-| Consent at every step: edit/media needs current Art 9; submit and approval need Art 9 + `publish` + `age_18plus`; the read model needs them too. Withdrawing a story needs none. Includes Codex's reproduction (withdraw Art 9, then edit, submit, approve: all refused, nothing published).                                                                 | `consent-gates`                  |
-| D17 derivation over many people and stories: grant, re-grant to a newer DPA, withdraw and re-consent each change every one of that person's stories at once, and nobody else's. Correct in multi-row selects, in subqueries and in the person's own view.                                                                                                    | `consent`                        |
-| D20/D22: no consent against a draft DPA (accepted once published). `occurredAt` is server time. Legacy consent (mechanism, legacy DPA, `legacyGivenAt`) is migrator-only. The 0003 import pattern derives `legacy-squarespace`.                                                                                                                              | `consent`                        |
-| Both 3.2.4 bugs are pinned (they fail when an upgrade fixes them).                                                                                                                                                                                                                                                                                           | `consent`                        |
-| Erasure on `api_user`'s login removes stories, read-model rows, reviews and idempotency keys, clears `clerkUserId` and leaves a stub `user` row, the consent ledger (pointing at the stub) and id-only audit rows. Fresh sign-in fails; nobody can rebind or un-erase the stub. A session opened before erasure can't write. Works after consent withdrawal. | `erasure`                        |
-| D38: audit rows have typed, enum-checked fields; a payload or any unknown field is refused, as are free-text actions, reasons, statuses, roles and consent types.                                                                                                                                                                                            | `erasure`                        |
-| One connection, one session per request, concurrent people isolated; dangers pinned; cost measured.                                                                                                                                                                                                                                                          | `request-sessions`               |
+| Claim                                                                                                                                                                                                                                                                                                                                                                                                                        | Spec                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Schema (draft 122 statements, now 142) applies and re-applies cleanly; seeds run once.                                                                                                                                                                                                                                                                                                                                       | `schema`                         |
+| Only the migrator (OWNER) can `DEFINE`/`REMOVE` anything. Every service and person session is refused `DEFINE TABLE/FIELD/ACCESS/USER/FUNCTION`, `REMOVE EVENT`, `REMOVE TABLE`. The guard events are still present afterwards.                                                                                                                                                                                              | `schema`                         |
+| `svc` sign-in: argon2 hashes only. Wrong password, another service's password and unknown names are rejected. No service can read, rewrite or create `service` rows.                                                                                                                                                                                                                                                         | `service-permissions`            |
+| `api_public_read`: only `publicStory`, `tag` and published `dpaVersion`. Nothing in `story` (not even approved rows), `consent`, `user`, reviews, audit, idempotency keys or `_migration`. Every write is a no-op.                                                                                                                                                                                                           | `service-permissions`            |
+| `api_user` login: can't read, create, edit or reassign stories, or read or forge consent. It can delete stories (erasure), create/update users but not rebind or clear `clerkUserId` outside erasure, write but not read audit rows, own idempotency keys, and can't moderate.                                                                                                                                               | `service-permissions`            |
+| `api_admin`: reads all stories, consent, reviews and audit; can't write consent; manages DPAs (published = frozen, none deletable); links a legacy person's Clerk ID once.                                                                                                                                                                                                                                                   | `service-permissions`            |
+| D41 write scope: `workflow` writes media/processing fields only; content, status, approval, lock and feedback writes are dropped. `api_admin` writes moderation fields and status only; content and media writes (including `media[0].x`) are dropped, and `publicStory` must mirror the approved story.                                                                                                                     | `write-scope`                    |
+| Consent is append-only for every identity: permissions give an empty result; even the OWNER migrator is stopped by the event.                                                                                                                                                                                                                                                                                                | `service-permissions`, `consent` |
+| Clerk JWT (D27): `sub` maps to `user` by `clerkUserId`. Rejected: expired, wrong key, `ac` = `svc` or unknown, unknown `sub`, other database, no `exp`, HS256-with-public-key confusion, tampered payload, erased person. An `id` claim can't override `AUTHENTICATE`; `iss`/`azp` aren't checked.                                                                                                                           | `person-session`                 |
+| A person sees only their own stories (drafts and pending too), never anyone else's in the write model, approved included. They see only their own consent and user row, and only published DPAs. `fn::consent::current(otherUser)` returns nothing to them.                                                                                                                                                                  | `person-session`                 |
+| Draft creation: only for themselves, only as `draft`, only with current Art 9 consent. Moderation fields can't be pre-filled; `version`/`createdAt`/`submittedAt` are server-set.                                                                                                                                                                                                                                            | `person-session`                 |
+| Editing: own drafts only; `submitter` can't be reassigned; moderation fields are silently dropped; only submit or withdraw is allowed; no backdated `submittedAt`. Content is locked after submit, editable again after `changes_requested`. They can't delete stories, can withdraw (and unpublish) their own, and can't touch others'.                                                                                     | `person-session`                 |
+| Consent at every step: edit/media needs current Art 9; submit and approval need Art 9 + `publish` + `age_18plus`; the read model needs them too. Withdrawing a story needs none. Includes Codex's reproduction (withdraw Art 9, then edit, submit, approve: all refused, nothing published).                                                                                                                                 | `consent-gates`                  |
+| D17 derivation over many people and stories: grant, re-grant to a newer DPA, withdraw and re-consent each change every one of that person's stories at once, and nobody else's. Correct in multi-row selects, in subqueries and in the person's own view.                                                                                                                                                                    | `consent`                        |
+| D20/D22: no consent against a draft DPA (accepted once published). `occurredAt` is server time. Legacy consent (mechanism, legacy DPA, `legacyGivenAt`) is migrator-only. The 0003 import pattern derives `legacy-squarespace`.                                                                                                                                                                                              | `consent`                        |
+| Both 3.2.4 bugs are pinned (they fail when an upgrade fixes them).                                                                                                                                                                                                                                                                                                                                                           | `consent`                        |
+| Erasure on `api_user`'s login removes stories, read-model rows, reviews and idempotency keys, clears `clerkUserId` and leaves a stub `user` row, the consent ledger (pointing at the stub) and id-only audit rows. Fresh sign-in fails; nobody can rebind or un-erase the stub. A session opened before erasure can't write; an overlapping transaction fails at commit (see `concurrency`). Works after consent withdrawal. | `erasure`                        |
+| D38: audit rows have typed, enum-checked fields; a payload or any unknown field is refused, as are free-text actions, reasons, statuses, roles and consent types.                                                                                                                                                                                                                                                            | `erasure`                        |
+| Concurrency (round 2): a story create overlapping erasure, an approval overlapping a publish withdrawal, a submit overlapping an Art 9 withdrawal, and a workflow media write overlapping erasure all lose at commit with a retryable conflict, with stored state clean. Erasure losing to a create is retried and then erases it. Unrelated people never conflict. No session can read or write a fence.                    | `concurrency`                    |
+| Service writes check the **submitter's** consent: workflow media/processing writes (draft and approved) are refused once Art 9 is withdrawn, stored state unchanged. Moderation without content change, withdrawal and deletion stay consent-free.                                                                                                                                                                           | `consent-gates`                  |
+| D38 retention: only the migrator, and only for subjects erased more than 6 years ago (2192 days), can delete consent; live, recently erased and 2191-day-old subjects are refused, and so is every service and person. Audit rows: the migrator can prune; no service or person can.                                                                                                                                         | `retention`                      |
+| One connection, one session per request, concurrent people isolated; dangers pinned; cost measured.                                                                                                                                                                                                                                                                                                                          | `request-sessions`               |
 
 ## Changes to the draft schema (port back to the decision doc)
 
@@ -110,8 +113,10 @@ record::id(id)).submitter = $u` and `DELETE moderationReview WHERE story.submitt
 
 6. **An open session could write after erasure (finding 2).** Every person write now also
    requires `$auth.gdprDeletedAt = NONE`: story create and update, consent create, and
-   `publicStory` delete. `$auth` is a record id, so this reads the user row **as it is now**,
-   not a sign-in snapshot; the regression test opens Bob's session before erasure.
+   `publicStory` delete. `$auth` is a record id, so this reads the user row as of the
+   transaction's snapshot, not as of sign-in; the regression test opens Bob's session before
+   erasure. **Correction from round 2:** this alone doesn't cover a transaction that is already
+   open when erasure commits. Item 10's fence does.
 7. **D41 write scope (finding 3).** Field-level `PERMISSIONS FOR update` on `story`:
    - content (`slug title description body bylineName primaryFormat tagRefs`): not `api_admin`,
      not `workflow`;
@@ -139,6 +144,71 @@ record::id(id)).submitter = $u` and `DELETE moderationReview WHERE story.submitt
    SCHEMAFULL **rejects** unknown fields (an error, not a silent drop), so a payload can't be
    smuggled in.
 
+### Review round 2 (Codex)
+
+10. **Transactions could commit after erasure or consent withdrawal (P1-A).** SurrealDB checks
+    permissions, consent and `gdprDeletedAt` against the transaction's **snapshot**. Codex
+    reproduced two cases on 3.2.4 + RocksDB, and they reproduce on the in-memory engine too:
+    - a draft created in an open transaction committed after erasure;
+    - an approval committed after the person withdrew publish consent.
+
+    **Fix: a per-person write fence.**
+    - A new `personFence` table is `PERMISSIONS NONE`; its id is `personFence:<user id>` and it
+      holds a counter, nothing else.
+    - `fn::fence::bump(user)` upserts it.
+    - Events call it on every `story` create/update/delete (submitter), every `publicStory`
+      write (the story's submitter), every `consent` write (subject) and every `user`
+      create/update (erasure, binding).
+    - So any two transactions that depend on or change the same person write the same key, and
+      the **second to commit fails**: `Transaction conflict: … This transaction can be
+retried`, on both RocksDB and the in-memory engine.
+
+    **Why a separate table.** Events run with **elevated privileges** on 3.2.4: a person's story
+    event wrote a row into a `PERMISSIONS NONE` table. So no session can touch the fence directly
+    (tested for every service and a person) and no permissions widened. A counter on `user`
+    would have needed person-writable `user` rows.
+
+    **Why not something else.** There's no `SELECT … FOR UPDATE` and no read-set conflict
+    detection: only write-write conflicts abort. So the overlapping transactions have to write a
+    common key. One key per person keeps unrelated people from conflicting (tested).
+
+    The test container now runs **RocksDB** (`rocksdb:/tmp/surrealdb`), the production engine.
+
+11. **Workflow media writes skipped consent (P1-B).** The consent event only checked owner
+    writes. It's now `story_consent` (it replaces `story_owner_consent`): **any** content or media
+    change, by the person, workflow or api-admin, needs the **submitter's** current Art 9
+    consent. The submit check stays owner-only (only the owner submits).
+    - **Other service paths checked:** api-admin approval (already any caller), `publicStory`
+      writes (already any caller), workflow media (fixed).
+    - **Still consent-free by design:** api-admin moderation without content changes (lock,
+      feedback, reject, request changes), withdrawal and deletion.
+12. **Consent pruning was impossible (P3).** `consent_append_only` refused every delete, the
+    migrator's included. It now refuses all updates, and any delete except by a system user
+    (no record `$auth`; only the migrator, since backup is VIEWER) of a subject erased more than
+    `2192d` ago (6 × 365 + 2 leap days, so never early). The nightly job is one statement:
+    `DELETE consent WHERE subject.gdprDeletedAt != NONE AND subject.gdprDeletedAt < time::now() - 2192d`.
+
+    `auditLog` didn't have this problem: deletes are `PERMISSIONS NONE` for every session and no
+    event blocks the migrator. The age limit for audit rows lives in the job, not the schema
+    (their `createdAt` is server-set). Fence rows of erased people (a counter) can go with the
+    stub.
+
+## Transactions, conflicts and retries (for command handlers)
+
+- **Snapshot reads.** A transaction sees the database as it was when it began. Checks in
+  permissions and events can't see a concurrent commit; the fence turns that overlap into a
+  **commit-time conflict** for whichever commits second.
+- **Treat a conflict as retryable.** Its message contains `Transaction conflict` and `can be
+retried`. Re-run the **whole** command (re-read, re-check, re-write) with a small bounded
+  backoff (e.g. 3 tries). The retry sees the committed state, so a withdrawn consent or an
+  erasure now refuses it (tested). surrealdb.js `.retry()` and 2.1's `transaction([...],
+{ retry })` do this for one-request transactions.
+- **Erasure must retry until it commits** (D39 makes it idempotent). An erasure that loses to a
+  concurrent write is retried and then erases that write too (tested). Re-running the sweep once
+  after commit is a cheap extra safety net.
+- **Expect more conflicts per person, not across people.** Approving someone's story while they
+  edit, or two tabs of one person, now conflict. That's intended.
+
 ## Gotchas (no schema change; for `libs/database` and every command handler)
 
 - **A denied write returns an empty result, and so does an allowed one the caller can't read
@@ -151,9 +221,12 @@ record::id(id)).submitter = $u` and `DELETE moderationReview WHERE story.submitt
   (`submitter`) is an **error**. Denied events (`THROW`) are errors.
 - **`$auth.id` is `NONE` in a service's queries**, because `service` is `PERMISSIONS NONE`.
   Inside PERMISSIONS clauses it resolves, so the schema works. In queries use `$auth` itself.
-- **`fn::consent::current` runs with the caller's permissions.** That's correct, but anyone who
-  can't read the ledger (`api_public_read`, `api_user`'s login) gets `NONE`, meaning "no
-  consent".
+- **`fn::consent::current` runs with the caller's permissions in queries and permission
+  clauses**, so anyone who can't read the ledger (`api_public_read`, `api_user`'s login) gets
+  `NONE` ("no consent"). Inside **events** it runs elevated, so the consent events see the real
+  ledger whoever writes.
+- **Events run with elevated privileges.** An event fired by a person's or service's write can
+  write any table. Keep events small and deliberate.
 - **In a failed transaction, surrealdb.js 2.0.x's `collect()` throws "The query was not
   executed due to a failed transaction"**, not the `THROW` message. Read `.responses()` for the
   root cause. 2.1.0 fixes this (surrealdb.js#689).
@@ -237,7 +310,9 @@ spec has the reference:
    removes `publicStory` and `moderationReview`.
 3. Delete their idempotency keys.
 4. Set `gdprDeletedAt` and clear `clerkUserId` in one update (D37). From then on
-   `AUTHENTICATE` can't find them, and any already-open session can't write.
+   `AUTHENTICATE` can't find them. An already-open session can't write afterwards, and a
+   transaction that overlaps erasure fails at commit (person fence). If erasure itself loses
+   that race, it's retried.
 5. Write an `EraseAccount` audit row with `reason` = the caller (D39).
 
 **What remains:**
@@ -249,7 +324,13 @@ spec has the reference:
 
 **Retention (D38, decided 2026-10-19).** Audit and consent records are kept 6 years (the usual UK
 limitation period; for an erased person, counted from erasure), then deleted by a nightly
-clean-up job running as the migrator. The job comes with the D14 migration work; it isn't built.
+clean-up job running as the migrator.
+
+- **Consent:** the schema enforces the rule (item 12), and the job's `DELETE` statement is
+  tested.
+- **Audit:** only the migrator can delete; the 6-year cut-off lives in the job.
+
+The job itself comes with the D14 migration work; it isn't built.
 
 **Decided, not built (M2 API work):**
 
@@ -340,13 +421,22 @@ wanted.
   - in-flight requests fail cleanly;
   - the service connection signs in again through its `svc` provider (the 15-minute token).
 - **A session opened before erasure can still read** the person's own consent rows (their
-  stories are gone) until it expires, at most 5 minutes. Writes are blocked; reads aren't.
+  stories are gone) until it expires, at most 5 minutes. Writes are refused, or fail at commit if
+  they overlap erasure; reads aren't blocked.
 - **Editing an approved story** (API plan assumption, M2): the read model must mirror the story,
   and only the person can change content. So an edit after approval needs the
   revision → re-approval flow before `publicStory` changes.
-- **Errors vs empty results.** Consent and lifecycle rules are events, so they throw errors.
-  Ownership and field scope are permissions, so they give empty results or dropped fields.
-  Command handlers must handle both.
+- **Errors vs empty results vs conflicts.** Consent and lifecycle rules are events, so they throw
+  errors. Ownership and field scope are permissions, so they give empty results or dropped
+  fields. Overlapping transactions give a retryable conflict at commit. Command handlers must
+  handle all three.
+- **Races outside one database transaction.** The fence covers everything inside SurrealDB.
+  These are application-level ordering, not database races:
+  - Bunny deletions (D40's pending-deletions table and retries);
+  - Clerk deletion (D39: database first);
+  - an upload to Bunny that finishes after erasure: its id is written by a later story update,
+    which the fence and `gdprDeletedAt` refuse, so the video is orphaned on Bunny until the
+    D40 sweep.
 - **Silent no-ops.** Every handler must check that its write took effect, and that check can't
   see writes to tables it can't read (above). Put a helper in `libs/database` when the first
   command lands.
