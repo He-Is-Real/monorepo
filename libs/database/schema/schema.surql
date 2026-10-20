@@ -12,6 +12,11 @@
 --     write on a table the caller can't SELECT (e.g. api_user creating auditLog rows)
 --   * for a `service` session, `$auth.id` is NONE in queries (the service table is PERMISSIONS
 --     NONE) but resolves inside PERMISSIONS clauses; in queries use `$auth` itself
+--   * EVENTS RUN WITH ELEVATED PRIVILEGES: an event fired by a person's write could write a
+--     PERMISSIONS NONE table. Events are trusted code; they must only write what they intend
+--   * transactions read a SNAPSHOT: a permission/consent/erasure check can pass while another
+--     transaction commits the opposite. Only write-write conflicts abort (the second commit
+--     fails, "Transaction conflict … can be retried"); hence personFence below
 --   * $auth is not usable in a field VALUE (it is in events), so identity checks live in PERMISSIONS/events
 --   * DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (… READONLY)
 
@@ -33,8 +38,9 @@ DEFINE ACCESS OVERWRITE svc ON DATABASE TYPE RECORD
 -- Clerk's PEM public key is pinned by Terraform: GKE has no internet egress to fetch the JWKS.
 -- Tokens come from a Clerk JWT template carrying the ns/db/ac claims SurrealDB needs.
 -- An already-open person session outlives erasure (up to its 5m session), so every person write
--- below also checks `$auth.gdprDeletedAt = NONE`: $auth is a record id, so this reads the user
--- row as it is now, not a snapshot from sign-in.
+-- below also checks `$auth.gdprDeletedAt = NONE`. $auth is a record id, so this reads the user
+-- row as of the transaction's snapshot (not as of sign-in); a transaction that overlaps erasure
+-- is caught by the personFence conflict instead.
 DEFINE ACCESS OVERWRITE clerk ON DATABASE TYPE RECORD
   WITH JWT ALGORITHM RS256 KEY '${clerk_jwt_public_key}'
   AUTHENTICATE (SELECT VALUE id FROM user WHERE clerkUserId = $token.sub AND gdprDeletedAt = NONE LIMIT 1)[0]
@@ -76,6 +82,23 @@ DEFINE EVENT OVERWRITE user_erasure_final ON user
 DEFINE FIELD OVERWRITE createdAt     ON user TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE FIELD OVERWRITE gdprDeletedAt ON user TYPE option<datetime>;
 DEFINE INDEX OVERWRITE user_clerk    ON user FIELDS clerkUserId UNIQUE;
+
+-- ---------------------------------------------------------------- personFence (write fence)
+-- Transactions read a snapshot, so a check like "consent is granted" or "not erased" can pass
+-- in one transaction while another commits the opposite (review round 2). Every write that
+-- depends on or changes a person's state therefore also writes that person's fence record, so
+-- of two overlapping transactions the second to commit fails with a retryable conflict.
+-- Events run with elevated privileges (tested), so the fence is PERMISSIONS NONE: no session can
+-- read or write it directly, and no table's permissions had to widen.
+DEFINE TABLE OVERWRITE personFence SCHEMAFULL PERMISSIONS NONE;   -- id = personFence:<user id>
+DEFINE FIELD OVERWRITE n ON personFence TYPE int DEFAULT 0;      -- a counter, nothing else
+DEFINE FUNCTION OVERWRITE fn::fence::bump($user: option<record<user>>) {
+  IF $user != NONE {
+    UPSERT type::record('personFence', record::id($user)) SET n += 1 RETURN NONE;
+  };
+};
+DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, binding changes
+  WHEN $event IN ['CREATE', 'UPDATE'] THEN { fn::fence::bump($after.id) };
 
 -- ---------------------------------------------------------------- tag
 DEFINE TABLE OVERWRITE tag SCHEMAFULL PERMISSIONS               -- id = tag:<slug>, e.g. tag:doubt
@@ -182,17 +205,18 @@ DEFINE EVENT OVERWRITE story_owner_transitions ON story
          OR $after.status = 'withdrawn')
   THEN { THROW 'status change not allowed for the story owner' };
 -- Consent at every step that processes testimony (D17, D21; the API plan's ⚑ routes):
---   create, edit, upload (content/media change) → current Art 9 consent (create: table permission);
---   submit (→ pending) and approve (→ approved)  → Art 9 + publish + age_18plus.
+--   create, edit, upload, media processing → current Art 9 consent (create: table permission);
+--   submit (→ pending) and approve (→ approved) → Art 9 + publish + age_18plus.
+-- Checked against the story's SUBMITTER whoever writes (person, workflow, api-admin), not $auth.
 -- Withdrawing (→ withdrawn, content unchanged) and erasure (DELETE) need none.
-DEFINE EVENT OVERWRITE story_owner_consent ON story
-  WHEN $event = 'UPDATE' AND $after.submitter = $auth
+DEFINE EVENT OVERWRITE story_consent ON story
+  WHEN $event = 'UPDATE'
   THEN {
     IF fn::story::content($before) != fn::story::content($after)
        AND !fn::consent::granted($after.submitter, ['special_category_religious']) {
-      THROW 'editing a story needs current Art 9 consent';
+      THROW 'changing a story’s content or media needs the submitter’s current Art 9 consent';
     };
-    IF $after.status = 'pending' AND $before.status != 'pending'
+    IF $after.submitter = $auth AND $after.status = 'pending' AND $before.status != 'pending'
        AND !fn::consent::granted($after.submitter, ['special_category_religious', 'publish', 'age_18plus']) {
       THROW 'submitting a story needs current Art 9, publish and age consent';
     };
@@ -204,6 +228,8 @@ DEFINE EVENT OVERWRITE story_approval_consent ON story
 -- Erasure: api-user's login may delete stories but can't read them, so it can't find their
 -- read-model rows or reviews (both are reached through story.submitter). Deleting a story
 -- removes them in the same transaction, whoever deletes it.
+DEFINE EVENT OVERWRITE story_fence ON story                       -- create, edit, submit, approve, delete
+  WHEN true THEN { fn::fence::bump($after.submitter ?? $before.submitter) };
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
   WHEN $event = 'DELETE'
   THEN {
@@ -246,6 +272,10 @@ DEFINE FIELD OVERWRITE searchText    ON publicStory TYPE string
 -- D41 + D17: the read model can only publish what the person wrote, for an approved story whose
 -- submitter currently consents. Otherwise api-admin (which writes this table) could publish text
 -- the person never wrote, or keep publishing after consent is withdrawn.
+DEFINE EVENT OVERWRITE publicStory_fence ON publicStory           -- publish, re-sync, unpublish
+  WHEN true THEN {
+    fn::fence::bump(type::record('story', record::id($after.id ?? $before.id)).submitter);
+  };
 DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
   WHEN $event IN ['CREATE', 'UPDATE']
   THEN {
@@ -332,8 +362,16 @@ DEFINE EVENT OVERWRITE consent_legacy_only_migrator ON consent
   WHEN $event = 'CREATE' AND $auth != NONE
    AND ($after.mechanism = 'legacy_import' OR $after.dpaVersion.kind = 'legacy' OR $after.legacyGivenAt != NONE)
   THEN { THROW 'legacy consent can only be imported by the migrator' };
+DEFINE EVENT OVERWRITE consent_fence ON consent                   -- grant, withdraw (and pruning)
+  WHEN true THEN { fn::fence::bump($after.subject ?? $before.subject) };
+-- Append-only, with one exit (D38): the nightly retention job, running as the migrator (a
+-- system user, so no record $auth), may delete the rows of a subject erased more than 6 years
+-- ago. 2192d = 6 × 365 days + 2 leap days, so nothing goes early. Nothing else can delete.
 DEFINE EVENT OVERWRITE consent_append_only ON consent
-  WHEN $event != 'CREATE' THEN { THROW 'consent ledger is append-only' };
+  WHEN $event = 'UPDATE'
+    OR ($event = 'DELETE' AND !($auth = NONE AND $before.subject.gdprDeletedAt != NONE
+                                AND $before.subject.gdprDeletedAt < time::now() - 2192d))
+  THEN { THROW 'consent ledger is append-only (retention pruning: erased > 6 years ago only)' };
 DEFINE EVENT OVERWRITE consent_published_dpa ON consent
   WHEN $event = 'CREATE' AND $after.dpaVersion.status != 'published'
   THEN { THROW 'consent can only be given against a published DPA version' };  -- D20

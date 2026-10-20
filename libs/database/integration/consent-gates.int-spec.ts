@@ -35,6 +35,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
       art9only: 'user_art9only',
       eve: 'user_eve',
       wd: 'user_wd',
+      wf: 'user_wf',
       moderator: 'user_mod',
     });
     await publishDpa(t, 'v1');
@@ -56,7 +57,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
       ),
     ).toEqual({
       ok: false,
-      error: expect.stringContaining('needs current Art 9 consent'),
+      error: expect.stringContaining('current Art 9 consent'),
     });
     expect(
       await outcome(
@@ -65,7 +66,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
       ),
     ).toEqual({
       ok: false,
-      error: expect.stringContaining('needs current Art 9 consent'),
+      error: expect.stringContaining('current Art 9 consent'),
     });
     expect(
       await outcome(p, `UPDATE story:codex_story SET status = 'pending'`),
@@ -183,5 +184,80 @@ describe('consent gates on edit, submit, approve and publish', () => {
     expect(await truth('SELECT VALUE status FROM story:wd_story')).toEqual([
       'withdrawn',
     ]);
+  });
+
+  describe('service writes check the SUBMITTER’s consent, not the caller’s (round 2, P1-B)', () => {
+    let workflow: Surreal;
+    let p: Surreal;
+    const media = (id: string) =>
+      truth<{ media: unknown[] }>(
+        `SELECT media FROM type::record('story', $id)`,
+        { id },
+      );
+    beforeAll(async () => {
+      workflow = await t.service('workflow');
+      p = await t.person('user_wf');
+      for (const c of ALL) await consentEvent(p, c, 'granted');
+      await draft(p, 'wf_draft');
+      await draft(p, 'wf_live');
+      await run(
+        workflow,
+        `UPDATE story:wf_live SET media = [{ format: 'video', bunnyVideoId: 'vid-live' }]`,
+      );
+      await submit(p, 'wf_live');
+      await approve(admin, 'wf_live');
+    });
+
+    it('workflow writes media while the submitter consents', async () => {
+      await run(
+        workflow,
+        `UPDATE story:wf_draft SET media = [{ format: 'video', bunnyVideoId: 'vid-1' }]`,
+      );
+      expect((await media('wf_draft'))[0].media).toEqual([
+        { format: 'video', bunnyVideoId: 'vid-1' },
+      ]);
+    });
+
+    it.each(['wf_draft', 'wf_live'])(
+      'workflow media/processing writes on %s are refused once Art 9 is withdrawn',
+      async (id) => {
+        await consentEvent(p, 'special_category_religious', 'withdrawn');
+        const before = await media(id);
+        for (const set of [
+          `media = [{ format: 'video', bunnyVideoId: 'vid-2' }]`,
+          `media[0].thumbnailPath = 'thumbs/x.jpg'`,
+        ]) {
+          expect(
+            await outcome(
+              workflow,
+              `UPDATE type::record('story', $id) SET ${set}`,
+              { id },
+            ),
+          ).toEqual({
+            ok: false,
+            error: expect.stringContaining('current Art 9 consent'),
+          });
+        }
+        expect(await media(id)).toEqual(before);
+        await consentEvent(p, 'special_category_religious', 'granted');
+      },
+    );
+
+    it('moderation without content changes, withdrawal and deletion stay consent-free', async () => {
+      for (const c of ALL) await consentEvent(p, c, 'withdrawn');
+      await run(
+        admin,
+        `UPDATE story:wf_draft SET rejectionFeedback = 'n/a', lockedAt = time::now()`,
+      );
+      await run(p, `UPDATE story:wf_live SET status = 'withdrawn'`);
+      await run(p, 'DELETE publicStory:wf_live');
+      await run(admin, 'DELETE story:wf_draft');
+      expect(await truth('SELECT VALUE status FROM story:wf_live')).toEqual([
+        'withdrawn',
+      ]);
+      expect(
+        await truth('SELECT * FROM story:wf_draft, publicStory:wf_live'),
+      ).toEqual([]);
+    });
   });
 });

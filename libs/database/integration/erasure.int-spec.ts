@@ -1,7 +1,7 @@
 import type { Surreal } from 'surrealdb';
 import { outcome, rows, run, TestDatabase } from './support/harness';
 import { consentEvent, createPeople, grantAll } from './support/harness';
-import { approve, buildWorld, draft, submit } from './support/world';
+import { approve, buildWorld, draft, ERASE, submit } from './support/world';
 
 /**
  * Erasure (Art 17): Clerk's signed `user.deleted` webhook reaches api-user, which verifies the
@@ -14,18 +14,6 @@ describe('erasure on api_user’s service login', () => {
   let apiUser: Surreal;
   const truth = <T = unknown>(sql: string, vars?: Record<string, unknown>) =>
     rows<T>(migrator, sql, vars);
-
-  /** EraseAccount as api-user will run it for a verified user.deleted webhook. */
-  const ERASE = `
-    BEGIN TRANSACTION;
-    LET $u = (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId AND gdprDeletedAt = NONE)[0];
-    IF $u = NONE { THROW 'unknown or already erased' };
-    DELETE story WHERE submitter = $u;              -- cascades publicStory + moderationReview
-    DELETE idempotencyKey WHERE id[1] = $clerkUserId;
-    UPDATE $u SET gdprDeletedAt = time::now(), clerkUserId = NONE;   -- D37: a stub remains
-    CREATE auditLog CONTENT { service: 'api-user', action: 'EraseAccount', entity: $u,
-      reason: $reason };
-    COMMIT TRANSACTION;`;
 
   beforeAll(async () => {
     t = await TestDatabase.create();

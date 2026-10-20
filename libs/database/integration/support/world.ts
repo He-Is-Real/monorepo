@@ -104,3 +104,19 @@ export async function buildWorld(t: TestDatabase) {
   await approve(admin, 'bob_live');
   return { admin, ann, bob };
 }
+
+/**
+ * EraseAccount (D39) as api-user will run it on its service login, one transaction. Idempotent
+ * in effect: a retry after a conflict finds whatever was committed meanwhile and erases it too.
+ * Bind $clerkUserId and $reason.
+ */
+export const ERASE = `
+  BEGIN TRANSACTION;
+  LET $u = (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId AND gdprDeletedAt = NONE)[0];
+  IF $u = NONE { THROW 'unknown or already erased' };
+  DELETE story WHERE submitter = $u;              -- cascades publicStory + moderationReview
+  DELETE idempotencyKey WHERE id[1] = $clerkUserId;
+  UPDATE $u SET gdprDeletedAt = time::now(), clerkUserId = NONE;   -- D37: a stub remains
+  CREATE auditLog CONTENT { service: 'api-user', action: 'EraseAccount', entity: $u,
+    reason: $reason };
+  COMMIT TRANSACTION;`;

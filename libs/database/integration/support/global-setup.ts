@@ -65,7 +65,7 @@ export default async function globalSetup(): Promise<void> {
       `SURREAL_PASS=${password}`,
       image,
       'start',
-      'memory',
+      'rocksdb:/tmp/surrealdb', // the production storage engine (in-container, thrown away)
     ],
     { encoding: 'utf8' },
   ).trim();
