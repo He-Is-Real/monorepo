@@ -106,4 +106,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 ## Changelog
 
 - **2026-10-17:** file created; M0 status and decisions 1–13 recorded. D1–D9 decided (D5 = deferred), Apple opinion added; D10–D12 deferred.
-- **2026-10-19:** D13 + D27 spike (D24 step 3) done: schema and seeds in `libs/database/schema`, 213 integration tests on SurrealDB 3.2.4 (`database:test-integration`, run in CI). Fixes to the draft schema (including review rounds 1–3 and D37/D38/D41) and the per-request session pattern are in [db-permissions.md](db-permissions.md).
+- **2026-10-19:** D13 + D27 spike (D24 step 3) done: schema and seeds in `libs/database/schema`, 217 integration tests on SurrealDB 3.2.4 (`database:test-integration`, run in CI). Fixes to the draft schema (including review rounds 1–4 and D37/D38/D41) and the per-request session pattern are in [db-permissions.md](db-permissions.md).

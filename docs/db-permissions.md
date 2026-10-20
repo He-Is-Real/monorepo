@@ -11,7 +11,7 @@ automated tests. It also records what had to change in the draft and what is sti
 | ------------------------------------------- | -------------------------------------------------------------------------- |
 | `libs/database/schema/schema.surql`         | Declarative schema (D14). Terraform placeholder: `${clerk_jwt_public_key}` |
 | `libs/database/schema/data/000N-*.surql`    | Run-once seeds 0001 (draft DPA v1) and 0002 (legacy DPA)                   |
-| `libs/database/integration/*.int-spec.ts`   | 213 integration tests against a real SurrealDB                             |
+| `libs/database/integration/*.int-spec.ts`   | 217 integration tests against a real SurrealDB                             |
 | `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests                          |
 
 ```bash
@@ -209,7 +209,10 @@ retried`, on both RocksDB and the in-memory engine.
       submitter must be live;
     - `idempotencyKey`: see item 14.
 
-    Deletes still only bump the fence (erasure, withdrawal, pruning).
+    Deletes on every linked table only bump the fence, with no live check, so erasure,
+    withdrawal and pruning still work. `moderationReview` and `idempotencyKey` deletes bump it
+    too (round 4). In the erasure cascade the story is already gone, so a review's bump is a
+    no-op there; the story delete and the `user` update already bump.
 
 14. **`idempotencyKey` carried the Clerk id.** Its id was `[service, clerkUserId, key]`: erasure
     clears the Clerk id from `user`, but the key would keep it, and a key written while erasure
@@ -230,6 +233,18 @@ retried`, on both RocksDB and the in-memory engine.
     D22's legacy import doesn't need a historical erasure date: legacy people aren't erased. This
     also corrects the draft's header gotcha: **`$auth` is usable in a field `VALUE` on 3.2.4**
     (tested).
+
+### Review round 4 (Codex: approve with nits)
+
+16. **D37 on CREATE/INSERT.** `user_erasure_final` only checked UPDATE, so a service could
+    `CREATE`/`INSERT` a user that was already erased but still carried a Clerk id. The
+    Clerk-free rule now applies on create too: an error for `api_user` and the migrator, while
+    `api_admin` can't create users at all.
+17. **Delete fencing made true everywhere.** Deleting a `moderationReview` or a person-scoped
+    `idempotencyKey` now bumps the fence, like the other linked tables. Tested by checking the
+    counter.
+18. **api_admin first stamp tested.** api_admin erasing a Clerk-free legacy user stores the server
+    time, not the supplied date.
 
 ## Person-linked tables
 

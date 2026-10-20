@@ -75,10 +75,10 @@ DEFINE EVENT OVERWRITE user_clerk_binding ON user
    )
   THEN { THROW 'clerkUserId can only be linked once, or cleared once at erasure' };
 -- Erasure is final and always leaves a stub without a Clerk id (D37).
-DEFINE EVENT OVERWRITE user_erasure_final ON user
-  WHEN $event = 'UPDATE' AND (
-     ($before.gdprDeletedAt != NONE AND $after.gdprDeletedAt != $before.gdprDeletedAt)
-     OR ($after.gdprDeletedAt != NONE AND $after.clerkUserId != NONE))
+DEFINE EVENT OVERWRITE user_erasure_final ON user              -- also on CREATE/INSERT (round 4)
+  WHEN ($event = 'UPDATE' AND $before.gdprDeletedAt != NONE
+        AND $after.gdprDeletedAt != $before.gdprDeletedAt)
+    OR ($event IN ['CREATE', 'UPDATE'] AND $after.gdprDeletedAt != NONE AND $after.clerkUserId != NONE)
   THEN { THROW 'an erased user stays erased, without a clerkUserId' };
 DEFINE FIELD OVERWRITE createdAt     ON user TYPE datetime VALUE $before OR time::now() READONLY;
 -- Set by the database at erasure, never by the caller, and immutable afterwards (review round 3:
@@ -421,10 +421,13 @@ DEFINE INDEX OVERWRITE review_story ON moderationReview FIELDS story, decidedAt;
 -- Review round 3: a review must belong to an existing story of a live person, and bumps that
 -- person's fence, so a review racing erasure can't outlive it (the cascade deletes the rest).
 DEFINE EVENT OVERWRITE review_live_story ON moderationReview
-  WHEN $event = 'CREATE'
+  WHEN true
   THEN {
-    IF !record::exists($after.story) { THROW 'a moderation review needs an existing story' };
-    fn::person::live($after.story.submitter);
+    IF $event = 'DELETE' { fn::fence::bump($before.story.submitter) }   -- NONE in the erasure cascade
+    ELSE {
+      IF !record::exists($after.story) { THROW 'a moderation review needs an existing story' };
+      fn::person::live($after.story.submitter);
+    };
   };
 DEFINE EVENT OVERWRITE review_append_only ON moderationReview
   WHEN $event = 'UPDATE' THEN { THROW 'moderation reviews are append-only' };  -- DELETE allowed for erasure
@@ -486,10 +489,13 @@ DEFINE FIELD OVERWRITE response.id      ON idempotencyKey TYPE option<record>;  
 DEFINE FIELD OVERWRITE response.version ON idempotencyKey TYPE option<int>;     -- text can go in
 DEFINE FIELD OVERWRITE expiresAt   ON idempotencyKey TYPE datetime VALUE $before OR time::now() + 24h;
 DEFINE EVENT OVERWRITE idempotencyKey_owner ON idempotencyKey
-  WHEN $event IN ['CREATE', 'UPDATE']
+  WHEN true
   THEN {
-    LET $owner = record::id($after.id)[1];
-    IF type::is_record($owner, 'user') { fn::person::live($owner) }
+    LET $owner = record::id(($after ?? $before).id)[1];
+    IF $event = 'DELETE' {
+      IF type::is_record($owner, 'user') { fn::fence::bump($owner) };
+    }
+    ELSE IF type::is_record($owner, 'user') { fn::person::live($owner) }
     ELSE IF $owner NOT IN ['svix', 'stripe'] {
       THROW 'an idempotency key is scoped to a user record or a webhook provider';
     };

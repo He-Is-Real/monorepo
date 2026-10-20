@@ -164,4 +164,17 @@ describe('retention pruning (D38)', () => {
       expect(await consentOf(p)).toHaveLength(1);
     },
   );
+
+  it('api_admin stamping a Clerk-free legacy user’s FIRST gdprDeletedAt stores the server time (round 4)', async () => {
+    await run(migrator, 'CREATE user:legacy_first'); // D22 legacy person: no Clerk id
+    await run(
+      await t.service('api_admin'),
+      `UPDATE user:legacy_first SET gdprDeletedAt = time::now() - 2200d`,
+    );
+    const [stored] = await rows<string>(
+      migrator,
+      'SELECT VALUE gdprDeletedAt FROM user:legacy_first',
+    );
+    expect(Date.parse(stored)).toBeGreaterThan(Date.now() - 60_000);
+  });
 });

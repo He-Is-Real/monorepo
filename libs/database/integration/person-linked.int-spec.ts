@@ -278,4 +278,53 @@ describe('person-linked tables (round 3 sweep)', () => {
       ).ok,
     ).toBe(false); // response is typed: no free fields
   });
+
+  it.each([
+    [
+      'CREATE',
+      `CREATE user:pre_erased SET clerkUserId = 'clerk_retained', gdprDeletedAt = time::now()`,
+    ],
+    [
+      'INSERT',
+      `INSERT INTO user { id: user:pre_erased, clerkUserId: 'clerk_retained', gdprDeletedAt: time::now() }`,
+    ],
+  ])(
+    'D37 holds on %s: an erased row can never carry a Clerk id (round 4)',
+    async (_, sql) => {
+      for (const db of [apiUser, migrator]) {
+        expect(await outcome(db, sql)).toEqual({
+          ok: false,
+          error: expect.stringContaining('without a clerkUserId'),
+        });
+      }
+      // api_admin can't create users at all: the permission gives an empty result.
+      expect(await outcome(admin, sql)).toEqual({ ok: true, result: [] });
+      expect(await rows(migrator, 'SELECT * FROM user:pre_erased')).toEqual([]);
+    },
+  );
+
+  it('deleting a review or a person-scoped key also bumps the fence (round 4)', async () => {
+    const ctx = await livePerson('del_fence');
+    await run(
+      admin,
+      `CREATE moderationReview:del_r CONTENT { story: story:del_fence_s, moderator: user:moderator,
+         decision: 'escalate', storyVersion: 1 }`,
+    );
+    await run(
+      apiUser,
+      `CREATE idempotencyKey:['api-user', user:del_fence, 'k'] SET requestHash = 'h', status = 201`,
+    );
+    const fence = async () =>
+      (
+        await rows<number>(migrator, `SELECT VALUE n FROM personFence:${ctx.p}`)
+      )[0];
+    const before = await fence();
+    await run(admin, 'DELETE moderationReview:del_r');
+    expect(await fence()).toBe(before + 1);
+    await run(
+      apiUser,
+      `DELETE idempotencyKey:['api-user', user:del_fence, 'k']`,
+    );
+    expect(await fence()).toBe(before + 2);
+  });
 });
