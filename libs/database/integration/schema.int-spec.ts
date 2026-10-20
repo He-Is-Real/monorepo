@@ -1,4 +1,5 @@
 import {
+  DPA_V1_SHA256,
   LEGACY_SHA256,
   outcome,
   rows,
@@ -16,12 +17,15 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
   afterAll(() => t?.close());
 
   it('re-applies cleanly (every statement is OVERWRITE)', async () => {
-    const statements = await t.applySchema();
-    expect(statements).toBeGreaterThan(100);
+    const { schemaStatements } = await t.migrate();
+    expect(schemaStatements).toBeGreaterThan(100);
   });
 
   it('runs each seed once: re-running is a no-op', async () => {
-    await t.applySeeds();
+    expect(await t.migrate()).toMatchObject({
+      applied: [],
+      alreadyApplied: ['0001-seed-dpa-v1', '0002-seed-legacy-dpa'],
+    });
     const migrator = await t.migrator();
     expect(
       await rows(
@@ -45,7 +49,7 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
         id: 'v1',
         status: 'draft',
         kind: 'standard',
-        contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        contentHash: DPA_V1_SHA256,
       },
     ]);
   });

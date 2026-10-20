@@ -1,8 +1,12 @@
 -- schema.surql: declarative schema v1 (draft, 2026-10-18)
--- Applied in full on every deploy by the migrator Job (D14); every statement is
--- OVERWRITE, so re-running is safe. Data changes go in data/NNNN-*.surql (run once,
--- recorded in _migration). CI applies this file to SurrealDB 3.2.4 on every PR, so any
--- syntax below that 3.2.4 rejects is caught before merge.
+-- Applied in full, in one transaction, on every migration by the migrator Job (D14; runner:
+-- infra/k8s/surrealdb/base/migrate.py). Every statement is OVERWRITE, so re-running is safe.
+-- Declarative means: what's here is defined; nothing is removed by deleting it from this
+-- file (write an explicit REMOVE … IF EXISTS). Data changes go in data/NNNN-*.surql (run once,
+-- recorded in _migration). DEFINE ACCESS clerk is in access-clerk.surql (applied only when
+-- Terraform has Clerk's key). No top-level RETURN: inside the transaction it would end it early.
+-- CI applies this file to SurrealDB 3.2.4 on every PR, so any syntax below that 3.2.4 rejects
+-- is caught before merge.
 -- 3.2.4 gotchas found in testing (2026-10-18/19), each covered by a test in ../integration:
 --   * a correlated subquery with ORDER BY … LIMIT 1 returns wrong rows; use array::last(… ORDER BY ASC)
 --   * inside a subquery, a COMPUTED field's $parent is the OUTER query's record, not its own
@@ -22,30 +26,29 @@
 --   * DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (… READONLY)
 
 -- ---------------------------------------------------------------- bookkeeping
+-- One row per data script, written by the runner in the script's own transaction (so a failed
+-- script leaves no row). checksum = sha256 of the file: an applied script that changes later
+-- fails the migration (write a new script instead).
 DEFINE TABLE OVERWRITE _migration SCHEMAFULL PERMISSIONS NONE; -- id = _migration:`0001-seed-dpa-v1`
 DEFINE FIELD OVERWRITE appliedAt ON _migration TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE FIELD OVERWRITE checksum  ON _migration TYPE string ASSERT string::len($value) = 64 READONLY;
 
 -- ---------------------------------------------------------------- identities (D13 B, D27 B)
--- Services sign in as `service` records (secret hashes written by the init Job from Secret
--- Manager): service:api_public_read, :api_user, :api_admin, :workflow. People reach SurrealDB
--- only through api-user, in a session opened with their own Clerk token. In-cluster system
--- users remain: migrator (OWNER, schema + seeds) and backup (VIEWER, nightly export).
+-- Services sign in as `service` records: service:api_public_read, :api_user, :api_admin,
+-- :workflow. The init Job (root) writes their argon2 secret hashes from the Secret Manager
+-- passwords (infra/k8s/surrealdb/base/init.surql.tmpl); the migrator never sees them. People
+-- reach SurrealDB only through api-user, in a session opened with their own Clerk token
+-- (DEFINE ACCESS clerk, access-clerk.surql). In-cluster system users remain: migrator (OWNER,
+-- schema + seeds) and backup (VIEWER, nightly export); the init Job removes any other.
 DEFINE TABLE OVERWRITE service SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD OVERWRITE secretHash ON service TYPE string;
+-- Re-defining svc generates a new signing key (no KEY given: a fixed one would be a secret).
+-- Open WebSocket sessions carry on; tokens issued before stop working, and surrealdb.js signs
+-- in again with its credentials. So a migration logs out HTTP-token clients, nothing else.
 DEFINE ACCESS OVERWRITE svc ON DATABASE TYPE RECORD
   SIGNIN (SELECT * FROM service WHERE id = type::record('service', $name)
           AND crypto::argon2::compare(secretHash, $secret))
   DURATION FOR TOKEN 15m, FOR SESSION 12h;
--- Clerk's PEM public key is pinned by Terraform: GKE has no internet egress to fetch the JWKS.
--- Tokens come from a Clerk JWT template carrying the ns/db/ac claims SurrealDB needs.
--- An already-open person session outlives erasure (up to its 5m session), so every person write
--- below also checks `$auth.gdprDeletedAt = NONE`. $auth is a record id, so this reads the user
--- row as of the transaction's snapshot (not as of sign-in); a transaction that overlaps erasure
--- is caught by the personFence conflict instead.
-DEFINE ACCESS OVERWRITE clerk ON DATABASE TYPE RECORD
-  WITH JWT ALGORITHM RS256 KEY '${clerk_jwt_public_key}'
-  AUTHENTICATE (SELECT VALUE id FROM user WHERE clerkUserId = $token.sub AND gdprDeletedAt = NONE LIMIT 1)[0]
-  DURATION FOR SESSION 5m;
 
 -- ---------------------------------------------------------------- user (D16, D1, D22)
 -- Only a reference to the Clerk user. Email, name and country live in Clerk (D16);

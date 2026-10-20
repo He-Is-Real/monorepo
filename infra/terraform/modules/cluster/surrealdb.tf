@@ -41,7 +41,8 @@ resource "kustomization_resource" "p0" {
 }
 
 resource "kustomization_resource" "p1" {
-  for_each = data.kustomization_overlay.surrealdb.ids_prio[1]
+  # Everything but the migrate Job template: migration.tf applies a copy named after its content.
+  for_each = setsubtract(data.kustomization_overlay.surrealdb.ids_prio[1], [local.migrate_template_id])
   manifest = data.kustomization_overlay.surrealdb.manifests[each.value]
 
   # The init Job is replaced, not patched, when its spec changes (Jobs are immutable).

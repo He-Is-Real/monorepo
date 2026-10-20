@@ -13,7 +13,8 @@ Background and decisions (project docs, `context/research/`): `terraform-state-o
 modules/
   bootstrap/   project, APIs, state bucket, CI identities (keyless), budget (alert emails)
   gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run
-  cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay)
+  cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
+  db-migration/ the D14 migration bundle and Job name (no providers; `terraform test` offline)
 live/dev/      one root per concern, applied in this order:
   bootstrap/   developer only (needs billing permissions)        state: dev/bootstrap
   gcp/         developer or the manual GitHub workflow            state: dev/gcp
@@ -34,6 +35,7 @@ then), then `terraform -chdir=infra/terraform/live/dev/<root> init`, `plan`, `ap
 | ---------------------- | ------------------------------------------------------------------------------------------------- |
 | Stop / start SurrealDB | apply `cluster` with `-var surrealdb_replicas=0` (or `1`); the disk is kept                       |
 | Back up SurrealDB now  | apply `cluster` with `-var backup_run=<new id>`; a later plain apply removes the Job              |
+| Migrate the schema     | apply `cluster`, check the Job, then deploy (SurrealDB README, "Schema migrations")               |
 | Plan as CI would       | prefix with `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT=tf-deployer@heisreal-dev.iam.gserviceaccount.com` |
 
 ## Images

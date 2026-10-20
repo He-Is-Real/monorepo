@@ -10,7 +10,7 @@ resource "google_service_account" "api_read" {
 
 resource "google_secret_manager_secret_iam_member" "api_read" {
   project   = var.project_id
-  secret_id = google_secret_manager_secret.surreal["surreal-api-read-password"].secret_id
+  secret_id = google_secret_manager_secret.surreal["surreal-api-public-read-password"].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = google_service_account.api_read.member
 }
@@ -66,13 +66,14 @@ resource "google_cloud_run_v2_service" "api_read" {
         name  = "SURREAL_DATABASE"
         value = "main"
       }
+      # Signs in as service:api_public_read through DEFINE ACCESS svc (D13 B).
       env {
         name  = "SURREAL_USER"
-        value = "api_read"
+        value = "api_public_read"
       }
       env {
         name  = "SURREAL_PASSWORD_SECRET"
-        value = "surreal-api-read-password"
+        value = "surreal-api-public-read-password"
       }
 
       # Readiness to receive traffic = the port is open. /health reports the

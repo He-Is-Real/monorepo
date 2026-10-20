@@ -7,12 +7,14 @@ automated tests. It also records what had to change in the draft and what is sti
 
 ## Where it lives and how to run it
 
-| Path                                        | What                                                                       |
-| ------------------------------------------- | -------------------------------------------------------------------------- |
-| `libs/database/schema/schema.surql`         | Declarative schema (D14). Terraform placeholder: `${clerk_jwt_public_key}` |
-| `libs/database/schema/data/000N-*.surql`    | Run-once seeds 0001 (draft DPA v1) and 0002 (legacy DPA)                   |
-| `libs/database/integration/*.int-spec.ts`   | 217 integration tests against a real SurrealDB                             |
-| `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests                          |
+| Path                                        | What                                                            |
+| ------------------------------------------- | --------------------------------------------------------------- |
+| `libs/database/schema/schema.surql`         | Declarative schema (D14), applied in full in one transaction    |
+| `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
+| `libs/database/schema/data/000N-*.surql`    | Run-once seeds 0001 (draft DPA v1) and 0002 (legacy DPA)        |
+| `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
+| `libs/database/integration/*.int-spec.ts`   | 243 integration tests against a real SurrealDB                  |
+| `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
 
 ```bash
 pnpm nx run database:test-integration    # needs Docker; about 20 s
@@ -28,10 +30,12 @@ pnpm nx run database:test-integration    # needs Docker; about 20 s
   run. Set `SURREAL_TEST_URL` / `SURREAL_TEST_USER` / `SURREAL_TEST_PASS` to use a running
   server instead.
 - **Isolation.** Each spec file gets its own namespace, so the files run in parallel.
-- **Setup.** An OWNER `migrator` applies the schema and seeds, as the D14 Job will. Each
-  service gets a `service` record with a random password, argon2-hashed by
-  `crypto::argon2::generate`. Clerk is simulated by an RS256 key pair generated per run; the
-  public PEM is pinned into `DEFINE ACCESS clerk` exactly as Terraform will pin Clerk's.
+- **Setup.** An OWNER `migrator` applies the bundle with the D14 Job's own runner
+  (`migrate.py`), from the same files. Each service gets a `service` record with a random
+  password, argon2-hashed by `crypto::argon2::generate` (in the cluster the init Job does this;
+  `migration.int-spec.ts` runs the real init template). Clerk is simulated by an RS256 key pair
+  generated per run; the public PEM is passed as `clerk_jwt_public_key`, as Terraform passes
+  Clerk's.
 - **Kept out of `test`.** `nx affected -t test` still runs without Docker; CI has a separate
   `nx affected -t test-integration` step. CI uses no `services:` container because it can't
   pass SurrealDB its `start` arguments. No new dependencies.
@@ -66,6 +70,7 @@ bypasses permissions) that the row is unchanged or absent.
 | D38 retention: only the migrator, and only for subjects erased more than 6 years ago (2192 days), can delete consent; live, recently erased and 2191-day-old subjects are refused, and so is every service and person. Audit rows: the migrator can prune; no service or person can.                                                                                                                                                                                                                     | `retention`                      |
 | Round 3 sweep: every table is classified (a new, unclassified table fails the test). For each person-linked table (`story`, `publicStory`, `consent`, `moderationReview`, `idempotencyKey`), a control write works, the same write is refused after erasure from a session opened before it, and a write racing erasure loses at commit with nothing stored. Root (`user`): two racing erasures, one wins, the retry is a no-op. Kept (`auditLog`): a racing audit write commits with typed fields only. | `person-linked`                  |
 | Round 3, P2: a service-supplied `gdprDeletedAt` (2200 days ago) is replaced by the server time and can't be re-dated, so the nightly prune keeps the consent.                                                                                                                                                                                                                                                                                                                                            | `retention`                      |
+| D14 migration: after init + migrate only `migrator`/`backup` are system users, old system-user logins fail, every service signs in via `svc`. A re-run changes nothing. New scripts run once; a failed script or schema keeps nothing; edited, self-transacting or top-level-`RETURN` scripts are refused; a null parameter holds scripts back. No Clerk key, no `clerk` access. Draft DPA hash follows its file.                                                                                        | `migration`                      |
 | One connection, one session per request, concurrent people isolated; dangers pinned; cost measured.                                                                                                                                                                                                                                                                                                                                                                                                      | `request-sessions`               |
 
 ## Changes to the draft schema (port back to the decision doc)
@@ -304,6 +309,10 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
   ledger whoever writes.
 - **Events run with elevated privileges.** An event fired by a person's or service's write can
   write any table. Keep events small and deliberate.
+- **A top-level `RETURN` inside a transaction commits it early** and skips the statements after
+  it (3.2.4). The runner refuses one in any bundled file. **`surreal import` requires
+  `OPTION IMPORT`**, which switches off events and field `VALUE`/`ASSERT`, so it can't run data
+  scripts; the runner uses `/rpc` instead.
 - **In a failed transaction, surrealdb.js 2.0.x's `collect()` throws "The query was not
   executed due to a failed transaction"**, not the `THROW` message. Read `.responses()` for the
   root cause. 2.1.0 fixes this (surrealdb.js#689).
@@ -343,7 +352,7 @@ try {
 - **Service sign-in typing.** `connect({ authentication })` in 2.0.8 is typed for system users
   and tokens only, but the runtime signs in with record access (`access: 'svc'`). That path is
   needed so the SDK re-signs in after reconnects and the 15-minute token expiry. 2.1.0 types it.
-  `libs/database` today signs in as a system user, so it changes when services move to `svc`.
+  `libs/database` signs in this way (`serviceSignIn`).
 - **Reconnects aren't covered yet:** the harness disables them. See "Remaining risks" for what M2
   must check.
 - **One socket for all requests.** It handles all of an instance's concurrency (Cloud Run allows
@@ -413,7 +422,7 @@ clean-up job running as the migrator.
   tested.
 - **Audit:** only the migrator can delete; the 6-year cut-off lives in the job.
 
-The job itself comes with the D14 migration work; it isn't built.
+The job itself isn't built yet; it will run as the migrator.
 
 **Decided, not built (M2 API work):**
 
@@ -465,8 +474,9 @@ iss jti nbf sid sub v pla fea sts`), and none of those collide.
   names.
 
 **Public key.** It's on the Dashboard's API keys page ("JWKS Public Key", PEM), also at
-`https://api.clerk.com/v1/jwks` and `<frontend-api>/.well-known/jwks.json`. Terraform passes it
-as `clerk_jwt_public_key`.
+`https://api.clerk.com/v1/jwks` and `<frontend-api>/.well-known/jwks.json`. It goes in
+`infra/terraform/live/dev/cluster/clerk.auto.tfvars` (`clerk_jwt_public_key`). Until it's set the
+migration removes `DEFINE ACCESS clerk`, so no token can open a person session.
 
 **Sources:**
 

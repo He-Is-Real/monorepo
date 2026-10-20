@@ -31,8 +31,8 @@ if (!args.project) {
 
 // Service password placeholders in init.surql.tmpl -> Secret Manager secret ids.
 const SERVICE_SECRETS = {
-  api_read: 'surreal-api-read-password',
-  api_write: 'surreal-api-write-password',
+  api_public_read: 'surreal-api-public-read-password',
+  api_user: 'surreal-api-user-password',
   api_admin: 'surreal-api-admin-password',
   workflow: 'surreal-workflow-password',
   backup: 'surreal-backup-password',
@@ -119,5 +119,9 @@ applySecret('surrealdb-root', {
 applySecret('surrealdb-backup', {
   SURREAL_USER: 'backup',
   SURREAL_PASS: passwords.backup,
+});
+applySecret('surrealdb-migrator', {
+  SURREAL_USER: 'migrator',
+  SURREAL_PASS: passwords.migrator,
 });
 applySecret('surrealdb-init', { 'init.surql': render(template, passwords) });

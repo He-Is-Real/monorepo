@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type AuthProvider, Surreal, type SurrealQueryable } from 'surrealdb';
 import {
@@ -11,6 +13,8 @@ import {
 } from './jwt';
 
 export const SCHEMA_DIR = join(__dirname, '../../schema');
+/** The migrate Job's runner (D14): the tests apply the schema with it, exactly as the Job does. */
+export const RUNNER = join(SCHEMA_DIR, 'migrate.py');
 
 export const SERVICES = [
   'api_public_read',
@@ -22,23 +26,36 @@ export type ServiceName = (typeof SERVICES)[number];
 
 export type Row = Record<string, unknown>;
 
-/** Fills the `${name}` placeholders Terraform's templatefile() fills in production. */
-export function renderTemplate(
-  file: string,
-  vars: Record<string, string>,
-): string {
-  const text = readFileSync(join(SCHEMA_DIR, file), 'utf8').replace(
-    /\$\{(\w+)\}/g,
-    (_, name: string) => {
-      if (!(name in vars)) throw new Error(`${file}: no value for \${${name}}`);
-      return vars[name];
-    },
-  );
-  return text;
-}
-
 export const sha256 = (text: string) =>
   createHash('sha256').update(text).digest('hex');
+
+/** The parameters Terraform passes the runner (params.json); null = not available yet. */
+export interface MigrationParams {
+  clerk_jwt_public_key: string | null;
+  dpa_v1_sha256: string | null;
+  legacy_sha256: string | null;
+}
+
+export interface MigrationSummary {
+  schemaStatements: number;
+  clerk: boolean;
+  applied: string[];
+  alreadyApplied: string[];
+  heldBack: string[];
+}
+
+export interface MigrationRun {
+  exitCode: number;
+  output: string;
+  summary?: MigrationSummary;
+}
+
+export interface MigrationOptions {
+  /** A bundle directory (default: libs/database/schema itself). */
+  bundleDir?: string;
+  /** Extra environment, e.g. MIGRATE_EXPECT_USERS as the Job sets it. */
+  env?: Record<string, string>;
+}
 
 /** Runs SurrealQL and returns every statement's result as JSON; throws on the first error. */
 export async function run(
@@ -102,6 +119,7 @@ export async function outcome(
 export class TestDatabase {
   readonly keys: SigningKeys = newSigningKeys();
   readonly migratorPassword = randomBytes(18).toString('hex');
+  readonly backupPassword = randomBytes(18).toString('hex');
   readonly servicePasswords = new Map<ServiceName, string>(
     SERVICES.map((s) => [s, randomBytes(18).toString('hex')]),
   );
@@ -113,7 +131,11 @@ export class TestDatabase {
     readonly database: string,
   ) {}
 
-  static async create(): Promise<TestDatabase> {
+  /**
+   * migrate: false leaves an empty database with only the migrator user (no schema, no
+   * services), for tests of the migration itself.
+   */
+  static async create({ migrate = true } = {}): Promise<TestDatabase> {
     const url = process.env['SURREAL_TEST_URL'];
     if (!url) throw new Error('SURREAL_TEST_URL is not set (global setup)');
     const t = new TestDatabase(
@@ -128,48 +150,97 @@ export class TestDatabase {
        DEFINE DATABASE ${t.database}; USE NS ${t.namespace} DB ${t.database};
        DEFINE USER migrator ON DATABASE PASSWORD '${t.migratorPassword}' ROLES OWNER;`,
     ); // PASSWORD takes a literal only; the password is random hex
-    await t.applySchema();
-    await t.applySeeds();
-    const migrator = await t.migrator();
-    for (const [name, secret] of t.servicePasswords) {
-      await run(
-        migrator,
-        `CREATE type::record('service', $name) SET secretHash = crypto::argon2::generate($secret)`,
-        { name, secret },
-      );
+    if (migrate) {
+      await t.migrate();
+      await t.createServices();
     }
     return t;
   }
 
-  /** Applies schema.surql; returns the number of statements (all must succeed). */
-  async applySchema(): Promise<number> {
-    const sql = renderTemplate('schema.surql', {
+  /** What Terraform would pass, with this database's stand-in Clerk key. */
+  params(overrides: Partial<MigrationParams> = {}): MigrationParams {
+    return {
       clerk_jwt_public_key: this.keys.publicKeyPem,
-    });
-    const responses = await (await this.migrator()).query(sql).responses();
-    const errors = responses.filter((r) => !r.success);
-    if (errors.length) {
-      throw new Error(
-        `schema.surql: ${errors.map((e) => (e.success ? '' : e.error?.message)).join('; ')}`,
-      );
-    }
-    return responses.length;
+      dpa_v1_sha256: DPA_V1_SHA256,
+      legacy_sha256: LEGACY_SHA256,
+      ...overrides,
+    };
   }
 
-  async applySeeds(): Promise<void> {
+  /** Runs the migrate Job's runner against this database as the migrator; never throws. */
+  async runMigration(
+    params: MigrationParams = this.params(),
+    { bundleDir = SCHEMA_DIR, env = {} }: MigrationOptions = {},
+  ): Promise<MigrationRun> {
+    const dir = await mkdtemp(join(tmpdir(), 'migration-params-'));
+    const paramsFile = join(dir, 'params.json');
+    await writeFile(paramsFile, JSON.stringify(params));
+    try {
+      return await new Promise<MigrationRun>((resolve) => {
+        execFile(
+          'python3',
+          [RUNNER, bundleDir, '--params', paramsFile],
+          {
+            env: {
+              PATH: process.env['PATH'],
+              SURREAL_ENDPOINT: this.url.replace(/^ws/, 'http'),
+              SURREAL_NAMESPACE: this.namespace,
+              SURREAL_DATABASE: this.database,
+              SURREAL_USER: 'migrator',
+              SURREAL_PASS: this.migratorPassword,
+              MIGRATE_WAIT_SECONDS: '20',
+              ...env,
+            },
+          },
+          (error, stdout, stderr) => {
+            const output = `${stdout}${stderr}`;
+            const line = stdout
+              .split('\n')
+              .find((l) => l.startsWith('MIGRATION SUMMARY '));
+            resolve({
+              exitCode: error ? Number(error.code ?? 1) : 0,
+              output,
+              summary: line
+                ? (JSON.parse(
+                    line.slice('MIGRATION SUMMARY '.length),
+                  ) as MigrationSummary)
+                : undefined,
+            });
+          },
+        );
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  /** Migrates (schema, Clerk access, data scripts, DPA sync); throws if the runner fails. */
+  async migrate(
+    params?: MigrationParams,
+    options?: MigrationOptions,
+  ): Promise<MigrationSummary> {
+    const result = await this.runMigration(params, options);
+    if (result.exitCode !== 0 || !result.summary) {
+      throw new Error(
+        `migration failed (${result.exitCode}):\n${result.output}`,
+      );
+    }
+    return result.summary;
+  }
+
+  /**
+   * One `service` record per service. In the cluster the init Job writes these (see
+   * migration.int-spec.ts); here the migrator does, with the same argon2 call.
+   */
+  async createServices(): Promise<void> {
     const migrator = await this.migrator();
-    await run(
-      migrator,
-      renderTemplate('data/0001-seed-dpa-v1.surql', {
-        dpa_v1_sha256: sha256('dpa v1 placeholder'),
-      }),
-    );
-    await run(
-      migrator,
-      renderTemplate('data/0002-seed-legacy-dpa.surql', {
-        legacy_sha256: LEGACY_SHA256,
-      }),
-    );
+    for (const [name, secret] of this.servicePasswords) {
+      await run(
+        migrator,
+        `UPSERT type::record('service', $name) SET secretHash = crypto::argon2::generate($secret)`,
+        { name, secret },
+      );
+    }
   }
 
   private async open(auth?: AuthProvider): Promise<Surreal> {
@@ -193,6 +264,16 @@ export class TestDatabase {
     return this.open({
       username: process.env['SURREAL_TEST_USER'] ?? 'root',
       password: process.env['SURREAL_TEST_PASS'] ?? 'root',
+    });
+  }
+
+  /** A database-level system user's login (only migrator and backup exist after init). */
+  systemUser(username: string, password: string): Promise<Surreal> {
+    return this.open({
+      namespace: this.namespace,
+      database: this.database,
+      username,
+      password,
     });
   }
 
@@ -254,6 +335,7 @@ export class TestDatabase {
 }
 
 export const LEGACY_SHA256 = sha256('legacy-squarespace placeholder');
+export const DPA_V1_SHA256 = sha256('dpa v1 placeholder');
 
 // ---------------------------------------------------------------- fixtures
 

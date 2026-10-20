@@ -35,6 +35,11 @@ jobs:
             terraform -chdir="$root" validate
             echo "::endgroup::"
           done
+      # The migrate Job's name changes iff its content does (D14). No providers, no cloud access.
+      - name: Test the db-migration module
+        run: |
+          terraform -chdir=infra/terraform/modules/db-migration init -backend=false -input=false
+          terraform -chdir=infra/terraform/modules/db-migration test
 
   plan:
     needs: validate

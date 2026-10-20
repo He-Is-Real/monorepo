@@ -38,3 +38,19 @@ variable "backup_run" {
     error_message = "backup_run: lowercase letters, digits and dashes, at most 30 characters."
   }
 }
+
+variable "schema_dir" {
+  description = "libs/database/schema: the migration bundle (D14)."
+  type        = string
+}
+
+variable "dpa_dir" {
+  description = "libs/legal/dpa: DPA texts, hashed into the migration (D20)."
+  type        = string
+}
+
+variable "clerk_jwt_public_key" {
+  description = "Clerk's RS256 PEM public key (public, not a secret). Empty until Clerk is set up (task 0.5): the migration then removes DEFINE ACCESS clerk, so no person sessions."
+  type        = string
+  default     = ""
+}

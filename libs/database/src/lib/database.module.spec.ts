@@ -1,6 +1,6 @@
 import type { SecretsService } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
-import { connectDatabase } from './database.module';
+import { connectDatabase, serviceSignIn } from './database.module';
 
 const config = {
   url: 'ws://surrealdb:8000',
@@ -17,6 +17,21 @@ function client(connect: Promise<true>) {
     close: jest.fn().mockResolvedValue(true),
   };
 }
+
+describe('serviceSignIn', () => {
+  it('signs in as the service record through DEFINE ACCESS svc (D13 B)', async () => {
+    const get = jest.fn().mockResolvedValue('s3cret');
+    await expect(
+      serviceSignIn(config, { get } as unknown as SecretsService),
+    ).resolves.toEqual({
+      namespace: 'heisreal',
+      database: 'main',
+      access: 'svc',
+      variables: { name: config.username, secret: 's3cret' },
+    });
+    expect(get).toHaveBeenCalledWith(config.passwordSecret);
+  });
+});
 
 describe('connectDatabase', () => {
   it('returns the client once connected', async () => {

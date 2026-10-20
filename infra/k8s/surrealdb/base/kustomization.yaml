@@ -13,6 +13,7 @@ resources:
   - statefulset.yaml
   - networkpolicy.yaml
   - init-users-job.yaml
+  - migrate-job.yaml
   - backup-cronjob.yaml
 images:
   # Pinned by tag and digest: upgrades are deliberate PRs.

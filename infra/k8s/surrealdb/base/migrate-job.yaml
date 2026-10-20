@@ -1,0 +1,75 @@
+# Applies the schema bundle (libs/database/schema) to heisreal/main as the migrator (D14), with
+# the bundle's own runner, migrate.py (see its header). Needs the init Job's namespace, database and migrator user, and
+# waits for them.
+#
+# This is a template. On GKE, Terraform (infra/terraform/modules/cluster/migration.tf) applies a
+# copy named after the bundle's content hash, surrealdb-migrate-<hash>, with its own immutable
+# ConfigMap surrealdb-migration-<hash>: a schema, data, parameter, runner or Job change gives a new
+# name (Terraform replaces the Job, so it runs again), and no change gives no diff. Locally,
+# scripts/local-migration.mjs creates the surrealdb-migration ConfigMap this name points at.
+#
+# No ttlSecondsAfterFinished (unlike the init Job): a Job that disappears would be recreated, and
+# re-run, by every apply. Terraform deletes the previous Job when it applies a new one.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: surrealdb-migrate
+spec:
+  backoffLimit: 1 # each step is a transaction, so a retry is safe; mostly it fails the same way
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        heisreal.today/db-client: 'true'
+    spec:
+      serviceAccountName: surrealdb-migrate
+      restartPolicy: Never # keep the failed pod's log
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          # The SurrealDB image has no shell, and `surreal import` turns off events and field
+          # rules (OPTION IMPORT). This pinned image is already used for backups and has python3.
+          image: google/cloud-sdk
+          command: [python3, /migration/migrate.py, /migration]
+          env:
+            - name: SURREAL_ENDPOINT
+              value: http://surrealdb:8000
+            - name: MIGRATE_WAIT_SECONDS
+              value: '900'
+            # Fail unless the init Job has left exactly these system users and every service
+            # can sign in (D13 B).
+            - name: MIGRATE_EXPECT_USERS
+              value: backup,migrator
+            - name: MIGRATE_EXPECT_SERVICES
+              value: api_public_read,api_user,api_admin,workflow
+            - name: PYTHONDONTWRITEBYTECODE
+              value: '1'
+          envFrom:
+            - configMapRef:
+                name: surrealdb-settings
+            - secretRef:
+                name: surrealdb-migrator # SURREAL_USER / SURREAL_PASS (migrator, OWNER)
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: migration
+              mountPath: /migration
+              readOnly: true
+      volumes:
+        - name: migration
+          configMap:
+            name: surrealdb-migration # Terraform: surrealdb-migration-<hash>
