@@ -49,8 +49,3 @@ output "surreal_secret_rotation" {
 output "api_public_read_url" {
   value = google_cloud_run_v2_service.api_public_read.uri
 }
-
-output "bunny_account_api_key_secret" {
-  description = "Secret Manager secret holding the Bunny.net account API key (value added by a developer; read by live/<env>/bunny)."
-  value       = google_secret_manager_secret.bunny_account_api_key.secret_id
-}

@@ -11,7 +11,7 @@ Background and decisions (project docs, `context/research/`): `terraform-state-o
 
 ```
 modules/
-  bootstrap/   project, APIs, state bucket, CI identities (keyless), budget (alert emails)
+  bootstrap/   project, APIs, state bucket, CI identities (keyless), budget, Bunny account key secret
   gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run
   cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
   db-migration/ the D14 migration bundle and Job name (no providers; `terraform test` offline)
@@ -145,8 +145,11 @@ take the state lock.
 - **tf-deployer:** only the roles the `gcp` and `cluster` roots need. Custom roles let it manage
   secrets and buckets **without reading secret values or backups**, and it may grant only the GKE
   node role at project level. It could still grant itself more through a resource's own IAM (e.g.
-  a secret's), but only by changing Terraform code on `main`. GKE admin also lets it read
-  in-cluster Kubernetes Secrets, which ESO copies from Secret Manager.
+  a SurrealDB secret's), but only by changing Terraform code on `main`. That doesn't reach the
+  Bunny keys or their state: its secrets and buckets roles carry IAM conditions that exclude every
+  `bunny-*` secret and the state bucket (`modules/bootstrap/ci_identity.tf`), and no service
+  account it can act as has access to either. GKE admin also lets it read in-cluster Kubernetes
+  Secrets, which ESO copies from Secret Manager.
 - **tf-planner:** `roles/viewer` and read access to state. It can't read secret values or backups.
 - **tf-cluster-planner** (D42): reach the cluster's API, read state, and in Kubernetes only dry
   runs plus reads of the overlay's kinds in `database` (see CI above). Only runs approved in the
@@ -154,8 +157,9 @@ take the state lock.
 - **Backups bucket:** only the backup job (create-only) and developers (restores).
 - **`dev/bunny/` state:** developers only. The state bucket's bindings for `tf-deployer`,
   `tf-planner` and `tf-cluster-planner` carry an IAM condition that excludes the prefix
-  (`modules/bootstrap/state.tf`; they can still list object names). The `bunny` root checks
-  that condition before every plan and refuses to run without it.
+  (`modules/bootstrap/state.tf`; they can still list object names), and `tf-deployer` can't
+  change the bucket's IAM to undo that (above). The `bunny` root checks both before every plan
+  and refuses to run without them.
 
 ## Bunny.net
 
@@ -172,7 +176,7 @@ provider; both are off by default and would switch transcribing on, which shows 
 token key in state, with no write-only alternative: the approved exception in `AGENTS.md`.
 Mitigation: the prefix is private to developers (above), CI never touches it, plans are never
 saved to files (a saved plan has the same keys in clear text) and debug logs are off. The account
-API key lives in Secret Manager (`bunny-account-api-key`, container from the `gcp` root, readable
+API key lives in Secret Manager (`bunny-account-api-key`, container from the `bootstrap` root, readable
 by developers only) and reaches the provider through an `ephemeral` read, so it's in neither
 state nor plans. The keys the apps will need are copied into `bunny-stream-api-key` and
 `bunny-storage-password` with write-only versions; apps read them through `libs/secrets`. No
@@ -186,7 +190,7 @@ that one process, so you never need `bunny login`, a profile or a `.env` file. D
 
 | Task                           | How                                                                                                                                                                                                                                                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| First setup (once)             | apply `bootstrap` (private state prefix) and `gcp` (secret container), add the account key (next row), then `tf-bunny.sh init` and `apply`                                                                                                                                                             |
+| First setup (once)             | apply `bootstrap` (private state prefix, deployer fences, secret container), add the account key (next row), then `tf-bunny.sh init` and `apply`                                                                                                                                                       |
 | Add or replace the account key | `jq -j .profiles.default.api_key ~/.config/bunnynet.json \| gcloud secrets versions add bunny-account-api-key --project heisreal-dev --data-file=-` (from a `bunny login` profile; never echo it), then `bunny logout`                                                                                 |
 | Check the AI features are off  | `tools/scripts/tf-bunny.sh bunny api GET /videolibrary/<id> \| jq '{EnableTranscribing, EnableTranscribingChaptersGeneration, EnableTranscribingMomentsGeneration, EnableContentTagging, KeepOriginalFiles, EnableMP4Fallback, ReplicationRegions}'` (keep the filter: the response includes the keys) |
 | Rotate a library or zone key   | reset it at Bunny (`tf-bunny.sh bunny ...`), then `tf-bunny.sh apply`: the new value becomes a new secret version; disable the old one once services restarted                                                                                                                                         |

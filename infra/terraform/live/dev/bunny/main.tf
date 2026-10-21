@@ -1,6 +1,6 @@
 # Dev Bunny.net: a Stream library (video/audio), an S3-compatible storage zone
 # in London and a pull zone (CDN) in front of it (images). Applied by a
-# developer only, after bootstrap and gcp, with tools/scripts/tf-bunny.sh:
+# developer only, after bootstrap, with tools/scripts/tf-bunny.sh:
 #
 #   tools/scripts/tf-bunny.sh init
 #   tools/scripts/tf-bunny.sh plan
@@ -31,7 +31,7 @@ provider "google" {
 
 # The account API key, read from Secret Manager with your own Google login for
 # this run only: ephemeral, so it's never written to state or plan files.
-# Created by the gcp root; the value is added by a developer (README, "Bunny.net").
+# Created by the bootstrap root; the value is added by a developer (README, "Bunny.net").
 ephemeral "google_secret_manager_secret_version" "bunny_account_api_key" {
   project = "heisreal-dev"
   secret  = "bunny-account-api-key"
@@ -41,20 +41,39 @@ provider "bunnynet" {
   api_key = ephemeral.google_secret_manager_secret_version.bunny_account_api_key.secret_data
 }
 
-# Refuse to write keys into state that CI could read: the state bucket must
-# exclude this root's prefix from every CI identity (bootstrap, state.tf).
+# Refuse to write keys anywhere CI could read them (bootstrap root):
+# - the state bucket excludes this root's prefix from every CI identity (state.tf);
+# - tf-deployer's secrets and buckets roles exclude `bunny-*` secrets and the state
+#   bucket, so it can't grant itself access through their IAM (ci_identity.tf).
 data "google_storage_bucket_iam_policy" "tfstate" {
   bucket = "heisreal-dev-tfstate"
+}
+
+data "google_project_iam_policy" "project" {
+  project = "heisreal-dev"
 }
 
 locals {
   state_prefix     = "projects/_/buckets/heisreal-dev-tfstate/objects/dev/bunny/"
   tfstate_bindings = jsondecode(data.google_storage_bucket_iam_policy.tfstate.policy_data).bindings
-  # Every binding on the bucket (CI identities only; developers have project-level storage.admin)
-  # must carry the condition that excludes this prefix.
+  # Every binding on the bucket (CI identities only; developers have project-level
+  # storage.admin) must carry the condition that excludes this prefix.
   state_is_private = alltrue([
     for b in local.tfstate_bindings :
     strcontains(try(b.condition.expression, ""), "!resource.name.startsWith('${local.state_prefix}')")
+  ])
+
+  deployer_exclusions = {
+    "projects/heisreal-dev/roles/terraformSecretsManager" = "/secrets/bunny-')"
+    "projects/heisreal-dev/roles/terraformBucketsManager" = "resource.name != 'projects/_/buckets/heisreal-dev-tfstate'"
+  }
+  deployer_bindings = [
+    for b in jsondecode(data.google_project_iam_policy.project.policy_data).bindings : b
+    if contains(keys(local.deployer_exclusions), b.role)
+  ]
+  deployer_is_fenced = length(local.deployer_bindings) > 0 && alltrue([
+    for b in local.deployer_bindings :
+    strcontains(try(b.condition.expression, ""), local.deployer_exclusions[b.role])
   ])
 }
 
@@ -63,6 +82,10 @@ resource "terraform_data" "state_is_private" {
     precondition {
       condition     = local.state_is_private
       error_message = "gs://heisreal-dev-tfstate still lets a CI identity read dev/bunny/. Apply the bootstrap root first (modules/bootstrap/state.tf)."
+    }
+    precondition {
+      condition     = local.deployer_is_fenced
+      error_message = "tf-deployer's secrets/buckets roles aren't conditioned yet, so it could grant itself access to this root's state or keys. Apply the bootstrap root first (modules/bootstrap/ci_identity.tf)."
     }
   }
 }

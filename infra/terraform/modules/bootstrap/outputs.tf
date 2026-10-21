@@ -34,3 +34,8 @@ output "ci_image_pusher_email" {
 output "ci_snapshot_pusher_email" {
   value = google_service_account.ci_snapshot_pusher.email
 }
+
+output "bunny_account_api_key_secret" {
+  description = "Secret Manager secret holding the Bunny.net account API key (value added by a developer; read by live/<env>/bunny)."
+  value       = google_secret_manager_secret.bunny_account_api_key.secret_id
+}

@@ -220,14 +220,34 @@ resource "google_project_iam_member" "tf_deployer" {
   member  = google_service_account.tf_deployer.member
 }
 
+# Both grants exclude what only developers may touch, because each role includes
+# setIamPolicy: without the conditions the deployer could grant itself access
+# to them. Excluded: the state bucket (bucket IAM and settings; this root owns
+# it), so it can't lift the dev/bunny/ condition in state.tf; and every
+# `bunny-*` secret (the account key below and the app keys from the bunny
+# root), so it can't grant itself versions.access on them. Neither the gcp nor
+# the cluster root manages either.
 resource "google_project_iam_member" "tf_deployer_custom" {
   for_each = {
-    secrets = google_project_iam_custom_role.tf_secrets.name
-    buckets = google_project_iam_custom_role.tf_buckets.name
+    secrets = {
+      role       = google_project_iam_custom_role.tf_secrets.name
+      title      = "not-bunny-secrets"
+      expression = "!resource.name.startsWith('projects/${google_project.this.number}/secrets/bunny-')"
+    }
+    buckets = {
+      role       = google_project_iam_custom_role.tf_buckets.name
+      title      = "not-state-bucket"
+      expression = "resource.name != 'projects/_/buckets/${google_storage_bucket.tfstate.name}'"
+    }
   }
   project = google_project.this.project_id
-  role    = each.value
+  role    = each.value.role
   member  = google_service_account.tf_deployer.member
+
+  condition {
+    title      = each.value.title
+    expression = each.value.expression
+  }
 }
 
 # Project IAM admin, limited to granting the GKE node role (modules/gcp/gke.tf),
