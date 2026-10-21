@@ -17,6 +17,7 @@ modules/
   db-migration/ the D14 migration bundle and Job name (no providers; `terraform test` offline)
   db-identity/ SurrealDB's identity config: init Secret names, restart hash, marker (same)
   bunny/       Bunny.net: Stream library, storage zone + pull zone, app keys in Secret Manager
+  bunny-state-guard/ who may read the bunny state via inherited grants (no providers; tested)
 live/dev/      one root per concern, applied in this order:
   bootstrap/   developer only (needs billing permissions)        state: dev/bootstrap
   gcp/         developer or the manual GitHub workflow            state: dev/gcp
@@ -81,7 +82,7 @@ are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes
 All keyless (Workload Identity Federation, limited to this repository's ID; forks get nothing).
 
 **Every PR first gets offline checks** that fail the run on any error: `terraform fmt`, `validate`
-of every root, `terraform test` of `modules/db-migration` and `modules/db-identity`, and every
+of every root, `terraform test` of `modules/db-migration`, `modules/db-identity` and `modules/bunny-state-guard`, and every
 Kustomize overlay rendered and checked with kubeconform (`ci.yml` runs the database integration
 suite). Locally: `terraform -chdir=infra/terraform/modules/<module> init -backend=false && … test`.
 
@@ -163,12 +164,14 @@ take the state lock.
   (`modules/bootstrap/state.tf`; they can still list object names), and `tf-deployer` can't
   change the bucket's IAM to undo that (above). Project- and organisation-level grants with
   `storage.objects.get` reach every bucket whatever its policy says. Only developers
-  (`storage.admin`) and service agents (`service-<number>@…`: Google-managed, can't be used
-  directly) hold one. The legacy Cloud Build service account's default grant is removed
+  (`storage.admin`) and five verified service agents (Google-managed, can't be used directly;
+  listed by exact address in `live/dev/bunny/main.tf`) hold one. The legacy Cloud Build service account's default grant is removed
   (`modules/bootstrap/bunny.tf`), because anyone who can run a build acts as it. The org admin
   (`info@heisreal.today`) could grant itself access, like any org admin. Before every plan the
   `bunny` root checks the bucket and deployer conditions, and that no other principal on the
-  project or organisation holds `storage.objects.get`. It refuses to run otherwise. Its expected
+  project or organisation holds `storage.objects.get` (`modules/bunny-state-guard`: never anything
+  in the project's own service-account domain, and a new service agent fails until reviewed and
+  listed). It refuses to run otherwise. Its expected
   conditions come from bootstrap's state, which `tf-deployer` could overwrite, but that can't
   remove conditions that are applied correctly (accepted residual).
 

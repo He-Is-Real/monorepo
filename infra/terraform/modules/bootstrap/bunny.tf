@@ -30,4 +30,19 @@ resource "google_project_iam_member_remove" "legacy_cloudbuild_builder" {
   project = google_project.this.project_id
   role    = "roles/cloudbuild.builds.builder"
   member  = "serviceAccount:${google_project.this.number}@cloudbuild.gserviceaccount.com"
+
+  # The removal rewrites the whole project policy without retrying on conflicts, so it runs
+  # after every other project IAM write in this root (and after API enabling, which can add
+  # service agent grants).
+  depends_on = [
+    google_project_service.this,
+    google_project_iam_member.developers_owner,
+    google_project_iam_member.developers_storage,
+    google_project_iam_member.tf_planner,
+    google_project_iam_member.tf_cluster_planner,
+    google_project_iam_member.tf_deployer,
+    google_project_iam_member.tf_deployer_custom,
+    google_project_iam_member.tf_deployer_parent,
+    google_project_iam_member.tf_deployer_project_iam,
+  ]
 }

@@ -72,10 +72,11 @@ jobs:
           done
       # The migrate Job's and the identity config's names change iff their content does (D14,
       # D13 B). No providers, no cloud access.
+      # bunny-state-guard: who may hold inherited object reads (the bunny root's pre-plan check).
       - name: Test the pure modules
         run: |
           set -euo pipefail
-          for module in db-migration db-identity; do
+          for module in db-migration db-identity bunny-state-guard; do
             terraform -chdir="infra/terraform/modules/$module" init -backend=false -input=false
             terraform -chdir="infra/terraform/modules/$module" test
           done

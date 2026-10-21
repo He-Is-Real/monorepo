@@ -89,38 +89,42 @@ locals {
 
 # Nobody else may hold storage.objects.get (which reads every bucket, whatever
 # the bucket's own policy says) on the project or the organisation: only the
-# developers, and Google's service agents (service-<number>@<agent>.iam...),
-# which are Google-managed, can't be used directly and act only for their own
-# service. Each other principal's roles are expanded and checked, conditions
-# or not (conservative).
+# developers and the verified Google service agents below
+# (modules/bunny-state-guard, tested offline).
 data "google_organization_iam_policy" "org" {
   org_id = "463617123121"
 }
 
 locals {
-  service_agent = "^serviceAccount:service-[0-9]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$"
-  inherited_bindings = concat(
+  project_number = try(data.terraform_remote_state.bootstrap.outputs.bootstrap.project_number, "unknown")
+
+  # Google service agents that hold storage.objects.get here, verified 2026-10-21. Exact
+  # addresses only: a new agent fails the guard until reviewed and added here.
+  google_service_agents = [
+    "serviceAccount:service-${local.project_number}@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+    "serviceAccount:service-${local.project_number}@gcf-admin-robot.iam.gserviceaccount.com",
+    "serviceAccount:service-${local.project_number}@compute-system.iam.gserviceaccount.com",
+    "serviceAccount:service-${local.project_number}@containerregistry.iam.gserviceaccount.com",
+    "serviceAccount:service-${local.project_number}@serverless-robot-prod.iam.gserviceaccount.com",
+  ]
+}
+
+module "state_readers" {
+  source = "../../../modules/bunny-state-guard"
+
+  project_id     = "heisreal-dev"
+  state_readers  = try(local.fences.state_readers, [])
+  service_agents = local.google_service_agents
+  bindings = concat(
     jsondecode(data.google_project_iam_policy.project.policy_data).bindings,
     jsondecode(data.google_organization_iam_policy.org.policy_data).bindings,
   )
-  other_grants = local.fences == null ? [] : flatten([
-    for b in local.inherited_bindings : [
-      for m in b.members : { role = b.role, member = m }
-      if !contains(local.fences.state_readers, m) && !can(regex(local.service_agent, m))
-    ]
-  ])
+  role_permissions = { for r, d in data.google_iam_role.other : r => d.included_permissions }
 }
 
 data "google_iam_role" "other" {
-  for_each = toset([for g in local.other_grants : g.role])
+  for_each = toset(module.state_readers.roles_to_check)
   name     = each.value
-}
-
-locals {
-  object_readers = [
-    for g in local.other_grants : "${g.member} (${g.role})"
-    if contains(data.google_iam_role.other[g.role].included_permissions, "storage.objects.get")
-  ]
 }
 
 resource "terraform_data" "state_is_private" {
@@ -130,8 +134,8 @@ resource "terraform_data" "state_is_private" {
       error_message = "gs://heisreal-dev-tfstate still lets a CI identity read dev/bunny/. Apply the bootstrap root first (modules/bootstrap/state.tf)."
     }
     precondition {
-      condition     = local.fences != null && length(local.object_readers) == 0
-      error_message = "These principals can read every bucket, including this root's state: ${join(", ", local.object_readers)}. Remove the grants (bootstrap) or, for a developer, add them to var.developers."
+      condition     = local.fences != null && length(module.state_readers.object_readers) == 0
+      error_message = "These principals can read every bucket, including this root's state: ${join(", ", module.state_readers.object_readers)}. Remove the grant (bootstrap). A developer goes in var.developers. A new Google service agent (service-<number>@<agent>.iam.gserviceaccount.com, never @heisreal-dev.iam...) must be reviewed, then added to local.google_service_agents."
     }
     precondition {
       condition     = local.deployer_is_fenced
