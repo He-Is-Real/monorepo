@@ -215,9 +215,12 @@ paths:
       tags: [Consent]
       operationId: getMyConsents
       summary: My consent state and history
-      description: The current state per type and the append-only ledger. Flags `reconsentRequired` after a material DPA change.
+      description: |
+        The current state per type and the append-only ledger, read in the person's own session (D27).
+        "Current" is the latest ledger event per type (D17, D18). Flags `reconsentRequired` when a material
+        DPA version newer than the one consented to is in force.
       x-required-role: User
-      x-milestone: M2
+      x-milestone: M0
       parameters:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
@@ -242,10 +245,12 @@ paths:
       summary: Grant (or re-affirm) one consent against a published DPA version
       description: |
         Command `GrantConsent`: appends one `granted` event to the ledger, in the person's own session.
-        The database refuses a draft DPA version (D20). Used at first opt-in and for re-consent. No
+        `dpaVersion` must be the version in force: the newest published version already in effect. A
+        draft (the database refuses it too, D20), an unknown or a superseded version answers `409`, so
+        while DPA v1 is a draft no consent can be given. Used at first opt-in and for re-consent. No
         `If-Match`: the ledger is append-only, so there is nothing to conflict with.
       x-required-role: User
-      x-milestone: M2
+      x-milestone: M0
       parameters:
         - $ref: './components.yaml#/components/parameters/idempotencyKey'
       requestBody:
@@ -276,12 +281,13 @@ paths:
       operationId: withdrawConsent
       summary: Withdraw a consent (as easy as giving it, Art 7(3))
       description: |
-        Command `WithdrawConsent`: appends a `withdrawn` event. Applies to all the person's stories (D17):
-        withdrawing `publish` or `special_category_religious` deletes their `publicStory` rows in the same
-        transaction, and withdrawing `special_category_religious` also starts erasure, which continues
-        asynchronously.
+        Command `WithdrawConsent`: appends a `withdrawn` event, bound to the DPA version last granted. Applies
+        to all the person's stories (D17): withdrawing `publish` or `special_category_religious` deletes their
+        `publicStory` rows in the same transaction, and withdrawing `special_category_religious` also starts
+        erasure (D39), which continues asynchronously. Withdrawing again re-affirms it; a type that was
+        never granted answers `409`.
       x-required-role: User
-      x-milestone: M2
+      x-milestone: M0
       parameters:
         - $ref: './components.yaml#/components/parameters/consentType'
         - $ref: './components.yaml#/components/parameters/idempotencyKey'
@@ -292,6 +298,8 @@ paths:
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
         '422':
           $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
 

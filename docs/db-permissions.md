@@ -335,7 +335,8 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
 
 SurrealDB 3.x multiplexes **sessions on one WebSocket connection**, and surrealdb.js 2.x
 exposes them (`Features.Sessions`). **Recommended for api-user:** one long-lived connection
-per instance, signed in as `service:api_user`, and per request:
+per instance, signed in as `service:api_user`, and per request (`withPersonSession` in
+`libs/database`, used by `PersonSessions` in `libs/consent`):
 
 ```ts
 const session = await connection.newSession(); // fresh: no identity at all
