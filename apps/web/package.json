@@ -60,6 +60,28 @@
         "options": {
           "command": "docker build -t ${IMAGE:-heisreal/web:local} apps/web/dist"
         }
+      },
+      "lint-rules": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/eslint.config.mjs",
+          "{projectRoot}/eslint-token-boundary.test.mjs",
+          "{workspaceRoot}/eslint.config.mjs",
+          {
+            "externalDependencies": [
+              "eslint"
+            ]
+          }
+        ],
+        "options": {
+          "command": "node --test apps/web/eslint-token-boundary.test.mjs"
+        }
+      },
+      "lint": {
+        "dependsOn": [
+          "lint-rules"
+        ]
       }
     }
   },

@@ -96,11 +96,30 @@
         "options": {
           "command": "cp tools/docker/nest-service.Dockerfile apps/api-admin/dist/Dockerfile"
         }
+      },
+      "test": {
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/jest.preset.js",
+          "{workspaceRoot}/libs/contracts/openapi/**/*",
+          {
+            "externalDependencies": [
+              "jest",
+              "@nx/jest",
+              "ts-jest",
+              "@swc/jest"
+            ]
+          }
+        ]
       }
     },
     "tags": [
       "type:app",
       "scope:api"
+    ],
+    "implicitDependencies": [
+      "contracts"
     ]
   },
   "dependencies": {
