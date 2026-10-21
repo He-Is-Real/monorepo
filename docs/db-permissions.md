@@ -13,7 +13,7 @@ automated tests. It also records what had to change in the draft and what is sti
 | `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
 | `libs/database/schema/data/000N-*.surql`    | Run-once seed 0001 (draft DPA v1); 0002 dropped (D44)           |
 | `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
-| `libs/database/integration/*.int-spec.ts`   | 362 integration tests against a real SurrealDB                  |
+| `libs/database/integration/*.int-spec.ts`   | 372 integration tests against a real SurrealDB                  |
 | `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
 
 ```bash
@@ -315,7 +315,9 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
   transaction goes on and commits. In a function, event, field or param body neither can affect
   the caller (tested). So data scripts follow an allow-list of statements and may not contain
   these words at all, schema files are DDL only, and every step ends with its marker, is
-  count-checked, and counts as rolled back only when the server refused its `COMMIT`. **A bare record path (`table:id.field`) in an `IF`
+  count-checked, and counts as rolled back only when the server refused its `COMMIT`. **Comments
+  end at U+0085, U+2028 and U+2029 too**, so bundled files may contain no control or separator
+  characters, and only ASCII outside strings. **A bare record path (`table:id.field`) in an `IF`
   fails** ("Specify a database to use"); `LET` it first. **`SLEEP` needs root.** **`FOR $x IN (SELECT …)` fails** ("Cannot
   execute statement using value"); `LET` the rows, then loop. **`REMOVE USER` doesn't end that
   user's open sessions**: the cutover is a restart (infra/k8s/surrealdb/README.md). **A startup

@@ -2,15 +2,15 @@
 -- Applied in full, in one transaction, on every migration by the migrator Job (D14; runner:
 -- infra/k8s/surrealdb/base/migrate.py). Every statement is OVERWRITE, so re-running is safe.
 -- Declarative means: what's here is defined; nothing is removed by deleting it from this
--- file (write an explicit REMOVE … IF EXISTS). Data changes go in data/NNNN-*.surql (run once,
+-- file (write an explicit REMOVE ... IF EXISTS). Data changes go in data/NNNN-*.surql (run once,
 -- recorded in _migration). DEFINE ACCESS clerk is in access-clerk.surql (applied only when
 -- Terraform has Clerk's key). No top-level RETURN: inside the transaction it would end it early.
 -- CI applies this file to SurrealDB 3.2.4 on every PR, so any syntax below that 3.2.4 rejects
 -- is caught before merge.
 -- 3.2.4 gotchas found in testing (2026-10-18/19), each covered by a test in ../integration:
---   * a correlated subquery with ORDER BY … LIMIT 1 returns wrong rows; use array::last(… ORDER BY ASC)
+--   * a correlated subquery with ORDER BY ... LIMIT 1 returns wrong rows; use array::last(... ORDER BY ASC)
 --   * inside a subquery, a COMPUTED field's $parent is the OUTER query's record, not its own
---     (`SELECT (SELECT consent FROM story …) FROM user` saw the user): computed fields refer to
+--     (`SELECT (SELECT consent FROM story ...) FROM user` saw the user): computed fields refer to
 --     their own record's fields directly (`submitter`), never through $parent
 --   * a write the PERMISSIONS deny returns an empty result, not an error; so does an ALLOWED
 --     write on a table the caller can't SELECT (e.g. api_user creating auditLog rows)
@@ -20,10 +20,10 @@
 --     PERMISSIONS NONE table. Events are trusted code; they must only write what they intend
 --   * transactions read a SNAPSHOT: a permission/consent/erasure check can pass while another
 --     transaction commits the opposite. Only write-write conflicts abort (the second commit
---     fails, "Transaction conflict … can be retried"); hence personFence below
+--     fails, "Transaction conflict ... can be retried"); hence personFence below
 --   * $auth IS usable in a field VALUE (the 2026-10-18 draft said otherwise; tested 2026-10-20):
 --     user.gdprDeletedAt uses it to let only the migrator supply a historical date
---   * DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (… READONLY)
+--   * DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (... READONLY)
 
 -- ---------------------------------------------------------------- bookkeeping
 -- One row per data script, written by the runner in the script's own transaction (so a failed
@@ -189,7 +189,7 @@ DEFINE FIELD OVERWRITE status        ON story TYPE string DEFAULT 'draft'
   ASSERT $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn']
   PERMISSIONS FOR update WHERE $auth != service:workflow;
 -- Media and processing fields: the person (upload) and workflow (M7 processing); never api-admin.
--- Each nested field carries the same rule, so `SET media[0].x = …` is covered too.
+-- Each nested field carries the same rule, so `SET media[0].x = ...` is covered too.
 DEFINE FIELD OVERWRITE media                    ON story TYPE array<object> DEFAULT []
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE media[*].format          ON story TYPE string ASSERT $value IN ['video', 'audio']
@@ -239,17 +239,17 @@ DEFINE EVENT OVERWRITE story_owner_content_lock ON story
    AND $before.status NOT IN ['draft', 'changes_requested']
    AND fn::story::content($before) != fn::story::content($after)
   THEN { THROW 'story content is locked after submission' };
--- The owner may only move their story draft/changes_requested → pending, or withdraw it.
+-- The owner may only move their story draft/changes_requested -> pending, or withdraw it.
 DEFINE EVENT OVERWRITE story_owner_transitions ON story
   WHEN $event = 'UPDATE' AND $after.submitter = $auth AND $before.status != $after.status
    AND !(($before.status IN ['draft', 'changes_requested'] AND $after.status = 'pending')
          OR $after.status = 'withdrawn')
   THEN { THROW 'status change not allowed for the story owner' };
--- Consent at every step that processes testimony (D17, D21; the API plan's ⚑ routes):
---   create, edit, upload, media processing → current Art 9 consent (create: table permission);
---   submit (→ pending) and approve (→ approved) → Art 9 + publish + age_18plus.
+-- Consent at every step that processes testimony (D17, D21; the API plan's flagged routes):
+--   create, edit, upload, media processing -> current Art 9 consent (create: table permission);
+--   submit (-> pending) and approve (-> approved) -> Art 9 + publish + age_18plus.
 -- Checked against the story's SUBMITTER whoever writes (person, workflow, api-admin), not $auth.
--- Withdrawing (→ withdrawn, content unchanged) and erasure (DELETE) need none.
+-- Withdrawing (-> withdrawn, content unchanged) and erasure (DELETE) need none.
 DEFINE EVENT OVERWRITE story_consent ON story
   WHEN $event = 'UPDATE'
   THEN {
@@ -296,7 +296,7 @@ DEFINE TABLE OVERWRITE publicStory SCHEMAFULL PERMISSIONS
         AND $auth.gdprDeletedAt = NONE);
 DEFINE FIELD OVERWRITE version       ON publicStory TYPE int;           -- mirrors story.version (ETag)
 DEFINE FIELD OVERWRITE slug          ON publicStory TYPE string;
-DEFINE FIELD OVERWRITE slugHistory   ON publicStory TYPE array<string> DEFAULT [];  -- D30: old slugs → 301
+DEFINE FIELD OVERWRITE slugHistory   ON publicStory TYPE array<string> DEFAULT [];  -- D30: old slugs -> 301
 DEFINE FIELD OVERWRITE title         ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE description   ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE body          ON publicStory TYPE option<string>;
@@ -417,7 +417,7 @@ DEFINE EVENT OVERWRITE consent_fence ON consent                   -- grant, with
   };
 -- Append-only, with one exit (D38): the nightly retention job, running as the migrator (a
 -- system user, so no record $auth), may delete the rows of a subject erased more than 6 years
--- ago. 2192d = 6 × 365 days + 2 leap days, so nothing goes early. Nothing else can delete.
+-- ago. 2192d = 6 x 365 days + 2 leap days, so nothing goes early. Nothing else can delete.
 DEFINE EVENT OVERWRITE consent_append_only ON consent
   WHEN $event = 'UPDATE'
     OR ($event = 'DELETE' AND !($auth = NONE AND $before.subject.gdprDeletedAt != NONE
@@ -478,7 +478,7 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
 DEFINE FIELD OVERWRITE actor      ON auditLog TYPE option<record<user>>;  -- NONE = system/job
 DEFINE FIELD OVERWRITE actorRole  ON auditLog TYPE option<string>         -- snapshot of the Clerk claim (D1)
   ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];
-DEFINE FIELD OVERWRITE entity     ON auditLog TYPE option<record>;        -- story, user, tag, dpaVersion…
+DEFINE FIELD OVERWRITE entity     ON auditLog TYPE option<record>;        -- story, user, tag, dpaVersion...
 DEFINE FIELD OVERWRITE storyVersion ON auditLog TYPE option<int>;         -- the version acted on (D29)
 DEFINE FIELD OVERWRITE fromStatus ON auditLog TYPE option<string>
   ASSERT $value = NONE OR $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn'];
@@ -504,7 +504,7 @@ DEFINE EVENT OVERWRITE audit_append_only ON auditLog
 -- already need one for moderationReview.moderator and auditLog.actor).
 DEFINE TABLE OVERWRITE idempotencyKey SCHEMAFULL PERMISSIONS
   FOR select, create, update, delete WHERE $auth.id IN [service:api_user, service:api_admin];
-DEFINE FIELD OVERWRITE requestHash ON idempotencyKey TYPE string;           -- same key + different body → 422
+DEFINE FIELD OVERWRITE requestHash ON idempotencyKey TYPE string;           -- same key + different body -> 422
 DEFINE FIELD OVERWRITE status      ON idempotencyKey TYPE int;
 DEFINE FIELD OVERWRITE response    ON idempotencyKey TYPE option<object>;   -- {id, version} only:
 DEFINE FIELD OVERWRITE response.id      ON idempotencyKey TYPE option<record>;  -- typed, so no

@@ -144,14 +144,15 @@ What a run does, in order (validate first, then change):
 5. **Data scripts:** each new one, one step each, recorded in `_migration`.
 6. **DPA sync:** draft hashes follow their files, one step.
 
-Each **step** is: commit a `_migrationPending:<step>` row, then one transaction that runs the
-step and ends with its `_migration` row (data scripts) and the deletion of the pending row. A
-rollback is never assumed: only when the server refuses the step's `COMMIT` (an aborted
-transaction or a write conflict), and the pending row is confirmed still there, does the runner
-report a rollback and clear the row (exit 1). Anything else (a result count that doesn't match
-the statements, no answer, a `COMMIT` that succeeded alongside a failure) means part of it may
-have committed: the pending row stays and every later run refuses to start (exit 3) until
-someone has checked.
+Each **step** is: commit a `_migrationPending:<step>` row, run one transaction for the step
+(ending with its `_migration` row, for data scripts), and only then, once the runner has checked
+that every statement answered OK and the result count matches, delete the pending row in a
+separate statement. Nothing in the step itself can clear its pending row. A rollback is never
+assumed either: only when the server refuses the step's `COMMIT` (an aborted transaction or a
+write conflict) does the runner report a rollback and clear the row (exit 1). Anything else (a
+short result count, a failed statement in a committed transaction, no answer) leaves the row:
+exit 3, and **every later run refuses to start** until someone has checked the data and cleared
+the row. A `_migration` row is no proof on its own: the pending row decides.
 
 **Grammar** (refused before anything runs, exit 2). It is an **allow-list**, because 3.2.4 has
 several ways to skip statements silently: a `RETURN` anywhere in a transaction ends it early
@@ -166,6 +167,12 @@ still commit. So, in data scripts and `dpa-sync.surql`:
   `CONTINUE`, `BEGIN`, `COMMIT`, `CANCEL`, `OPTION`, `SLEEP`, `USE`, `DEFINE`, `REMOVE`,
   `ALTER`, `INFO`, `KILL`, `LIVE`, and `THEN`/`END` (use brace blocks);
 - a `;` anywhere else (a block the runner can't classify) is refused.
+
+The files must be plain text the runner fully understands: control, format and line or paragraph
+separator characters (e.g. U+0085, U+2028, U+2029, NUL, VT, FF) are refused anywhere, strings
+included, because SurrealDB ends comments at some of them; outside string literals (comments
+included) only printable ASCII, TAB, CR and LF are allowed; backtick and `⟨⟩` identifiers may not
+contain backslashes or line breaks. Non-ASCII text (e.g. `’`) is fine inside `'…'`/`"…"` strings.
 
 Each allowed form and each refused word is tested on 3.2.4 at the top level, in an `IF` and in a
 `FOR` (`libs/database/integration`, "allow-list"). `schema.surql` and `access-clerk.surql` are DDL
@@ -215,10 +222,13 @@ code; a breaking change is split over two releases.
   SELECT record::id(id), appliedAt FROM _migration ORDER BY id;
   ```
 
-  Don't assume the step rolled back: check. Compare the step's script with the data (did any of
-  its writes land? is its `_migration` row there?). Undo or complete what it wrote (a new data
-  script is the clean way to complete it), and only then `DELETE _migrationPending:⟨<step>⟩;` and
-  apply again. A row can also be left by a run that was killed mid-step (e.g. a Spot reclaim);
+  Don't assume the step rolled back, and don't take a `_migration` row as proof it completed:
+  check. Compare the step's script with the data (which of its writes landed?). If its
+  `_migration` row is missing, undo what it wrote, or complete it and add the row yourself; if the
+  row is there, make sure every write landed (complete it, or with a new data script). Only then
+  `DELETE _migrationPending:⟨<step>⟩;` and apply again. A row whose step simply succeeded but whose
+  runner died before clearing it looks the same: the `_migration` row is there and the data is
+  complete. A row can also be left by a run that was killed mid-step (e.g. a Spot reclaim);
   check the same way.
 
 See what ran either way: the log's `applied` lines, or the `_migration` query above. A fixed

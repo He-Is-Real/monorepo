@@ -26,7 +26,9 @@ the rest of that block while the transaction goes on and commits):
 
 Defence in depth, so a grammar gap can't be recorded as applied:
   * before each step a _migrationPending:<step> row is committed; the step's own transaction ends
-    with its _migration row (data scripts) and the deletion of that pending row;
+    with its _migration row (data scripts); the pending row is deleted only afterwards, in a
+    separate statement, once the runner has verified every result (review round 4: a deletion
+    inside the transaction could commit even when part of the script had been skipped);
   * a step counts as done only if every statement answered OK and the result count matches. It
     counts as rolled back only if the server refused its COMMIT (verified, not assumed): then the
     pending row is removed and the runner exits 1. Anything else (fewer results, a COMMIT that
@@ -66,6 +68,7 @@ by one: manual recovery needed. The password and tokens are never printed.
 
 import argparse
 import hashlib
+import unicodedata
 import json
 import os
 import re
@@ -91,6 +94,16 @@ REFUSED_WORDS = {
 }
 RESERVED_PARAMS = {"migration_id", "migration_checksum", "migration_token", "migration_bundle", "migration_step", "migration_current"}
 SUMMARY_PREFIX = "MIGRATION SUMMARY "
+# Characters SurrealDB may treat as line ends (ending a comment early) or that hide text: refused
+# anywhere in a bundled file, strings included (review round 4: a U+2028 after `-- comment` made
+# SurrealDB run a BREAK the scanner took for comment text).
+SAFE_CONTROLS = {"\t", "\n", "\r"}
+
+
+def forbidden_character(c):
+    if c in SAFE_CONTROLS:
+        return False
+    return unicodedata.category(c) in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp")
 
 
 class BundleError(Exception):
@@ -154,26 +167,35 @@ def scan(text, mode="data"):
         if c == "\n":
             line += 1
             i += 1
-        elif c.isspace():
+        elif c in " \t\r":  # ASCII only: other spaces fall through and are refused
             i += 1
         elif text.startswith("--", i) or text.startswith("//", i) or c == "#":
-            end = text.find("\n", i)
-            i = n if end < 0 else end
+            # Ends at LF or CR: never later than SurrealDB ends it (stricter is safe).
+            end = min([k for k in (text.find("\n", i), text.find("\r", i)) if k >= 0] or [n])
+            if mode != "runner" and any(not (" " <= ch <= "~" or ch == "\t") for ch in text[i:end]):
+                problem("a character other than printable ASCII in a comment")
+            i = end
         elif text.startswith("/*", i):
             end = text.find("*/", i + 2)
             if end < 0:
                 problem("unterminated /* comment")
                 break
+            if mode != "runner" and any(
+                not (" " <= ch <= "~" or ch in SAFE_CONTROLS) for ch in text[i:end]
+            ):
+                problem("a character other than printable ASCII in a comment")
             line += text.count("\n", i, end)
             i = end + 2
         elif c in "'\"`⟨":
             close = "⟩" if c == "⟨" else c
             j = i + 1
             while j < n and text[j] != close:
-                j += 2 if text[j] == "\\" and c != "⟨" else 1
+                j += 2 if text[j] == "\\" and c not in "`⟨" else 1
             if j >= n:
                 problem(f"unterminated {c}")
                 break
+            if mode != "runner" and c in "`⟨" and any(ch in "\\\r\n" for ch in text[i + 1 : j]):
+                problem(f"a backslash or line break in a {c}…{close} identifier")
             line += text.count("\n", i, j)
             token()
             i = j + 1
@@ -208,9 +230,9 @@ def scan(text, mode="data"):
             frame[1] = True
             frame[2] = False
             i += 1
-        elif c.isalpha() or c == "_":
+        elif c.isascii() and (c.isalpha() or c == "_"):
             j = i
-            while j < n and (text[j].isalnum() or text[j] == "_"):
+            while j < n and text[j].isascii() and (text[j].isalnum() or text[j] == "_"):
                 j += 1
             word = text[i:j].upper()
             at_start = frames[-1][1]
@@ -227,6 +249,8 @@ def scan(text, mode="data"):
                     problem(f"{word} (only inside a DEFINE here)")
             i = j
         else:
+            if mode != "runner" and not (" " <= c <= "~"):
+                problem(f"character U+{ord(c):04X} outside a string (only printable ASCII here)")
             token()
             i += 1
     if len(frames) > 1 and not problems:
@@ -337,6 +361,14 @@ def load_bundle(bundle):
     if duplicates:
         raise BundleError(f"data script numbers used twice: {', '.join(duplicates)}")
     for name, text in {**top, **data}.items():
+        for number, line_text in enumerate(text.split("\n"), start=1):
+            bad = sorted({c for c in line_text if forbidden_character(c)})
+            if bad:
+                raise BundleError(
+                    f"{name}: line {number}: control or separator character(s) "
+                    + ", ".join(f"U+{ord(c):04X}" for c in bad)
+                    + " (refused anywhere, strings included)"
+                )
         _, problems = scan(text, "ddl" if name in DDL_FILES else "data")
         if problems:
             raise BundleError(f"{name}: {'; '.join(problems)}")
@@ -378,40 +410,46 @@ class Runner:
         self.vars = {**base_vars, "migration_token": token}
 
     def step(self, name, parts, extra_vars=None):
-        """One mutating step: pending row, then the step's transaction ending with its markers."""
+        """One mutating step: a pending row, the step's transaction (ending with its _migration row
+        for data scripts), then, only once the runner has verified the result, the pending row's
+        deletion in a separate statement. Anything unverified leaves the row, which blocks every
+        later run until an operator has checked the data and cleared it."""
         variables = {**self.vars, **(extra_vars or {}), "migration_step": name}
         run(self.client, f"{name} (pending)", in_transaction(
             FENCE,
             "CREATE type::record('_migrationPending', $migration_step) SET token = $migration_token, startedAt = time::now()",
         ), variables)
-        sql = in_transaction(FENCE, *parts, "DELETE type::record('_migrationPending', $migration_step)")
+        sql = in_transaction(FENCE, *parts)
         expected, _ = scan(sql, "runner")
         try:
             results = self.client.query(sql, variables)
         except Exception as err:  # no answer: we can't know what committed
             raise PartialCommitError(f"{name}: no complete answer ({err})")
-        statuses_ok = all(r.get("status") == "OK" for r in results)
-        if len(results) == expected and statuses_ok:
-            return  # every statement ran, the markers included, and the commit succeeded
-        commit = results[-1] if len(results) == expected else None
+        complete = len(results) == expected
+        if complete and all(r.get("status") == "OK" for r in results):
+            self.clear_pending(name, variables, "after verifying every statement and the COMMIT succeeded")
+            return
+        commit = results[-1] if complete else None
         if commit is not None and commit.get("status") != "OK":
             # The server refused the COMMIT (aborted transaction or write conflict): nothing from
-            # the step was kept. Confirm against the pending row, which the step would have
-            # deleted, before clearing it.
-            cleared = run(self.client, f"{name} (cleanup)",
-                "DELETE type::record('_migrationPending', $migration_step) WHERE token = $migration_token RETURN BEFORE",
-                variables)[0]["result"]
-            if len(cleared) == 1:
-                raise MigrationError(
-                    f"{name}: {root_cause(results)} (the server refused the step's COMMIT, so the "
-                    "step was rolled back; its pending row is cleared)"
-                )
+            # the step was kept.
+            self.clear_pending(name, variables, "after the server refused the step's COMMIT")
+            raise MigrationError(
+                f"{name}: {root_cause(results)} (the server refused the step's COMMIT, so the "
+                "step was rolled back; its pending row is cleared)"
+            )
         raise PartialCommitError(
-            f"{name}: {len(results)} results for {expected} statements, COMMIT "
-            + ("not reached" if commit is None else f"answered {commit.get('status')}")
-            + ": the rollback can't be confirmed, so part of this step may have been committed "
-            "without its marker"
+            f"{name}: {len(results)} results for {expected} statements, "
+            + ("COMMIT not reached" if commit is None else f"COMMIT answered {commit.get('status')} alongside a failure")
+            + ": the step may have committed partly; its pending row stays"
         )
+
+    def clear_pending(self, name, variables, why):
+        cleared = run(self.client, f"{name} (clear pending)",
+            "DELETE type::record('_migrationPending', $migration_step) WHERE token = $migration_token RETURN BEFORE",
+            variables)[0]["result"]
+        if len(cleared) != 1:
+            raise PartialCommitError(f"{name}: its pending row wasn't there to clear ({why})")
 
 def migrate(client, top, data, params, deadline):
     variables = {k: v for k, v in params.items() if v is not None}

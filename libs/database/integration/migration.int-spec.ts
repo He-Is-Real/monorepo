@@ -525,6 +525,112 @@ describe('P1: scripts can never commit partly', () => {
     expect(await tagIds(t, 'last')).toEqual(['last']);
   });
 
+  // Review round 4: SurrealDB ends `--`/`//`/`#` comments at these line separators too; the
+  // scanner ended them at LF only, so a BREAK after one was hidden from it.
+  it.each([
+    ['U+2028 (Codex)', '\u2028'],
+    ['U+0085', '\u0085'],
+    ['U+2029', '\u2029'],
+  ])(
+    'refuses a %s line separator after a comment, before anything runs',
+    async (_, sep) => {
+      const text = `IF true {\n${tag('sep_before')}-- comment${sep}BREAK;\n${tag('sep_after')}};\n`;
+      const result = await t.runMigration(t.params(), {
+        bundleDir: await bundleWith({ 'data/0009-separator.surql': text }),
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.output).toContain(
+        `U+${sep.codePointAt(0)?.toString(16).toUpperCase().padStart(4, '0')}`,
+      );
+      expect(await tagIds(t, 'sep_before', 'sep_after')).toEqual([]);
+      expect(await appliedIds(t)).not.toContain('0009-separator');
+      expect(await pendingSteps(t)).toEqual([]);
+    },
+  );
+
+  it.each([
+    [
+      'NUL in a string',
+      `CREATE tag:z SET name = 'a\u0000b', category = 'theme';\n`,
+      'U+0000',
+    ],
+    [
+      'a form feed',
+      `CREATE tag:z SET name = 'z', category = 'theme';\u000c\n`,
+      'U+000C',
+    ],
+    [
+      'a vertical tab in a string',
+      `CREATE tag:z SET name = 'a\u000bb', category = 'theme';\n`,
+      'U+000B',
+    ],
+    [
+      'a no-break space outside a string',
+      `CREATE tag:z SET name = 'z',\u00a0category = 'theme';\n`,
+      'U+00A0',
+    ],
+    [
+      'non-ASCII in a comment',
+      `-- caf\u00e9\nCREATE tag:z SET name = 'z', category = 'theme';\n`,
+      'printable ASCII',
+    ],
+  ])('refuses %s', async (_, text, message) => {
+    const result = await t.runMigration(t.params(), {
+      bundleDir: await bundleWith({ 'data/0009-characters.surql': text }),
+    });
+    expect(result.exitCode).toBe(2);
+    expect(result.output).toContain(message);
+    expect(await tagIds(t, 'z')).toEqual([]);
+  });
+
+  it('allows non-ASCII text inside string literals', async () => {
+    expect(
+      await t.migrate(t.params(), {
+        bundleDir: await bundleWith({
+          'data/0008-unicode.surql': `CREATE tag:uni SET name = 'caf\u00e9 ’quoted’', category = 'theme';\n`,
+        }),
+      }),
+    ).toMatchObject({ applied: ['0008-unicode'] });
+    expect(
+      await rows(await t.migrator(), 'SELECT VALUE name FROM tag:uni'),
+    ).toEqual(['caf\u00e9 ’quoted’']);
+  });
+
+  it('defence in depth: a BREAK in an IF block that got past the grammar blocks until cleared (review round 4)', async () => {
+    const leaky = `IF true {\n${tag('brk_before')}BREAK;\n${tag('brk_after')}};\n`;
+    const bundle = await bundleWith({ 'data/0010-break.surql': leaky });
+    const first = await t.runMigration(t.params(), {
+      bundleDir: bundle,
+      bypassGrammar: true,
+    });
+    expect(first.exitCode).toBe(3);
+    expect(first.output).toContain('PARTIAL COMMIT POSSIBLE');
+    // 3.2.4 committed the transaction (marker included) but skipped brk_after.
+    expect(await tagIds(t, 'brk_before', 'brk_after')).toEqual(['brk_before']);
+    expect(await pendingSteps(t)).toEqual(['0010-break']);
+
+    // The second run must not treat the marker as proof: the pending row still blocks it.
+    const second = await t.runMigration(t.params(), {
+      bundleDir: bundle,
+      bypassGrammar: true,
+      env: { MIGRATE_PENDING_WAIT_SECONDS: '1' },
+    });
+    expect(second.exitCode).toBe(3);
+    expect(second.output).toContain('blocked: unfinished step(s) 0010-break');
+
+    // The operator completes the script's work and clears the row deliberately.
+    await run(
+      await t.migrator(),
+      `${tag('brk_after')}DELETE _migrationPending:⟨0010-break⟩;`,
+    );
+    expect(
+      await t.migrate(t.params(), { bundleDir: bundle, bypassGrammar: true }),
+    ).toMatchObject({
+      applied: [],
+      alreadyApplied: expect.arrayContaining(['0010-break']),
+    });
+  });
+
   it('schema files are DDL only; RETURN only inside a DEFINE (tested contained)', async () => {
     const schema = await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
     const dml = await t.runMigration(t.params(), {
