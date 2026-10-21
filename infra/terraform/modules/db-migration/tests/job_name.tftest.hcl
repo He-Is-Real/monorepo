@@ -35,8 +35,9 @@ run "repo_bundle" {
   }
   assert {
     condition = (output.params.dpa_sha256["v1"] == filesha256("../../../../libs/legal/dpa/v1.md")
-    && output.params.clerk_jwt_public_key == null && output.params.identity_hash == null)
-    error_message = "dpa_sha256 holds the files' sha256 (D20); no Clerk key or identity config by default."
+      && output.params.clerk_jwt_public_key == null && output.params.identity_hash == null
+    && output.params.seed_dev_story == false)
+    error_message = "dpa_sha256 holds the files' sha256 (D20); no Clerk key, identity config or dev story by default."
   }
   assert {
     condition     = output.job.metadata.name == output.job_name && output.config_map.metadata.name == "surrealdb-migration-${output.hash}"

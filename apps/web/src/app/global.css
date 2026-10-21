@@ -3,13 +3,21 @@
  *
  * Tokens come from the design system (project repo, context/future/design/styles.css)
  * and BRANDING.md. Only the tokens are taken: the page designs aren't signed off.
- * The designs define a dark theme only, so these are the :root values and <html>
- * carries the `dark` class (shadcn components' `dark:` variants). A light theme
- * would add its own values here and switch the class.
  *
- * Contrast on --background (#111113), WCAG 2.1: foreground 16.6:1,
- * muted-foreground 5.5:1, primary (teal) 5.9:1, faint 3.5:1 (large text only).
- * White on teal is 3.2:1 (fails AA), so text on teal is dark: 5.9:1.
+ * Two themes (Joel, 0.9): light is :root, dark is `.dark` on <html> (shadcn's `dark:`
+ * variants). The site follows the device (prefers-color-scheme) unless the person picks
+ * light or dark in the header (remembered per device in localStorage); a tiny inline script
+ * in <head> sets the class before first paint (src/lib/theme.ts), so there's no flash.
+ *
+ * Light, WCAG 2.1 on --background (#ffffff): foreground #1a1a1a 17.4:1, secondary text
+ * #55555c 7.4:1, muted #6b6b73 5.3:1, links #3d7a7e 4.9:1, primary button #2f6467 with white
+ * text 6.7:1, faint #8a8a93 3.4:1 (large text and input borders only, 3:1 for UI), destructive
+ * #c62828 5.6:1, success #1e7e45 5.1:1, warning #8a5a00 5.9:1. Brand teal #4e9ba0 is 3.2:1 on
+ * white: logo and decoration only, never text.
+ *
+ * Dark, on --background (#111113): foreground 16.6:1, muted-foreground 5.5:1, primary and
+ * links (teal) 5.9:1, faint 3.5:1 (large text only). White on teal is 3.2:1 (fails AA), so
+ * text on teal is dark: 5.9:1 (Joel kept dark buttons this way).
  */
 @import 'tailwindcss';
 @import 'tw-animate-css';
@@ -19,13 +27,60 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
   /* Brand */
   --teal: #4e9ba0;
   --teal-dark: #3d7a7e;
   --teal-light: #6ec4c9;
+  --teal-subtle: rgb(78 155 160 / 0.08);
+  /* The logo's colour (the white logo file, masked): brand teal on light, white on dark */
+  --logo: var(--teal);
+
+  /* Surfaces */
+  --background: #ffffff;
+  --raised: #f6f6f7;
+  --card: #ffffff;
+  --surface: #eeeef0;
+  --input-background: #ffffff;
+
+  /* Text */
+  --foreground: #1a1a1a;
+  --secondary-text: #55555c;
+  --muted-text: #6b6b73;
+  --faint: #8a8a93;
+  --link: #3d7a7e;
+  --link-hover: #2f6467;
+
+  /* shadcn/ui semantic tokens */
+  --card-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --primary: #2f6467;
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--raised);
+  --muted-foreground: var(--muted-text);
+  --accent: var(--teal-subtle);
+  --accent-foreground: var(--foreground);
+  --destructive: #c62828;
+  --success: #1e7e45;
+  --warning: #8a5a00;
+  --border: rgb(0 0 0 / 0.1);
+  --border-hover: rgb(0 0 0 / 0.2);
+  --input: #8a8a93;
+  --ring: #3d7a7e;
+
+  /* Shape (design: --radius 10px, --radius-lg 16px, --radius-xl 20px; buttons 8px) */
+  --radius: 10px;
+}
+
+.dark {
+  color-scheme: dark;
+
   --teal-subtle: rgb(78 155 160 / 0.06);
+  --logo: #ffffff;
 
   /* Surfaces (design: --bg, --bg-raised, --bg-card, --bg-surface, --bg-input) */
   --background: #111113;
@@ -39,19 +94,12 @@
   --secondary-text: #a0a0a8;
   --muted-text: #8a8a94;
   --faint: #6a6a74;
+  --link: var(--teal);
+  --link-hover: var(--teal-light);
 
-  /* shadcn/ui semantic tokens */
-  --card-foreground: var(--foreground);
   --popover: var(--raised);
-  --popover-foreground: var(--foreground);
   --primary: var(--teal);
   --primary-foreground: #111113;
-  --secondary: var(--surface);
-  --secondary-foreground: var(--foreground);
-  --muted: var(--raised);
-  --muted-foreground: var(--muted-text);
-  --accent: var(--teal-subtle);
-  --accent-foreground: var(--foreground);
   --destructive: #dd4444;
   --success: #27ae60;
   --warning: #e6a23c;
@@ -59,9 +107,6 @@
   --border-hover: rgb(255 255 255 / 0.12);
   --input: rgb(255 255 255 / 0.12);
   --ring: var(--teal);
-
-  /* Shape (design: --radius 10px, --radius-lg 16px, --radius-xl 20px; buttons 8px) */
-  --radius: 10px;
 }
 
 @theme inline {
@@ -96,6 +141,9 @@
   --color-teal-light: var(--teal-light);
   --color-secondary-text: var(--secondary-text);
   --color-faint: var(--faint);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-logo: var(--logo);
 
   /* shadcn's scale: sm 6px, md 8px (buttons), lg 10px; design's larger radii above it */
   --radius-sm: calc(var(--radius) - 4px);
@@ -117,6 +165,9 @@
 
   html {
     scroll-behavior: smooth;
+    /* Notched phones (viewport-fit=cover): keep content clear of the safe areas. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 
   body {
@@ -125,7 +176,7 @@
   }
 
   a {
-    @apply text-primary transition-colors hover:text-teal-light;
+    @apply text-link transition-colors hover:text-link-hover;
   }
 
   ::selection {

@@ -21,10 +21,12 @@ export default [
   },
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.mjs'],
-    // Specs never ship and may inspect responses; the rules cover everything that runs in web.
+    // Specs and e2e tests never ship and may inspect responses; the rules cover everything that
+    // runs in web.
     ignores: [
       '**/*.spec.ts',
       '**/*.spec.tsx',
+      'e2e/**',
       'eslint-token-boundary.test.mjs',
     ],
     rules: {

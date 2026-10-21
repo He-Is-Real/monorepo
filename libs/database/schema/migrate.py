@@ -41,7 +41,9 @@ Defence in depth, independent of the scanner, so a grammar gap can't be recorded
     statement answered OK, the result count matches and (data scripts) a fresh read finds its
     _migration row. It
     counts as rolled back only if the server refused its COMMIT (verified, not assumed): then the
-    pending row is removed and the runner exits 1. Anything else (fewer results, a COMMIT that
+    pending row is removed and, for a retryable conflict, the step runs again (up to 3 attempts;
+    3.2.4 refuses schema steps this way at times when a full-text index re-defined over rows), else
+    the runner exits 1. Anything else (fewer results, a COMMIT that
     succeeded alongside a failure, no answer) means a partial commit is possible: the pending row
     stays, the runner exits 3, and every later run refuses to start until an operator has checked
     the data and deleted the row (infra/k8s/surrealdb/README.md, "If it fails").
@@ -131,6 +133,14 @@ class BundleError(Exception):
 
 class MigrationError(Exception):
     """A step failed and was rolled back, or a check failed (exit 1)."""
+
+
+class RetryableCommitError(Exception):
+    """The server refused a step's COMMIT with a retryable conflict: nothing was kept."""
+
+
+# A step whose COMMIT is refused with a retryable conflict runs again, at most this often in all.
+STEP_ATTEMPTS = 3
 
 
 class PartialCommitError(Exception):
@@ -435,6 +445,22 @@ class Runner:
         self.vars = {**base_vars, "migration_token": token}
 
     def step(self, name, parts, extra_vars=None, marker=None):
+        """Runs `attempt` until it succeeds, retrying (up to STEP_ATTEMPTS, short backoff) only when
+        the server refused the step's COMMIT with a retryable transaction conflict: then nothing of
+        the step was kept and its pending row is already cleared, so running it again is the same
+        as a fresh run. 3.2.4 + RocksDB can refuse a schema step this way while it re-defines the
+        full-text index on a table with rows (seen with publicStory). Anything else stops the run.
+        """
+        for attempt in range(1, STEP_ATTEMPTS + 1):
+            try:
+                return self.attempt(name, parts, extra_vars, marker)
+            except RetryableCommitError as err:
+                if attempt == STEP_ATTEMPTS:
+                    raise MigrationError(str(err)) from err
+                log(f"{name}: retryable conflict, the step was rolled back; retrying ({attempt}/{STEP_ATTEMPTS - 1})")
+                time.sleep(0.5 * attempt)
+
+    def attempt(self, name, parts, extra_vars=None, marker=None):
         """One mutating step: a pending row, the step's transaction, then (only once the runner has
         verified it) the pending row's deletion in a separate statement.
 
@@ -478,10 +504,13 @@ class Runner:
             # The server refused the COMMIT (aborted transaction or write conflict): nothing from
             # the step was kept.
             self.clear_pending(name, variables, "after the server refused the step's COMMIT")
-            raise MigrationError(
+            message = (
                 f"{name}: {root_cause(results)} (the server refused the step's COMMIT, so the "
                 "step was rolled back; its pending row is cleared)"
             )
+            if "can be retried" in root_cause(results):
+                raise RetryableCommitError(message)
+            raise MigrationError(message)
         raise PartialCommitError(
             f"{name}: no acknowledgement ({len(results)} results for {expected} statements"
             + ("" if acknowledged else ", the step's closing nonce never came back")

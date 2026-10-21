@@ -94,7 +94,7 @@ variable "api_public_read_max_instances" {
 }
 
 variable "api_public_read_public" {
-  description = "Allow unauthenticated calls to api-public-read. Dev keeps it private (invokers only)."
+  description = "Allow unauthenticated calls to api-public-read (Cloud Run skips the invoker check; D31). Public since 0.9."
   type        = bool
   default     = false
 }
@@ -112,7 +112,7 @@ variable "web_max_instances" {
 }
 
 variable "web_public" {
-  description = "Allow unauthenticated visits to web. Dev keeps it private (invokers only) until task 0.9."
+  description = "Allow unauthenticated visits to web (Cloud Run skips the invoker check). Public since 0.9."
   type        = bool
   default     = false
 }
@@ -131,6 +131,28 @@ variable "clerk_publishable_key" {
     condition     = var.clerk_publishable_key == "" || can(regex("^pk_(test|live)_[A-Za-z0-9]+$", var.clerk_publishable_key))
     error_message = "clerk_publishable_key must be a Clerk publishable key (pk_test_… or pk_live_…), never a secret key."
   }
+}
+
+variable "web_origins" {
+  description = "web's origins (its Cloud Run URLs), allowed to call the APIs from the browser (CORS, D31). Passed in rather than read from the service, which would be a dependency cycle."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for o in var.web_origins : can(regex("^https://[a-z0-9.-]+$", o))])
+    error_message = "web_origins are https origins without a path."
+  }
+}
+
+variable "web_featured_story_slug" {
+  description = "The story web's home page shows (0.9: the dev seed's). Empty: none."
+  type        = string
+  default     = ""
+}
+
+variable "web_noindex" {
+  description = "Tell search engines not to index web (X-Robots-Tag + robots meta). On in dev: public, but not a real site yet."
+  type        = bool
+  default     = false
 }
 
 variable "backup_retention_days" {

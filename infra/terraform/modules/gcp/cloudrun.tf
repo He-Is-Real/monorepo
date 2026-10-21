@@ -23,6 +23,11 @@ resource "google_cloud_run_v2_service" "api_public_read" {
   deletion_protection = var.run_deletion_protection
   labels              = local.labels
 
+  # Public = Cloud Run skips the invoker check (D31, 0.9). Not an allUsers binding: the org's
+  # domain-restricted sharing refuses those (README "Lessons learned"). Anonymous by design:
+  # its database login sees only public tables (D13).
+  invoker_iam_disabled = var.api_public_read_public
+
   template {
     service_account = google_service_account.api_public_read.email
 
@@ -75,6 +80,11 @@ resource "google_cloud_run_v2_service" "api_public_read" {
         name  = "SURREAL_PASSWORD_SECRET"
         value = "surreal-api-public-read-password"
       }
+      # D31: the browser may call it from web's origins only.
+      env {
+        name  = "CORS_ALLOWED_ORIGINS"
+        value = join(",", var.web_origins)
+      }
 
       # Readiness to receive traffic = the port is open. /health reports the
       # database state but must not make Cloud Run restart the container.
@@ -89,16 +99,6 @@ resource "google_cloud_run_v2_service" "api_public_read" {
   }
 
   depends_on = [google_secret_manager_secret_iam_member.api_public_read]
-}
-
-resource "google_cloud_run_v2_service_iam_member" "api_public_read_public" {
-  count = var.api_public_read_public ? 1 : 0
-
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.api_public_read.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "api_public_read_invokers" {

@@ -108,6 +108,8 @@ module "cluster" {
   schema_dir           = "${path.root}/../../../../../libs/database/schema"
   dpa_dir              = "${path.root}/../../../../../libs/legal/dpa"
   clerk_jwt_public_key = var.clerk_jwt_public_key
+  # M0 0.9: the one obviously fake story the walking-skeleton page shows. Dev only.
+  seed_dev_story = true
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

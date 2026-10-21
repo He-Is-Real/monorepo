@@ -4,10 +4,12 @@
  */
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { corsOptions } from '@heisreal/http';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // D31: the browser calls this service directly, from web's origin only (CORS_ALLOWED_ORIGINS).
+  const app = await NestFactory.create(AppModule, { cors: corsOptions() });
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3003;
   await app.listen(port);

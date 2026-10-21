@@ -13,7 +13,7 @@
  *
  * It then deletes a finished surrealdb-migrate Job so that re-applying the overlay runs it again:
  *
- *   node infra/k8s/surrealdb/scripts/local-migration.mjs [--context kind-heisreal] [--clerk-public-key-file key.pem]
+ *   node infra/k8s/surrealdb/scripts/local-migration.mjs [--context kind-heisreal] [--clerk-public-key-file key.pem] [--seed-dev-story]
  *   kubectl apply -k infra/k8s/surrealdb/overlays/local
  *
  * Refuses any cluster but a local one: GKE gets its migration from Terraform.
@@ -30,6 +30,7 @@ const { values: args } = parseArgs({
     context: { type: 'string' },
     namespace: { type: 'string', default: 'database' },
     'clerk-public-key-file': { type: 'string' },
+    'seed-dev-story': { type: 'boolean', default: false },
   },
 });
 
@@ -75,6 +76,7 @@ const params = {
     : null,
   dpa_sha256: dpaSha256,
   identity_hash: null,
+  seed_dev_story: args['seed-dev-story'],
 };
 if (params.clerk_jwt_public_key?.includes('PRIVATE KEY')) {
   console.error('That is a private key: pass the PEM *public* key only.');

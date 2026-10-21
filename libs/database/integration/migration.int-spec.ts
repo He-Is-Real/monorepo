@@ -40,7 +40,8 @@ const JOB_ENV = {
   MIGRATE_EXPECT_USERS: 'backup,migrator',
   MIGRATE_EXPECT_SERVICES: SERVICES.join(','),
 };
-const SEEDS = ['0001-seed-dpa-v1'];
+// Every data script in libs/database/schema/data (0003 writes nothing unless seed_dev_story).
+const SEEDS = ['0001-seed-dpa-v1', '0003-dev-seed-story'];
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
   'IF true THEN RETURN 17 END;',
@@ -997,16 +998,16 @@ describe('data scripts on an already-migrated database', () => {
 
   it('runs a new script exactly once', async () => {
     const bundle = await bundleWith({
-      'data/0003-add-tag.surql': tag('migrated'),
+      'data/0013-add-tag.surql': tag('migrated'),
     });
     expect(await t.migrate(t.params(), { bundleDir: bundle })).toMatchObject({
-      applied: ['0003-add-tag'],
+      applied: ['0013-add-tag'],
       alreadyApplied: SEEDS,
     });
     // CREATE fails on an existing record, so a re-run would fail this migration.
     expect(await t.migrate(t.params(), { bundleDir: bundle })).toMatchObject({
       applied: [],
-      alreadyApplied: [...SEEDS, '0003-add-tag'],
+      alreadyApplied: [...SEEDS, '0013-add-tag'],
     });
     expect(await tagIds(t, 'migrated')).toEqual(['migrated']);
   });
@@ -1020,7 +1021,7 @@ describe('data scripts on an already-migrated database', () => {
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('0004-fails: An error occurred: boom');
     expect(result.output).toContain("the server refused the step's COMMIT");
-    expect(await appliedIds(t)).toEqual([...SEEDS, '0003-add-tag']);
+    expect(await appliedIds(t)).toEqual([...SEEDS, '0013-add-tag']);
     expect(await tagIds(t, 'partial', 'after')).toEqual([]);
     expect(await pendingSteps(t)).toEqual([]);
 
@@ -1079,13 +1080,13 @@ describe('parameters (Terraform values)', () => {
         {
           bundleDir: await bundleWith({
             'schema.surql': `${await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8')}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
-            'data/0003-needs-key.surql': `CREATE tag:k SET name = $clerk_jwt_public_key, category = 'theme';\n`,
+            'data/0013-needs-key.surql': `CREATE tag:k SET name = $clerk_jwt_public_key, category = 'theme';\n`,
           }),
         },
       );
       expect(result.exitCode).toBe(1);
       expect(result.output).toContain(
-        '0003-needs-key.surql uses clerk_jwt_public_key, which Terraform passed as null',
+        '0013-needs-key.surql uses clerk_jwt_public_key, which Terraform passed as null',
       );
       expect(await scratchTableExists(t)).toBe(false);
     } finally {
@@ -1173,7 +1174,7 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     )[0];
 
   it('two identical runners at once: distinct tokens, the script applied exactly once, nothing left pending', async () => {
-    const bundle = await bundleWith({ 'data/0003-once.surql': tag('once') });
+    const bundle = await bundleWith({ 'data/0013-once.surql': tag('once') });
     const before = await lockToken();
     const [a, b] = await Promise.all([
       t.runMigration(t.params(), { bundleDir: bundle }),
@@ -1184,7 +1185,7 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     );
     expect([a.exitCode, b.exitCode]).toContain(0);
     expect(await lockToken()).toBe(before + 2);
-    expect(await appliedIds(t)).toEqual([...SEEDS, '0003-once']);
+    expect(await appliedIds(t)).toEqual([...SEEDS, '0013-once']);
     expect(await tagIds(t, 'once')).toEqual(['once']);
     expect(await pendingSteps(t)).toEqual([]);
   });

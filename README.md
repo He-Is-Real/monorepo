@@ -24,6 +24,7 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 | `libs/health`          | `GET /health` → `{ status, service, db }`      | 503 when the DB is down; `/testing` boots an app in tests                |
 | `libs/consent`         | Consent ledger, fail-closed consent guard      | D17–D21; `/v1/account/consents` for api-user; `/testing` lists routes    |
 | `libs/auth`            | Clerk sign-in for api-user and api-admin       | Networkless JWT check, `user` row on first use, role guard; `/testing`   |
+| `libs/http`            | CORS allowlist and RFC 9457 problem responses  | `CORS_ALLOWED_ORIGINS` (D31); `ProblemFilter` (D30)                      |
 | `libs/roles`           | The role set and role decorators (D1)          | `@RequiresRole` / `@NoRoleRequired` on every api-user/api-admin route    |
 | `libs/contracts`       | OpenAPI 3.1 specs, the API source of truth     | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
 | `infra/k8s/surrealdb`  | SurrealDB on Kubernetes (Kustomize)            | [README](infra/k8s/surrealdb/README.md)                                  |
@@ -52,6 +53,8 @@ pnpm nx validate surrealdb-k8s                   # render the Kubernetes manifes
 pnpm nx run database:test-integration            # schema + permission tests on SurrealDB (needs Docker)
 pnpm nx run consent:test-integration             # consent ledger + endpoints on SurrealDB (needs Docker)
 pnpm nx run auth:test-integration                # Clerk sign-in → person session on SurrealDB (needs Docker)
+pnpm nx run api-public-read:test-integration     # the public story endpoint on SurrealDB (needs Docker)
+pnpm exec playwright install chromium && pnpm nx e2e web   # responsive device matrix, light + dark
 ```
 
 ## Secrets
@@ -66,13 +69,16 @@ and its Jobs) get secrets from External Secrets Operator, or `local-secrets.mjs`
 ## Cloud and CI
 
 All cloud changes go through Terraform; see [infra/terraform/README.md](infra/terraform/README.md).
-Dev runs in GCP project `heisreal-dev` (London): `api-public-read` and `web` on Cloud Run (private until
-0.9, scale to zero, max 2 instances) and SurrealDB on GKE Autopilot Spot Pods, about £3–5/month.
+Dev runs in GCP project `heisreal-dev` (London): `api-public-read` and `web` on Cloud Run (public since
+0.9, scale to zero, max 2 instances; https://web-jbxp6odnsa-nw.a.run.app, not indexed) and SurrealDB on
+GKE Autopilot Spot Pods, about £3–5/month.
 
 - **`ci.yml`** (every PR): format check, then `lint test build typecheck validate`, `test-integration`
-  (`libs/database`, `libs/consent` and `libs/auth` against a SurrealDB container, see [docs/db-permissions.md](docs/db-permissions.md)) and container
-  builds for affected projects (`validate` includes kubeconform on the Kubernetes manifests). The Nx
-  cache is kept between runs in the Actions cache.
+  (`libs/database`, `libs/consent`, `libs/auth` and `api-public-read` against a SurrealDB container, see
+  [docs/db-permissions.md](docs/db-permissions.md)), `web:e2e` when web is affected (Playwright device
+  matrix; screenshots in the `web-e2e` artifact) and container builds for affected projects (`validate`
+  includes kubeconform on the Kubernetes manifests). The Nx cache is kept between runs in the Actions
+  cache.
 - **`images.yml`** ("Release Images", pushes to `main` that affect a service) and
   **`snapshot-images.yml`** (manual, any branch): build the services whose code changed and push
   them to `apps` / `apps-scratch`. Which build each

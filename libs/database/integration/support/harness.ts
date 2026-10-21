@@ -40,6 +40,8 @@ export interface MigrationParams {
   dpa_sha256: Record<string, string>;
   /** The identity config that must be verified first (GKE); null = don't check */
   identity_hash: string | null;
+  /** Seed 0003's walking-skeleton story (dev only, M0 0.9); Terraform's default is false. */
+  seed_dev_story: boolean;
 }
 
 export interface MigrationSummary {
@@ -194,6 +196,7 @@ export class TestDatabase {
       clerk_jwt_public_key: this.keys.publicKeyPem,
       dpa_sha256: { v1: DPA_V1_SHA256 },
       identity_hash: null,
+      seed_dev_story: false,
       ...overrides,
     };
   }

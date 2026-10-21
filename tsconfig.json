@@ -38,6 +38,9 @@
     },
     {
       "path": "./libs/roles"
+    },
+    {
+      "path": "./libs/http"
     }
   ],
   "compilerOptions": {}

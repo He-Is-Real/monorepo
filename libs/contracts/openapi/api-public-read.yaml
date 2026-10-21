@@ -113,7 +113,10 @@ paths:
       tags: [Stories]
       operationId: getStoryBySlug
       summary: Get a published story by slug
-      description: The one route built in M0 (task 0.9). A previous slug returns `301` to the current one.
+      description: |
+        The one route built in M0 (task 0.9). A previous slug returns `301` to the current one; an
+        unknown or malformed slug is `404` with code `story_not_found`. Media carries no playback URLs
+        until Bunny's token-authenticated delivery (M2 prerequisite).
       x-milestone: M0
       parameters:
         - $ref: './components.yaml#/components/parameters/storySlug'
@@ -123,7 +126,7 @@ paths:
           description: Public story detail.
           headers:
             ETag:
-              $ref: './components.yaml#/components/headers/ETag'
+              $ref: './components.yaml#/components/headers/RepresentationETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPublic'
           content:

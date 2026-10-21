@@ -35,6 +35,9 @@
     },
     {
       "path": "../../libs/database/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/http/tsconfig.lib.json"
     }
   ]
 }

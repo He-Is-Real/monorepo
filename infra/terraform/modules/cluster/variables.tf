@@ -61,6 +61,12 @@ variable "identity_rotation" {
   default     = "1"
 }
 
+variable "seed_dev_story" {
+  description = "Seed the dev-only walking-skeleton story (data script 0003, M0 0.9). Never true outside dev."
+  type        = bool
+  default     = false
+}
+
 variable "clerk_jwt_public_key" {
   description = "Clerk's RS256 PEM public key (public, not a secret). Empty: the migration removes DEFINE ACCESS clerk, so no person sessions."
   type        = string
