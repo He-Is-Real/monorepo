@@ -25,6 +25,9 @@
     },
     {
       "path": "../consent/tsconfig.lib.json"
+    },
+    {
+      "path": "../roles/tsconfig.lib.json"
     }
   ],
   "exclude": [

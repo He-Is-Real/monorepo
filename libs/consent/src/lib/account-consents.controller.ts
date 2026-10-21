@@ -25,6 +25,7 @@ import {
   type IdempotencyOptions,
 } from './consent-ledger';
 import type { PersonContext } from './person';
+import { RequiresRole } from '@heisreal/roles';
 import { NoConsentRequired } from './consent.decorators';
 import {
   CONSENT_MECHANISMS,
@@ -104,8 +105,10 @@ function matches(ifNoneMatch: string | undefined, etag: string): boolean {
  * Consent). Everything runs in the person's own database session (D27).
  *
  * None of them requires consent: reading your own state, giving consent and withdrawing it
- * must all work without it (Art 7(3): withdrawing is as easy as giving).
+ * must all work without it (Art 7(3): withdrawing is as easy as giving). Each needs the `User`
+ * role, the contract's `x-required-role` (D1).
  */
+@RequiresRole('User')
 @Controller('v1/account/consents')
 export class AccountConsentsController {
   constructor(

@@ -1,4 +1,8 @@
-import { listAppRolePolicies, useTestClerkEnv } from '@heisreal/auth/testing';
+import {
+  contractRequiredRoles,
+  listAppRolePolicies,
+  useTestClerkEnv,
+} from '@heisreal/auth/testing';
 import { listAppRoutePolicies } from '@heisreal/consent/testing';
 import { AppModule } from './app.module';
 
@@ -26,16 +30,31 @@ describe('api-user routes and their consent policy (D21)', () => {
   });
 });
 
-/** D1: roles are optional on api-user (any signed-in person), but any declared role is enforced. */
+/**
+ * D1: every api-user route declares its minimum role (@RequiresRole) or @NoRoleRequired(reason);
+ * the app refuses to start otherwise. The declared minimum must equal the contract's
+ * `x-required-role` (api-user.yaml, the source of truth), read from the spec itself.
+ */
 describe('api-user routes and their role policy (D1)', () => {
-  it('lists every route with its minimum role', async () => {
-    const { routes, problems } = await listAppRolePolicies(AppModule, false);
+  it('every route declares a role policy, listed here', async () => {
+    const { routes, problems } = await listAppRolePolicies(AppModule);
     expect(problems).toEqual([]);
     expect(routes).toEqual([
       'GET /health: no role required (health probe for Cloud Run and uptime checks)',
-      'GET /v1/account/consents: any signed-in person',
-      'POST /v1/account/consents: any signed-in person',
-      'POST /v1/account/consents/:type/withdraw: any signed-in person',
+      'GET /v1/account/consents: role User+',
+      'POST /v1/account/consents: role User+',
+      'POST /v1/account/consents/:type/withdraw: role User+',
     ]);
+  });
+
+  it('every route is in the contract, with the contract’s x-required-role', async () => {
+    const { minimums } = await listAppRolePolicies(AppModule);
+    const contract = contractRequiredRoles('api-user.yaml');
+    for (const route of Object.keys(minimums)) {
+      expect([route, route in contract]).toEqual([route, true]);
+    }
+    expect(minimums).toEqual(
+      Object.fromEntries(Object.keys(minimums).map((r) => [r, contract[r]])),
+    );
   });
 });

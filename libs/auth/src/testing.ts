@@ -4,6 +4,11 @@ import { DiscoveryService } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { SURREAL } from '@heisreal/database';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { listRoutes } from '@heisreal/consent';
+import { isRole, resolveRolePolicy, type Role } from '@heisreal/roles';
+import { parse as parseYaml } from 'yaml';
 import { listRolePolicies } from './lib/auth.module';
 
 /**
@@ -101,12 +106,14 @@ export function useTestClerkEnv(clerk: TestClerk = newTestClerk()): TestClerk {
 /**
  * The role-listing check (D1), like `listAppRoutePolicies` for consent: compiles a service's
  * real AppModule (SurrealDB and Secret Manager stubbed out, a stand-in Clerk instance) and
- * lists every route with its role policy.
+ * lists every route with its role policy. `minimums` maps each route (`GET /v1/x/{id}`, in the
+ * contract's path style) to its declared minimum role, or null for `@NoRoleRequired`.
  */
-export async function listAppRolePolicies(
-  appModule: Type,
-  requireDeclared: boolean,
-): Promise<{ routes: string[]; problems: string[] }> {
+export async function listAppRolePolicies(appModule: Type): Promise<{
+  routes: string[];
+  problems: string[];
+  minimums: Record<string, Role | null>;
+}> {
   useTestClerkEnv();
   const moduleRef = await Test.createTestingModule({ imports: [appModule] })
     .overrideProvider(SURREAL)
@@ -117,15 +124,55 @@ export async function listAppRolePolicies(
     .useValue('test-project')
     .compile();
   try {
-    const all = listRolePolicies(
-      moduleRef.get(DiscoveryService),
-      requireDeclared,
-    );
+    const discovery = moduleRef.get(DiscoveryService);
+    const all = listRolePolicies(discovery);
+    const minimums: Record<string, Role | null> = {};
+    for (const r of listRoutes(discovery)) {
+      const resolved = resolveRolePolicy(r.handler, r.controller);
+      if (!resolved.ok) continue;
+      const route = r.route.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
+      minimums[route] =
+        resolved.policy.kind === 'requires' ? resolved.policy.minimum : null;
+    }
     return {
       routes: all.map((p) => p.line),
       problems: all.filter((p) => p.problem).map((p) => p.line),
+      minimums,
     };
   } finally {
     await moduleRef.close();
   }
+}
+
+const HTTP_METHODS = ['get', 'put', 'post', 'delete', 'patch'];
+
+/**
+ * Every operation in an OpenAPI spec (`libs/contracts/openapi/<file>`) with its
+ * `x-required-role`, or null when it has none (e.g. `/health`), keyed like
+ * `listAppRolePolicies`'s `minimums`. The contract is the source of truth (D23), so the apps'
+ * routes specs compare against this rather than a hand-written copy.
+ */
+export function contractRequiredRoles(
+  specFile: string,
+): Record<string, Role | null> {
+  const spec = parseYaml(
+    readFileSync(join(__dirname, '../../contracts/openapi', specFile), 'utf8'),
+  ) as {
+    paths: Record<string, Record<string, { 'x-required-role'?: string }>>;
+  };
+  const roles: Record<string, Role | null> = {};
+  for (const [path, item] of Object.entries(spec.paths)) {
+    for (const method of HTTP_METHODS) {
+      const op = item[method];
+      if (!op) continue;
+      const role = op['x-required-role'];
+      if (role !== undefined && !isRole(role)) {
+        throw new Error(
+          `${specFile}: ${method} ${path} has unknown x-required-role ${role}`,
+        );
+      }
+      roles[`${method.toUpperCase()} ${path}`] = role ?? null;
+    }
+  }
+  return roles;
 }

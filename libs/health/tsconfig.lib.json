@@ -27,7 +27,7 @@
       "path": "../consent/tsconfig.lib.json"
     },
     {
-      "path": "../auth/tsconfig.lib.json"
+      "path": "../roles/tsconfig.lib.json"
     }
   ],
   "exclude": [

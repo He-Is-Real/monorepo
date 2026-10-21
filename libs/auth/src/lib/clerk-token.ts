@@ -1,6 +1,6 @@
 import { verify } from 'node:crypto';
 import type { ClerkConfig } from './clerk-config';
-import { isRole, type Role, ROLE_CLAIM } from './roles';
+import { isRole, type Role, ROLE_CLAIM } from '@heisreal/roles';
 
 /** Why a token was refused (logged, never sent to the caller). */
 export type ClerkTokenFailure =

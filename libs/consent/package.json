@@ -48,6 +48,7 @@
   },
   "dependencies": {
     "@heisreal/database": "workspace:*",
+    "@heisreal/roles": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@nestjs/common": "^11.2.6",
     "@nestjs/core": "^11.0.0",

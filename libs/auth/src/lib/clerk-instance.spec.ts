@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseClerkConfig } from './clerk-config';
 import { ClerkTokenError, verifyClerkToken } from './clerk-token';
-import { DEFAULT_ROLE, ROLE_CLAIM, ROLES } from './roles';
+import { DEFAULT_ROLE, ROLE_CLAIM, ROLES } from '@heisreal/roles';
 
 /**
  * The pieces that must agree with each other, checked together: the role set and the

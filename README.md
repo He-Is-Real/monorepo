@@ -23,7 +23,8 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 | `libs/database`        | SurrealDB client (surrealdb.js)                | Own user per service; startup fails after 15 s if DB is down             |
 | `libs/health`          | `GET /health` → `{ status, service, db }`      | 503 when the DB is down; `/testing` boots an app in tests                |
 | `libs/consent`         | Consent ledger, fail-closed consent guard      | D17–D21; `/v1/account/consents` for api-user; `/testing` lists routes    |
-| `libs/auth`            | Clerk sign-in for api-user and api-admin       | Networkless JWT check, `user` row on first use, roles (D1); `/testing`   |
+| `libs/auth`            | Clerk sign-in for api-user and api-admin       | Networkless JWT check, `user` row on first use, role guard; `/testing`   |
+| `libs/roles`           | The role set and role decorators (D1)          | `@RequiresRole` / `@NoRoleRequired` on every api-user/api-admin route    |
 | `libs/contracts`       | OpenAPI 3.1 specs, the API source of truth     | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
 | `infra/k8s/surrealdb`  | SurrealDB on Kubernetes (Kustomize)            | [README](infra/k8s/surrealdb/README.md)                                  |
 | `infra/terraform`      | All cloud infrastructure (GCP, GKE, Cloud Run) | [README](infra/terraform/README.md)                                      |

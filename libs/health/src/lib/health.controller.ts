@@ -1,5 +1,5 @@
 import { Controller, Get, HttpStatus, Inject, Res } from '@nestjs/common';
-import { NoRoleRequired } from '@heisreal/auth';
+import { NoRoleRequired } from '@heisreal/roles';
 import { NoConsentRequired } from '@heisreal/consent';
 import { DatabaseHealthService, DatabaseStatus } from '@heisreal/database';
 import type { Response } from 'express';

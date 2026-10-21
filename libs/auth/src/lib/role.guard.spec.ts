@@ -3,6 +3,7 @@ import {
   Get,
   Global,
   type INestApplication,
+  InternalServerErrorException,
   Module,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -16,8 +17,8 @@ import { SURREAL } from '@heisreal/database';
 import type { Request } from 'express';
 import { useTestClerkEnv } from '../testing';
 import { ClerkAuthModule } from './auth.module';
-import { NoRoleRequired, RequiresRole } from './role.guard';
-import { hasRole, ROLES } from './roles';
+import { RoleGuard } from './role.guard';
+import { NoRoleRequired, RequiresRole } from '@heisreal/roles';
 
 useTestClerkEnv();
 
@@ -71,16 +72,13 @@ class HeaderAuthenticator implements PersonAuthenticator {
 })
 class FakeDatabaseModule {}
 
-async function boot(
-  rolePolicy: 'required' | 'optional',
-  controllers: (new () => object)[],
-) {
+async function boot(controllers: (new () => object)[]) {
   @Module({ controllers })
   class Routes {}
   const moduleRef = await Test.createTestingModule({
     imports: [
       FakeDatabaseModule,
-      ClerkAuthModule.forRoot({ rolePolicy }),
+      ClerkAuthModule.forRoot(),
       ConsentModule.forRoot({ authenticator: HeaderAuthenticator }),
       Routes,
     ],
@@ -89,31 +87,12 @@ async function boot(
   return app;
 }
 
-describe('roles', () => {
-  it('are ordered from least to most privileged', () => {
-    expect(ROLES).toEqual([
-      'Viewer',
-      'User',
-      'Moderator',
-      'Admin',
-      'SuperAdmin',
-    ]);
-    expect(hasRole('Admin', 'Moderator')).toBe(true);
-    expect(hasRole('Moderator', 'Moderator')).toBe(true);
-    expect(hasRole('User', 'Moderator')).toBe(false);
-  });
-
-  it('refuse an unknown minimum role at decoration time', () => {
-    expect(() => RequiresRole('Owner' as never)).toThrow('unknown role');
-  });
-});
-
 describe('RoleGuard', () => {
-  describe('where every route must declare a role (api-admin)', () => {
+  describe('enforcing declared minimums', () => {
     let app: INestApplication;
     let url: string;
     beforeAll(async () => {
-      app = await boot('required', [StaffController]);
+      app = await boot([StaffController]);
       await app.listen(0, '127.0.0.1');
       url = await app.getUrl();
     });
@@ -149,26 +128,24 @@ describe('RoleGuard', () => {
     });
   });
 
-  it('refuses to start when a route declares no role policy (api-admin)', async () => {
-    const app = await boot('required', [StaffController, UndeclaredController]);
+  it('refuses to start when a route declares no role policy', async () => {
+    const app = await boot([StaffController, UndeclaredController]);
     await expect(app.init()).rejects.toThrow(
       'GET /plain (UndeclaredController.plain): has neither @RequiresRole nor @NoRoleRequired',
     );
     await app.close();
   });
 
-  it('lets undeclared routes through where roles are optional (api-user), and still enforces declared ones', async () => {
-    const app = await boot('optional', [StaffController, UndeclaredController]);
-    await app.listen(0, '127.0.0.1');
-    const url = await app.getUrl();
-    try {
-      expect((await fetch(`${url}/plain`)).status).toBe(200);
-      expect(
-        (await fetch(`${url}/v1/queue`, { headers: { 'x-role': 'User' } }))
-          .status,
-      ).toBe(403);
-    } finally {
-      await app.close();
-    }
+  it('refuses an undeclared route with 500 if it is ever reached (fail closed in every service)', async () => {
+    const guard = new RoleGuard({ authenticate: jest.fn() } as never);
+    const context = {
+      getType: () => 'http',
+      getHandler: () => UndeclaredController.prototype.plain,
+      getClass: () => UndeclaredController,
+      switchToHttp: () => ({ getRequest: () => ({ headers: {} }) }),
+    };
+    await expect(guard.canActivate(context as never)).rejects.toBeInstanceOf(
+      InternalServerErrorException,
+    );
   });
 });

@@ -12,7 +12,7 @@ import { SecretsModule } from '@heisreal/secrets';
     // Task 0.5 + D1: Clerk session tokens, and every route must declare its minimum role
     // (@RequiresRole, the contract's x-required-role) or @NoRoleRequired; the app won't start
     // otherwise. Staff need an existing `user` row: api-admin's login can't create one (D13).
-    ClerkAuthModule.forRoot({ rolePolicy: 'required' }),
+    ClerkAuthModule.forRoot(),
     // D21: global fail-closed consent guard (approve checks the submitter's consent, M3).
     ConsentModule.forRoot({ authenticator: ApiAdminAuthenticator }),
     HealthModule.forService('api-admin'),

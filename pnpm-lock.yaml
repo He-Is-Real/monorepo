@@ -156,6 +156,9 @@ importers:
       webpack-cli:
         specifier: ^7.0.0
         version: 7.2.3(js-yaml@4.3.2)(json5@2.2.3)(webpack@5.111.1)
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
 
   apps/api-admin:
     dependencies:
@@ -171,6 +174,9 @@ importers:
       '@heisreal/health':
         specifier: workspace:*
         version: link:../../libs/health
+      '@heisreal/roles':
+        specifier: workspace:*
+        version: link:../../libs/roles
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -245,6 +251,9 @@ importers:
       '@heisreal/health':
         specifier: workspace:*
         version: link:../../libs/health
+      '@heisreal/roles':
+        specifier: workspace:*
+        version: link:../../libs/roles
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -353,6 +362,9 @@ importers:
       '@heisreal/database':
         specifier: workspace:*
         version: link:../database
+      '@heisreal/roles':
+        specifier: workspace:*
+        version: link:../roles
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../secrets
@@ -375,6 +387,9 @@ importers:
       '@heisreal/database':
         specifier: workspace:*
         version: link:../database
+      '@heisreal/roles':
+        specifier: workspace:*
+        version: link:../roles
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../secrets
@@ -408,15 +423,15 @@ importers:
 
   libs/health:
     dependencies:
-      '@heisreal/auth':
-        specifier: workspace:*
-        version: link:../auth
       '@heisreal/consent':
         specifier: workspace:*
         version: link:../consent
       '@heisreal/database':
         specifier: workspace:*
         version: link:../database
+      '@heisreal/roles':
+        specifier: workspace:*
+        version: link:../roles
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../secrets
@@ -427,6 +442,12 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+
+  libs/roles:
+    dependencies:
+      '@nestjs/common':
+        specifier: ^11.2.6
+        version: 11.2.6(reflect-metadata@0.2.2)(rxjs@7.8.1)
 
   libs/secrets:
     dependencies:
