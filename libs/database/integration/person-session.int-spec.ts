@@ -13,7 +13,7 @@ import {
   signRs256,
   clerkClaims,
 } from './support/jwt';
-import { approve, buildWorld, draft, submit } from './support/world';
+import { approve, buildWorld, draft, ERASE, submit } from './support/world';
 
 /**
  * D27 B: a person's reads and commands run in a SurrealDB session opened with their Clerk
@@ -422,6 +422,74 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         'withdrawn',
       ]);
       expect(await truth('SELECT * FROM publicStory:ann_live')).toEqual([]);
+    });
+  });
+
+  describe('their own idempotency keys (D29; PR #41 review round 1)', () => {
+    // A person's command commits its Idempotency-Key in the same transaction, in their session.
+    const KEY = `idempotencyKey:['api-user', user:ann, 'ann-key-1']`;
+    const create = (db: Surreal, id: string) =>
+      rows(
+        db,
+        `CREATE ${id} CONTENT { requestHash: 'h', status: 201,
+           response: { id: consent:x, version: NONE } } RETURN id`,
+      );
+
+    it('creates and reads their own api-user key', async () => {
+      expect(await create(ann, KEY)).toHaveLength(1);
+      expect(await ids(ann, 'SELECT id FROM idempotencyKey')).toEqual([
+        'idempotencyKey:[ s"api-user", r"user:ann", s"ann-key-1" ]',
+      ]);
+    });
+
+    it('can’t create a key for someone else, another service or a webhook', async () => {
+      for (const id of [
+        `idempotencyKey:['api-user', user:bob, 'ann-forged']`,
+        `idempotencyKey:['api-admin', user:ann, 'ann-admin']`,
+        `idempotencyKey:['api-user', 'svix', 'ann-webhook']`,
+      ]) {
+        expect(await create(ann, id)).toEqual([]);
+        expect(await truth(`SELECT * FROM ${id}`)).toEqual([]);
+      }
+    });
+
+    it('can’t read other people’s keys', async () => {
+      const bobKey = `idempotencyKey:['api-user', user:bob, 'bob-key-1']`;
+      expect(await create(await t.service('api_user'), bobKey)).toHaveLength(1);
+      expect(await rows(ann, `SELECT * FROM ${bobKey}`)).toEqual([]);
+      expect(
+        await rows(
+          ann,
+          `SELECT * FROM idempotencyKey WHERE record::id(id)[1] = user:bob`,
+        ),
+      ).toEqual([]);
+    });
+
+    it('can’t update or delete a key, even their own', async () => {
+      await run(ann, `UPDATE ${KEY} SET requestHash = 'forged', status = 200`);
+      await run(ann, `DELETE ${KEY}`);
+      expect(await truth(`SELECT requestHash, status FROM ${KEY}`)).toEqual([
+        { requestHash: 'h', status: 201 },
+      ]);
+    });
+
+    it('can’t create one after erasure, from a session opened before it', async () => {
+      const cara = await t.person('user_cara');
+      await run(await t.service('api_user'), ERASE, {
+        clerkUserId: 'user_cara',
+        reason: 'account_deleted',
+      });
+      const id = `idempotencyKey:['api-user', user:cara, 'late']`;
+      expect(
+        (
+          await outcome(
+            cara,
+            `CREATE ${id} SET requestHash = 'h', status = 201`,
+          )
+        ).ok
+          ? await truth(`SELECT * FROM ${id}`)
+          : [],
+      ).toEqual([]);
     });
   });
 });

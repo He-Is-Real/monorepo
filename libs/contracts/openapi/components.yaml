@@ -752,6 +752,7 @@ components:
     ConsentRecord:
       type: object
       description: One immutable event from the append-only consent ledger.
+      required: [id, type, event, dpaVersion, mechanism, occurredAt]
       properties:
         id:
           type: string
@@ -778,12 +779,14 @@ components:
     ConsentState:
       type: object
       description: The signed-in person's current consent per type, plus the ledger.
+      required: [current, history]
       properties:
         current:
           type: array
-          description: Latest state per consent type (the one definition is `fn::consent::current`, D17).
+          description: Latest state per consent type, one entry for every type (the one definition is `fn::consent::current`, D17).
           items:
             type: object
+            required: [type, granted, dpaVersion, occurredAt, reconsentRequired]
             properties:
               type:
                 $ref: '#/components/schemas/ConsentType'
@@ -796,7 +799,7 @@ components:
                 format: date-time
               reconsentRequired:
                 type: boolean
-                description: A material DPA change needs re-consent.
+                description: Granted, but a material DPA version newer than the one consented to is now in force.
         history:
           type: array
           items:
@@ -805,9 +808,10 @@ components:
     GrantConsent:
       type: object
       description: |
-        One ledger event. The DPA version must be published (the database refuses a draft, D20). The
-        server sets `occurredAt` and computes the evidence hash from the text it presented plus the
-        checkbox state.
+        One ledger event. The DPA version must be the one in force (the database refuses a draft, D20).
+        The server sets `occurredAt` and computes the evidence hash: sha256 of the DPA version, the
+        sha256 of its text (`contentHash`), the consent type, the event and the mechanism. No IP address
+        (D19).
       required: [type, dpaVersion, mechanism]
       properties:
         type:

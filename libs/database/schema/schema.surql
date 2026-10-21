@@ -502,8 +502,17 @@ DEFINE EVENT OVERWRITE audit_append_only ON auditLog
 -- id, so a key must not carry it. A person-scoped key needs a live user and bumps their fence;
 -- erasure deletes their keys. Moderators and admins act through their own user record too (they
 -- already need one for moderationReview.moderator and auditLog.actor).
+-- A person's own commands run in their session (D27), so they commit their key in the SAME
+-- transaction as the command (PR #41 review round 1: a key saved separately could be lost after
+-- the command committed, and a retry then re-applied it). A person may create and read only
+-- their own api-user keys; never update or delete them (erasure and pruning run as services).
 DEFINE TABLE OVERWRITE idempotencyKey SCHEMAFULL PERMISSIONS
-  FOR select, create, update, delete WHERE $auth.id IN [service:api_user, service:api_admin];
+  FOR select WHERE $auth.id IN [service:api_user, service:api_admin]
+    OR (record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth.id),
+  FOR create WHERE $auth.id IN [service:api_user, service:api_admin]
+    OR (record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth.id
+        AND $auth.gdprDeletedAt = NONE),
+  FOR update, delete WHERE $auth.id IN [service:api_user, service:api_admin];
 DEFINE FIELD OVERWRITE requestHash ON idempotencyKey TYPE string;           -- same key + different body -> 422
 DEFINE FIELD OVERWRITE status      ON idempotencyKey TYPE int;
 DEFINE FIELD OVERWRITE response    ON idempotencyKey TYPE option<object>;   -- {id, version} only:

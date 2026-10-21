@@ -10,6 +10,11 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./integration-testing": {
+      "types": "./integration/support/index.ts",
+      "import": "./integration/support/index.ts",
+      "default": "./integration/support/index.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

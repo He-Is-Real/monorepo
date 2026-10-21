@@ -139,10 +139,18 @@ short-lived upload credentials.
 
 ## Consent on routes (D21)
 
-- `libs/consent` provides `@RequiresConsent(type, scope)` and `@NoConsentRequired(reason)`.
-  **Every `api-user` and `api-admin` route carries exactly one of them** (the health probe too). A
-  global guard rejects any route with neither (fail closed), and a unit test lists every registered
-  route and fails if one is undecorated.
+- `libs/consent` provides `@RequiresConsent({ subject, types })` and `@NoConsentRequired(reason)`,
+  on the handler or its controller. **Every `api-user` and `api-admin` route carries exactly one of
+  them** (the health probe too). Fail closed, three times over: the global `ConsentGuard`
+  (`ConsentModule.forRoot()`) answers `500` for a route with neither or both, the application refuses
+  to start with one, and each app's `routes.spec.ts` lists every registered route with its policy.
+- Use the named requirements in `CONSENT_REQUIRED` (`createDraft`, `editDraft`, `requestUpload`,
+  `submitStory`, `approveStory`) rather than spelling types out. Missing consent is `403` with
+  `code: consent_required`; no sign-in is `401`.
+- The check is the database's `fn::consent::granted`, read at that moment: `caller` in the person's
+  own session, `submitter` (the story in the `id` route parameter) on the service's login, which only
+  api-admin can use (on api-user's login it always fails closed). The database's events enforce the
+  same rules on every write; the guard refuses early and makes each route state its choice.
 - The specs mark guarded routes with `x-requires-consent: { subject, types }`: `subject: caller`
   checks the signed-in person, `subject: submitter` the story's submitter.
 - **No testimony content is stored without current Art 9 consent** (plan task 2.3: consent comes
@@ -163,10 +171,20 @@ short-lived upload credentials.
 ## Writing to the database (D13, D27)
 
 - A person's own commands run in a database session **as that person**, opened with their Clerk
-  token, so the database enforces ownership. Admin commands run as `api-admin`'s login.
+  token, so the database enforces ownership. Admin commands run as `api-admin`'s login. In code:
+  `PersonSessions.run(request, ({ session, user }) => …)` (`libs/consent`), built on
+  `withPersonSession` (`libs/database`). Who the caller is comes from a `PersonAuthenticator`, the
+  seam task 0.5 fills with Clerk verification; until then it refuses everyone (`401`).
+- `Idempotency-Key`: `runIdempotent` (`libs/database`) writes the key, the request hash and the
+  stored `{ id, version }` **in the same transaction as the command**, in the session the command
+  runs in (a person may create and read only their own `api-user` keys). Either both commit or
+  neither: a retry after a lost response replays, and of two requests racing with one key exactly one
+  applies; the other replays its response, or gets `422` if its body differs. There is no "in flight"
+  state to report, so no `409` for it.
 - **A write the database permissions deny returns an empty result, not an error.** Every command
   handler must check that it really wrote the row(s) it meant to, and fail loudly otherwise (log it,
-  and never answer `2xx`). The helper for this check lives in `libs/database`.
+  and never answer `2xx`). The helper for this check is `requireWritten` in `libs/database`, with
+  `runQuery` (root-cause errors) and `retryOnConflict` (retryable fence conflicts).
 - Moderation pick-up hits RocksDB optimistic-transaction conflicts rather than blocking: retry the
   transaction.
 
