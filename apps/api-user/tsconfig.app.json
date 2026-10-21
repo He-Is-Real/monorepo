@@ -32,6 +32,9 @@
     },
     {
       "path": "../../libs/health/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/database/tsconfig.lib.json"
     }
   ]
 }

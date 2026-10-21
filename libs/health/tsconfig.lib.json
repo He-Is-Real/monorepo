@@ -19,6 +19,9 @@
   "references": [
     {
       "path": "../secrets/tsconfig.lib.json"
+    },
+    {
+      "path": "../database/tsconfig.lib.json"
     }
   ],
   "exclude": [
