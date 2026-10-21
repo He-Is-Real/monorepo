@@ -87,11 +87,51 @@ locals {
   ])
 }
 
+# Nobody else may hold storage.objects.get (which reads every bucket, whatever
+# the bucket's own policy says) on the project or the organisation: only the
+# developers, and Google's service agents (service-<number>@<agent>.iam...),
+# which are Google-managed, can't be used directly and act only for their own
+# service. Each other principal's roles are expanded and checked, conditions
+# or not (conservative).
+data "google_organization_iam_policy" "org" {
+  org_id = "463617123121"
+}
+
+locals {
+  service_agent = "^serviceAccount:service-[0-9]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$"
+  inherited_bindings = concat(
+    jsondecode(data.google_project_iam_policy.project.policy_data).bindings,
+    jsondecode(data.google_organization_iam_policy.org.policy_data).bindings,
+  )
+  other_grants = local.fences == null ? [] : flatten([
+    for b in local.inherited_bindings : [
+      for m in b.members : { role = b.role, member = m }
+      if !contains(local.fences.state_readers, m) && !can(regex(local.service_agent, m))
+    ]
+  ])
+}
+
+data "google_iam_role" "other" {
+  for_each = toset([for g in local.other_grants : g.role])
+  name     = each.value
+}
+
+locals {
+  object_readers = [
+    for g in local.other_grants : "${g.member} (${g.role})"
+    if contains(data.google_iam_role.other[g.role].included_permissions, "storage.objects.get")
+  ]
+}
+
 resource "terraform_data" "state_is_private" {
   lifecycle {
     precondition {
       condition     = local.state_is_private
       error_message = "gs://heisreal-dev-tfstate still lets a CI identity read dev/bunny/. Apply the bootstrap root first (modules/bootstrap/state.tf)."
+    }
+    precondition {
+      condition     = local.fences != null && length(local.object_readers) == 0
+      error_message = "These principals can read every bucket, including this root's state: ${join(", ", local.object_readers)}. Remove the grants (bootstrap) or, for a developer, add them to var.developers."
     }
     precondition {
       condition     = local.deployer_is_fenced

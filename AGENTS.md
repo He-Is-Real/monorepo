@@ -28,11 +28,12 @@ source of truth, so change them in the same PR as the code.
   One approved exception (Joel, 2026-10-21): the `bunny` root's state holds the Bunny provider's
   computed keys (`bunnynet_stream_library.api_key`/`api_key_readonly`,
   `bunnynet_storage_zone.password`/`password_readonly`, `bunnynet_pullzone.token_auth_key`), which
-  have no write-only alternative. It's acceptable only because that prefix (`dev/bunny/`) is private
-  to developers (no CI identity can read it, and `tf-deployer` can't change the state bucket's or
-  any `bunny-*` secret's IAM), CI never plans or applies it, nothing reads it via `terraform_remote_state` and
-  plans are never saved (`infra/terraform/README.md`, "Bunny.net"). Don't extend it to other
-  resources or roots.
+  have no write-only alternative. It's acceptable only because that prefix (`dev/bunny/`) is
+  readable by developers, and by Google-managed service agents acting for their own services. No
+  CI identity can read it, `tf-deployer` can't change the state bucket's or any `bunny-*` secret's
+  IAM, and the bunny root checks this before every plan. CI never plans or applies it, nothing
+  reads it via `terraform_remote_state` and plans are never saved (`infra/terraform/README.md`,
+  "Bunny.net"). Don't extend it to other resources or roots.
 - Budget guardrail: £15/month budget with alert emails at £3/£7.50/£15 (no automatic stop). Never
   unlink billing; storage is always kept.
 

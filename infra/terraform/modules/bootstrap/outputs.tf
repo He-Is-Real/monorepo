@@ -45,5 +45,7 @@ output "bunny_fences" {
   value = {
     state_condition = local.ci_state_condition
     deployer        = { for f in values(local.deployer_fences) : f.role => f.expression }
+    # Principals allowed to hold storage.objects.get on the project (state readers).
+    state_readers = var.developers
   }
 }

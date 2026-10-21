@@ -157,11 +157,20 @@ take the state lock.
   runs plus reads of the overlay's kinds in `database` (see CI above). Only runs approved in the
   `cluster-plan` environment can use it.
 - **Backups bucket:** only the backup job (create-only) and developers (restores).
-- **`dev/bunny/` state:** developers only. The state bucket's bindings for `tf-deployer`,
-  `tf-planner` and `tf-cluster-planner` carry an IAM condition that excludes the prefix
+- **`dev/bunny/` state:** readable by developers, and by Google-managed service agents acting for
+  their own services. The state bucket's bindings for `tf-deployer`, `tf-planner` and
+  `tf-cluster-planner` carry an IAM condition that excludes the prefix
   (`modules/bootstrap/state.tf`; they can still list object names), and `tf-deployer` can't
-  change the bucket's IAM to undo that (above). The `bunny` root checks both before every plan
-  and refuses to run without them.
+  change the bucket's IAM to undo that (above). Project- and organisation-level grants with
+  `storage.objects.get` reach every bucket whatever its policy says. Only developers
+  (`storage.admin`) and service agents (`service-<number>@…`: Google-managed, can't be used
+  directly) hold one. The legacy Cloud Build service account's default grant is removed
+  (`modules/bootstrap/bunny.tf`), because anyone who can run a build acts as it. The org admin
+  (`info@heisreal.today`) could grant itself access, like any org admin. Before every plan the
+  `bunny` root checks the bucket and deployer conditions, and that no other principal on the
+  project or organisation holds `storage.objects.get`. It refuses to run otherwise. Its expected
+  conditions come from bootstrap's state, which `tf-deployer` could overwrite, but that can't
+  remove conditions that are applied correctly (accepted residual).
 
 ## Bunny.net
 
@@ -201,7 +210,8 @@ that one process, so you never need `bunny login`, a profile or a `.env` file. D
 checked once applied). The first two must say granted, the last two not:
 
 ```bash
-D=tf-deployer@heisreal-dev.iam.gserviceaccount.com; T="gcloud policy-troubleshoot iam --principal-email=$D"
+D=tf-deployer@heisreal-dev.iam.gserviceaccount.com
+T="gcloud policy-troubleshoot iam --billing-project=heisreal-dev --principal-email=$D"  # API enabled by bootstrap
 $T //cloudresourcemanager.googleapis.com/projects/heisreal-dev --permission=secretmanager.secrets.create
 $T //secretmanager.googleapis.com/projects/heisreal-dev/secrets/surreal-root-password --permission=secretmanager.secrets.setIamPolicy
 $T //secretmanager.googleapis.com/projects/heisreal-dev/secrets/bunny-account-api-key --permission=secretmanager.secrets.setIamPolicy
