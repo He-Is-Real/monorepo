@@ -23,9 +23,11 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 | `libs/database`        | SurrealDB client (surrealdb.js)                | Own user per service; startup fails after 15 s if DB is down             |
 | `libs/health`          | `GET /health` → `{ status, service, db }`      | 503 when the DB is down; `/testing` boots an app in tests                |
 | `libs/consent`         | Consent ledger, fail-closed consent guard      | D17–D21; `/v1/account/consents` for api-user; `/testing` lists routes    |
+| `libs/auth`            | Clerk sign-in for api-user and api-admin       | Networkless JWT check, `user` row on first use, roles (D1); `/testing`   |
 | `libs/contracts`       | OpenAPI 3.1 specs, the API source of truth     | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
 | `infra/k8s/surrealdb`  | SurrealDB on Kubernetes (Kustomize)            | [README](infra/k8s/surrealdb/README.md)                                  |
 | `infra/terraform`      | All cloud infrastructure (GCP, GKE, Cloud Run) | [README](infra/terraform/README.md)                                      |
+| `infra/clerk`          | Clerk instance settings as code (Clerk CLI)    | [README](infra/clerk/README.md); the one non-Terraform cloud config      |
 | `tools/docker`         | Dockerfiles: NestJS services, Next.js site     | `pnpm nx run <service>:container` (also `web`)                           |
 
 Services never call each other; each API only talks to SurrealDB (and, later, queues).
@@ -48,6 +50,7 @@ pnpm nx affected -t lint test build typecheck   # only what your branch changed
 pnpm nx validate surrealdb-k8s                   # render the Kubernetes manifests
 pnpm nx run database:test-integration            # schema + permission tests on SurrealDB (needs Docker)
 pnpm nx run consent:test-integration             # consent ledger + endpoints on SurrealDB (needs Docker)
+pnpm nx run auth:test-integration                # Clerk sign-in → person session on SurrealDB (needs Docker)
 ```
 
 ## Secrets
@@ -66,7 +69,7 @@ Dev runs in GCP project `heisreal-dev` (London): `api-public-read` and `web` on 
 0.9, scale to zero, max 2 instances) and SurrealDB on GKE Autopilot Spot Pods, about £3–5/month.
 
 - **`ci.yml`** (every PR): format check, then `lint test build typecheck validate`, `test-integration`
-  (`libs/database` and `libs/consent` against a SurrealDB container, see [docs/db-permissions.md](docs/db-permissions.md)) and container
+  (`libs/database`, `libs/consent` and `libs/auth` against a SurrealDB container, see [docs/db-permissions.md](docs/db-permissions.md)) and container
   builds for affected projects (`validate` includes kubeconform on the Kubernetes manifests). The Nx
   cache is kept between runs in the Actions cache.
 - **`images.yml`** ("Release Images", pushes to `main` that affect a service) and

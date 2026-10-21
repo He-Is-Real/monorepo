@@ -165,7 +165,7 @@ describe('ConsentModule', () => {
     });
   });
 
-  it('answers 401 on consent-guarded routes while nobody can sign in (until task 0.5)', async () => {
+  it('answers 401 on consent-guarded routes without an authenticator (nobody can sign in)', async () => {
     const callerHas = jest.fn();
     const { app, url } = await boot([TestController], { callerHas });
     try {

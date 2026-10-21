@@ -21,7 +21,7 @@ import { describeRoutePolicy, listRoutePolicies } from './route-policies';
 
 export interface ConsentModuleOptions {
   /**
-   * Verifies the caller (task 0.5 passes its Clerk implementation). Default: nobody can sign
+   * Verifies the caller (`libs/auth`'s Clerk authenticators). Default: nobody can sign
    * in (`SignInUnavailable`), so personal routes answer `401`.
    */
   authenticator?: Type<PersonAuthenticator>;

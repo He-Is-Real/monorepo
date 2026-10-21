@@ -104,6 +104,7 @@
     ]
   },
   "dependencies": {
+    "@heisreal/auth": "workspace:*",
     "@heisreal/consent": "workspace:*",
     "@heisreal/database": "workspace:*",
     "@heisreal/health": "workspace:*",

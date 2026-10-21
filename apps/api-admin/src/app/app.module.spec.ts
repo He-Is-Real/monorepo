@@ -1,5 +1,8 @@
+import { useTestClerkEnv } from '@heisreal/auth/testing';
 import { getHealth } from '@heisreal/health/testing';
 import { AppModule } from './app.module';
+
+useTestClerkEnv();
 
 describe('api-admin AppModule', () => {
   it('serves GET /health as api-admin', async () => {

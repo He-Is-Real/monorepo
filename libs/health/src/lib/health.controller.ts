@@ -1,4 +1,5 @@
 import { Controller, Get, HttpStatus, Inject, Res } from '@nestjs/common';
+import { NoRoleRequired } from '@heisreal/auth';
 import { NoConsentRequired } from '@heisreal/consent';
 import { DatabaseHealthService, DatabaseStatus } from '@heisreal/database';
 import type { Response } from 'express';
@@ -11,8 +12,10 @@ export interface HealthResponse {
   db: DatabaseStatus;
 }
 
-// D21: api-user and api-admin require a consent decision on every route, this probe included.
+// D21: api-user and api-admin require a consent decision on every route, this probe included,
+// and api-admin a role decision (D1).
 @NoConsentRequired('health probe: reads no personal data')
+@NoRoleRequired('health probe for Cloud Run and uptime checks')
 @Controller('health')
 export class HealthController {
   constructor(

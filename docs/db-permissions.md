@@ -480,7 +480,7 @@ after a restore.
 SurrealDB needs `ns`, `db` and `ac` claims, signed RS256 by a key it holds. GKE has no egress, so
 `KEY '<PEM>'` is pinned by Terraform; there's no JWKS URL.
 
-**Option 1, preferred: customise the default session token.** In Dashboard → Sessions →
+**Option 1, chosen and applied in 0.5: customise the default session token.** In Dashboard → Sessions →
 Customize session token (or `clerk config patch`), add static claims:
 
 ```json
@@ -507,9 +507,16 @@ iss jti nbf sid sub v pla fea sts`), and none of those collide.
   names.
 
 **Public key.** It's on the Dashboard's API keys page ("JWKS Public Key", PEM), also at
-`https://api.clerk.com/v1/jwks` and `<frontend-api>/.well-known/jwks.json`. It goes in
-`infra/terraform/live/dev/cluster/clerk.auto.tfvars` (`clerk_jwt_public_key`). Until it's set the
-migration removes `DEFINE ACCESS clerk`, so no token can open a person session.
+`https://api.clerk.com/v1/jwks` and `<frontend-api>/.well-known/jwks.json`. It's pinned in
+`infra/terraform/live/dev/cluster/clerk.auto.tfvars` (`clerk_jwt_public_key`, since 0.5). Empty,
+the migration removes `DEFINE ACCESS clerk`, so no token can open a person session.
+
+**As built in 0.5** (`infra/clerk/dev.json`, `libs/auth`): the session token carries
+`{ "ns": "heisreal", "db": "main", "ac": "clerk", "role": "{{user.public_metadata.role || 'User'}}" }`.
+api-user and api-admin verify it with the same pinned key before it reaches SurrealDB (signature,
+`exp`/`nbf`/`iat`, `iss`, `azp`, role). api-user creates the person's `user` row on its own
+login on first use (`provisionPerson`), so `AUTHENTICATE` finds them. `libs/auth/integration`
+tests this end to end.
 
 **Sources:**
 
@@ -520,20 +527,21 @@ migration removes `DEFINE ACCESS clerk`, so no token can open a person session.
 - https://clerk.com/docs/guides/sessions/manual-jwt-verification (RS256, PEM public key,
   `exp`/`nbf`/`azp` checks)
 
-**Unproven until 0.5 (no Clerk instance in this spike):**
+**Proven in 0.5** (a real dev-instance token, `libs/auth/src/lib/fixtures`): the instance
+accepts `ns`/`db`/`ac`/`role` as custom session claims, and its tokens are RS256, signed by the
+pinned PEM, about 900 bytes. Key rotation has a runbook (`infra/clerk/README.md`).
 
-- that the dev instance accepts `ns`/`db`/`ac` as custom session claims, and that its tokens
-  are RS256 with the dashboard PEM;
-- the real token size;
-- key rotation: a rotated Clerk key breaks every person session until Terraform re-pins the
-  PEM, so a runbook is needed;
-- Svix webhook verification and the `user.deleted` payload;
-- clock skew between Clerk and the cluster (SurrealDB enforces `exp`/`nbf`; Clerk tokens live
-  60 s).
+**Still unproven:**
+
+- Svix webhook verification and the `user.deleted` payload (M2);
+- clock skew between Clerk and the cluster in practice (SurrealDB enforces `exp`/`nbf`; Clerk
+  tokens live 60 s with `nbf` 5 s in the past);
+- a browser token opening a person session on the dev cluster (0.9 has the first page that could;
+  api-user isn't deployed yet).
 
 **SurrealDB checks neither `iss` nor `azp`**, as tested. The pinned key alone ties tokens to the
-Clerk instance, so dev and prod must have different keys (they do). api-user's Clerk guard must
-check `azp`. An `AND $token.iss = '<frontend-api>'` in `AUTHENTICATE` is cheap extra hardening if
+Clerk instance, so dev and prod must have different keys (they do). `libs/auth` checks both
+before a token reaches SurrealDB. An `AND $token.iss = '<frontend-api>'` in `AUTHENTICATE` is cheap extra hardening if
 wanted.
 
 ## Remaining risks

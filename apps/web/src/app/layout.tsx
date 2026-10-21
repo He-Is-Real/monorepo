@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
+import { Suspense } from 'react';
+import { SiteHeader } from '@/components/site-header';
 import './global.css';
 
 // Self-hosted at build time by next/font: browsers never contact Google.
@@ -36,6 +38,9 @@ export default function RootLayout({
         >
           Skip to content
         </a>
+        <Suspense fallback={null}>
+          <SiteHeader />
+        </Suspense>
         {children}
       </body>
     </html>

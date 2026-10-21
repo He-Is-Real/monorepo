@@ -20,7 +20,7 @@ function connection(authenticate: jest.Mock) {
 
 const request = () => ({ headers: {} }) as Request;
 
-describe('SignInUnavailable (the default until task 0.5)', () => {
+describe('SignInUnavailable (the default without an authenticator)', () => {
   it('refuses everyone with 401', async () => {
     await expect(new SignInUnavailable().authenticate()).rejects.toBeInstanceOf(
       UnauthorizedException,

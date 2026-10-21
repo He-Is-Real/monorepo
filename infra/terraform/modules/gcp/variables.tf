@@ -123,6 +123,16 @@ variable "web_invokers" {
   default     = []
 }
 
+variable "clerk_publishable_key" {
+  description = "The Clerk instance's publishable key (public; D32: web passes it to the browser). Empty = no sign-in control."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.clerk_publishable_key == "" || can(regex("^pk_(test|live)_[A-Za-z0-9]+$", var.clerk_publishable_key))
+    error_message = "clerk_publishable_key must be a Clerk publishable key (pk_test_… or pk_live_…), never a secret key."
+  }
+}
+
 variable "backup_retention_days" {
   description = "Delete database backups after this many days (GDPR erasure window)."
   type        = number

@@ -8,6 +8,9 @@ info:
 
     - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
       (Moderator for moderation; Admin / SuperAdmin for the rest). Called directly by the browser (D31).
+      The role is the session token's `role` claim (Clerk `publicMetadata.role`, D1); below the minimum
+      is `403` with code `role_required`. api-admin never creates `user` records (D13): a person
+      without one (no api-user call yet) gets `403` with code `unknown_person`.
     - May read the story write model (moderation needs pending stories); public reads stay on
       `api-public-read`.
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.

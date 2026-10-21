@@ -8,20 +8,25 @@ import type { Request } from 'express';
 import type { RecordId, Surreal, SurrealSession } from 'surrealdb';
 
 /**
- * THE SEAM WITH TASK 0.5 (Clerk). Everything personal in this library starts from an
+ * The seam with sign-in. Everything personal in this library starts from an
  * `AuthenticatedPerson`; nothing here verifies a Clerk token itself.
  *
- * 0.5 provides a `PersonAuthenticator` that verifies the request's Clerk session token
- * (signature, `exp`/`nbf`, and `azp`, which SurrealDB doesn't check; docs/db-permissions.md,
- * "Clerk side") and passes it in with `ConsentModule.forRoot({ authenticator })`. It must also
- * make sure the person's `user` row exists (api-user's login creates it on first use), since
- * SurrealDB's `DEFINE ACCESS clerk` only signs in people it knows.
+ * `libs/auth` (task 0.5) provides the `PersonAuthenticator`s that verify the request's Clerk
+ * session token (signature, `exp`/`nbf`, `iss`, and `azp`, which SurrealDB doesn't check;
+ * docs/db-permissions.md, "Clerk side"), passed in with `ConsentModule.forRoot({ authenticator })`.
+ * They also make sure the person's `user` row exists (api-user's login creates it on first
+ * use), since SurrealDB's `DEFINE ACCESS clerk` only signs in people it knows.
  */
 export interface AuthenticatedPerson {
   /** The verified Clerk user id (`sub`). */
   readonly clerkUserId: string;
   /** The verified Clerk session token; opens the person's SurrealDB session (D27). */
   readonly token: string;
+  /**
+   * The verified role claim (D1), one of `@heisreal/auth`'s `ROLES`. Absent means no role:
+   * every role check refuses.
+   */
+  readonly role?: string;
 }
 
 export interface PersonAuthenticator {
@@ -32,15 +37,12 @@ export interface PersonAuthenticator {
 export const PERSON_AUTHENTICATOR = Symbol('PERSON_AUTHENTICATOR');
 
 /**
- * The default until task 0.5: nobody can sign in, so every personal route answers `401`
- * (fail closed). The database is closed too: without Clerk's key the migration removes
- * `DEFINE ACCESS clerk`.
+ * The default when no authenticator is given: nobody can sign in, so every personal route
+ * answers `401` (fail closed). api-user and api-admin pass `libs/auth`'s Clerk authenticators.
  */
 export class SignInUnavailable implements PersonAuthenticator {
   async authenticate(): Promise<AuthenticatedPerson> {
-    throw new UnauthorizedException(
-      'Sign-in is not available yet (M0 task 0.5)',
-    );
+    throw new UnauthorizedException('Sign-in is not available on this service');
   }
 }
 

@@ -106,7 +106,9 @@ module "gcp" {
   api_public_read_invokers = ["user:joel@heisreal.today"]
   web_public               = false # public with api-public-read at 0.9 (D31)
   web_invokers             = ["user:joel@heisreal.today"]
-  run_deletion_protection  = var.run_deletion_protection
+  # The Clerk dev instance (D7: no production instance without our own domain). Public.
+  clerk_publishable_key   = "pk_test_c3VwZXJiLW1pbmstODk2Ny5jbGVyay5hY2NvdW50cy5kZXYk"
+  run_deletion_protection = var.run_deletion_protection
 }
 
 # --- Adopt the SurrealDB secrets created by hand on 2026-09-27 ---------------
