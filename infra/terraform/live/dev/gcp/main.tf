@@ -1,5 +1,6 @@
 # Dev GCP infrastructure: network, registry, GKE Autopilot, secrets, backups,
-# and Cloud Run (api-public-read, running the images chosen in images.auto.tfvars).
+# and Cloud Run (api-public-read and web, running the images chosen in
+# images.auto.tfvars).
 
 terraform {
   required_version = ">= 1.11"
@@ -103,6 +104,8 @@ module "gcp" {
   images                   = local.resolved_images
   api_public_read_public   = false
   api_public_read_invokers = ["user:joel@heisreal.today"]
+  web_public               = false # public with api-public-read at 0.9 (D31)
+  web_invokers             = ["user:joel@heisreal.today"]
   run_deletion_protection  = var.run_deletion_protection
 }
 

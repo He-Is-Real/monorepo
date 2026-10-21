@@ -24,7 +24,7 @@ permissions:
 
 env:
   REGISTRY: europe-west2-docker.pkg.dev
-  SERVICES: api-public-read api-user api-admin workflow
+  SERVICES: api-public-read api-user api-admin workflow web
   NX_CACHE_DIRECTORY: .nx/cache
   NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
   NX_CACHE_PATHS: |

@@ -14,7 +14,7 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 
 | Path                   | What                                           | Notes                                                                    |
 | ---------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
-| `apps/web`             | Next.js (App Router) site                      | Tailwind + shadcn/ui arrive in M0 task 0.4                               |
+| `apps/web`             | Next.js (App Router) site                      | Tailwind v4 + shadcn/ui; reads api-public-read only (D32)                |
 | `apps/api-public-read` | Anonymous public read API (NestJS/Express)     | DB user `api_read` (until the schema PR), **VIEWER** (read-only)         |
 | `apps/api-user`        | The signed-in person's reads and commands      | DB user `api_write` (until the schema PR), EDITOR                        |
 | `apps/api-admin`       | Moderation/admin API (restricted hostname)     | DB user `api_admin`, EDITOR                                              |
@@ -26,7 +26,7 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 | `libs/contracts`       | OpenAPI 3.1 specs, the API source of truth     | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
 | `infra/k8s/surrealdb`  | SurrealDB on Kubernetes (Kustomize)            | [README](infra/k8s/surrealdb/README.md)                                  |
 | `infra/terraform`      | All cloud infrastructure (GCP, GKE, Cloud Run) | [README](infra/terraform/README.md)                                      |
-| `tools/docker`         | Shared Dockerfile for the NestJS services      | `pnpm nx run <service>:container`                                        |
+| `tools/docker`         | Dockerfiles: NestJS services, Next.js site     | `pnpm nx run <service>:container` (also `web`)                           |
 
 Services never call each other; each API only talks to SurrealDB (and, later, queues).
 
@@ -62,8 +62,8 @@ and its Jobs) get secrets from External Secrets Operator, or `local-secrets.mjs`
 ## Cloud and CI
 
 All cloud changes go through Terraform; see [infra/terraform/README.md](infra/terraform/README.md).
-Dev runs in GCP project `heisreal-dev` (London): `api-public-read` on Cloud Run (private, scales to zero,
-max 2 instances) and SurrealDB on GKE Autopilot Spot Pods, about £3–5/month.
+Dev runs in GCP project `heisreal-dev` (London): `api-public-read` and `web` on Cloud Run (private until
+0.9, scale to zero, max 2 instances) and SurrealDB on GKE Autopilot Spot Pods, about £3–5/month.
 
 - **`ci.yml`** (every PR): format check, then `lint test build typecheck validate`, `test-integration`
   (`libs/database` and `libs/consent` against a SurrealDB container, see [docs/db-permissions.md](docs/db-permissions.md)) and container
