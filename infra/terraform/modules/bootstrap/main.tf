@@ -20,6 +20,7 @@ locals {
     "iamcredentials.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
+    "policytroubleshooter.googleapis.com", # IAM checks (README, Bunny.net)
     "pubsub.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
