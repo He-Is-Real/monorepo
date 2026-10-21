@@ -48,6 +48,12 @@ variable "images" {
   }
 }
 
+variable "run_deletion_protection" {
+  description = "Set to false for one apply before replacing a Cloud Run service (e.g. a tainted one); the next plain apply turns it back on."
+  type        = bool
+  default     = true
+}
+
 variable "image_overrides" {
   description = "One-off overrides for a single apply, e.g. -var 'image_overrides={\"api-public-read\"=\"snapshot\"}'. The next apply without it returns to images.auto.tfvars."
   type        = map(string)
@@ -97,6 +103,7 @@ module "gcp" {
   images                   = local.resolved_images
   api_public_read_public   = false
   api_public_read_invokers = ["user:joel@heisreal.today"]
+  run_deletion_protection  = var.run_deletion_protection
 }
 
 # --- Adopt the SurrealDB secrets created by hand on 2026-09-27 ---------------
