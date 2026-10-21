@@ -11,25 +11,28 @@ BUNDLE_DIR holds the files from libs/database/schema: flat (the Job's ConfigMap)
 scripts in data/ (the repo). FILE (default BUNDLE_DIR/params.json) maps parameter names to values,
 or null when not available yet; Terraform writes it.
 
-Restricted grammar (checked before anything runs). On 3.2.4 a RETURN statement inside a
-transaction commits it early and skips the rest, wherever it hides (`[RETURN 1]`,
-`1 + RETURN 1`, `IF … THEN RETURN … END`, blocks). So:
-  * data scripts and dpa-sync.surql may not contain the RETURN token at all;
-  * schema.surql and access-clerk.surql are DDL only (every top-level statement is DEFINE or
-    REMOVE); RETURN may appear only inside a DEFINE (function, event, field and param bodies
-    were tested: their RETURN never ends the caller's transaction, even when defined and run in
-    the same one);
-  * BEGIN, COMMIT and CANCEL may not appear anywhere, nor an OPTION statement. (BREAK and
-    CONTINUE were tested and can't end a transaction.)
+Grammar (checked before anything runs; an allow-list, because 3.2.4 has more than one way to
+skip statements silently: RETURN anywhere in a transaction ends it early (`[RETURN 1]`,
+`1 + RETURN 1`, `IF … THEN RETURN … END`, blocks), and BREAK/CONTINUE inside an IF block skip
+the rest of that block while the transaction goes on and commits):
+  * data scripts and dpa-sync.surql: every statement, at the top level and inside IF / ELSE / FOR
+    blocks, must start with one of ALLOWED_STATEMENTS; the words in REFUSED_WORDS may not appear
+    anywhere outside strings and comments; a `;` anywhere but the top level or such a block (a
+    block the scanner can't classify) is refused. tests: libs/database/integration, "allow-list";
+  * schema.surql and access-clerk.surql: DDL only (every top-level statement is DEFINE or REMOVE);
+    RETURN, BREAK and CONTINUE only inside a DEFINE (function, event, field and param bodies were
+    tested: they can't end or skip the caller's transaction); BEGIN, COMMIT, CANCEL nowhere, and
+    no OPTION statement.
 
 Defence in depth, so a grammar gap can't be recorded as applied:
   * before each step a _migrationPending:<step> row is committed; the step's own transaction ends
     with its _migration row (data scripts) and the deletion of that pending row;
-  * the number of results must equal the number of statements. If the step's transaction failed
-    cleanly (all statements answered, one failed), it was rolled back and the pending row is
-    removed. Anything else (fewer results, no answer) means a partial commit is possible: the
-    pending row stays, the runner exits 3, and every later run refuses to start until an operator
-    has checked the data and deleted the row (infra/k8s/surrealdb/README.md, "If it fails").
+  * a step counts as done only if every statement answered OK and the result count matches. It
+    counts as rolled back only if the server refused its COMMIT (verified, not assumed): then the
+    pending row is removed and the runner exits 1. Anything else (fewer results, a COMMIT that
+    succeeded alongside a failure, no answer) means a partial commit is possible: the pending row
+    stays, the runner exits 3, and every later run refuses to start until an operator has checked
+    the data and deleted the row (infra/k8s/surrealdb/README.md, "If it fails").
 
 Fencing (overlapping runners): each run first takes a token from the database
 (_migrationRun:lock, incremented in a transaction), and every mutating transaction checks that
@@ -56,9 +59,9 @@ parameters bound, never templated.
 Environment: SURREAL_ENDPOINT (default http://surrealdb:8000), SURREAL_NAMESPACE,
 SURREAL_DATABASE, SURREAL_USER, SURREAL_PASS, MIGRATE_WAIT_SECONDS (default 600),
 MIGRATE_PENDING_WAIT_SECONDS (default 120), MIGRATE_EXPECT_USERS, MIGRATE_EXPECT_SERVICES.
-Exit status: 0 done; 1 failed, nothing from the
-failed step kept; 2 bad bundle, nothing run; 3 partial commit possible or blocked by one: manual
-recovery needed. The password and tokens are never printed.
+Exit status: 0 done; 1 failed: a check failed (nothing changed) or a step's transaction was
+confirmed aborted by the server; 2 bad bundle, nothing run; 3 partial commit possible or blocked
+by one: manual recovery needed. The password and tokens are never printed.
 """
 
 import argparse
@@ -79,6 +82,13 @@ TOP_LEVEL = {SCHEMA, CLERK, DPA_SYNC}
 DDL_FILES = {SCHEMA, CLERK}
 DATA_NAME = re.compile(r"^\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.surql$")
 NEVER = {"BEGIN", "COMMIT", "CANCEL"}
+# Data scripts and dpa-sync.surql (see the header): what the seeds and the sync need, nothing more.
+ALLOWED_STATEMENTS = {"CREATE", "UPDATE", "UPSERT", "DELETE", "LET", "IF", "FOR", "THROW", "SELECT"}
+REFUSED_WORDS = {
+    "RETURN", "BREAK", "CONTINUE", "BEGIN", "COMMIT", "CANCEL", "OPTION", "SLEEP", "USE",
+    "DEFINE", "REMOVE", "ALTER", "INFO", "KILL", "LIVE",
+    "THEN", "END",  # IF … THEN … END: only brace blocks, which the scanner can classify
+}
 RESERVED_PARAMS = {"migration_id", "migration_checksum", "migration_token", "migration_bundle", "migration_step", "migration_current"}
 SUMMARY_PREFIX = "MIGRATION SUMMARY "
 
@@ -100,29 +110,44 @@ def log(message):
 
 
 def scan(text, mode="data"):
-    """Counts the top-level statements of SurrealQL text and checks the restricted grammar.
+    """Counts the top-level statements of SurrealQL text and checks the grammar (see the header).
 
-    mode "data": no RETURN token anywhere. mode "ddl": every top-level statement starts with
-    DEFINE or REMOVE, and RETURN only inside a DEFINE. Both: no BEGIN/COMMIT/CANCEL token, no
-    OPTION statement. "runner": counting only (the runner's own SQL). Tracks strings ('', "",
-    backtick and angle-bracket ids), comments (--, //, #, /* */) and bracket depth; anything it
-    can't parse is a problem. Returns (statement_count, problems).
+    mode "data": the allow-list. mode "ddl": DEFINE/REMOVE only, RETURN/BREAK/CONTINUE only inside a
+    DEFINE. Both: no BEGIN/COMMIT/CANCEL, no OPTION statement. "runner": counting only (the runner's
+    own SQL). Tracks strings ('', "", backtick and angle-bracket ids), comments (--, //, #, /* */)
+    and brackets; in data mode it also tells blocks (after IF, ELSE, FOR) from object or
+    expression braces. Anything it can't parse is a problem. Returns (statement_count, problems).
     """
     problems = []
     count = 0
     tokens_in_statement = 0
     top_keyword = None
-    stack = [True]  # per depth: is the next token a statement start?
+    # One frame per open bracket: [kind, statement_start, block_pending]. kind "top"/"block" hold
+    # statements; "value" (object, expression, parentheses, array) doesn't.
+    frames = [["top", True, False]]
     i, n, line = 0, len(text), 1
+
+    def problem(message):
+        problems.append(f"line {line}: {message}")
 
     def token(word=None):
         nonlocal tokens_in_statement, top_keyword
-        if len(stack) == 1 and tokens_in_statement == 0:
+        frame = frames[-1]
+        if len(frames) == 1 and tokens_in_statement == 0:
             top_keyword = word
             if mode == "ddl" and word not in ("DEFINE", "REMOVE"):
-                problems.append(f"line {line}: {word or 'this'} statement (only DEFINE/REMOVE here)")
+                problem(f"{word or 'this'} statement (only DEFINE/REMOVE here)")
+        if mode == "data" and frame[0] in ("top", "block") and frame[1]:
+            if word is None:
+                problem("a statement that doesn't start with a keyword (not allowed in data scripts)")
+            elif word not in ALLOWED_STATEMENTS:
+                problem(f"{word} statement (data scripts allow only {', '.join(sorted(ALLOWED_STATEMENTS))})")
+            if word in ("IF", "FOR"):
+                frame[2] = True  # the next brace at this level is its block
+        if word == "ELSE":
+            frame[2] = True
         tokens_in_statement += 1
-        stack[-1] = False
+        frame[1] = False
 
     while i < n:
         c = text[i]
@@ -137,7 +162,7 @@ def scan(text, mode="data"):
         elif text.startswith("/*", i):
             end = text.find("*/", i + 2)
             if end < 0:
-                problems.append(f"line {line}: unterminated /* comment")
+                problem("unterminated /* comment")
                 break
             line += text.count("\n", i, end)
             i = end + 2
@@ -147,52 +172,64 @@ def scan(text, mode="data"):
             while j < n and text[j] != close:
                 j += 2 if text[j] == "\\" and c != "⟨" else 1
             if j >= n:
-                problems.append(f"line {line}: unterminated {c}")
+                problem(f"unterminated {c}")
                 break
             line += text.count("\n", i, j)
             token()
             i = j + 1
         elif c in "({[":
-            token()
-            stack.append(c != "[")
+            frame = frames[-1]
+            if mode == "data":
+                is_block = c == "{" and frame[2]
+                if c == "{":
+                    frame[2] = False  # only a brace consumes the IF/ELSE/FOR block flag
+                token()
+                frames.append(["block" if is_block else "value", is_block, False])
+            else:
+                token()
+                frames.append(["block", c != "[", False])
             i += 1
         elif c in ")}]":
-            if len(stack) == 1:
-                problems.append(f"line {line}: unbalanced {c}")
+            if len(frames) == 1:
+                problem(f"unbalanced {c}")
                 break
-            stack.pop()
-            stack[-1] = False
+            frames.pop()
+            frames[-1][1] = False
             i += 1
         elif c == ";":
-            if len(stack) == 1:
+            frame = frames[-1]
+            if mode == "data" and frame[0] == "value":
+                problem("`;` inside a value: a block the scanner can't classify (use IF/FOR blocks)")
+            if len(frames) == 1:
                 if tokens_in_statement:
                     count += 1
                 tokens_in_statement = 0
                 top_keyword = None
-            stack[-1] = True
+            frame[1] = True
+            frame[2] = False
             i += 1
         elif c.isalpha() or c == "_":
             j = i
             while j < n and (text[j].isalnum() or text[j] == "_"):
                 j += 1
             word = text[i:j].upper()
-            at_start = stack[-1]
+            at_start = frames[-1][1]
             token(word)
-            if mode != "runner":
+            if mode == "data":
+                if word in REFUSED_WORDS:
+                    problem(f"{word} (not allowed anywhere in data scripts)")
+            elif mode == "ddl":
                 if word in NEVER:
-                    problems.append(f"line {line}: {word} (the runner owns transactions)")
+                    problem(f"{word} (the runner owns transactions)")
                 elif word == "OPTION" and at_start:
-                    problems.append(f"line {line}: OPTION statement")
-                elif word == "RETURN" and (mode == "data" or top_keyword != "DEFINE"):
-                    problems.append(
-                        f"line {line}: RETURN (ends a 3.2.4 transaction early; "
-                        + ("not allowed in data scripts at all)" if mode == "data" else "only inside a DEFINE)")
-                    )
+                    problem("OPTION statement")
+                elif word in ("RETURN", "BREAK", "CONTINUE") and top_keyword != "DEFINE":
+                    problem(f"{word} (only inside a DEFINE here)")
             i = j
         else:
             token()
             i += 1
-    if len(stack) > 1 and not problems:
+    if len(frames) > 1 and not problems:
         problems.append("unbalanced brackets at end of file")
     if tokens_in_statement:
         count += 1
@@ -354,18 +391,27 @@ class Runner:
         except Exception as err:  # no answer: we can't know what committed
             raise PartialCommitError(f"{name}: no complete answer ({err})")
         statuses_ok = all(r.get("status") == "OK" for r in results)
-        if len(results) == expected and not statuses_ok:
-            # Every statement answered and one failed: the transaction was rolled back.
-            run(self.client, f"{name} (cleanup)",
-                "DELETE type::record('_migrationPending', $migration_step) WHERE token = $migration_token",
-                variables)
-            raise MigrationError(f"{name}: {root_cause(results)}")
-        if len(results) != expected or not statuses_ok:
-            raise PartialCommitError(
-                f"{name}: {len(results)} results for {expected} statements, so something ended the "
-                "transaction early: part of this step may have been committed without its marker"
-            )
-
+        if len(results) == expected and statuses_ok:
+            return  # every statement ran, the markers included, and the commit succeeded
+        commit = results[-1] if len(results) == expected else None
+        if commit is not None and commit.get("status") != "OK":
+            # The server refused the COMMIT (aborted transaction or write conflict): nothing from
+            # the step was kept. Confirm against the pending row, which the step would have
+            # deleted, before clearing it.
+            cleared = run(self.client, f"{name} (cleanup)",
+                "DELETE type::record('_migrationPending', $migration_step) WHERE token = $migration_token RETURN BEFORE",
+                variables)[0]["result"]
+            if len(cleared) == 1:
+                raise MigrationError(
+                    f"{name}: {root_cause(results)} (the server refused the step's COMMIT, so the "
+                    "step was rolled back; its pending row is cleared)"
+                )
+        raise PartialCommitError(
+            f"{name}: {len(results)} results for {expected} statements, COMMIT "
+            + ("not reached" if commit is None else f"answered {commit.get('status')}")
+            + ": the rollback can't be confirmed, so part of this step may have been committed "
+            "without its marker"
+        )
 
 def migrate(client, top, data, params, deadline):
     variables = {k: v for k, v in params.items() if v is not None}
@@ -533,8 +579,9 @@ def main():
         return 3
     except MigrationError as err:
         log(f"ERROR: {err}")
-        log("Nothing from the failed step was kept (it was rolled back); earlier steps of this run "
-            "stay applied. See infra/k8s/surrealdb/README.md, 'If it fails'.")
+        log("A failed check changes nothing; a failed step is reported as rolled back only when the "
+            "server refused its COMMIT. Earlier steps of this run stay applied. See "
+            "infra/k8s/surrealdb/README.md, 'If it fails'.")
         return 1
     log(SUMMARY_PREFIX + json.dumps(summary))
     return 0

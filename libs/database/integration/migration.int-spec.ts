@@ -475,6 +475,18 @@ describe('P1: scripts can never commit partly', () => {
     ['lower-case commit', 'commit;', 'COMMIT'],
     ['CANCEL', 'CANCEL TRANSACTION;', 'CANCEL'],
     ['OPTION IMPORT', 'OPTION IMPORT;', 'OPTION'],
+    // Codex round 3: BREAK/CONTINUE in an IF block skip the rest of the block, and the
+    // transaction (with the marker after it) still commits.
+    [
+      'Codex: BREAK in an IF block',
+      `IF true { CREATE tag:in_before SET name = 'in_before', category = 'theme'; BREAK; CREATE tag:in_after SET name = 'in_after', category = 'theme'; };`,
+      'BREAK',
+    ],
+    [
+      'Codex: CONTINUE in an IF block',
+      `IF true { CREATE tag:in_before SET name = 'in_before', category = 'theme'; CONTINUE; CREATE tag:in_after SET name = 'in_after', category = 'theme'; };`,
+      'CONTINUE',
+    ],
   ] as [string, string, string][])(
     'refuses %s before anything runs: no writes, no marker',
     async (_, middle, word) => {
@@ -486,13 +498,15 @@ describe('P1: scripts can never commit partly', () => {
       expect(result.exitCode).toBe(2);
       expect(result.output).toContain(word);
       expect(result.output).toContain('nothing was run');
-      expect(await tagIds(t, 'before', 'after')).toEqual([]);
+      expect(
+        await tagIds(t, 'before', 'after', 'in_before', 'in_after'),
+      ).toEqual([]);
       expect(await appliedIds(t)).toEqual(SEEDS);
       expect(await pendingSteps(t)).toEqual([]);
     },
   );
 
-  it('allows the RETURN word in strings, comments and ids, and BREAK (tested harmless)', async () => {
+  it('allows the refused words in strings, comments and ids', async () => {
     const text = [
       `CREATE tag:s SET name = 'RETURN 1; COMMIT;', category = 'theme';`,
       '-- RETURN 1;',
@@ -500,7 +514,7 @@ describe('P1: scripts can never commit partly', () => {
       '# COMMIT;',
       '/* BEGIN; RETURN 1; */',
       `CREATE tag:⟨RETURN; x⟩ SET name = "it\\"s; RETURN", category = 'theme';`,
-      'FOR $i IN [1, 2] { IF $i = 2 { BREAK }; };',
+      'FOR $i IN [1, 2] { IF $i = 2 { CREATE tag:in_loop SET name = "BREAK", category = "theme"; }; };',
       tag('last'),
     ].join('\n');
     expect(
@@ -578,6 +592,196 @@ describe('P1: scripts can never commit partly', () => {
   });
 });
 
+// ---------------------------------------------------------------- the allow-list, proved on 3.2.4
+
+/**
+ * Round 3: the data-script grammar is an allow-list (migrate.py ALLOWED_STATEMENTS and
+ * REFUSED_WORDS). Every allowed statement form runs to completion in each context (top level,
+ * IF block, FOR block), with the statements after it and the _migration marker reached; every
+ * refused word is refused before anything runs; and for the control-flow words, running the same
+ * script directly (no runner) shows why: statements are skipped, and for BREAK/CONTINUE the
+ * marker after the block still commits.
+ */
+describe('allow-list: the guard matches 3.2.4', () => {
+  let t: TestDatabase;
+  let seq = 100;
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+  });
+  afterAll(() => t?.close());
+
+  const contexts: Record<string, (body: string) => string> = {
+    top: (body) => body,
+    'IF block': (body) => `IF true {\n${body}\n};`,
+    'FOR block': (body) => `FOR $i IN [1] {\n${body}\n};`,
+  };
+  const wrap = (ctx: string, k: string, stmt: string) =>
+    contexts[ctx](
+      `CREATE tag:in_before_${k} SET name = 'b', category = 'theme';\n${stmt};\nCREATE tag:in_after_${k} SET name = 'a', category = 'theme';`,
+    );
+  const exists = async (id: string) =>
+    (await rows(await t.migrator(), `SELECT VALUE id FROM tag:${id}`))
+      .length === 1;
+
+  // stmt(k) and what must hold afterwards (besides in_after and the marker).
+  const allowed: Record<
+    string,
+    [(k: string) => string, (k: string) => Promise<boolean>]
+  > = {
+    CREATE: [
+      (k) => `CREATE tag:e_${k} SET name = 'e', category = 'theme'`,
+      (k) => exists(`e_${k}`),
+    ],
+    UPDATE: [
+      (k) => `UPDATE tag:in_before_${k} SET name = 'updated'`,
+      async (k) =>
+        (
+          await rows<string>(
+            await t.migrator(),
+            `SELECT VALUE name FROM tag:in_before_${k}`,
+          )
+        )[0] === 'updated',
+    ],
+    UPSERT: [
+      (k) => `UPSERT tag:e_${k} SET name = 'e', category = 'theme'`,
+      (k) => exists(`e_${k}`),
+    ],
+    DELETE: [
+      (k) => `DELETE tag:in_before_${k}`,
+      async (k) => !(await exists(`in_before_${k}`)),
+    ],
+    LET: [() => 'LET $v = 1', async () => true],
+    IF: [
+      (k) =>
+        `IF true { CREATE tag:e_${k} SET name = 'e', category = 'theme'; }`,
+      (k) => exists(`e_${k}`),
+    ],
+    FOR: [
+      (k) =>
+        `FOR $x IN [1, 2] { UPSERT tag:e_${k} SET name = 'e', category = 'theme'; }`,
+      (k) => exists(`e_${k}`),
+    ],
+    SELECT: [() => 'SELECT * FROM tag', async () => true],
+  };
+  const allowedCases = Object.keys(allowed).flatMap((form) =>
+    Object.keys(contexts).map((ctx) => [form, ctx]),
+  );
+
+  it.each(allowedCases)(
+    'allowed: %s in %s runs to completion, marker last',
+    async (form, ctx) => {
+      const k = `${form}_${ctx}`.toLowerCase().replace(/\W+/g, '_');
+      const script = `${String(++seq).padStart(4, '0')}-allowed`;
+      const [stmt, holds] = allowed[form];
+      const run_ = await t.runMigration(t.params(), {
+        bundleDir: await bundleWith({
+          [`data/${script}.surql`]: `${wrap(ctx, k, stmt(k))}\n`,
+        }),
+      });
+      expect(run_.exitCode).toBe(0);
+      expect(await exists(`in_after_${k}`)).toBe(true);
+      expect(await holds(k)).toBe(true);
+      expect(await appliedIds(t)).toContain(script);
+    },
+  );
+
+  it.each(Object.keys(contexts))(
+    'allowed: THROW in %s aborts the step, confirmed by the server',
+    async (ctx) => {
+      const k = `throw_${ctx}`.replace(/\W+/g, '_');
+      const script = `${String(++seq).padStart(4, '0')}-throws`;
+      const result = await t.runMigration(t.params(), {
+        bundleDir: await bundleWith({
+          [`data/${script}.surql`]: `${wrap(ctx, k, "THROW 'stop'")}\n`,
+        }),
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toContain("the server refused the step's COMMIT");
+      expect(await exists(`in_before_${k}`)).toBe(false);
+      expect(await appliedIds(t)).not.toContain(script);
+      expect(await pendingSteps(t)).toEqual([]);
+    },
+  );
+
+  const refused: Record<string, string> = {
+    RETURN: 'RETURN 1',
+    BREAK: 'BREAK',
+    CONTINUE: 'CONTINUE',
+    BEGIN: 'BEGIN TRANSACTION',
+    COMMIT: 'COMMIT TRANSACTION',
+    CANCEL: 'CANCEL TRANSACTION',
+    OPTION: 'OPTION IMPORT',
+    SLEEP: 'SLEEP 1ms',
+    USE: 'USE NS elsewhere',
+    DEFINE: 'DEFINE TABLE scratch_def SCHEMALESS',
+    REMOVE: 'REMOVE TABLE IF EXISTS scratch_def',
+    ALTER: "ALTER TABLE tag COMMENT 'x'",
+    INFO: 'INFO FOR DB',
+    KILL: "KILL u'0189d6e3-8eac-703a-9a48-dd6c8bb0d0b6'",
+    LIVE: 'LIVE SELECT * FROM tag',
+    THEN: "IF true THEN CREATE tag:t SET name = 't', category = 'theme' END",
+    INSERT: "INSERT INTO tag { id: tag:ins, name: 'i', category: 'theme' }",
+    RELATE: 'RELATE tag:a->rel->tag:b',
+  };
+  const refusedCases = Object.keys(refused).flatMap((word) =>
+    Object.keys(contexts).map((ctx) => [word, ctx]),
+  );
+
+  it.each(refusedCases)(
+    'refused: %s in %s, before anything runs',
+    async (word, ctx) => {
+      const k = `ref_${word}_${ctx}`.toLowerCase().replace(/\W+/g, '_');
+      const script = `${String(++seq).padStart(4, '0')}-refused`;
+      const result = await t.runMigration(t.params(), {
+        bundleDir: await bundleWith({
+          [`data/${script}.surql`]: `${wrap(ctx, k, refused[word])}\n`,
+        }),
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.output).toContain(word);
+      expect(await exists(`in_before_${k}`)).toBe(false);
+      expect(await appliedIds(t)).not.toContain(script);
+    },
+  );
+
+  // Why: the same script run directly in a transaction with a marker after it, as the runner
+  // would without the grammar.
+  it.each([
+    ['RETURN', 'top', 'skips the rest and the marker'],
+    ['RETURN', 'IF block', 'skips the rest and the marker'],
+    ['RETURN', 'FOR block', 'skips the rest and the marker'],
+    [
+      'BREAK',
+      'IF block',
+      'skips the rest of the block, but the marker commits',
+    ],
+    [
+      'BREAK',
+      'FOR block',
+      'skips the rest of the block, but the marker commits',
+    ],
+    [
+      'CONTINUE',
+      'IF block',
+      'skips the rest of the block, but the marker commits',
+    ],
+    [
+      'CONTINUE',
+      'FOR block',
+      'skips the rest of the block, but the marker commits',
+    ],
+  ])('reality on 3.2.4: %s in %s %s', async (word, ctx, what) => {
+    const k = `real_${word}_${ctx}`.toLowerCase().replace(/\W+/g, '_');
+    await outcome(
+      await t.migrator(),
+      `BEGIN TRANSACTION;\n${wrap(ctx, k, refused[word])}\nCREATE tag:mark_${k} SET name = 'm', category = 'theme';\nCOMMIT TRANSACTION;`,
+    );
+    expect(await exists(`in_before_${k}`)).toBe(true); // committed
+    expect(await exists(`in_after_${k}`)).toBe(false); // silently skipped
+    expect(await exists(`mark_${k}`)).toBe(what.includes('marker commits'));
+  });
+});
+
 // ---------------------------------------------------------------- data scripts
 
 describe('data scripts on an already-migrated database', () => {
@@ -611,7 +815,7 @@ describe('data scripts on an already-migrated database', () => {
     const result = await t.runMigration(t.params(), { bundleDir: failing });
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('0004-fails: An error occurred: boom');
-    expect(result.output).toContain('it was rolled back');
+    expect(result.output).toContain("the server refused the step's COMMIT");
     expect(await appliedIds(t)).toEqual([...SEEDS, '0003-add-tag']);
     expect(await tagIds(t, 'partial', 'after')).toEqual([]);
     expect(await pendingSteps(t)).toEqual([]);

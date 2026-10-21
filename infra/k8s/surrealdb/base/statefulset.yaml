@@ -108,12 +108,14 @@ spec:
           envFrom:
             - configMapRef:
                 name: surrealdb-settings
+          # A new pod is un-Ready until one check passes. Once Ready, three failures in a row
+          # (about 30 s) withdraw it, so one transient error doesn't drop the database.
           readinessProbe:
             exec:
               command: [python3, /check/identity_check.py]
-            periodSeconds: 20
-            timeoutSeconds: 15
-            failureThreshold: 1
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 3
           resources:
             requests:
               cpu: 20m

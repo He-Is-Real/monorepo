@@ -13,7 +13,7 @@ automated tests. It also records what had to change in the draft and what is sti
 | `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
 | `libs/database/schema/data/000N-*.surql`    | Run-once seed 0001 (draft DPA v1); 0002 dropped (D44)           |
 | `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
-| `libs/database/integration/*.int-spec.ts`   | 264 integration tests against a real SurrealDB                  |
+| `libs/database/integration/*.int-spec.ts`   | 362 integration tests against a real SurrealDB                  |
 | `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
 
 ```bash
@@ -310,10 +310,12 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
 - **Events run with elevated privileges.** An event fired by a person's or service's write can
   write any table. Keep events small and deliberate.
 - **A `RETURN` inside a transaction commits it early** and skips the statements after it
-  (3.2.4), wherever it hides: `[RETURN 1]`, `1 + RETURN 1`, `IF … THEN RETURN … END`, blocks. In
-  a function, event, field or param body it can't (tested). So data scripts may not contain
-  `RETURN` at all, schema files are DDL only with `RETURN` only inside a `DEFINE`, and every step
-  ends with its marker and is count-checked. **A bare record path (`table:id.field`) in an `IF`
+  (3.2.4), wherever it hides: `[RETURN 1]`, `1 + RETURN 1`, `IF … THEN RETURN … END`, blocks.
+  **`BREAK`/`CONTINUE` in an `IF` or `FOR` block skip the rest of that block** while the
+  transaction goes on and commits. In a function, event, field or param body neither can affect
+  the caller (tested). So data scripts follow an allow-list of statements and may not contain
+  these words at all, schema files are DDL only, and every step ends with its marker, is
+  count-checked, and counts as rolled back only when the server refused its `COMMIT`. **A bare record path (`table:id.field`) in an `IF`
   fails** ("Specify a database to use"); `LET` it first. **`SLEEP` needs root.** **`FOR $x IN (SELECT …)` fails** ("Cannot
   execute statement using value"); `LET` the rows, then loop. **`REMOVE USER` doesn't end that
   user's open sessions**: the cutover is a restart (infra/k8s/surrealdb/README.md). **A startup

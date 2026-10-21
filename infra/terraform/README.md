@@ -97,7 +97,9 @@ keep that from becoming write access:
    (`modules/cluster/tests/planner-dry-run-only.sh`).
 2. **Google:** the token can only be exchanged for `tf-cluster-planner` through
    `attribute.cluster_plan_gate` (`modules/bootstrap/ci_identity.tf`): environment
-   `cluster-plan` and this repository. (It also names the workflow file and the event, but on a
+   `cluster-plan` and this repository (`modules/bootstrap/cluster_plan_gate.cel.tftpl`, tested with
+   GitHub claim fixtures in `modules/bootstrap/tests/`, run by `ci.yml`). (It also names the
+   workflow file and the event, but on a
    pull request the workflow comes from the PR's own branch, so those are no boundary: anyone who
    can push a branch can edit the job. The environment and layer 1 are.)
 3. **GitHub:** the `cluster-plan` environment requires a reviewer (Joel) for every run, including

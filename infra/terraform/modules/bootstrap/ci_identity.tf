@@ -50,14 +50,12 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     # the PR branch, so they are no boundary; the Kubernetes admission policy is (the identity
     # can only send dry runs: modules/cluster/planner_dry_run_policy.yaml.tftpl). Forks get no
     # OIDC token. has(): other workflows' tokens have no environment claim.
-    "attribute.cluster_plan_gate" = join("", [
-      "(has(assertion.environment) && assertion.environment == 'cluster-plan'",
-      " && assertion.repository == '${var.github_repository}'",
-      " && assertion.job_workflow_ref.startsWith('${var.github_repository}/.github/workflows/terraform-plan.yml@')",
-      " && (assertion.event_name == 'pull_request'",
-      "     || (assertion.event_name == 'push' && assertion.ref == 'refs/heads/main')))",
-      " ? 'allowed' : 'denied'",
-    ])
+    # In cluster_plan_gate.cel.tftpl (one source: tests/cluster-plan-gate.test.mjs evaluates it
+    # with claim fixtures). workflow_ref, not job_workflow_ref: the latter is documented for
+    # reusable workflows (it has been present for plain jobs too: deploy_gate below uses it).
+    "attribute.cluster_plan_gate" = trimspace(templatefile("${path.module}/cluster_plan_gate.cel.tftpl", {
+      repository = var.github_repository
+    }))
     "attribute.deploy_gate" = join("", [
       "(assertion.ref == 'refs/heads/main' && assertion.event_name == 'workflow_dispatch'",
       " && assertion.job_workflow_ref == '${var.github_repository}/.github/workflows/terraform-apply.yml@refs/heads/main')",

@@ -145,19 +145,34 @@ What a run does, in order (validate first, then change):
 6. **DPA sync:** draft hashes follow their files, one step.
 
 Each **step** is: commit a `_migrationPending:<step>` row, then one transaction that runs the
-step and ends with its `_migration` row (data scripts) and the deletion of the pending row. If
-that transaction fails cleanly it is rolled back and the pending row removed. If its result
-count doesn't match its statements, or no answer arrives, part of it may have committed: the
-pending row stays and every later run refuses to start (exit 3) until someone has checked.
+step and ends with its `_migration` row (data scripts) and the deletion of the pending row. A
+rollback is never assumed: only when the server refuses the step's `COMMIT` (an aborted
+transaction or a write conflict), and the pending row is confirmed still there, does the runner
+report a rollback and clear the row (exit 1). Anything else (a result count that doesn't match
+the statements, no answer, a `COMMIT` that succeeded alongside a failure) means part of it may
+have committed: the pending row stays and every later run refuses to start (exit 3) until
+someone has checked.
 
-**Grammar** (refused before anything runs, exit 2). On 3.2.4 a `RETURN` inside a transaction ends
-it early wherever it hides (`[RETURN 1]`, `1 + RETURN 1`, `IF … THEN RETURN … END`, blocks), so:
-data scripts and `dpa-sync.surql` may not contain the `RETURN` token at all (not even
-`RETURN NONE`); `schema.surql` and `access-clerk.surql` are DDL only (`DEFINE`/`REMOVE`), with
-`RETURN` only inside a `DEFINE` (tested: function, event, field and param bodies can't end the
-caller's transaction); `BEGIN`/`COMMIT`/`CANCEL` nowhere, and no `OPTION` statement. `BREAK`
-and `CONTINUE` are fine (tested). Also avoid `FOR $x IN (SELECT …)` and bare record paths like
-`table:id.field` inside `IF` (both fail on 3.2.4; `LET` the value first), and `SLEEP` (root only).
+**Grammar** (refused before anything runs, exit 2). It is an **allow-list**, because 3.2.4 has
+several ways to skip statements silently: a `RETURN` anywhere in a transaction ends it early
+(`[RETURN 1]`, `1 + RETURN 1`, `IF … THEN RETURN … END`, blocks), and `BREAK`/`CONTINUE` in an
+`IF` or `FOR` block skip the rest of the block while the transaction, and the marker after it,
+still commit. So, in data scripts and `dpa-sync.surql`:
+
+- every statement, at the top level and inside `IF` / `ELSE` / `FOR` blocks, starts with one of
+  `CREATE`, `UPDATE`, `UPSERT`, `DELETE`, `LET`, `IF`, `FOR`, `THROW`, `SELECT` (what the seeds
+  and the sync need; add one only with a test);
+- these words may not appear anywhere outside strings and comments: `RETURN`, `BREAK`,
+  `CONTINUE`, `BEGIN`, `COMMIT`, `CANCEL`, `OPTION`, `SLEEP`, `USE`, `DEFINE`, `REMOVE`,
+  `ALTER`, `INFO`, `KILL`, `LIVE`, and `THEN`/`END` (use brace blocks);
+- a `;` anywhere else (a block the runner can't classify) is refused.
+
+Each allowed form and each refused word is tested on 3.2.4 at the top level, in an `IF` and in a
+`FOR` (`libs/database/integration`, "allow-list"). `schema.surql` and `access-clerk.surql` are DDL
+only (`DEFINE`/`REMOVE`), with `RETURN`/`BREAK`/`CONTINUE` only inside a `DEFINE` (tested:
+function, event, field and param bodies can't end or skip the caller's transaction), and no
+`BEGIN`/`COMMIT`/`CANCEL` or `OPTION` statement. Also avoid `FOR $x IN (SELECT …)` and bare record
+paths like `table:id.field` inside `IF` (both fail on 3.2.4; `LET` the value first).
 
 **Order: migrate, then deploy.** The schema must accept both the running and the new service
 code; a breaking change is split over two releases.
@@ -184,9 +199,10 @@ code; a breaking change is split over two releases.
 - **Exit 2 (bundle) or a failed check** (`gave up waiting…`, `changed after it was applied`,
   `passed as null`, `does not: restore the file`, `is published, but…`, `superseded`):
   **nothing was changed**. Fix the cause and apply again.
-- **Exit 1, `schema:` failed:** rolled back; the previous schema and all data are as before.
-- **Exit 1, a data script (`NNNN-…:`) or `dpa-sync:` failed:** that step was rolled back, but the
-  **new schema is in place**, and so is every data script before it. Recover **forward**: fix the
+- **Exit 1, `schema:` failed** (the message says the server refused the step's `COMMIT`): rolled
+  back, confirmed; the previous schema and all data are as before.
+- **Exit 1, a data script (`NNNN-…:`) or `dpa-sync:` failed** (same confirmation): that step was
+  rolled back, but the **new schema is in place**, and so is every data script before it. Recover **forward**: fix the
   script in a PR (it never ran, so editing it is fine; never edit one that has run anywhere, add
   a new one) and apply. Running services must cope with the new schema, which is why a breaking
   change is split over two releases.
@@ -199,9 +215,11 @@ code; a breaking change is split over two releases.
   SELECT record::id(id), appliedAt FROM _migration ORDER BY id;
   ```
 
-  Compare the step's script with the data: undo or complete what it wrote (a new data script is
-  the clean way to complete it), then `DELETE _migrationPending:⟨<step>⟩;` and apply again. A row
-  can also be left by a run that was killed mid-step (e.g. a Spot reclaim); check the same way.
+  Don't assume the step rolled back: check. Compare the step's script with the data (did any of
+  its writes land? is its `_migration` row there?). Undo or complete what it wrote (a new data
+  script is the clean way to complete it), and only then `DELETE _migrationPending:⟨<step>⟩;` and
+  apply again. A row can also be left by a run that was killed mid-step (e.g. a Spot reclaim);
+  check the same way.
 
 See what ran either way: the log's `applied` lines, or the `_migration` query above. A fixed
 bundle has a new hash, so a new Job runs. To re-run the same bundle, apply with
