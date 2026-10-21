@@ -5,9 +5,12 @@
 # infra/terraform/README.md for the layering.
 
 locals {
-  planner_manifests = var.cluster_planner_email == "" ? [] : yamldecode(templatefile(
-    "${path.module}/planner_dry_run_policy.yaml.tftpl", { planner = var.cluster_planner_email }
-  ))
+  # A filtered for (not `cond ? [] : …`): the decoded tuple and [] have different types.
+  planner_manifests = [
+    for m in yamldecode(templatefile(
+      "${path.module}/planner_dry_run_policy.yaml.tftpl", { planner = var.cluster_planner_email }
+    )) : m if var.cluster_planner_email != ""
+  ]
 }
 
 # The admission policy first: the Role must never exist without it.

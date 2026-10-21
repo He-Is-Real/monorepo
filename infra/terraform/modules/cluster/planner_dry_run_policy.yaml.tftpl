@@ -7,8 +7,8 @@
 #    need (Kubernetes authorises a dry run like the real request). No Secrets, no list, no
 #    delete, nothing cluster-scoped. Its Google identity has no Kubernetes IAM role beyond
 #    reaching the cluster (modules/bootstrap/ci_identity.tf), so this Role is all it can do.
-# 2. A ValidatingAdmissionPolicy that rejects every write from that user, in every namespace and
-#    for every kind, unless it is a dry run. So the Role's create/patch can only ever be dry
+# 2. A ValidatingAdmissionPolicy that rejects every write from that user to the Role's kinds,
+#    in every namespace, unless it is a dry run (every other write is already refused by RBAC). So the Role's create/patch can only ever be dry
 #    runs: a planner token, even from an edited workflow, can't create a Job, change the
 #    StatefulSet or anything else. (Reads aren't admission-checked; the Role limits them.)
 #    Kubernetes >= 1.30 (GA); the cluster is on the Regular channel.
@@ -53,11 +53,29 @@
   spec:
     failurePolicy: Fail
     matchConstraints:
+      # Exactly the kinds the Role above lets the planner write (anything else is already refused
+      # by RBAC). Not '*/*': GKE Autopilot rejects admission rules on every resource.
       resourceRules:
-        - apiGroups: ['*']
+        - apiGroups: ['']
           apiVersions: ['*']
           operations: [CREATE, UPDATE, DELETE, CONNECT]
-          resources: ['*/*'] # every resource and subresource
+          resources: [configmaps, serviceaccounts, services, resourcequotas]
+        - apiGroups: [apps]
+          apiVersions: ['*']
+          operations: [CREATE, UPDATE, DELETE, CONNECT]
+          resources: [statefulsets]
+        - apiGroups: [batch]
+          apiVersions: ['*']
+          operations: [CREATE, UPDATE, DELETE, CONNECT]
+          resources: [jobs, cronjobs]
+        - apiGroups: [networking.k8s.io]
+          apiVersions: ['*']
+          operations: [CREATE, UPDATE, DELETE, CONNECT]
+          resources: [networkpolicies]
+        - apiGroups: [external-secrets.io]
+          apiVersions: ['*']
+          operations: [CREATE, UPDATE, DELETE, CONNECT]
+          resources: [externalsecrets, secretstores]
     matchConditions:
       - name: is-cluster-planner
         expression: "request.userInfo.username == '${planner}'"
