@@ -42,6 +42,8 @@ resource "helm_release" "external_secrets" {
     }
     nodeSelector = {
       "cloud.google.com/gke-spot" = "true"
+      # Same zone as SurrealDB, to share one spot node (see the gke-dev overlay).
+      "topology.kubernetes.io/zone" = "europe-west2-c"
     }
     resources = {
       requests = { cpu = "50m", memory = "128Mi" }

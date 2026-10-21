@@ -169,6 +169,13 @@ take the state lock.
 
 - **Budgets need a quota project.** Only the budget resource uses the `google.billing` provider
   alias; using it everywhere fails on a fresh project whose APIs aren't enabled yet.
+- **The Cloud Quotas API needs a quota project with user credentials.** Applying `bootstrap`
+  locally (the SSD quota request, `modules/bootstrap/quota.tf`) fails with 403 unless you
+  `export GOOGLE_BILLING_PROJECT=heisreal-dev USER_PROJECT_OVERRIDE=true` first.
+- **Autopilot nodes have 100 GB SSD boot disks.** With GKE's system node, a second spot node
+  exceeds the default 300 GB regional `SSD_TOTAL_GB` quota. Our request for 600 GB was denied on
+  the free trial, so our spot Pods share one node in europe-west2-c until it's granted
+  ([#35](https://github.com/He-Is-Real/monorepo/issues/35)).
 - **The org enforces domain-restricted sharing.** Only `heisreal.today` identities can be granted
   roles: no `allUsers`, no outside service accounts without an org-policy exception.
 - **New buckets let every project Viewer read objects** (default `projectViewer` bindings). Our
