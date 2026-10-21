@@ -17,9 +17,9 @@ recorded here.
 
 | Milestone                     | Status         | Notes                                                                  |
 | ----------------------------- | -------------- | ---------------------------------------------------------------------- |
-| M0 Walking skeleton           | 🟡 In progress | 0.1, 0.2, contracts, rename, 0.3, 0.4, 0.8 done; 0.7 partly            |
+| M0 Walking skeleton           | 🟡 In progress | 0.1, 0.2, contracts, rename, 0.3, 0.4, 0.7, 0.8 done                   |
 | M1 Browse & view (public MVP) | ⚪ Not started | Goes live and replaces Squarespace                                     |
-| M2 Accounts & submission      | ⚪ Not started |                                                                        |
+| M2 Accounts & submission      | ⚪ Not started | Prerequisite: Bunny token auth (images + Stream) before 1st upload     |
 | M3 Moderation                 | ⚪ Not started |                                                                        |
 | M4 Donations                  | ⚪ Not started |                                                                        |
 | M5 Admin dashboard            | ⚪ Not started | A thin version can start after M1                                      |
@@ -29,19 +29,19 @@ recorded here.
 
 ## M0: Walking skeleton
 
-| Task                          | Status         | Where                                                                        |
-| ----------------------------- | -------------- | ---------------------------------------------------------------------------- |
-| 0.1 Repo setup                | ✅ Done        | #1                                                                           |
-| 0.2 Backend scaffold          | ✅ Done        | #1, CI fixes in #3, #10, #12                                                 |
-| API contracts + conventions   | ✅ Done        | #28: `libs/contracts`, `docs/api-conventions.md` (D23)                       |
-| Service rename (D33, D36)     | ✅ Done        | #29                                                                          |
-| 0.3 Database schema v1        | ✅ Done        | #31 (schema), #32 (D14 migration Job, D24 step 4). Applied to dev 2026-10-21 |
-| 0.8 Consent foundation (GDPR) | ✅ Done        | #41: `libs/consent` (D17–D21). Personal routes answer 401 until 0.5          |
-| 0.4 Frontend scaffold         | ✅ Done        | #40: Tailwind v4 + shadcn/ui, design tokens; `web` on Cloud Run (D4)         |
-| 0.5 Auth (Clerk)              | ⚪ To do       | Clerk app exists, dev instance only (see below)                              |
-| 0.6 Sentry + Umami            | ⏸ Deferred     | Out of the current phase (D5). GCP Cloud Logging / Error Reporting meanwhile |
-| 0.7 Terraform                 | 🟡 Partly done | GCP done. Still to add: Bunny.net. Cloudflare DNS is out of this phase (D7)  |
-| 0.9 Walking-skeleton page     | ⚪ To do       | Needs 0.3, 0.4 and 0.5. Served on Cloud Run's generated `*.run.app` URL (D7) |
+| Task                          | Status     | Where                                                                        |
+| ----------------------------- | ---------- | ---------------------------------------------------------------------------- |
+| 0.1 Repo setup                | ✅ Done    | #1                                                                           |
+| 0.2 Backend scaffold          | ✅ Done    | #1, CI fixes in #3, #10, #12                                                 |
+| API contracts + conventions   | ✅ Done    | #28: `libs/contracts`, `docs/api-conventions.md` (D23)                       |
+| Service rename (D33, D36)     | ✅ Done    | #29                                                                          |
+| 0.3 Database schema v1        | ✅ Done    | #31 (schema), #32 (D14 migration Job, D24 step 4). Applied to dev 2026-10-21 |
+| 0.8 Consent foundation (GDPR) | ✅ Done    | #41: `libs/consent` (D17–D21). Personal routes answer 401 until 0.5          |
+| 0.4 Frontend scaffold         | ✅ Done    | #40: Tailwind v4 + shadcn/ui, design tokens; `web` on Cloud Run (D4)         |
+| 0.5 Auth (Clerk)              | ⚪ To do   | Clerk app exists, dev instance only (see below)                              |
+| 0.6 Sentry + Umami            | ⏸ Deferred | Out of the current phase (D5). GCP Cloud Logging / Error Reporting meanwhile |
+| 0.7 Terraform                 | ✅ Done    | GCP + Bunny.net (#39, decision 16). Applied to dev 2026-10-21. No DNS (D7)   |
+| 0.9 Walking-skeleton page     | ⚪ To do   | Needs 0.3, 0.4 and 0.5. Served on Cloud Run's generated `*.run.app` URL (D7) |
 
 ### Decisions implemented in M0
 
@@ -51,7 +51,7 @@ These refine or replace what the plan says.
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | 1   | **One Nx + pnpm monorepo** for the site, all NestJS services, shared libs, Kubernetes manifests and Terraform.                                                                                                                                                                                                                                                                                                                                                    | "Monorepo or two repos"                               |
 | 2   | **Node 24 LTS only.** Node majors are bumped by hand, LTS releases only; Dependabot ignores them. NestJS runs on Express.                                                                                                                                                                                                                                                                                                                                         | Not specified                                         |
-| 3   | **All cloud changes go through Terraform, including proofs of concept.** There are four roots: `bootstrap`, `gcp`, `cluster`, `images`. Plans run automatically and applies are manual. Anything made by hand is adopted with `import` blocks.                                                                                                                                                                                                                    | "Terraform for reproducible environments"             |
+| 3   | **All cloud changes go through Terraform, including proofs of concept.** There are five roots: `bootstrap`, `gcp`, `cluster`, `images`, `bunny`. Plans run automatically (`bunny`: locally only) and applies are manual. Anything made by hand is adopted with `import` blocks.                                                                                                                                                                                   | "Terraform for reproducible environments"             |
 | 4   | **Secrets live only in GCP Secret Manager.** Config holds secret names, never values. Authentication is keyless everywhere (ADC, Workload Identity). External Secrets Operator supplies them on GKE, and Terraform state never holds secrets.                                                                                                                                                                                                                     | "Env vars via Secret Manager / Cloud Run config"      |
 | 5   | **SurrealDB v3.2.4, single node on RocksDB,** on GKE Autopilot Spot Pods in `europe-west2-c` (London). All our spot Pods share one zone so they fit on one node: the 300 GB regional SSD quota (100 GB boot disk per node) allows only one spot node beside GKE's system node, and the increase was denied on the free trial (#36; undo in #35). It's network-isolated to its own namespace plus the Cloud Run subnet, and the image is pinned by tag and digest. | Single node, EU/UK. Spot Pods are a dev cost choice   |
 | 6   | **Backups:** a nightly `surreal export` to a UK bucket with a create-only uploader, plus on-demand backups via `-var backup_run=<id>`. **Restore drill passed on 2026-10-05.** There are no PVC snapshots.                                                                                                                                                                                                                                                        | Export to GCS + PVC snapshots + tested restore        |
@@ -72,6 +72,7 @@ These refine or replace what the plan says.
 | D21 | **Fail-closed consent guard (D21):** every api-user/api-admin route has `@RequiresConsent` or `@NoConsentRequired(reason)`; the global guard refuses (`500`) and the app won't start otherwise, and each app's `routes.spec.ts` lists every route. Draft create, edit and upload need current Art 9 consent (`CONSENT_REQUIRED`). #41                                                                                                                             | A guard "on every write path from day one"            |
 | D42 | **Automatic cluster plan (D42):** `tf-cluster-planner` may only send dry runs (admission policy) to the overlay's kinds in `database`; usable only from the reviewer-approved `cluster-plan` environment. Live since 2026-10-21 (`CLUSTER_PLAN_ENABLED`).                                                                                                                                                                                                         | Read-only planner (#32 round 1)                       |
 | D4  | **`web` runs on Cloud Run (D4)** like the APIs: Next.js standalone server in a distroless Node 24 image (`tools/docker/next-web.Dockerfile`), built by the image workflows and selected in `images.auto.tfvars` (decision 9). Own role-less service account, no VPC access, secrets or DB (D32), scales to zero, at most 2 instances. Private in dev like decision 8 until 0.9 makes it public (`web_public`, which skips the invoker check). #40                 | Cloud Run or Firebase App Hosting                     |
+| 16  | **Bunny.net (0.7):** a fifth root, `live/dev/bunny`: Stream library (free x264, transcription and AI off), S3-compatible storage zone in London, pull zone. **Approved exception:** its state holds the provider's computed keys (no write-only option), so CI can't read `dev/bunny/` or `bunny-*` secrets nor change their IAM (conditions, checked before each plan); planned locally only. Account key read ephemerally. ~$1/month.                           | Bunny.net in Terraform                                |
 
 ### M2 prerequisites and notes from 0.8 (2026-10-21, #41)
 
@@ -86,13 +87,13 @@ Decided while reviewing #41 (the coordinator's calls; Joel can overrule):
   DPA version, its text's sha256, the type, event and mechanism.
 - **The legacy consent type is named `legacy_migration`** in task 1.9 (D44 wrote
   `legacy-migration`; every other consent value is snake_case).
-- **Uploads keep the prototype's lightweight presigned flow.** api-user creates the Bunny Stream
-  video with the library key and returns `{ libraryId, videoId, expirationTime,
-presignedSignature }`, where `presignedSignature = sha256(libraryId + libraryKey +
-expirationTime + videoId)`; the client uploads straight to Bunny by TUS, and the API never
-  handles media bytes. Field names change only for naming conventions. The contract's
-  `UploadTarget` (`provider`, `uploadUrl`, `headers`, `mediaRef`, `expiresAt`) is reconciled with
-  this in M2.
+- **Uploads keep the prototype's lightweight presigned flow** (with the client-direct uploads
+  row below). api-user creates the Bunny Stream video with the library key and returns
+  `libraryId`, `videoId`, `expirationTime` and `presignedSignature`, which is the sha256 of
+  libraryId + libraryKey + expirationTime + videoId. The client uploads straight to Bunny by TUS;
+  the API never handles media bytes. Field names change only for naming conventions. The
+  contract's `UploadTarget` (`provider`, `uploadUrl`, `headers`, `mediaRef`, `expiresAt`) is
+  reconciled with this in M2.
 - **Agreed as built:** a grant against any DPA version but the one in force answers `409`.
 
 ### Clerk state (2026-10-17)
@@ -141,6 +142,7 @@ schema and the v1 API plan are there). Move each one into the table above once i
 | D32 | **`web` prerenders from api-public-read only,** on the server; never calls api-user/api-admin. Clerk runs in the browser only.                                                                                                                                                                          | Not specified                                                      |
 | D34 | **Dapr stays in the worker tier;** the APIs publish CloudEvents to Pub/Sub with the GCP client.                                                                                                                                                                                                         | Same (confirmed)                                                   |
 | D35 | **Every personal read lives in api-user** (stories, account, consents, favourites, feed); api-public-read is strictly anonymous.                                                                                                                                                                        | Personal reads on api-read                                         |
+| —   | **Client-direct uploads (M2):** no service handles media bytes. api-user signs Stream TUS uploads (library key) and S3 presigned PUTs to the storage zone (zone password). Before the first draft upload: token auth on image and Stream delivery, and a proven presigned PUT (README).                 | Prototype: Stream TUS + S3 PUT                                     |
 
 D23 is implemented (decision 14 above), and so are D33 and D36 (decision 15). D27 and D29 are partly built by 0.8 (per-request person sessions and `Idempotency-Key`, for the consent endpoints only); they move once the M2 commands use them.
 
@@ -164,4 +166,5 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-20:** D42–D45 decided (`project/context/research/m0-migration-decisions.html`). **D44 replaces D22's legacy-DPA approach:** seed 0002 (`dpaVersion:legacy-squarespace`) is removed; the M1 import (task 1.9) gets a one-off `legacy-migration` consent category instead (not built yet; the schema's D22 legacy-consent rules stay until then). D42 implemented (row above). D43 (restart SurrealDB whenever the login set changes) and D45 (accept `svc` key rotation per migration) match what's built. Startup init is one transaction, readiness is proven by the identity-check sidecar, and migrations use a database fencing token and a restricted grammar (#32 review round 2).
 - **2026-10-21:** #28–#34 merged and applied to dev. SurrealDB had been down for about a day: Spot reclaimed its node, and the replacement in its disk's zone (b) failed on the regional `SSD_TOTAL_GB` quota (300 GB, every Autopilot node has a 100 GB SSD boot disk). The increase to 600 GB (#34, `modules/bootstrap/quota.tf`) was denied, likely because billing is on the free trial; HDD or smaller boot disks aren't possible on Autopilot without per-node billing. Instead all spot Pods are pinned to `europe-west2-c` (#36, decision 5) and the near-empty database disk was recreated there (the 2026-10-20 backup is in GCS). Undo once billing is upgraded: #35. The migrate Job then applied the schema and DPA v1 (0.3), the cluster plan runs in CI (D42), and `api-public-read` was replaced and reports `db: up` (`run_deletion_protection` exposed in the `gcp` root, #37).
 - **2026-10-21:** 0.4 done (#40): `apps/web` gets Tailwind v4 + shadcn/ui with the design's dark tokens, and D4 is implemented (row above). Applied to dev; `web` runs its `main` build since #42 (private until 0.9).
+- **2026-10-21:** 0.7 done (#39): Bunny.net root `live/dev/bunny` with the approved state-secrets exception (decision 16); the client-direct upload flow for M2 is recorded.
 - **2026-10-21:** 0.8 done (D24 step 5, #41): `libs/consent` with the consent ledger, the fail-closed guard (D21) and api-user's `/v1/account/consents` endpoints (now `x-milestone: M0`), wired into api-user and api-admin. D17–D21 moved to implemented. Sign-in is a seam (`PersonAuthenticator`) for 0.5; until then every personal route answers `401`. Art 9 withdrawal doesn't start erasure yet (D39, an M2 prerequisite, above). Review round 1: `Idempotency-Key` now commits in the same transaction as the command, in the person's session (schema: a person may create and read only their own `api-user` keys; [db-permissions.md](db-permissions.md) item 19).
