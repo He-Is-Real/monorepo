@@ -25,9 +25,10 @@
     ]
   },
   "dependencies": {
+    "@heisreal/consent": "workspace:*",
     "@heisreal/database": "workspace:*",
-    "@nestjs/common": "^11.2.6",
-    "@heisreal/secrets": "workspace:*"
+    "@heisreal/secrets": "workspace:*",
+    "@nestjs/common": "^11.2.6"
   },
   "devDependencies": {
     "@types/express": "^5.0.6"
