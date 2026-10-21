@@ -72,6 +72,28 @@ These refine or replace what the plan says.
 | D21 | **Fail-closed consent guard (D21):** every api-user/api-admin route has `@RequiresConsent` or `@NoConsentRequired(reason)`; the global guard refuses (`500`) and the app won't start otherwise, and each app's `routes.spec.ts` lists every route. Draft create, edit and upload need current Art 9 consent (`CONSENT_REQUIRED`). #41                                                                                                                             | A guard "on every write path from day one"            |
 | D42 | **Automatic cluster plan (D42):** `tf-cluster-planner` may only send dry runs (admission policy) to the overlay's kinds in `database`; usable only from the reviewer-approved `cluster-plan` environment. Live since 2026-10-21 (`CLUSTER_PLAN_ENABLED`).                                                                                                                                                                                                         | Read-only planner (#32 round 1)                       |
 
+### M2 prerequisites and notes from 0.8 (2026-10-21, #41)
+
+Decided while reviewing #41 (the coordinator's calls; Joel can overrule):
+
+- **Prerequisite: wire D39 erasure to Art 9 withdrawal before accepting real testimonies.** Since
+  0.8, withdrawing `special_category_religious` records the event and unpublishes the person's
+  stories, and the database then refuses every further processing step. The stories stay stored
+  until erasure is built.
+- **Consent checkbox wording gets versioned** (with the DPA text in `libs/legal`) and added to the
+  evidence hash (`heisreal-consent-evidence/v2`) in M2's consent form. Today the hash covers the
+  DPA version, its text's sha256, the type, event and mechanism.
+- **The legacy consent type is named `legacy_migration`** in task 1.9 (D44 wrote
+  `legacy-migration`; every other consent value is snake_case).
+- **Uploads keep the prototype's lightweight presigned flow.** api-user creates the Bunny Stream
+  video with the library key and returns `{ libraryId, videoId, expirationTime,
+presignedSignature }`, where `presignedSignature = sha256(libraryId + libraryKey +
+expirationTime + videoId)`; the client uploads straight to Bunny by TUS, and the API never
+  handles media bytes. Field names change only for naming conventions. The contract's
+  `UploadTarget` (`provider`, `uploadUrl`, `headers`, `mediaRef`, `expiresAt`) is reconciled with
+  this in M2.
+- **Agreed as built:** a grant against any DPA version but the one in force answers `409`.
+
 ### Clerk state (2026-10-17)
 
 The Clerk dev instance exists, but nothing is wired in. There are no Clerk secrets in Secret
@@ -141,4 +163,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-20:** D14 implemented (D24 step 4): the migrate Job, runbook in [the SurrealDB README](../infra/k8s/surrealdb/README.md#schema-migrations-d14). The init now runs inside SurrealDB at startup (a restart is the cutover that ends old sessions): it makes only `migrator` and `backup`, removes the per-service system users and writes the `service` logins; services sign in through `svc` (decision 7), with secrets `surreal-api-public-read-password` and `surreal-api-user-password`. DPA v1's hash comes from `libs/legal/dpa/v1.md` (placeholder; v1 stays a draft, D20). Person sessions only once `clerk_jwt_public_key` is set (task 0.5).
 - **2026-10-20:** D42–D45 decided (`project/context/research/m0-migration-decisions.html`). **D44 replaces D22's legacy-DPA approach:** seed 0002 (`dpaVersion:legacy-squarespace`) is removed; the M1 import (task 1.9) gets a one-off `legacy-migration` consent category instead (not built yet; the schema's D22 legacy-consent rules stay until then). D42 implemented (row above). D43 (restart SurrealDB whenever the login set changes) and D45 (accept `svc` key rotation per migration) match what's built. Startup init is one transaction, readiness is proven by the identity-check sidecar, and migrations use a database fencing token and a restricted grammar (#32 review round 2).
 - **2026-10-21:** #28–#34 merged and applied to dev. SurrealDB had been down for about a day: Spot reclaimed its node, and the replacement in its disk's zone (b) failed on the regional `SSD_TOTAL_GB` quota (300 GB, every Autopilot node has a 100 GB SSD boot disk). The increase to 600 GB (#34, `modules/bootstrap/quota.tf`) was denied, likely because billing is on the free trial; HDD or smaller boot disks aren't possible on Autopilot without per-node billing. Instead all spot Pods are pinned to `europe-west2-c` (#36, decision 5) and the near-empty database disk was recreated there (the 2026-10-20 backup is in GCS). Undo once billing is upgraded: #35. The migrate Job then applied the schema and DPA v1 (0.3), the cluster plan runs in CI (D42), and `api-public-read` was replaced and reports `db: up` (`run_deletion_protection` exposed in the `gcp` root, #37).
-- **2026-10-21:** 0.8 done (D24 step 5, #41): `libs/consent` with the consent ledger, the fail-closed guard (D21) and api-user's `/v1/account/consents` endpoints (now `x-milestone: M0`), wired into api-user and api-admin. D17–D21 moved to implemented. Sign-in is a seam (`PersonAuthenticator`) for 0.5; until then every personal route answers `401`. Art 9 withdrawal doesn't start erasure yet (D39, M2).
+- **2026-10-21:** 0.8 done (D24 step 5, #41): `libs/consent` with the consent ledger, the fail-closed guard (D21) and api-user's `/v1/account/consents` endpoints (now `x-milestone: M0`), wired into api-user and api-admin. D17–D21 moved to implemented. Sign-in is a seam (`PersonAuthenticator`) for 0.5; until then every personal route answers `401`. Art 9 withdrawal doesn't start erasure yet (D39, an M2 prerequisite, above). Review round 1: `Idempotency-Key` now commits in the same transaction as the command, in the person's session (schema: a person may create and read only their own `api-user` keys; [db-permissions.md](db-permissions.md) item 19).

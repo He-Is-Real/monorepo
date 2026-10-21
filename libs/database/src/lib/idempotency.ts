@@ -1,15 +1,25 @@
 import { createHash } from 'node:crypto';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
-import { requireWritten, runQuery } from './query';
+import {
+  DatabaseQueryError,
+  isTransactionConflict,
+  requireWritten,
+  retryOnConflict,
+  runQuery,
+} from './query';
 
 /**
  * `Idempotency-Key` handling (D29) on the `idempotencyKey` table:
- * id = `idempotencyKey:[<service>, <user record>, <key>]`, kept 24 h (`expiresAt`).
+ * id = `idempotencyKey:[<service>, <user record>, <key>]`.
  *
- * Only the services' own logins can use the table (a person session can't), so this runs on
- * the service connection, outside the command's own transaction. A crash between the command
- * and {@link IdempotencyStore.save} means a retry runs the command again: commands that use it
- * must tolerate that (an append to the consent ledger does: it re-affirms the same state).
+ * The key, the request hash and the stored response are written **in the same transaction as
+ * the command**, in the caller's own session (a person may create and read their own api-user
+ * keys). So either both commit or neither does: a retry after a lost response always replays,
+ * and of two requests racing with one key exactly one commits (the other conflicts on the key
+ * record, re-reads it and replays, or gets `422` if its body differs).
+ *
+ * Keys are kept until pruned (24 h, `expiresAt`, by the nightly job; not built yet) and replay
+ * until then.
  */
 export type IdempotencyService = 'api-user' | 'api-admin';
 
@@ -26,6 +36,19 @@ export interface IdempotentResponse {
   status: number;
   id: string;
   version: number | null;
+}
+
+/**
+ * A command to run inside the transaction. `statements` must end by setting
+ * `LET $result = { id: <record>, version: <int | NONE> };` and must contain no `RETURN`,
+ * `BEGIN` or `COMMIT` (docs/db-permissions.md, gotchas). Parameter names starting with
+ * `idem_` are reserved.
+ */
+export interface PreparedCommand {
+  statements: string;
+  vars: Record<string, unknown>;
+  /** HTTP status to store and replay (e.g. 201, 202). */
+  status: number;
 }
 
 /** The same key was used before with a different request body (`422`). */
@@ -52,29 +75,36 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
-const KEY = `type::record('idempotencyKey', [$service, $owner, $key])`;
+const KEY = `type::record('idempotencyKey', [$idem_service, $idem_owner, $idem_key])`;
 
 interface StoredRow {
   requestHash: string;
   status: number;
   response?: { id?: string; version?: number };
-  expired: boolean;
 }
 
-export class IdempotencyStore {
-  constructor(private readonly db: SurrealQueryable) {}
+/** The key record already exists: another request with this key committed first. */
+const KEY_TAKEN = /already exists/i;
 
-  /**
-   * Replays the stored response for this key, or runs `execute` and stores its response.
-   * Throws {@link IdempotencyKeyReusedError} if the key was used with a different request.
-   */
-  async run(
-    scope: IdempotencyScope,
-    hash: string,
-    execute: () => Promise<IdempotentResponse>,
-  ): Promise<{ response: IdempotentResponse; replayed: boolean }> {
-    const stored = await this.find(scope);
-    if (stored && !stored.expired) {
+/**
+ * Runs `prepare()`'s command once per key. Replays the stored response for a known key with
+ * the same request hash; throws {@link IdempotencyKeyReusedError} for a different one.
+ * `prepare` runs only when the key is new, and again on every retry (re-read, re-check).
+ */
+export async function runIdempotent(
+  db: SurrealQueryable,
+  scope: IdempotencyScope,
+  hash: string,
+  prepare: () => Promise<PreparedCommand>,
+): Promise<{ response: IdempotentResponse; replayed: boolean }> {
+  const vars = {
+    idem_service: scope.service,
+    idem_owner: scope.owner,
+    idem_key: scope.key,
+  };
+  for (let attempt = 1; ; attempt++) {
+    const stored = await find(db, vars);
+    if (stored) {
       if (stored.requestHash !== hash) throw new IdempotencyKeyReusedError();
       return {
         replayed: true,
@@ -85,48 +115,55 @@ export class IdempotencyStore {
         },
       };
     }
-    const response = await execute();
-    await this.save(scope, hash, response, stored?.expired ?? false);
-    return { response, replayed: false };
-  }
-
-  private async find(scope: IdempotencyScope): Promise<StoredRow | undefined> {
-    const [row] = (await runQuery(
-      this.db,
-      `SELECT requestHash, status, response, expiresAt < time::now() AS expired FROM ${KEY}`,
-      vars(scope),
-    )) as [StoredRow[] | undefined];
-    return row?.[0];
-  }
-
-  private async save(
-    scope: IdempotencyScope,
-    hash: string,
-    response: IdempotentResponse,
-    replaceExpired: boolean,
-  ): Promise<void> {
-    // expiresAt is set once (VALUE $before OR ...), so an expired row is replaced, not updated.
-    const results = await runQuery(
-      this.db,
-      `BEGIN TRANSACTION;
-       ${replaceExpired ? `DELETE ${KEY};` : ''}
-       CREATE ${KEY} CONTENT {
-         requestHash: $hash, status: $status,
-         response: { id: <record> $id, version: $version }
-       } RETURN requestHash;
-       COMMIT TRANSACTION;`,
-      {
-        ...vars(scope),
-        hash,
-        status: response.status,
-        id: response.id,
-        version: response.version ?? undefined,
-      },
-    );
-    requireWritten(results[results.length - 2], 'idempotency key');
+    try {
+      const response = await retryOnConflict(async () => {
+        const command = await prepare();
+        const results = await runQuery(
+          db,
+          `BEGIN TRANSACTION;
+           ${command.statements}
+           CREATE ${KEY} CONTENT {
+             requestHash: $idem_hash, status: $idem_status,
+             response: { id: $result.id, version: $result.version }
+           } RETURN status, response;
+           COMMIT TRANSACTION;`,
+          {
+            ...command.vars,
+            ...vars,
+            idem_hash: hash,
+            idem_status: command.status,
+          },
+        );
+        const row = requireWritten<StoredRow>(
+          results[results.length - 2],
+          'idempotency key',
+        );
+        return {
+          status: row.status,
+          id: String(row.response?.id ?? ''),
+          version: row.response?.version ?? null,
+        };
+      });
+      return { response, replayed: false };
+    } catch (err) {
+      // Lost the race for this key: what won is committed, so the next pass replays it (or
+      // refuses a different body). A conflict that outlasted the retries is treated the same.
+      const raced =
+        (err instanceof DatabaseQueryError && KEY_TAKEN.test(err.message)) ||
+        isTransactionConflict(err);
+      if (!raced || attempt >= 3) throw err;
+    }
   }
 }
 
-function vars(scope: IdempotencyScope) {
-  return { service: scope.service, owner: scope.owner, key: scope.key };
+async function find(
+  db: SurrealQueryable,
+  vars: Record<string, unknown>,
+): Promise<StoredRow | undefined> {
+  const [row] = (await runQuery(
+    db,
+    `SELECT requestHash, status, response FROM ${KEY}`,
+    vars,
+  )) as [StoredRow[] | undefined];
+  return row?.[0];
 }

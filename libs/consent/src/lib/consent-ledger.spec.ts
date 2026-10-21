@@ -65,6 +65,19 @@ describe('reconsentRequired (gdpr-consent.md rule 5)', () => {
     expect(reconsentRequired('v2', published, NOW)).toBe(false);
   });
 
+  it('agrees with dpaInForce on a tie in effectiveFrom (review round 1, finding 2)', () => {
+    // v2 is created later with the same effectiveFrom: dpaInForce picks v2 (createdAt breaks
+    // the tie), so a grant to v1 must need re-consent.
+    const same = '2027-01-01T00:00:00Z';
+    const published: PublishedDpa[] = [
+      { ...dpa('v1', same), createdAt: '2026-12-01T00:00:00Z' },
+      { ...dpa('v2', same, 'material'), createdAt: '2026-12-15T00:00:00Z' },
+    ];
+    expect(dpaInForce(published, NOW)?.id).toBe('v2');
+    expect(reconsentRequired('v1', published, NOW)).toBe(true);
+    expect(reconsentRequired('v2', published, NOW)).toBe(false);
+  });
+
   it('ignores a material version that isn’t in effect yet', () => {
     expect(
       reconsentRequired('v1', [v1, dpa('v2', '2027-09-01T00:00:00Z')], NOW),

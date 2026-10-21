@@ -175,10 +175,12 @@ short-lived upload credentials.
   `PersonSessions.run(request, ({ session, user }) => …)` (`libs/consent`), built on
   `withPersonSession` (`libs/database`). Who the caller is comes from a `PersonAuthenticator`, the
   seam task 0.5 fills with Clerk verification; until then it refuses everyone (`401`).
-- `Idempotency-Key`: `IdempotencyStore` (`libs/database`) on the service's login, since a person
-  session can't use the `idempotencyKey` table. It runs outside the command's transaction, so a crash
-  in between re-runs the command on retry: only use it for commands where that is harmless, or fold
-  the key into the command's transaction on the service login.
+- `Idempotency-Key`: `runIdempotent` (`libs/database`) writes the key, the request hash and the
+  stored `{ id, version }` **in the same transaction as the command**, in the session the command
+  runs in (a person may create and read only their own `api-user` keys). Either both commit or
+  neither: a retry after a lost response replays, and of two requests racing with one key exactly one
+  applies; the other replays its response, or gets `422` if its body differs. There is no "in flight"
+  state to report, so no `409` for it.
 - **A write the database permissions deny returns an empty result, not an error.** Every command
   handler must check that it really wrote the row(s) it meant to, and fail loudly otherwise (log it,
   and never answer `2xx`). The helper for this check is `requireWritten` in `libs/database`, with

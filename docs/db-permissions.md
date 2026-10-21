@@ -13,7 +13,7 @@ automated tests. It also records what had to change in the draft and what is sti
 | `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
 | `libs/database/schema/data/000N-*.surql`    | Run-once seed 0001 (draft DPA v1); 0002 dropped (D44)           |
 | `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
-| `libs/database/integration/*.int-spec.ts`   | 385 integration tests against a real SurrealDB                  |
+| `libs/database/integration/*.int-spec.ts`   | 390 integration tests against a real SurrealDB                  |
 | `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
 
 ```bash
@@ -71,6 +71,7 @@ bypasses permissions) that the row is unchanged or absent.
 | Round 3 sweep: every table is classified (a new, unclassified table fails the test). For each person-linked table (`story`, `publicStory`, `consent`, `moderationReview`, `idempotencyKey`), a control write works, the same write is refused after erasure from a session opened before it, and a write racing erasure loses at commit with nothing stored. Root (`user`): two racing erasures, one wins, the retry is a no-op. Kept (`auditLog`): a racing audit write commits with typed fields only. | `person-linked`                  |
 | Round 3, P2: a service-supplied `gdprDeletedAt` (2200 days ago) is replaced by the server time and can't be re-dated, so the nightly prune keeps the consent.                                                                                                                                                                                                                                                                                                                                            | `retention`                      |
 | D14 + cutover: restart with a one-transaction startup init ends old sessions; a failed init keeps old identities and the identity check stays not Ready. RETURN can't reach a data script; a missed one fails loud and blocks (exit 3). Database fencing token: later runs win. Checks run before changes; seeded DPAs keep their files.                                                                                                                                                                 | `migration`                      |
+| A person creates and reads only their own `api-user` idempotency keys (round 1 of #41): none for another person, service or webhook, no reading others', no update or delete, none after erasure.                                                                                                                                                                                                                                                                                                        | `person-session`                 |
 | One connection, one session per request, concurrent people isolated; dangers pinned; cost measured.                                                                                                                                                                                                                                                                                                                                                                                                      | `request-sessions`               |
 
 ## Changes to the draft schema (port back to the decision doc)
@@ -251,6 +252,21 @@ retried`, on both RocksDB and the in-memory engine.
 18. **api_admin first stamp tested.** api_admin erasing a Clerk-free legacy user stores the server
     time, not the supplied date.
 
+### PR #41 review round 1 (idempotency keys in the person's transaction)
+
+19. **An `Idempotency-Key` saved after the command could be lost (P1).** api-user saved the key on
+    its service login after the person's command had committed. A failure in between left the
+    consent grant without its key, so retrying the original request after a withdrawal granted
+    again; two concurrent requests with one key both applied. **Fix:** a person session may now
+    `create` and `select` `idempotencyKey` rows whose id is `['api-user', $auth, …]` (and, for
+    create, only while not erased), so the command, the key, the request hash and the stored
+    response commit in one transaction (`runIdempotent` in `libs/database`). A second request
+    with the same key fails on the existing record, re-reads it and replays. No `update` or
+    `delete` for people: erasure and pruning run on the services' logins. Tested in
+    `person-session` (own keys only; no forging for another person, service or webhook; no
+    reading others'; no update/delete; refused after erasure) and in `libs/consent`'s
+    `idempotency` spec (fault injection, concurrent same-key requests, different-body reuse).
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
@@ -262,7 +278,7 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | `publicStory`                                                                                   | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
 | `consent`                                                                                       | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
 | `moderationReview`                                                                              | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
-| `idempotencyKey`                                                                                | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt)                                    | deleted by erasure; others expire in 24 h                         |
+| `idempotencyKey`                                                                                | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt); people: own keys only             | deleted by erasure; others expire in 24 h                         |
 | `auditLog`                                                                                      | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
 | `personFence`                                                                                   | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
 | `tag`, `dpaVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity` | no person data                                 | none       | —                                                                          | —                                                                 |

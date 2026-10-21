@@ -283,9 +283,13 @@ paths:
       description: |
         Command `WithdrawConsent`: appends a `withdrawn` event, bound to the DPA version last granted. Applies
         to all the person's stories (D17): withdrawing `publish` or `special_category_religious` deletes their
-        `publicStory` rows in the same transaction, and withdrawing `special_category_religious` also starts
-        erasure (D39), which continues asynchronously. Withdrawing again re-affirms it; a type that was
-        never granted answers `409`.
+        `publicStory` rows in the same transaction, and from then on the database refuses every further
+        processing step that needs that consent. Withdrawing again re-affirms it; a type that was never
+        granted answers `409`.
+
+        **Staged:** withdrawing `special_category_religious` will also start erasure (D39), continuing
+        asynchronously. That is built in M2 and must be wired before real testimonies are accepted; until
+        then the person's stories stay stored, unpublished and unprocessable.
       x-required-role: User
       x-milestone: M0
       parameters:

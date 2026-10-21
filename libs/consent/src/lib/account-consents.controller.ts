@@ -7,7 +7,6 @@ import {
   Get,
   Headers,
   HttpStatus,
-  Inject,
   Module,
   Param,
   Post,
@@ -15,22 +14,17 @@ import {
   Res,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import {
-  IdempotencyKeyReusedError,
-  type IdempotentResponse,
-  IdempotencyStore,
-  requestHash,
-  SURREAL,
-} from '@heisreal/database';
+import { IdempotencyKeyReusedError, requestHash } from '@heisreal/database';
 import type { Request, Response } from 'express';
-import type { Surreal } from 'surrealdb';
 import {
+  type CommandOutcome,
   ConsentConflictError,
   ConsentLedger,
   type ConsentState,
   type GrantConsentInput,
-  recordKey,
+  type IdempotencyOptions,
 } from './consent-ledger';
+import type { PersonContext } from './person';
 import { NoConsentRequired } from './consent.decorators';
 import {
   CONSENT_MECHANISMS,
@@ -114,16 +108,10 @@ function matches(ifNoneMatch: string | undefined, etag: string): boolean {
  */
 @Controller('v1/account/consents')
 export class AccountConsentsController {
-  private readonly idempotency: IdempotencyStore;
-
   constructor(
     private readonly people: PersonSessions,
     private readonly ledger: ConsentLedger,
-    @Inject(SURREAL) service: Surreal,
-  ) {
-    // The idempotencyKey table is only open to the service's own login, not to the person.
-    this.idempotency = new IdempotencyStore(service);
-  }
+  ) {}
 
   @Get()
   @NoConsentRequired('reading your own consent state and history')
@@ -160,12 +148,7 @@ export class AccountConsentsController {
       res,
       idempotencyKey,
       ['POST', 'consents', input],
-      (session) =>
-        this.ledger.grant(session, input).then((id) => ({
-          status: HttpStatus.CREATED,
-          id: `consent:${id}`,
-          version: null,
-        })),
+      (session, idempotency) => this.ledger.grant(session, input, idempotency),
     );
   }
 
@@ -193,35 +176,34 @@ export class AccountConsentsController {
       res,
       idempotencyKey,
       ['POST', 'withdraw', type],
-      (session) =>
-        this.ledger.withdraw(session, type).then((id) => ({
-          status: HttpStatus.ACCEPTED,
-          id: `consent:${id}`,
-          version: null,
-        })),
+      (session, idempotency) =>
+        this.ledger.withdraw(session, type, idempotency),
     );
   }
 
-  /** Runs a ledger command as the person, once per Idempotency-Key (D29). */
+  /**
+   * Runs a ledger command as the person, once per Idempotency-Key (D29). The key commits in the
+   * same transaction as the ledger event (see `runIdempotent`).
+   */
   private async command(
     req: Request,
     res: Response,
     key: string,
     request: unknown,
     execute: (
-      session: Parameters<ConsentLedger['grant']>[0],
-    ) => Promise<IdempotentResponse>,
+      session: PersonContext['session'],
+      idempotency: IdempotencyOptions,
+    ) => Promise<CommandOutcome>,
   ): Promise<CommandResult> {
     try {
-      const { response } = await this.people.run(req, ({ session, user }) =>
-        this.idempotency.run(
-          { service: 'api-user', owner: user, key },
-          requestHash(request),
-          () => execute(session),
-        ),
+      const outcome = await this.people.run(req, ({ session, user }) =>
+        execute(session, {
+          scope: { service: 'api-user', owner: user, key },
+          requestHash: requestHash(request),
+        }),
       );
-      res.status(response.status);
-      return { id: recordKey(response.id), version: response.version };
+      res.status(outcome.status);
+      return { id: outcome.id, version: null };
     } catch (err) {
       if (err instanceof ConsentConflictError) {
         throw new ConflictException({ code: err.code, message: err.message });

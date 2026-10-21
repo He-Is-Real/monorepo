@@ -93,14 +93,18 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
 
     it('grants each type in the person’s own session, with a reproducible evidence hash and no IP', async () => {
       for (const type of CONSENT_TYPES) {
-        const id = await as('user_ann', (s) =>
+        const outcome = await as('user_ann', (s) =>
           ledger.grant(s, {
             type,
             dpaVersion: 'v1',
             mechanism: 'web_form_submission',
           }),
         );
-        expect(id).toMatch(/^\w+$/);
+        expect(outcome).toEqual({
+          id: expect.stringMatching(/^\w+$/),
+          status: 201,
+          replayed: false,
+        });
       }
       const [v1] = await rows<{ contentHash: string }>(
         await t.migrator(),
@@ -213,8 +217,11 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
     });
 
     it('withdrawing publish unpublishes every story of the person in the same transaction', async () => {
-      const id = await as('user_ann', (s) => ledger.withdraw(s, 'publish'));
+      const { id, status } = await as('user_ann', (s) =>
+        ledger.withdraw(s, 'publish'),
+      );
       expect(id).toMatch(/^\w+$/);
+      expect(status).toBe(202);
       expect(await rows(admin, 'SELECT id FROM publicStory:ann_live')).toEqual(
         [],
       );
@@ -241,7 +248,7 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
     it('withdrawing again re-affirms it; never-granted consent can’t be withdrawn', async () => {
       await expect(
         as('user_ann', (s) => ledger.withdraw(s, 'publish')),
-      ).resolves.toMatch(/^\w+$/);
+      ).resolves.toMatchObject({ id: expect.stringMatching(/^\w+$/) });
       const err = await as('user_bob', (s) =>
         ledger.withdraw(s, 'share_socials'),
       ).catch((e: unknown) => e);
