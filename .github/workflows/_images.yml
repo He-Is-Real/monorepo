@@ -86,7 +86,10 @@ jobs:
       - name: Build and push changed services
         env:
           REPO: ${{ env.REGISTRY }}/heisreal-dev/${{ inputs.repository }}
+        # pipefail + jq -e: a failed inspect must fail the step, not leave an
+        # empty digest in a green run.
         run: |
+          set -o pipefail
           {
             echo "### ${{ inputs.repository }} @ ${GITHUB_SHA::12}"
             echo '| Service | Image | |'
@@ -107,6 +110,10 @@ jobs:
                 --cache-to "type=gha,version=2,scope=$svc,mode=max"
               state=pushed
             fi
-            digest=$(docker buildx imagetools inspect "$image" --format '{{json .Manifest}}' | jq -r .digest)
+            digest=$(docker buildx imagetools inspect "$image" --format '{{json .Manifest}}' | jq -er .digest)
+            if [ -z "$digest" ]; then
+              echo "::error::No digest for $image" >&2
+              exit 1
+            fi
             echo "| \`$svc\` | \`$REPO/$svc@$digest\` | $state |" >> "$GITHUB_STEP_SUMMARY"
           done
