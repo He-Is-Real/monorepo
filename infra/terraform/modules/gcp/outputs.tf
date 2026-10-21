@@ -49,3 +49,7 @@ output "surreal_secret_rotation" {
 output "api_public_read_url" {
   value = google_cloud_run_v2_service.api_public_read.uri
 }
+
+output "web_url" {
+  value = google_cloud_run_v2_service.web.uri
+}

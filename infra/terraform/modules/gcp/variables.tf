@@ -105,6 +105,24 @@ variable "api_public_read_invokers" {
   default     = []
 }
 
+variable "web_max_instances" {
+  description = "Scale-up cap for web on Cloud Run."
+  type        = number
+  default     = 2
+}
+
+variable "web_public" {
+  description = "Allow unauthenticated visits to web. Dev keeps it private (invokers only) until task 0.9."
+  type        = bool
+  default     = false
+}
+
+variable "web_invokers" {
+  description = "Members allowed to call web when it isn't public (browse with `gcloud run services proxy web`)."
+  type        = list(string)
+  default     = []
+}
+
 variable "backup_retention_days" {
   description = "Delete database backups after this many days (GDPR erasure window)."
   type        = number
