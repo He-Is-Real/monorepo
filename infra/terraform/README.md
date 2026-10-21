@@ -32,12 +32,13 @@ and Google tokens are `ephemeral`, so keep it that way when adding resources.
 Log in with `gcloud auth login --update-adc` (your Workspace forces re-authentication now and
 then), then `terraform -chdir=infra/terraform/live/dev/<root> init`, `plan`, `apply`.
 
-| Task                   | Command                                                                                           |
-| ---------------------- | ------------------------------------------------------------------------------------------------- |
-| Stop / start SurrealDB | apply `cluster` with `-var surrealdb_replicas=0` (or `1`); the disk is kept                       |
-| Back up SurrealDB now  | apply `cluster` with `-var backup_run=<new id>`; a later plain apply removes the Job              |
-| Migrate the schema     | apply `cluster`, check the Job, then deploy (SurrealDB README, "Schema migrations")               |
-| Plan as CI would       | prefix with `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT=tf-deployer@heisreal-dev.iam.gserviceaccount.com` |
+| Task                        | Command                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Stop / start SurrealDB      | apply `cluster` with `-var surrealdb_replicas=0` (or `1`); the disk is kept                                              |
+| Back up SurrealDB now       | apply `cluster` with `-var backup_run=<new id>`; a later plain apply removes the Job                                     |
+| Migrate the schema          | apply `cluster`, check the Job, then deploy (SurrealDB README, "Schema migrations")                                      |
+| Replace a Cloud Run service | apply `gcp` with `-var run_deletion_protection=false`, then again with that and `-replace=<address>`, then a plain apply |
+| Plan as CI would            | prefix with `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT=tf-deployer@heisreal-dev.iam.gserviceaccount.com`                        |
 
 ## Images
 
