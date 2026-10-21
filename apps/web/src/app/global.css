@@ -1,4 +1,154 @@
-/* Tailwind CSS + shadcn/ui arrive with the frontend scaffold (M0 task 0.4). */
-html {
-  font-family: system-ui, sans-serif;
+/*
+ * Tailwind CSS v4 + shadcn/ui theme.
+ *
+ * Tokens come from the design system (project repo, context/future/design/styles.css)
+ * and BRANDING.md. Only the tokens are taken: the page designs aren't signed off.
+ * The designs define a dark theme only, so these are the :root values and <html>
+ * carries the `dark` class (shadcn components' `dark:` variants). A light theme
+ * would add its own values here and switch the class.
+ *
+ * Contrast on --background (#111113), WCAG 2.1: foreground 16.6:1,
+ * muted-foreground 5.5:1, primary (teal) 5.9:1, faint 3.5:1 (large text only).
+ * White on teal is 3.2:1 (fails AA), so text on teal is dark: 5.9:1.
+ */
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/* Sources outside apps/web (libs) need an @source line when they add classes. */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: dark;
+
+  /* Brand */
+  --teal: #4e9ba0;
+  --teal-dark: #3d7a7e;
+  --teal-light: #6ec4c9;
+  --teal-subtle: rgb(78 155 160 / 0.06);
+
+  /* Surfaces (design: --bg, --bg-raised, --bg-card, --bg-surface, --bg-input) */
+  --background: #111113;
+  --raised: #1a1a1d;
+  --card: #212124;
+  --surface: #2a2a2e;
+  --input-background: #1e1e22;
+
+  /* Text (design: --text, --text-secondary, --text-muted, --text-faint) */
+  --foreground: #f0f0f2;
+  --secondary-text: #a0a0a8;
+  --muted-text: #8a8a94;
+  --faint: #6a6a74;
+
+  /* shadcn/ui semantic tokens */
+  --card-foreground: var(--foreground);
+  --popover: var(--raised);
+  --popover-foreground: var(--foreground);
+  --primary: var(--teal);
+  --primary-foreground: #111113;
+  --secondary: var(--surface);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--raised);
+  --muted-foreground: var(--muted-text);
+  --accent: var(--teal-subtle);
+  --accent-foreground: var(--foreground);
+  --destructive: #dd4444;
+  --success: #27ae60;
+  --warning: #e6a23c;
+  --border: rgb(255 255 255 / 0.06);
+  --border-hover: rgb(255 255 255 / 0.12);
+  --input: rgb(255 255 255 / 0.12);
+  --ring: var(--teal);
+
+  /* Shape (design: --radius 10px, --radius-lg 16px, --radius-xl 20px; buttons 8px) */
+  --radius: 10px;
+}
+
+@theme inline {
+  --font-sans: var(--font-dm-sans), system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-raised: var(--raised);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-ring: var(--ring);
+  --color-teal: var(--teal);
+  --color-teal-dark: var(--teal-dark);
+  --color-teal-light: var(--teal-light);
+  --color-secondary-text: var(--secondary-text);
+  --color-faint: var(--faint);
+
+  /* shadcn's scale: sm 6px, md 8px (buttons), lg 10px; design's larger radii above it */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+
+  /* Layout widths (design: --max-width 1200px, .container-narrow 800px) */
+  --container-site: 1200px;
+  --container-narrow: 800px;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    line-height: 1.6;
+  }
+
+  a {
+    @apply text-primary transition-colors hover:text-teal-light;
+  }
+
+  ::selection {
+    @apply bg-primary text-primary-foreground;
+  }
+
+  /* Keyboard focus is always visible (design: 2px teal outline, 2px offset). */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+
+    html {
+      scroll-behavior: auto;
+    }
+  }
 }

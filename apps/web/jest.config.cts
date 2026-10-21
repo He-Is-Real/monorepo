@@ -8,6 +8,10 @@ const config = {
   displayName: 'web',
   preset: '../../jest.preset.js',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
+  // The app's own alias (tsconfig.json "paths"), which the Nx resolver doesn't know.
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
   coverageDirectory: 'test-output/jest/coverage',
   testEnvironment: 'jsdom',
 };
