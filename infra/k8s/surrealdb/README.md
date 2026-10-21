@@ -28,13 +28,17 @@ Database-level users in `heisreal/main`, each with its own Secret Manager secret
 
 | User        | Role   | Used by                               |
 | ----------- | ------ | ------------------------------------- |
-| `api_read`  | VIEWER | api-read                              |
-| `api_write` | EDITOR | api-write                             |
+| `api_read`  | VIEWER | api-public-read                       |
+| `api_write` | EDITOR | api-user                              |
 | `api_admin` | EDITOR | api-admin                             |
 | `workflow`  | EDITOR | workflow (M7)                         |
 | `backup`    | VIEWER | backup CronJob                        |
 | `migrator`  | OWNER  | schema migrations at deploy time only |
 | `root`      | OWNER  | init Job only (root user)             |
+
+`api_read` and `api_write` keep their pre-rename names (the services are now `api-public-read`
+and `api-user`, D33): the schema PR replaces all the per-service users with D13 `service` records,
+so their names and secrets change only once.
 
 Checked against a real 3.2.4 server: VIEWER can't create records, EDITOR can't define users, and
 a VIEWER export equals a root export (backups need no write access). Exports include every user's

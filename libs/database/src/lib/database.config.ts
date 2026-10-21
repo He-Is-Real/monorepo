@@ -4,7 +4,7 @@ import { requireEnv } from '@heisreal/secrets';
  * Connection settings, read from the environment. The password is never in
  * the environment: `SURREAL_PASSWORD_SECRET` names the Secret Manager secret
  * holding it. Each service connects as its own least-privilege database user
- * (api-read = VIEWER; api-write, api-admin, workflow = EDITOR).
+ * (api-public-read = VIEWER; api-user, api-admin, workflow = EDITOR).
  */
 export interface DatabaseConfig {
   /** e.g. ws://localhost:8000 locally, ws://surrealdb.database.svc:8000 on GKE */

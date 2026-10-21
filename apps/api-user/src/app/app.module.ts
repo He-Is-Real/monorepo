@@ -4,6 +4,6 @@ import { HealthModule } from '@heisreal/health';
 import { SecretsModule } from '@heisreal/secrets';
 
 @Module({
-  imports: [SecretsModule, DatabaseModule, HealthModule.forService('api-read')],
+  imports: [SecretsModule, DatabaseModule, HealthModule.forService('api-user')],
 })
 export class AppModule {}

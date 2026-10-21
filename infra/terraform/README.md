@@ -48,14 +48,14 @@ converges on git and git history is the deploy log. Decision doc:
 | `"snapshot"`   | newest development build (repo `apps-scratch`; unmerged code; never allowed in prod)  |
 | `"…@sha256:…"` | hold the service on exact build                                                       |
 
-| Task                        | How                                                                                                |
-| --------------------------- | -------------------------------------------------------------------------------------------------- |
-| Deploy the latest `main`    | apply `gcp` (manual workflow or local machine); the plan shows the new digest                      |
-| Build a snapshot locally    | `pnpm nx run-many -t prune -p api-read api-write api-admin workflow`, then apply `images` (Docker) |
-| Build a snapshot in CI      | Actions → "Snapshot images" → Run workflow on your branch                                          |
-| Run a snapshot in dev, once | apply `gcp` locally with `-var 'image_overrides={"api-read"="snapshot"}'`                          |
-| Keep dev on snapshots       | set the service to `"snapshot"` in `images.auto.tfvars` on your branch, apply `gcp` locally        |
-| Roll back                   | revert the change to `images.auto.tfvars` (or pin the previous digest), then apply                 |
+| Task                        | How                                                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Deploy the latest `main`    | apply `gcp` (manual workflow or local machine); the plan shows the new digest                            |
+| Build a snapshot locally    | `pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow`, then apply `images` (Docker) |
+| Build a snapshot in CI      | Actions → "Snapshot images" → Run workflow on your branch                                                |
+| Run a snapshot in dev, once | apply `gcp` locally with `-var 'image_overrides={"api-public-read"="snapshot"}'`                         |
+| Keep dev on snapshots       | set the service to `"snapshot"` in `images.auto.tfvars` on your branch, apply `gcp` locally              |
+| Roll back                   | revert the change to `images.auto.tfvars` (or pin the previous digest), then apply                       |
 
 A manual apply from `main` always moves dev back to what `main` says; read the plan. `apps` tags
 are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes older ones after

@@ -3,7 +3,7 @@
 # (tools/scripts/image-tag.sh, the same script CI uses) and whether that tag is
 # still in the registry (cleanup policies delete old snapshots).
 #
-# stdin:  {"service": "api-read", "repository": "<host>/<project>/<repo>"}
+# stdin:  {"service": "api-public-read", "repository": "<host>/<project>/<repo>"}
 # stdout: {"tag": "<12 hex>", "exists": "true" | "false"}
 set -euo pipefail
 query="$(cat)"

@@ -17,7 +17,7 @@ recorded here.
 
 | Milestone                     | Status         | Notes                                                                  |
 | ----------------------------- | -------------- | ---------------------------------------------------------------------- |
-| M0 Walking skeleton           | 🟡 In progress | 0.1, 0.2 and the API contracts done; 0.7 partly done                   |
+| M0 Walking skeleton           | 🟡 In progress | 0.1, 0.2, API contracts and service rename done; 0.7 partly done       |
 | M1 Browse & view (public MVP) | ⚪ Not started | Goes live and replaces Squarespace                                     |
 | M2 Accounts & submission      | ⚪ Not started |                                                                        |
 | M3 Moderation                 | ⚪ Not started |                                                                        |
@@ -34,7 +34,8 @@ recorded here.
 | 0.1 Repo setup                | ✅ Done        | #1                                                                           |
 | 0.2 Backend scaffold          | ✅ Done        | #1, CI fixes in #3, #10, #12                                                 |
 | API contracts + conventions   | ✅ Done        | #28: `libs/contracts`, `docs/api-conventions.md` (D23)                       |
-| 0.3 Database schema v1        | ⚪ Next        | After the D33 rename and the D13/D27 spike (D24)                             |
+| Service rename (D33, D36)     | ✅ Done        | #29                                                                          |
+| 0.3 Database schema v1        | ⚪ Next        | After the D13/D27 spike (D24)                                                |
 | 0.8 Consent foundation (GDPR) | ⚪ Next        | Built alongside 0.3                                                          |
 | 0.4 Frontend scaffold         | ⚪ To do       | `apps/web` is a placeholder (Next.js 16.3, #11)                              |
 | 0.5 Auth (Clerk)              | ⚪ To do       | Clerk app exists, dev instance only (see below)                              |
@@ -54,14 +55,15 @@ These refine or replace what the plan says.
 | 4   | **Secrets live only in GCP Secret Manager.** Config holds secret names, never values. Authentication is keyless everywhere (ADC, Workload Identity). External Secrets Operator supplies them on GKE, and Terraform state never holds secrets.       | "Env vars via Secret Manager / Cloud Run config"      |
 | 5   | **SurrealDB v3.2.4, single node on RocksDB,** on GKE Autopilot Spot Pods in `europe-west2` (London). It's network-isolated to its own namespace plus the Cloud Run subnet, and the image is pinned by tag and digest.                               | Single node, EU/UK. Spot Pods are a dev cost choice   |
 | 6   | **Backups:** a nightly `surreal export` to a UK bucket with a create-only uploader, plus on-demand backups via `-var backup_run=<id>`. **Restore drill passed on 2026-10-05.** There are no PVC snapshots.                                          | Export to GCS + PVC snapshots + tested restore        |
-| 7   | **Database users:** `api_read` (VIEWER), `api_write`, `api_admin` and `workflow` (EDITOR), plus `migrator` and `backup` users. Services never call each other.                                                                                      | Per-service users; `migrator` and `backup` were added |
-| 8   | **`api-read` on Cloud Run is private in dev:** IAM invokers only, scales to zero, at most 2 instances, reaches GKE over Direct VPC egress. It becomes public at 0.9, behind the edge decision.                                                      | Public behind Cloudflare                              |
+| 7   | **Database users:** `api_read` (VIEWER, used by api-public-read), `api_write` (used by api-user), `api_admin` and `workflow` (EDITOR), plus `migrator` and `backup`. Names unchanged by the rename until the schema PR (D13).                       | Per-service users; `migrator` and `backup` were added |
+| 8   | **`api-public-read` on Cloud Run is private in dev:** IAM invokers only, scales to zero, at most 2 instances, reaches GKE over Direct VPC egress. It becomes public at 0.9 (D31), behind its D13 database login.                                    | Public behind Cloudflare                              |
 | 9   | **Image selection is declared in Terraform:** `live/<env>/gcp/images.auto.tfvars` says `main`, `snapshot` or a digest for each service. Tags are content hashes, and there are separate `apps` and `apps-scratch` registries.                       | "Build images and deploy to Cloud Run"                |
 | 10  | **Budget guardrail:** £15 a month, with alert emails at £3, £7.50 and £15 (#20). Nothing stops automatically, billing is never unlinked and storage is always kept. Dev costs about £3–5 a month.                                                   | Not specified                                         |
 | 11  | **Supply chain:** GitHub Actions come from an allowlist only, pnpm enforces a minimum release age, and dependency fixes use pnpm overrides.                                                                                                         | Not specified                                         |
 | 12  | **`main` is protected by the `protect-main` ruleset.** It's a solo project, so gates mean "deliberate", not "needs a second person".                                                                                                                | "Branch protection, PR templates"                     |
 | 13  | **The Clerk CLI is linked** to the "He Is Real" app (`app_3JuNErrA1fDnJI7SBa3Qx9iYkqU`) through the git remote; nothing is stored in the repo. Never `clerk env pull` keys into `.env` files: Clerk keys go in Secret Manager like everything else. | Not specified                                         |
 | 14  | **The OpenAPI specs in `libs/contracts` are the source of truth (D23),** updated to the v1 API plan and linted by Redocly in `lint`. Rules: `docs/api-conventions.md`. #28                                                                          | OpenAPI drafts in the `project` repo                  |
+| 15  | **Services renamed (D33, D36):** `api-read` → `api-public-read`, `api-write` → `api-user` in apps, Nx, images, CI and Terraform (`moved` blocks; Cloud Run service and its service account replaced). #29                                           | api-read / api-write / api-admin                      |
 
 ### Clerk state (2026-10-17)
 
@@ -113,12 +115,10 @@ schema and the v1 API plan are there). Move each one into the table above once i
 | D30 | **HTTP conventions:** RFC 9457 errors, `/v1` prefix, slugs for public queries (old slugs `301`), IDs for commands, cursors, camelCase, `Cache-Control` + `ETag`.                                                                                                                                        | Custom error envelope, no versioning, `{idOrSlug}`                 |
 | D31 | **The browser calls the APIs directly** at their `*.run.app` URLs; `web` holds no DB access, secrets or tokens. api-public-read becomes public at 0.9 (changes decision 8).                                                                                                                             | `api.` / `admin-api.` subdomains behind Cloudflare                 |
 | D32 | **`web` prerenders from api-public-read only,** on the server; never calls api-user/api-admin. Clerk runs in the browser only.                                                                                                                                                                          | Not specified                                                      |
-| D33 | **Three API services:** api-public-read, api-user (webhooks included), api-admin.                                                                                                                                                                                                                       | api-read / api-write / api-admin                                   |
 | D34 | **Dapr stays in the worker tier;** the APIs publish CloudEvents to Pub/Sub with the GCP client.                                                                                                                                                                                                         | Same (confirmed)                                                   |
 | D35 | **Every personal read lives in api-user** (stories, account, consents, favourites, feed); api-public-read is strictly anonymous.                                                                                                                                                                        | Personal reads on api-read                                         |
-| D36 | **The public read service is named `api-public-read`.**                                                                                                                                                                                                                                                 | `api-read`                                                         |
 
-D23 is implemented: decision 14 above.
+D23 is implemented (decision 14 above), and so are D33 and D36 (decision 15).
 
 **Deferred until the milestone needs them:** D10 transcription engine, D11 worker queue, D12 Dapr
 state store (all M7). **Still open:** nothing for the current phase.
@@ -134,3 +134,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 
 - **2026-10-17:** file created; M0 status and decisions 1–13 recorded. D1–D9 decided (D5 = deferred), Apple opinion added; D10–D12 deferred.
 - **2026-10-18:** D13–D36 recorded from `m0-schema-consent-decisions.html`. D23 implemented (#28): `libs/contracts` and `docs/api-conventions.md` (decision 14). Decision 10 corrected to £15 (#20).
+- **2026-10-18:** D33/D36 implemented (#29): services renamed to `api-public-read` and `api-user` (decision 15); decisions 7 and 8 updated. DB user names stay until the schema PR.

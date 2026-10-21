@@ -1,5 +1,5 @@
 # Dev GCP infrastructure: network, registry, GKE Autopilot, secrets, backups,
-# and Cloud Run (api-read, running the images chosen in images.auto.tfvars).
+# and Cloud Run (api-public-read, running the images chosen in images.auto.tfvars).
 
 terraform {
   required_version = ">= 1.11"
@@ -49,7 +49,7 @@ variable "images" {
 }
 
 variable "image_overrides" {
-  description = "One-off overrides for a single apply, e.g. -var 'image_overrides={\"api-read\"=\"snapshot\"}'. The next apply without it returns to images.auto.tfvars."
+  description = "One-off overrides for a single apply, e.g. -var 'image_overrides={\"api-public-read\"=\"snapshot\"}'. The next apply without it returns to images.auto.tfvars."
   type        = map(string)
   default     = {}
   validation {
@@ -94,9 +94,9 @@ module "gcp" {
   ci_image_pusher_email    = local.bootstrap.ci_image_pusher_email
   ci_snapshot_pusher_email = local.bootstrap.ci_snapshot_pusher_email
 
-  images            = local.resolved_images
-  api_read_public   = false
-  api_read_invokers = ["user:joel@heisreal.today"]
+  images                   = local.resolved_images
+  api_public_read_public   = false
+  api_public_read_invokers = ["user:joel@heisreal.today"]
 }
 
 # --- Adopt the SurrealDB secrets created by hand on 2026-09-27 ---------------
