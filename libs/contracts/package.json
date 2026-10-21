@@ -1,0 +1,53 @@
+{
+  "name": "@heisreal/contracts",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "nx": {
+    "name": "contracts",
+    "tags": [
+      "type:lib",
+      "scope:shared"
+    ],
+    "targets": {
+      "lint-openapi": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/openapi/**/*",
+          "{projectRoot}/redocly.yaml",
+          "{projectRoot}/.redocly.lint-ignore.yaml",
+          {
+            "externalDependencies": [
+              "@redocly/cli"
+            ]
+          }
+        ],
+        "options": {
+          "command": "redocly lint --format=stylish",
+          "cwd": "{projectRoot}",
+          "env": {
+            "REDOCLY_TELEMETRY": "off",
+            "REDOCLY_SUPPRESS_UPDATE_NOTICE": "true"
+          }
+        }
+      },
+      "lint": {
+        "dependsOn": [
+          "lint-openapi"
+        ]
+      }
+    }
+  },
+  "dependencies": {}
+}

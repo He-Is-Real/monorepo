@@ -1,0 +1,950 @@
+openapi: 3.1.0
+info:
+  title: He Is Real Today — shared API components
+  version: 1.0.0-draft
+  description: |
+    **Not a deployable API.** Shared schemas, parameters, headers and responses referenced by
+    the per-service specs (`api-public-read.yaml`, `api-user.yaml`, `api-admin.yaml`,
+    `worker.yaml`) through relative `$ref`s, e.g. `./components.yaml#/components/schemas/StoryPublic`.
+    Conventions: `docs/api-conventions.md`. Decisions: `project/context/research/m0-schema-consent-decisions.html`.
+
+# No paths: this file only provides reusable components.
+paths: {}
+
+components:
+  parameters:
+    limit:
+      name: limit
+      in: query
+      description: Page size.
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 50
+    cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous response's `nextCursor`.
+      schema:
+        type: string
+    storyId:
+      name: id
+      in: path
+      required: true
+      description: Story ID. Opaque (the SurrealDB record ID without the `story:` prefix); don't parse it. Commands and admin routes use IDs; public queries use slugs (D30).
+      schema:
+        type: string
+    storyIdRelation:
+      name: storyId
+      in: path
+      required: true
+      description: ID of the related story (from `id` on a public story).
+      schema:
+        type: string
+    storySlug:
+      name: slug
+      in: path
+      required: true
+      description: The story's current or a previous slug. A previous slug answers `301` to the current one (D30).
+      schema:
+        type: string
+        pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+    tagSlug:
+      name: slug
+      in: path
+      required: true
+      description: Tag slug; also the tag's ID (`tag:<slug>`).
+      schema:
+        type: string
+        pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+    consentType:
+      name: type
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ConsentType'
+    ifMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: The `ETag` of the version being changed (D29). `412` if it isn't current, `428` if missing.
+      schema:
+        type: string
+        example: '"3"'
+    ifNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: A previously returned `ETag`; `304` if it is still current.
+      schema:
+        type: string
+        example: '"3"'
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Client-generated unique key (a UUID) for this request (IETF draft-ietf-httpapi-idempotency-key-header).
+        A retry with the same key and body returns the stored response; the same key with a different body
+        returns `422`. Keys are kept for 24 hours (D29).
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+
+  headers:
+    ETag:
+      description: Strong entity tag holding a single resource's `version` (D29), e.g. `"3"`. Send it back in `If-Match`.
+      schema:
+        type: string
+        example: '"3"'
+    CollectionETag:
+      description: |
+        Weak, representation-based validator (e.g. `W/"<hash of the response body>"`) for collections,
+        composite views and resources without a database version. Use it only with `If-None-Match`
+        (`304`), never with `If-Match`: commands take the individual resource's `version`.
+      schema:
+        type: string
+        example: W/"5f2b9c"
+    Location:
+      description: URL of the created resource or of the current slug.
+      schema:
+        type: string
+        format: uri-reference
+    CacheControlPublic:
+      description: Public queries (D30).
+      schema:
+        type: string
+        example: 'public, max-age=60, stale-while-revalidate=300'
+    CacheControlPrivate:
+      description: Personal and admin queries (D30).
+      schema:
+        type: string
+        example: 'private, no-store'
+
+  responses:
+    BadRequest:
+      description: The request is malformed or failed validation. Field errors are listed in `errors`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Missing or invalid Clerk token.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Authenticated, but the role, ownership or consent check failed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: No such resource (or not visible to the caller).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: The resource's state doesn't allow this command (e.g. not a draft, locked by another moderator).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PreconditionFailed:
+      description: "`If-Match` doesn't match the current version: re-read and retry (D29)."
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PreconditionRequired:
+      description: '`If-Match` is required on this command (D29).'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    IdempotencyKeyReused:
+      description: '`Idempotency-Key` was already used with a different request body (D29). Missing keys get `400`.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotModified:
+      description: |
+        The `If-None-Match` validator still matches. Echoes the same validator the matching `200`
+        returned (RFC 9110 §15.4.5): the strong `ETag` for a single resource, the weak `CollectionETag`
+        for a collection.
+      headers:
+        ETag:
+          description: The validator the matching `200` returned, strong (`"3"`) or weak (`W/"5f2b9c"`).
+          schema:
+            type: string
+    MovedToCurrentSlug:
+      description: An old slug (from `slugHistory`); `Location` holds the current URL (D30).
+      headers:
+        Location:
+          $ref: '#/components/headers/Location'
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlPublic'
+    Accepted:
+      description: Accepted; the work continues asynchronously.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CommandResult'
+    CommandApplied:
+      description: Command applied.
+      headers:
+        ETag:
+          $ref: '#/components/headers/ETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CommandResult'
+    Health:
+      description: Service and database are up.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Health'
+    HealthDown:
+      description: The database is unreachable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Health'
+
+  schemas:
+    Problem:
+      type: object
+      description: |
+        RFC 9457 problem details (D30), served as `application/problem+json`. Never echoes testimony
+        text or other personal data.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Identifies the problem type; `about:blank` when the status says it all.
+          example: https://www.heisreal.today/problems/validation-failed
+        title:
+          type: string
+          example: Validation failed
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          example: 400
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          description: Stable machine-readable code
+          example: validation_failed
+        errors:
+          type: array
+          description: Field errors (validation failures only).
+          items:
+            type: object
+            required: [pointer, message]
+            properties:
+              pointer:
+                type: string
+                description: JSON Pointer (RFC 6901) to the field
+                example: /title
+              code:
+                type: string
+                example: too_long
+              message:
+                type: string
+
+    CommandResult:
+      type: object
+      description: |
+        What every command returns (D28): the aggregate's ID and its version after the command. No
+        read-model data: re-query instead (read models update in the same transaction, D25).
+        `version` is `null` when the target has no version: append-only ledger events, and what Clerk
+        holds (roles, account settings).
+      required: [id, version]
+      properties:
+        id:
+          type: string
+        version:
+          type: [integer, 'null']
+          minimum: 1
+
+    Page:
+      type: object
+      description: Cursor page. No total counts (anti-addictive design).
+      required: [data, nextCursor]
+      properties:
+        data:
+          type: array
+          items: {}
+        nextCursor:
+          type: [string, 'null']
+          description: Cursor for the next page; `null` on the last page.
+
+    Version:
+      type: integer
+      minimum: 1
+      description: Optimistic-concurrency version (D29), +1 on every command. Also sent as the `ETag`.
+
+    Role:
+      type: string
+      description: Viewer(0) < User(1) < Moderator(2) < Admin(3) < SuperAdmin(4). Held in Clerk `publicMetadata.role` (D1).
+      enum: [Viewer, User, Moderator, Admin, SuperAdmin]
+
+    StoryStatus:
+      type: string
+      description: |
+        `draft` = saved, not submitted (created before upload); `pending` = submitted, in the moderation
+        queue; then `in_review` / `approved` / `rejected` / `changes_requested` / `withdrawn`.
+      enum:
+        [
+          draft,
+          pending,
+          in_review,
+          approved,
+          rejected,
+          changes_requested,
+          withdrawn,
+        ]
+
+    Format:
+      type: string
+      enum: [video, audio, written]
+
+    Tag:
+      type: object
+      required: [slug, name, category, version]
+      properties:
+        slug:
+          type: string
+          description: "Also the tag's ID (`tag:<slug>`)."
+          example: doubt
+        name:
+          type: string
+          maxLength: 40
+          example: Doubt
+        category:
+          type: string
+          enum: [theme, journey, emotion]
+        version:
+          $ref: '#/components/schemas/Version'
+
+    CreateTag:
+      type: object
+      required: [slug, name, category]
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        category:
+          type: string
+          enum: [theme, journey, emotion]
+
+    TagPatch:
+      type: object
+      description: JSON Merge Patch (RFC 7396). The slug (ID) can't change.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        category:
+          type: string
+          enum: [theme, journey, emotion]
+
+    MediaPlayback:
+      type: object
+      description: Playback-safe media info (no internal storage keys).
+      properties:
+        format:
+          type: string
+          enum: [video, audio]
+        playbackUrl:
+          type: [string, 'null']
+          description: Bunny.net playback URL
+        thumbnailUrl:
+          type: [string, 'null']
+        aspectRatio:
+          type: [string, 'null']
+          example: '9:16'
+        captionsUrl:
+          type: [string, 'null']
+          description: From M7 (transcription)
+        durationSeconds:
+          type: [integer, 'null']
+
+    StorySummary:
+      type: object
+      description: Card view for browse, related, favourites and feed. From `publicStory`; no metrics, no submitter data.
+      required: [id, slug, title, primaryFormat, tags, publishedAt]
+      properties:
+        id:
+          type: string
+          description: For commands such as favouriting.
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        bylineName:
+          type: [string, 'null']
+          description: '`null` = anonymous.'
+        primaryFormat:
+          $ref: '#/components/schemas/Format'
+        thumbnailUrl:
+          type: [string, 'null']
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        publishedAt:
+          type: string
+          format: date-time
+
+    StoryPublic:
+      type: object
+      description: |
+        Public detail view, read only from the `publicStory` read model (D26). Never holds the submitter,
+        consent, raw transcript, moderation data or quality signal.
+      required:
+        [
+          id,
+          slug,
+          title,
+          description,
+          primaryFormat,
+          media,
+          tags,
+          publishedAt,
+          version,
+        ]
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        body:
+          type: [string, 'null']
+          description: Written-story text.
+        bylineName:
+          type: [string, 'null']
+          description: '`null` = anonymous.'
+        primaryFormat:
+          $ref: '#/components/schemas/Format'
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaPlayback'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        publishedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          $ref: '#/components/schemas/Version'
+
+    ConsentSnapshot:
+      type: [object, 'null']
+      description: The latest ledger event of one consent type; `null` if there is none.
+      properties:
+        event:
+          type: string
+          enum: [granted, withdrawn]
+        dpaVersion:
+          type: string
+          example: v1
+        occurredAt:
+          type: string
+          format: date-time
+
+    StoryConsent:
+      type: object
+      description: |
+        Derived from the submitter's current ledger state, never stored on the story (D17): every story
+        of a person follows their latest consent.
+      properties:
+        religious:
+          $ref: '#/components/schemas/ConsentSnapshot'
+        publish:
+          $ref: '#/components/schemas/ConsentSnapshot'
+        share:
+          $ref: '#/components/schemas/ConsentSnapshot'
+        age18plus:
+          $ref: '#/components/schemas/ConsentSnapshot'
+
+    StoryMine:
+      type: object
+      description: The submitter's own view (read as the person, D27), including lifecycle and moderation feedback.
+      required:
+        [id, version, status, title, primaryFormat, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        version:
+          $ref: '#/components/schemas/Version'
+        slug:
+          type: string
+        status:
+          $ref: '#/components/schemas/StoryStatus'
+        title:
+          type: string
+        description:
+          type: string
+        body:
+          type: [string, 'null']
+        bylineName:
+          type: [string, 'null']
+        primaryFormat:
+          $ref: '#/components/schemas/Format'
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaPlayback'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        consent:
+          $ref: '#/components/schemas/StoryConsent'
+        rejectionFeedback:
+          type: [string, 'null']
+          description: Pastoral feedback after reject or request-changes.
+        submittedAt:
+          type: [string, 'null']
+          format: date-time
+        approvedAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    StoryModeration:
+      description: Moderator view of the story write model, including lock state and the submitter reference.
+      allOf:
+        - $ref: '#/components/schemas/StoryMine'
+        - type: object
+          properties:
+            submitterUserId:
+              type: string
+            lockedByUserId:
+              type: [string, 'null']
+            lockedAt:
+              type: [string, 'null']
+              format: date-time
+
+    FlaggedStory:
+      type: object
+      properties:
+        story:
+          $ref: '#/components/schemas/StoryModeration'
+        weightedConcernScore:
+          type: number
+          description: Trust-weighted; moderators only.
+        concerns:
+          type: array
+          items:
+            type: object
+            properties:
+              reason:
+                type: string
+              detail:
+                type: [string, 'null']
+              reporterTrust:
+                type: number
+              createdAt:
+                type: string
+                format: date-time
+
+    CreateDraftStory:
+      type: object
+      description: |
+        Creates a `draft` before any upload. The body carries no consent: consent stays in the person's
+        ledger (D17), granted through `POST /v1/account/consents`, and is checked, not carried. Creating,
+        editing or uploading to a draft needs current Art 9 consent; `/submit` also needs `publish` and
+        `age_18plus`.
+      required: [title, primaryFormat]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 140
+        description:
+          type: string
+          maxLength: 5000
+        body:
+          type: string
+          maxLength: 20000
+          description: Required when `primaryFormat` is `written`.
+        bylineName:
+          type: [string, 'null']
+          maxLength: 80
+          description: 'Name shown on the story; `null` = anonymous (D16).'
+        primaryFormat:
+          $ref: '#/components/schemas/Format'
+        tagSlugs:
+          type: array
+          items:
+            type: string
+          maxItems: 5
+
+    StoryPatch:
+      type: object
+      description: JSON Merge Patch (RFC 7396) on the editable fields. Never the status (D28).
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 140
+        description:
+          type: string
+          maxLength: 5000
+        body:
+          type: [string, 'null']
+          maxLength: 20000
+        bylineName:
+          type: [string, 'null']
+          maxLength: 80
+        tagSlugs:
+          type: array
+          items:
+            type: string
+          maxItems: 5
+
+    UploadUrlRequest:
+      type: object
+      required: [format, contentType]
+      properties:
+        format:
+          type: string
+          enum: [video, audio]
+        contentType:
+          type: string
+          example: video/mp4
+        fileSizeBytes:
+          type: integer
+          minimum: 1
+
+    UploadTarget:
+      description: |
+        The documented exception to "commands return only `{ id, version }`" (D28): short-lived
+        direct-upload credentials. Also carries the story's new version, for the next `If-Match`.
+      allOf:
+        - $ref: '#/components/schemas/CommandResult'
+        - type: object
+          required: [provider, uploadUrl, mediaRef, expiresAt]
+          properties:
+            provider:
+              type: string
+              enum: [bunny_tus]
+              description: Bunny Stream TUS upload.
+            uploadUrl:
+              type: string
+              format: uri
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+            mediaRef:
+              type: string
+              description: Opaque reference to pass to `/submit`.
+            expiresAt:
+              type: string
+              format: date-time
+
+    SubmitStory:
+      type: object
+      properties:
+        mediaRef:
+          type: string
+          description: The `mediaRef` from `/upload-url`. Required for video and audio stories.
+
+    ModerationFeedback:
+      type: object
+      properties:
+        feedbackToSubmitter:
+          type: string
+          maxLength: 2000
+          description: Shown to the submitter. Pastoral tone expected.
+
+    ModerationFeedbackRequired:
+      type: object
+      required: [feedbackToSubmitter]
+      properties:
+        feedbackToSubmitter:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Shown to the submitter. Pastoral tone expected.
+
+    CreateConcern:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          enum:
+            [inappropriate, inaccurate, not_a_testimony, safeguarding, other]
+        detail:
+          type: string
+          maxLength: 1000
+
+    AssignRole:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+
+    FeaturedStories:
+      type: object
+      required: [storyIds]
+      properties:
+        storyIds:
+          type: array
+          items:
+            type: string
+          maxItems: 12
+        version:
+          allOf:
+            - $ref: '#/components/schemas/Version'
+          readOnly: true
+
+    ConsentType:
+      type: string
+      enum: [special_category_religious, publish, share_socials, age_18plus]
+
+    ConsentMechanism:
+      type: string
+      description: '`legacy_import` exists only for the migrator (D22); the API never accepts it.'
+      enum: [web_form_submission, account_settings, reconsent_prompt]
+
+    ConsentRecord:
+      type: object
+      description: One immutable event from the append-only consent ledger.
+      properties:
+        id:
+          type: string
+        type:
+          $ref: '#/components/schemas/ConsentType'
+        event:
+          type: string
+          enum: [granted, withdrawn]
+        dpaVersion:
+          type: string
+        mechanism:
+          type: string
+          enum:
+            [
+              web_form_submission,
+              account_settings,
+              reconsent_prompt,
+              legacy_import,
+            ]
+        occurredAt:
+          type: string
+          format: date-time
+
+    ConsentState:
+      type: object
+      description: The signed-in person's current consent per type, plus the ledger.
+      properties:
+        current:
+          type: array
+          description: Latest state per consent type (the one definition is `fn::consent::current`, D17).
+          items:
+            type: object
+            properties:
+              type:
+                $ref: '#/components/schemas/ConsentType'
+              granted:
+                type: boolean
+              dpaVersion:
+                type: [string, 'null']
+              occurredAt:
+                type: [string, 'null']
+                format: date-time
+              reconsentRequired:
+                type: boolean
+                description: A material DPA change needs re-consent.
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsentRecord'
+
+    GrantConsent:
+      type: object
+      description: |
+        One ledger event. The DPA version must be published (the database refuses a draft, D20). The
+        server sets `occurredAt` and computes the evidence hash from the text it presented plus the
+        checkbox state.
+      required: [type, dpaVersion, mechanism]
+      properties:
+        type:
+          $ref: '#/components/schemas/ConsentType'
+        dpaVersion:
+          type: string
+          description: The DPA version consented to (the current published one).
+        mechanism:
+          $ref: '#/components/schemas/ConsentMechanism'
+
+    DpaVersion:
+      type: object
+      description: A version of the data-subject-facing Data Processing Agreement (D20, D22).
+      required: [id, status, materiality, contentHash, version]
+      properties:
+        id:
+          type: string
+          example: v1
+        kind:
+          type: string
+          enum: [standard, legacy]
+        status:
+          type: string
+          enum: [draft, published]
+          description: Published versions are immutable.
+        materiality:
+          type: string
+          enum: [minor, material]
+          description: '`material` means re-consent is required.'
+        documentUrl:
+          type: string
+          description: 'The DPA text (kept in the repo, `libs/legal/dpa/<id>.md`).'
+        contentHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: SHA-256 of the document.
+        changeSummary:
+          type: [string, 'null']
+        supersedes:
+          type: [string, 'null']
+        effectiveFrom:
+          type: [string, 'null']
+          format: date-time
+        version:
+          $ref: '#/components/schemas/Version'
+
+    CreateDpaDraft:
+      type: object
+      description: Creates a `draft`. The document lives in the repo; the server computes `contentHash` from it.
+      required: [id, materiality]
+      properties:
+        id:
+          type: string
+          pattern: '^v[0-9]+$'
+          example: v2
+        materiality:
+          type: string
+          enum: [minor, material]
+        changeSummary:
+          type: string
+        supersedes:
+          type: string
+        effectiveFrom:
+          type: string
+          format: date-time
+
+    Account:
+      type: object
+      description: |
+        The signed-in person's account, assembled from Clerk: email, name and country are edited through
+        Clerk's components, `notificationPrefs` is Clerk `privateMetadata` (D16), and the role is the
+        Clerk claim (D1). Only `id` and `createdAt` come from the SurrealDB `user` record, which holds
+        no settings.
+      required: [id, role, createdAt]
+      properties:
+        id:
+          type: string
+        version:
+          type: 'null'
+          description: Always `null`; Clerk holds no version, so account settings take no `If-Match`.
+        role:
+          $ref: '#/components/schemas/Role'
+        notificationPrefs:
+          type: object
+          description: Stored in Clerk `privateMetadata`, not in SurrealDB.
+          additionalProperties:
+            type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    AccountPatch:
+      type: object
+      description: JSON Merge Patch (RFC 7396), applied to Clerk `privateMetadata` through Clerk's Backend API.
+      additionalProperties: false
+      properties:
+        notificationPrefs:
+          type: object
+          additionalProperties:
+            type: boolean
+
+    UserAdmin:
+      type: object
+      description: Joins the `user` record with Clerk (fetched at read time, never stored, D16).
+      properties:
+        id:
+          type: string
+        clerkUserId:
+          type: [string, 'null']
+          description: '`null` for a legacy person without a Clerk account (D22).'
+        email:
+          type: [string, 'null']
+          format: email
+        displayName:
+          type: [string, 'null']
+        role:
+          $ref: '#/components/schemas/Role'
+        acceptedSubmissions:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        gdprDeletedAt:
+          type: [string, 'null']
+          format: date-time
+
+    Health:
+      type: object
+      required: [status, service, db]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        service:
+          type: string
+          example: api-public-read
+        db:
+          type: string
+          enum: [up, down]

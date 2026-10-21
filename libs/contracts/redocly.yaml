@@ -1,0 +1,24 @@
+# Lints the OpenAPI contracts: `pnpm nx run contracts:lint-openapi` (also runs as part of `lint`).
+extends:
+  - recommended-strict # every warning fails the lint
+
+apis:
+  api-public-read:
+    root: openapi/api-public-read.yaml
+  api-user:
+    root: openapi/api-user.yaml
+  api-admin:
+    root: openapi/api-admin.yaml
+  worker:
+    root: openapi/worker.yaml
+
+rules:
+  info-license: off # private, unlicensed project
+  no-unused-components: error
+  # Extensions used in the specs (see docs/api-conventions.md).
+  rule/x-milestone:
+    subject: { type: Operation, property: x-milestone }
+    assertions:
+      defined: true
+      enum: [M0, M1, M2, M3, M4, M5, M6, M7, M8]
+    message: Every operation needs an x-milestone (M0–M8).

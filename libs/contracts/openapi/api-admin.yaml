@@ -1,0 +1,719 @@
+openapi: 3.1.0
+info:
+  title: He Is Real Today — api-admin
+  version: 1.0.0-draft
+  description: |
+    **Moderation and admin.** The moderation queue and decisions, flag triage, role assignment, tag
+    and featured-story curation, and DPA versions. Its own service and database login (D13, D33).
+
+    - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
+      (Moderator for moderation; Admin / SuperAdmin for the rest). Called directly by the browser (D31).
+    - May read the story write model (moderation needs pending stories); public reads stay on
+      `api-public-read`.
+    - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
+    - Commands return `{ id, version }` (D28); modifying commands need `If-Match` (`412`/`428`) (D29).
+    - Queries return an `ETag` and `Cache-Control: private, no-store`.
+    - `x-requires-consent` marks routes guarded by `@RequiresConsent` (D21); every other route carries
+      `@NoConsentRequired(reason)` in code.
+    - `x-milestone` on each operation is the delivery milestone that builds it.
+
+    Conventions: `docs/api-conventions.md`.
+  contact:
+    name: He Is Real Today
+    url: https://www.heisreal.today
+
+servers:
+  - url: https://{host}
+    description: The service's generated Cloud Run URL this phase (D31); no custom domain yet.
+    variables:
+      host:
+        default: api-admin.run.app
+        description: '`api-admin-<hash>.europe-west2.run.app`'
+
+security:
+  - clerkBearer: []
+
+tags:
+  - name: Health
+    description: 'Liveness and readiness.'
+  - name: Moderation
+    description: 'The queue, pick-up lock, decisions and flags.'
+  - name: Admin
+    description: 'Users and roles, featured stories.'
+  - name: Tags
+    description: 'Tag taxonomy writes.'
+  - name: DPA
+    description: 'Data Processing Agreement versions (GDPR).'
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealthAdmin
+      summary: Liveness and readiness probe
+      description: Unversioned (D30).
+      security: []
+      x-milestone: M0
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/Health'
+        '503':
+          $ref: './components.yaml#/components/responses/HealthDown'
+
+  # ------------------------------------------------------------------ moderation
+  /v1/moderation/queue:
+    get:
+      tags: [Moderation]
+      operationId: getModerationQueue
+      summary: Pending submissions, oldest first
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/limit'
+        - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: A page of the queue.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './components.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: './components.yaml#/components/schemas/StoryModeration'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+
+  /v1/moderation/stories/{id}:
+    get:
+      tags: [Moderation]
+      operationId: getModerationStory
+      summary: A story under moderation
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The story write model, with lock state and derived consent.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/StoryModeration'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+
+  /v1/moderation/stories/{id}/lock:
+    post:
+      tags: [Moderation]
+      operationId: lockStory
+      summary: Pick up (lock) a story for review
+      description: |
+        Command. A transaction-guarded update; on a RocksDB optimistic-transaction conflict the handler
+        retries. `409` if another moderator holds the lock.
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/moderation/stories/{id}/release:
+    post:
+      tags: [Moderation]
+      operationId: releaseStory
+      summary: Release my lock back to the queue
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/moderation/stories/{id}/approve:
+    post:
+      tags: [Moderation]
+      operationId: approveStory
+      summary: Approve and publish a story
+      description: |
+        Command `ApproveStory`. Re-checks the submitter's consent in the ledger at this moment, not just
+        at submission (D21), then creates the `publicStory` row, a `moderationReview` and an `auditLog`
+        entry in one transaction. The caller must hold the lock (`409`). The submitter is emailed after
+        the commit (address fetched from Clerk, D16).
+      x-required-role: Moderator
+      x-requires-consent:
+        subject: submitter
+        types: [special_category_religious, publish, age_18plus]
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/ModerationFeedback'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/moderation/stories/{id}/reject:
+    post:
+      tags: [Moderation]
+      operationId: rejectStory
+      summary: Reject a story
+      description: Command `RejectStory`. Feedback to the submitter is required. The caller must hold the lock.
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/ModerationFeedbackRequired'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/moderation/stories/{id}/request-changes:
+    post:
+      tags: [Moderation]
+      operationId: requestStoryChanges
+      summary: Send a story back to its submitter for changes
+      description: Command `RequestStoryChanges` (→ `changes_requested`). Feedback is required. The caller must hold the lock.
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/ModerationFeedbackRequired'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/moderation/stories/{id}/escalate:
+    post:
+      tags: [Moderation]
+      operationId: escalateStory
+      summary: Escalate a story to a senior moderator
+      description: Command `EscalateStory`. Optional internal note; nothing is sent to the submitter.
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  maxLength: 2000
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  /v1/moderation/flags:
+    get:
+      tags: [Moderation]
+      operationId: getFlags
+      summary: Flagged stories, by trust-weighted concern
+      x-required-role: Moderator
+      x-milestone: M6
+      parameters:
+        - $ref: './components.yaml#/components/parameters/limit'
+        - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: A page of flagged stories.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './components.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: './components.yaml#/components/schemas/FlaggedStory'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+
+  # ------------------------------------------------------------------ admin
+  /v1/admin/users:
+    get:
+      tags: [Admin]
+      operationId: listUsers
+      summary: List and search users
+      description: Joins the `user` records with Clerk's Backend API; email and name are never stored (D16).
+      x-required-role: Admin
+      x-milestone: M5
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: role
+          in: query
+          schema:
+            $ref: './components.yaml#/components/schemas/Role'
+        - $ref: './components.yaml#/components/parameters/limit'
+        - $ref: './components.yaml#/components/parameters/cursor'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: A page of users.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './components.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: './components.yaml#/components/schemas/UserAdmin'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+
+  /v1/admin/users/{id}/assign-role:
+    post:
+      tags: [Admin]
+      operationId: assignRole
+      summary: Assign a user's role
+      description: |
+        Command `AssignRole`. Clerk is the source of truth for roles (D1): this writes Clerk
+        `publicMetadata.role` and an `auditLog` entry. Clerk holds no version, so there is no
+        `If-Match` and the result's `version` is `null`.
+      x-required-role: SuperAdmin
+      x-milestone: M3
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User ID (opaque).
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/AssignRole'
+      responses:
+        '200':
+          description: Role assigned.
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+
+  /v1/admin/stories/featured:
+    get:
+      tags: [Admin]
+      operationId: getFeaturedStories
+      summary: The featured-story list
+      description: Gives the `ETag` the replace below needs.
+      x-required-role: Admin
+      x-milestone: M5
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: Featured story IDs, in order.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/FeaturedStories'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+    put:
+      tags: [Admin]
+      operationId: setFeaturedStories
+      summary: Replace the featured-story list
+      x-required-role: Admin
+      x-milestone: M5
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/FeaturedStories'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  # ------------------------------------------------------------------ tags
+  /v1/tags:
+    post:
+      tags: [Tags]
+      operationId: createTag
+      summary: Create a tag
+      description: |
+        CRUD create. The slug is the ID (`tag:<slug>`), so a repeat returns `409` rather than creating a
+        duplicate; no `Idempotency-Key` is needed. Tags are seeded by migration in M1.
+      x-required-role: Admin
+      x-milestone: M5
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/CreateTag'
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location:
+              $ref: './components.yaml#/components/headers/Location'
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+
+  /v1/tags/{slug}:
+    patch:
+      tags: [Tags]
+      operationId: updateTag
+      summary: Rename or recategorise a tag
+      description: Stories link tags by reference and fetch them at read time (D15), so nothing else changes.
+      x-required-role: Admin
+      x-milestone: M5
+      parameters:
+        - $ref: './components.yaml#/components/parameters/tagSlug'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: './components.yaml#/components/schemas/TagPatch'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+    delete:
+      tags: [Tags]
+      operationId: deleteTag
+      summary: Delete an unused tag
+      description: '`409` while any story still uses the tag.'
+      x-required-role: Admin
+      x-milestone: M5
+      parameters:
+        - $ref: './components.yaml#/components/parameters/tagSlug'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  # ------------------------------------------------------------------ DPA (D20)
+  /v1/admin/dpa:
+    get:
+      tags: [DPA]
+      operationId: listDpaVersions
+      summary: All DPA versions, drafts included
+      x-required-role: SuperAdmin
+      x-milestone: M5
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: Versions, newest first.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: './components.yaml#/components/schemas/DpaVersion'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+    post:
+      tags: [DPA]
+      operationId: createDpaDraft
+      summary: Create a draft DPA version
+      description: CRUD create. Nobody can consent to a draft (D20); publishing is a separate command.
+      x-required-role: SuperAdmin
+      x-milestone: M5
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/CreateDpaDraft'
+      responses:
+        '201':
+          description: Draft created.
+          headers:
+            Location:
+              $ref: './components.yaml#/components/headers/Location'
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+
+  /v1/admin/dpa/{version}/publish:
+    post:
+      tags: [DPA]
+      operationId: publishDpa
+      summary: Publish a draft DPA version
+      description: |
+        Command `PublishDpa`. A published version is immutable (enforced by the database). A `material`
+        change starts the re-consent fan-out (`dpa-change-notify`, worker tier, M7).
+      x-required-role: SuperAdmin
+      x-milestone: M5
+      parameters:
+        - name: version
+          in: path
+          required: true
+          description: DPA version ID (e.g. `v2`).
+          schema:
+            type: string
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+components:
+  securitySchemes:
+    clerkBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Clerk session JWT, sent by the browser. Required on every route except `/health`; the minimum role is per operation.
