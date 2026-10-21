@@ -201,7 +201,7 @@ short-lived S3 presigned PUT for `https://uk-s3.storage.bunnycdn.com/heisreal-de
 S3-compatible (create-time only). Bunny documents presigned URLs (S3 API in public preview since
 2026-07), but only shows GET; **before M2 relies on it, prove a presigned PUT** with one tiny
 file (then delete it), including whether signed `Content-Length`/`Content-Type` are enforced.
-If not, the options are in the 0.7 PR's "Questions for Joel".
+If not, the options are in #39 ("Questions for Joel").
 
 **Cost:** Bunny bills at least $1 a month per account; dev usage (a few test files) stays under
 it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, free encoding.
