@@ -11,7 +11,7 @@ automated tests. It also records what had to change in the draft and what is sti
 | ------------------------------------------- | --------------------------------------------------------------- |
 | `libs/database/schema/schema.surql`         | Declarative schema (D14), applied in full in one transaction    |
 | `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
-| `libs/database/schema/data/000N-*.surql`    | Run-once seed 0001 (draft DPA v1); 0002 dropped (D44)           |
+| `libs/database/schema/data/000N-*.surql`    | Run-once: 0001 draft DPA v1; 0002 dropped (D44); 0003 dev story |
 | `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
 | `libs/database/integration/*.int-spec.ts`   | 390 integration tests against a real SurrealDB                  |
 | `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
@@ -345,6 +345,9 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
   logged. **`surreal import` requires
   `OPTION IMPORT`**, which switches off events and field `VALUE`/`ASSERT`, so it can't run data
   scripts; the runner uses `/rpc` instead.
+- **Re-defining a full-text index over rows can make the COMMIT fail with a retryable conflict**
+  (3.2.4 + RocksDB, seen re-running the schema with a `publicStory` row): the migration runner
+  retries such a step (0.9).
 - **In a failed transaction, surrealdb.js 2.0.x's `collect()` throws "The query was not
   executed due to a failed transaction"**, not the `THROW` message. Read `.responses()` for the
   root cause. 2.1.0 fixes this (surrealdb.js#689).

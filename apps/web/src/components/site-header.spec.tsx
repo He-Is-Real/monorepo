@@ -20,12 +20,24 @@ jest.mock('@/components/auth/clerk-browser', () => ({
 jest.mock('@/components/auth/account-control', () => ({
   AccountControl: () => <span>account</span>,
 }));
+jest.mock('@/components/theme/theme-toggle', () => ({
+  ThemeToggle: () => <button>theme</button>,
+}));
+jest.mock('@/components/logo', () => ({ Logo: () => <span>logo</span> }));
 
 describe('SiteHeader', () => {
   const saved = process.env['CLERK_PUBLISHABLE_KEY'];
   afterEach(() => {
     if (saved === undefined) delete process.env['CLERK_PUBLISHABLE_KEY'];
     else process.env['CLERK_PUBLISHABLE_KEY'] = saved;
+  });
+
+  it('links home and offers the theme toggle', async () => {
+    const html = renderToStaticMarkup(await SiteHeader());
+    expect(html).toMatch(
+      /<a[^>]*aria-label="He Is Real Today, home"[^>]*href="\/"/,
+    );
+    expect(html).toContain('<button>theme</button>');
   });
 
   it('hands the publishable key, read at request time, to Clerk in the browser', async () => {
@@ -40,6 +52,6 @@ describe('SiteHeader', () => {
     delete process.env['CLERK_PUBLISHABLE_KEY'];
     const html = renderToStaticMarkup(await SiteHeader());
     expect(html).not.toContain('account');
-    expect(html).toMatch(/^<header[^>]*><\/header>$/);
+    expect(html).toContain('<button>theme</button>');
   });
 });

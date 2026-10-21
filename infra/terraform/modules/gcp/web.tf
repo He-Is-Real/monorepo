@@ -1,8 +1,8 @@
 # web (Next.js, apps/web) on Cloud Run (D4): same image pattern and scaling as
 # the APIs. It server-renders from api-public-read only (D32), so it has no VPC
 # access, no database login and no secrets: its service account holds no roles.
-# Private in dev until the walking-skeleton page (0.9) makes it public together
-# with api-public-read (D31), like decision 8.
+# Public since the walking-skeleton page (0.9), together with api-public-read
+# (D31; was private, decision 8).
 
 resource "google_service_account" "web" {
   project      = var.project_id
@@ -53,6 +53,18 @@ resource "google_cloud_run_v2_service" "web" {
       env {
         name  = "CLERK_PUBLISHABLE_KEY"
         value = var.clerk_publishable_key
+      }
+
+      # The home page's story (0.9: the dev seed's test story). Browse arrives in M1.
+      env {
+        name  = "FEATURED_STORY_SLUG"
+        value = var.web_featured_story_slug
+      }
+
+      # X-Robots-Tag and a robots meta tag: not indexed while the site isn't real.
+      env {
+        name  = "ROBOTS_NOINDEX"
+        value = tostring(var.web_noindex)
       }
 
       # As for the APIs: ready = the port is open. GET /health exists for

@@ -73,3 +73,7 @@ next-env.d.ts
 
 # Python bytecode (libs/database/schema/migrate.py)
 __pycache__/
+
+# Written by `next dev` when agentRules is on (apps/web/next.config.js turns it off)
+/apps/web/AGENTS.md
+/apps/web/CLAUDE.md

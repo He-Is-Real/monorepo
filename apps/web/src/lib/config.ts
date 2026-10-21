@@ -29,3 +29,20 @@ export function clerkPublishableKey(): string | undefined {
   }
   return key;
 }
+
+/**
+ * The story the home page shows (0.9: the dev seed's test story), or undefined. Set by
+ * Terraform per environment; browse arrives in M1.
+ */
+export function featuredStorySlug(): string | undefined {
+  const slug = process.env['FEATURED_STORY_SLUG']?.trim();
+  return slug ? slug : undefined;
+}
+
+/**
+ * Whether search engines are told not to index this deployment (`X-Robots-Tag` and a robots
+ * meta tag). Terraform turns it on in dev: the site is public but not real yet.
+ */
+export function robotsNoindex(): boolean {
+  return process.env['ROBOTS_NOINDEX'] === 'true';
+}

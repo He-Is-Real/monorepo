@@ -20,6 +20,7 @@ module "migration" {
   dpa_dir              = var.dpa_dir
   clerk_jwt_public_key = var.clerk_jwt_public_key
   identity_hash        = module.identity.hash
+  seed_dev_story       = var.seed_dev_story
   job_template         = jsondecode(data.kustomization_overlay.surrealdb.manifests[local.migrate_template_id])
 }
 

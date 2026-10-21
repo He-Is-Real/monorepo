@@ -9,6 +9,9 @@ const nextConfig = {
   output: 'standalone',
   outputFileTracingRoot: join(__dirname, '../..'),
   poweredByHeader: false,
+  // Don't write AGENTS.md / CLAUDE.md into apps/web on `next dev` (the repo's own AGENTS.md
+  // applies; .gitignore backstops this).
+  agentRules: false,
   reactStrictMode: true,
   images: {
     // No runtime image optimiser (and no sharp) on Cloud Run: our own assets

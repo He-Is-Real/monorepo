@@ -19,6 +19,7 @@ source of truth, so change them in the same PR as the code.
   `NodePort` Services and no Ingress/Gateway. Workers (Dapr workflow, inference workers) connect
   outbound only, to Pub/Sub. Public entry points are Cloud Run services only.
 - Testimonies are GDPR Article 9 data. New personal data must fit the consent and erasure model.
+- **Responsive everywhere (Joel):** every page and view is mobile-first and works from 320 px phones through foldables, tablets (both orientations) and 1920 px+ desktops: no horizontal scroll, 44 px touch targets, readable line lengths, safe-area insets. Cover each new page in `apps/web/e2e` (device matrix in `devices.ts`).
 - **All cloud deployments and modifications go through Terraform (`infra/terraform`), including
   proofs of concept.** Never use console clicks, `gcloud … create/update`, or `kubectl apply` against
   GKE. Adopt anything made by hand with `import` blocks. Read-only commands are fine. Never

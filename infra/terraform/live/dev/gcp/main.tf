@@ -101,11 +101,20 @@ module "gcp" {
   ci_image_pusher_email    = local.bootstrap.ci_image_pusher_email
   ci_snapshot_pusher_email = local.bootstrap.ci_snapshot_pusher_email
 
-  images                   = local.resolved_images
-  api_public_read_public   = false
-  api_public_read_invokers = ["user:joel@heisreal.today"]
-  web_public               = false # public with api-public-read at 0.9 (D31)
-  web_invokers             = ["user:joel@heisreal.today"]
+  images = local.resolved_images
+  # Public since the walking-skeleton page (0.9, D31): Cloud Run's invoker check is off. Both
+  # stay capped at 2 instances and scale to zero (budget, decision 10).
+  api_public_read_public   = true
+  api_public_read_invokers = []
+  web_public               = true
+  web_invokers             = []
+  # web's two generated URLs (project number and hash forms); CORS on the APIs (D31).
+  web_origins = [
+    "https://web-jbxp6odnsa-nw.a.run.app",
+    "https://web-236063168938.europe-west2.run.app",
+  ]
+  web_featured_story_slug = "test-story-walking-skeleton" # seed 0003, dev only
+  web_noindex             = true
   # The Clerk dev instance (D7: no production instance without our own domain). Public.
   clerk_publishable_key   = "pk_test_c3VwZXJiLW1pbmstODk2Ny5jbGVyay5hY2NvdW50cy5kZXYk"
   run_deletion_protection = var.run_deletion_protection

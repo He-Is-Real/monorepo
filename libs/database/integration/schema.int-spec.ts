@@ -23,7 +23,7 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
   it('runs each seed once: re-running is a no-op', async () => {
     expect(await t.migrate()).toMatchObject({
       applied: [],
-      alreadyApplied: ['0001-seed-dpa-v1'],
+      alreadyApplied: ['0001-seed-dpa-v1', '0003-dev-seed-story'],
     });
     const migrator = await t.migrator();
     expect(
@@ -31,7 +31,7 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
         migrator,
         'SELECT VALUE record::id(id) FROM _migration ORDER BY id',
       ),
-    ).toEqual(['0001-seed-dpa-v1']);
+    ).toEqual(['0001-seed-dpa-v1', '0003-dev-seed-story']);
     expect(
       await rows(
         migrator,

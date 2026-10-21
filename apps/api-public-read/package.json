@@ -96,6 +96,28 @@
         "options": {
           "command": "cp tools/docker/nest-service.Dockerfile apps/api-public-read/dist/Dockerfile"
         }
+      },
+      "test-integration": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/libs/database/integration/support/**/*",
+          "{workspaceRoot}/libs/database/schema/**/*",
+          "{workspaceRoot}/libs/legal/dpa/**/*",
+          "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
+          {
+            "externalDependencies": [
+              "surrealdb",
+              "jest"
+            ]
+          }
+        ],
+        "outputs": [],
+        "options": {
+          "command": "jest --config jest.integration.config.cts",
+          "cwd": "{projectRoot}"
+        }
       }
     },
     "tags": [
@@ -106,15 +128,18 @@
   "dependencies": {
     "@heisreal/database": "workspace:*",
     "@heisreal/health": "workspace:*",
+    "@heisreal/http": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
+    "surrealdb": "^2.0.8",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@nestjs/testing": "^11.0.0"
+    "@nestjs/testing": "^11.0.0",
+    "@types/express": "^5.0.6"
   }
 }

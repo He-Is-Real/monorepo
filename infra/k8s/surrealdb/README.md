@@ -121,7 +121,8 @@ and the runner, `migrate.py` (its header has the details). On GKE the `cluster` 
 the ConfigMap `surrealdb-migration-<hash>` and runs the Job `surrealdb-migrate-<hash>` as
 `migrator`. The hash covers every file, the Terraform parameters (DPA hashes, Clerk key, identity
 config) and the Job spec: change any of them and the next apply replaces the Job, which runs;
-change nothing and there's no diff. The Job doesn't retry on its own (`backoffLimit: 0`).
+change nothing and there's no diff. The Job doesn't retry on its own (`backoffLimit: 0`); inside a run, the
+runner retries a step whose COMMIT the server refused with a retryable conflict (up to 3 attempts).
 
 The runner uses the `google/cloud-sdk` image (already pinned for backups): the SurrealDB image has
 no shell, and `surreal import` requires `OPTION IMPORT`, which switches off events and field
@@ -258,6 +259,10 @@ records it in `_migration` with a checksum. Add tests in `libs/database/integrat
 `infra/clerk/README.md`). Empty, the migration removes `DEFINE ACCESS clerk`, so no token can open
 a person session. Never a private key (the variable refuses one). After a Clerk key rotation,
 update it here and in the services' `CLERK_JWT_PUBLIC_KEY`, then migrate.
+
+**Dev story** (task 0.9): `seed_dev_story` (Terraform, true only in `live/dev/cluster`;
+`--seed-dev-story` for `local-migration.mjs`) makes data script 0003 publish one obviously fake story.
+Off, the script records itself as applied and writes nothing, so it can't be turned on later.
 
 **DPA text** (D20): Terraform passes each `libs/legal/dpa/*.md` file's sha256 (`$dpa_sha256`).
 While a version is a draft, its `contentHash` follows the file; once published, a changed file

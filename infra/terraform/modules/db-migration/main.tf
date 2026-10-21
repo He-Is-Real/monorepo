@@ -36,6 +36,12 @@ variable "clerk_jwt_public_key" {
   }
 }
 
+variable "seed_dev_story" {
+  description = "Seed 0003's walking-skeleton story (test content, M0 0.9). true only in live/dev/cluster; anywhere else the script records itself as applied and writes nothing."
+  type        = bool
+  default     = false
+}
+
 variable "identity_hash" {
   description = "The identity config SurrealDB must have restarted with (modules/db-identity) before the Job migrates; null = don't wait for one."
   type        = string
@@ -58,6 +64,7 @@ locals {
     clerk_jwt_public_key = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
     dpa_sha256           = local.dpa_sha256
     identity_hash        = var.identity_hash
+    seed_dev_story       = var.seed_dev_story
   }
 
   bundle = merge(
