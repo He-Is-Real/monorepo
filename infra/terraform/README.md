@@ -16,16 +16,20 @@ modules/
   cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
   db-migration/ the D14 migration bundle and Job name (no providers; `terraform test` offline)
   db-identity/ SurrealDB's identity config: init Secret names, restart hash, marker (same)
+  bunny/       Bunny.net: Stream library, storage zone + pull zone, app keys in Secret Manager
 live/dev/      one root per concern, applied in this order:
   bootstrap/   developer only (needs billing permissions)        state: dev/bootstrap
   gcp/         developer or the manual GitHub workflow            state: dev/gcp
   images/      developer (local image builds; needs Docker)       state: dev/images
   cluster/     developer or the manual GitHub workflow            state: dev/cluster
+  bunny/       developer only, with tools/scripts/tf-bunny.sh      state: dev/bunny (private)
 ```
 
 State is in `gs://heisreal-dev-tfstate` (London, versioned, locked). Roots read each other's
 outputs through `terraform_remote_state`. **State holds no secrets:** passwords are write-only
-and Google tokens are `ephemeral`, so keep it that way when adding resources.
+and Google tokens are `ephemeral`, so keep it that way when adding resources. The one approved
+exception is `bunny` ([below](#bunnynet)): nothing may read its state through
+`terraform_remote_state`, and no CI identity can.
 
 ## Day to day
 
@@ -108,6 +112,10 @@ keep that from becoming write access:
    approved. Fork PRs get no OIDC token at all, and the job runs only for this repository's own
    PRs and pushes to `main`, once the repository variable `CLUSTER_PLAN_ENABLED` is `true`.
 
+**The `bunny` root is never planned or applied by CI** (only `validate`): its plan needs the
+Bunny account key and its state holds Bunny keys, and `tf-planner` is usable from any branch of
+this repository. See [Bunny.net](#bunnynet).
+
 The gcp plan keeps the separate read-only `tf-planner`. A plan that needs more (a changed
 Namespace, the ESO Helm release) fails loudly here and is planned by the manual workflow
 (`tf-deployer`) or locally instead.
@@ -144,6 +152,59 @@ take the state lock.
   runs plus reads of the overlay's kinds in `database` (see CI above). Only runs approved in the
   `cluster-plan` environment can use it.
 - **Backups bucket:** only the backup job (create-only) and developers (restores).
+- **`dev/bunny/` state:** developers only. The state bucket's bindings for `tf-deployer`,
+  `tf-planner` and `tf-cluster-planner` carry an IAM condition that excludes the prefix
+  (`modules/bootstrap/state.tf`; they can still list object names). The `bunny` root checks
+  that condition before every plan and refuses to run without it.
+
+## Bunny.net
+
+`live/dev/bunny` (module `modules/bunny`) holds the dev media services: Stream library
+`heisreal-dev-media` (video and audio), storage zone `heisreal-dev-images` (Standard tier,
+London, S3-compatible, no replication) and pull zone `heisreal-dev-images`
+(`heisreal-dev-images.b-cdn.net`, EU + US routing) in front of it. No custom hostnames (D7).
+Transcription, smart titles/descriptions, content tagging, MP4 fallback, kept originals, premium
+encoding, Optimizer, Origin Shield, Perma-Cache and WebSockets are all set off explicitly, so
+turning one on in the dashboard shows up as drift. (Automatic chapters and moments aren't in the
+provider; both are off by default and would switch transcribing on, which shows as drift.)
+
+**Keys and state.** The provider stores the library keys, the zone passwords and the pull zone's
+token key in state, with no write-only alternative: the approved exception in `AGENTS.md`.
+Mitigation: the prefix is private to developers (above), CI never touches it, plans are never
+saved to files (a saved plan has the same keys in clear text) and debug logs are off. The account
+API key lives in Secret Manager (`bunny-account-api-key`, container from the `gcp` root, readable
+by developers only) and reaches the provider through an `ephemeral` read, so it's in neither
+state nor plans. The keys the apps will need are copied into `bunny-stream-api-key` and
+`bunny-storage-password` with write-only versions; apps read them through `libs/secrets`. No
+service has access yet: grants come with the milestone that uses them (M2, api-user).
+
+**`tools/scripts/tf-bunny.sh`** runs Terraform for this root (any command:
+`tools/scripts/tf-bunny.sh plan`), refusing `-out` and clearing `TF_LOG*`. `tf-bunny.sh bunny
+<args>` runs the bunny CLI with the account key from Secret Manager in `BUNNYNET_API_KEY` for
+that one process, so you never need `bunny login`, a profile or a `.env` file. Don't run
+`terraform state pull` or `show -json` here unless you must: they print the keys.
+
+| Task                           | How                                                                                                                                                                                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| First setup (once)             | apply `bootstrap` (private state prefix) and `gcp` (secret container), add the account key (next row), then `tf-bunny.sh init` and `apply`                                                                                                                                                             |
+| Add or replace the account key | `jq -j .profiles.default.api_key ~/.config/bunnynet.json \| gcloud secrets versions add bunny-account-api-key --project heisreal-dev --data-file=-` (from a `bunny login` profile; never echo it), then `bunny logout`                                                                                 |
+| Check the AI features are off  | `tools/scripts/tf-bunny.sh bunny api GET /videolibrary/<id> \| jq '{EnableTranscribing, EnableTranscribingChaptersGeneration, EnableTranscribingMomentsGeneration, EnableContentTagging, KeepOriginalFiles, EnableMP4Fallback, ReplicationRegions}'` (keep the filter: the response includes the keys) |
+| Rotate a library or zone key   | reset it at Bunny (`tf-bunny.sh bunny ...`), then `tf-bunny.sh apply`: the new value becomes a new secret version; disable the old one once services restarted                                                                                                                                         |
+
+**Uploads (built in M2; services never handle media bytes, as in the prototype).** Video and
+audio: api-user creates the video (`POST video.bunnycdn.com/library/{libraryId}/videos` with the
+library key) and returns `libraryId`, `videoId`, `expirationTime` and
+`signature = sha256(libraryId + libraryKey + expirationTime + videoId)`; the browser uploads to
+`https://video.bunnycdn.com/tusupload` with those as headers. Images: api-user signs a
+short-lived S3 presigned PUT for `https://uk-s3.storage.bunnycdn.com/heisreal-dev-images/<key>`
+(SigV4; access key = zone name, secret = `bunny-storage-password`), which is why the zone is
+S3-compatible (create-time only). Bunny documents presigned URLs (S3 API in public preview since
+2026-07), but only shows GET; **before M2 relies on it, prove a presigned PUT** with one tiny
+file (then delete it), including whether signed `Content-Length`/`Content-Type` are enforced.
+If not, the options are in the 0.7 PR's "Questions for Joel".
+
+**Cost:** Bunny bills at least $1 a month per account; dev usage (a few test files) stays under
+it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, free encoding.
 
 ## Cost guardrails
 

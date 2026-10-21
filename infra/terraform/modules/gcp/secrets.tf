@@ -62,3 +62,23 @@ resource "google_service_account_iam_member" "surrealdb_secrets_wi" {
   member             = "serviceAccount:${local.wi_pool}[database/surrealdb-secrets]"
   depends_on         = [google_container_cluster.this] # creates the identity pool
 }
+
+# Bunny.net account API key, used only by the bunny root's provider (read
+# ephemerally at plan/apply time, never written to state). Terraform owns the
+# container; the value is human-supplied: a developer adds it as a new version
+# (runbook: infra/terraform/README.md "Bunny.net"). No accessor grants: only
+# developers (project owners) can read it. tf-deployer can manage the
+# container but not read versions (its custom role has no versions.access).
+resource "google_secret_manager_secret" "bunny_account_api_key" {
+  project   = var.project_id
+  secret_id = "bunny-account-api-key"
+  labels    = merge(local.labels, { component = "bunny" })
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+}

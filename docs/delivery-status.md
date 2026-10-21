@@ -29,19 +29,19 @@ recorded here.
 
 ## M0: Walking skeleton
 
-| Task                          | Status         | Where                                                                        |
-| ----------------------------- | -------------- | ---------------------------------------------------------------------------- |
-| 0.1 Repo setup                | ✅ Done        | #1                                                                           |
-| 0.2 Backend scaffold          | ✅ Done        | #1, CI fixes in #3, #10, #12                                                 |
-| API contracts + conventions   | ✅ Done        | #28: `libs/contracts`, `docs/api-conventions.md` (D23)                       |
-| Service rename (D33, D36)     | ✅ Done        | #29                                                                          |
-| 0.3 Database schema v1        | ✅ Done        | #31 (schema), #32 (D14 migration Job, D24 step 4). Applied to dev 2026-10-21 |
-| 0.8 Consent foundation (GDPR) | ⚪ Next        | Built alongside 0.3                                                          |
-| 0.4 Frontend scaffold         | ⚪ To do       | `apps/web` is a placeholder (Next.js 16.3, #11)                              |
-| 0.5 Auth (Clerk)              | ⚪ To do       | Clerk app exists, dev instance only (see below)                              |
-| 0.6 Sentry + Umami            | ⏸ Deferred     | Out of the current phase (D5). GCP Cloud Logging / Error Reporting meanwhile |
-| 0.7 Terraform                 | 🟡 Partly done | GCP done. Still to add: Bunny.net. Cloudflare DNS is out of this phase (D7)  |
-| 0.9 Walking-skeleton page     | ⚪ To do       | Needs 0.3, 0.4 and 0.5. Served on Cloud Run's generated `*.run.app` URL (D7) |
+| Task                          | Status     | Where                                                                        |
+| ----------------------------- | ---------- | ---------------------------------------------------------------------------- |
+| 0.1 Repo setup                | ✅ Done    | #1                                                                           |
+| 0.2 Backend scaffold          | ✅ Done    | #1, CI fixes in #3, #10, #12                                                 |
+| API contracts + conventions   | ✅ Done    | #28: `libs/contracts`, `docs/api-conventions.md` (D23)                       |
+| Service rename (D33, D36)     | ✅ Done    | #29                                                                          |
+| 0.3 Database schema v1        | ✅ Done    | #31 (schema), #32 (D14 migration Job, D24 step 4). Applied to dev 2026-10-21 |
+| 0.8 Consent foundation (GDPR) | ⚪ Next    | Built alongside 0.3                                                          |
+| 0.4 Frontend scaffold         | ⚪ To do   | `apps/web` is a placeholder (Next.js 16.3, #11)                              |
+| 0.5 Auth (Clerk)              | ⚪ To do   | Clerk app exists, dev instance only (see below)                              |
+| 0.6 Sentry + Umami            | ⏸ Deferred | Out of the current phase (D5). GCP Cloud Logging / Error Reporting meanwhile |
+| 0.7 Terraform                 | ✅ Done    | GCP, and Bunny.net in #PR (decision 16). Cloudflare DNS: not this phase (D7) |
+| 0.9 Walking-skeleton page     | ⚪ To do   | Needs 0.3, 0.4 and 0.5. Served on Cloud Run's generated `*.run.app` URL (D7) |
 
 ### Decisions implemented in M0
 
@@ -66,6 +66,7 @@ These refine or replace what the plan says.
 | 15  | **Services renamed (D33, D36):** `api-read` → `api-public-read`, `api-write` → `api-user` in apps, Nx, images, CI and Terraform (`moved` blocks; Cloud Run service and its service account replaced). #29                                                                                                                                                                                                                                                         | api-read / api-write / api-admin                      |
 | D14 | **Schema migrations (D14):** a Job applied by the `cluster` root, named after the content hash of `libs/database/schema` (declarative schema + run-once data scripts) and its parameters. Migrate, then deploy, by hand.                                                                                                                                                                                                                                          | "Used by CI/deploy" (no mechanism)                    |
 | D42 | **Automatic cluster plan (D42):** `tf-cluster-planner` may only send dry runs (admission policy) to the overlay's kinds in `database`; usable only from the reviewer-approved `cluster-plan` environment. Live since 2026-10-21 (`CLUSTER_PLAN_ENABLED`).                                                                                                                                                                                                         | Read-only planner (#32 round 1)                       |
+| 16  | **Bunny.net (0.7):** a fifth root, `live/dev/bunny`: Stream library (free x264 encoding, transcription and AI features off), S3-compatible storage zone in London, pull zone. **Approved exception:** its state holds the provider's computed keys (no write-only option), so CI can neither read `dev/bunny/` (IAM condition, checked before each plan) nor plan it. Account key: ephemeral from Secret Manager. ~$1/month.                                      | Bunny.net in Terraform                                |
 
 ### Clerk state (2026-10-17)
 
@@ -119,6 +120,7 @@ schema and the v1 API plan are there). Move each one into the table above once i
 | D32 | **`web` prerenders from api-public-read only,** on the server; never calls api-user/api-admin. Clerk runs in the browser only.                                                                                                                                                                          | Not specified                                                      |
 | D34 | **Dapr stays in the worker tier;** the APIs publish CloudEvents to Pub/Sub with the GCP client.                                                                                                                                                                                                         | Same (confirmed)                                                   |
 | D35 | **Every personal read lives in api-user** (stories, account, consents, favourites, feed); api-public-read is strictly anonymous.                                                                                                                                                                        | Personal reads on api-read                                         |
+| —   | **Client-direct uploads (M2):** no service handles media bytes. api-user signs Stream TUS uploads (library key) and S3 presigned PUTs to the storage zone (zone password). Presigned PUT on Bunny is still to be proven: `infra/terraform/README.md`.                                                   | Prototype: Stream TUS + S3 PUT                                     |
 
 D23 is implemented (decision 14 above), and so are D33 and D36 (decision 15).
 
@@ -141,3 +143,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-20:** D14 implemented (D24 step 4): the migrate Job, runbook in [the SurrealDB README](../infra/k8s/surrealdb/README.md#schema-migrations-d14). The init now runs inside SurrealDB at startup (a restart is the cutover that ends old sessions): it makes only `migrator` and `backup`, removes the per-service system users and writes the `service` logins; services sign in through `svc` (decision 7), with secrets `surreal-api-public-read-password` and `surreal-api-user-password`. DPA v1's hash comes from `libs/legal/dpa/v1.md` (placeholder; v1 stays a draft, D20). Person sessions only once `clerk_jwt_public_key` is set (task 0.5).
 - **2026-10-20:** D42–D45 decided (`project/context/research/m0-migration-decisions.html`). **D44 replaces D22's legacy-DPA approach:** seed 0002 (`dpaVersion:legacy-squarespace`) is removed; the M1 import (task 1.9) gets a one-off `legacy-migration` consent category instead (not built yet; the schema's D22 legacy-consent rules stay until then). D42 implemented (row above). D43 (restart SurrealDB whenever the login set changes) and D45 (accept `svc` key rotation per migration) match what's built. Startup init is one transaction, readiness is proven by the identity-check sidecar, and migrations use a database fencing token and a restricted grammar (#32 review round 2).
 - **2026-10-21:** #28–#34 merged and applied to dev. SurrealDB had been down for about a day: Spot reclaimed its node, and the replacement in its disk's zone (b) failed on the regional `SSD_TOTAL_GB` quota (300 GB, every Autopilot node has a 100 GB SSD boot disk). The increase to 600 GB (#34, `modules/bootstrap/quota.tf`) was denied, likely because billing is on the free trial; HDD or smaller boot disks aren't possible on Autopilot without per-node billing. Instead all spot Pods are pinned to `europe-west2-c` (#36, decision 5) and the near-empty database disk was recreated there (the 2026-10-20 backup is in GCS). Undo once billing is upgraded: #35. The migrate Job then applied the schema and DPA v1 (0.3), the cluster plan runs in CI (D42), and `api-public-read` was replaced and reports `db: up` (`run_deletion_protection` exposed in the `gcp` root, #37).
+- **2026-10-21:** 0.7 done (#PR): Bunny.net root `live/dev/bunny` with the approved state-secrets exception (decision 16); the client-direct upload flow for M2 is recorded.

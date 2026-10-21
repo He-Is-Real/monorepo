@@ -44,10 +44,31 @@ resource "google_storage_bucket" "tfstate" {
 # Authoritative: replaces the default "project viewers/editors can read/write
 # objects" bindings, so only the CI identities below (and developers, through
 # developers_storage) can touch state.
+#
+# The bunny root's state is the one exception to "state holds no secrets": the
+# Bunny provider keeps the Stream library keys, the storage zone passwords and
+# the pull zone's token key there. The CI identities get nothing under its
+# prefix (objects or lock), so only developers can read it. Object names stay
+# listable, contents don't. live/dev/bunny refuses to apply until this
+# condition is in place.
+locals {
+  # Prefixes no CI identity may read or write (keep in step with live/dev/bunny).
+  private_state_prefixes = ["${var.environment}/bunny/"]
+  ci_state_condition = join(" && ", [
+    for p in local.private_state_prefixes :
+    "!resource.name.startsWith('projects/_/buckets/${google_storage_bucket.tfstate.name}/objects/${p}')"
+  ])
+}
+
 data "google_iam_policy" "tfstate" {
   binding {
     role    = "roles/storage.objectAdmin"
     members = [google_service_account.tf_deployer.member]
+    condition {
+      title       = "not-private-state"
+      description = "No access to state that holds secrets (the bunny root)."
+      expression  = local.ci_state_condition
+    }
   }
   binding {
     role = "roles/storage.objectViewer"
@@ -55,6 +76,11 @@ data "google_iam_policy" "tfstate" {
       google_service_account.tf_planner.member,
       google_service_account.tf_cluster_planner.member, # cluster + gcp state (remote state)
     ]
+    condition {
+      title       = "not-private-state"
+      description = "No access to state that holds secrets (the bunny root)."
+      expression  = local.ci_state_condition
+    }
   }
 }
 

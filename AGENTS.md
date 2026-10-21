@@ -25,6 +25,13 @@ source of truth, so change them in the same PR as the code.
   auto-apply: plans may run automatically, applies are manual (local developer machine or `terraform-apply.yml`).
   Solo project: gates mean "deliberate", never "needs a second person".
 - Terraform state must never hold secrets: write-only attributes for values, `ephemeral` for tokens.
+  One approved exception (Joel, 2026-10-21): the `bunny` root's state holds the Bunny provider's
+  computed keys (`bunnynet_stream_library.api_key`/`api_key_readonly`,
+  `bunnynet_storage_zone.password`/`password_readonly`, `bunnynet_pullzone.token_auth_key`), which
+  have no write-only alternative. It's acceptable only because that prefix (`dev/bunny/`) is private
+  to developers, CI never plans or applies it, nothing reads it via `terraform_remote_state` and
+  plans are never saved (`infra/terraform/README.md`, "Bunny.net"). Don't extend it to other
+  resources or roots.
 - Budget guardrail: £15/month budget with alert emails at £3/£7.50/£15 (no automatic stop). Never
   unlink billing; storage is always kept.
 
