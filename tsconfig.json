@@ -4,10 +4,10 @@
   "files": [],
   "references": [
     {
-      "path": "./apps/api-read"
+      "path": "./apps/api-public-read"
     },
     {
-      "path": "./apps/api-write"
+      "path": "./apps/api-user"
     },
     {
       "path": "./apps/api-admin"
@@ -26,6 +26,9 @@
     },
     {
       "path": "./libs/health"
+    },
+    {
+      "path": "./libs/contracts"
     }
   ],
   "compilerOptions": {}

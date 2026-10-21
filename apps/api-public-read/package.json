@@ -1,9 +1,9 @@
 {
-  "name": "@heisreal/api-write",
+  "name": "@heisreal/api-public-read",
   "version": "0.0.1",
   "private": true,
   "nx": {
-    "name": "api-write",
+    "name": "api-public-read",
     "targets": {
       "prune-lockfile": {
         "dependsOn": [
@@ -21,11 +21,11 @@
           }
         ],
         "outputs": [
-          "{workspaceRoot}/apps/api-write/dist/package.json",
-          "{workspaceRoot}/apps/api-write/dist/pnpm-lock.yaml",
-          "{workspaceRoot}/apps/api-write/dist/pnpm-workspace.yaml",
-          "{workspaceRoot}/apps/api-write/dist/patches",
-          "{workspaceRoot}/apps/api-write/dist/local_path_modules"
+          "{workspaceRoot}/apps/api-public-read/dist/package.json",
+          "{workspaceRoot}/apps/api-public-read/dist/pnpm-lock.yaml",
+          "{workspaceRoot}/apps/api-public-read/dist/pnpm-workspace.yaml",
+          "{workspaceRoot}/apps/api-public-read/dist/patches",
+          "{workspaceRoot}/apps/api-public-read/dist/local_path_modules"
         ],
         "options": {
           "buildTarget": "build"
@@ -37,7 +37,7 @@
         ],
         "cache": true,
         "outputs": [
-          "{workspaceRoot}/apps/api-write/dist/workspace_modules"
+          "{workspaceRoot}/apps/api-public-read/dist/workspace_modules"
         ],
         "executor": "@nx/js:copy-workspace-modules",
         "options": {
@@ -60,15 +60,15 @@
           "build"
         ],
         "options": {
-          "buildTarget": "api-write:build",
+          "buildTarget": "api-public-read:build",
           "runBuildTargetDependencies": false
         },
         "configurations": {
           "development": {
-            "buildTarget": "api-write:build:development"
+            "buildTarget": "api-public-read:build:development"
           },
           "production": {
-            "buildTarget": "api-write:build:production"
+            "buildTarget": "api-public-read:build:production"
           }
         }
       },
@@ -78,7 +78,7 @@
           "prune"
         ],
         "options": {
-          "command": "docker build -t ${IMAGE:-heisreal/api-write:local} apps/api-write/dist"
+          "command": "docker build -t ${IMAGE:-heisreal/api-public-read:local} apps/api-public-read/dist"
         }
       },
       "copy-dockerfile": {
@@ -91,10 +91,10 @@
           "{workspaceRoot}/tools/docker/nest-service.Dockerfile"
         ],
         "outputs": [
-          "{workspaceRoot}/apps/api-write/dist/Dockerfile"
+          "{workspaceRoot}/apps/api-public-read/dist/Dockerfile"
         ],
         "options": {
-          "command": "cp tools/docker/nest-service.Dockerfile apps/api-write/dist/Dockerfile"
+          "command": "cp tools/docker/nest-service.Dockerfile apps/api-public-read/dist/Dockerfile"
         }
       }
     },

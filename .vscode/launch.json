@@ -4,9 +4,9 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "Debug api-read with Nx",
+      "name": "Debug api-public-read with Nx",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["exec", "nx", "serve", "api-read"],
+      "runtimeArgs": ["exec", "nx", "serve", "api-public-read"],
       "env": {
         "NODE_OPTIONS": "--inspect=9229"
       },
@@ -15,16 +15,16 @@
       "skipFiles": ["<node_internals>/**"],
       "sourceMaps": true,
       "outFiles": [
-        "${workspaceFolder}/apps/api-read/dist/**/*.(m|c|)js",
+        "${workspaceFolder}/apps/api-public-read/dist/**/*.(m|c|)js",
         "!**/node_modules/**"
       ]
     },
     {
       "type": "node",
       "request": "launch",
-      "name": "Debug api-write with Nx",
+      "name": "Debug api-user with Nx",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["exec", "nx", "serve", "api-write"],
+      "runtimeArgs": ["exec", "nx", "serve", "api-user"],
       "env": {
         "NODE_OPTIONS": "--inspect=9230"
       },
@@ -33,7 +33,7 @@
       "skipFiles": ["<node_internals>/**"],
       "sourceMaps": true,
       "outFiles": [
-        "${workspaceFolder}/apps/api-write/dist/**/*.(m|c|)js",
+        "${workspaceFolder}/apps/api-user/dist/**/*.(m|c|)js",
         "!**/node_modules/**"
       ]
     },

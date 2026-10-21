@@ -30,6 +30,8 @@ if (!args.project) {
 }
 
 // Service password placeholders in init.surql.tmpl -> Secret Manager secret ids.
+// api_read / api_write keep their pre-rename names (now api-public-read / api-user, D33)
+// until the schema PR replaces these users with D13 service records.
 const SERVICE_SECRETS = {
   api_read: 'surreal-api-read-password',
   api_write: 'surreal-api-write-password',

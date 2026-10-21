@@ -7,7 +7,7 @@ import { SecretsModule } from '@heisreal/secrets';
   imports: [
     SecretsModule,
     DatabaseModule,
-    HealthModule.forService('api-write'),
+    HealthModule.forService('api-public-read'),
   ],
 })
 export class AppModule {}

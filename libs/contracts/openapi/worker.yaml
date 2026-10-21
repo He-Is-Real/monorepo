@@ -1,0 +1,224 @@
+openapi: 3.1.0
+info:
+  title: He Is Real Today — worker job contract
+  version: 1.0.0-draft
+  description: |
+    **Internal async jobs (M7).** Not a public API: nothing on GKE accepts inbound connections.
+
+    The primary transport is message-based (D34): the APIs publish CloudEvents-format messages to
+    Pub/Sub with the GCP client (e.g. `story-submitted`, `dpa-change`), and the GKE **`workflow`**
+    (Dapr Workflow) dispatches to **`inference-worker`s** over Dapr pub/sub (`inference-task` /
+    `inference-result`). The queue choice itself is deferred to M7 (D11). This HTTP contract describes
+    the job set and payloads; the `/v1/tasks/{job}` endpoint is only the Cloud Tasks fallback, and the
+    payloads are the same either way.
+
+    - **`workflow`** (Dapr Workflow, GKE): orchestration and light I/O jobs: `thumbnail`, `captions`,
+      `email`, `translation`, `dpa-change-notify`. Emails look up the address in Clerk at send time (D16).
+    - **`inference-worker`** (Python + Dapr, on-prem and GKE, no database credentials): GPU/LLM jobs:
+      `transcribe`, `correct`, `summary`, `screen`.
+    - Handlers are idempotent (at-least-once delivery), keyed on `(storyId, jobType)`. A stored story is
+      processed only after a fresh consent-ledger check (D21).
+    - Paths are under `/v1` except `/health` (D30); errors are RFC 9457 `application/problem+json`.
+  contact:
+    name: He Is Real Today
+    url: https://www.heisreal.today
+
+servers:
+  - url: https://workflow.internal
+    description: 'workflow (GKE, internal only)'
+  - url: https://inference-worker.internal
+    description: 'inference-worker (on-prem and GKE, internal only)'
+
+security:
+  - cloudTasksOidc: []
+
+tags:
+  - name: Health
+    description: 'Liveness and readiness.'
+  - name: Jobs
+    description: 'Async jobs (M7).'
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealthWorker
+      summary: Liveness and readiness probe
+      security: []
+      x-milestone: M0
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/Health'
+        '503':
+          $ref: './components.yaml#/components/responses/HealthDown'
+
+  /v1/tasks/{job}:
+    post:
+      tags: [Jobs]
+      operationId: runTask
+      summary: Run one job (Cloud Tasks fallback transport)
+      description: |
+        Valid `job` values depend on the deploy target:
+          - workflow: thumbnail | captions | email | translation | dpa-change-notify
+          - inference-worker: transcribe | correct | summary | screen
+        `dpa-change-notify` runs when a `material` DPA version is published: it notifies every data
+        subject consented under an older version and sets the re-consent gate. Its payload carries
+        `dpaVersion` instead of `storyId`.
+      x-milestone: M7
+      parameters:
+        - name: job
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              [
+                thumbnail,
+                captions,
+                email,
+                translation,
+                dpa-change-notify,
+                transcribe,
+                correct,
+                summary,
+                screen,
+              ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: |
+                Inference jobs take an `InferenceTask` and publish an `InferenceResult` to
+                `inference-result`. Other jobs take `storyId`, except `dpa-change-notify`, which takes `dpaVersion`.
+              anyOf:
+                - $ref: '#/components/schemas/InferenceTask'
+                - $ref: '#/components/schemas/WorkflowJob'
+      responses:
+        '204':
+          description: Processed (or already processed).
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    cloudTasksOidc:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Google-signed OIDC token (Cloud Tasks fallback), verified against the worker service account.
+  schemas:
+    WorkflowJob:
+      type: object
+      description: Payload of a `workflow` job.
+      properties:
+        storyId:
+          type: string
+          description: Opaque story ID.
+        lang:
+          type: string
+          description: Target language (translation).
+        dpaVersion:
+          type: string
+          description: The newly published DPA version (dpa-change-notify).
+    MediaRef:
+      type: object
+      description: How an inference worker fetches the source media (outbound). Workers hold no Bunny credentials.
+      required: [source, fetchUrl, format]
+      properties:
+        source:
+          type: string
+          enum: [bunny-stream, bunny-storage]
+        fetchUrl:
+          type: string
+          format: uri
+          description: Short-lived signed URL; TTL at least the retry window.
+        bunnyVideoId:
+          type: string
+          description: Bunny Stream GUID (provenance).
+        format:
+          type: string
+          enum: [video, audio]
+        durationSeconds:
+          type: number
+          description: A hint; the worker probes authoritatively.
+    Segment:
+      type: object
+      description: A timestamped transcript span (seconds).
+      required: [start, end, text]
+      properties:
+        start:
+          type: number
+        end:
+          type: number
+        text:
+          type: string
+    InferenceTask:
+      type: object
+      description: |
+        Dispatch payload for an inference job, on Dapr pub/sub topic `inference-task[.<jobType>]` (or the
+        `/v1/tasks/{job}` body on the fallback). Idempotent per `(storyId, jobType)`. Fully specified for
+        `transcribe`; `correct`/`summary`/`screen` carry the working transcript instead of `mediaRef`
+        (bodies to be defined in M7).
+      required: [storyId, jobType]
+      properties:
+        storyId:
+          type: string
+          description: Opaque story ID; also the workflow instance ID.
+        jobType:
+          type: string
+          enum: [transcribe, correct, summary, screen]
+        mediaRef:
+          $ref: '#/components/schemas/MediaRef'
+        language:
+          type: string
+          default: auto
+          description: 'Whisper language hint; `auto` to detect.'
+        attempt:
+          type: integer
+          minimum: 1
+    InferenceResult:
+      type: object
+      description: |
+        Published to Dapr pub/sub topic `inference-result`. The fields below are the `transcribe` outputs;
+        other jobs share the `(storyId, jobType, status)` envelope.
+      required: [storyId, jobType, status]
+      properties:
+        storyId:
+          type: string
+        jobType:
+          type: string
+          enum: [transcribe, correct, summary, screen]
+        status:
+          type: string
+          enum: [ok, error]
+        rawTranscriptText:
+          type: string
+          description: Verbatim ASR output (not the corrected `transcriptText`).
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Segment'
+        language:
+          type: string
+          description: Detected ISO language.
+        durationSeconds:
+          type: number
+        provenance:
+          type: object
+          description: '`{ backend, model, computeType, device }`, for audit and re-runs.'
+        metrics:
+          type: object
+          description: '`{ inferSeconds, rtf }`.'
+        error:
+          type: object
+          description: Present when `status` is `error`; lets the workflow choose retry or dead-letter.
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            retryable:
+              type: boolean
