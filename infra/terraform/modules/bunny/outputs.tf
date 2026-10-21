@@ -21,7 +21,7 @@ output "storage_s3_hostname" {
 }
 
 output "images_cdn_hostname" {
-  value = bunnynet_pullzone.images.cdn_domain
+  value = "${bunnynet_pullzone.images.name}.${bunnynet_pullzone.images.cdn_domain}"
 }
 
 output "app_secrets" {
