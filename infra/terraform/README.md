@@ -209,17 +209,11 @@ that one process, so you never need `bunny login`, a profile or a `.env` file. D
 | Check the AI features are off  | `tools/scripts/tf-bunny.sh bunny api GET /videolibrary/<id> \| jq '{EnableTranscribing, EnableTranscribingChaptersGeneration, EnableTranscribingMomentsGeneration, EnableContentTagging, KeepOriginalFiles, EnableMP4Fallback, ReplicationRegions}'` (keep the filter: the response includes the keys) |
 | Rotate a library or zone key   | reset it at Bunny (`tf-bunny.sh bunny ...`), then `tf-bunny.sh apply`: the new value becomes a new secret version; disable the old one once services restarted                                                                                                                                         |
 
-**Check the fences after applying `bootstrap`** (Policy Troubleshooter; a policy can only be
-checked once applied). The first two must say granted, the last two not:
-
-```bash
-D=tf-deployer@heisreal-dev.iam.gserviceaccount.com
-T="gcloud policy-troubleshoot iam --billing-project=heisreal-dev --principal-email=$D"  # API enabled by bootstrap
-$T //cloudresourcemanager.googleapis.com/projects/heisreal-dev --permission=secretmanager.secrets.create
-$T //secretmanager.googleapis.com/projects/heisreal-dev/secrets/surreal-root-password --permission=secretmanager.secrets.setIamPolicy
-$T //secretmanager.googleapis.com/projects/heisreal-dev/secrets/bunny-account-api-key --permission=secretmanager.secrets.setIamPolicy
-$T //storage.googleapis.com/projects/_/buckets/heisreal-dev-tfstate --permission=storage.buckets.setIamPolicy
-```
+**Check the fences after applying `bootstrap`** (and again once the bunny root has state):
+`tools/scripts/check-bunny-fences.sh`. It impersonates `tf-deployer` for five minutes and checks,
+read-only, that it can still manage ordinary secrets, buckets and its own state, but can't manage
+or read any `bunny-*` secret, change the state bucket or read `dev/bunny/`. Policy Troubleshooter
+can't check these conditions: it doesn't fill in `resource.type`, so it reports them as granted.
 
 **Uploads (built in M2; services never handle media bytes, as in the prototype).** Video and
 audio: api-user creates the video (`POST video.bunnycdn.com/library/{libraryId}/videos` with the
