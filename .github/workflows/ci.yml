@@ -64,6 +64,8 @@ jobs:
       - uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
 
       - run: pnpm nx format:check
+      # The WIF condition gating tf-cluster-planner (D42), against GitHub OIDC claim fixtures.
+      - run: node --test infra/terraform/modules/bootstrap/tests/*.test.mjs
       - run: pnpm nx affected -t lint test build typecheck validate
 
       # Schema and permission tests against a real SurrealDB (libs/database). The target starts

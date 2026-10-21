@@ -11,13 +11,13 @@ waiting to be made are in `project/context/research/required-decisions.html`.
 Keep this file current: update it in the same PR that finishes a task or changes a decision
 recorded here.
 
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-20
 
 ## Milestones
 
 | Milestone                     | Status         | Notes                                                                  |
 | ----------------------------- | -------------- | ---------------------------------------------------------------------- |
-| M0 Walking skeleton           | 🟡 In progress | 0.1, 0.2, API contracts and service rename done; 0.7 partly done       |
+| M0 Walking skeleton           | 🟡 In progress | 0.1, 0.2, contracts, rename, 0.3 done; 0.7 partly                      |
 | M1 Browse & view (public MVP) | ⚪ Not started | Goes live and replaces Squarespace                                     |
 | M2 Accounts & submission      | ⚪ Not started |                                                                        |
 | M3 Moderation                 | ⚪ Not started |                                                                        |
@@ -35,7 +35,7 @@ recorded here.
 | 0.2 Backend scaffold          | ✅ Done        | #1, CI fixes in #3, #10, #12                                                 |
 | API contracts + conventions   | ✅ Done        | #28: `libs/contracts`, `docs/api-conventions.md` (D23)                       |
 | Service rename (D33, D36)     | ✅ Done        | #29                                                                          |
-| 0.3 Database schema v1        | ⚪ Next        | After the D13/D27 spike (D24)                                                |
+| 0.3 Database schema v1        | ✅ Done        | #31 (schema), D14 migration Job (D24 step 4). First apply to dev by hand     |
 | 0.8 Consent foundation (GDPR) | ⚪ Next        | Built alongside 0.3                                                          |
 | 0.4 Frontend scaffold         | ⚪ To do       | `apps/web` is a placeholder (Next.js 16.3, #11)                              |
 | 0.5 Auth (Clerk)              | ⚪ To do       | Clerk app exists, dev instance only (see below)                              |
@@ -55,7 +55,7 @@ These refine or replace what the plan says.
 | 4   | **Secrets live only in GCP Secret Manager.** Config holds secret names, never values. Authentication is keyless everywhere (ADC, Workload Identity). External Secrets Operator supplies them on GKE, and Terraform state never holds secrets.       | "Env vars via Secret Manager / Cloud Run config"      |
 | 5   | **SurrealDB v3.2.4, single node on RocksDB,** on GKE Autopilot Spot Pods in `europe-west2` (London). It's network-isolated to its own namespace plus the Cloud Run subnet, and the image is pinned by tag and digest.                               | Single node, EU/UK. Spot Pods are a dev cost choice   |
 | 6   | **Backups:** a nightly `surreal export` to a UK bucket with a create-only uploader, plus on-demand backups via `-var backup_run=<id>`. **Restore drill passed on 2026-10-05.** There are no PVC snapshots.                                          | Export to GCS + PVC snapshots + tested restore        |
-| 7   | **Database users:** `api_read` (VIEWER, used by api-public-read), `api_write` (used by api-user), `api_admin` and `workflow` (EDITOR), plus `migrator` and `backup`. Names unchanged by the rename until the schema PR (D13).                       | Per-service users; `migrator` and `backup` were added |
+| 7   | **Database identities (D13 B):** each service signs in as its own `service` record through `DEFINE ACCESS svc`, limited by table and field permissions. `migrator` (OWNER) and `backup` (VIEWER) are the only system users.                         | Per-service users; `migrator` and `backup` were added |
 | 8   | **`api-public-read` on Cloud Run is private in dev:** IAM invokers only, scales to zero, at most 2 instances, reaches GKE over Direct VPC egress. It becomes public at 0.9 (D31), behind its D13 database login.                                    | Public behind Cloudflare                              |
 | 9   | **Image selection is declared in Terraform:** `live/<env>/gcp/images.auto.tfvars` says `main`, `snapshot` or a digest for each service. Tags are content hashes, and there are separate `apps` and `apps-scratch` registries.                       | "Build images and deploy to Cloud Run"                |
 | 10  | **Budget guardrail:** £15 a month, with alert emails at £3, £7.50 and £15 (#20). Nothing stops automatically, billing is never unlinked and storage is always kept. Dev costs about £3–5 a month.                                                   | Not specified                                         |
@@ -64,6 +64,8 @@ These refine or replace what the plan says.
 | 13  | **The Clerk CLI is linked** to the "He Is Real" app (`app_3JuNErrA1fDnJI7SBa3Qx9iYkqU`) through the git remote; nothing is stored in the repo. Never `clerk env pull` keys into `.env` files: Clerk keys go in Secret Manager like everything else. | Not specified                                         |
 | 14  | **The OpenAPI specs in `libs/contracts` are the source of truth (D23),** updated to the v1 API plan and linted by Redocly in `lint`. Rules: `docs/api-conventions.md`. #28                                                                          | OpenAPI drafts in the `project` repo                  |
 | 15  | **Services renamed (D33, D36):** `api-read` → `api-public-read`, `api-write` → `api-user` in apps, Nx, images, CI and Terraform (`moved` blocks; Cloud Run service and its service account replaced). #29                                           | api-read / api-write / api-admin                      |
+| D14 | **Schema migrations (D14):** a Job applied by the `cluster` root, named after the content hash of `libs/database/schema` (declarative schema + run-once data scripts) and its parameters. Migrate, then deploy, by hand.                            | "Used by CI/deploy" (no mechanism)                    |
+| D42 | **Automatic cluster plan (D42):** `tf-cluster-planner` may only send dry runs (admission policy) to the overlay's kinds in `database`; usable only from the reviewer-approved `cluster-plan` environment.                                           | Read-only planner (#32 round 1)                       |
 
 ### Clerk state (2026-10-17)
 
@@ -136,3 +138,5 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-18:** D13–D36 recorded from `m0-schema-consent-decisions.html`. D23 implemented (#28): `libs/contracts` and `docs/api-conventions.md` (decision 14). Decision 10 corrected to £15 (#20).
 - **2026-10-18:** D33/D36 implemented (#29): services renamed to `api-public-read` and `api-user` (decision 15); decisions 7 and 8 updated. DB user names stay until the schema PR.
 - **2026-10-19:** D13 + D27 spike (D24 step 3) done: schema and seeds in `libs/database/schema`, 217 integration tests on SurrealDB 3.2.4 (`database:test-integration`, run in CI). Fixes to the draft schema (including review rounds 1–4 and D37/D38/D41) and the per-request session pattern are in [db-permissions.md](db-permissions.md).
+- **2026-10-20:** D14 implemented (D24 step 4): the migrate Job, runbook in [the SurrealDB README](../infra/k8s/surrealdb/README.md#schema-migrations-d14). The init now runs inside SurrealDB at startup (a restart is the cutover that ends old sessions): it makes only `migrator` and `backup`, removes the per-service system users and writes the `service` logins; services sign in through `svc` (decision 7), with secrets `surreal-api-public-read-password` and `surreal-api-user-password`. DPA v1's hash comes from `libs/legal/dpa/v1.md` (placeholder; v1 stays a draft, D20). Person sessions only once `clerk_jwt_public_key` is set (task 0.5).
+- **2026-10-20:** D42–D45 decided (`project/context/research/m0-migration-decisions.html`). **D44 replaces D22's legacy-DPA approach:** seed 0002 (`dpaVersion:legacy-squarespace`) is removed; the M1 import (task 1.9) gets a one-off `legacy-migration` consent category instead (not built yet; the schema's D22 legacy-consent rules stay until then). D42 implemented (row above). D43 (restart SurrealDB whenever the login set changes) and D45 (accept `svc` key rotation per migration) match what's built. Startup init is one transaction, readiness is proven by the identity-check sidecar, and migrations use a database fencing token and a restricted grammar (#32 review round 2).

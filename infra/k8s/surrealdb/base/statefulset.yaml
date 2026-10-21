@@ -30,6 +30,10 @@ spec:
           args:
             - start
             - --log=info
+            # Startup init (init.surql.tmpl): system users, service logins, removal of old
+            # users. Runs on every start before the server answers anything, so a restart
+            # with a new init is also the moment every older session ends (D13 B cutover).
+            - --import-file=/init/init.surql
             - rocksdb:///data/surreal.db
           env:
             # Durability: fsync every commit before acknowledging it, so an
@@ -77,11 +81,69 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: init
+              mountPath: /init
+              readOnly: true
             - name: logs
               mountPath: /logs
             - name: tmp
               mountPath: /tmp
+        # Readiness of the identities (D13 B): the pod is Ready only when the startup init
+        # succeeded with the intended credentials (identity_check.py). SurrealDB serves even after
+        # a failed import and /health doesn't tell, so this is what keeps a pod with wrong
+        # identities out of DNS. The SurrealDB image has no shell or client that could run this
+        # as an exec probe; this is the cloud-sdk image already pinned for backups (python3).
+        - name: identity-check
+          image: google/cloud-sdk
+          command: [python3, /check/identity_check.py, --serve]
+          env:
+            - name: SURREAL_ENDPOINT
+              value: http://127.0.0.1:8000
+            - name: IDENTITY_CREDENTIALS
+              value: /init/credentials.json
+            - name: IDENTITY_EXPECTED_FILE
+              value: /init/identity-hash # set by Terraform on GKE; absent locally
+            - name: PYTHONDONTWRITEBYTECODE
+              value: '1'
+          envFrom:
+            - configMapRef:
+                name: surrealdb-settings
+          # A new pod is un-Ready until one check passes. Once Ready, three failures in a row
+          # (about 30 s) withdraw it, so one transient error doesn't drop the database.
+          readinessProbe:
+            exec:
+              command: [python3, /check/identity_check.py]
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: init
+              mountPath: /init
+              readOnly: true
+            - name: check
+              mountPath: /check
+              readOnly: true
       volumes:
+        - name: check
+          configMap:
+            name: surrealdb-identity-check
+        # On GKE, Terraform points this at surrealdb-init-<identity hash> and puts the same hash
+        # in a pod annotation: a new init config restarts the pod, which can only start once
+        # External Secrets Operator has rendered that new Secret (never a stale one).
+        - name: init
+          secret:
+            secretName: surrealdb-init
         - name: logs
           emptyDir: {}
         - name: tmp

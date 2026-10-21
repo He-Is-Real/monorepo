@@ -56,12 +56,12 @@ variable "ci_image_pusher_email" {
 }
 
 variable "surreal_secret_names" {
-  description = "Secret Manager secrets holding SurrealDB passwords (root + one per database user)."
+  description = "Secret Manager secrets holding SurrealDB passwords: root, one per service login (D13 B service records) and the migrator/backup system users."
   type        = list(string)
   default = [
     "surreal-root-password",
-    "surreal-api-read-password",
-    "surreal-api-write-password",
+    "surreal-api-public-read-password",
+    "surreal-api-user-password",
     "surreal-api-admin-password",
     "surreal-workflow-password",
     "surreal-backup-password",
@@ -70,7 +70,7 @@ variable "surreal_secret_names" {
 }
 
 variable "secret_rotation" {
-  description = "Bump to rotate the SurrealDB *service* user passwords; then delete and re-apply the init Job, which sets them with DEFINE USER OVERWRITE."
+  description = "Bump to rotate the SurrealDB service, migrator and backup passwords; the init Job then rewrites the service login hashes and system users on its next run (see infra/k8s/surrealdb/README.md)."
   type        = number
   default     = 1
 }

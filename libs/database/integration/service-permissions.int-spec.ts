@@ -95,8 +95,7 @@ describe('service identities (D13 B)', () => {
       ]);
       expect(await ids(db, 'SELECT id FROM tag')).toEqual(['tag:doubt']);
       expect(await ids(db, 'SELECT id FROM dpaVersion')).toEqual([
-        'dpaVersion:v1',
-        'dpaVersion:⟨legacy-squarespace⟩',
+        'dpaVersion:v1', // published by the world; the draft seed of v1 is the same row
       ]);
     });
 
@@ -108,6 +107,9 @@ describe('service identities (D13 B)', () => {
       'auditLog',
       'idempotencyKey',
       '_migration',
+      '_migrationRun',
+      '_migrationPending',
+      '_identity',
     ])(
       'sees nothing in %s (not even approved stories in the write model)',
       async (table) => {

@@ -13,7 +13,9 @@ Background and decisions (project docs, `context/research/`): `terraform-state-o
 modules/
   bootstrap/   project, APIs, state bucket, CI identities (keyless), budget (alert emails)
   gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run
-  cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay)
+  cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
+  db-migration/ the D14 migration bundle and Job name (no providers; `terraform test` offline)
+  db-identity/ SurrealDB's identity config: init Secret names, restart hash, marker (same)
 live/dev/      one root per concern, applied in this order:
   bootstrap/   developer only (needs billing permissions)        state: dev/bootstrap
   gcp/         developer or the manual GitHub workflow            state: dev/gcp
@@ -34,6 +36,7 @@ then), then `terraform -chdir=infra/terraform/live/dev/<root> init`, `plan`, `ap
 | ---------------------- | ------------------------------------------------------------------------------------------------- |
 | Stop / start SurrealDB | apply `cluster` with `-var surrealdb_replicas=0` (or `1`); the disk is kept                       |
 | Back up SurrealDB now  | apply `cluster` with `-var backup_run=<new id>`; a later plain apply removes the Job              |
+| Migrate the schema     | apply `cluster`, check the Job, then deploy (SurrealDB README, "Schema migrations")               |
 | Plan as CI would       | prefix with `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT=tf-deployer@heisreal-dev.iam.gserviceaccount.com` |
 
 ## Images
@@ -63,14 +66,61 @@ are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes
 
 ## CI
 
-| Workflow              | When                                       | Identity                                    | Changes the cloud?       |
-| --------------------- | ------------------------------------------ | ------------------------------------------- | ------------------------ |
-| `terraform-plan.yml`  | automatically on PRs/pushes touching infra | `tf-planner`: read-only, any workflow here  | No                       |
-| `terraform-apply.yml` | **manual** Run workflow on `main`          | `tf-deployer`: only that workflow, manually | Yes                      |
-| `images.yml`          | pushes to `main` that affect a service     | `ci-image-pusher`: only `main` pushes       | Pushes to `apps`         |
-| `snapshot-images.yml` | **manual** Run workflow, any branch        | `ci-snapshot-pusher`: only that workflow    | Pushes to `apps-scratch` |
+| Workflow              | When                                       | Identity                                                                          | Changes the cloud?           |
+| --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------- | ---------------------------- |
+| `terraform-plan.yml`  | automatically on PRs/pushes touching infra | `tf-planner` (gcp, read-only); `tf-cluster-planner` (cluster, `cluster-plan` env) | Dry-run writes in `database` |
+| `terraform-apply.yml` | **manual** Run workflow on `main`          | `tf-deployer`: only that workflow, manually                                       | Yes                          |
+| `images.yml`          | pushes to `main` that affect a service     | `ci-image-pusher`: only `main` pushes                                             | Pushes to `apps`             |
+| `snapshot-images.yml` | **manual** Run workflow, any branch        | `ci-snapshot-pusher`: only that workflow                                          | Pushes to `apps-scratch`     |
 
 All keyless (Workload Identity Federation, limited to this repository's ID; forks get nothing).
+
+**Every PR first gets offline checks** that fail the run on any error: `terraform fmt`, `validate`
+of every root, `terraform test` of `modules/db-migration` and `modules/db-identity`, and every
+Kustomize overlay rendered and checked with kubeconform (`ci.yml` runs the database integration
+suite). Locally: `terraform -chdir=infra/terraform/modules/<module> init -backend=false && … test`.
+
+**The automatic `cluster` plan (D42), and why it's safe.** The kustomization provider diffs with
+server-side dry runs, and Kubernetes authorises a dry run exactly like the real request, so the
+identity that plans the cluster root, `tf-cluster-planner`, needs create/patch RBAC. Three layers
+keep that from becoming write access:
+
+1. **Kubernetes, by construction:** a ValidatingAdmissionPolicy rejects **every write from
+   `tf-cluster-planner` that isn't a dry run**, in every namespace and for every kind. Its Role is
+   namespaced to `database`: get, create and patch on the overlay's kinds (ConfigMaps,
+   ServiceAccounts, Services, ResourceQuotas, the StatefulSet, Jobs, the CronJob,
+   NetworkPolicies, ExternalSecrets, the SecretStore). No Secrets, no list, no delete, nothing
+   cluster-scoped, and no Kubernetes IAM role: its Google IAM is a custom role that can only
+   reach the cluster's API. So even a stolen token can only read those objects and send dry runs:
+   it can't start a Job or Pod (which could mount credentials) or change anything. Both live in
+   `modules/cluster/planner_dry_run_policy.yaml.tftpl`, tested on a kind cluster in CI
+   (`modules/cluster/tests/planner-dry-run-only.sh`).
+2. **Google:** the token can only be exchanged for `tf-cluster-planner` through
+   `attribute.cluster_plan_gate` (`modules/bootstrap/ci_identity.tf`): environment
+   `cluster-plan` and this repository (`modules/bootstrap/cluster_plan_gate.cel.tftpl`, tested with
+   GitHub claim fixtures in `modules/bootstrap/tests/`, run by `ci.yml`). (It also names the
+   workflow file and the event, but on a
+   pull request the workflow comes from the PR's own branch, so those are no boundary: anyone who
+   can push a branch can edit the job. The environment and layer 1 are.)
+3. **GitHub:** the `cluster-plan` environment requires a reviewer (Joel) for every run, including
+   a PR that edits the workflow: GitHub only issues a token with that environment once the run is
+   approved. Fork PRs get no OIDC token at all, and the job runs only for this repository's own
+   PRs and pushes to `main`, once the repository variable `CLUSTER_PLAN_ENABLED` is `true`.
+
+The gcp plan keeps the separate read-only `tf-planner`. A plan that needs more (a changed
+Namespace, the ESO Helm release) fails loudly here and is planned by the manual workflow
+(`tf-deployer`) or locally instead.
+
+**Verify after applying the cluster root** (`kubectl auth can-i` doesn't see admission
+policies, so try a real write as the planner; you, as a cluster admin, may impersonate it):
+
+```bash
+P=tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com
+kubectl -n database create configmap planner-probe --from-literal=a=1 --as "$P" --dry-run=server  # allowed
+kubectl -n database create configmap planner-probe --from-literal=a=1 --as "$P"   # must be refused:
+#   … denied request: tf-cluster-planner may only send dry-run requests
+kubectl -n database get secrets --as "$P"                                         # must be forbidden
+```
 
 The manual apply has two jobs. **plan** runs a full-refresh plan, shows it in the run summary and
 saves it in the state bucket. **apply** waits for approval of the `dev` environment, then applies
@@ -89,6 +139,9 @@ take the state lock.
   a secret's), but only by changing Terraform code on `main`. GKE admin also lets it read
   in-cluster Kubernetes Secrets, which ESO copies from Secret Manager.
 - **tf-planner:** `roles/viewer` and read access to state. It can't read secret values or backups.
+- **tf-cluster-planner** (D42): reach the cluster's API, read state, and in Kubernetes only dry
+  runs plus reads of the overlay's kinds in `database` (see CI above). Only runs approved in the
+  `cluster-plan` environment can use it.
 - **Backups bucket:** only the backup job (create-only) and developers (restores).
 
 ## Cost guardrails

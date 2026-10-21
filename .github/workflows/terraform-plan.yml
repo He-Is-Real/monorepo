@@ -2,13 +2,39 @@ name: Terraform plan
 
 # Automatic, read-only. Never applies: applies are manual (terraform-apply.yml)
 # or from a local developer machine.
+#
+# Every PR first gets offline checks that fail loudly: fmt, validate of every
+# root, `terraform test` of the pure modules (Job and identity naming), and
+# every Kustomize overlay rendered and schema-checked (ci.yml runs the database
+# integration suite).
+#
+# The cluster plan (D42) is a separate job. Its kustomization diffs are
+# server-side dry runs, which Kubernetes authorises like real writes, so it runs
+# as tf-cluster-planner, which can create/patch in the `database` namespace
+# (modules/cluster/planner_rbac.tf). It therefore runs only for this
+# repository's own PRs and pushes to main, in the protected `cluster-plan`
+# environment (a maintainer approves each run), and the Google identity can
+# only be obtained from this workflow in that environment (WIF condition in
+# modules/bootstrap/ci_identity.tf).
 
 on:
   pull_request:
-    paths: ['infra/**', '.github/workflows/terraform-*.yml']
+    paths:
+      [
+        'infra/**',
+        'libs/database/schema/**',
+        'libs/legal/**',
+        '.github/workflows/terraform-*.yml',
+      ]
   push:
     branches: [main]
-    paths: ['infra/**', '.github/workflows/terraform-*.yml']
+    paths:
+      [
+        'infra/**',
+        'libs/database/schema/**',
+        'libs/legal/**',
+        '.github/workflows/terraform-*.yml',
+      ]
 
 permissions:
   contents: read
@@ -18,9 +44,17 @@ concurrency:
   group: tf-plan-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Keep in step with mise.toml and ci.yml. Checksum from the release's CHECKSUMS file.
+  KUBECONFORM_VERSION: v0.8.0
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash # -eo pipefail: any failing command fails the step
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
@@ -29,12 +63,37 @@ jobs:
       - run: terraform fmt -check -recursive infra/terraform
       - name: Validate every root
         run: |
+          set -euo pipefail
           for root in infra/terraform/live/dev/*/; do
             echo "::group::$root"
             terraform -chdir="$root" init -backend=false -input=false
             terraform -chdir="$root" validate
             echo "::endgroup::"
           done
+      # The migrate Job's and the identity config's names change iff their content does (D14,
+      # D13 B). No providers, no cloud access.
+      - name: Test the pure modules
+        run: |
+          set -euo pipefail
+          for module in db-migration db-identity; do
+            terraform -chdir="infra/terraform/modules/$module" init -backend=false -input=false
+            terraform -chdir="infra/terraform/modules/$module" test
+          done
+      # What the cluster root would apply, rendered and schema-checked (instead of a plan).
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSLo "$RUNNER_TEMP/kubeconform.tar.gz" "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP/bin" kubeconform
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Render and check every Kustomize overlay
+        run: infra/k8s/surrealdb/scripts/validate.sh
+      # The cluster planner's RBAC + dry-run-only admission policy (D42), against a real API
+      # server in a throwaway kind cluster (preinstalled on ubuntu-latest).
+      - name: Test the planner's dry-run-only policy
+        run: infra/terraform/modules/cluster/tests/planner-dry-run-only.sh
 
   plan:
     needs: validate
@@ -44,7 +103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        root: [gcp, cluster]
+        root: [gcp] # cluster: the plan-cluster job below
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
@@ -72,3 +131,37 @@ jobs:
           terraform plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee plan.txt || code=$?
           { echo "### dev/${{ matrix.root }}"; echo '```'; grep -E '^(Plan:|No changes|Error:)' plan.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
+
+  plan-cluster:
+    needs: validate
+    # Never for forks (no OIDC token for them either). Pauses for a maintainer's approval.
+    # CLUSTER_PLAN_ENABLED (repository variable) is set once the cluster-plan environment is
+    # protected and the bootstrap/cluster roots have created the identity and its RBAC, so the
+    # job never runs, or creates the environment, before the gate exists.
+    if: >-
+      vars.CLUSTER_PLAN_ENABLED == 'true' &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    environment: cluster-plan
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.9
+          terraform_wrapper: false
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: projects/236063168938/locations/global/workloadIdentityPools/github/providers/github-actions
+          service_account: tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com
+      # -refresh=false and -lock=false as above. pipefail and 2>&1: a failing plan
+      # (e.g. a forbidden dry run) fails the step instead of showing tee's status.
+      - name: terraform plan (cluster)
+        working-directory: infra/terraform/live/dev/cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform init -input=false
+          status=0
+          terraform plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee plan.txt || status=$?
+          { echo "### dev/cluster"; echo '```'; grep -E '^(Plan:|No changes|Error)' plan.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

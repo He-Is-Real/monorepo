@@ -6,13 +6,32 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 import { SecretsService, withTimeout } from '@heisreal/secrets';
-import { Surreal } from 'surrealdb';
+import { type ProvidedAuth, Surreal } from 'surrealdb';
 import { DatabaseHealthService } from './database-health.service';
 import { DatabaseConfig, databaseConfigFromEnv } from './database.config';
 import { SURREAL } from './database.constants';
 
 /** Startup fails with a clear error instead of hanging while the SDK retries an unreachable database. */
 export const CONNECT_TIMEOUT_MS = 15_000;
+
+/**
+ * Record-access sign-in as `service:<username>` (D13 B). surrealdb.js 2.0.8 types
+ * `authentication` for system users and tokens only, but signs in with any credentials.
+ */
+export async function serviceSignIn(
+  config: DatabaseConfig,
+  secrets: SecretsService,
+): Promise<ProvidedAuth> {
+  return {
+    namespace: config.namespace,
+    database: config.database,
+    access: 'svc',
+    variables: {
+      name: config.username,
+      secret: await secrets.get(config.passwordSecret),
+    },
+  } as unknown as ProvidedAuth;
+}
 
 export async function connectDatabase(
   db: Surreal,
@@ -24,12 +43,7 @@ export async function connectDatabase(
     namespace: config.namespace,
     database: config.database,
     // A callback, so the SDK can sign in again after a reconnect or token expiry.
-    authentication: async () => ({
-      namespace: config.namespace,
-      database: config.database,
-      username: config.username,
-      password: await secrets.get(config.passwordSecret),
-    }),
+    authentication: async () => serviceSignIn(config, secrets),
   });
   try {
     await withTimeout(connecting, timeoutMs, `Connecting to ${config.url}`);
@@ -38,7 +52,7 @@ export async function connectDatabase(
     throw err;
   }
   new Logger('DatabaseModule').log(
-    `Connected to ${config.url} as ${config.username} (${config.namespace}/${config.database})`,
+    `Connected to ${config.url} as service:${config.username} (${config.namespace}/${config.database})`,
   );
   return db;
 }

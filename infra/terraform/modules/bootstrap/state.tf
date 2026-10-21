@@ -50,8 +50,11 @@ data "google_iam_policy" "tfstate" {
     members = [google_service_account.tf_deployer.member]
   }
   binding {
-    role    = "roles/storage.objectViewer"
-    members = [google_service_account.tf_planner.member]
+    role = "roles/storage.objectViewer"
+    members = [
+      google_service_account.tf_planner.member,
+      google_service_account.tf_cluster_planner.member, # cluster + gcp state (remote state)
+    ]
   }
 }
 

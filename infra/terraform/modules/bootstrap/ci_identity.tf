@@ -2,7 +2,9 @@
 # short-lived OIDC token per job; Google exchanges it for a short-lived token of
 # one of three service accounts, depending on *what* the job is:
 #
-#   tf-planner          any workflow in this repo              read-only; automatic plans
+#   tf-planner          any workflow in this repo              read-only; automatic gcp plans
+#   tf-cluster-planner  environment cluster-plan (reviewer      dry runs only, in the database
+#                       approval), terraform-plan.yml          namespace; automatic cluster plans
 #   ci-image-pusher     images.yml on a push to main          push to apps
 #   ci-snapshot-pusher  manual snapshot-images.yml, any branch push to apps-scratch only
 #   tf-deployer         manual terraform-apply.yml on main     manual applies
@@ -42,6 +44,18 @@ resource "google_iam_workload_identity_pool_provider" "github" {
       " && assertion.workflow_ref.startsWith('${var.github_repository}/.github/workflows/snapshot-images.yml@'))",
       " ? 'allowed' : 'denied'",
     ])
+    # D42: the automatic cluster plan. The boundary here is the `cluster-plan` environment (a
+    # required reviewer in GitHub: no run gets this claim without approval) and the repository.
+    # The workflow file and event are checked too, but on a pull request the workflow comes from
+    # the PR branch, so they are no boundary; the Kubernetes admission policy is (the identity
+    # can only send dry runs: modules/cluster/planner_dry_run_policy.yaml.tftpl). Forks get no
+    # OIDC token. has(): other workflows' tokens have no environment claim.
+    # In cluster_plan_gate.cel.tftpl (one source: tests/cluster-plan-gate.test.mjs evaluates it
+    # with claim fixtures). workflow_ref, not job_workflow_ref: the latter is documented for
+    # reusable workflows (it has been present for plain jobs too: deploy_gate below uses it).
+    "attribute.cluster_plan_gate" = trimspace(templatefile("${path.module}/cluster_plan_gate.cel.tftpl", {
+      repository = var.github_repository
+    }))
     "attribute.deploy_gate" = join("", [
       "(assertion.ref == 'refs/heads/main' && assertion.event_name == 'workflow_dispatch'",
       " && assertion.job_workflow_ref == '${var.github_repository}/.github/workflows/terraform-apply.yml@refs/heads/main')",
@@ -79,6 +93,39 @@ resource "google_service_account_iam_member" "tf_planner_wif" {
   service_account_id = google_service_account.tf_planner.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "${local.pool}/attribute.repository/${var.github_repository}"
+}
+
+# --- cluster planner: automatic cluster plans (D42) ------------------------
+# Separate from tf-planner. In Kubernetes it has only what
+# modules/cluster/planner_dry_run_policy.yaml.tftpl gives it: get/create/patch
+# on the overlay's kinds in `database` (no Secrets), with an admission policy
+# that rejects anything but dry runs. Its Google IAM is just enough to reach
+# the cluster: no Kubernetes IAM role (container.viewer would add reads
+# elsewhere), no Secret Manager, read-only state. Only the cluster_plan_gate
+# above can impersonate it.
+resource "google_service_account" "tf_cluster_planner" {
+  project      = google_project.this.project_id
+  account_id   = "tf-cluster-planner"
+  display_name = "Terraform cluster planner (CI, cluster-plan environment)"
+}
+
+resource "google_project_iam_custom_role" "cluster_connect" {
+  project     = google_project.this.project_id
+  role_id     = "gkeClusterConnect"
+  title       = "GKE: reach the cluster's API (DNS endpoint), nothing inside"
+  permissions = ["container.clusters.get", "container.clusters.connect"]
+}
+
+resource "google_project_iam_member" "tf_cluster_planner" {
+  project = google_project.this.project_id
+  role    = google_project_iam_custom_role.cluster_connect.name
+  member  = google_service_account.tf_cluster_planner.member
+}
+
+resource "google_service_account_iam_member" "tf_cluster_planner_wif" {
+  service_account_id = google_service_account.tf_cluster_planner.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "${local.pool}/attribute.cluster_plan_gate/allowed"
 }
 
 # --- image pusher: push to main only ---------------------------------------

@@ -103,8 +103,6 @@ module "gcp" {
 import {
   for_each = toset([
     "surreal-root-password",
-    "surreal-api-read-password",
-    "surreal-api-write-password",
     "surreal-api-admin-password",
     "surreal-workflow-password",
     "surreal-backup-password",

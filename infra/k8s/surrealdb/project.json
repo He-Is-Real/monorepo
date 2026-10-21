@@ -9,7 +9,9 @@
       "cache": true,
       "inputs": [
         "{projectRoot}/**/*",
-        { "runtime": "kubeconform -v 2>/dev/null || echo missing" },
+        {
+          "runtime": "kubeconform -v 2>/dev/null || echo missing"
+        },
         {
           "runtime": "kubectl version --client -o json 2>/dev/null | jq -r .kustomizeVersion"
         }
@@ -29,6 +31,15 @@
       "options": {
         "command": "kubectl --context kind-heisreal -n database scale statefulset/surrealdb --replicas=0"
       }
+    },
+    "test-integration": {
+      "executor": "nx:noop",
+      "dependsOn": [
+        {
+          "projects": ["database"],
+          "target": "test-integration"
+        }
+      ]
     }
   }
 }

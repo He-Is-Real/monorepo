@@ -1,5 +1,5 @@
 import {
-  LEGACY_SHA256,
+  DPA_V1_SHA256,
   outcome,
   rows,
   run,
@@ -16,19 +16,22 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
   afterAll(() => t?.close());
 
   it('re-applies cleanly (every statement is OVERWRITE)', async () => {
-    const statements = await t.applySchema();
-    expect(statements).toBeGreaterThan(100);
+    const { schemaStatements } = await t.migrate();
+    expect(schemaStatements).toBeGreaterThan(100);
   });
 
   it('runs each seed once: re-running is a no-op', async () => {
-    await t.applySeeds();
+    expect(await t.migrate()).toMatchObject({
+      applied: [],
+      alreadyApplied: ['0001-seed-dpa-v1'],
+    });
     const migrator = await t.migrator();
     expect(
       await rows(
         migrator,
         'SELECT VALUE record::id(id) FROM _migration ORDER BY id',
       ),
-    ).toEqual(['0001-seed-dpa-v1', '0002-seed-legacy-dpa']);
+    ).toEqual(['0001-seed-dpa-v1']);
     expect(
       await rows(
         migrator,
@@ -36,16 +39,10 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
       ),
     ).toEqual([
       {
-        id: 'legacy-squarespace',
-        status: 'published',
-        kind: 'legacy',
-        contentHash: LEGACY_SHA256,
-      },
-      {
         id: 'v1',
         status: 'draft',
         kind: 'standard',
-        contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        contentHash: DPA_V1_SHA256,
       },
     ]);
   });

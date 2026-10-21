@@ -5,6 +5,8 @@
 #   terraform apply -var surrealdb_replicas=0   # or =1
 # Back up now:
 #   terraform apply -var backup_run=<new id>
+# Migrate the schema (D14): every apply; a new Job runs when libs/database/schema,
+# libs/legal/dpa or clerk.auto.tfvars changed. Migrate, then deploy.
 
 terraform {
   required_version = ">= 1.11"
@@ -83,6 +85,12 @@ variable "surrealdb_replicas" {
   default     = 1
 }
 
+variable "clerk_jwt_public_key" {
+  description = "Clerk's PEM public key (set in clerk.auto.tfvars). Empty: no person sessions."
+  type        = string
+  default     = ""
+}
+
 variable "backup_run" {
   description = "Set to a new id to run a SurrealDB backup now (e.g. -var backup_run=20261005a)."
   type        = string
@@ -96,6 +104,16 @@ module "cluster" {
   surrealdb_replicas     = var.surrealdb_replicas
   backup_run             = var.backup_run
 
+  # Schema migration (D14): applied by the migrate Job on every content change.
+  schema_dir           = "${path.root}/../../../../../libs/database/schema"
+  dpa_dir              = "${path.root}/../../../../../libs/legal/dpa"
+  clerk_jwt_public_key = var.clerk_jwt_public_key
+  # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
+  cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
+
+  # Rotating service passwords (gcp root) restarts SurrealDB with the new ones (identity.tf).
+  identity_rotation = try(tostring(local.gcp.surreal_secret_rotation), "1")
+
   surrealdb_expected_settings = {
     GCP_PROJECT          = "heisreal-dev"
     GKE_CLUSTER_NAME     = local.gcp.cluster_name
@@ -107,4 +125,12 @@ module "cluster" {
   }
 
   eso_image_repository = "${local.gcp.registry.ghcr}/external-secrets/external-secrets"
+}
+
+output "migrate_job" {
+  value = module.cluster.migrate_job
+}
+
+output "identity_config" {
+  value = module.cluster.identity_config
 }

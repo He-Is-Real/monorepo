@@ -1,18 +1,54 @@
--- Rendered into the surrealdb-init Secret (by External Secrets Operator on
--- clusters, by scripts/local-secrets.mjs on local developer machines); placeholders are
--- replaced with passwords from Secret Manager, JSON-quoted.
+-- SurrealDB's startup init (`surreal start --import-file`, statefulset.yaml): runs on every
+-- start, before the server serves any request (until it finishes every request gets 503).
+-- Rendered into the init Secret (by External Secrets Operator on clusters, by
+-- scripts/local-secrets.mjs on local developer machines); placeholders are replaced with
+-- passwords from Secret Manager, JSON-quoted. On GKE, Terraform appends the identity marker
+-- (last statement) and names the Secret after this config's hash, so a change restarts the pod.
 -- Namespace/database names must match surrealdb-settings (settings.yaml).
-OPTION IMPORT;
+-- No OPTION IMPORT: in a startup import file it hangs the server in "starting up" (3.2.4).
+-- Fail closed: everything after USE is one transaction, with the identity marker written last,
+-- so any failure (tested: a runtime error, a syntax error) keeps the previous users, hashes and
+-- marker. SurrealDB still starts after a failed import, so the identity-check sidecar keeps the
+-- pod un-Ready until the intended credentials work and the marker matches (statefulset.yaml).
 
 DEFINE NAMESPACE IF NOT EXISTS heisreal;
 USE NS heisreal;
 DEFINE DATABASE IF NOT EXISTS main;
 USE NS heisreal DB main;
 
--- One least-privilege user per service (see service-topology.md).
-DEFINE USER OVERWRITE api_read  ON DATABASE PASSWORD {{ .api_read | toJson }}  ROLES VIEWER COMMENT "api-read: public read API (read-only)";
-DEFINE USER OVERWRITE api_write ON DATABASE PASSWORD {{ .api_write | toJson }} ROLES EDITOR COMMENT "api-write: authenticated writes + webhooks";
-DEFINE USER OVERWRITE api_admin ON DATABASE PASSWORD {{ .api_admin | toJson }} ROLES EDITOR COMMENT "api-admin: moderation/admin";
-DEFINE USER OVERWRITE workflow  ON DATABASE PASSWORD {{ .workflow | toJson }}  ROLES EDITOR COMMENT "workflow: Dapr pipeline orchestrator";
+BEGIN TRANSACTION;
+
+-- System users: only the in-cluster Jobs (D13 B).
 DEFINE USER OVERWRITE backup    ON DATABASE PASSWORD {{ .backup | toJson }}    ROLES VIEWER COMMENT "backup: nightly export CronJob";
-DEFINE USER OVERWRITE migrator  ON DATABASE PASSWORD {{ .migrator | toJson }}  ROLES OWNER  COMMENT "migrator: schema migrations at deploy time only";
+DEFINE USER OVERWRITE migrator  ON DATABASE PASSWORD {{ .migrator | toJson }}  ROLES OWNER  COMMENT "migrator: schema migrations (migrate Job) only";
+
+-- The per-service system users from before D13 are removed: an EDITOR can REMOVE EVENT, which
+-- would switch off the schema's guards. Removing a user doesn't end its open sessions; running
+-- here does, because this only runs as the server starts (no session survives a restart).
+REMOVE USER IF EXISTS api_read        ON DATABASE;
+REMOVE USER IF EXISTS api_write       ON DATABASE;
+REMOVE USER IF EXISTS api_admin       ON DATABASE;
+REMOVE USER IF EXISTS workflow        ON DATABASE;
+REMOVE USER IF EXISTS api_public_read ON DATABASE;
+REMOVE USER IF EXISTS api_user        ON DATABASE;
+
+-- Service logins (D13 B, DEFINE ACCESS svc in schema.surql): the argon2 hash of each service's
+-- Secret Manager password, computed by the database, so only the hash is stored and the
+-- plaintext stays in the init Secret. Written here, not by the migrator, so the migrator and
+-- its Terraform-built bundle never hold a service password. The tables are created here if the
+-- schema isn't applied yet; the schema's own DEFINE … OVERWRITE stays authoritative.
+DEFINE TABLE IF NOT EXISTS service SCHEMAFULL PERMISSIONS NONE;
+DEFINE FIELD IF NOT EXISTS secretHash ON service TYPE string;
+UPSERT service:api_public_read SET secretHash = crypto::argon2::generate({{ .api_public_read | toJson }});
+UPSERT service:api_user        SET secretHash = crypto::argon2::generate({{ .api_user | toJson }});
+UPSERT service:api_admin       SET secretHash = crypto::argon2::generate({{ .api_admin | toJson }});
+UPSERT service:workflow        SET secretHash = crypto::argon2::generate({{ .workflow | toJson }});
+
+DEFINE TABLE IF NOT EXISTS _identity SCHEMAFULL PERMISSIONS NONE;
+DEFINE FIELD IF NOT EXISTS hash      ON _identity TYPE string;
+DEFINE FIELD IF NOT EXISTS appliedAt ON _identity TYPE datetime;
+-- The identity marker, last: on GKE Terraform replaces the next line with
+-- `UPSERT _identity:current SET hash = "<config hash>", appliedAt = time::now();`
+-- @identity-marker
+
+COMMIT TRANSACTION;

@@ -12,7 +12,7 @@ resources:
   - service.yaml
   - statefulset.yaml
   - networkpolicy.yaml
-  - init-users-job.yaml
+  - migrate-job.yaml
   - backup-cronjob.yaml
 images:
   # Pinned by tag and digest: upgrades are deliberate PRs.
@@ -21,7 +21,13 @@ images:
   - name: google/cloud-sdk
     newTag: 586.0.0-slim@sha256:cfca8415b7ce1abccf4c7a1a9c78b4da2c3718ac668806480a4471cb052e1ca9
 configMapGenerator:
-  # Template for the surrealdb-init Secret (see init.surql.tmpl).
+  # The identity-check sidecar's script (statefulset.yaml). Hash suffix kept: a new script
+  # renames it, which changes the pod template and restarts the pod.
+  - name: surrealdb-identity-check
+    files:
+      - identity_check.py
+  # Template for the init Secret (see init.surql.tmpl). On GKE, Terraform applies a copy named
+  # after the identity config hash (modules/cluster/identity.tf).
   - name: surrealdb-init-template
     files:
       - init.surql=init.surql.tmpl

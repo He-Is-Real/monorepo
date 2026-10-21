@@ -7,12 +7,14 @@ automated tests. It also records what had to change in the draft and what is sti
 
 ## Where it lives and how to run it
 
-| Path                                        | What                                                                       |
-| ------------------------------------------- | -------------------------------------------------------------------------- |
-| `libs/database/schema/schema.surql`         | Declarative schema (D14). Terraform placeholder: `${clerk_jwt_public_key}` |
-| `libs/database/schema/data/000N-*.surql`    | Run-once seeds 0001 (draft DPA v1) and 0002 (legacy DPA)                   |
-| `libs/database/integration/*.int-spec.ts`   | 217 integration tests against a real SurrealDB                             |
-| `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests                          |
+| Path                                        | What                                                            |
+| ------------------------------------------- | --------------------------------------------------------------- |
+| `libs/database/schema/schema.surql`         | Declarative schema (D14), applied in full in one transaction    |
+| `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
+| `libs/database/schema/data/000N-*.surql`    | Run-once seed 0001 (draft DPA v1); 0002 dropped (D44)           |
+| `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
+| `libs/database/integration/*.int-spec.ts`   | 385 integration tests against a real SurrealDB                  |
+| `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
 
 ```bash
 pnpm nx run database:test-integration    # needs Docker; about 20 s
@@ -28,10 +30,12 @@ pnpm nx run database:test-integration    # needs Docker; about 20 s
   run. Set `SURREAL_TEST_URL` / `SURREAL_TEST_USER` / `SURREAL_TEST_PASS` to use a running
   server instead.
 - **Isolation.** Each spec file gets its own namespace, so the files run in parallel.
-- **Setup.** An OWNER `migrator` applies the schema and seeds, as the D14 Job will. Each
-  service gets a `service` record with a random password, argon2-hashed by
-  `crypto::argon2::generate`. Clerk is simulated by an RS256 key pair generated per run; the
-  public PEM is pinned into `DEFINE ACCESS clerk` exactly as Terraform will pin Clerk's.
+- **Setup.** An OWNER `migrator` applies the bundle with the D14 Job's own runner
+  (`migrate.py`), from the same files. Each service gets a `service` record with a random
+  password, argon2-hashed by `crypto::argon2::generate` (in the cluster SurrealDB's startup init does this;
+  `migration.int-spec.ts` runs the real init template). Clerk is simulated by an RS256 key pair
+  generated per run; the public PEM is passed as `clerk_jwt_public_key`, as Terraform passes
+  Clerk's.
 - **Kept out of `test`.** `nx affected -t test` still runs without Docker; CI has a separate
   `nx affected -t test-integration` step. CI uses no `services:` container because it can't
   pass SurrealDB its `start` arguments. No new dependencies.
@@ -66,6 +70,7 @@ bypasses permissions) that the row is unchanged or absent.
 | D38 retention: only the migrator, and only for subjects erased more than 6 years ago (2192 days), can delete consent; live, recently erased and 2191-day-old subjects are refused, and so is every service and person. Audit rows: the migrator can prune; no service or person can.                                                                                                                                                                                                                     | `retention`                      |
 | Round 3 sweep: every table is classified (a new, unclassified table fails the test). For each person-linked table (`story`, `publicStory`, `consent`, `moderationReview`, `idempotencyKey`), a control write works, the same write is refused after erasure from a session opened before it, and a write racing erasure loses at commit with nothing stored. Root (`user`): two racing erasures, one wins, the retry is a no-op. Kept (`auditLog`): a racing audit write commits with typed fields only. | `person-linked`                  |
 | Round 3, P2: a service-supplied `gdprDeletedAt` (2200 days ago) is replaced by the server time and can't be re-dated, so the nightly prune keeps the consent.                                                                                                                                                                                                                                                                                                                                            | `retention`                      |
+| D14 + cutover: restart with a one-transaction startup init ends old sessions; a failed init keeps old identities and the identity check stays not Ready. RETURN can't reach a data script; a missed one fails loud and blocks (exit 3). Database fencing token: later runs win. Checks run before changes; seeded DPAs keep their files.                                                                                                                                                                 | `migration`                      |
 | One connection, one session per request, concurrent people isolated; dangers pinned; cost measured.                                                                                                                                                                                                                                                                                                                                                                                                      | `request-sessions`               |
 
 ## Changes to the draft schema (port back to the decision doc)
@@ -250,17 +255,17 @@ retried`, on both RocksDB and the in-memory engine.
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
 
-| Table                                        | Holds or links                                 | Class      | On create/update                                                           | After erasure                                                     |
-| -------------------------------------------- | ---------------------------------------------- | ---------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `user`                                       | the person (Clerk id until erasure)            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB | stub: id, `createdAt`, `gdprDeletedAt`                            |
-| `story`                                      | testimony; `submitter`                         | linked     | submitter live + fence (and owner/consent rules)                           | deleted                                                           |
-| `publicStory`                                | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
-| `consent`                                    | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
-| `moderationReview`                           | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
-| `idempotencyKey`                             | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt)                                    | deleted by erasure; others expire in 24 h                         |
-| `auditLog`                                   | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
-| `personFence`                                | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
-| `tag`, `dpaVersion`, `service`, `_migration` | no person data                                 | none       | —                                                                          | —                                                                 |
+| Table                                                                                           | Holds or links                                 | Class      | On create/update                                                           | After erasure                                                     |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `user`                                                                                          | the person (Clerk id until erasure)            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB | stub: id, `createdAt`, `gdprDeletedAt`                            |
+| `story`                                                                                         | testimony; `submitter`                         | linked     | submitter live + fence (and owner/consent rules)                           | deleted                                                           |
+| `publicStory`                                                                                   | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
+| `consent`                                                                                       | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
+| `moderationReview`                                                                              | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
+| `idempotencyKey`                                                                                | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt)                                    | deleted by erasure; others expire in 24 h                         |
+| `auditLog`                                                                                      | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
+| `personFence`                                                                                   | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
+| `tag`, `dpaVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity` | no person data                                 | none       | —                                                                          | —                                                                 |
 
 - **Audit writes that race erasure.** These are allowed to commit, because audit rows are kept
   anyway (D38). They can't carry testimony text: every field is typed or an enum, and unknown
@@ -304,6 +309,24 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
   ledger whoever writes.
 - **Events run with elevated privileges.** An event fired by a person's or service's write can
   write any table. Keep events small and deliberate.
+- **A `RETURN` inside a transaction commits it early** and skips the statements after it
+  (3.2.4), wherever it hides: `[RETURN 1]`, `1 + RETURN 1`, `IF … THEN RETURN … END`, blocks.
+  **`BREAK`/`CONTINUE` in an `IF` or `FOR` block skip the rest of that block** while the
+  transaction goes on and commits. In a function, event, field or param body neither can affect
+  the caller (tested). So data scripts follow an allow-list of statements and may not contain
+  these words at all, schema files are DDL only, and every step ends with its marker, is
+  count-checked, and counts as rolled back only when the server refused its `COMMIT`. **Comments
+  end at U+0085, U+2028 and U+2029 too**, so bundled files may contain no control or separator
+  characters, and only ASCII outside strings. **`/'/` is a regex literal** (it can hold quotes),
+  and `r""`, `u''`, `d''`, `b""`, `s''` are prefixed strings: the runner refuses both, and every step
+  ends with a nonce it must get back. **A bare record path (`table:id.field`) in an `IF`
+  fails** ("Specify a database to use"); `LET` it first. **`SLEEP` needs root.** **`FOR $x IN (SELECT …)` fails** ("Cannot
+  execute statement using value"); `LET` the rows, then loop. **`REMOVE USER` doesn't end that
+  user's open sessions**: the cutover is a restart (infra/k8s/surrealdb/README.md). **A startup
+  `--import-file` with `OPTION IMPORT` hangs the server**, and a failing statement in it is only
+  logged. **`surreal import` requires
+  `OPTION IMPORT`**, which switches off events and field `VALUE`/`ASSERT`, so it can't run data
+  scripts; the runner uses `/rpc` instead.
 - **In a failed transaction, surrealdb.js 2.0.x's `collect()` throws "The query was not
   executed due to a failed transaction"**, not the `THROW` message. Read `.responses()` for the
   root cause. 2.1.0 fixes this (surrealdb.js#689).
@@ -343,7 +366,7 @@ try {
 - **Service sign-in typing.** `connect({ authentication })` in 2.0.8 is typed for system users
   and tokens only, but the runtime signs in with record access (`access: 'svc'`). That path is
   needed so the SDK re-signs in after reconnects and the 15-minute token expiry. 2.1.0 types it.
-  `libs/database` today signs in as a system user, so it changes when services move to `svc`.
+  `libs/database` signs in this way (`serviceSignIn`).
 - **Reconnects aren't covered yet:** the harness disables them. See "Remaining risks" for what M2
   must check.
 - **One socket for all requests.** It handles all of an instance's concurrency (Cloud Run allows
@@ -413,7 +436,7 @@ clean-up job running as the migrator.
   tested.
 - **Audit:** only the migrator can delete; the 6-year cut-off lives in the job.
 
-The job itself comes with the D14 migration work; it isn't built.
+The job itself isn't built yet; it will run as the migrator.
 
 **Decided, not built (M2 API work):**
 
@@ -465,8 +488,9 @@ iss jti nbf sid sub v pla fea sts`), and none of those collide.
   names.
 
 **Public key.** It's on the Dashboard's API keys page ("JWKS Public Key", PEM), also at
-`https://api.clerk.com/v1/jwks` and `<frontend-api>/.well-known/jwks.json`. Terraform passes it
-as `clerk_jwt_public_key`.
+`https://api.clerk.com/v1/jwks` and `<frontend-api>/.well-known/jwks.json`. It goes in
+`infra/terraform/live/dev/cluster/clerk.auto.tfvars` (`clerk_jwt_public_key`). Until it's set the
+migration removes `DEFINE ACCESS clerk`, so no token can open a person session.
 
 **Sources:**
 

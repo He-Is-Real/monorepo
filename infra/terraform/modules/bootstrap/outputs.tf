@@ -19,6 +19,10 @@ output "tf_planner_email" {
   value = google_service_account.tf_planner.email
 }
 
+output "tf_cluster_planner_email" {
+  value = google_service_account.tf_cluster_planner.email
+}
+
 output "tf_deployer_email" {
   value = google_service_account.tf_deployer.email
 }

@@ -30,11 +30,9 @@ if (!args.project) {
 }
 
 // Service password placeholders in init.surql.tmpl -> Secret Manager secret ids.
-// api_read / api_write keep their pre-rename names (now api-public-read / api-user, D33)
-// until the schema PR replaces these users with D13 service records.
 const SERVICE_SECRETS = {
-  api_read: 'surreal-api-read-password',
-  api_write: 'surreal-api-write-password',
+  api_public_read: 'surreal-api-public-read-password',
+  api_user: 'surreal-api-user-password',
   api_admin: 'surreal-api-admin-password',
   workflow: 'surreal-workflow-password',
   backup: 'surreal-backup-password',
@@ -122,4 +120,21 @@ applySecret('surrealdb-backup', {
   SURREAL_USER: 'backup',
   SURREAL_PASS: passwords.backup,
 });
-applySecret('surrealdb-init', { 'init.surql': render(template, passwords) });
+applySecret('surrealdb-migrator', {
+  SURREAL_USER: 'migrator',
+  SURREAL_PASS: passwords.migrator,
+});
+applySecret('surrealdb-init', {
+  'init.surql': render(template, passwords),
+  // For the identity-check sidecar, as the ExternalSecret renders it on GKE.
+  'credentials.json': JSON.stringify({
+    migrator: passwords.migrator,
+    backup: passwords.backup,
+    services: {
+      api_public_read: passwords.api_public_read,
+      api_user: passwords.api_user,
+      api_admin: passwords.api_admin,
+      workflow: passwords.workflow,
+    },
+  }),
+});
