@@ -1,5 +1,5 @@
 /**
- * api-read: Public read API. Connects to SurrealDB as a read-only (VIEWER) user; serves anonymous and signed-in reads.
+ * api-public-read: anonymous public queries only (D33, D35); no auth. Connects to SurrealDB as a read-only (VIEWER) user.
  * See project docs: context/future/architecture/service-topology.md
  */
 import { Logger } from '@nestjs/common';
@@ -11,7 +11,7 @@ async function bootstrap() {
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
-  Logger.log(`api-read listening on http://localhost:${port}`);
+  Logger.log(`api-public-read listening on http://localhost:${port}`);
 }
 
 bootstrap();

@@ -1,34 +1,34 @@
-# api-read on Cloud Run: scales to zero when idle, capped at
-# api_read_max_instances. Reaches SurrealDB inside GKE through Direct VPC
+# api-public-read on Cloud Run: scales to zero when idle, capped at
+# api_public_read_max_instances. Reaches SurrealDB inside GKE through Direct VPC
 # egress + the cluster's VPC-scope DNS name (no load balancer).
 
-resource "google_service_account" "api_read" {
+resource "google_service_account" "api_public_read" {
   project      = var.project_id
-  account_id   = "api-read"
-  display_name = "Cloud Run: api-read"
+  account_id   = "api-public-read"
+  display_name = "Cloud Run: api-public-read"
 }
 
-resource "google_secret_manager_secret_iam_member" "api_read" {
+resource "google_secret_manager_secret_iam_member" "api_public_read" {
   project   = var.project_id
   secret_id = google_secret_manager_secret.surreal["surreal-api-public-read-password"].secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = google_service_account.api_read.member
+  member    = google_service_account.api_public_read.member
 }
 
-resource "google_cloud_run_v2_service" "api_read" {
+resource "google_cloud_run_v2_service" "api_public_read" {
   project             = var.project_id
-  name                = "api-read"
+  name                = "api-public-read"
   location            = var.region
   ingress             = "INGRESS_TRAFFIC_ALL"
-  deletion_protection = var.deletion_protection
+  deletion_protection = var.run_deletion_protection
   labels              = local.labels
 
   template {
-    service_account = google_service_account.api_read.email
+    service_account = google_service_account.api_public_read.email
 
     scaling {
       min_instance_count = 0
-      max_instance_count = var.api_read_max_instances
+      max_instance_count = var.api_public_read_max_instances
     }
 
     vpc_access {
@@ -40,7 +40,7 @@ resource "google_cloud_run_v2_service" "api_read" {
     }
 
     containers {
-      image = lookup(var.images, "api-read", "us-docker.pkg.dev/cloudrun/container/hello")
+      image = lookup(var.images, "api-public-read", "us-docker.pkg.dev/cloudrun/container/hello")
 
       resources {
         limits = {
@@ -88,25 +88,25 @@ resource "google_cloud_run_v2_service" "api_read" {
     }
   }
 
-  depends_on = [google_secret_manager_secret_iam_member.api_read]
+  depends_on = [google_secret_manager_secret_iam_member.api_public_read]
 }
 
-resource "google_cloud_run_v2_service_iam_member" "api_read_public" {
-  count = var.api_read_public ? 1 : 0
+resource "google_cloud_run_v2_service_iam_member" "api_public_read_public" {
+  count = var.api_public_read_public ? 1 : 0
 
   project  = var.project_id
   location = var.region
-  name     = google_cloud_run_v2_service.api_read.name
+  name     = google_cloud_run_v2_service.api_public_read.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
 
-resource "google_cloud_run_v2_service_iam_member" "api_read_invokers" {
-  for_each = var.api_read_public ? toset([]) : toset(var.api_read_invokers)
+resource "google_cloud_run_v2_service_iam_member" "api_public_read_invokers" {
+  for_each = var.api_public_read_public ? toset([]) : toset(var.api_public_read_invokers)
 
   project  = var.project_id
   location = var.region
-  name     = google_cloud_run_v2_service.api_read.name
+  name     = google_cloud_run_v2_service.api_public_read.name
   role     = "roles/run.invoker"
   member   = each.value
 }

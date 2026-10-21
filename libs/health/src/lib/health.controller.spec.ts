@@ -7,7 +7,7 @@ function setup(db: DatabaseStatus) {
   const database = { check: jest.fn().mockResolvedValue(db) };
   const res = { status: jest.fn() };
   const controller = new HealthController(
-    'api-read',
+    'api-public-read',
     database as unknown as DatabaseHealthService,
   );
   return { controller, res };
@@ -18,7 +18,7 @@ describe('HealthController', () => {
     const { controller, res } = setup('up');
     await expect(controller.get(res as unknown as Response)).resolves.toEqual({
       status: 'ok',
-      service: 'api-read',
+      service: 'api-public-read',
       db: 'up',
     });
     expect(res.status).not.toHaveBeenCalled();
@@ -28,7 +28,7 @@ describe('HealthController', () => {
     const { controller, res } = setup('down');
     await expect(controller.get(res as unknown as Response)).resolves.toEqual({
       status: 'degraded',
-      service: 'api-read',
+      service: 'api-public-read',
       db: 'down',
     });
     expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);

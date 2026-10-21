@@ -6,8 +6,8 @@ const config = {
   url: 'ws://surrealdb:8000',
   namespace: 'heisreal',
   database: 'main',
-  username: 'api_read',
-  passwordSecret: 'surreal-api-read-password',
+  username: 'api_admin',
+  passwordSecret: 'surreal-api-admin-password',
 };
 const secrets = { get: jest.fn() } as unknown as SecretsService;
 

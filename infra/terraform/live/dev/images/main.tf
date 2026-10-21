@@ -2,12 +2,12 @@
 # from its pruned Nx output and pushes it to apps-scratch (development builds;
 # dev can run them, prod never). Nothing reads this root's state.
 #
-#   pnpm nx run-many -t prune -p api-read api-write api-admin workflow
+#   pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow
 #   terraform apply
 #
 # Then run it in dev: set the service to "snapshot" in
 # live/dev/gcp/images.auto.tfvars, or apply gcp once with
-#   -var 'image_overrides={"api-read"="snapshot"}'.
+#   -var 'image_overrides={"api-public-read"="snapshot"}'.
 
 terraform {
   required_version = ">= 1.11"
@@ -41,7 +41,7 @@ data "terraform_remote_state" "gcp" {
 
 locals {
   registry = data.terraform_remote_state.gcp.outputs.gcp.registry.apps_scratch
-  services = toset(["api-read", "api-write", "api-admin", "workflow"])
+  services = toset(["api-public-read", "api-user", "api-admin", "workflow"])
   app_root = "${path.root}/../../../../../apps"
 
   # Tag = hash of the pruned build output, so unchanged builds aren't re-pushed.
@@ -118,4 +118,16 @@ output "images" {
     for s in local.services :
     s => data.google_artifact_registry_docker_image.service[s].self_link
   }
+}
+
+# D33/D36 rename (api-read -> api-public-read, api-write -> api-user). Remove
+# once applied.
+moved {
+  from = terraform_data.image["api-read"]
+  to   = terraform_data.image["api-public-read"]
+}
+
+moved {
+  from = terraform_data.image["api-write"]
+  to   = terraform_data.image["api-user"]
 }

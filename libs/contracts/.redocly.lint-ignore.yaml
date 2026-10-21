@@ -1,0 +1,18 @@
+# Deliberate exceptions to the Redocly lint (https://redocly.com/docs/cli/). Keep this list short,
+# and give every entry a reason.
+# - /health has no 4xx response: it takes no input and needs no auth.
+# - InferenceResult is a Dapr pub/sub message (inference-result), not an HTTP body.
+openapi/api-public-read.yaml:
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+openapi/api-user.yaml:
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+openapi/api-admin.yaml:
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+openapi/worker.yaml:
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+  no-unused-components:
+    - '#/components/schemas/InferenceResult'

@@ -34,7 +34,13 @@ variable "cluster_dns_domain" {
 }
 
 variable "deletion_protection" {
-  description = "Protect the cluster and Cloud Run services from terraform destroy."
+  description = "Protect the GKE cluster from terraform destroy."
+  type        = bool
+  default     = true
+}
+
+variable "run_deletion_protection" {
+  description = "Protect the Cloud Run services from terraform destroy. Set to false and apply before replacing a service (e.g. a rename): the provider refuses to delete a protected one."
   type        = bool
   default     = true
 }
@@ -81,20 +87,20 @@ variable "images" {
   default     = {}
 }
 
-variable "api_read_max_instances" {
-  description = "Scale-up cap for api-read on Cloud Run."
+variable "api_public_read_max_instances" {
+  description = "Scale-up cap for api-public-read on Cloud Run."
   type        = number
   default     = 2
 }
 
-variable "api_read_public" {
-  description = "Allow unauthenticated calls to api-read. Dev keeps it private (invokers only)."
+variable "api_public_read_public" {
+  description = "Allow unauthenticated calls to api-public-read. Dev keeps it private (invokers only)."
   type        = bool
   default     = false
 }
 
-variable "api_read_invokers" {
-  description = "Members allowed to call api-read when it isn't public (e.g. user:someone@heisreal.today)."
+variable "api_public_read_invokers" {
+  description = "Members allowed to call api-public-read when it isn't public (e.g. user:someone@heisreal.today)."
   type        = list(string)
   default     = []
 }

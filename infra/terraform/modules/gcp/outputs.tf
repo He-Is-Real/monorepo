@@ -46,6 +46,6 @@ output "surreal_secret_rotation" {
   value       = var.secret_rotation
 }
 
-output "api_read_url" {
-  value = google_cloud_run_v2_service.api_read.uri
+output "api_public_read_url" {
+  value = google_cloud_run_v2_service.api_public_read.uri
 }

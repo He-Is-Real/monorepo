@@ -8,8 +8,11 @@ Nx + pnpm workspace on Node 24 LTS: Next.js (`apps/web`), NestJS on Express (`ap
 decisions that override it. Read it before starting a task, and update it in the same PR when a
 task finishes or a recorded decision changes.
 
+API work follows `docs/api-conventions.md`; the OpenAPI specs in `libs/contracts/openapi` are the
+source of truth, so change them in the same PR as the code.
+
 - Services never call each other. Each API connects to SurrealDB as its own least-privilege user
-  (api-read is read-only). Don't merge services or share DB users.
+  (api-public-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
   through External Secrets Operator on clusters. Never commit secret values or add key files.
 - Nothing on GKE is reachable from the internet: private nodes only, and no `LoadBalancer` or
