@@ -3,7 +3,9 @@
 #   "snapshot"  newest development build (repo apps-scratch): unmerged code,
 #               built on a local developer machine or by snapshot-images.yml
 #   "…@sha256:…" hold the service on this exact build
+#   (absent)    Google's placeholder hello image
 # Try a build for one apply only: -var 'image_overrides={"api-public-read"="snapshot"}'
 images = {
   "api-public-read" = "main"
+  "web"             = "main"
 }
