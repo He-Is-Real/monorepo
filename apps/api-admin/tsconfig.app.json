@@ -38,6 +38,12 @@
     },
     {
       "path": "../../libs/consent/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/auth/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/roles/tsconfig.lib.json"
     }
   ]
 }

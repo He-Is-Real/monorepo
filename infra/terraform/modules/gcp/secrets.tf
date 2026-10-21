@@ -62,3 +62,24 @@ resource "google_service_account_iam_member" "surrealdb_secrets_wi" {
   member             = "serviceAccount:${local.wi_pool}[database/surrealdb-secrets]"
   depends_on         = [google_container_cluster.this] # creates the identity pool
 }
+
+# Clerk's Backend API secret key (decisions 4 and 13). Terraform owns the
+# container; the value is human-supplied from the Clerk CLI as a new version
+# (runbook: infra/clerk/README.md). Nothing reads it yet: api-user and
+# api-admin verify session tokens without the network against the pinned
+# public key, so no service account is granted access. M2 (account settings,
+# webhooks) and M3 (role assignment) add accessors for the services that call
+# the Backend API.
+resource "google_secret_manager_secret" "clerk_secret_key" {
+  project   = var.project_id
+  secret_id = "clerk-secret-key"
+  labels    = merge(local.labels, { component = "clerk" })
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region # GDPR: stays in the UK
+      }
+    }
+  }
+}

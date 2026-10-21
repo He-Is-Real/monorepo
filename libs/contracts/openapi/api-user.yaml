@@ -10,6 +10,10 @@ info:
       Called directly by the browser with the Clerk token (D31); `web` never calls it (D32).
     - Personal reads and the person's commands run in a SurrealDB session **as that person**, opened
       with their Clerk token, so the database checks ownership (D27, D13).
+    - The token must be a session token of the configured Clerk instance (RS256, `iss`, `exp`/`nbf`)
+      minted for an allowed origin (`azp`), with the `role` claim (D1); anything else is `401`. A role
+      below the operation's `x-required-role` is `403` with code `role_required`. The person's first
+      call creates their `user` record (only `clerkUserId`, D16).
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
     - Commands return `{ id, version }` (D28): `201` + `Location` for creates, `202` for async work.
       Modifying commands need `If-Match` (`412`/`428`), except account settings, which live in Clerk

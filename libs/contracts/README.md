@@ -13,8 +13,8 @@ spec in the same PR as the code that implements it. The rules they follow are in
 | [`components.yaml`](openapi/components.yaml)           | Shared schemas, parameters, headers and responses     | Referenced by the specs above; not served on its own    |
 
 Each operation carries `x-milestone` (the milestone that builds it). M0 builds `GET /v1/stories/{slug}`,
-the `/health` probes and api-user's three consent operations (task 0.8; they answer `401` until sign-in
-arrives in task 0.5).
+the `/health` probes and api-user's three consent operations (task 0.8; signed in with Clerk since task
+0.5, `libs/auth`).
 
 ```bash
 pnpm nx run contracts:lint-openapi      # Redocly, recommended-strict (also runs as part of `lint`)

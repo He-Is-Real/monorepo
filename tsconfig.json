@@ -32,6 +32,12 @@
     },
     {
       "path": "./libs/consent"
+    },
+    {
+      "path": "./libs/auth"
+    },
+    {
+      "path": "./libs/roles"
     }
   ],
   "compilerOptions": {}

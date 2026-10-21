@@ -96,17 +96,38 @@
         "options": {
           "command": "cp tools/docker/nest-service.Dockerfile apps/api-user/dist/Dockerfile"
         }
+      },
+      "test": {
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/jest.preset.js",
+          "{workspaceRoot}/libs/contracts/openapi/**/*",
+          {
+            "externalDependencies": [
+              "jest",
+              "@nx/jest",
+              "ts-jest",
+              "@swc/jest"
+            ]
+          }
+        ]
       }
     },
     "tags": [
       "type:app",
       "scope:api"
+    ],
+    "implicitDependencies": [
+      "contracts"
     ]
   },
   "dependencies": {
+    "@heisreal/auth": "workspace:*",
     "@heisreal/consent": "workspace:*",
     "@heisreal/database": "workspace:*",
     "@heisreal/health": "workspace:*",
+    "@heisreal/roles": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",

@@ -30,15 +30,25 @@ const joinPath = (...parts: (string | string[] | undefined)[]) => {
   return `/${segments.join('/')}`;
 };
 
+/** One registered HTTP route: what Nest's router serves, read from the same metadata. */
+export interface RegisteredRoute {
+  /** e.g. `POST /v1/account/consents` */
+  route: string;
+  /** `Controller.method` */
+  name: string;
+  handler: object;
+  controller: object;
+}
+
 /**
- * Every HTTP route the application registers, with its consent policy (D21). Reads the same
- * metadata Nest's router uses, so a route can't be missed.
+ * Every HTTP route the application registers. Reads the same metadata Nest's router uses, so
+ * a route can't be missed. Shared by the consent (D21) and role (D1, `libs/auth`) checks.
  */
-export function listRoutePolicies(
+export function listRoutes(
   discovery: DiscoveryService,
   scanner = new MetadataScanner(),
-): RoutePolicy[] {
-  const routes: RoutePolicy[] = [];
+): RegisteredRoute[] {
+  const routes: RegisteredRoute[] = [];
   for (const wrapper of discovery.getControllers()) {
     const controller = wrapper.metatype as
       (new (...args: never[]) => object) | undefined;
@@ -54,26 +64,39 @@ export function listRoutePolicies(
       const paths = Reflect.getMetadata(PATH_METADATA, handler) as
         string | string[] | undefined;
       for (const path of Array.isArray(paths) ? paths : [paths]) {
-        const route = `${RequestMethod[method]} ${joinPath(prefix, path)}`;
-        const resolved = resolveConsentPolicy(handler, controller);
-        const entry: RoutePolicy = {
-          route,
-          handler: `${controller.name}.${name}`,
-        };
-        if (!resolved.ok) entry.problem = resolved.problem;
-        else {
-          entry.policy = resolved.policy;
-          const p = resolved.policy;
-          if (p.kind === 'requires' && p.requirement.subject === 'submitter') {
-            const param = p.requirement.storyParam ?? 'id';
-            if (!route.split('/').includes(`:${param}`)) {
-              entry.problem = `checks the submitter of story :${param}, but the route has no such parameter`;
-            }
-          }
-        }
-        routes.push(entry);
+        routes.push({
+          route: `${RequestMethod[method]} ${joinPath(prefix, path)}`,
+          name: `${controller.name}.${name}`,
+          handler,
+          controller,
+        });
       }
     }
   }
   return routes.sort((a, b) => a.route.localeCompare(b.route));
+}
+
+/** Every HTTP route the application registers, with its consent policy (D21). */
+export function listRoutePolicies(
+  discovery: DiscoveryService,
+  scanner = new MetadataScanner(),
+): RoutePolicy[] {
+  return listRoutes(discovery, scanner).map(
+    ({ route, name, handler, controller }) => {
+      const resolved = resolveConsentPolicy(handler, controller);
+      const entry: RoutePolicy = { route, handler: name };
+      if (!resolved.ok) entry.problem = resolved.problem;
+      else {
+        entry.policy = resolved.policy;
+        const p = resolved.policy;
+        if (p.kind === 'requires' && p.requirement.subject === 'submitter') {
+          const param = p.requirement.storyParam ?? 'id';
+          if (!route.split('/').includes(`:${param}`)) {
+            entry.problem = `checks the submitter of story :${param}, but the route has no such parameter`;
+          }
+        }
+      }
+      return entry;
+    },
+  );
 }

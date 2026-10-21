@@ -1,0 +1,47 @@
+{
+  "auth_email": {
+    "used_for_sign_in": true,
+    "used_for_sign_up": true,
+    "required_for_sign_up": true,
+    "verify_at_sign_up": true,
+    "sign_in_strategies": ["email_code"],
+    "verification_strategies": ["email_code"]
+  },
+  "auth_password": {
+    "enabled": true,
+    "required": false,
+    "min_length": 8,
+    "disable_hibp": false,
+    "enforce_hibp_on_sign_in": true
+  },
+  "connection_oauth_google": {
+    "enabled": true,
+    "authenticatable": true
+  },
+  "auth_passkey": {
+    "used_for_sign_in": false
+  },
+  "auth_multi_factor": {
+    "required_for_sign_in": false,
+    "required_for_sign_up": false,
+    "authenticator_app": { "enabled": false },
+    "backup_code": { "enabled": false }
+  },
+  "auth_attack_protection": {
+    "bot_protection": { "captcha_enabled": true },
+    "user_lockout": { "enabled": true }
+  },
+  "compliance": {
+    "legal_consent": { "enabled": false }
+  },
+  "session": {
+    "lifetime": 60,
+    "allowed_clock_skew": 5,
+    "claims": {
+      "ns": "heisreal",
+      "db": "main",
+      "ac": "clerk",
+      "role": "{{user.public_metadata.role || 'User'}}"
+    }
+  }
+}

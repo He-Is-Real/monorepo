@@ -253,10 +253,11 @@ bundle has a new hash, so a new Job runs. To re-run the same bundle, apply with
 plain statements in the grammar above. The runner wraps each script in its own transaction and
 records it in `_migration` with a checksum. Add tests in `libs/database/integration`.
 
-**Clerk key** (task 0.5): put Clerk's PEM public key in
-`infra/terraform/live/dev/cluster/clerk.auto.tfvars` and apply. Until then the migration removes
-`DEFINE ACCESS clerk`, so no token can open a person session. Never a private key (the variable
-refuses one).
+**Clerk key** (task 0.5): Clerk's PEM public key is in
+`infra/terraform/live/dev/cluster/clerk.auto.tfvars` (the dev instance's; how to get it:
+`infra/clerk/README.md`). Empty, the migration removes `DEFINE ACCESS clerk`, so no token can open
+a person session. Never a private key (the variable refuses one). After a Clerk key rotation,
+update it here and in the services' `CLERK_JWT_PUBLIC_KEY`, then migrate.
 
 **DPA text** (D20): Terraform passes each `libs/legal/dpa/*.md` file's sha256 (`$dpa_sha256`).
 While a version is a draft, its `contentHash` follows the file; once published, a changed file

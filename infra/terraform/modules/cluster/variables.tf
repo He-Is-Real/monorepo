@@ -62,7 +62,7 @@ variable "identity_rotation" {
 }
 
 variable "clerk_jwt_public_key" {
-  description = "Clerk's RS256 PEM public key (public, not a secret). Empty until Clerk is set up (task 0.5): the migration then removes DEFINE ACCESS clerk, so no person sessions."
+  description = "Clerk's RS256 PEM public key (public, not a secret). Empty: the migration removes DEFINE ACCESS clerk, so no person sessions."
   type        = string
   default     = ""
 }

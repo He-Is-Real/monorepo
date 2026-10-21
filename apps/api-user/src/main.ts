@@ -1,5 +1,5 @@
 /**
- * api-user: the signed-in person's own reads and commands (Clerk JWT on every route), plus signed webhooks (D33, D35). Connects as an EDITOR user.
+ * api-user: the signed-in person's own reads and commands (Clerk JWT on every route), plus signed webhooks (D33, D35). Signs in as service:api_user; personal queries run as the person (D27).
  * See project docs: context/future/architecture/service-topology.md
  */
 import { Logger } from '@nestjs/common';

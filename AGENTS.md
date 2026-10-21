@@ -24,6 +24,9 @@ source of truth, so change them in the same PR as the code.
   GKE. Adopt anything made by hand with `import` blocks. Read-only commands are fine. Never
   auto-apply: plans may run automatically, applies are manual (local developer machine or `terraform-apply.yml`).
   Solo project: gates mean "deliberate", never "needs a second person".
+  One narrow exception: the Clerk instance's settings, which have no maintained Terraform provider,
+  live in `infra/clerk/dev.json` and are applied with `infra/clerk/clerk-config.mjs` (decision 17 in
+  `docs/delivery-status.md`); Clerk's public keys, its secret-key container and all of GCP stay in Terraform.
 - Terraform state must never hold secrets: write-only attributes for values, `ephemeral` for tokens.
   One approved exception (Joel, 2026-10-21): the `bunny` root's state holds the Bunny provider's
   computed keys (`bunnynet_stream_library.api_key`/`api_key_readonly`,

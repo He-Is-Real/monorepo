@@ -24,7 +24,7 @@ import type {
 /**
  * api-user's consent endpoints end to end: the real ConsentModule, guard and controller on
  * api-user's service connection, with SurrealDB doing the person-session checks. Only the
- * Clerk verification (task 0.5) is stood in for: the test's bearer token is already a
+ * Clerk verification (libs/auth, tested there) is stood in for: the test's bearer token is already a
  * SurrealDB-acceptable token signed by the harness's stand-in Clerk key.
  */
 class BearerForTests implements PersonAuthenticator {

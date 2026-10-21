@@ -48,6 +48,13 @@ resource "google_cloud_run_v2_service" "web" {
         value = google_cloud_run_v2_service.api_public_read.uri
       }
 
+      # Public (D32): read at request time and handed to Clerk in the browser,
+      # which is the only place Clerk runs. web's server holds no Clerk secret.
+      env {
+        name  = "CLERK_PUBLISHABLE_KEY"
+        value = var.clerk_publishable_key
+      }
+
       # As for the APIs: ready = the port is open. GET /health exists for
       # manual checks.
       startup_probe {

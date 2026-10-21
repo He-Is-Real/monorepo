@@ -22,6 +22,9 @@
     },
     {
       "path": "../database/tsconfig.lib.json"
+    },
+    {
+      "path": "../roles/tsconfig.lib.json"
     }
   ],
   "exclude": [
