@@ -66,6 +66,12 @@ jobs:
       - run: pnpm nx format:check
       - run: pnpm nx affected -t lint test build typecheck validate
 
+      # Schema and permission tests against a real SurrealDB (libs/database). The target starts
+      # the image pinned by tag + digest in infra/k8s/surrealdb/base/kustomization.yaml with
+      # `docker run` (preinstalled on ubuntu-latest), so CI tests the version the cluster runs.
+      # Not a `services:` container: those can't pass SurrealDB its `start` arguments.
+      - run: pnpm nx affected -t test-integration
+
       # Proves the Dockerfiles still build; pushing happens in _images.yml.
       - run: pnpm nx affected -t container
 

@@ -11,7 +11,7 @@ waiting to be made are in `project/context/research/required-decisions.html`.
 Keep this file current: update it in the same PR that finishes a task or changes a decision
 recorded here.
 
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-19
 
 ## Milestones
 
@@ -135,3 +135,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-17:** file created; M0 status and decisions 1–13 recorded. D1–D9 decided (D5 = deferred), Apple opinion added; D10–D12 deferred.
 - **2026-10-18:** D13–D36 recorded from `m0-schema-consent-decisions.html`. D23 implemented (#28): `libs/contracts` and `docs/api-conventions.md` (decision 14). Decision 10 corrected to £15 (#20).
 - **2026-10-18:** D33/D36 implemented (#29): services renamed to `api-public-read` and `api-user` (decision 15); decisions 7 and 8 updated. DB user names stay until the schema PR.
+- **2026-10-19:** D13 + D27 spike (D24 step 3) done: schema and seeds in `libs/database/schema`, 217 integration tests on SurrealDB 3.2.4 (`database:test-integration`, run in CI). Fixes to the draft schema (including review rounds 1–4 and D37/D38/D41) and the per-request session pattern are in [db-permissions.md](db-permissions.md).

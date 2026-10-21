@@ -1,0 +1,168 @@
+import type { Surreal } from 'surrealdb';
+import { outcome, rows, run, TestDatabase } from './support/harness';
+import { approve, buildWorld } from './support/world';
+
+/**
+ * D41 (review round 1, finding 3): field-level write scope on `story`.
+ *   workflow  → media and processing fields only;
+ *   api-admin → moderation fields only, never what the person wrote (moderators request changes).
+ * A field write outside the scope is silently dropped, so every test asserts the STORED state.
+ */
+describe('write scope on story fields (D41)', () => {
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let admin: Surreal;
+  let workflow: Surreal;
+  const stored = async (id: string) =>
+    (
+      await rows<Record<string, unknown>>(
+        migrator,
+        `SELECT slug, title, description, body, bylineName, primaryFormat, tagRefs, media,
+                status, approvedAt, rejectionFeedback, lockedBy, lockedAt
+           FROM type::record('story', $id)`,
+        { id },
+      )
+    )[0];
+
+  const CONTENT_WRITES = [
+    `title = 'Rewritten title'`,
+    `description = 'Rewritten'`,
+    `body = 'Words the person never wrote'`,
+    `bylineName = 'Someone else'`,
+    `primaryFormat = 'audio'`,
+    `tagRefs = [tag:doubt]`,
+    `slug = 'hijacked-slug'`,
+  ];
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    await buildWorld(t);
+    migrator = await t.migrator();
+    admin = await t.service('api_admin');
+    workflow = await t.service('workflow');
+    // A media entry as the person's upload would leave it.
+    await run(
+      migrator,
+      `UPDATE story:bob_pending SET media = [{ format: 'video', bunnyVideoId: 'vid-orig' }]`,
+    );
+  });
+  afterAll(() => t?.close());
+
+  describe('workflow', () => {
+    it.each(CONTENT_WRITES)(
+      'cannot change testimony content: SET %s',
+      async (set) => {
+        const before = await stored('bob_pending');
+        await run(workflow, `UPDATE story:bob_pending SET ${set}`);
+        expect(await stored('bob_pending')).toEqual(before);
+      },
+    );
+
+    it('cannot approve, reject or change status', async () => {
+      for (const set of [
+        `status = 'approved', approvedAt = time::now()`,
+        `status = 'rejected', rejectionFeedback = 'Rejected by workflow'`,
+        `status = 'draft'`,
+      ]) {
+        await run(workflow, `UPDATE story:bob_pending SET ${set}`);
+      }
+      expect(await stored('bob_pending')).toMatchObject({ status: 'pending' });
+      const s = await stored('bob_pending');
+      expect(s['approvedAt']).toBeUndefined();
+      expect(s['rejectionFeedback']).toBeUndefined();
+    });
+
+    it('cannot write moderation fields (lock, feedback)', async () => {
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET lockedBy = user:moderator, lockedAt = time::now(),
+           rejectionFeedback = 'from workflow'`,
+      );
+      const s = await stored('bob_pending');
+      expect([s['lockedBy'], s['lockedAt'], s['rejectionFeedback']]).toEqual([
+        undefined,
+        undefined,
+        undefined,
+      ]);
+    });
+
+    it('can write media and processing fields', async () => {
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/1.jpg',
+           media[0].durationSeconds = 93, media[0].aspectRatio = '9:16'`,
+      );
+      expect((await stored('bob_pending'))['media']).toEqual([
+        {
+          format: 'video',
+          bunnyVideoId: 'vid-orig',
+          thumbnailPath: 'thumbs/1.jpg',
+          durationSeconds: 93,
+          aspectRatio: '9:16',
+        },
+      ]);
+    });
+  });
+
+  describe('api_admin', () => {
+    it.each(CONTENT_WRITES)(
+      'cannot change testimony content: SET %s',
+      async (set) => {
+        const before = await stored('bob_pending');
+        await run(admin, `UPDATE story:bob_pending SET ${set}`);
+        expect(await stored('bob_pending')).toEqual(before);
+      },
+    );
+
+    it.each([
+      `media = []`,
+      `media[0].bunnyVideoId = 'someone-elses-video'`,
+      `media[0].thumbnailPath = 'admin.jpg'`,
+    ])('cannot change media: SET %s', async (set) => {
+      const before = await stored('bob_pending');
+      await run(admin, `UPDATE story:bob_pending SET ${set}`);
+      expect(await stored('bob_pending')).toEqual(before);
+    });
+
+    it('writes moderation fields and status', async () => {
+      await run(
+        admin,
+        `UPDATE story:bob_pending SET lockedBy = user:moderator, lockedAt = time::now(),
+           status = 'changes_requested', rejectionFeedback = 'Please add a little more detail'`,
+      );
+      expect(await stored('bob_pending')).toMatchObject({
+        lockedBy: 'user:moderator',
+        status: 'changes_requested',
+        rejectionFeedback: 'Please add a little more detail',
+      });
+      await run(
+        admin,
+        `UPDATE story:bob_pending SET status = 'pending', lockedBy = NONE, lockedAt = NONE`,
+      );
+    });
+
+    it('cannot publish text the person didn’t write through the read model', async () => {
+      // A normal approval works (the read model mirrors the story)...
+      await approve(admin, 'bob_pending');
+      expect(
+        await rows(migrator, 'SELECT VALUE title FROM publicStory:bob_pending'),
+      ).toEqual(['Story bob_pending']);
+      // ...but rewriting the published copy is refused, and the row is unchanged.
+      for (const set of [
+        `title = 'Rewritten'`,
+        `body = 'Not their words'`,
+        `media = []`,
+      ]) {
+        expect(
+          await outcome(admin, `UPDATE publicStory:bob_pending SET ${set}`),
+        ).toEqual({
+          ok: false,
+          error: expect.stringContaining('must mirror'),
+        });
+      }
+      expect(
+        await rows(migrator, 'SELECT title, body FROM publicStory:bob_pending'),
+      ).toEqual([{ title: 'Story bob_pending', body: 'Text of bob_pending' }]);
+    });
+  });
+});
