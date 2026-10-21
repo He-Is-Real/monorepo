@@ -28,6 +28,11 @@ configMapGenerator:
 patches:
   # Spot Pods (60-91% cheaper; may be reclaimed with ~15 s notice, data on
   # the disk is kept). Smaller requests than base for dev traffic.
+  # All our spot Pods (here and External Secrets, modules/cluster/external_secrets.tf) are
+  # pinned to europe-west2-c so they share one spot node: each Autopilot node has a 100 GB boot
+  # disk, and with GKE's system node a second spot node would exceed the 300 GB regional
+  # SSD_TOTAL_GB quota (the increase was denied on the free trial). Remove the pin once the
+  # quota is raised: https://github.com/He-Is-Real/monorepo/issues/35
   - target:
       kind: StatefulSet
       name: surrealdb
@@ -36,6 +41,7 @@ patches:
         path: /spec/template/spec/nodeSelector
         value:
           cloud.google.com/gke-spot: "true"
+          topology.kubernetes.io/zone: europe-west2-c
       - op: replace
         path: /spec/template/spec/terminationGracePeriodSeconds
         value: 15
@@ -61,6 +67,7 @@ patches:
         path: /spec/template/spec/nodeSelector
         value:
           cloud.google.com/gke-spot: "true"
+          topology.kubernetes.io/zone: europe-west2-c
   - target:
       kind: CronJob
       name: surrealdb-backup
@@ -69,6 +76,7 @@ patches:
         path: /spec/jobTemplate/spec/template/spec/nodeSelector
         value:
           cloud.google.com/gke-spot: "true"
+          topology.kubernetes.io/zone: europe-west2-c
   # Cloud Run (Direct VPC egress subnet) may reach SurrealDB.
   - target:
       kind: NetworkPolicy
