@@ -4,7 +4,6 @@ import {
   DatabaseQueryError,
   isTransactionConflict,
   requireWritten,
-  retryOnConflict,
   runQuery,
 } from './query';
 
@@ -15,8 +14,8 @@ import {
  * The key, the request hash and the stored response are written **in the same transaction as
  * the command**, in the caller's own session (a person may create and read their own api-user
  * keys). So either both commit or neither does: a retry after a lost response always replays,
- * and of two requests racing with one key exactly one commits (the other conflicts on the key
- * record, re-reads it and replays, or gets `422` if its body differs).
+ * and of two requests racing with one key exactly one commits (the other conflicts, looks the
+ * key up again and replays, or gets `422` if its body differs).
  *
  * Keys are kept until pruned (24 h, `expiresAt`, by the nightly job; not built yet) and replay
  * until then.
@@ -89,13 +88,22 @@ const KEY_TAKEN = /already exists/i;
 /**
  * Runs `prepare()`'s command once per key. Replays the stored response for a known key with
  * the same request hash; throws {@link IdempotencyKeyReusedError} for a different one.
- * `prepare` runs only when the key is new, and again on every retry (re-read, re-check).
+ *
+ * One bounded loop around the whole attempt: look the key up, then prepare (re-read,
+ * re-check), then write command + key in one transaction. A retryable conflict, or losing the
+ * key to a racing request, goes back to the **lookup** first (review round 2 of #41): if the
+ * other request committed this key, its response is replayed, even when preparing again would
+ * now refuse (e.g. a newer DPA version came into force meanwhile).
  */
 export async function runIdempotent(
   db: SurrealQueryable,
   scope: IdempotencyScope,
   hash: string,
   prepare: () => Promise<PreparedCommand>,
+  {
+    attempts = 4,
+    backoffMs = 20,
+  }: { attempts?: number; backoffMs?: number } = {},
 ): Promise<{ response: IdempotentResponse; replayed: boolean }> {
   const vars = {
     idem_service: scope.service,
@@ -106,54 +114,47 @@ export async function runIdempotent(
     const stored = await find(db, vars);
     if (stored) {
       if (stored.requestHash !== hash) throw new IdempotencyKeyReusedError();
-      return {
-        replayed: true,
-        response: {
-          status: stored.status,
-          id: String(stored.response?.id ?? ''),
-          version: stored.response?.version ?? null,
-        },
-      };
+      return { replayed: true, response: toResponse(stored) };
     }
+    const command = await prepare();
     try {
-      const response = await retryOnConflict(async () => {
-        const command = await prepare();
-        const results = await runQuery(
-          db,
-          `BEGIN TRANSACTION;
-           ${command.statements}
-           CREATE ${KEY} CONTENT {
-             requestHash: $idem_hash, status: $idem_status,
-             response: { id: $result.id, version: $result.version }
-           } RETURN status, response;
-           COMMIT TRANSACTION;`,
-          {
-            ...command.vars,
-            ...vars,
-            idem_hash: hash,
-            idem_status: command.status,
-          },
-        );
-        const row = requireWritten<StoredRow>(
-          results[results.length - 2],
-          'idempotency key',
-        );
-        return {
-          status: row.status,
-          id: String(row.response?.id ?? ''),
-          version: row.response?.version ?? null,
-        };
-      });
-      return { response, replayed: false };
+      const results = await runQuery(
+        db,
+        `BEGIN TRANSACTION;
+         ${command.statements}
+         CREATE ${KEY} CONTENT {
+           requestHash: $idem_hash, status: $idem_status,
+           response: { id: $result.id, version: $result.version }
+         } RETURN requestHash, status, response;
+         COMMIT TRANSACTION;`,
+        {
+          ...command.vars,
+          ...vars,
+          idem_hash: hash,
+          idem_status: command.status,
+        },
+      );
+      const row = requireWritten<StoredRow>(
+        results[results.length - 2],
+        'idempotency key',
+      );
+      return { replayed: false, response: toResponse(row) };
     } catch (err) {
-      // Lost the race for this key: what won is committed, so the next pass replays it (or
-      // refuses a different body). A conflict that outlasted the retries is treated the same.
-      const raced =
-        (err instanceof DatabaseQueryError && KEY_TAKEN.test(err.message)) ||
-        isTransactionConflict(err);
-      if (!raced || attempt >= 3) throw err;
+      const retryable =
+        isTransactionConflict(err) ||
+        (err instanceof DatabaseQueryError && KEY_TAKEN.test(err.message));
+      if (!retryable || attempt >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, backoffMs * attempt));
     }
   }
+}
+
+function toResponse(row: StoredRow): IdempotentResponse {
+  return {
+    status: row.status,
+    id: String(row.response?.id ?? ''),
+    version: row.response?.version ?? null,
+  };
 }
 
 async function find(

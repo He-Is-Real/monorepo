@@ -261,7 +261,9 @@ retried`, on both RocksDB and the in-memory engine.
     `create` and `select` `idempotencyKey` rows whose id is `['api-user', $auth, …]` (and, for
     create, only while not erased), so the command, the key, the request hash and the stored
     response commit in one transaction (`runIdempotent` in `libs/database`). A second request
-    with the same key fails on the existing record, re-reads it and replays. No `update` or
+    with the same key fails on the existing record, re-reads it and replays. Every retry (a
+    conflict or a lost key race) goes back through the key lookup before re-preparing the command
+    (round 2), so it replays even if the command would now be refused (e.g. a newer DPA in force). No `update` or
     `delete` for people: erasure and pruning run on the services' logins. Tested in
     `person-session` (own keys only; no forging for another person, service or webhook; no
     reading others'; no update/delete; refused after erasure) and in `libs/consent`'s
