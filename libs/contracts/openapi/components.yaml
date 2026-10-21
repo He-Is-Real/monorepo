@@ -99,6 +99,14 @@ components:
       schema:
         type: string
         example: '"3"'
+    RepresentationETag:
+      description: |
+        Strong validator of exactly this representation: a hash of the response body (e.g.
+        `"TrGj5Bl7BP-yfXFAo6OnhOCbXpL"`). For public reads of a resource that embeds others by
+        reference (a story and its tags), so any change to what's sent gives a new value. Only for
+        `If-None-Match` (`304`); public reads take no commands.
+      schema:
+        type: string
     CollectionETag:
       description: |
         Weak, representation-based validator (e.g. `W/"<hash of the response body>"`) for collections,

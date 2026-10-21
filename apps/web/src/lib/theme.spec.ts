@@ -20,14 +20,20 @@ describe('theme', () => {
   });
 
   it('reads the stored choice, defaulting to system (also when storage throws)', () => {
-    expect(readThemeChoice({ getItem: () => 'dark' })).toBe('dark');
-    expect(readThemeChoice({ getItem: () => null })).toBe('system');
-    expect(readThemeChoice({ getItem: () => 'purple' })).toBe('system');
+    expect(readThemeChoice(() => ({ getItem: () => 'dark' }))).toBe('dark');
+    expect(readThemeChoice(() => ({ getItem: () => null }))).toBe('system');
+    expect(readThemeChoice(() => ({ getItem: () => 'purple' }))).toBe('system');
     expect(
-      readThemeChoice({
+      readThemeChoice(() => ({
         getItem: () => {
           throw new Error('denied');
         },
+      })),
+    ).toBe('system');
+    // Under some storage policies the localStorage getter itself throws (SecurityError).
+    expect(
+      readThemeChoice(() => {
+        throw new DOMException('denied', 'SecurityError');
       }),
     ).toBe('system');
   });

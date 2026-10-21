@@ -40,3 +40,28 @@ describe('ThemeToggle', () => {
     expect(await screen.findByTitle('Dark theme')).toBeTruthy();
   });
 });
+
+describe('ThemeToggle when storage is blocked', () => {
+  const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  beforeEach(() => {
+    // Some storage policies make the getter itself throw a SecurityError (#45 review).
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      },
+    });
+  });
+  afterEach(() => {
+    if (original) Object.defineProperty(window, 'localStorage', original);
+  });
+
+  it('renders as "system" and still switches the theme for this page', async () => {
+    render(<ThemeToggle />);
+    const button = await screen.findByTitle('Theme follows your device');
+    await act(async () => fireEvent.click(button));
+    expect(button.getAttribute('data-theme-choice')).toBe('light');
+    await act(async () => fireEvent.click(button));
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+  });
+});

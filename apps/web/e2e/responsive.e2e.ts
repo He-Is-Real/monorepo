@@ -141,3 +141,26 @@ test('the theme toggle cycles light → dark → system and is remembered on rel
   await toggle.click(); // → system (the device is light)
   await expect(html).not.toHaveClass(/\bdark\b/);
 });
+
+test('blocked storage (the localStorage getter throws) still renders the site and the toggle', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      },
+    });
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'He Is Real Today' }),
+  ).toBeVisible();
+  await expect(page.locator('html')).toHaveClass(/\bdark\b/); // the device's setting
+  const toggle = page.getByRole('button', { name: /theme/i });
+  await expect(toggle).toHaveAttribute('data-theme-choice', 'system');
+  await toggle.click(); // → light, for this page only
+  await expect(page.locator('html')).not.toHaveClass(/\bdark\b/);
+});

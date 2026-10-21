@@ -35,7 +35,7 @@ export function ThemeToggle() {
   const [choice, setChoice] = useState<ThemeChoice>('system');
 
   useEffect(() => {
-    setChoice(readThemeChoice(window.localStorage));
+    setChoice(readThemeChoice());
   }, []);
 
   useEffect(() => {

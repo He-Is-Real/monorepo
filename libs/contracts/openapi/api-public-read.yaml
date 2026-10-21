@@ -126,7 +126,7 @@ paths:
           description: Public story detail.
           headers:
             ETag:
-              $ref: './components.yaml#/components/headers/ETag'
+              $ref: './components.yaml#/components/headers/RepresentationETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPublic'
           content:

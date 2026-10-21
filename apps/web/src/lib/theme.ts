@@ -10,11 +10,15 @@ export type ThemeChoice = (typeof THEME_CHOICES)[number];
 /** Runs in <head>, before the body renders. Falls back to the device's setting. */
 export const THEME_SCRIPT = `(function(){var d=document.documentElement,c=null;try{c=localStorage.getItem('${THEME_KEY}')}catch(e){}var m=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;d.classList.toggle('dark',c==='dark'||(c!=='light'&&!!m))})()`;
 
+/**
+ * The stored choice, or "system". Takes the storage as a getter: under some storage policies
+ * merely reading `window.localStorage` throws (SecurityError), and that must not break the page.
+ */
 export function readThemeChoice(
-  storage: Pick<Storage, 'getItem'>,
+  getStorage: () => Pick<Storage, 'getItem'> = () => window.localStorage,
 ): ThemeChoice {
   try {
-    const value = storage.getItem(THEME_KEY);
+    const value = getStorage().getItem(THEME_KEY);
     return value === 'light' || value === 'dark' ? value : 'system';
   } catch {
     return 'system';

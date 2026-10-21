@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   Controller,
   Get,
@@ -90,6 +91,15 @@ const notFound = () =>
     'Story not found',
   );
 
+/**
+ * A strong validator of exactly what's sent: a hash of the JSON body, which is what Nest
+ * serialises. Not the story's `version` alone, because the response embeds its tags by
+ * reference (#45 review): renaming a tag changes the body, so the ETag must change too.
+ */
+export function representationETag(body: unknown): string {
+  return `"${createHash('sha256').update(JSON.stringify(body)).digest('base64url').slice(0, 27)}"`;
+}
+
 /** `If-None-Match` matches a strong ETag (also `*` and lists; weak comparison, RFC 9110). */
 function matches(ifNoneMatch: string | undefined, etag: string): boolean {
   if (!ifNoneMatch) return false;
@@ -125,13 +135,14 @@ export class StoriesController {
         .setHeader('Cache-Control', CACHE_PUBLIC);
       return undefined;
     }
-    const etag = `"${row.version}"`;
+    const story = toPublic(row);
+    const etag = representationETag(story);
     res.setHeader('ETag', etag).setHeader('Cache-Control', CACHE_PUBLIC);
     if (matches(ifNoneMatch, etag)) {
       res.status(HttpStatus.NOT_MODIFIED);
       return undefined;
     }
-    return toPublic(row);
+    return story;
   }
 }
 

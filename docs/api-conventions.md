@@ -82,6 +82,10 @@ short-lived upload credentials.
 - **Collections** (lists, pages, composite views such as consent state) and resources without a
   database version (the account) return a **weak, representation-based `ETag`** (`W/"<hash>"`).
   It is only for `If-None-Match`/`304`; to modify an item, use that item's `version`.
+- **Public reads that embed other resources** (api-public-read's story, with its tags by
+  reference) return a **strong hash of the response body** (`RepresentationETag`), not the
+  version: renaming a tag changes the story's JSON but not its version (#45 review). Public reads
+  take no commands, so nothing sends these back in `If-Match`.
 - **`If-Match` is required on commands that modify an existing resource.** Wrong version → `412`
   (re-read and retry); missing → `428`. This covers the real race: a submitter editing while a
   moderator approves.

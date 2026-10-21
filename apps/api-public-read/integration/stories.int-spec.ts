@@ -69,7 +69,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
   it('serves the seeded test story from the read model', async () => {
     const res = await fetch(`${url}/v1/stories/${SLUG}`);
     expect(res.status).toBe(200);
-    expect(res.headers.get('etag')).toBe('"1"');
+    expect(res.headers.get('etag')).toMatch(/^"[A-Za-z0-9_-]{27}"$/);
     const story = (await res.json()) as Record<string, unknown>;
     expect(story).toMatchObject({
       id: 'dev_seed',
@@ -121,6 +121,27 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     expect(story.tags).toEqual([
       { slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
     ]);
+    // Renaming a tag changes the response without changing the story's version: the ETag
+    // follows the representation, so a cached copy is revalidated (#45 review).
+    const before = await fetch(`${url}/v1/stories/${SLUG}`);
+    const etag = before.headers.get('etag') as string;
+    expect(
+      (
+        await fetch(`${url}/v1/stories/${SLUG}`, {
+          headers: { 'if-none-match': etag },
+        })
+      ).status,
+    ).toBe(304);
+    await run(migrator, `UPDATE tag:doubt SET name = 'Questions'`);
+    const after = await fetch(`${url}/v1/stories/${SLUG}`, {
+      headers: { 'if-none-match': etag },
+    });
+    expect(after.status).toBe(200);
+    expect(after.headers.get('etag')).not.toBe(etag);
+    expect(
+      ((await after.json()) as { tags: { name: string }[] }).tags[0].name,
+    ).toBe('Questions');
+
     const moved = await fetch(`${url}/v1/stories/old-test-slug`, {
       redirect: 'manual',
     });

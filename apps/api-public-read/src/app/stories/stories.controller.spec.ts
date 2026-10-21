@@ -8,7 +8,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { SURREAL } from '@heisreal/database';
 import { ProblemFilter } from '@heisreal/http';
-import { StoriesModule } from './stories.controller';
+import { representationETag, StoriesModule } from './stories.controller';
 
 const story = {
   id: 'dev_seed',
@@ -77,11 +77,13 @@ describe('GET /v1/stories/{slug}', () => {
     try {
       const res = await fetch(`${url}/v1/stories/test-story`);
       expect(res.status).toBe(200);
-      expect(res.headers.get('etag')).toBe('"3"');
       expect(res.headers.get('cache-control')).toBe(
         'public, max-age=60, stale-while-revalidate=300',
       );
       const body = await res.json();
+      // A strong validator of the representation (a hash of the body), not the version.
+      expect(res.headers.get('etag')).toBe(representationETag(body));
+      expect(res.headers.get('etag')).toMatch(/^"[A-Za-z0-9_-]{27}"$/);
       expect(body).toEqual({
         id: 'dev_seed',
         slug: 'test-story',
@@ -111,14 +113,29 @@ describe('GET /v1/stories/{slug}', () => {
     }
   });
 
-  it('answers 304 when If-None-Match still matches', async () => {
-    const { app, url } = await boot(database([story]).db);
+  it('answers 304 when If-None-Match still matches, and 200 when the representation changed', async () => {
+    const rows = [story];
+    const { app, url } = await boot(database(rows).db);
     try {
-      const res = await fetch(`${url}/v1/stories/test-story`, {
-        headers: { 'if-none-match': 'W/"3", "1"' },
+      const first = await fetch(`${url}/v1/stories/test-story`);
+      const etag = first.headers.get('etag') as string;
+      const again = await fetch(`${url}/v1/stories/test-story`, {
+        headers: { 'if-none-match': `W/"other", ${etag}` },
       });
-      expect(res.status).toBe(304);
-      expect(res.headers.get('etag')).toBe('"3"');
+      expect(again.status).toBe(304);
+      expect(again.headers.get('etag')).toBe(etag);
+      // Same story version, but a tag was renamed: the body differs, so the ETag does.
+      rows[0] = {
+        ...story,
+        tags: [
+          { slug: 'doubt', name: 'Questions', category: 'journey', version: 2 },
+        ],
+      } as never;
+      const renamed = await fetch(`${url}/v1/stories/test-story`, {
+        headers: { 'if-none-match': etag },
+      });
+      expect(renamed.status).toBe(200);
+      expect(renamed.headers.get('etag')).not.toBe(etag);
     } finally {
       await app.close();
     }
