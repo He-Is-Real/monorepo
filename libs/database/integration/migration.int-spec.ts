@@ -631,6 +631,104 @@ describe('P1: scripts can never commit partly', () => {
     });
   });
 
+  // Review round 5: the regex literals /'/ made the scanner read a string where SurrealDB reads
+  // code, so it missed the RETURN, and its (wrong) statement count matched the shortened reply.
+  const CODEX_REGEX = `LET $open = /'/;\nUPSERT reviewProbe:before SET ran = true;\nLET $stop = [RETURN 1];\nLET $close = /'/;\nUPSERT reviewProbe:after SET ran = true;\n`;
+  const probes = async () =>
+    'reviewProbe' in (await tables(t))
+      ? rows<string>(
+          await t.migrator(),
+          'SELECT VALUE record::id(id) FROM reviewProbe ORDER BY id',
+        )
+      : [];
+
+  it('refuses Codex’s regex example before anything runs (grammar on)', async () => {
+    const result = await t.runMigration(t.params(), {
+      bundleDir: await bundleWith({ 'data/0011-regex.surql': CODEX_REGEX }),
+    });
+    expect(result.exitCode).toBe(2);
+    expect(result.output).toContain('`/` outside a string');
+    expect(await probes()).toEqual([]);
+    expect(await appliedIds(t)).not.toContain('0011-regex');
+  });
+
+  it('the closing acknowledgement catches it even with the grammar off: exit 3, then blocked until cleared', async () => {
+    const bundle = await bundleWith({ 'data/0011-regex.surql': CODEX_REGEX });
+    const first = await t.runMigration(t.params(), {
+      bundleDir: bundle,
+      bypassGrammar: true,
+    });
+    expect(first.exitCode).toBe(3);
+    expect(first.output).toContain("the step's closing nonce never came back");
+    expect(await probes()).toEqual(['before']); // 3.2.4 committed the part before the RETURN
+    expect(await appliedIds(t)).not.toContain('0011-regex');
+    expect(await pendingSteps(t)).toEqual(['0011-regex']);
+
+    const second = await t.runMigration(t.params(), {
+      bundleDir: bundle,
+      bypassGrammar: true,
+      env: { MIGRATE_PENDING_WAIT_SECONDS: '1' },
+    });
+    expect(second.exitCode).toBe(3);
+    expect(second.output).toContain('blocked: unfinished step(s) 0011-regex');
+
+    // The operator undoes the partial write, fixes the script and clears the row.
+    await run(
+      await t.migrator(),
+      'DELETE reviewProbe; DELETE _migrationPending:⟨0011-regex⟩;',
+    );
+    expect(
+      await t.migrate(t.params(), {
+        bundleDir: await bundleWith({
+          'data/0011-regex.surql': `UPSERT reviewProbe:before SET ran = true;\nUPSERT reviewProbe:after SET ran = true;\n`,
+        }),
+      }),
+    ).toMatchObject({ applied: ['0011-regex'] });
+    expect(await probes()).toEqual(['after', 'before']);
+  });
+
+  it.each([
+    ['a regex literal', "LET $r = /a'b/;", '`/` outside a string'],
+    ['division', 'LET $d = 4 / 2;', '`/` outside a string'],
+    [
+      'an r"…" record string',
+      'LET $p = r"tag:a";',
+      'prefixed string literal (r"',
+    ],
+    [
+      "a u'…' uuid string",
+      "LET $p = u'0189d6e3-8eac-703a-9a48-dd6c8bb0d0b6';",
+      "prefixed string literal (u'",
+    ],
+    [
+      "a d'…' datetime string",
+      "LET $p = d'2024-01-01';",
+      "prefixed string literal (d'",
+    ],
+    ['a b"…" bytes string', 'LET $p = b"ab";', 'prefixed string literal (b"'],
+    ["an s'…' string", "LET $p = s'x';", "prefixed string literal (s'"],
+    [
+      'a backslash outside a string',
+      'LET $p = 1 \\ 2;',
+      '`\\` outside a string',
+    ],
+    ['`@`', 'LET $p = @x;', '`@` outside a string'],
+    ['a closure (`|`)', 'LET $p = [1].map(|$v| $v);', '`|` outside a string'],
+    ['`%`', 'LET $p = 5 % 2;', '`%` outside a string'],
+  ])(
+    'refuses %s in a data script, before anything runs',
+    async (_, line, message) => {
+      const result = await t.runMigration(t.params(), {
+        bundleDir: await bundleWith({
+          'data/0012-literal.surql': `${tag('lit_before')}${line}\n`,
+        }),
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.output).toContain(message);
+      expect(await tagIds(t, 'lit_before')).toEqual([]);
+    },
+  );
+
   it('schema files are DDL only; RETURN only inside a DEFINE (tested contained)', async () => {
     const schema = await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
     const dml = await t.runMigration(t.params(), {

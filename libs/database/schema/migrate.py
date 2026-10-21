@@ -24,12 +24,22 @@ the rest of that block while the transaction goes on and commits):
     tested: they can't end or skip the caller's transaction); BEGIN, COMMIT, CANCEL nowhere, and
     no OPTION statement.
 
-Defence in depth, so a grammar gap can't be recorded as applied:
+Characters (review rounds 4 and 5): control and separator characters nowhere; outside string
+literals only ASCII letters, digits, `_`, whitespace and PUNCTUATION (no `/`: regex literals can
+hold quotes; no backslash, `@`, `%`, ...); no prefixed strings (r"", u'', d'', b"", s''); backtick and
+angle-bracket identifiers without backslashes or line breaks. Whatever the scanner can't lex
+exactly is refused.
+
+Defence in depth, independent of the scanner, so a grammar gap can't be recorded as applied:
+  * every step's transaction ends with `RETURN '<fresh random nonce>'`, a literal scripts can't
+    reference: anything that ends the transaction early means the nonce never comes back;
   * before each step a _migrationPending:<step> row is committed; the step's own transaction ends
     with its _migration row (data scripts); the pending row is deleted only afterwards, in a
     separate statement, once the runner has verified every result (review round 4: a deletion
     inside the transaction could commit even when part of the script had been skipped);
-  * a step counts as done only if every statement answered OK and the result count matches. It
+  * a step counts as done only if the nonce is the last result before a successful COMMIT, every
+    statement answered OK, the result count matches and (data scripts) a fresh read finds its
+    _migration row. It
     counts as rolled back only if the server refused its COMMIT (verified, not assumed): then the
     pending row is removed and the runner exits 1. Anything else (fewer results, a COMMIT that
     succeeded alongside a failure, no answer) means a partial commit is possible: the pending row
@@ -68,6 +78,7 @@ by one: manual recovery needed. The password and tokens are never printed.
 
 import argparse
 import hashlib
+import secrets
 import unicodedata
 import json
 import os
@@ -98,6 +109,14 @@ SUMMARY_PREFIX = "MIGRATION SUMMARY "
 # anywhere in a bundled file, strings included (review round 4: a U+2028 after `-- comment` made
 # SurrealDB run a BREAK the scanner took for comment text).
 SAFE_CONTROLS = {"\t", "\n", "\r"}
+# Outside string literals and comments, the only characters the scanner positively recognises
+# (besides ASCII letters, digits, `_` and whitespace). Everything else is refused, notably `/`
+# (regex literals like /'/ can hold quotes and desynchronise a scanner; no division either), `\`,
+# `@`, `%`, `&`, `^`, `~`. The schema also uses `|` (closures).
+PUNCTUATION = {
+    "data": set(";,.:(){}[]=!<>+-*$?"),
+    "ddl": set(";,.:(){}[]=!<>+-*$?|"),
+}
 
 
 def forbidden_character(c):
@@ -187,6 +206,9 @@ def scan(text, mode="data"):
             line += text.count("\n", i, end)
             i = end + 2
         elif c in "'\"`⟨":
+            if mode != "runner" and c in "'\"" and i > 0 and (text[i - 1].isalnum() or text[i - 1] == "_"):
+                # r"…", u'…', d'…', b"…", s'…' and future prefixes: not lexed, so refused.
+                problem(f"a prefixed string literal ({text[i - 1]}{c}…{c})")
             close = "⟩" if c == "⟨" else c
             j = i + 1
             while j < n and text[j] != close:
@@ -249,8 +271,11 @@ def scan(text, mode="data"):
                     problem(f"{word} (only inside a DEFINE here)")
             i = j
         else:
-            if mode != "runner" and not (" " <= c <= "~"):
-                problem(f"character U+{ord(c):04X} outside a string (only printable ASCII here)")
+            if mode != "runner" and not (c.isascii() and c.isdigit()) and c not in PUNCTUATION[mode]:
+                if " " <= c <= "~":
+                    problem(f"`{c}` outside a string (the runner can't lex it safely here)")
+                else:
+                    problem(f"character U+{ord(c):04X} outside a string (only printable ASCII here)")
             token()
             i += 1
     if len(frames) > 1 and not problems:
@@ -409,27 +434,46 @@ class Runner:
         self.token = token
         self.vars = {**base_vars, "migration_token": token}
 
-    def step(self, name, parts, extra_vars=None):
-        """One mutating step: a pending row, the step's transaction (ending with its _migration row
-        for data scripts), then, only once the runner has verified the result, the pending row's
-        deletion in a separate statement. Anything unverified leaves the row, which blocks every
-        later run until an operator has checked the data and cleared it."""
+    def step(self, name, parts, extra_vars=None, marker=None):
+        """One mutating step: a pending row, the step's transaction, then (only once the runner has
+        verified it) the pending row's deletion in a separate statement.
+
+        The transaction's last statement returns a fresh random nonce, written into the SQL as a
+        literal (scripts can't reference it). Anything that ends the transaction early, however
+        the scanner missed it, means the nonce never comes back. The pending row is cleared only
+        if the nonce is the last result before a successful COMMIT, every result is OK, the count
+        matches, and (data scripts) a fresh read finds the _migration row. Anything else leaves
+        the row, which blocks every later run until an operator has checked and cleared it.
+        """
         variables = {**self.vars, **(extra_vars or {}), "migration_step": name}
         run(self.client, f"{name} (pending)", in_transaction(
             FENCE,
             "CREATE type::record('_migrationPending', $migration_step) SET token = $migration_token, startedAt = time::now()",
         ), variables)
-        sql = in_transaction(FENCE, *parts)
+        nonce = secrets.token_hex(16)
+        sql = in_transaction(FENCE, *parts, f"RETURN '{nonce}'")
         expected, _ = scan(sql, "runner")
         try:
             results = self.client.query(sql, variables)
         except Exception as err:  # no answer: we can't know what committed
             raise PartialCommitError(f"{name}: no complete answer ({err})")
-        complete = len(results) == expected
-        if complete and all(r.get("status") == "OK" for r in results):
-            self.clear_pending(name, variables, "after verifying every statement and the COMMIT succeeded")
+        all_ok = all(r.get("status") == "OK" for r in results)
+        acknowledged = (
+            len(results) >= 2
+            and results[-2].get("status") == "OK"
+            and results[-2].get("result") == nonce
+            and results[-1].get("status") == "OK"  # the COMMIT
+        )
+        if acknowledged and all_ok and len(results) == expected:
+            if marker is not None:
+                stored = run(self.client, f"{name} (marker)",
+                    "SELECT VALUE checksum FROM ONLY type::record('_migration', $migration_id)",
+                    variables)[0]["result"]
+                if stored != marker:
+                    raise PartialCommitError(f"{name}: acknowledged, but its _migration row isn't there; its pending row stays")
+            self.clear_pending(name, variables, "after the step's acknowledgement and checks")
             return
-        commit = results[-1] if complete else None
+        commit = results[-1] if len(results) == expected else None
         if commit is not None and commit.get("status") != "OK":
             # The server refused the COMMIT (aborted transaction or write conflict): nothing from
             # the step was kept.
@@ -439,9 +483,9 @@ class Runner:
                 "step was rolled back; its pending row is cleared)"
             )
         raise PartialCommitError(
-            f"{name}: {len(results)} results for {expected} statements, "
-            + ("COMMIT not reached" if commit is None else f"COMMIT answered {commit.get('status')} alongside a failure")
-            + ": the step may have committed partly; its pending row stays"
+            f"{name}: no acknowledgement ({len(results)} results for {expected} statements"
+            + ("" if acknowledged else ", the step's closing nonce never came back")
+            + "): the step may have committed partly; its pending row stays"
         )
 
     def clear_pending(self, name, variables, why):
@@ -575,7 +619,7 @@ def migrate(client, top, data, params, deadline):
         runner.step(script_id, [
             text,
             "CREATE type::record('_migration', $migration_id) SET checksum = $migration_checksum",
-        ], {"migration_id": script_id, "migration_checksum": checksums[name]})
+        ], {"migration_id": script_id, "migration_checksum": checksums[name]}, marker=checksums[name])
         summary["applied"].append(script_id)
         log(f"{name}: applied")
 

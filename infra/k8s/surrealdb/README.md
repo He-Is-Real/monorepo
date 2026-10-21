@@ -145,9 +145,12 @@ What a run does, in order (validate first, then change):
 6. **DPA sync:** draft hashes follow their files, one step.
 
 Each **step** is: commit a `_migrationPending:<step>` row, run one transaction for the step
-(ending with its `_migration` row, for data scripts), and only then, once the runner has checked
-that every statement answered OK and the result count matches, delete the pending row in a
-separate statement. Nothing in the step itself can clear its pending row. A rollback is never
+(ending with its `_migration` row, for data scripts, and then `RETURN '<fresh random nonce>'`),
+and only then delete the pending row in a separate statement, once the runner has checked that
+the nonce came back as the last result before a successful `COMMIT`, every statement answered
+OK, the result count matches, and (data scripts) the `_migration` row is really there. Anything
+that ends the transaction early, however it got past the grammar, means the nonce never comes
+back. Nothing in the step itself can clear its pending row. A rollback is never
 assumed either: only when the server refuses the step's `COMMIT` (an aborted transaction or a
 write conflict) does the runner report a rollback and clear the row (exit 1). Anything else (a
 short result count, a failed statement in a committed transaction, no answer) leaves the row:
@@ -168,7 +171,13 @@ still commit. So, in data scripts and `dpa-sync.surql`:
   `ALTER`, `INFO`, `KILL`, `LIVE`, and `THEN`/`END` (use brace blocks);
 - a `;` anywhere else (a block the runner can't classify) is refused.
 
-The files must be plain text the runner fully understands: control, format and line or paragraph
+Outside string literals the runner only accepts what it can lex exactly: ASCII letters, digits,
+`_`, whitespace and `; , . : ( ) { } [ ] = ! < > + - * $ ?` (the schema also `|`). So no `/`
+(regex literals like `/'/` can hold quotes; no division either), `\`, `@`, `%`, `&`, and no
+prefixed strings (`r"…"`, `u'…'`, `d'…'`, `b"…"`, `s'…'`): write a record link as `table:id` and
+cast with `<datetime>` / `<uuid>` instead.
+
+The files must also be plain text the runner fully understands: control, format and line or paragraph
 separator characters (e.g. U+0085, U+2028, U+2029, NUL, VT, FF) are refused anywhere, strings
 included, because SurrealDB ends comments at some of them; outside string literals (comments
 included) only printable ASCII, TAB, CR and LF are allowed; backtick and `⟨⟩` identifiers may not
@@ -180,6 +189,11 @@ only (`DEFINE`/`REMOVE`), with `RETURN`/`BREAK`/`CONTINUE` only inside a `DEFINE
 function, event, field and param bodies can't end or skip the caller's transaction), and no
 `BEGIN`/`COMMIT`/`CANCEL` or `OPTION` statement. Also avoid `FOR $x IN (SELECT …)` and bare record
 paths like `table:id.field` inside `IF` (both fail on 3.2.4; `LET` the value first).
+
+**Threat model.** Data scripts are reviewed repository code; these guards protect against
+mistakes in them, not against a hostile author. The acknowledgement makes the guarantee
+independent of the scanner for every early exit that ends the transaction; `BREAK` and
+`CONTINUE`, which only skip within a block, are covered by the token ban.
 
 **Order: migrate, then deploy.** The schema must accept both the running and the new service
 code; a breaking change is split over two releases.
