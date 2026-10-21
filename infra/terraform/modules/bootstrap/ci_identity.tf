@@ -168,16 +168,17 @@ resource "google_service_account" "tf_deployer" {
   display_name = "Terraform deployer (manual apply job)"
 }
 
+# Per-resource permissions only: the grant below is conditioned on the
+# resource's name. Create and list are authorised against the parent project,
+# where a secret or bucket name doesn't exist, so they're in tf_parent instead.
 resource "google_project_iam_custom_role" "tf_secrets" {
   project = google_project.this.project_id
   role_id = "terraformSecretsManager"
   title   = "Terraform: manage secrets without reading them"
   permissions = [
-    "secretmanager.secrets.create",
     "secretmanager.secrets.delete",
     "secretmanager.secrets.get",
     "secretmanager.secrets.getIamPolicy",
-    "secretmanager.secrets.list",
     "secretmanager.secrets.setIamPolicy",
     "secretmanager.secrets.update",
     "secretmanager.versions.add",
@@ -194,11 +195,9 @@ resource "google_project_iam_custom_role" "tf_buckets" {
   role_id = "terraformBucketsManager"
   title   = "Terraform: manage buckets without reading objects"
   permissions = [
-    "storage.buckets.create",
     "storage.buckets.delete",
     "storage.buckets.get",
     "storage.buckets.getIamPolicy",
-    "storage.buckets.list",
     "storage.buckets.setIamPolicy",
     "storage.buckets.update",
   ]
@@ -220,26 +219,65 @@ resource "google_project_iam_member" "tf_deployer" {
   member  = google_service_account.tf_deployer.member
 }
 
-# Both grants exclude what only developers may touch, because each role includes
-# setIamPolicy: without the conditions the deployer could grant itself access
-# to them. Excluded: the state bucket (bucket IAM and settings; this root owns
-# it), so it can't lift the dev/bunny/ condition in state.tf; and every
-# `bunny-*` secret (the account key below and the app keys from the bunny
-# root), so it can't grant itself versions.access on them. Neither the gcp nor
-# the cluster root manages either.
-resource "google_project_iam_member" "tf_deployer_custom" {
-  for_each = {
+# Creating and listing secrets and buckets: checked on the project, so these
+# can't be (and needn't be) limited by name. Creating a new resource gives no
+# access to an existing one, and lists show names only.
+resource "google_project_iam_custom_role" "tf_parent" {
+  project = google_project.this.project_id
+  role_id = "terraformParentScoped"
+  title   = "Terraform: create and list secrets and buckets"
+  permissions = [
+    "secretmanager.secrets.create",
+    "secretmanager.secrets.list",
+    "storage.buckets.create",
+    "storage.buckets.list",
+  ]
+}
+
+resource "google_project_iam_member" "tf_deployer_parent" {
+  project = google_project.this.project_id
+  role    = google_project_iam_custom_role.tf_parent.name
+  member  = google_service_account.tf_deployer.member
+}
+
+# The per-resource grants exclude what only developers may touch, because each
+# role includes setIamPolicy: without the conditions the deployer could grant
+# itself access to them. Excluded: the state bucket (bucket IAM and settings;
+# this root owns it), so it can't lift the dev/bunny/ condition in state.tf; and
+# every `bunny-*` secret and its versions (the account key in bunny.tf and the
+# app keys from the bunny root), so it can't grant itself versions.access on
+# them. Neither the gcp nor the cluster root manages either.
+#
+# Each expression applies the name check only to its own resource types
+# (Google's recommended pattern), so a permission checked on another type is
+# never caught by a missing name. Secret names use the project number; the
+# project ID form is excluded too, in case a check uses it. Exact expressions
+# are output for the bunny root's guard (outputs.tf).
+locals {
+  bunny_secret_prefixes = [
+    "projects/${google_project.this.number}/secrets/bunny-",
+    "projects/${google_project.this.project_id}/secrets/bunny-",
+  ]
+  deployer_fences = {
     secrets = {
-      role       = google_project_iam_custom_role.tf_secrets.name
-      title      = "not-bunny-secrets"
-      expression = "!resource.name.startsWith('projects/${google_project.this.number}/secrets/bunny-')"
+      role  = google_project_iam_custom_role.tf_secrets.name
+      title = "not-bunny-secrets"
+      expression = join(" || ", [
+        "!(resource.type == 'secretmanager.googleapis.com/Secret' || resource.type == 'secretmanager.googleapis.com/SecretVersion')",
+        "(${join(" && ", [for p in local.bunny_secret_prefixes : "!resource.name.startsWith('${p}')"])})",
+      ])
     }
     buckets = {
       role       = google_project_iam_custom_role.tf_buckets.name
       title      = "not-state-bucket"
-      expression = "resource.name != 'projects/_/buckets/${google_storage_bucket.tfstate.name}'"
+      expression = "resource.type != 'storage.googleapis.com/Bucket' || resource.name != 'projects/_/buckets/${google_storage_bucket.tfstate.name}'"
     }
   }
+}
+
+resource "google_project_iam_member" "tf_deployer_custom" {
+  for_each = local.deployer_fences
+
   project = google_project.this.project_id
   role    = each.value.role
   member  = google_service_account.tf_deployer.member

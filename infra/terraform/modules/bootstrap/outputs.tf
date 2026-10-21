@@ -39,3 +39,11 @@ output "bunny_account_api_key_secret" {
   description = "Secret Manager secret holding the Bunny.net account API key (value added by a developer; read by live/<env>/bunny)."
   value       = google_secret_manager_secret.bunny_account_api_key.secret_id
 }
+
+output "bunny_fences" {
+  description = "Exact IAM conditions that keep CI identities away from the bunny root's state and keys; live/<env>/bunny checks they're applied."
+  value = {
+    state_condition = local.ci_state_condition
+    deployer        = { for f in values(local.deployer_fences) : f.role => f.expression }
+  }
+}

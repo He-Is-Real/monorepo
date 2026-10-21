@@ -112,7 +112,8 @@ keep that from becoming write access:
    approved. Fork PRs get no OIDC token at all, and the job runs only for this repository's own
    PRs and pushes to `main`, once the repository variable `CLUSTER_PLAN_ENABLED` is `true`.
 
-**The `bunny` root is never planned or applied by CI** (only `validate`): its plan needs the
+**The `bunny` root is planned and applied locally only, never by CI** (CI runs the offline
+`validate`; decided 2026-10-21 in #39): its plan needs the
 Bunny account key and its state holds Bunny keys, and `tf-planner` is usable from any branch of
 this repository. See [Bunny.net](#bunnynet).
 
@@ -147,7 +148,8 @@ take the state lock.
   node role at project level. It could still grant itself more through a resource's own IAM (e.g.
   a SurrealDB secret's), but only by changing Terraform code on `main`. That doesn't reach the
   Bunny keys or their state: its secrets and buckets roles carry IAM conditions that exclude every
-  `bunny-*` secret and the state bucket (`modules/bootstrap/ci_identity.tf`), and no service
+  `bunny-*` secret and the state bucket (`modules/bootstrap/ci_identity.tf`; create and list are
+  checked on the project, so they're in a separate unconditioned role), and no service
   account it can act as has access to either. GKE admin also lets it read in-cluster Kubernetes
   Secrets, which ESO copies from Secret Manager.
 - **tf-planner:** `roles/viewer` and read access to state. It can't read secret values or backups.
@@ -195,6 +197,17 @@ that one process, so you never need `bunny login`, a profile or a `.env` file. D
 | Check the AI features are off  | `tools/scripts/tf-bunny.sh bunny api GET /videolibrary/<id> \| jq '{EnableTranscribing, EnableTranscribingChaptersGeneration, EnableTranscribingMomentsGeneration, EnableContentTagging, KeepOriginalFiles, EnableMP4Fallback, ReplicationRegions}'` (keep the filter: the response includes the keys) |
 | Rotate a library or zone key   | reset it at Bunny (`tf-bunny.sh bunny ...`), then `tf-bunny.sh apply`: the new value becomes a new secret version; disable the old one once services restarted                                                                                                                                         |
 
+**Check the fences after applying `bootstrap`** (Policy Troubleshooter; a policy can only be
+checked once applied). The first two must say granted, the last two not:
+
+```bash
+D=tf-deployer@heisreal-dev.iam.gserviceaccount.com; T="gcloud policy-troubleshoot iam --principal-email=$D"
+$T //cloudresourcemanager.googleapis.com/projects/heisreal-dev --permission=secretmanager.secrets.create
+$T //secretmanager.googleapis.com/projects/heisreal-dev/secrets/surreal-root-password --permission=secretmanager.secrets.setIamPolicy
+$T //secretmanager.googleapis.com/projects/heisreal-dev/secrets/bunny-account-api-key --permission=secretmanager.secrets.setIamPolicy
+$T //storage.googleapis.com/projects/_/buckets/heisreal-dev-tfstate --permission=storage.buckets.setIamPolicy
+```
+
 **Uploads (built in M2; services never handle media bytes, as in the prototype).** Video and
 audio: api-user creates the video (`POST video.bunnycdn.com/library/{libraryId}/videos` with the
 library key) and returns `libraryId`, `videoId`, `expirationTime` and
@@ -206,6 +219,12 @@ S3-compatible (create-time only). Bunny documents presigned URLs (S3 API in publ
 2026-07), but only shows GET; **before M2 relies on it, prove a presigned PUT** with one tiny
 file (then delete it), including whether signed `Content-Length`/`Content-Type` are enforced.
 If not, the options are in #39 ("Questions for Joel").
+
+**M2 prerequisite, before the first draft upload:** token authentication on image delivery (pull
+zone `token_auth_enabled`, signed URLs from api-user) and on Stream playback and embeds (library
+`view_token_authentication_required` and `cdn_token_authentication_required`). Drafts are Art 9
+data and Bunny URLs are otherwise public to anyone who has them. Neither needs a custom domain.
+Until then the dev library and zone hold no testimonies.
 
 **Cost:** Bunny bills at least $1 a month per account; dev usage (a few test files) stays under
 it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, free encoding.

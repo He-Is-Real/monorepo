@@ -41,10 +41,21 @@ provider "bunnynet" {
   api_key = ephemeral.google_secret_manager_secret_version.bunny_account_api_key.secret_data
 }
 
-# Refuse to write keys anywhere CI could read them (bootstrap root):
-# - the state bucket excludes this root's prefix from every CI identity (state.tf);
-# - tf-deployer's secrets and buckets roles exclude `bunny-*` secrets and the state
-#   bucket, so it can't grant itself access through their IAM (ci_identity.tf).
+# Refuse to write keys anywhere CI could read them. The bootstrap root outputs
+# the exact IAM conditions (no secrets in its state), and the live policies
+# must carry exactly those:
+# - every binding on the state bucket (CI identities only; developers have
+#   project-level storage.admin) excludes this root's prefix (state.tf);
+# - tf-deployer's secrets and buckets roles exclude `bunny-*` secrets and the
+#   state bucket, so it can't grant itself access through their IAM (ci_identity.tf).
+data "terraform_remote_state" "bootstrap" {
+  backend = "gcs"
+  config = {
+    bucket = "heisreal-dev-tfstate"
+    prefix = "dev/bootstrap"
+  }
+}
+
 data "google_storage_bucket_iam_policy" "tfstate" {
   bucket = "heisreal-dev-tfstate"
 }
@@ -54,26 +65,25 @@ data "google_project_iam_policy" "project" {
 }
 
 locals {
-  state_prefix     = "projects/_/buckets/heisreal-dev-tfstate/objects/dev/bunny/"
+  fences = try(data.terraform_remote_state.bootstrap.outputs.bootstrap.bunny_fences, null)
+
   tfstate_bindings = jsondecode(data.google_storage_bucket_iam_policy.tfstate.policy_data).bindings
-  # Every binding on the bucket (CI identities only; developers have project-level
-  # storage.admin) must carry the condition that excludes this prefix.
-  state_is_private = alltrue([
+  state_is_private = local.fences != null && alltrue([
     for b in local.tfstate_bindings :
-    strcontains(try(b.condition.expression, ""), "!resource.name.startsWith('${local.state_prefix}')")
+    try(b.condition.expression, "") == local.fences.state_condition
   ])
 
-  deployer_exclusions = {
-    "projects/heisreal-dev/roles/terraformSecretsManager" = "/secrets/bunny-')"
-    "projects/heisreal-dev/roles/terraformBucketsManager" = "resource.name != 'projects/_/buckets/heisreal-dev-tfstate'"
-  }
-  deployer_bindings = [
+  deployer_bindings = local.fences == null ? [] : [
     for b in jsondecode(data.google_project_iam_policy.project.policy_data).bindings : b
-    if contains(keys(local.deployer_exclusions), b.role)
+    if contains(keys(local.fences.deployer), b.role)
   ]
-  deployer_is_fenced = length(local.deployer_bindings) > 0 && alltrue([
-    for b in local.deployer_bindings :
-    strcontains(try(b.condition.expression, ""), local.deployer_exclusions[b.role])
+  # Every binding of those roles (there must be one per role) carries exactly the fence.
+  deployer_is_fenced = local.fences != null && alltrue([
+    for role, expression in local.fences.deployer : length([
+      for b in local.deployer_bindings : b if b.role == role
+      ]) > 0 && alltrue([
+      for b in local.deployer_bindings : try(b.condition.expression, "") == expression if b.role == role
+    ])
   ])
 }
 
