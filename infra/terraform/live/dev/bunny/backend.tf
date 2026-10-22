@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
     bucket = "heisreal-dev-tfstate"
-    prefix = "dev/bunny" # private: no CI identity can read it (modules/bootstrap/state.tf)
+    prefix = "dev/bunny" # only developers and tf-bunny can read it; encrypted with tofu-bunny
   }
 }

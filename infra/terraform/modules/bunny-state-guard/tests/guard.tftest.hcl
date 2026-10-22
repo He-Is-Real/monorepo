@@ -1,93 +1,93 @@
-# The bunny root refuses to plan unless object_readers is empty (live/dev/bunny/main.tf).
+# The bunny root refuses to plan unless public_grants is empty (live/dev/bunny/main.tf).
 
 variables {
-  project_id    = "heisreal-dev"
-  state_readers = ["user:joel@heisreal.today"]
-  service_agents = [
-    "serviceAccount:service-236063168938@gcp-sa-cloudbuild.iam.gserviceaccount.com",
-    "serviceAccount:service-236063168938@gcf-admin-robot.iam.gserviceaccount.com",
-    "serviceAccount:service-236063168938@compute-system.iam.gserviceaccount.com",
-    "serviceAccount:service-236063168938@containerregistry.iam.gserviceaccount.com",
-    "serviceAccount:service-236063168938@serverless-robot-prod.iam.gserviceaccount.com",
-  ]
-  role_permissions = {
-    "roles/storage.objectViewer"                = ["storage.objects.get", "storage.objects.list"]
-    "roles/viewer"                              = ["storage.buckets.list"]
-    "roles/cloudbuild.builds.builder"           = ["cloudbuild.builds.create", "storage.objects.get"]
-    "roles/container.defaultNodeServiceAccount" = ["logging.logEntries.create"]
+  policies = {
+    bucket = [
+      { role = "roles/storage.objectAdmin", members = ["serviceAccount:tf-bunny@heisreal-dev.iam.gserviceaccount.com"], condition = { title = "only-bunny-state", expression = "true" } },
+      { role = "roles/storage.bucketViewer", members = ["serviceAccount:tf-planner@heisreal-dev.iam.gserviceaccount.com"] },
+    ]
+    project = [
+      { role = "roles/owner", members = ["user:joel@heisreal.today"] },
+      { role = "roles/viewer", members = ["serviceAccount:tf-planner@heisreal-dev.iam.gserviceaccount.com", "serviceAccount:service-236063168938@gcp-sa-cloudbuild.iam.gserviceaccount.com"] },
+    ]
+    keyring = []
+    "key/tofu-state" = [
+      { role = "roles/cloudkms.cryptoKeyEncrypterDecrypter", members = ["user:joel@heisreal.today", "serviceAccount:tf-deployer@heisreal-dev.iam.gserviceaccount.com"] },
+    ]
+    "key/tofu-bunny" = [
+      { role = "roles/cloudkms.cryptoKeyEncrypterDecrypter", members = ["user:joel@heisreal.today", "serviceAccount:tf-bunny@heisreal-dev.iam.gserviceaccount.com"] },
+    ]
+    "secret/bunny-account-api-key" = []
+    "secret/bunny-stream-api-key" = [
+      { role = "roles/secretmanager.secretAccessor", members = ["group:developers@heisreal.today"] },
+    ]
   }
-  bindings = [
-    { role = "roles/storage.admin", members = ["user:joel@heisreal.today"] },
-    { role = "roles/viewer", members = ["serviceAccount:tf-planner@heisreal-dev.iam.gserviceaccount.com"] },
-    { role = "roles/container.defaultNodeServiceAccount", members = ["serviceAccount:gke-nodes@heisreal-dev.iam.gserviceaccount.com"] },
-    { role = "roles/cloudbuild.serviceAgent", members = ["serviceAccount:service-236063168938@gcp-sa-cloudbuild.iam.gserviceaccount.com"] },
-    { role = "roles/cloudfunctions.standardServiceAgent", members = ["serviceAccount:service-236063168938@gcf-admin-robot.iam.gserviceaccount.com"] },
-    { role = "roles/compute.serviceAgent", members = ["serviceAccount:service-236063168938@compute-system.iam.gserviceaccount.com"] },
-    { role = "roles/containerregistry.ServiceAgent", members = ["serviceAccount:service-236063168938@containerregistry.iam.gserviceaccount.com"] },
-    { role = "roles/run.serviceAgent", members = ["serviceAccount:service-236063168938@serverless-robot-prod.iam.gserviceaccount.com"] },
-  ]
 }
 
-run "developers_and_each_listed_agent_pass" {
+run "clean_policies_pass" {
   command = plan
   assert {
-    condition     = length(output.object_readers) == 0
-    error_message = "Developers, the five verified agents and roles without storage.objects.get must pass."
-  }
-  assert {
-    condition     = toset(output.roles_to_check) == toset(["roles/container.defaultNodeServiceAccount", "roles/viewer"])
-    error_message = "Only principals outside the allowed set get their roles expanded."
+    condition     = output.public_grants == []
+    error_message = "Developers and service accounts are never public."
   }
 }
 
-run "user_sa_named_like_an_agent_fails" {
+run "all_users_on_bucket_fails" {
   command = plan
   variables {
-    bindings = [{ role = "roles/storage.objectViewer", members = ["serviceAccount:service-123@heisreal-dev.iam.gserviceaccount.com"] }]
+    policies = {
+      bucket = [
+        { role = "roles/storage.bucketViewer", members = ["serviceAccount:tf-planner@heisreal-dev.iam.gserviceaccount.com"] },
+        { role = "roles/storage.objectViewer", members = ["allUsers"] },
+      ]
+    }
   }
   assert {
-    condition     = output.object_readers == ["serviceAccount:service-123@heisreal-dev.iam.gserviceaccount.com (roles/storage.objectViewer)"]
-    error_message = "A user-managed account whose ID looks like an agent's is checked like any other."
+    condition     = output.public_grants == ["bucket: allUsers (roles/storage.objectViewer)"]
+    error_message = "allUsers on the state bucket must be reported by name, member and role."
   }
 }
 
-run "new_unlisted_agent_fails" {
+run "all_authenticated_on_secret_fails" {
   command = plan
   variables {
-    bindings = [{ role = "roles/storage.objectViewer", members = ["serviceAccount:service-236063168938@gcp-sa-newthing.iam.gserviceaccount.com"] }]
+    policies = {
+      "secret/bunny-account-api-key" = [
+        {
+          role      = "roles/secretmanager.secretAccessor"
+          members   = ["user:joel@heisreal.today", "allAuthenticatedUsers"]
+          condition = { title = "looks-narrow", expression = "request.time < timestamp('2000-01-01T00:00:00Z')" }
+        },
+      ]
+    }
   }
   assert {
-    condition     = length(output.object_readers) == 1
-    error_message = "A service agent that isn't on the list fails until a developer reviews and adds it."
+    condition     = length(output.public_grants) == 1
+    error_message = "allAuthenticatedUsers counts even with a condition."
   }
 }
 
-run "legacy_cloudbuild_account_fails" {
+run "public_on_keyring_fails" {
   command = plan
   variables {
-    bindings = [{ role = "roles/cloudbuild.builds.builder", members = ["serviceAccount:236063168938@cloudbuild.gserviceaccount.com"] }]
+    policies = {
+      keyring = [{ role = "roles/cloudkms.viewer", members = ["allUsers"] }]
+      bucket  = []
+    }
   }
   assert {
-    condition     = length(output.object_readers) == 1
-    error_message = "The legacy Cloud Build account acts for whoever runs a build: never exempt."
+    condition     = length(output.public_grants) == 1
+    error_message = "A public keyring grant must be reported."
   }
 }
 
-run "unexpanded_role_fails_closed" {
+run "empty_policy_is_fine" {
   command = plan
   variables {
-    bindings = [{ role = "roles/someNewRole", members = ["serviceAccount:tf-planner@heisreal-dev.iam.gserviceaccount.com"] }]
+    policies = { bucket = [] }
   }
   assert {
-    condition     = length(output.object_readers) == 1
-    error_message = "A role whose permissions weren't looked up counts as a reader."
+    condition     = output.public_grants == []
+    error_message = "A policy with no bindings has no public grants."
   }
-}
-
-run "project_domain_agent_cannot_be_listed" {
-  command = plan
-  variables {
-    service_agents = ["serviceAccount:service-123@heisreal-dev.iam.gserviceaccount.com"]
-  }
-  expect_failures = [var.service_agents]
 }
