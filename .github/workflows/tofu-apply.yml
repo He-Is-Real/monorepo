@@ -236,8 +236,9 @@ jobs:
           tools/scripts/tf.sh gcp init -input=false
           gcloud storage cp --no-user-output-enabled "$OBJECT" "$RUNNER_TEMP/tfplan"
           tools/scripts/tf.sh gcp apply -input=false -no-color "$RUNNER_TEMP/tfplan"
-      - if: always()
-        run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+      # Only after a successful apply: a failed job keeps its plan so "Re-run failed jobs" works.
+      # Unused plans expire through the bucket's 7-day lifecycle rule.
+      - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   apply-bunny:
     needs: [target, plan-bunny, approve-1]
@@ -283,8 +284,9 @@ jobs:
             echo "$step failed (exit $code), log: $BUNNY_LOGS/$RUN-apply-bunny.log" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-      - if: always()
-        run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+      # Only after a successful apply: a failed job keeps its plan so "Re-run failed jobs" works.
+      # Unused plans expire through the bucket's 7-day lifecycle rule.
+      - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   stage-gcp:
     needs: [target, plan-gcp, approve-1, apply-gcp]
@@ -502,8 +504,9 @@ jobs:
           tools/scripts/tf.sh cluster init -input=false
           gcloud storage cp --no-user-output-enabled "$OBJECT" "$RUNNER_TEMP/tfplan"
           tools/scripts/tf.sh cluster apply -input=false -no-color "$RUNNER_TEMP/tfplan"
-      - if: always()
-        run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+      # Only after a successful apply: a failed job keeps its plan so "Re-run failed jobs" works.
+      # Unused plans expire through the bucket's 7-day lifecycle rule.
+      - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   apply-images:
     needs: [target, plan-images, approve-2]
@@ -540,8 +543,9 @@ jobs:
             [ "$got" = "$want" ] || { echo "::error::$svc: build output is $got, the plan has $want"; exit 1; }
           done
           tools/scripts/tf.sh images apply -input=false -no-color "$RUNNER_TEMP/tfplan"
-      - if: always()
-        run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+      # Only after a successful apply: a failed job keeps its plan so "Re-run failed jobs" works.
+      # Unused plans expire through the bucket's 7-day lifecycle rule.
+      - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   stage-cluster:
     needs:

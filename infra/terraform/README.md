@@ -374,19 +374,26 @@ it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, fre
 
 ## Bootstrapping a new environment (e.g. prod)
 
+`tf.sh` only knows the dev roots (`live/dev/<root>`), so these steps call `tofu -chdir=…` directly
+with your own credentials. Set `R=infra/terraform/live/prod` first.
+
 1. Copy `live/dev` to `live/prod` and change names/IDs, **without `encryption.tf`** (the keys don't
    exist yet). Let `google_project` **create** the project with `auto_create_network = false`
    (dev's was made by hand, so its open-by-default network had to be imported and destroyed).
-2. First apply of `bootstrap` with local state: `mv backend.tf backend.tf.first-run`, then
-   `tf.sh bootstrap init` and `apply` (this creates the bucket, the KMS keys and the CI identities).
-3. Move the state into the new bucket: `mv backend.tf.first-run backend.tf`, then
-   `tf.sh bootstrap init -migrate-state`.
+2. First apply of `bootstrap` with local state: `mv $R/bootstrap/backend.tf $R/bootstrap/backend.tf.first-run`,
+   then `tofu -chdir=$R/bootstrap init` and `tofu -chdir=$R/bootstrap apply` (this creates the
+   bucket, the KMS keys and the CI identities).
+3. Move the state into the new bucket: `mv $R/bootstrap/backend.tf.first-run $R/bootstrap/backend.tf`,
+   then `tofu -chdir=$R/bootstrap init -migrate-state`.
 4. Add `encryption.tf` with an `unencrypted` fallback (`state` and `plan` blocks with
-   `fallback { method = method.unencrypted.migration }`), then `tf.sh bootstrap apply -refresh-only`
-   writes the state encrypted. Check `gcloud storage cat …/default.tfstate | jq 'keys'` shows
-   `encrypted_data`, then remove the fallback and set `enforced = true`.
+   `fallback { method = method.unencrypted.migration }`), then
+   `tofu -chdir=$R/bootstrap apply -refresh-only` writes the state encrypted. Check that
+   `gcloud storage cat …/default.tfstate | jq 'keys'` shows `encrypted_data`, then remove the
+   fallback and set `enforced = true`.
 5. Apply `gcp` (services start on Google's placeholder image until `apps` has a build), then
    `cluster`, each with `encryption.tf` enforced from the start (a new state is written encrypted).
+6. Before using `tf.sh` or CI for prod, teach `tf.sh` an environment (it is dev-only today) and add
+   prod gates and environments.
 
 ## Lessons learned
 
