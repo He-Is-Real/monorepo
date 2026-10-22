@@ -20,10 +20,13 @@ source of truth, so change them in the same PR as the code.
   outbound only, to Pub/Sub. Public entry points are Cloud Run services only.
 - Testimonies are GDPR Article 9 data. New personal data must fit the consent and erasure model.
 - **Responsive everywhere (Joel):** every page and view is mobile-first and works from 320 px phones through foldables, tablets (both orientations) and 1920 px+ desktops: no horizontal scroll, 44 px touch targets, readable line lengths, safe-area insets. Cover each new page in `apps/web/e2e` (device matrix in `devices.ts`).
+- **Browse loads at most 2 extra pages automatically,** then shows a "Show more stories" button
+  (D55). It's the only exception to the design principle "no infinite scroll".
 - **All cloud deployments and modifications go through Terraform (`infra/terraform`), including
   proofs of concept.** Never use console clicks, `gcloud … create/update`, or `kubectl apply` against
   GKE. Adopt anything made by hand with `import` blocks. Read-only commands are fine. Never
   auto-apply: plans may run automatically, applies are manual (local developer machine or `terraform-apply.yml`).
+  Moving to OpenTofu (D54); until that PR lands, the Terraform rules apply as written.
   Solo project: gates mean "deliberate", never "needs a second person".
   One narrow exception: the Clerk instance's settings, which have no maintained Terraform provider,
   live in `infra/clerk/dev.json` and are applied with `infra/clerk/clerk-config.mjs` (decision 17 in
