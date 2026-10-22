@@ -2,9 +2,9 @@
 # ephemerally at plan/apply time, never written to state). Terraform owns the
 # container; the value is human-supplied: a developer adds it as a new version
 # (runbook: infra/terraform/README.md "Bunny.net"). Here rather than in the gcp
-# root because only developers may manage `bunny-*` secrets: tf-deployer's
-# secrets role excludes them (ci_identity.tf), and nobody else has access, so
-# only developers (project owners) can read it.
+# root because only developers and tf-bunny may manage `bunny-*` secrets:
+# tf-deployer's secrets role excludes them (ci_identity.tf), and tf-bunny's
+# grants are limited to them (tf_bunny.tf).
 resource "google_secret_manager_secret" "bunny_account_api_key" {
   project   = google_project.this.project_id
   secret_id = "bunny-account-api-key"
@@ -44,5 +44,8 @@ resource "google_project_iam_member_remove" "legacy_cloudbuild_builder" {
     google_project_iam_member.tf_deployer_custom,
     google_project_iam_member.tf_deployer_parent,
     google_project_iam_member.tf_deployer_project_iam,
+    google_project_iam_member.tf_bunny_security_reviewer,
+    google_project_iam_member.tf_bunny_parent,
+    google_project_iam_member.tf_bunny_secrets,
   ]
 }

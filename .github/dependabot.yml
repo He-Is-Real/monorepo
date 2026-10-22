@@ -25,7 +25,8 @@ updates:
       # Node majors are chosen by hand: LTS only (24 now). Patches/minors still flow.
       - dependency-name: node
         update-types: ['version-update:semver-major']
-  - package-ecosystem: terraform
+  # OpenTofu (D54): version updates only; Dependabot has no OpenTofu security updates.
+  - package-ecosystem: opentofu
     directories:
       - /infra/terraform/live/dev/*
     schedule:

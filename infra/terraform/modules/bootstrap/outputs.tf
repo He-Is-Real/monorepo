@@ -40,12 +40,16 @@ output "bunny_account_api_key_secret" {
   value       = google_secret_manager_secret.bunny_account_api_key.secret_id
 }
 
-output "bunny_fences" {
-  description = "Exact IAM conditions that keep CI identities away from the bunny root's state and keys; live/<env>/bunny checks they're applied."
-  value = {
-    state_condition = local.ci_state_condition
-    deployer        = { for f in values(local.deployer_fences) : f.role => f.expression }
-    # Principals allowed to hold storage.objects.get on the project (state readers).
-    state_readers = var.developers
-  }
+output "tf_bunny_email" {
+  value = google_service_account.tf_bunny.email
+}
+
+output "kms_state_key" {
+  description = "KMS key for every state but bunny's (live/<env>/*/encryption.tf)."
+  value       = google_kms_crypto_key.state.id
+}
+
+output "kms_bunny_key" {
+  description = "KMS key for the bunny root's state and plans."
+  value       = google_kms_crypto_key.bunny.id
 }

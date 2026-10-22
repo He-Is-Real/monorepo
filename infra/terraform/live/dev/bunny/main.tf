@@ -1,14 +1,17 @@
 # Dev Bunny.net: a Stream library (video/audio), an S3-compatible storage zone
-# in London and a pull zone (CDN) in front of it (images). Applied by a
-# developer only, after bootstrap, with tools/scripts/tf-bunny.sh:
+# in London and a pull zone (CDN) in front of it (images). Applied with
+# tools/scripts/tf.sh, as tf-bunny by default (TF_SH_IDENTITY=self for your own
+# credentials):
 #
-#   tools/scripts/tf-bunny.sh init
-#   tools/scripts/tf-bunny.sh plan
-#   tools/scripts/tf-bunny.sh apply
+#   tools/scripts/tf.sh bunny init
+#   tools/scripts/tf.sh bunny plan
+#   tools/scripts/tf.sh bunny apply
 #
-# This root's state holds Bunny keys (the approved exception in AGENTS.md), so
-# CI neither plans nor applies it, nothing reads its state, and plans are never
-# saved to files (a saved plan holds the same keys in clear text).
+# This root's state holds Bunny keys (the approved exception in AGENTS.md). CI
+# plans it only on main (tofu-apply.yml, tofu-drift.yml), never in PRs, and
+# never prints its raw output; nothing reads its state. State and saved plans
+# are encrypted with the tofu-bunny key, which only developers and tf-bunny can
+# use (modules/bootstrap/kms.tf).
 
 terraform {
   required_version = ">= 1.11"
@@ -41,21 +44,11 @@ provider "bunnynet" {
   api_key = ephemeral.google_secret_manager_secret_version.bunny_account_api_key.secret_data
 }
 
-# Refuse to write keys anywhere CI could read them. The bootstrap root outputs
-# the exact IAM conditions (no secrets in its state), and the live policies
-# must carry exactly those:
-# - every binding on the state bucket (CI identities only; developers have
-#   project-level storage.admin) excludes this root's prefix (state.tf);
-# - tf-deployer's secrets and buckets roles exclude `bunny-*` secrets and the
-#   state bucket, so it can't grant itself access through their IAM (ci_identity.tf).
-data "terraform_remote_state" "bootstrap" {
-  backend = "gcs"
-  config = {
-    bucket = "heisreal-dev-tfstate"
-    prefix = "dev/bootstrap"
-  }
-}
-
+# Never public (D57 C): refuse to plan if allUsers or allAuthenticatedUsers holds
+# any role on the state bucket, the project, the KMS keyring, either key or a
+# `bunny-*` secret (modules/bunny-state-guard, tested offline). Who else has
+# access is bootstrap's job; org-level grants: tools/scripts/check-bunny-fences.sh.
+# tf-bunny reads these policies through roles/iam.securityReviewer.
 data "google_storage_bucket_iam_policy" "tfstate" {
   bucket = "heisreal-dev-tfstate"
 }
@@ -64,82 +57,62 @@ data "google_project_iam_policy" "project" {
   project = "heisreal-dev"
 }
 
-locals {
-  fences = try(data.terraform_remote_state.bootstrap.outputs.bootstrap.bunny_fences, null)
-
-  tfstate_bindings = jsondecode(data.google_storage_bucket_iam_policy.tfstate.policy_data).bindings
-  state_is_private = local.fences != null && alltrue([
-    for b in local.tfstate_bindings :
-    try(b.condition.expression, "") == local.fences.state_condition
-  ])
-
-  deployer_bindings = local.fences == null ? [] : [
-    for b in jsondecode(data.google_project_iam_policy.project.policy_data).bindings : b
-    if contains(keys(local.fences.deployer), b.role)
-  ]
-  # Every binding of those roles (there must be one per role) carries exactly the fence.
-  deployer_is_fenced = local.fences != null && alltrue([
-    for role, expression in local.fences.deployer : length([
-      for b in local.deployer_bindings : b if b.role == role
-      ]) > 0 && alltrue([
-      for b in local.deployer_bindings : try(b.condition.expression, "") == expression if b.role == role
-    ])
-  ])
-}
-
-# Nobody else may hold storage.objects.get (which reads every bucket, whatever
-# the bucket's own policy says) on the project or the organisation: only the
-# developers and the verified Google service agents below
-# (modules/bunny-state-guard, tested offline).
-data "google_organization_iam_policy" "org" {
-  org_id = "463617123121"
+data "google_secret_manager_secrets" "all" {
+  project = "heisreal-dev"
 }
 
 locals {
-  project_number = try(data.terraform_remote_state.bootstrap.outputs.bootstrap.project_number, "unknown")
-
-  # Google service agents that hold storage.objects.get here, verified 2026-10-21. Exact
-  # addresses only: a new agent fails the guard until reviewed and added here.
-  google_service_agents = [
-    "serviceAccount:service-${local.project_number}@gcp-sa-cloudbuild.iam.gserviceaccount.com",
-    "serviceAccount:service-${local.project_number}@gcf-admin-robot.iam.gserviceaccount.com",
-    "serviceAccount:service-${local.project_number}@compute-system.iam.gserviceaccount.com",
-    "serviceAccount:service-${local.project_number}@containerregistry.iam.gserviceaccount.com",
-    "serviceAccount:service-${local.project_number}@serverless-robot-prod.iam.gserviceaccount.com",
+  bunny_secrets = [
+    for s in data.google_secret_manager_secrets.all.secrets : s.secret_id if startswith(s.secret_id, "bunny-")
   ]
 }
 
-module "state_readers" {
+data "google_secret_manager_secret_iam_policy" "bunny" {
+  for_each = toset(local.bunny_secrets)
+
+  project   = "heisreal-dev"
+  secret_id = each.value
+}
+
+data "google_kms_key_ring_iam_policy" "tofu" {
+  key_ring_id = "projects/heisreal-dev/locations/europe-west2/keyRings/tofu"
+}
+
+data "google_kms_crypto_key_iam_policy" "key" {
+  for_each = toset(["tofu-state", "tofu-bunny"])
+
+  crypto_key_id = "projects/heisreal-dev/locations/europe-west2/keyRings/tofu/cryptoKeys/${each.value}"
+}
+
+module "never_public" {
   source = "../../../modules/bunny-state-guard"
 
-  project_id     = "heisreal-dev"
-  state_readers  = try(local.fences.state_readers, [])
-  service_agents = local.google_service_agents
-  bindings = concat(
-    jsondecode(data.google_project_iam_policy.project.policy_data).bindings,
-    jsondecode(data.google_organization_iam_policy.org.policy_data).bindings,
+  policies = merge(
+    {
+      bucket  = try(jsondecode(data.google_storage_bucket_iam_policy.tfstate.policy_data).bindings, [])
+      project = try(jsondecode(data.google_project_iam_policy.project.policy_data).bindings, [])
+      keyring = try(jsondecode(data.google_kms_key_ring_iam_policy.tofu.policy_data).bindings, [])
+    },
+    { for k, d in data.google_kms_crypto_key_iam_policy.key : "key/${k}" => try(jsondecode(d.policy_data).bindings, []) },
+    { for k, d in data.google_secret_manager_secret_iam_policy.bunny : "secret/${k}" => try(jsondecode(d.policy_data).bindings, []) },
   )
-  role_permissions = { for r, d in data.google_iam_role.other : r => d.included_permissions }
 }
 
-data "google_iam_role" "other" {
-  for_each = toset(module.state_readers.roles_to_check)
-  name     = each.value
+moved {
+  from = terraform_data.state_is_private
+  to   = terraform_data.never_public
 }
 
-resource "terraform_data" "state_is_private" {
+resource "terraform_data" "never_public" {
   lifecycle {
     precondition {
-      condition     = local.state_is_private
-      error_message = "gs://heisreal-dev-tfstate still lets a CI identity read dev/bunny/. Apply the bootstrap root first (modules/bootstrap/state.tf)."
+      condition     = length(module.never_public.public_grants) == 0
+      error_message = "Public access found: ${join(", ", module.never_public.public_grants)}. Remove it through OpenTofu (bootstrap or this root) before planning Bunny."
     }
+    # Fails closed if the listing is wrong (e.g. missing permission or a filter).
     precondition {
-      condition     = local.fences != null && length(module.state_readers.object_readers) == 0
-      error_message = "These principals can read every bucket, including this root's state: ${join(", ", module.state_readers.object_readers)}. Remove the grant (bootstrap). A developer goes in var.developers. A new Google service agent (service-<number>@<agent>.iam.gserviceaccount.com, never @heisreal-dev.iam...) must be reviewed, then added to local.google_service_agents."
-    }
-    precondition {
-      condition     = local.deployer_is_fenced
-      error_message = "tf-deployer's secrets/buckets roles aren't conditioned yet, so it could grant itself access to this root's state or keys. Apply the bootstrap root first (modules/bootstrap/ci_identity.tf)."
+      condition     = contains(local.bunny_secrets, "bunny-account-api-key")
+      error_message = "Couldn't list the bunny-* secrets; refusing to plan."
     }
   }
 }
@@ -151,7 +124,7 @@ module "bunny" {
   environment = "dev"
   region      = "europe-west2"
 
-  depends_on = [terraform_data.state_is_private]
+  depends_on = [terraform_data.never_public]
 }
 
 output "bunny" {

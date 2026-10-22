@@ -4,18 +4,9 @@
 // (ci_identity.tf). Claims: https://docs.github.com/en/actions/reference/security/oidc
 //
 //   node --test infra/terraform/modules/bootstrap/tests/
-import { evaluate } from '@marcbachmann/cel-js';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-
-const repository = 'He-Is-Real/monorepo';
-const expression = readFileSync(
-  new URL('../cluster_plan_gate.cel.tftpl', import.meta.url),
-  'utf8',
-)
-  .replaceAll('${repository}', repository)
-  .trim();
+import { gate as evaluateGate, repository, without } from './claims.mjs';
 
 // A plain (non-reusable) job's token on a pull request, as GitHub issues it once the
 // environment's reviewer has approved the run.
@@ -34,11 +25,7 @@ const prJob = {
   job_workflow_ref: `${repository}/.github/workflows/terraform-plan.yml@refs/pull/32/merge`,
   runner_environment: 'github-hosted',
 };
-const gate = (claims) => evaluate(expression, { assertion: claims });
-const without = (claims, key) => {
-  const { [key]: _, ...rest } = claims;
-  return rest;
-};
+const gate = (claims) => evaluateGate('cluster_plan_gate.cel.tftpl', claims);
 
 test('accepts the plan-cluster job on a pull request', () => {
   assert.equal(gate(prJob), 'allowed');
@@ -60,7 +47,26 @@ test('accepts it on a push to main', () => {
   );
 });
 
+// tofu-plan.yml replaces terraform-plan.yml in PR 2; both are accepted until L5.
+const tofuPlanPr = {
+  ...prJob,
+  workflow: 'OpenTofu plan',
+  workflow_ref: `${repository}/.github/workflows/tofu-plan.yml@refs/pull/32/merge`,
+  job_workflow_ref: `${repository}/.github/workflows/tofu-plan.yml@refs/pull/32/merge`,
+};
+
+test('accepts tofu-plan.yml on a pull request', () => {
+  assert.equal(gate(tofuPlanPr), 'allowed');
+});
+
 const rejected = {
+  'tofu-plan.yml on a push to main': {
+    ...tofuPlanPr,
+    event_name: 'push',
+    ref: 'refs/heads/main',
+    workflow_ref: `${repository}/.github/workflows/tofu-plan.yml@refs/heads/main`,
+  },
+  'tofu-plan.yml without the environment': without(tofuPlanPr, 'environment'),
   'no environment (a job without `environment: cluster-plan`)': without(
     prJob,
     'environment',

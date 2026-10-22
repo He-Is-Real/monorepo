@@ -15,6 +15,8 @@ source of truth, so change them in the same PR as the code.
   (api-public-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
   through External Secrets Operator on clusters. Never commit secret values or add key files.
+- Install the secret-scanning hook once per clone: `mise install && tools/scripts/install-hooks.sh`
+  (gitleaks, `.gitleaks.toml`).
 - Nothing on GKE is reachable from the internet: private nodes only, and no `LoadBalancer` or
   `NodePort` Services and no Ingress/Gateway. Workers (Dapr workflow, inference workers) connect
   outbound only, to Pub/Sub. Public entry points are Cloud Run services only.
@@ -26,7 +28,7 @@ source of truth, so change them in the same PR as the code.
   proofs of concept.** Never use console clicks, `gcloud … create/update`, or `kubectl apply` against
   GKE. Adopt anything made by hand with `import` blocks. Read-only commands are fine. Never
   auto-apply: plans may run automatically, applies are manual (local developer machine or `terraform-apply.yml`).
-  Moving to OpenTofu (D54); until that PR lands, the Terraform rules apply as written.
+  Run every root through `tools/scripts/tf.sh <root> …` (OpenTofu, D54).
   Solo project: gates mean "deliberate", never "needs a second person".
   One narrow exception: the Clerk instance's settings, which have no maintained Terraform provider,
   live in `infra/clerk/dev.json` and are applied with `infra/clerk/clerk-config.mjs` (decision 17 in

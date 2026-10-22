@@ -2,3 +2,5 @@
 # `mise install` in this directory installs them. CI pins the same versions.
 [tools]
 kubeconform = "0.8.0"
+opentofu = "1.13.2"
+gitleaks = "8.30.1"

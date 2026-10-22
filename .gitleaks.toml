@@ -1,0 +1,24 @@
+# Default gitleaks rules plus Bunny.net keys, which GitHub secret scanning doesn't know.
+# Bunny keys are hex in groups 8-4-4-4-12 (UUID-like) or 8-4-4-12-4-4 (41 chars),
+# so the rule needs Bunny context nearby to avoid matching every UUID.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "bunny-key"
+description = "Bunny.net API key, storage password or token key"
+regex = '''(?i)(?:accesskey|bunny[a-z0-9_.-]*)["']?\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-(?:[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{12}-[0-9a-f]{4}-[0-9a-f]{4}))\b'''
+secretGroup = 1
+keywords = ["accesskey", "bunny"]
+
+[[allowlists]]
+description = "Example env files hold placeholders only"
+paths = ['''(^|/)\.env\.example$''']
+
+[[allowlists]]
+description = "Clerk publishable keys are public by design (pk_test_/pk_live_)"
+regexes = ['''^pk_(?:test|live)_[A-Za-z0-9+/=]+$''']
+
+[[allowlists]]
+description = "Expired 60-second Clerk dev-instance session token, a test fixture (libs/auth)"
+paths = ['''^libs/auth/src/lib/fixtures/dev-instance-token\.jwt$''']

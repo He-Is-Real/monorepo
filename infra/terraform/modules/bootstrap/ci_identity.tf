@@ -1,13 +1,18 @@
 # Keyless GitHub Actions access (Workload Identity Federation). GitHub issues a
 # short-lived OIDC token per job; Google exchanges it for a short-lived token of
-# one of three service accounts, depending on *what* the job is:
+# one of these service accounts, depending on *what* the job is:
 #
 #   tf-planner          any workflow in this repo              read-only; automatic gcp plans
 #   tf-cluster-planner  environment cluster-plan (reviewer      dry runs only, in the database
-#                       approval), terraform-plan.yml          namespace; automatic cluster plans
+#                       approval), terraform-plan.yml or       namespace; automatic cluster plans
+#                       tofu-plan.yml
 #   ci-image-pusher     images.yml on a push to main          push to apps
 #   ci-snapshot-pusher  manual snapshot-images.yml, any branch push to apps-scratch only
-#   tf-deployer         manual terraform-apply.yml on main     manual applies
+#   tf-deployer         tofu-apply.yml / tofu-drift.yml on     gcp, images and cluster applies
+#                       main (and manual terraform-apply.yml
+#                       until the old workflows are gone)
+#   tf-bunny            tofu-apply.yml / tofu-drift.yml on     the bunny root only (tf_bunny.tf)
+#                       main
 #
 # The gates are computed from the token's claims, so a workflow on another
 # branch, another workflow file, or an automatic trigger cannot obtain the
@@ -56,11 +61,16 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.cluster_plan_gate" = trimspace(templatefile("${path.module}/cluster_plan_gate.cel.tftpl", {
       repository = var.github_repository
     }))
-    "attribute.deploy_gate" = join("", [
-      "(assertion.ref == 'refs/heads/main' && assertion.event_name == 'workflow_dispatch'",
-      " && assertion.job_workflow_ref == '${var.github_repository}/.github/workflows/terraform-apply.yml@refs/heads/main')",
-      " ? 'allowed' : 'denied'",
-    ])
+    # tf-deployer and tf-bunny: main only, in the apply and drift workflows. The terraform-apply.yml
+    # clause in deploy_gate goes once the old workflows are deleted (L5). job_workflow_ref is what
+    # the deploy gate has always checked; for a plain job it equals workflow_ref, the fallback if a
+    # workflow_run token ever lacks it. Tests: tests/{deploy,bunny}-gate.test.mjs.
+    "attribute.deploy_gate" = trimspace(templatefile("${path.module}/deploy_gate.cel.tftpl", {
+      repository = var.github_repository
+    }))
+    "attribute.bunny_gate" = trimspace(templatefile("${path.module}/bunny_gate.cel.tftpl", {
+      repository = var.github_repository
+    }))
   }
 
   oidc {
@@ -251,8 +261,8 @@ resource "google_project_iam_member" "tf_deployer_parent" {
 # Each expression applies the name check only to its own resource types
 # (Google's recommended pattern), so a permission checked on another type is
 # never caught by a missing name. Secret names use the project number; the
-# project ID form is excluded too, in case a check uses it. Exact expressions
-# are output for the bunny root's guard (outputs.tf).
+# project ID form is excluded too, in case a check uses it. tf-bunny gets the
+# exact opposite (only-bunny-secrets, tf_bunny.tf).
 locals {
   bunny_secret_prefixes = [
     "projects/${google_project.this.number}/secrets/bunny-",
@@ -307,15 +317,25 @@ resource "google_service_account_iam_member" "tf_deployer_wif" {
   member             = "${local.pool}/attribute.deploy_gate/allowed"
 }
 
-# Developers can run Terraform as the CI identities, to reproduce CI or check
-# that the deployer's roles are enough before relying on them.
+# Developers can run OpenTofu as the CI identities, to reproduce CI or check
+# that the deployer's roles are enough before relying on them. tools/scripts/tf.sh
+# impersonates tf-deployer (gcp, images, cluster) and tf-bunny (bunny) by default.
+# Owner has no iam.serviceAccounts.getAccessToken, so these grants are needed.
+locals {
+  impersonation_targets = {
+    planner  = google_service_account.tf_planner.name
+    deployer = google_service_account.tf_deployer.name
+    bunny    = google_service_account.tf_bunny.name
+  }
+}
+
 resource "google_service_account_iam_member" "developers_impersonate" {
   for_each = {
-    for pair in setproduct(["planner", "deployer"], var.developers) :
+    for pair in setproduct(keys(local.impersonation_targets), var.developers) :
     "${pair[0]}/${pair[1]}" => { sa = pair[0], member = pair[1] }
   }
 
-  service_account_id = each.value.sa == "planner" ? google_service_account.tf_planner.name : google_service_account.tf_deployer.name
+  service_account_id = local.impersonation_targets[each.value.sa]
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = each.value.member
 }

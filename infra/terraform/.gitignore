@@ -1,9 +1,4 @@
-# Provider caches and local state never belong in git (state lives in GCS).
-.terraform/
-*.tfstate
-*.tfstate.*
-*.tfplan
+# Plans, state, provider caches and crash logs: see the root .gitignore.
 .build/
-crash.log
 # Lock files ARE committed (pin provider versions/checksums).
 !.terraform.lock.hcl

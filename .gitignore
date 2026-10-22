@@ -52,6 +52,18 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+!**/.env.example
+
+# OpenTofu: plans, state and crash logs never belong in git (state lives in GCS).
+*.tfplan
+*.tfplan.json
+tfplan
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+.terraform/
+.terraform.tfstate.lock.info
 
 test-output
 

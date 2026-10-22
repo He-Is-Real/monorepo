@@ -1,5 +1,8 @@
 # The identity config hash changes iff the init script, the secrets that go into it or the
 # rotation number change; everything that mounts or renders the script follows the hash.
+#
+# OpenTofu doesn't accept run.<name>.<output> inside assert, so run "base" applies (no providers
+# or resources: offline) and later runs take its hash in as a variable.
 
 variables {
   template         = "DEFINE USER OVERWRITE migrator ON DATABASE PASSWORD {{ .migrator | toJson }} ROLES OWNER;\n"
@@ -29,7 +32,7 @@ variables {
 }
 
 run "base" {
-  command = plan
+  command = apply
   assert {
     condition = (output.external_secret.metadata.name == output.secret_name
       && output.external_secret.spec.target.name == output.secret_name
@@ -59,8 +62,11 @@ run "base" {
 
 run "same_config" {
   command = plan
+  variables {
+    base_hash = run.base.hash
+  }
   assert {
-    condition     = output.hash == run.base.hash
+    condition     = output.hash == var.base_hash
     error_message = "No change, no restart."
   }
 }
@@ -68,10 +74,11 @@ run "same_config" {
 run "template_changed" {
   command = plan
   variables {
-    template = "REMOVE USER IF EXISTS api_admin ON DATABASE;\n"
+    base_hash = run.base.hash
+    template  = "REMOVE USER IF EXISTS api_admin ON DATABASE;\n"
   }
   assert {
-    condition     = output.hash != run.base.hash
+    condition     = output.hash != var.base_hash
     error_message = "A new init script means a new Secret and a restart."
   }
 }
@@ -79,10 +86,11 @@ run "template_changed" {
 run "secrets_changed" {
   command = plan
   variables {
+    base_hash        = run.base.hash
     external_secrets = "data: [migrator, backup]\n"
   }
   assert {
-    condition     = output.hash != run.base.hash
+    condition     = output.hash != var.base_hash
     error_message = "A change to which secrets go in means a new Secret and a restart."
   }
 }
@@ -90,10 +98,11 @@ run "secrets_changed" {
 run "rotated" {
   command = plan
   variables {
-    rotation = "2"
+    base_hash = run.base.hash
+    rotation  = "2"
   }
   assert {
-    condition     = output.hash != run.base.hash
+    condition     = output.hash != var.base_hash
     error_message = "A password rotation means a new Secret (latest versions) and a restart."
   }
 }
