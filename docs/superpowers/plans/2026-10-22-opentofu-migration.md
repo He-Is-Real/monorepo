@@ -5,6 +5,7 @@
 **Goal:** Every OpenTofu root runs the same way from a developer's machine and from GitHub Actions, on OpenTofu 1.13.2. State and saved plans are encrypted with Cloud KMS. A merge to `main` is planned without anyone waiting, then each apply waits for one approval and applies exactly the saved plan. Terraform is gone from the repo.
 
 **Architecture:**
+
 - **One entry script.** `tools/scripts/tf.sh <root> <tofu args>` is used by CI and locally. Locally it acts as the root's CI identity by default.
 - **bootstrap stays local-only.** It owns the CI identities, including the new `tf-bunny`, and a KMS keyring with two keys: `tofu-state` (bootstrap, gcp, images, cluster) and `tofu-bunny` (bunny).
 - **A separate key holder for Bunny, no fence (D57 C).** Only `tf-bunny` and developers can use `tofu-bunny`, the `bunny-*` secrets and `dev/bunny/` state. CI can get `tf-bunny` only on `main`, in `tofu-apply.yml` or `tofu-drift.yml`. `tf-deployer` simply gets no grants there. It could grant itself access through its service-account roles; that is accepted.
@@ -14,6 +15,7 @@
 - **Correct by construction, no retirement logic.** Each apply run targets the `main` HEAD it sees at its start. Per-root "last applied commit" markers decide what is behind, so any later run picks up whatever an earlier run didn't apply. An apply refuses itself if `main` has moved on since its run started (the newer run plans again). There is no workflow-level concurrency group, so an old run waiting for approval never blocks a newer one; state locks and OpenTofu's stale-plan check keep applies safe.
 
 **Tech Stack:**
+
 - OpenTofu 1.13.2, set up with `opentofu/setup-opentofu` v2.0.2.
 - GCS backend; Cloud KMS through the `gcp_kms` key provider with `aes_gcm`.
 - Providers: hashicorp/google 8.5.0 (8.7.0 in bunny), BunnyWay/bunnynet 0.19.2, kbst/kustomization 0.9.8 (unsigned in the OpenTofu registry, pinned by lock-file hashes).
@@ -22,25 +24,27 @@
 - bash, plus `node --test` with `@marcbachmann/cel-js` and `yaml` (both already dependencies).
 
 **Spec:**
+
 - D54: `/home/joel/Documents/GitHub/HeIsReal/project/context/research/m1-dev-data-decisions.html` (founder box "Decided: B", 2026-10-22).
 - D57: `/home/joel/Documents/GitHub/HeIsReal/project/context/research/opentofu-access-model-decision.html` ("Decided: C", 2026-10-22).
 - Repo rules: `AGENTS.md`, `infra/terraform/README.md`.
 
 ## Decisions applied (founder, 2026-10-22)
 
-| Decision | What it means for this plan |
-| --- | --- |
-| **D57 = C: separate key holder, no fence** | Keep `tf-bunny` and the `tofu-bunny` key. tf-bunny's sign-in gate allows only `refs/heads/main` and `tofu-apply.yml` / `tofu-drift.yml`. PRs never plan bunny. Developers can impersonate tf-bunny, so `tf.sh bunny plan|apply` works locally from any branch. |
-| **Dropped with A** | Moving the 5 app SAs to bootstrap, the `removed {}` blocks in gcp, per-SA deployer grants, removing the deployer's project-level SA roles, the `org` root and org-admin login, the impersonator guard, the transitional bunny guard, `--stage=l1\|final`, and the "tf-deployer has no route to Bunny" probes. |
-| **Never-public guard** | Replaces the fence guard. Org-level checks live only in the local `check-bunny-fences.sh`. tf-bunny needs no org permission. |
-| **Approval = read the plan, then apply** | It isn't access control. Plans run unattended (bunny too, on `main`, as tf-bunny). Every apply needs exactly one approval in the `dev` environment. Claude may approve dev applies. Bunny uses the same single approval and has no gate before its plan. Bunny joins the weekly drift check. bootstrap stays local-only. |
-| **Logs stay public** | The repo stays public and on GitHub Actions. No private logs, private repo or Cloud Build. Kept: redacted Bunny summaries (raw output goes to the private bucket), refusing `TF_LOG` and step debug, no Bunny plans as artifacts. Added: masking the Bunny keys in Bunny jobs, `permissions: {}` in every workflow plus a CI check (also bans `pull_request_target`), gitleaks in CI and as a pre-commit hook, root `.gitignore` additions. |
-| **Not doing** | Narrow per-job Bunny keys, a key-rotation runbook, shorter raw-log retention, a soft-delete guard. |
-| **Break-glass** | The only change allowed outside OpenTofu is recovering a KMS key version with `gcloud` (runbook below). Clerk config stays the other standing exception. |
+| Decision                                   | What it means for this plan                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **D57 = C: separate key holder, no fence** | Keep `tf-bunny` and the `tofu-bunny` key. tf-bunny's sign-in gate allows only `refs/heads/main` and `tofu-apply.yml` / `tofu-drift.yml`. PRs never plan bunny. Developers can impersonate tf-bunny, so `tf.sh bunny plan                                                                                                                                                                                                                    | apply` works locally from any branch. |
+| **Dropped with A**                         | Moving the 5 app SAs to bootstrap, the `removed {}` blocks in gcp, per-SA deployer grants, removing the deployer's project-level SA roles, the `org` root and org-admin login, the impersonator guard, the transitional bunny guard, `--stage=l1\|final`, and the "tf-deployer has no route to Bunny" probes.                                                                                                                               |
+| **Never-public guard**                     | Replaces the fence guard. Org-level checks live only in the local `check-bunny-fences.sh`. tf-bunny needs no org permission.                                                                                                                                                                                                                                                                                                                |
+| **Approval = read the plan, then apply**   | It isn't access control. Plans run unattended (bunny too, on `main`, as tf-bunny). Every apply needs exactly one approval in the `dev` environment. Claude may approve dev applies. Bunny uses the same single approval and has no gate before its plan. Bunny joins the weekly drift check. bootstrap stays local-only.                                                                                                                    |
+| **Logs stay public**                       | The repo stays public and on GitHub Actions. No private logs, private repo or Cloud Build. Kept: redacted Bunny summaries (raw output goes to the private bucket), refusing `TF_LOG` and step debug, no Bunny plans as artifacts. Added: masking the Bunny keys in Bunny jobs, `permissions: {}` in every workflow plus a CI check (also bans `pull_request_target`), gitleaks in CI and as a pre-commit hook, root `.gitignore` additions. |
+| **Not doing**                              | Narrow per-job Bunny keys, a key-rotation runbook, shorter raw-log retention, a soft-delete guard.                                                                                                                                                                                                                                                                                                                                          |
+| **Break-glass**                            | The only change allowed outside OpenTofu is recovering a KMS key version with `gcloud` (runbook below). Clerk config stays the other standing exception.                                                                                                                                                                                                                                                                                    |
 
 ## Global Constraints
 
 **OpenTofu, names and paths**
+
 - OpenTofu **1.13.2** everywhere. Pin it in three places: `mise.toml` (`opentofu = "1.13.2"`), `opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2` with `tofu_version: 1.13.2`, and `tf.sh`'s version check.
 - When finished, no `terraform` binary, no `hashicorp/setup-terraform`, and no `registry.terraform.io` lock entries remain.
 - HCL constructs keep their names: `terraform {}`, `terraform_remote_state`, `terraform_data`, `*.tftest.hcl`, `.terraform.lock.hcl` and `.terraform/`.
@@ -48,6 +52,7 @@
 - State stays in `gs://heisreal-dev-tfstate` (europe-west2, versioned, 30-day noncurrent lifecycle, 7-day soft delete), under `dev/<root>`.
 
 **KMS keys**
+
 - Encryption uses `key_provider "gcp_kms"` with `key_length = 32` and `method "aes_gcm"`.
 - One keyring, `tofu`, in `europe-west2`, with two keys:
   - `tofu-state`: bootstrap, gcp, images and cluster. Users: developers, tf-deployer, tf-planner, tf-cluster-planner.
@@ -60,6 +65,7 @@
 - After Task 9 has started, never revert bootstrap wholesale.
 
 **Approvals and identities**
+
 - Never auto-apply. Plans may run unattended. An apply happens only after one approval in the `dev` environment, or when a developer deliberately runs `tf.sh <root> apply`.
 - One approval per apply. A merge that changes gcp and cluster asks twice, because cluster is planned only after gcp is applied.
 - `bootstrap` is local-only. CI plans it read-only (weekly drift as tf-planner) and never applies it.
@@ -67,6 +73,7 @@
 - `tf-deployer` gets no grants on `tofu-bunny`, the `bunny-*` secrets or `dev/bunny/`. Its existing conditions (`not-bunny-secrets`, `not-state-bucket`, `!dev/bunny/`) stay as they are.
 
 **Public logs and git hygiene**
+
 - The repo is **public**, so Actions logs, step summaries and artifacts are world-readable.
 - Bunny plan and apply output never goes to the public log. Only `tf.sh … plan-summary` output (addresses, actions, counts) and an error class do.
 - Bunny jobs mask the Bunny keys (`::add-mask::`) before they plan or apply. It's a backstop: masking misses encoded or split values.
@@ -77,6 +84,7 @@
 - GitHub secret scanning and push protection are already on. Generic-pattern scanning isn't on the Free plan, so gitleaks covers Bunny keys.
 
 **Process**
+
 - Pin third-party actions by SHA. The repo Actions allowlist is set by hand with `gh api -X PUT repos/He-Is-Real/monorepo/actions/permissions/selected-actions`.
 - Sign commits (`git commit -S`), use conventional messages, and end each message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Branches: `feat/opentofu` (PR 1), then `feat/opentofu-pipeline` (PR 2).
@@ -99,16 +107,17 @@
 
 There are two PRs. Each live step keeps `main` and dev consistent.
 
-| # | Where | Live step | Why this order, and how `main` keeps working |
-|---|---|---|---|
-| L0 | local + GitHub | Spike (done 2026-10-22, no blockers). Still to do by hand: add `opentofu/setup-opentofu@*` to the Actions allowlist (Task 3 Step 1). | PR 1's CI needs the action. Adding an entry breaks nothing. |
-| L1 | PR 1 branch, after Task 6 | `tf.sh bootstrap apply` (Task 7). Additive only: KMS API, keyring, 2 keys, key IAM, `tf-bunny` and its grants, tf-planner bucket read, new sign-in gates (old gate clauses kept), bucket lifecycle rules. No destroys. | Keys and grants must exist before PR 1's encryption code runs in CI. `main`'s gcp/cluster CI and `terraform-apply.yml` keep working: CI bucket bindings are unchanged and the old gate clauses stay. **`main`'s old bunny guard now refuses to plan** (see note below). |
-| L2 | GitHub | Merge PR 1 (squash). | `main` now runs OpenTofu, with encryption and the fallback. Live bootstrap equals `main` again. |
-| L3 | `main`, local | Encrypt each root with `apply -refresh-only`, oldest generation recorded as the backup (Task 9). Then the first real gcp apply (S1b). | The fallback reads both plaintext and encrypted state, so every reader keeps working during the switch. |
-| L4 | GitHub | Merge PR 2: new pipeline, old workflows deleted, fallback removed (enforced). | All states are encrypted at L3; Task 11 Step 1 checks it before the commit. |
-| L5 | `main`, local + GitHub | `tf.sh bootstrap apply`: drop the old `terraform-*.yml` gate clauses. Remove `hashicorp/setup-terraform@*` from the allowlist. Cancel old waiting runs. End-to-end checks (Task 13). | Old workflows are already gone, so their gate clauses are dead. |
+| #   | Where                     | Live step                                                                                                                                                                                                              | Why this order, and how `main` keeps working                                                                                                                                                                                                                            |
+| --- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| L0  | local + GitHub            | Spike (done 2026-10-22, no blockers). Still to do by hand: add `opentofu/setup-opentofu@*` to the Actions allowlist (Task 3 Step 1).                                                                                   | PR 1's CI needs the action. Adding an entry breaks nothing.                                                                                                                                                                                                             |
+| L1  | PR 1 branch, after Task 6 | `tf.sh bootstrap apply` (Task 7). Additive only: KMS API, keyring, 2 keys, key IAM, `tf-bunny` and its grants, tf-planner bucket read, new sign-in gates (old gate clauses kept), bucket lifecycle rules. No destroys. | Keys and grants must exist before PR 1's encryption code runs in CI. `main`'s gcp/cluster CI and `terraform-apply.yml` keep working: CI bucket bindings are unchanged and the old gate clauses stay. **`main`'s old bunny guard now refuses to plan** (see note below). |
+| L2  | GitHub                    | Merge PR 1 (squash).                                                                                                                                                                                                   | `main` now runs OpenTofu, with encryption and the fallback. Live bootstrap equals `main` again.                                                                                                                                                                         |
+| L3  | `main`, local             | Encrypt each root with `apply -refresh-only`, oldest generation recorded as the backup (Task 9). Then the first real gcp apply (S1b).                                                                                  | The fallback reads both plaintext and encrypted state, so every reader keeps working during the switch.                                                                                                                                                                 |
+| L4  | GitHub                    | Merge PR 2: new pipeline, old workflows deleted, fallback removed (enforced).                                                                                                                                          | All states are encrypted at L3; Task 11 Step 1 checks it before the commit.                                                                                                                                                                                             |
+| L5  | `main`, local + GitHub    | `tf.sh bootstrap apply`: drop the old `terraform-*.yml` gate clauses. Remove `hashicorp/setup-terraform@*` from the allowlist. Cancel old waiting runs. End-to-end checks (Task 13).                                   | Old workflows are already gone, so their gate clauses are dead.                                                                                                                                                                                                         |
 
 **Why `main`'s bunny guard may fail between L1 and L2.** Today's guard requires every binding on the state bucket to carry exactly `bunny_fences.state_condition`. tf-bunny's new binding on `dev/bunny/` can't carry it, and L1 also removes the `bunny_fences` output. So from L1 until L2, a bunny plan **from `main`** refuses with "still lets a CI identity read dev/bunny/". That's the safe direction (it fails closed). It doesn't matter in practice:
+
 - CI never plans or applies bunny on `main` today.
 - The window is a few hours. Don't make bunny changes in it.
 - Bunny can still be planned from the PR 1 branch, which has the new guard. That's also how L1 is verified.
@@ -118,6 +127,7 @@ If you'd rather keep `main`'s guard green, move tf-bunny's two bucket bindings a
 **Rule between L1 and L2:** don't apply bootstrap from `main`. If someone does, the KMS resources are only forgotten (`skip_destroy`), but the new gates and tf-bunny would be removed.
 
 Before starting:
+
 - Branch from `main` at or after `ca572ab` (PR #46).
 - Close Dependabot PRs #23–#26 with a comment (Task 3).
 - Bump providers only after the migration.
@@ -129,6 +139,7 @@ Before starting:
 **Files:** none in the repo. Findings are in the table at the end of this plan. Copy them into the PR 1 description.
 
 **Interfaces:**
+
 - Produces: findings S1–S12 (plus S13–S15 added in this revision), used by Tasks 2, 3, 5, 6, 8, 9 and 10.
 
 - [x] Steps 1–13 (as first written): install tofu 1.13.2, plan copies of all five states with a local backend, compare with Terraform 1.15.9, rehearse encryption offline with `pbkdf2`, probe credentials and `TF_ENCRYPTION`, check the action SHA, Dependabot and the bunny schema. The temp dir and worktree were removed afterwards.
@@ -139,10 +150,12 @@ Before starting:
 ### Task 2: `tools/scripts/tf.sh` with tests
 
 **Files:**
+
 - Create: `tools/scripts/tf.sh`, `tools/scripts/tests/tf-sh.test.mjs`
 - Modify: `.github/workflows/ci.yml` (after the existing `node --test infra/terraform/modules/bootstrap/tests/*.test.mjs`, add `node --test tools/scripts/tests/*.test.mjs`)
 
 **Interfaces:**
+
 - Consumes: S4, S8.
 - Produces:
   - **`tools/scripts/tf.sh <root> <tofu args...>`.** Roots: `bootstrap|gcp|images|cluster|bunny`. Each maps to `infra/terraform/live/dev/<root>`. It execs `tofu -chdir=<dir> <args>`.
@@ -163,7 +176,7 @@ Before starting:
     - when `tofu version -json` ≠ `mise.toml`'s `opentofu` pin;
     - locally, without ADC;
     - when any `TF_LOG`, `TF_LOG_CORE`, `TF_LOG_PROVIDER` or `TF_LOG_PATH` is set, or `RUNNER_DEBUG=1` (GitHub step debug). Message: `debug logs can print secrets into public CI logs; run tofu directly for debugging (never for bunny)`;
-    - for `bunny`: `state pull`, `show -json` and `output -json` (`plan-summary` is the safe path).
+    - for `bunny`: `state pull`, `show -json` and `output -json` (`plan-summary` is the safe path). _(Implemented: `output -raw` and `show -raw` are refused too; they print a single value in clear text.)_
   - **Exit codes:** 64 usage, 1 refusal, otherwise tofu's.
 
 - [ ] **Step 1: Write the failing tests.** Use node:test with stub `tofu`, `gcloud` and `bunny` on `PATH`.
@@ -200,10 +213,12 @@ Before starting:
   - **bunny-cli**
     - `passes key to one process`: stdout is `stub-bunny-account-api-key`; gcloud gets `--impersonate-service-account=tf-bunny@…` (absent with `self`).
 
-  Run `node --test tools/scripts/tests/`: FAIL.
-- [ ] **Step 2: Implement `tf.sh`.** `set -euo pipefail`, a usage header, repo root `$(cd "$(dirname "$0")/../.." && pwd)`. Read the pin with `sed -n 's/^opentofu = "\(.*\)"/\1/p' mise.toml`. Make it executable.
-- [ ] **Step 3: Verify.** `node --test tools/scripts/tests/` PASS; `shellcheck tools/scripts/tf.sh` reports nothing.
+  Run `node --test tools/scripts/tests/*.test.mjs`: FAIL.
+
+- [ ] **Step 2: Implement `tf.sh`.** `set -euo pipefail`, a usage header, repo root `$(cd "$(dirname "$0")/../.." && pwd)`. Read the pin with `sed -n 's/^opentofu = "\(.*\)"/\1/p' mise.toml`. Make it executable. _(Done in this commit: the `opentofu = "1.13.2"` pin in `mise.toml` moved here from Task 3 Step 2, because tf.sh and its tests read it.)_
+- [ ] **Step 3: Verify.** `node --test tools/scripts/tests/*.test.mjs` PASS; `shellcheck tools/scripts/tf.sh` reports nothing.
 - [ ] **Step 4: Commit.**
+
 ```bash
 git add tools/scripts/tf.sh tools/scripts/tests/tf-sh.test.mjs .github/workflows/ci.yml
 git commit -S -m "feat(infra): tf.sh, one OpenTofu entry point for CI and laptops (D54)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -214,6 +229,7 @@ git commit -S -m "feat(infra): tf.sh, one OpenTofu entry point for CI and laptop
 ### Task 3: Switch tooling to OpenTofu (same workflow file names, no encryption yet)
 
 **Files:**
+
 - Modify: `mise.toml`, `infra/terraform/live/dev/*/.terraform.lock.hcl` (all 5), `.github/dependabot.yml`
 - Modify: `.github/workflows/terraform-plan.yml`, `.github/workflows/terraform-apply.yml`. Keep the names: the live gates pin them until L5.
 - Modify: `infra/terraform/modules/db-migration/tests/job_name.tftest.hcl`, `infra/terraform/modules/db-identity/tests/identity.tftest.hcl` (S3)
@@ -221,10 +237,12 @@ git commit -S -m "feat(infra): tf.sh, one OpenTofu entry point for CI and laptop
 - Modify: its references in `infra/terraform/README.md`, `infra/terraform/live/dev/bunny/main.tf:2-9` and `AGENTS.md`
 
 **Interfaces:**
+
 - Consumes: Task 2, S2, S3, S10.
 - Produces: workflows that run `tools/scripts/tf.sh`; lock files with `registry.opentofu.org` entries only.
 
 - [ ] **Step 1 [LIVE: GitHub, L0]: Allow the OpenTofu action.** (Not done yet: the allowlist read on 2026-10-22 has four patterns.)
+
 ```bash
 gh api -X PUT repos/He-Is-Real/monorepo/actions/permissions/selected-actions \
   -F github_owned_allowed=true -F verified_allowed=false \
@@ -232,15 +250,19 @@ gh api -X PUT repos/He-Is-Real/monorepo/actions/permissions/selected-actions \
   -f 'patterns_allowed[]=google-github-actions/auth@*' -f 'patterns_allowed[]=hashicorp/setup-terraform@*' \
   -f 'patterns_allowed[]=opentofu/setup-opentofu@*'
 ```
-  Expected `--jq .patterns_allowed`: the five patterns.
-- [ ] **Step 2:** add `opentofu = "1.13.2"` to `mise.toml`, then `mise install && tofu version`.
+
+Expected `--jq .patterns_allowed`: the five patterns.
+
+- [ ] **Step 2:** add `opentofu = "1.13.2"` to `mise.toml`, then `mise install && tofu version`. _(Done in Task 2.)_
 - [ ] **Step 3: Regenerate the lock files without version changes** (S2). Per root:
   1. Create a temporary `versions_override.tf` pinning: google `8.5.0` (bunny `8.7.0`), random `3.9.1`, helm `3.3.0`, kubernetes `3.3.0`, kustomization `0.9.8`, external `2.4.2`, bunnynet `0.19.2`.
   2. `rm .terraform.lock.hcl && tofu init -backend=false -input=false`. A plain init writes h1 and zh hashes for every platform (S2).
   3. Delete the override.
+  4. The lock's `constraints` lines now hold the override's exact pins (a later init doesn't rewrite them). Put back the original constraint strings (e.g. `~> 8.5`); hashes are unaffected. Check with `tofu init -backend=false -lockfile=readonly` per root.
 
   Expected: `grep -c registry.terraform.io` is 0 everywhere, and the versions are unchanged.
-- [ ] **Step 4: Check the unsigned provider.** kbst/kustomization 0.9.8 has no signing keys in the OpenTofu registry (S2: "signature validation was skipped"). Its trust comes from the lock-file hashes, so confirm it is the same binary Terraform verified: the new `h1:` hash for linux_amd64 in `live/dev/cluster/.terraform.lock.hcl` must equal the old Terraform lock's `h1:sfTMNlekbd3K2A/jWoOmaIIgKAWOIZ0+6UgdaXYqQtc=`. Add a comment above the entry: `# Unsigned in registry.opentofu.org; pinned by these hashes (h1 matched Terraform's signed lock, 2026-10-2x).`
+
+- [ ] **Step 4: Check the unsigned provider.** kbst/kustomization 0.9.8 has no signing keys in the OpenTofu registry (S2: "signature validation was skipped"). Its trust comes from the lock-file hashes, so confirm it is the same binary Terraform verified: the new `h1:` hash for linux_amd64 in `live/dev/cluster/.terraform.lock.hcl` must equal the old Terraform lock's `h1:sfTMNlekbd3K2A/jWoOmaIIgKAWOIZ0+6UgdaXYqQtc=`. Add a comment above the entry: `# Unsigned in registry.opentofu.org; pinned by these hashes (h1 matched Terraform's signed lock, 2026-10-2x).` _(Result 2026-10-22: h1 matched, and all 13 `zh:` hashes equal Terraform's. bunnynet's `zh:` hashes are identical too. The hashicorp providers' `zh:` hashes differ: the OpenTofu registry serves its own signed packages for them, so their trust comes from the registry signature.)_
 - [ ] **Step 5: Fix the two module tests (S3).** OpenTofu rejects `run.<name>.<output>` inside `assert`.
   - In `job_name.tftest.hcl`, give `run "a"` `command = apply` (no providers or resources, so it stays offline). In each later run that compares with it, pass the value in, as in the spike's repro: `variables { base_job_name = run.a.job_name }` (and `base_dpa_sha256 = run.a.params.dpa_sha256.v1` where used). Assert on `var.base_job_name` etc.
   - Same for `identity.tftest.hcl` with `run "base"` and `run.base.hash`.
@@ -256,6 +278,7 @@ gh api -X PUT repos/He-Is-Real/monorepo/actions/permissions/selected-actions \
   - For each root: `tools/scripts/tf.sh <r> init -input=false && tools/scripts/tf.sh <r> plan -lock=false -detailed-exitcode`. Use `TF_SH_IDENTITY=self` for bunny (tf-bunny doesn't exist yet).
   - Expected: exit 0, or exactly the change set in S1 (gcp: the 7 S1b updates; images: new prune tags).
 - [ ] **Step 10: Commit and open draft PR 1.** The body ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Expected CI: `main`, `validate`, `plan (gcp)` green; approve `plan-cluster`, which should say "No changes".
+
 ```bash
 git add -A mise.toml infra/terraform .github tools/scripts AGENTS.md
 git commit -S -m "build(infra): run every root on OpenTofu 1.13.2 (D54)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -267,10 +290,12 @@ git push -u origin feat/opentofu && gh pr create --draft --title "feat(infra): O
 ### Task 4: Repo hygiene — `.gitignore`, gitleaks, workflow permissions
 
 **Files:**
+
 - Modify: `.gitignore`, `infra/terraform/.gitignore`, `mise.toml`, `.github/workflows/{ci,terraform-plan,terraform-apply,images,_images,snapshot-images}.yml`, `AGENTS.md`
 - Create: `.gitleaks.toml`, `tools/scripts/install-hooks.sh`, `tools/scripts/tests/gitleaks-bunny.test.mjs`, `tools/scripts/tests/workflows.test.mjs`
 
 **Interfaces:**
+
 - Produces:
   - `.gitleaks.toml`, used by CI and the hook.
   - `tools/scripts/install-hooks.sh`, which writes `.git/hooks/pre-commit`.
@@ -281,6 +306,7 @@ git push -u origin feat/opentofu && gh pr create --draft --title "feat(infra): O
 **CI install choice:** download the pinned gitleaks release and check its SHA-256, like kubeconform in `ci.yml`. `gitleaks/gitleaks-action` needs a licence key for organisation-owned repos (its README, read 2026-10-22), and it would need an allowlist entry. If you'd still rather use the action, pin it by SHA and add `gitleaks/gitleaks-action@*` to the allowlist by hand (Task 3 Step 1's command).
 
 - [ ] **Step 1: Root `.gitignore`.** Add a block:
+
 ```gitignore
 # OpenTofu: plans, state and crash logs never belong in git (state lives in GCS).
 *.tfplan
@@ -293,7 +319,9 @@ crash.*.log
 .terraform/
 .terraform.tfstate.lock.info
 ```
-  Extend the existing env block to `.env`, `.env.*`, `!.env.example`, `!**/.env.example`.
+
+Extend the existing env block to `.env`, `.env.*`, `!.env.example`, `!**/.env.example`.
+
 - [ ] **Step 2: `infra/terraform/.gitignore`.** Keep only what the root file doesn't cover: `.build/` and `!.terraform.lock.hcl` (lock files are committed), with a comment pointing to the root file.
 - [ ] **Step 3: Check no tracked file becomes ignored.** `git ls-files -ci --exclude-standard` must print nothing. (Checked 2026-10-22 against the new patterns: nothing. The five `apps/*/.env.example` files stay tracked.)
 - [ ] **Step 4: Write the failing gitleaks tests.** `gitleaks-bunny.test.mjs` writes fixtures into a temp dir (never into the repo, so the repo holds no fake keys) and runs `gitleaks dir <tmp> --config .gitleaks.toml --no-banner --exit-code 1`. Use a made-up UUID-like value `K` built at runtime.
@@ -305,7 +333,9 @@ crash.*.log
   - The default rules still work: a fake `ghp_` token in `a.txt` is flagged.
 
   Run: FAIL (no config yet).
+
 - [ ] **Step 5: `.gitleaks.toml`.**
+
 ```toml
 # Default gitleaks rules plus Bunny.net keys, which GitHub secret scanning doesn't know.
 # Bunny keys are hex in groups 8-4-4-4-12 (UUID-like) or 8-4-4-12-4-4 (41 chars),
@@ -324,13 +354,16 @@ keywords = ["accesskey", "bunny"]
 description = "Example env files hold placeholders only"
 paths = ['''(^|/)\.env\.example$''']
 ```
-  Tests PASS. If the `[[allowlists]]` table isn't supported by 8.30.1, use the older `[allowlist]` form and note it.
+
+Tests PASS. If the `[[allowlists]]` table isn't supported by 8.30.1, use the older `[allowlist]` form and note it.
+
 - [ ] **Step 6: Scan the full history once (local, read-only).** `gitleaks git --config .gitleaks.toml --redact --no-banner`. Expected: no findings. Any finding is a real leak until shown otherwise: stop and tell Joel (rotate first, then decide on history).
 - [ ] **Step 7: Pre-commit hook.**
   - Add `gitleaks = "8.30.1"` to `mise.toml`.
   - `tools/scripts/install-hooks.sh` writes `.git/hooks/pre-commit` (into `git rev-parse --git-common-dir`, so worktrees share it) containing: `exec gitleaks git --pre-commit --staged --redact --no-banner --config "$(git rev-parse --show-toplevel)/.gitleaks.toml"`. If `gitleaks` is missing, the hook fails with `gitleaks not found: run mise install`. The installer refuses to overwrite an existing hook it didn't write.
   - Verify: stage a temp file holding a fake Bunny line; `git commit` is refused; unstage it.
 - [ ] **Step 8: gitleaks in CI.** In `ci.yml`'s `main` job (it already checks out with `fetch-depth: 0`):
+
 ```yaml
 env:
   GITLEAKS_VERSION: 8.30.1
@@ -345,13 +378,16 @@ env:
 - name: Scan new commits for secrets
   run: gitleaks git --config .gitleaks.toml --redact --no-banner --log-opts="${{ github.event.pull_request.base.sha || github.event.before }}..${{ github.sha }}"
 ```
-  Put the install step after "Install kubeconform" (it creates `$RUNNER_TEMP/bin` and adds it to `PATH`) and before the `node --test tools/scripts/tests/` step, which needs gitleaks. (On the first push to a new branch `github.event.before` is all zeros: fall back to `--log-opts=-1`.)
+
+Put the install step after "Install kubeconform" (it creates `$RUNNER_TEMP/bin` and adds it to `PATH`) and before the `node --test tools/scripts/tests/*.test.mjs` step, which needs gitleaks. (On the first push to a new branch `github.event.before` is all zeros: fall back to `--log-opts=-1`.)
+
 - [ ] **Step 9: Write the failing workflow test.** `workflows.test.mjs` parses every `.github/workflows/*.yml` with `yaml` and asserts:
   - the top-level `permissions` exists and is exactly `{}`;
   - no trigger is `pull_request_target`;
   - every job that uses `google-github-actions/auth`, or a local action that does, has `id-token: write` in its own `permissions`.
 
   Run: FAIL on today's files.
+
 - [ ] **Step 10: Fix every workflow.** Top-level `permissions: {}`; per job, only what it uses:
   - `ci.yml` `main`: `contents: read`.
   - `terraform-plan.yml` jobs and `terraform-apply.yml` jobs: `contents: read`; add `id-token: write` to the jobs that authenticate.
@@ -360,8 +396,10 @@ env:
   - `snapshot-images.yml`: same as `images.yml`'s `images` job.
 
   Tests PASS. `actionlint .github/workflows/*.yml` is clean.
+
 - [ ] **Step 11: AGENTS.md.** Add after the secrets bullet: "Install the secret-scanning hook once per clone: `mise install && tools/scripts/install-hooks.sh` (gitleaks, `.gitleaks.toml`)."
 - [ ] **Step 12: Commit.**
+
 ```bash
 git add .gitignore infra/terraform/.gitignore mise.toml .gitleaks.toml tools/scripts .github/workflows AGENTS.md
 git commit -S -m "chore(repo): ignore plans and state, gitleaks with a Bunny rule, least-privilege workflow permissions (D57)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -372,10 +410,12 @@ git commit -S -m "chore(repo): ignore plans and state, gitleaks with a Bunny rul
 ### Task 5: Bootstrap code — KMS, tf-bunny, gates (one commit, applied at L1)
 
 **Files:**
+
 - Create: `infra/terraform/modules/bootstrap/{kms.tf,tf_bunny.tf,deploy_gate.cel.tftpl,bunny_gate.cel.tftpl}`, `tests/{claims.mjs,deploy-gate.test.mjs,bunny-gate.test.mjs}`
 - Modify: `modules/bootstrap/{main.tf,ci_identity.tf,state.tf,bunny.tf,outputs.tf,cluster_plan_gate.cel.tftpl}`, `tests/cluster-plan-gate.test.mjs`
 
 **Interfaces:**
+
 - Consumes: S5, S12, S13.
 - Produces (outputs of `module.bootstrap`):
   - `kms_state_key` = `projects/heisreal-dev/locations/europe-west2/keyRings/tofu/cryptoKeys/tofu-state`
@@ -396,6 +436,7 @@ This commit must keep `main`'s gcp/cluster CI and `terraform-apply.yml` working,
   - `cluster-plan-gate.test.mjs`: keep the existing cases. Add `tofu-plan.yml` on `pull_request` in env `cluster-plan` as allowed, and `tofu-plan.yml` on `push` as denied.
 
   Run `node --test infra/terraform/modules/bootstrap/tests/`: FAIL.
+
 - [ ] **Step 2: Write the templates** (each under 2048 characters, the attribute-mapping limit).
   - `deploy_gate.cel.tftpl`: `assertion.ref == 'refs/heads/main'` AND one of:
     - `job_workflow_ref == '${repository}/.github/workflows/tofu-apply.yml@refs/heads/main'` and event in `['push','workflow_dispatch','workflow_run']`;
@@ -403,10 +444,12 @@ This commit must keep `main`'s gcp/cluster CI and `terraform-apply.yml` working,
     - `…/terraform-apply.yml@refs/heads/main` and event `workflow_dispatch` (removed at L5).
 
     Result `? 'allowed' : 'denied'`. `job_workflow_ref`, like today's deploy gate.
+
   - `bunny_gate.cel.tftpl`: ref main AND (`tofu-apply.yml@refs/heads/main` with `push`/`workflow_dispatch`, or `tofu-drift.yml@refs/heads/main` with `schedule`/`workflow_dispatch`).
   - `cluster_plan_gate.cel.tftpl`: also accept `tofu-plan.yml@` on `pull_request`.
 
   Wire them through `templatefile` in `ci_identity.tf`, adding `attribute.bunny_gate`. Update the header table of identities. Tests PASS.
+
 - [ ] **Step 3: `kms.tf`.**
   - Add `"cloudkms.googleapis.com"` to `local.services`.
   - `google_kms_key_ring.tofu`; `google_kms_crypto_key.state` (`tofu-state`) and `.bunny` (`tofu-bunny`), with the Global Constraints settings and `lifecycle { prevent_destroy = true; destroy = false }`.
@@ -429,15 +472,15 @@ This commit must keep `main`'s gcp/cluster CI and `terraform-apply.yml` working,
   - Add the new `google_project_iam_member` resources to `legacy_cloudbuild_builder`'s `depends_on` in `bunny.tf` (it must run after every project IAM write).
 - [ ] **Step 5: `state.tf`.** Keep the two existing bindings exactly as they are. Add (`O = projects/_/buckets/heisreal-dev-tfstate/objects/`):
 
-  | Role | Members | Condition |
-  | --- | --- | --- |
-  | `roles/storage.objectAdmin` | tf-bunny | `resource.type == 'storage.googleapis.com/Bucket' \|\| resource.name.startsWith(O + 'dev/bunny/') \|\| resource.name == O + 'applied/bunny'` |
-  | `roles/storage.bucketViewer` (BETA; `storage.buckets.get`, `.list`) | tf-planner | none (S12: the bootstrap drift plan refreshes the bucket) |
-
+  | Role                                                                | Members    | Condition                                                                                                                                    |
+  | ------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `roles/storage.objectAdmin`                                         | tf-bunny   | `resource.type == 'storage.googleapis.com/Bucket' \|\| resource.name.startsWith(O + 'dev/bunny/') \|\| resource.name == O + 'applied/bunny'` |
+  | `roles/storage.bucketViewer` (BETA; `storage.buckets.get`, `.list`) | tf-planner | none (S12: the bootstrap drift plan refreshes the bucket)                                                                                    |
   - The bucket-type clause lets tf-bunny list object names (the backend lists workspaces). Object contents elsewhere stay closed, because object permissions are checked on the object.
   - `applied/bunny` is bunny's "last applied commit" marker for the pipeline (Task 10). It holds only a commit SHA. tf-deployer writes `applied/gcp` and `applied/cluster` through its existing `!dev/bunny/` binding; tf-planner reads all three through its existing binding. tf-deployer could also overwrite `applied/bunny`; the worst case is that a bunny change waits for the next run or the weekly drift shows it. Accepted, like its other escalation paths.
   - Add one lifecycle rule: delete objects under `dev/bunny/plans/` and `dev/bunny/logs/` after 7 days. It's cleanup only. Real retention is about 14 days with versioning and soft delete; accepted.
   - Update the comments: CI identities other than tf-bunny get nothing under `dev/bunny/`.
+
 - [ ] **Step 6: `outputs.tf`.** Add `kms_state_key`, `kms_bunny_key`, `tf_bunny_email`. Remove `bunny_fences`. Keep `local.ci_state_condition` and `local.deployer_fences`: they still build the existing bindings.
 - [ ] **Step 7: Plan (read-only).** `tools/scripts/tf.sh bootstrap plan -detailed-exitcode` → exit 2.
   - Adds: the cloudkms service, keyring, 2 keys, 2 key IAM policies, tf-bunny, its WIF binding, **one** developer Token Creator binding on tf-bunny (`developers_impersonate["bunny/…"]`), the `bunnyParent` role, tf-bunny's 4 project bindings.
@@ -446,6 +489,7 @@ This commit must keep `main`'s gcp/cluster CI and `terraform-apply.yml` working,
   - **No destroy, no replace.**
 
   Commit:
+
 ```bash
 git add infra/terraform/modules/bootstrap
 git commit -S -m "feat(infra): KMS keys for state, tf-bunny and its main-only gate (D54, D57 C)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -456,12 +500,14 @@ git commit -S -m "feat(infra): KMS keys for state, tf-bunny and its main-only ga
 ### Task 6: Bunny root — the "never public" guard
 
 **Files:**
+
 - Modify (rewrite in place, keeping the name): `infra/terraform/modules/bunny-state-guard/{main.tf,tests/guard.tftest.hcl}`
 - Modify: `infra/terraform/live/dev/bunny/{main.tf,backend.tf}`, `tools/scripts/check-bunny-fences.sh`
 
 **Decision:** simplify `bunny-state-guard` in place rather than add a new module. It keeps one job (guard the Bunny root) and its path in CI and `tf-roots.sh`. The old object-reader logic, the service-agent list and `roles_to_check` go.
 
 **Interfaces:**
+
 - Produces:
   - Module input `policies`: map of name → list of bindings `{role, members, condition?}`.
   - Module output `public_grants`: list of `"<name>: <member> (<role>)"` for every member equal to `allUsers` or `allAuthenticatedUsers`, conditions or not. Must be empty.
@@ -475,6 +521,7 @@ git commit -S -m "feat(infra): KMS keys for state, tf-bunny and its main-only ga
   - `empty_policy_is_fine`: a policy with no bindings → `[]`.
 
   `tofu -chdir=infra/terraform/modules/bunny-state-guard test`: FAIL.
+
 - [ ] **Step 2: Implement the module.** Tests PASS.
 - [ ] **Step 3: Rewrite `live/dev/bunny/main.tf`.**
   - Header: applied with `tools/scripts/tf.sh bunny init|plan|apply` (as tf-bunny; `TF_SH_IDENTITY=self` for your own login). CI plans it only on `main` (`tofu-apply.yml`, `tofu-drift.yml`), never in PRs. State and saved plans are encrypted with `tofu-bunny`.
@@ -503,6 +550,7 @@ git commit -S -m "feat(infra): KMS keys for state, tf-bunny and its main-only ga
   - `shellcheck` clean.
 - [ ] **Step 5: Validate.** `tofu fmt -check -recursive infra/terraform`; `tools/scripts/tf.sh bunny init -backend=false && tools/scripts/tf.sh bunny validate`.
 - [ ] **Step 6: Commit.**
+
 ```bash
 git add infra/terraform/modules/bunny-state-guard infra/terraform/live/dev/bunny tools/scripts/check-bunny-fences.sh
 git commit -S -m "feat(infra): bunny root refuses to plan if anything Bunny is public (D57 C)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -531,15 +579,18 @@ git commit -S -m "feat(infra): bunny root refuses to plan if anything Bunny is p
 ### Task 8: Encryption with `unencrypted` fallback in every root (code; merge PR 1 = L2)
 
 **Files:**
+
 - Create: `infra/terraform/live/dev/{bootstrap,gcp,images,cluster,bunny}/encryption.tf`
 - Modify: `.github/workflows/terraform-plan.yml` (validate job: the bunny sensitive-schema check, S11, and the key-name check)
 
 **Interfaces:**
+
 - Produces:
   - Key providers `gcp_kms.state` (alias `tofu-state`) or `gcp_kms.bunny` (alias `tofu-bunny`).
   - Methods `aes_gcm.state` / `aes_gcm.bunny` and `unencrypted.migration`. Task 11 deletes `migration` and every `fallback`.
 
 - [ ] **Step 1: Write `encryption.tf`.** gcp, images and cluster use the block below. bootstrap omits `remote_state_data_sources` (it reads no remote state). bunny uses `gcp_kms.bunny` / `aes_gcm.bunny` with key `tofu-bunny`, and omits `remote_state_data_sources`.
+
 ```hcl
 # State and saved plans encrypted with Cloud KMS (D54). Losing tofu-state loses these states.
 terraform {
@@ -571,6 +622,7 @@ terraform {
   }
 }
 ```
+
 - [ ] **Step 2: Validate offline.** `tofu fmt -check -recursive infra/terraform`, then `init -backend=false && validate` for all five roots without credentials. This passes but **doesn't check the encryption block** (S6: a typo or `key_length = 0` still validates).
 - [ ] **Step 3: Add static CI checks** in the validate job:
   - S11: `tools/scripts/tf.sh bunny providers schema -json | jq -e '<filter for the 5 attributes> | [.. | booleans] | all'` → `true`.
@@ -580,6 +632,7 @@ terraform {
   - In CI, PR 1's `plan (gcp)` (tf-planner) and `plan-cluster` (tf-cluster-planner) run the gcp and cluster blocks against the real backend and KMS on every PR.
   - bootstrap, images and bunny encryption changes are tested by these local plans, and later by drift (bootstrap, bunny) and the post-merge plan. A broken block fails a plan; it can't write state without an approved apply.
 - [ ] **Step 5: Commit, mark ready, merge (L2).** Push only after L1 (CI's plans need the keys).
+
 ```bash
 git add infra/terraform/live .github/workflows/terraform-plan.yml
 git commit -S -m "feat(infra): KMS state and plan encryption for every root, with migration fallback (D54)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -591,6 +644,7 @@ git push && gh pr ready && gh pr merge --squash
 ### Task 9: [LIVE, L3] Encrypt every state, from `main` (no commit)
 
 **Interfaces:**
+
 - Consumes: S1b, S7.
 - Produces: all five state objects encrypted. Task 11 requires this.
 
@@ -616,12 +670,14 @@ git push && gh pr ready && gh pr merge --squash
 **Branch:** `git switch -c feat/opentofu-pipeline main` (after L3).
 
 **Files:**
+
 - Create: `tools/scripts/tf-roots.sh`, `tools/scripts/tf-stage.sh`, `tools/scripts/tests/{tf-roots,tf-stage}.test.mjs`
 - Create: `.github/actions/tofu/action.yml`, `.github/workflows/{tofu-plan,tofu-apply,tofu-drift}.yml`
 - Delete: `.github/workflows/terraform-plan.yml`, `.github/workflows/terraform-apply.yml`
 - Modify: `modules/bootstrap/{deploy_gate,cluster_plan_gate}.cel.tftpl` and their tests (drop the `terraform-*.yml` clauses; applied at L5)
 
 **Interfaces:**
+
 - Consumes: `tf.sh` (`plan-summary`, `bunny-mask`), the gates, S6, S12.
 - Produces:
 
@@ -634,14 +690,14 @@ git push && gh pr ready && gh pr merge --squash
 
   **Markers:** `gs://heisreal-dev-tfstate/applied/{gcp,cluster,bunny}`, each holding the last commit that root was applied at (or planned with no changes). Written by the job that just applied it, or by its plan job when the plan shows no changes. Never moved backwards: write only if the current marker is an ancestor of the new commit. images has no marker (dispatch only).
 
-  | Root | Selected by |
-  | --- | --- |
-  | gcp | `live/dev/gcp/**`, `modules/gcp/**` |
-  | cluster | `live/dev/cluster/**`, `modules/{cluster,db-migration,db-identity}/**`, `infra/k8s/surrealdb/**`, `libs/database/schema/**`, `libs/legal/dpa/**`; also whenever gcp is selected |
-  | bunny | `live/dev/bunny/**`, `modules/{bunny,bunny-state-guard}/**` |
-  | images | PR plans only: `live/dev/images/**`, `tools/scripts/image-tag.sh`. The apply pipeline runs images only on `workflow_dispatch`. |
-  | bootstrap | `live/dev/bootstrap/**`, `modules/bootstrap/**` |
-  | gcp, cluster and bunny | `tools/scripts/tf*.sh`, `.github/actions/tofu/**`, `.github/workflows/tofu-*.yml`, `mise.toml` |
+  | Root                   | Selected by                                                                                                                                                                     |
+  | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | gcp                    | `live/dev/gcp/**`, `modules/gcp/**`                                                                                                                                             |
+  | cluster                | `live/dev/cluster/**`, `modules/{cluster,db-migration,db-identity}/**`, `infra/k8s/surrealdb/**`, `libs/database/schema/**`, `libs/legal/dpa/**`; also whenever gcp is selected |
+  | bunny                  | `live/dev/bunny/**`, `modules/{bunny,bunny-state-guard}/**`                                                                                                                     |
+  | images                 | PR plans only: `live/dev/images/**`, `tools/scripts/image-tag.sh`. The apply pipeline runs images only on `workflow_dispatch`.                                                  |
+  | bootstrap              | `live/dev/bootstrap/**`, `modules/bootstrap/**`                                                                                                                                 |
+  | gcp, cluster and bunny | `tools/scripts/tf*.sh`, `.github/actions/tofu/**`, `.github/workflows/tofu-*.yml`, `mise.toml`                                                                                  |
 
   **`tf-stage.sh <prev> <selected> <plan_result> <changes> <apply_result>`** prints `ok` or `blocked: <reason>` (Codex #3):
   - `blocked: upstream` if `prev` isn't `ok`;
@@ -674,6 +730,7 @@ git push && gh pr ready && gh pr merge --squash
     - prev `blocked: …` → `blocked: upstream`, even if not selected.
 
   Both FAIL.
+
 - [ ] **Step 2: Implement both scripts.** Tests PASS; `shellcheck` clean.
 - [ ] **Step 3: `tofu-plan.yml`** (`pull_request` only; paths: `infra/**`, `libs/database/schema/**`, `libs/legal/**`, `tools/scripts/tf*.sh`, `tools/scripts/image-tag.sh`, `.github/actions/tofu/**`, `.github/workflows/tofu-*.yml`, `mise.toml`). Top-level `permissions: {}`.
   - `validate` (`contents: read`): the old job (fmt, validate 5 roots, `tofu test` of the 3 modules, kubeconform, the dry-run policy test, S11 and key-name checks).
@@ -686,7 +743,7 @@ git push && gh pr ready && gh pr merge --squash
 - [ ] **Step 4: `tofu-apply.yml`.**
   - Triggers: `push` to main with **no paths filter** (every new `main` gets a run, so a superseded apply always has a successor; a run with nothing pending stops after `roots`); `workflow_run` (`[Release Images]`, completed, main, only when `conclusion == 'success'`); `workflow_dispatch` (input `root`: `pending|gcp|images|cluster|bunny|all`, default `pending`).
   - Top-level `permissions: {}`. Per job: `contents: read` and `id-token: write`.
-  - **No concurrency group** (Codex round 3, #2 and #4). A workflow-level group serialises whole runs and cancels a *pending* run when a newer one queues, which can drop roots and lets an old run waiting for approval block newer ones. Instead, safety comes from:
+  - **No concurrency group** (Codex round 3, #2 and #4). A workflow-level group serialises whole runs and cancels a _pending_ run when a newer one queues, which can drop roots and lets an old run waiting for approval block newer ones. Instead, safety comes from:
     - plans use `-lock=false`, so runs plan in parallel;
     - applies take the state lock with `-lock-timeout=10m`; OpenTofu refuses a saved plan if the state changed after it was made (stale);
     - the superseded check below;
@@ -743,7 +800,9 @@ git push && gh pr ready && gh pr merge --squash
   5. **timing (Codex round 3, #4):** start run A with `sleep_plan_gcp=90`; while A is still planning, push a commit to the test branch and start run B. Expected: B plans and reaches its approval without waiting for A; A reaches its approval later; approving A fails with `superseded`; approving B applies.
 
   A real rejected approval is checked in Task 13. Delete the test branch afterwards.
+
 - [ ] **Step 8: Commit and open PR 2.**
+
 ```bash
 git add .github tools/scripts infra/terraform
 git commit -S -m "feat(ci): merge, plan, approve, apply: OpenTofu pipeline with encrypted saved plans and weekly drift (D54, D57)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -759,6 +818,7 @@ git commit -S -m "feat(ci): merge, plan, approve, apply: OpenTofu pipeline with 
 - [ ] **Step 2: Remove the fallback.** Delete `method "unencrypted" "migration"` and every `fallback`, and add `enforced = true` to `state` and `plan`. `git grep -n unencrypted infra/terraform` must print nothing.
 - [ ] **Step 3: Verify.** Local plans of all five roots (bunny as tf-bunny; it works from any branch) give the same exit codes as Task 9. A saved plan isn't a zip: `file "$RUNNER_TEMP/p"` must not say `Zip archive`.
 - [ ] **Step 4: Commit.**
+
 ```bash
 git commit -S -am "feat(infra): enforce encrypted state and plans in every root (D54)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -770,10 +830,12 @@ git commit -S -am "feat(infra): enforce encrypted state and plans in every root 
 **Files:** `AGENTS.md`, `infra/terraform/README.md`, `README.md`, `docs/delivery-status.md`, `docs/db-permissions.md`, `infra/k8s/surrealdb/README.md`, `infra/clerk/README.md`, and tool-name comments in `infra/**`, `libs/**`, `apps/**`, `tools/**`.
 
 **AGENTS.md changes, by PR:**
+
 - PR 1 (done in Tasks 3 and 4): `tf.sh` replaces `tf-bunny.sh` and the "Moving to OpenTofu" line; the gitleaks hook install line.
 - PR 2 (this task): the final text below. It shortens the Bunny exception and documents `tf.sh`, the approval meaning, public logs with masking, and the hook.
 
 - [ ] **Step 1: AGENTS.md.** Replace the two infra bullets (and the hook line from Task 4) with exactly:
+
 ```markdown
 - **All cloud deployments and modifications go through OpenTofu (`infra/terraform`; D54: never Terraform),
   including proofs of concept.** Run it with `tools/scripts/tf.sh <root> …` (locally it acts as the root's
@@ -798,6 +860,7 @@ git commit -S -am "feat(infra): enforce encrypted state and plans in every root 
   `TF_LOG` or step debug for tofu (`tf.sh` refuses). Workflows start from `permissions: {}`; never use
   `pull_request_target`. Install the secret-scanning hook once per clone: `mise install && tools/scripts/install-hooks.sh`.
 ```
+
 - [ ] **Step 2: `infra/terraform/README.md`.** It must contain:
   - Layout and identity table (tf-planner, tf-cluster-planner, tf-deployer, tf-bunny, the two image pushers) with what each can reach. A plain note: "tf-deployer could grant itself access to Bunny through its service-account roles. That's accepted (D57)."
   - `tf.sh` usage, including `plan-summary`, `bunny-cli` and `bunny-mask`.
@@ -811,6 +874,7 @@ git commit -S -am "feat(infra): enforce encrypted state and plans in every root 
   - `git grep -n -i -w terraform -- . ':!*.lock.hcl' ':!docs/superpowers' | grep -v -E 'terraform_(remote_state|data)|terraform \{|infra/terraform|\.terraform|tftest|D54|Terraform \(0\.7\)|2026-10-(0|1|20|21)'` → nothing.
   - `git grep -n -E 'setup-terraform|terraform-(plan|apply)\.yml|tf-bunny\.sh|bunny_fences|state_condition'` → nothing.
 - [ ] **Step 4: Format, commit, mark PR 2 ready.**
+
 ```bash
 pnpm nx format:check
 git add -A AGENTS.md README.md docs infra tools .github libs apps
@@ -841,19 +905,26 @@ This is the only change allowed outside OpenTofu (Clerk config is the other stan
 **Who:** a developer (project owner; `roles/owner` holds `cloudkms.cryptoKeyVersions.restore` and `.update`). Tell Joel first.
 
 **Steps:**
+
 1. Find the version:
+
 ```bash
 gcloud kms keys versions list --key tofu-state --keyring tofu --location europe-west2 --project heisreal-dev \
   --format='table(name.basename(),state,destroyTime)'
 ```
+
 2. If it is `DESTROY_SCHEDULED`, restore it. A restored version comes back `DISABLED`:
+
 ```bash
 gcloud kms keys versions restore <v> --key <key> --keyring tofu --location europe-west2 --project heisreal-dev
 ```
+
 3. Enable it (also the fix for a plain `DISABLED` version):
+
 ```bash
 gcloud kms keys versions enable <v> --key <key> --keyring tofu --location europe-west2 --project heisreal-dev
 ```
+
 4. Confirm there is no drift: `tools/scripts/tf.sh bootstrap plan -detailed-exitcode` → 0, then plan every root (`tf.sh <r> plan -lock=false -detailed-exitcode`, bunny as tf-bunny) with the same results as before.
 5. Record what happened and why in `docs/delivery-status.md`.
 
@@ -863,49 +934,49 @@ Anything else (key IAM, key settings, a key dropped from config) goes through Op
 
 ## Spike findings (Task 1, 2026-10-22; S13–S15 added in this revision; not committed)
 
-| # | Question | Finding | Used by |
-| --- | --- | --- | --- |
-| S1 | tofu reads 1.15.9 state; plans equal Terraform's; fields dropped? | Rerun 2026-10-22. tofu reads all five 1.15.9 states. bootstrap, cluster, bunny: `No changes.` in both tools. images: identical to Terraform apart from the product name (5 add / 4 destroy, new prune tags). gcp: Terraform `No changes.`, tofu 7 sensitivity-only updates (accepted, see S1b). bootstrap `apply -refresh-only` on the local copy: lineage unchanged, serial 70→71. Provider addresses rewritten `registry.terraform.io`→`registry.opentofu.org`. `identity_schema_version` removed only on the 3 instances that have no `identity` (identity data kept on all 59). Per-instance attribute key sets, `identity` and `sensitive_attributes` are identical. Value changes are only refreshed `etag`/`updated` and `null`→`{}` for `annotations`/`version_aliases`. **No attributes dropped** | 3, 9 |
-| S1b | gcp sensitivity-only diff (accepted 2026-10-22: dev only, no real data) | Exactly 7 changes, all `module.gcp.google_secret_manager_secret_version.surreal[*]`, all `["update"]`, `before == after`, no unknowns, no replacements. The only delta is `before_sensitive {secret_data}` → `after_sensitive {secret_data, secret_data_wo}`. Refresh-only apply does **not** clear it. Provider v8.5.0 Update finds no `HasChange` and only calls Read; it never adds a version (`addVersion` happens only in Create). **Verify after the first real gcp apply with `gcloud secrets versions list` that no version was added (Task 9 Step 3).** | 9 |
-| S2 | Providers on registry.opentofu.org at locked versions; lock method | All present at the pinned versions. All signed except kbst/kustomization 0.9.8 ("signature validation was skipped": no GPG keys in the registry); pin it by lock-file hashes and match its h1 with Terraform's signed lock (Task 3 Step 4). A plain `tofu init` (lock deleted) writes h1 and zh hashes for every platform | 3 |
-| S3 | `fmt`/`validate`/`test` clean | `fmt` and `validate` clean. `test`: bunny-state-guard 6/6; **db-migration (2 pass, 1 fail, 6 skip) and db-identity (1 pass, 1 fail, 4 skip) fail**: tofu rejects `run.<name>.<output>` in `assert`. Workaround proven in a repro: `command = apply` in the referenced run, pass the value through the later run's `variables {}`, assert on `var.<x>`. Task 3 Step 5 | 3 |
-| S4 | Env vars honoured | gcs backend and `gcp_kms` honour `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` (`GOOGLE_BACKEND_IMPERSONATE_SERVICE_ACCOUNT` wins if set). **gcloud ignores it**; it needs `CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT`. `tf.sh` exports both and unsets the backend one | 2 |
-| S5 | KMS calls per run | `Provide()` always calls `Encrypt`, and `Decrypt` when reading. Every reader needs EncrypterDecrypter | 5 |
-| S6 | Remote state decrypts; validate without credentials | `remote_state_data_sources.default` decrypts. `init -backend=false && validate` passes with no credentials, **but doesn't evaluate the encryption block** (typos and `key_length = 0` pass). Test encryption with plans against the real backend (Task 8 Step 4) | 8 |
-| S7 | Forcing an encrypted rewrite | `apply -refresh-only` writes encrypted state even with no changes. Top-level keys: `encrypted_data`, `encryption_version`, `lineage`, `meta`, `serial` (`lineage` and `serial` stay readable). Lineage unchanged; serial kept or +1 | 9 |
-| S8 | `TF_ENCRYPTION` overrides code | It **replaces** the code's config: from a plaintext copy it wrote plaintext. `tf.sh` unsets it | 2 |
-| S9 | setup-opentofu v2.0.2 SHA | `a1320f892987e89d278cc92dc5adc984fb93aca4` (matches) | 3, 10 |
-| S10 | Dependabot `opentofu` | Supported for version updates only, not security updates | 3 |
-| S11 | Bunny key attributes sensitive | All 5 are `sensitive: true` in bunnynet 0.19.2 | 2, 8 |
-| S12 | bootstrap plan as tf-planner | The budget refreshes fine. The plan fails on `google_storage_bucket.tfstate` with 403 on `storage.buckets.get`. Fix: tf-planner gets `roles/storage.bucketViewer` on the state bucket (Task 5 Step 5); re-checked by Task 13 Step 4. *(Corrected 2026-10-22: the earlier note that `roles/iam.securityReviewer` includes `storage.buckets.get` and `secretmanager.secrets.get` was wrong, see S13.)* | 5, 10, 13 |
-| S13 | What `roles/iam.securityReviewer` holds (gcloud, 2026-10-22) | Holds `storage.buckets.getIamPolicy`, `storage.buckets.list`, `secretmanager.secrets.list`, `secretmanager.secrets.getIamPolicy`, `secretmanager.versions.list`, `cloudkms.keyRings.getIamPolicy`, `cloudkms.cryptoKeys.getIamPolicy`, `resourcemanager.projects.getIamPolicy`, `iam.roles.get`. Does **not** hold `storage.buckets.get` or `secretmanager.secrets.get`. Enough for the never-public guard | 5, 6 |
-| S14 | Data sources for the guard in google 8.7.0 | `google_secret_manager_secrets` (attrs `filter`, `project`, `secrets`), `google_secret_manager_secret_iam_policy`, `google_kms_key_ring_iam_policy`, `google_kms_crypto_key_iam_policy`, `google_storage_bucket_iam_policy` all exist (`tofu providers schema`, 2026-10-22) | 6 |
-| S15 | Repo and tools (2026-10-22) | Repo public. Secret scanning and push protection on; non-provider patterns off. Fork PR approval `all_external_contributors`. Allowlist has 4 patterns (no setup-opentofu yet). `dev` env: reviewers team `developers` (id 19750209), protected branches. `cluster-plan` env: reviewer Stegi56. gitleaks v8.30.1 linux_x64 SHA-256 `551f6fc8…f2470eb`. `gitleaks-action` needs a licence for organisations. `roles/owner` includes KMS encrypt/decrypt/destroy/restore | 4, 13 |
-| — | `lifecycle { destroy = false }` in 1.13.2 | Yes: managed-resource lifecycle attribute, stored as `skip_destroy` | 5, 7 |
-| — | State bucket soft delete | 604800 s | 9 |
+| #   | Question                                                                | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Used by   |
+| --- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| S1  | tofu reads 1.15.9 state; plans equal Terraform's; fields dropped?       | Rerun 2026-10-22. tofu reads all five 1.15.9 states. bootstrap, cluster, bunny: `No changes.` in both tools. images: identical to Terraform apart from the product name (5 add / 4 destroy, new prune tags). gcp: Terraform `No changes.`, tofu 7 sensitivity-only updates (accepted, see S1b). bootstrap `apply -refresh-only` on the local copy: lineage unchanged, serial 70→71. Provider addresses rewritten `registry.terraform.io`→`registry.opentofu.org`. `identity_schema_version` removed only on the 3 instances that have no `identity` (identity data kept on all 59). Per-instance attribute key sets, `identity` and `sensitive_attributes` are identical. Value changes are only refreshed `etag`/`updated` and `null`→`{}` for `annotations`/`version_aliases`. **No attributes dropped** | 3, 9      |
+| S1b | gcp sensitivity-only diff (accepted 2026-10-22: dev only, no real data) | Exactly 7 changes, all `module.gcp.google_secret_manager_secret_version.surreal[*]`, all `["update"]`, `before == after`, no unknowns, no replacements. The only delta is `before_sensitive {secret_data}` → `after_sensitive {secret_data, secret_data_wo}`. Refresh-only apply does **not** clear it. Provider v8.5.0 Update finds no `HasChange` and only calls Read; it never adds a version (`addVersion` happens only in Create). **Verify after the first real gcp apply with `gcloud secrets versions list` that no version was added (Task 9 Step 3).**                                                                                                                                                                                                                                           | 9         |
+| S2  | Providers on registry.opentofu.org at locked versions; lock method      | All present at the pinned versions. All signed except kbst/kustomization 0.9.8 ("signature validation was skipped": no GPG keys in the registry); pin it by lock-file hashes and match its h1 with Terraform's signed lock (Task 3 Step 4). A plain `tofu init` (lock deleted) writes h1 and zh hashes for every platform                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 3         |
+| S3  | `fmt`/`validate`/`test` clean                                           | `fmt` and `validate` clean. `test`: bunny-state-guard 6/6; **db-migration (2 pass, 1 fail, 6 skip) and db-identity (1 pass, 1 fail, 4 skip) fail**: tofu rejects `run.<name>.<output>` in `assert`. Workaround proven in a repro: `command = apply` in the referenced run, pass the value through the later run's `variables {}`, assert on `var.<x>`. Task 3 Step 5                                                                                                                                                                                                                                                                                                                                                                                                                                       | 3         |
+| S4  | Env vars honoured                                                       | gcs backend and `gcp_kms` honour `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` (`GOOGLE_BACKEND_IMPERSONATE_SERVICE_ACCOUNT` wins if set). **gcloud ignores it**; it needs `CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT`. `tf.sh` exports both and unsets the backend one                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 2         |
+| S5  | KMS calls per run                                                       | `Provide()` always calls `Encrypt`, and `Decrypt` when reading. Every reader needs EncrypterDecrypter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 5         |
+| S6  | Remote state decrypts; validate without credentials                     | `remote_state_data_sources.default` decrypts. `init -backend=false && validate` passes with no credentials, **but doesn't evaluate the encryption block** (typos and `key_length = 0` pass). Test encryption with plans against the real backend (Task 8 Step 4)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 8         |
+| S7  | Forcing an encrypted rewrite                                            | `apply -refresh-only` writes encrypted state even with no changes. Top-level keys: `encrypted_data`, `encryption_version`, `lineage`, `meta`, `serial` (`lineage` and `serial` stay readable). Lineage unchanged; serial kept or +1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 9         |
+| S8  | `TF_ENCRYPTION` overrides code                                          | It **replaces** the code's config: from a plaintext copy it wrote plaintext. `tf.sh` unsets it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 2         |
+| S9  | setup-opentofu v2.0.2 SHA                                               | `a1320f892987e89d278cc92dc5adc984fb93aca4` (matches)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | 3, 10     |
+| S10 | Dependabot `opentofu`                                                   | Supported for version updates only, not security updates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 3         |
+| S11 | Bunny key attributes sensitive                                          | All 5 are `sensitive: true` in bunnynet 0.19.2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 2, 8      |
+| S12 | bootstrap plan as tf-planner                                            | The budget refreshes fine. The plan fails on `google_storage_bucket.tfstate` with 403 on `storage.buckets.get`. Fix: tf-planner gets `roles/storage.bucketViewer` on the state bucket (Task 5 Step 5); re-checked by Task 13 Step 4. _(Corrected 2026-10-22: the earlier note that `roles/iam.securityReviewer` includes `storage.buckets.get` and `secretmanager.secrets.get` was wrong, see S13.)_                                                                                                                                                                                                                                                                                                                                                                                                       | 5, 10, 13 |
+| S13 | What `roles/iam.securityReviewer` holds (gcloud, 2026-10-22)            | Holds `storage.buckets.getIamPolicy`, `storage.buckets.list`, `secretmanager.secrets.list`, `secretmanager.secrets.getIamPolicy`, `secretmanager.versions.list`, `cloudkms.keyRings.getIamPolicy`, `cloudkms.cryptoKeys.getIamPolicy`, `resourcemanager.projects.getIamPolicy`, `iam.roles.get`. Does **not** hold `storage.buckets.get` or `secretmanager.secrets.get`. Enough for the never-public guard                                                                                                                                                                                                                                                                                                                                                                                                 | 5, 6      |
+| S14 | Data sources for the guard in google 8.7.0                              | `google_secret_manager_secrets` (attrs `filter`, `project`, `secrets`), `google_secret_manager_secret_iam_policy`, `google_kms_key_ring_iam_policy`, `google_kms_crypto_key_iam_policy`, `google_storage_bucket_iam_policy` all exist (`tofu providers schema`, 2026-10-22)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 6         |
+| S15 | Repo and tools (2026-10-22)                                             | Repo public. Secret scanning and push protection on; non-provider patterns off. Fork PR approval `all_external_contributors`. Allowlist has 4 patterns (no setup-opentofu yet). `dev` env: reviewers team `developers` (id 19750209), protected branches. `cluster-plan` env: reviewer Stegi56. gitleaks v8.30.1 linux_x64 SHA-256 `551f6fc8…f2470eb`. `gitleaks-action` needs a licence for organisations. `roles/owner` includes KMS encrypt/decrypt/destroy/restore                                                                                                                                                                                                                                                                                                                                     | 4, 13     |
+| —   | `lifecycle { destroy = false }` in 1.13.2                               | Yes: managed-resource lifecycle attribute, stored as `skip_destroy`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 5, 7      |
+| —   | State bucket soft delete                                                | 604800 s                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 9         |
 
 ## Codex round 2 findings: where they went
 
-| # | Finding | Status |
-| --- | --- | --- |
-| 1 | L1 gives tf-deployer a temporary path to the Bunny key | Gone as a finding: under D57 C the path is permanent and accepted |
-| 2 | Selective rollback could delete the 5 app SAs | Gone: the app SAs stay in gcp |
-| 3 | A skipped images stage blocks cluster | Fixed: stage-result jobs always run; `tf-stage.sh` separates not-selected and no-changes from failed, rejected, stale and superseded (Task 10) |
-| 4 | Impersonator guard rejects existing service agents | Gone: no impersonator guard |
-| 5 | Org role lacks `iam.roles.get` | Gone: no org root; tf-bunny has no org permission |
-| 6 | `upload-artifact` drops `.next` | Fixed: tar before upload, untar after download (Task 10) |
-| 7 | retire-stale can't run inside the concurrency group | Replaced in round 3: no concurrency group and no retirement at all (see below) |
+| #   | Finding                                                | Status                                                                                                                                         |
+| --- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | L1 gives tf-deployer a temporary path to the Bunny key | Gone as a finding: under D57 C the path is permanent and accepted                                                                              |
+| 2   | Selective rollback could delete the 5 app SAs          | Gone: the app SAs stay in gcp                                                                                                                  |
+| 3   | A skipped images stage blocks cluster                  | Fixed: stage-result jobs always run; `tf-stage.sh` separates not-selected and no-changes from failed, rejected, stale and superseded (Task 10) |
+| 4   | Impersonator guard rejects existing service agents     | Gone: no impersonator guard                                                                                                                    |
+| 5   | Org role lacks `iam.roles.get`                         | Gone: no org root; tf-bunny has no org permission                                                                                              |
+| 6   | `upload-artifact` drops `.next`                        | Fixed: tar before upload, untar after download (Task 10)                                                                                       |
+| 7   | retire-stale can't run inside the concurrency group    | Replaced in round 3: no concurrency group and no retirement at all (see below)                                                                 |
 
 **Codex round 3**
 
-| # | Finding | Fix |
-| --- | --- | --- |
-| 1 | On `workflow_run`, `$GITHUB_SHA` (main HEAD) and the checked-out `head_sha` differ, so the superseded check compared the wrong commits | One target per run: `main` HEAD resolved in `roots`, used by every checkout and check; strict `origin/main == target` before apply (Task 10 Step 4) |
-| 2 | The concurrency group cancels pending runs, so roots of a cancelled push are lost; a docs push could retire a waiting bunny run | No concurrency group, no retirement. Per-root markers under `applied/`; every run of every trigger plans all roots behind its target (`tf-roots.sh pending`) |
-| 3 | Adding `"bunny"` to the Token Creator `setproduct` makes a second deployer grant | Explicit `planner/deployer/bunny` map with unchanged keys; plan and Task 7 check exactly one new grant on tf-bunny (Task 5 Step 4, Task 7 Step 2) |
-| 4 | Retirement misses runs that reach "waiting" later; an obsolete waiting run blocks newer ones | No concurrency group, so nothing blocks; obsolete approvals fail the superseded check; nothing is auto-cancelled (never stops an executing apply); timing case in the dry run (Task 10 Step 7) |
-| 5 | 4 of 5 real Bunny keys are 41-character hex 8-4-4-12-4-4, not UUIDs | Regex accepts both shapes; fixtures for both, including `bunny="…"` labels (Task 4 Steps 4–5) |
-| 8 | Raw Bunny logs recoverable beyond 7 days | Not doing (founder): the 7-day rule is cleanup only; the README states about 14 days |
+| #   | Finding                                                                                                                                | Fix                                                                                                                                                                                            |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | On `workflow_run`, `$GITHUB_SHA` (main HEAD) and the checked-out `head_sha` differ, so the superseded check compared the wrong commits | One target per run: `main` HEAD resolved in `roots`, used by every checkout and check; strict `origin/main == target` before apply (Task 10 Step 4)                                            |
+| 2   | The concurrency group cancels pending runs, so roots of a cancelled push are lost; a docs push could retire a waiting bunny run        | No concurrency group, no retirement. Per-root markers under `applied/`; every run of every trigger plans all roots behind its target (`tf-roots.sh pending`)                                   |
+| 3   | Adding `"bunny"` to the Token Creator `setproduct` makes a second deployer grant                                                       | Explicit `planner/deployer/bunny` map with unchanged keys; plan and Task 7 check exactly one new grant on tf-bunny (Task 5 Step 4, Task 7 Step 2)                                              |
+| 4   | Retirement misses runs that reach "waiting" later; an obsolete waiting run blocks newer ones                                           | No concurrency group, so nothing blocks; obsolete approvals fail the superseded check; nothing is auto-cancelled (never stops an executing apply); timing case in the dry run (Task 10 Step 7) |
+| 5   | 4 of 5 real Bunny keys are 41-character hex 8-4-4-12-4-4, not UUIDs                                                                    | Regex accepts both shapes; fixtures for both, including `bunny="…"` labels (Task 4 Steps 4–5)                                                                                                  |
+| 8   | Raw Bunny logs recoverable beyond 7 days                                                                                               | Not doing (founder): the 7-day rule is cleanup only; the README states about 14 days                                                                                                           |
 
 ## Self-review
 
