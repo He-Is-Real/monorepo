@@ -19,10 +19,10 @@ const prJob = {
   event_name: 'pull_request',
   ref: 'refs/pull/32/merge',
   ref_type: 'branch',
-  workflow: 'Terraform plan',
-  workflow_ref: `${repository}/.github/workflows/terraform-plan.yml@refs/pull/32/merge`,
+  workflow: 'OpenTofu plan',
+  workflow_ref: `${repository}/.github/workflows/tofu-plan.yml@refs/pull/32/merge`,
   workflow_sha: '0123456789abcdef0123456789abcdef01234567',
-  job_workflow_ref: `${repository}/.github/workflows/terraform-plan.yml@refs/pull/32/merge`,
+  job_workflow_ref: `${repository}/.github/workflows/tofu-plan.yml@refs/pull/32/merge`,
   runner_environment: 'github-hosted',
 };
 const gate = (claims) => evaluateGate('cluster_plan_gate.cel.tftpl', claims);
@@ -35,38 +35,19 @@ test('accepts it without job_workflow_ref (only workflow_ref is read)', () => {
   assert.equal(gate(without(prJob, 'job_workflow_ref')), 'allowed');
 });
 
-test('accepts it on a push to main', () => {
-  assert.equal(
-    gate({
-      ...prJob,
-      event_name: 'push',
-      ref: 'refs/heads/main',
-      workflow_ref: `${repository}/.github/workflows/terraform-plan.yml@refs/heads/main`,
-    }),
-    'allowed',
-  );
-});
-
-// tofu-plan.yml replaces terraform-plan.yml in PR 2; both are accepted until L5.
-const tofuPlanPr = {
-  ...prJob,
-  workflow: 'OpenTofu plan',
-  workflow_ref: `${repository}/.github/workflows/tofu-plan.yml@refs/pull/32/merge`,
-  job_workflow_ref: `${repository}/.github/workflows/tofu-plan.yml@refs/pull/32/merge`,
-};
-
-test('accepts tofu-plan.yml on a pull request', () => {
-  assert.equal(gate(tofuPlanPr), 'allowed');
-});
-
 const rejected = {
-  'tofu-plan.yml on a push to main': {
-    ...tofuPlanPr,
+  // tofu-plan.yml runs on pull requests only; main is planned by tofu-apply.yml as tf-deployer.
+  'a push to main': {
+    ...prJob,
     event_name: 'push',
     ref: 'refs/heads/main',
     workflow_ref: `${repository}/.github/workflows/tofu-plan.yml@refs/heads/main`,
   },
-  'tofu-plan.yml without the environment': without(tofuPlanPr, 'environment'),
+  // The old workflow, deleted in PR 2; its clause went at L5.
+  'terraform-plan.yml on a pull request': {
+    ...prJob,
+    workflow_ref: `${repository}/.github/workflows/terraform-plan.yml@refs/pull/32/merge`,
+  },
   'no environment (a job without `environment: cluster-plan`)': without(
     prJob,
     'environment',
@@ -82,7 +63,7 @@ const rejected = {
   },
   'a workflow of the same name in another repository': {
     ...prJob,
-    workflow_ref: `someone/monorepo/.github/workflows/terraform-plan.yml@refs/pull/32/merge`,
+    workflow_ref: `someone/monorepo/.github/workflows/tofu-plan.yml@refs/pull/32/merge`,
   },
   'a push to another branch': {
     ...prJob,

@@ -24,7 +24,7 @@ import {
 /**
  * D14 + the D13 B cutover, with the files they ship with: libs/database/schema through the Job's
  * runner (libs/database/schema/migrate.py), infra/k8s/surrealdb/base/init.surql.tmpl rendered the
- * way External Secrets Operator renders it (with the identity marker Terraform substitutes), and
+ * way External Secrets Operator renders it (with the identity marker OpenTofu substitutes), and
  * infra/k8s/surrealdb/base/identity_check.py, the readiness check of the identity-check sidecar.
  * On the shared test server the init runs as root over /sql (what `surreal start --import-file`
  * does, without the restart); the last suite restarts a dedicated container with --import-file,
@@ -49,7 +49,7 @@ const CODEX_EXAMPLES = [
 ];
 
 /**
- * ESO's rendering of init.surql.tmpl ({{ .key | toJson }}) and, given a hash, Terraform's
+ * ESO's rendering of init.surql.tmpl ({{ .key | toJson }}) and, given a hash, OpenTofu's
  * identity marker in place of the `-- @identity-marker` line (modules/db-identity). On the shared
  * server it goes in the test's namespace. `breakApiUser` injects a runtime error into the
  * api_user hash assignment (Codex's fault probe).
@@ -1071,7 +1071,7 @@ describe('data scripts on an already-migrated database', () => {
 
 // ---------------------------------------------------------------- parameters, DPA texts
 
-describe('parameters (Terraform values)', () => {
+describe('parameters (OpenTofu values)', () => {
   it('refuses, before changing anything, a script that uses a parameter passed as null', async () => {
     const t = await TestDatabase.create();
     try {
@@ -1085,6 +1085,7 @@ describe('parameters (Terraform values)', () => {
         },
       );
       expect(result.exitCode).toBe(1);
+      // migrate.py's wording; it's part of the migration bundle, so it keeps the old tool name.
       expect(result.output).toContain(
         '0013-needs-key.surql uses clerk_jwt_public_key, which Terraform passed as null',
       );

@@ -23,7 +23,7 @@ pnpm nx run database:test-integration    # needs Docker; about 20 s
 - **Why `libs/database/schema` and not `infra/db`** (the doc's D14 layout): files under an Nx
   project make it "affected", so any schema change runs `test-integration` in CI. Next to the
   client code, the schema and the code that queries it change in the same PR. The migration
-  Job (D14) can still read these files from Terraform by relative path.
+  Job (D14) can still read these files from OpenTofu by relative path.
 - **The container.** Jest's global setup runs `docker run` with the image read from
   `infra/k8s/surrealdb/base/kustomization.yaml` (tag + digest). The tests therefore always use
   the version the cluster runs, and there's one pin to bump. The root password is random per
@@ -34,7 +34,7 @@ pnpm nx run database:test-integration    # needs Docker; about 20 s
   (`migrate.py`), from the same files. Each service gets a `service` record with a random
   password, argon2-hashed by `crypto::argon2::generate` (in the cluster SurrealDB's startup init does this;
   `migration.int-spec.ts` runs the real init template). Clerk is simulated by an RS256 key pair
-  generated per run; the public PEM is passed as `clerk_jwt_public_key`, as Terraform passes
+  generated per run; the public PEM is passed as `clerk_jwt_public_key`, as OpenTofu passes
   Clerk's.
 - **Kept out of `test`.** `nx affected -t test` still runs without Docker; CI has a separate
   `nx affected -t test-integration` step. CI uses no `services:` container because it can't
@@ -481,7 +481,7 @@ after a restore.
 ## Clerk side
 
 SurrealDB needs `ns`, `db` and `ac` claims, signed RS256 by a key it holds. GKE has no egress, so
-`KEY '<PEM>'` is pinned by Terraform; there's no JWKS URL.
+`KEY '<PEM>'` is pinned by OpenTofu; there's no JWKS URL.
 
 **Option 1, chosen and applied in 0.5: customise the default session token.** In Dashboard → Sessions →
 Customize session token (or `clerk config patch`), add static claims:

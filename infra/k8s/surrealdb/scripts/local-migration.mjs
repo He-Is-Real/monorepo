@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Creates the surrealdb-migration ConfigMap the migrate Job reads, on a local cluster: the
- * local developer machine equivalent of what Terraform builds on GKE
+ * local developer machine equivalent of what OpenTofu builds on GKE
  * (infra/terraform/modules/db-migration). Same files, same parameters:
  *
  *   - every *.surql in libs/database/schema and libs/database/schema/data (flattened), and the
@@ -16,7 +16,7 @@
  *   node infra/k8s/surrealdb/scripts/local-migration.mjs [--context kind-heisreal] [--clerk-public-key-file key.pem] [--seed-dev-story]
  *   kubectl apply -k infra/k8s/surrealdb/overlays/local
  *
- * Refuses any cluster but a local one: GKE gets its migration from Terraform.
+ * Refuses any cluster but a local one: GKE gets its migration from OpenTofu.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';

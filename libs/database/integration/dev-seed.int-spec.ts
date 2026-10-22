@@ -10,7 +10,7 @@ import {
 
 /**
  * Seed 0003 (M0 task 0.9): the walking-skeleton story, in development only. Off by default
- * (Terraform passes seed_dev_story = false everywhere but live/dev/cluster): the script is then
+ * (OpenTofu passes seed_dev_story = false everywhere but live/dev/cluster): the script is then
  * recorded as applied and writes nothing, so turning it on later in production would do nothing
  * either. On, it publishes one obviously fake story through the schema's own rules.
  */

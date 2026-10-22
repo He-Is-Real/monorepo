@@ -29,7 +29,7 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 | `libs/contracts`       | OpenAPI 3.1 specs, the API source of truth     | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
 | `infra/k8s/surrealdb`  | SurrealDB on Kubernetes (Kustomize)            | [README](infra/k8s/surrealdb/README.md)                                  |
 | `infra/terraform`      | All cloud infrastructure (GCP, GKE, Cloud Run) | [README](infra/terraform/README.md)                                      |
-| `infra/clerk`          | Clerk instance settings as code (Clerk CLI)    | [README](infra/clerk/README.md); the one non-Terraform cloud config      |
+| `infra/clerk`          | Clerk instance settings as code (Clerk CLI)    | [README](infra/clerk/README.md); the non-OpenTofu cloud config           |
 | `tools/docker`         | Dockerfiles: NestJS services, Next.js site     | `pnpm nx run <service>:container` (also `web`)                           |
 
 Services never call each other; each API only talks to SurrealDB (and, later, queues).
@@ -38,7 +38,7 @@ Services never call each other; each API only talks to SurrealDB (and, later, qu
 
 Needs **Node.js 24 LTS** (`.nvmrc`), **pnpm 11** (`packageManager`), and **gcloud** logged in with
 `gcloud auth application-default login` (plus `gcloud auth login`, same account, for the local
-`images` Terraform root). `kubectl` and kubeconform (`mise install`, pinned in
+`images` OpenTofu root). `kubectl` and kubeconform (`mise install`, pinned in
 `mise.toml`) only for the database manifests.
 
 ```bash
@@ -60,7 +60,7 @@ pnpm exec playwright install chromium && pnpm nx e2e web   # responsive device m
 ## Secrets
 
 **Google Cloud Secret Manager is the only place secrets live** — not git, `.env` files, CI
-settings or Terraform state. Config holds only a secret's _name_ (e.g.
+settings or OpenTofu state. Config holds only a secret's _name_ (e.g.
 `SURREAL_PASSWORD_SECRET=surreal-api-read-password`). Authentication is keyless everywhere
 (Application Default Credentials: your gcloud login, the Cloud Run service account, Workload
 Identity on GKE and in GitHub Actions); never create key files. Programs we don't write (SurrealDB
@@ -68,7 +68,7 @@ and its Jobs) get secrets from External Secrets Operator, or `local-secrets.mjs`
 
 ## Cloud and CI
 
-All cloud changes go through Terraform; see [infra/terraform/README.md](infra/terraform/README.md).
+All cloud changes go through OpenTofu (D54, run with `tools/scripts/tf.sh`); see [infra/terraform/README.md](infra/terraform/README.md).
 Dev runs in GCP project `heisreal-dev` (London): `api-public-read` and `web` on Cloud Run (public since
 0.9, scale to zero, max 2 instances; https://web-jbxp6odnsa-nw.a.run.app, not indexed) and SurrealDB on
 GKE Autopilot Spot Pods, about £3–5/month.
@@ -83,6 +83,8 @@ GKE Autopilot Spot Pods, about £3–5/month.
   **`snapshot-images.yml`** (manual, any branch): build the services whose code changed and push
   them to `apps` / `apps-scratch`. Which build each
   environment runs is committed in `infra/terraform/live/<env>/gcp/images.auto.tfvars`.
-- **`terraform-plan.yml`**: automatic, read-only plans.
-- **`terraform-apply.yml`**: the only CI path that changes the cloud. Manual, on `main`; shows the
-  plan, then applies it once you approve.
+- **`tofu-plan.yml`**: automatic, read-only OpenTofu plans of the roots a PR touches (never bunny).
+- **`tofu-apply.yml`**: the only CI path that changes the cloud. Every push to `main` (and every
+  Release Images run) plans every root unattended; each apply waits for one approval in the `dev`
+  environment, then applies exactly the saved plan. Dispatch it to recover from anything.
+- **`tofu-drift.yml`**: weekly full-refresh plans; fails on drift.

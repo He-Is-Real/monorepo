@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * The Clerk dev instance's settings as code (task 0.5, D2). There's no maintained Clerk
- * Terraform provider, so this is the reviewed exception to "all cloud changes through
- * Terraform" (docs/delivery-status.md, decision 17): `dev.json` is a partial config, applied
+ * OpenTofu (or OpenTofu) provider, so this is the reviewed exception to "all cloud changes through
+ * OpenTofu" (docs/delivery-status.md, decision 17): `dev.json` is a partial config, applied
  * with the Clerk CLI's `config patch`, which only touches the keys it lists.
  *
  *   node infra/clerk/clerk-config.mjs            # check (read-only): exit 1 if the instance drifted
