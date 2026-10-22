@@ -20,9 +20,8 @@ on:
         type: choice
         options: [gcp, cluster]
 
-permissions:
-  contents: read
-  id-token: write
+# Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
+permissions: {}
 
 concurrency:
   group: tf-apply-dev # one apply at a time
@@ -37,6 +36,9 @@ env:
 jobs:
   plan:
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
     runs-on: ubuntu-latest
     outputs:
       changes: ${{ steps.plan.outputs.changes }}
@@ -68,6 +70,9 @@ jobs:
 
   apply:
     needs: plan
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
     if: needs.plan.outputs.changes == 'true'
     runs-on: ubuntu-latest
     environment: dev # pauses for approval: read the plan above first

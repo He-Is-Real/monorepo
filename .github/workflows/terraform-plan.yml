@@ -41,9 +41,8 @@ on:
         'mise.toml',
       ]
 
-permissions:
-  contents: read
-  id-token: write
+# Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
+permissions: {}
 
 concurrency:
   group: tf-plan-${{ github.ref }}
@@ -59,6 +58,8 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         shell: bash # -eo pipefail: any failing command fails the step
@@ -107,6 +108,9 @@ jobs:
 
   plan:
     needs: validate
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-planner)
     # Fork PRs get no Google identity (GitHub issues no OIDC token to forks).
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -147,6 +151,9 @@ jobs:
 
   plan-cluster:
     needs: validate
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-cluster-planner)
     # Never for forks (no OIDC token for them either). Pauses for a maintainer's approval.
     # CLUSTER_PLAN_ENABLED (repository variable) is set once the cluster-plan environment is
     # protected and the bootstrap/cluster roots have created the identity and its RBAC, so the

@@ -15,6 +15,8 @@ source of truth, so change them in the same PR as the code.
   (api-public-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
   through External Secrets Operator on clusters. Never commit secret values or add key files.
+- Install the secret-scanning hook once per clone: `mise install && tools/scripts/install-hooks.sh`
+  (gitleaks, `.gitleaks.toml`).
 - Nothing on GKE is reachable from the internet: private nodes only, and no `LoadBalancer` or
   `NodePort` Services and no Ingress/Gateway. Workers (Dapr workflow, inference workers) connect
   outbound only, to Pub/Sub. Public entry points are Cloud Run services only.

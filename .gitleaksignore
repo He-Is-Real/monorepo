@@ -1,0 +1,6 @@
+# Reviewed gitleaks findings that aren't secrets (fingerprints: commit:file:rule:line).
+# Idempotency keys and a length check in unit tests (2026-10-22).
+b6129fe13cecd12b8239752d21653410bebb436a:libs/consent/src/lib/account-consents.controller.spec.ts:generic-api-key:52
+b6129fe13cecd12b8239752d21653410bebb436a:libs/database/src/lib/idempotency.spec.ts:generic-api-key:46
+0dea69cc3ebf05ef9da5bf01c211f3b23d825741:libs/database/src/lib/idempotency.spec.ts:generic-api-key:46
+5dfdca573e587b83f0e25a8a4f0158ffb38e1341:libs/consent/src/lib/account-consents.controller.spec.ts:generic-api-key:52

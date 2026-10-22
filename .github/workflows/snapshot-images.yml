@@ -7,9 +7,8 @@ name: Snapshot images
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
+# Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
+permissions: {}
 
 concurrency:
   group: snapshot-${{ github.ref }}
@@ -17,6 +16,10 @@ concurrency:
 
 jobs:
   images:
+    # A called workflow can only lower what its caller grants.
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/_images.yml
     with:
       repository: apps-scratch
