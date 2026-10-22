@@ -1,6 +1,5 @@
 // The WIF attribute mapping that gates tf-deployer (deploy_gate.cel.tftpl), evaluated with a
-// CEL engine against GitHub OIDC claim fixtures: tofu-apply.yml and tofu-drift.yml on main, and
-// until L5 the manual terraform-apply.yml.
+// CEL engine against GitHub OIDC claim fixtures: tofu-apply.yml and tofu-drift.yml on main only.
 //
 //   node --test infra/terraform/modules/bootstrap/tests/
 import assert from 'node:assert/strict';
@@ -31,10 +30,6 @@ const allowed = {
     workflow: 'tofu-drift.yml',
     event_name: 'workflow_dispatch',
   }),
-  'terraform-apply.yml on workflow_dispatch (until L5)': claims({
-    workflow: 'terraform-apply.yml',
-    event_name: 'workflow_dispatch',
-  }),
 };
 for (const [name, c] of Object.entries(allowed)) {
   test(`allows ${name}`, () => assert.equal(deployGate(c), 'allowed'));
@@ -55,6 +50,11 @@ const denied = {
     event_name: 'push',
   }),
   'terraform-apply.yml on push': claims({ workflow: 'terraform-apply.yml' }),
+  // The old manual workflow, deleted in PR 2; its clause went at L5.
+  'terraform-apply.yml on workflow_dispatch': claims({
+    workflow: 'terraform-apply.yml',
+    event_name: 'workflow_dispatch',
+  }),
   'tofu-apply.yml on schedule': claims({ event_name: 'schedule' }),
   'tofu-apply.yml on pull_request_target': claims({
     event_name: 'pull_request_target',

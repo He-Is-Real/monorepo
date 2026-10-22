@@ -1,4 +1,4 @@
-# D42: the automatic cluster plan (terraform-plan.yml, environment cluster-plan) runs as
+# D42: the automatic cluster plan (tofu-plan.yml, environment cluster-plan) runs as
 # tf-cluster-planner. Its Kubernetes rights: a namespaced Role for the kustomization provider's
 # dry runs, and an admission policy that lets it send dry runs only. See
 # planner_dry_run_policy.yaml.tftpl (the single source, also used by the kind test) and

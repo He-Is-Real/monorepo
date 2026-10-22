@@ -1,22 +1,21 @@
-name: Terraform plan
+name: OpenTofu plan
 
-# Automatic, read-only. Never applies: applies are manual (terraform-apply.yml)
-# or from a local developer machine. Runs OpenTofu (D54) through tools/scripts/tf.sh;
-# the file keeps its name because the bootstrap sign-in gates pin it.
+# Pull requests only, read-only advice: never applies, never touches bunny. What merges is
+# planned again on main by tofu-apply.yml, which plans every root and asks before each apply.
 #
-# Every PR first gets offline checks that fail loudly: fmt, validate of every
-# root, `tofu test` of the pure modules (Job and identity naming), and
-# every Kustomize overlay rendered and schema-checked (ci.yml runs the database
-# integration suite).
+# Every PR first gets offline checks that fail loudly: fmt, validate of every root, the
+# encryption key names, the Bunny keys' sensitivity, `tofu test` of the pure modules, and every
+# Kustomize overlay rendered and schema-checked (ci.yml runs the database integration suite).
+# Then the roots the PR touches (tools/scripts/tf-roots.sh) are planned without a refresh or
+# lock as tf-planner (gcp, images). bunny is never planned here: tf-bunny is only available on
+# main. bootstrap is planned and applied locally.
 #
-# The cluster plan (D42) is a separate job. Its kustomization diffs are
-# server-side dry runs, which Kubernetes authorises like real writes, so it runs
-# as tf-cluster-planner, which can create/patch in the `database` namespace
-# (modules/cluster/planner_rbac.tf). It therefore runs only for this
-# repository's own PRs and pushes to main, in the protected `cluster-plan`
-# environment (a maintainer approves each run), and the Google identity can
-# only be obtained from this workflow in that environment (WIF condition in
-# modules/bootstrap/ci_identity.tf).
+# The cluster plan (D42) is a separate job. Its kustomization diffs are server-side dry runs,
+# which Kubernetes authorises like real writes, so it runs as tf-cluster-planner, which can
+# create/patch in the `database` namespace (modules/cluster/planner_rbac.tf). It runs only for
+# this repository's own PRs, in the protected `cluster-plan` environment (a maintainer approves
+# each run), and the Google identity can only be obtained from this workflow in that
+# environment (cluster_plan_gate in modules/bootstrap).
 
 on:
   pull_request:
@@ -25,19 +24,10 @@ on:
         'infra/**',
         'libs/database/schema/**',
         'libs/legal/**',
-        '.github/workflows/terraform-*.yml',
-        'tools/scripts/tf.sh',
-        'mise.toml',
-      ]
-  push:
-    branches: [main]
-    paths:
-      [
-        'infra/**',
-        'libs/database/schema/**',
-        'libs/legal/**',
-        '.github/workflows/terraform-*.yml',
-        'tools/scripts/tf.sh',
+        'tools/scripts/tf*.sh',
+        'tools/scripts/image-tag.sh',
+        '.github/actions/tofu/**',
+        '.github/workflows/tofu-*.yml',
         'mise.toml',
       ]
 
@@ -45,8 +35,12 @@ on:
 permissions: {}
 
 concurrency:
-  group: tf-plan-${{ github.ref }}
+  group: tofu-plan-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash # -eo pipefail: any failing command fails the step
 
 env:
   # Keep in step with mise.toml (tf.sh refuses any other OpenTofu version).
@@ -60,11 +54,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    defaults:
-      run:
-        shell: bash # -eo pipefail: any failing command fails the step
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Not .github/actions/tofu: this job never signs in.
       - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
@@ -72,7 +64,6 @@ jobs:
       - run: tofu fmt -check -recursive infra/terraform
       - name: Validate every root
         run: |
-          set -euo pipefail
           for dir in infra/terraform/live/dev/*/; do
             root="$(basename "$dir")"
             echo "::group::$root"
@@ -84,7 +75,6 @@ jobs:
       # bunny uses tofu-bunny. Plans against the real backend test the rest.
       - name: Check the encryption keys
         run: |
-          set -euo pipefail
           key_only() { # key_only <root> <key> <other key>
             local file="infra/terraform/live/dev/$1/encryption.tf"
             grep -q "cryptoKeys/$2\"" "$file" || { echo "::error file=$file::must use $2"; exit 1; }
@@ -98,7 +88,6 @@ jobs:
       # KMS), and this job has no Google credentials.
       - name: Check the Bunny keys are sensitive
         run: |
-          set -euo pipefail
           schema="$(mktemp -d)"
           cp infra/terraform/live/dev/bunny/.terraform.lock.hcl "$schema/"
           printf 'terraform {\n  required_providers {\n    bunnynet = { source = "BunnyWay/bunnynet" }\n  }\n}\n' > "$schema/main.tf"
@@ -116,7 +105,6 @@ jobs:
       # bunny-state-guard: nothing Bunny is public (the bunny root's pre-plan check).
       - name: Test the pure modules
         run: |
-          set -euo pipefail
           for module in db-migration db-identity bunny-state-guard; do
             tofu -chdir="infra/terraform/modules/$module" init -backend=false -input=false
             tofu -chdir="infra/terraform/modules/$module" test
@@ -124,7 +112,6 @@ jobs:
       # What the cluster root would apply, rendered and schema-checked (instead of a plan).
       - name: Install kubeconform
         run: |
-          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin"
           curl -fsSLo "$RUNNER_TEMP/kubeconform.tar.gz" "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
           echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
@@ -137,81 +124,117 @@ jobs:
       - name: Test the planner's dry-run-only policy
         run: infra/terraform/modules/cluster/tests/planner-dry-run-only.sh
 
-  plan:
-    needs: validate
+  # Which roots this PR touches. Selection is fine here: a PR plan is advice, and main plans
+  # every root again after the merge.
+  roots:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      gcp: ${{ steps.roots.outputs.gcp }}
+      images: ${{ steps.roots.outputs.images }}
+      cluster: ${{ steps.roots.outputs.cluster }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          filter: tree:0
+          fetch-depth: 0
+      - id: roots
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          roots="$(tools/scripts/tf-roots.sh changed "$BASE" "$HEAD")"
+          for root in gcp images cluster; do
+            if grep -qx "$root" <<< "$roots"; then echo "$root=true"; else echo "$root=false"; fi
+          done >> "$GITHUB_OUTPUT"
+          {
+            echo "### Roots this PR touches"
+            echo '```'
+            echo "${roots:-none}"
+            echo '```'
+            echo "bunny: planned after merge on main (tofu-apply.yml); bootstrap: plan and apply locally."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  plan-gcp:
+    needs: [validate, roots]
+    # Fork PRs get no Google identity (GitHub issues no OIDC token to forks).
+    if: needs.roots.outputs.gcp == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write # keyless Google auth (tf-planner)
-    # Fork PRs get no Google identity (GitHub issues no OIDC token to forks).
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # cluster: the plan-cluster job below. bunny: validate only, never planned here (its plan
-        # needs the Bunny account key and its state holds keys; infra/terraform/README.md).
-        root: [gcp]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      - uses: ./.github/actions/tofu
         with:
-          tofu_version: ${{ env.TOFU_VERSION }}
-          tofu_wrapper: false
-      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: projects/236063168938/locations/global/workloadIdentityPools/github/providers/github-actions
           service_account: tf-planner@heisreal-dev.iam.gserviceaccount.com
-      # -refresh=false: compares the code with the last applied state without
-      # reading live objects (the planner can't read Kubernetes Secrets or
-      # secret values). The manual apply job always plans with a full refresh.
-      # -lock=false: the planner can read state but not take the lock.
-      - name: tofu plan (${{ matrix.root }})
-        # pipefail: without it the step's status is tee's, so a failing plan
-        # showed green. 2>&1: OpenTofu writes errors to stderr, which tee
-        # would otherwise miss. The summary is still written, then the plan's
-        # own exit code decides the step.
-        env:
-          ROOT: ${{ matrix.root }}
+      # -refresh=false: compares the code with the last applied state without reading live
+      # objects (the planner can't read Kubernetes Secrets or secret values). tofu-apply.yml
+      # always plans with a full refresh. -lock=false: the planner can read state but not lock.
+      # 2>&1: OpenTofu writes errors to stderr, which tee would otherwise miss.
+      - name: tofu plan (gcp)
         run: |
-          set -o pipefail
-          tools/scripts/tf.sh "$ROOT" init -input=false
+          tools/scripts/tf.sh gcp init -input=false
           code=0
-          tools/scripts/tf.sh "$ROOT" plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt" || code=$?
-          { echo "### dev/$ROOT"; echo '```'; grep -E '^(Plan:|No changes|Error:)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          tools/scripts/tf.sh gcp plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt" || code=$?
+          { echo "### dev/gcp"; echo '```'; grep -E '^(Plan:|No changes|Error)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+
+  plan-images:
+    needs: [validate, roots]
+    if: needs.roots.outputs.images == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-planner)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Uses the pnpm version from package.json "packageManager".
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The images root hashes each service's pruned build output (tools/scripts/image-tag.sh).
+      - run: pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow web
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: tf-planner@heisreal-dev.iam.gserviceaccount.com
+      - name: tofu plan (images)
+        run: |
+          tools/scripts/tf.sh images init -input=false
+          code=0
+          tools/scripts/tf.sh images plan -input=false -lock=false -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt" || code=$?
+          { echo "### dev/images"; echo '```'; grep -E '^(Plan:|No changes|Error)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
 
   plan-cluster:
-    needs: validate
-    permissions:
-      contents: read
-      id-token: write # keyless Google auth (tf-cluster-planner)
+    needs: [validate, roots]
     # Never for forks (no OIDC token for them either). Pauses for a maintainer's approval.
     # CLUSTER_PLAN_ENABLED (repository variable) is set once the cluster-plan environment is
     # protected and the bootstrap/cluster roots have created the identity and its RBAC, so the
     # job never runs, or creates the environment, before the gate exists.
     if: >-
-      vars.CLUSTER_PLAN_ENABLED == 'true' &&
-      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+      vars.CLUSTER_PLAN_ENABLED == 'true' && needs.roots.outputs.cluster == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     environment: cluster-plan
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-cluster-planner)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      - uses: ./.github/actions/tofu
         with:
-          tofu_version: ${{ env.TOFU_VERSION }}
-          tofu_wrapper: false
-      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: projects/236063168938/locations/global/workloadIdentityPools/github/providers/github-actions
           service_account: tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com
-      # -refresh=false and -lock=false as above. pipefail and 2>&1: a failing plan
-      # (e.g. a forbidden dry run) fails the step instead of showing tee's status.
+      # -refresh=false and -lock=false as above. A failing plan (e.g. a forbidden dry run) fails
+      # the step.
       - name: tofu plan (cluster)
-        shell: bash
         run: |
-          set -euo pipefail
           tools/scripts/tf.sh cluster init -input=false
-          status=0
-          tools/scripts/tf.sh cluster plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt" || status=$?
+          code=0
+          tools/scripts/tf.sh cluster plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt" || code=$?
           { echo "### dev/cluster"; echo '```'; grep -E '^(Plan:|No changes|Error)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          exit "$status"
+          exit "$code"

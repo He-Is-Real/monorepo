@@ -4,13 +4,11 @@
 #
 #   tf-planner          any workflow in this repo              read-only; automatic gcp plans
 #   tf-cluster-planner  environment cluster-plan (reviewer      dry runs only, in the database
-#                       approval), terraform-plan.yml or       namespace; automatic cluster plans
-#                       tofu-plan.yml
+#                       approval), tofu-plan.yml on PRs        namespace; automatic cluster plans
 #   ci-image-pusher     images.yml on a push to main          push to apps
 #   ci-snapshot-pusher  manual snapshot-images.yml, any branch push to apps-scratch only
 #   tf-deployer         tofu-apply.yml / tofu-drift.yml on     gcp, images and cluster applies
-#                       main (and manual terraform-apply.yml
-#                       until the old workflows are gone)
+#                       main
 #   tf-bunny            tofu-apply.yml / tofu-drift.yml on     the bunny root only (tf_bunny.tf)
 #                       main
 #
@@ -61,8 +59,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.cluster_plan_gate" = trimspace(templatefile("${path.module}/cluster_plan_gate.cel.tftpl", {
       repository = var.github_repository
     }))
-    # tf-deployer and tf-bunny: main only, in the apply and drift workflows. The terraform-apply.yml
-    # clause in deploy_gate goes once the old workflows are deleted (L5). job_workflow_ref is what
+    # tf-deployer and tf-bunny: main only, in the apply and drift workflows. job_workflow_ref is what
     # the deploy gate has always checked; for a plain job it equals workflow_ref, the fallback if a
     # workflow_run token ever lacks it. Tests: tests/{deploy,bunny}-gate.test.mjs.
     "attribute.deploy_gate" = trimspace(templatefile("${path.module}/deploy_gate.cel.tftpl", {

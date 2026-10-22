@@ -1,0 +1,25 @@
+name: OpenTofu
+description: >-
+  OpenTofu 1.13.2 (the mise.toml pin; tf.sh refuses any other version) and, when a service
+  account is given, keyless Google sign-in through the repository's Workload Identity provider.
+  A job using this with a service account needs `id-token: write`
+  (tools/scripts/tests/workflows.test.mjs).
+
+inputs:
+  service_account:
+    description: Service account to sign in as. Empty, no sign-in.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      with:
+        tofu_version: 1.13.2
+        tofu_wrapper: false
+    - if: inputs.service_account != ''
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+      with:
+        workload_identity_provider: projects/236063168938/locations/global/workloadIdentityPools/github/providers/github-actions
+        service_account: ${{ inputs.service_account }}

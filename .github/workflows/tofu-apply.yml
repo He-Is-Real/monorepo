@@ -1,0 +1,594 @@
+name: OpenTofu apply
+
+# Merge → plan every root unattended → one approval per wave with changes → apply exactly the
+# saved plan (D54, D57). Never auto-applies: an approval in the `dev` environment means "I read
+# this plan and choose to apply it" (self-approval is expected; Claude may approve dev applies).
+#
+# Correct by construction, no selection logic:
+#   - One run at a time (one concurrency group, never cancelled in progress). GitHub keeps at
+#     most one pending run and drops older pending ones; nothing is lost, because...
+#   - ...every run plans every root (gcp, cluster, bunny; images only when dispatched with
+#     `images`; never bootstrap, which is local-only). Unchanged roots plan "No changes" and
+#     skip their apply.
+#   - One target per run: `target` resolves main's HEAD once and every job checks out that SHA
+#     ($GITHUB_SHA and workflow_run.head_sha are never used).
+#   - Wave 1: gcp and bunny plan in parallel; one approval (approve-1) covers both applies.
+#     Wave 2: cluster (and images) plan after gcp's apply, against its fresh outputs; a second
+#     approval (approve-2) only if they change.
+#   - Superseded: if main moves while a run waits, its plan summaries say "reject this run",
+#     and the approve jobs re-check main after the click and apply nothing (go=false).
+#   - Failed, rejected, stale or superseded stops every later stage (tools/scripts/tf-stage.sh);
+#     "no changes" and "not selected" stop nothing.
+#   - Every Release Images completion, success or failure, triggers a full run: it may replace
+#     a pending push run in the queue, so it must plan everything too.
+#
+# Recover from anything (a failed, rejected or superseded run): dispatch this workflow.
+#
+# Public repository: logs are world-readable. gcp, cluster and images plans hold no secrets and
+# go to the log. Bunny output never does: the jobs mask the Bunny keys, keep raw output in
+# gs://heisreal-dev-tfstate/dev/bunny/logs/ and publish only `tf.sh bunny plan-summary`. No
+# Bunny plan is ever an artifact.
+#
+# Identities: tf-deployer (gcp, cluster, images) and tf-bunny (bunny) are available only to
+# this file and tofu-drift.yml on main (deploy_gate and bunny_gate in modules/bootstrap).
+
+on:
+  # No paths filter: every new main gets a run, so a superseded run always has a successor.
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: [Release Images]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      images:
+        description: Also build and push snapshot images to apps-scratch (the images root)
+        type: boolean
+        default: false
+
+# Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
+permissions: {}
+
+concurrency:
+  group: tofu-apply
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # -eo pipefail: any failing command fails the step
+
+env:
+  DEPLOYER: tf-deployer@heisreal-dev.iam.gserviceaccount.com
+  TF_BUNNY: tf-bunny@heisreal-dev.iam.gserviceaccount.com
+  # KMS-encrypted saved plans. tf-deployer can't reach dev/bunny/; tf-bunny can reach nothing
+  # else. Unapproved plans expire after 7 days (lifecycle rules in modules/bootstrap/state.tf).
+  PLANS: gs://heisreal-dev-tfstate/plans
+  BUNNY_PLANS: gs://heisreal-dev-tfstate/dev/bunny/plans
+  BUNNY_LOGS: gs://heisreal-dev-tfstate/dev/bunny/logs
+  RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      sha: ${{ steps.main.outputs.sha }}
+    steps:
+      - id: main
+        run: |
+          sha="$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | cut -f1)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve main"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Target: main at \`$sha\` (event: $GITHUB_EVENT_NAME)" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Wave 1: gcp and bunny ----------------------------------------------------------------
+
+  plan-gcp:
+    needs: target
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+      object: ${{ steps.plan.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.DEPLOYER }}
+      - run: tools/scripts/tf.sh gcp init -input=false
+      # Full refresh. Image entries set to "main" resolve to the newest image in apps at plan
+      # time, so this picks up the newest release whatever triggered the run. changes: false on
+      # exit 0, true on exit 2 (plan saved); anything else fails the job.
+      - id: plan
+        run: |
+          code=0
+          tools/scripts/tf.sh gcp plan -input=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color || code=$?
+          main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          {
+            echo "### dev/gcp at \`$SHA\`"
+            [ "$main" = "$SHA" ] || echo "**⚠ superseded by $main: reject this run; the next run plans again.**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$code" in
+          0)
+            echo changes=false >> "$GITHUB_OUTPUT"
+            echo 'No changes.' >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          2)
+            object="$PLANS/gcp/$RUN.tfplan"
+            gcloud storage cp --no-user-output-enabled "$RUNNER_TEMP/tfplan" "$object"
+            { echo changes=true; echo "object=$object"; } >> "$GITHUB_OUTPUT"
+            { echo '```'; tools/scripts/tf.sh gcp plan-summary "$RUNNER_TEMP/tfplan"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          *)
+            echo "plan failed (exit $code)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+            ;;
+          esac
+
+  plan-bunny:
+    needs: target
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-bunny)
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+      object: ${{ steps.plan.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.TF_BUNNY }}
+      # Before any tofu step: every bunny-* secret is masked from here on.
+      - run: tools/scripts/tf.sh bunny-mask secrets
+      # init, mask the keys that exist only in state, then plan. All tofu output goes to the
+      # private log; the public log and summary get only plan-summary, an exit code and the log's
+      # name.
+      - id: plan
+        run: |
+          log="$RUNNER_TEMP/bunny.log"
+          code=0 step=init
+          tools/scripts/tf.sh bunny init -input=false > "$log" 2>&1 || code=$?
+          if [ "$code" -eq 0 ]; then
+            step=mask
+            tools/scripts/tf.sh bunny-mask state || code=$?
+          fi
+          if [ "$code" -eq 0 ]; then
+            step=plan
+            tools/scripts/tf.sh bunny plan -input=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color >> "$log" 2>&1 || code=$?
+          fi
+          gcloud storage cp --no-user-output-enabled "$log" "$BUNNY_LOGS/$RUN-plan-bunny.log" ||
+            echo "::warning::could not copy the private log"
+          main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          {
+            echo "### dev/bunny at \`$SHA\`"
+            [ "$main" = "$SHA" ] || echo "**⚠ superseded by $main: reject this run; the next run plans again.**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$step" = plan ] && [ "$code" -eq 0 ]; then
+            echo changes=false >> "$GITHUB_OUTPUT"
+            echo 'No changes.' >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$step" = plan ] && [ "$code" -eq 2 ]; then
+            object="$BUNNY_PLANS/$RUN.tfplan"
+            gcloud storage cp --no-user-output-enabled "$RUNNER_TEMP/tfplan" "$object"
+            { echo changes=true; echo "object=$object"; } >> "$GITHUB_OUTPUT"
+            { echo '```'; tools/scripts/tf.sh bunny plan-summary "$RUNNER_TEMP/tfplan"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$step failed (exit $code), log: $BUNNY_LOGS/$RUN-plan-bunny.log" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  approve-1:
+    needs: [target, plan-gcp, plan-bunny]
+    # always(): a failed plan on one side doesn't stop the other side's approval.
+    if: >-
+      always() && needs.target.result == 'success' &&
+      ((needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true') ||
+      (needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'true'))
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+    environment: dev # pauses for approval: read the gcp and bunny plan summaries first
+    permissions: {}
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - id: check
+        run: |
+          main="$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | cut -f1)"
+          if [ "$main" = "$SHA" ]; then
+            echo go=true >> "$GITHUB_OUTPUT"
+          else
+            echo "superseded by $main: not applying" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo go=false >> "$GITHUB_OUTPUT"
+          fi
+
+  apply-gcp:
+    needs: [target, plan-gcp, approve-1]
+    if: >-
+      always() && needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true' &&
+      needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
+    env:
+      OBJECT: ${{ needs.plan-gcp.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.DEPLOYER }}
+      # Exactly the saved plan; OpenTofu refuses it if state changed meanwhile (stale).
+      - run: |
+          tools/scripts/tf.sh gcp init -input=false
+          gcloud storage cp --no-user-output-enabled "$OBJECT" "$RUNNER_TEMP/tfplan"
+          tools/scripts/tf.sh gcp apply -input=false -no-color "$RUNNER_TEMP/tfplan"
+      - if: always()
+        run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+
+  apply-bunny:
+    needs: [target, plan-bunny, approve-1]
+    if: >-
+      always() && needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'true' &&
+      needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-bunny)
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+      OBJECT: ${{ needs.plan-bunny.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.TF_BUNNY }}
+      - run: tools/scripts/tf.sh bunny-mask secrets
+      - run: |
+          log="$RUNNER_TEMP/bunny.log"
+          code=0 step=init
+          tools/scripts/tf.sh bunny init -input=false > "$log" 2>&1 || code=$?
+          if [ "$code" -eq 0 ]; then
+            step=mask
+            tools/scripts/tf.sh bunny-mask state || code=$?
+          fi
+          if [ "$code" -eq 0 ]; then
+            step=download
+            gcloud storage cp --no-user-output-enabled "$OBJECT" "$RUNNER_TEMP/tfplan" >> "$log" 2>&1 || code=$?
+          fi
+          if [ "$code" -eq 0 ]; then
+            step=apply
+            tools/scripts/tf.sh bunny apply -input=false -no-color "$RUNNER_TEMP/tfplan" >> "$log" 2>&1 || code=$?
+          fi
+          gcloud storage cp --no-user-output-enabled "$log" "$BUNNY_LOGS/$RUN-apply-bunny.log" ||
+            echo "::warning::could not copy the private log"
+          if [ "$code" -eq 0 ]; then
+            echo "### dev/bunny applied at \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$step failed (exit $code), log: $BUNNY_LOGS/$RUN-apply-bunny.log" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - if: always()
+        run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+
+  stage-gcp:
+    needs: [target, plan-gcp, approve-1, apply-gcp]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.stage.outputs.result }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          sparse-checkout: tools/scripts
+      - id: stage
+        env:
+          PREV: "${{ needs.target.result == 'success' && 'ok' || 'blocked: target' }}"
+          PLAN: ${{ needs.plan-gcp.result }}
+          CHANGES: ${{ needs.plan-gcp.outputs.changes }}
+          GO: ${{ needs.approve-1.outputs.go }}
+          APPLY: ${{ needs.apply-gcp.result }}
+        run: |
+          result="$(tools/scripts/tf-stage.sh "$PREV" true "$PLAN" "$CHANGES" "$GO" "$APPLY")"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "gcp: $result" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Summary only: nothing waits on bunny.
+  stage-bunny:
+    needs: [target, plan-bunny, approve-1, apply-bunny]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          sparse-checkout: tools/scripts
+      - env:
+          PREV: "${{ needs.target.result == 'success' && 'ok' || 'blocked: target' }}"
+          PLAN: ${{ needs.plan-bunny.result }}
+          CHANGES: ${{ needs.plan-bunny.outputs.changes }}
+          GO: ${{ needs.approve-1.outputs.go }}
+          APPLY: ${{ needs.apply-bunny.result }}
+        run: |
+          result="$(tools/scripts/tf-stage.sh "$PREV" true "$PLAN" "$CHANGES" "$GO" "$APPLY")"
+          echo "bunny: $result" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ---- Wave 2: cluster (and images), after gcp's apply ----------------------------------------
+  # W1 = stage-gcp is ok AND approve-1 was skipped (nothing in wave 1 changed) or approved and
+  # not superseded. stage-gcp alone isn't enough: it says ok on its no-changes branch even when
+  # approve-1 was rejected for bunny.
+
+  plan-cluster:
+    needs: [target, stage-gcp, approve-1]
+    if: >-
+      always() && needs.stage-gcp.outputs.result == 'ok' &&
+      (needs.approve-1.result == 'skipped' || (needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'))
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+      object: ${{ steps.plan.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.DEPLOYER }}
+      - run: tools/scripts/tf.sh cluster init -input=false
+      - id: plan
+        run: |
+          code=0
+          tools/scripts/tf.sh cluster plan -input=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color || code=$?
+          main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          {
+            echo "### dev/cluster at \`$SHA\`"
+            [ "$main" = "$SHA" ] || echo "**⚠ superseded by $main: reject this run; the next run plans again.**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$code" in
+          0)
+            echo changes=false >> "$GITHUB_OUTPUT"
+            echo 'No changes.' >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          2)
+            object="$PLANS/cluster/$RUN.tfplan"
+            gcloud storage cp --no-user-output-enabled "$RUNNER_TEMP/tfplan" "$object"
+            { echo changes=true; echo "object=$object"; } >> "$GITHUB_OUTPUT"
+            { echo '```'; tools/scripts/tf.sh cluster plan-summary "$RUNNER_TEMP/tfplan"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          *)
+            echo "plan failed (exit $code)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+            ;;
+          esac
+
+  # Snapshot images (apps-scratch), opt-in: planning builds every app and the apply pushes
+  # development builds. Releases to apps stay with images.yml.
+  plan-images:
+    needs: [target, stage-gcp, approve-1]
+    if: >-
+      always() && needs.stage-gcp.outputs.result == 'ok' &&
+      (needs.approve-1.result == 'skipped' || (needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true')) &&
+      github.event_name == 'workflow_dispatch' && inputs.images
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+      object: ${{ steps.plan.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      # Uses the pnpm version from package.json "packageManager".
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Built once: the apply untars this exact output (tar keeps .next, symlinks and modes,
+      # which upload-artifact would drop) and checks each tag against the plan.
+      - run: |
+          pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow web
+          tar -cpzf "$RUNNER_TEMP/images-dist.tgz" apps/{api-public-read,api-user,api-admin,workflow,web}/dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: images-dist-${{ github.run_id }}
+          path: ${{ runner.temp }}/images-dist.tgz
+          retention-days: 7
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.DEPLOYER }}
+      - run: tools/scripts/tf.sh images init -input=false
+      - id: plan
+        run: |
+          code=0
+          tools/scripts/tf.sh images plan -input=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color || code=$?
+          main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          {
+            echo "### dev/images at \`$SHA\`"
+            [ "$main" = "$SHA" ] || echo "**⚠ superseded by $main: reject this run; the next run plans again.**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$code" in
+          0)
+            echo changes=false >> "$GITHUB_OUTPUT"
+            echo 'No changes.' >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          2)
+            object="$PLANS/images/$RUN.tfplan"
+            gcloud storage cp --no-user-output-enabled "$RUNNER_TEMP/tfplan" "$object"
+            { echo changes=true; echo "object=$object"; } >> "$GITHUB_OUTPUT"
+            { echo '```'; tools/scripts/tf.sh images plan-summary "$RUNNER_TEMP/tfplan"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          *)
+            echo "plan failed (exit $code)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+            ;;
+          esac
+
+  approve-2:
+    needs: [target, stage-gcp, approve-1, plan-cluster, plan-images]
+    # A skipped plan-images (not requested) has no `changes`, so only cluster counts then.
+    if: >-
+      always() && needs.stage-gcp.outputs.result == 'ok' &&
+      (needs.approve-1.result == 'skipped' || (needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true')) &&
+      ((needs.plan-cluster.result == 'success' && needs.plan-cluster.outputs.changes == 'true') ||
+      (needs.plan-images.result == 'success' && needs.plan-images.outputs.changes == 'true'))
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+    environment: dev # pauses for approval: read the cluster (and images) plan summaries first
+    permissions: {}
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - id: check
+        run: |
+          main="$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | cut -f1)"
+          if [ "$main" = "$SHA" ]; then
+            echo go=true >> "$GITHUB_OUTPUT"
+          else
+            echo "superseded by $main: not applying" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo go=false >> "$GITHUB_OUTPUT"
+          fi
+
+  apply-cluster:
+    needs: [target, plan-cluster, approve-2]
+    if: >-
+      always() && needs.plan-cluster.result == 'success' && needs.plan-cluster.outputs.changes == 'true' &&
+      needs.approve-2.result == 'success' && needs.approve-2.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
+    env:
+      OBJECT: ${{ needs.plan-cluster.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.DEPLOYER }}
+      - run: |
+          tools/scripts/tf.sh cluster init -input=false
+          gcloud storage cp --no-user-output-enabled "$OBJECT" "$RUNNER_TEMP/tfplan"
+          tools/scripts/tf.sh cluster apply -input=false -no-color "$RUNNER_TEMP/tfplan"
+      - if: always()
+        run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+
+  apply-images:
+    needs: [target, plan-images, approve-2]
+    if: >-
+      always() && needs.plan-images.result == 'success' && needs.plan-images.outputs.changes == 'true' &&
+      needs.approve-2.result == 'success' && needs.approve-2.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
+    env:
+      OBJECT: ${{ needs.plan-images.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      # The build output plan-images planned; no rebuild.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images-dist-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - run: tar -xpzf "$RUNNER_TEMP/images-dist.tgz" -C "$GITHUB_WORKSPACE"
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.DEPLOYER }}
+      - run: |
+          tools/scripts/tf.sh images init -input=false
+          gcloud storage cp --no-user-output-enabled "$OBJECT" "$RUNNER_TEMP/tfplan"
+          planned="$(tools/scripts/tf.sh images show -json "$RUNNER_TEMP/tfplan")"
+          for svc in api-public-read api-user api-admin workflow web; do
+            want="$(jq -r --arg a "terraform_data.image[\"$svc\"]" \
+              '.resource_changes[] | select(.address == $a) | .change.after.triggers_replace.tag' <<< "$planned")"
+            got="$(tools/scripts/image-tag.sh "$svc")"
+            [ "$got" = "$want" ] || { echo "::error::$svc: build output is $got, the plan has $want"; exit 1; }
+          done
+          tools/scripts/tf.sh images apply -input=false -no-color "$RUNNER_TEMP/tfplan"
+      - if: always()
+        run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+
+  stage-cluster:
+    needs:
+      [target, stage-gcp, approve-1, plan-cluster, approve-2, apply-cluster]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          sparse-checkout: tools/scripts
+      - env:
+          PREV: >-
+            ${{ (needs.stage-gcp.outputs.result == 'ok' &&
+            (needs.approve-1.result == 'skipped' || (needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true')))
+            && 'ok' || 'blocked: wave 1' }}
+          PLAN: ${{ needs.plan-cluster.result }}
+          CHANGES: ${{ needs.plan-cluster.outputs.changes }}
+          GO: ${{ needs.approve-2.outputs.go }}
+          APPLY: ${{ needs.apply-cluster.result }}
+        run: |
+          result="$(tools/scripts/tf-stage.sh "$PREV" true "$PLAN" "$CHANGES" "$GO" "$APPLY")"
+          echo "cluster: $result" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  stage-images:
+    needs: [target, stage-gcp, approve-1, plan-images, approve-2, apply-images]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          sparse-checkout: tools/scripts
+      - env:
+          PREV: >-
+            ${{ (needs.stage-gcp.outputs.result == 'ok' &&
+            (needs.approve-1.result == 'skipped' || (needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true')))
+            && 'ok' || 'blocked: wave 1' }}
+          SELECTED: ${{ github.event_name == 'workflow_dispatch' && inputs.images && 'true' || 'false' }}
+          PLAN: ${{ needs.plan-images.result }}
+          CHANGES: ${{ needs.plan-images.outputs.changes }}
+          GO: ${{ needs.approve-2.outputs.go }}
+          APPLY: ${{ needs.apply-images.result }}
+        run: |
+          result="$(tools/scripts/tf-stage.sh "$PREV" "$SELECTED" "$PLAN" "$CHANGES" "$GO" "$APPLY")"
+          echo "images: $result" | tee -a "$GITHUB_STEP_SUMMARY"

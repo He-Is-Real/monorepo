@@ -1,0 +1,119 @@
+name: OpenTofu drift
+
+# Weekly, read-only: a full-refresh plan of every root that can be planned in CI, without the
+# lock. "No changes" passes; any change fails the job and its summary lists the addresses. Never
+# applies: fix drift in code, or let the next tofu-apply.yml run plan it.
+#
+#   gcp, cluster  tf-deployer
+#   bootstrap     tf-planner (read-only; bootstrap is applied locally only)
+#   bunny         tf-bunny, with masking, a private raw log and a summary only (public logs)
+#   images        never: its plan compares local build output
+#
+# A Cloud Run image diff on gcp usually means a newer image is in `apps` than the one deployed
+# ("main" entries resolve to the newest); the next tofu-apply.yml run will plan it.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      root:
+        description: Root to check
+        type: choice
+        options: [all, gcp, cluster, bootstrap, bunny]
+        default: all
+
+# Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
+permissions: {}
+
+concurrency:
+  group: tofu-drift
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # -eo pipefail: any failing command fails the step
+
+env:
+  BUNNY_LOGS: gs://heisreal-dev-tfstate/dev/bunny/logs
+  RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  drift:
+    if: github.event_name == 'schedule' || inputs.root != 'bunny'
+    strategy:
+      fail-fast: false
+      matrix:
+        root: >-
+          ${{ fromJSON((github.event_name == 'schedule' || inputs.root == 'all')
+          && '["gcp","cluster","bootstrap"]' || format('["{0}"]', inputs.root)) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth
+    env:
+      ROOT: ${{ matrix.root }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: >-
+            ${{ matrix.root == 'bootstrap' && 'tf-planner@heisreal-dev.iam.gserviceaccount.com'
+            || 'tf-deployer@heisreal-dev.iam.gserviceaccount.com' }}
+      - run: tools/scripts/tf.sh "$ROOT" init -input=false
+      - run: |
+          code=0
+          tools/scripts/tf.sh "$ROOT" plan -input=false -lock=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color || code=$?
+          echo "### dev/$ROOT" >> "$GITHUB_STEP_SUMMARY"
+          case "$code" in
+          0) echo 'No changes.' >> "$GITHUB_STEP_SUMMARY" ;;
+          2)
+            { echo 'Drift:'; echo '```'; tools/scripts/tf.sh "$ROOT" plan-summary "$RUNNER_TEMP/tfplan"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::dev/$ROOT has drifted"
+            exit 1
+            ;;
+          *)
+            echo "plan failed (exit $code)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+            ;;
+          esac
+
+  bunny:
+    if: github.event_name == 'schedule' || inputs.root == 'all' || inputs.root == 'bunny'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-bunny)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: tf-bunny@heisreal-dev.iam.gserviceaccount.com
+      # Before any tofu step: every bunny-* secret is masked from here on.
+      - run: tools/scripts/tf.sh bunny-mask secrets
+      # All tofu output goes to the private log; the summary gets only plan-summary.
+      - run: |
+          log="$RUNNER_TEMP/bunny.log"
+          code=0 step=init
+          tools/scripts/tf.sh bunny init -input=false > "$log" 2>&1 || code=$?
+          if [ "$code" -eq 0 ]; then
+            step=mask
+            tools/scripts/tf.sh bunny-mask state || code=$?
+          fi
+          if [ "$code" -eq 0 ]; then
+            step=plan
+            tools/scripts/tf.sh bunny plan -input=false -lock=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color >> "$log" 2>&1 || code=$?
+          fi
+          gcloud storage cp --no-user-output-enabled "$log" "$BUNNY_LOGS/$RUN-drift-bunny.log" ||
+            echo "::warning::could not copy the private log"
+          echo "### dev/bunny" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$step" = plan ] && [ "$code" -eq 0 ]; then
+            echo 'No changes.' >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$step" = plan ] && [ "$code" -eq 2 ]; then
+            { echo 'Drift:'; echo '```'; tools/scripts/tf.sh bunny plan-summary "$RUNNER_TEMP/tfplan"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::dev/bunny has drifted"
+            exit 1
+          else
+            echo "$step failed (exit $code), log: $BUNNY_LOGS/$RUN-drift-bunny.log" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
