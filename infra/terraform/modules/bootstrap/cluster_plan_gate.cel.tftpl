@@ -1,6 +1,8 @@
 (has(assertion.environment) && assertion.environment == 'cluster-plan'
   && assertion.repository == '${repository}'
-  && assertion.workflow_ref.startsWith('${repository}/.github/workflows/terraform-plan.yml@')
-  && (assertion.event_name == 'pull_request'
-    || (assertion.event_name == 'push' && assertion.ref == 'refs/heads/main')))
+  && ((assertion.workflow_ref.startsWith('${repository}/.github/workflows/terraform-plan.yml@')
+      && (assertion.event_name == 'pull_request'
+        || (assertion.event_name == 'push' && assertion.ref == 'refs/heads/main')))
+    || (assertion.workflow_ref.startsWith('${repository}/.github/workflows/tofu-plan.yml@')
+      && assertion.event_name == 'pull_request')))
   ? 'allowed' : 'denied'

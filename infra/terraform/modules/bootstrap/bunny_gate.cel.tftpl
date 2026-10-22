@@ -1,0 +1,6 @@
+(assertion.ref == 'refs/heads/main'
+  && ((assertion.job_workflow_ref == '${repository}/.github/workflows/tofu-apply.yml@refs/heads/main'
+      && assertion.event_name in ['push', 'workflow_dispatch', 'workflow_run'])
+    || (assertion.job_workflow_ref == '${repository}/.github/workflows/tofu-drift.yml@refs/heads/main'
+      && assertion.event_name in ['schedule', 'workflow_dispatch'])))
+  ? 'allowed' : 'denied'

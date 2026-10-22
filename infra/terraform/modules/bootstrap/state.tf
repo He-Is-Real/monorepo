@@ -1,5 +1,5 @@
-# Terraform state for every root in this environment (bootstrap, gcp, images, cluster),
-# separated by prefix. Versioned so any past state can be recovered.
+# OpenTofu state for every root in this environment (bootstrap, gcp, images, cluster, bunny),
+# separated by prefix, encrypted with the KMS keys in kms.tf. Versioned so any past state can be recovered.
 resource "google_storage_bucket" "tfstate" {
   project                     = google_project.this.project_id
   name                        = "${var.project_id}-tfstate"
@@ -34,6 +34,21 @@ resource "google_storage_bucket" "tfstate" {
     }
   }
 
+  # The bunny root's saved plans and raw CI output (tofu-apply.yml, tofu-drift.yml). Cleanup
+  # only: with versioning and soft delete they're recoverable for about two more weeks.
+  lifecycle_rule {
+    condition {
+      age = 7
+      matches_prefix = [
+        "${var.environment}/bunny/plans/",
+        "${var.environment}/bunny/logs/",
+      ]
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
   lifecycle {
     prevent_destroy = true
   }
@@ -47,12 +62,13 @@ resource "google_storage_bucket" "tfstate" {
 #
 # The bunny root's state is the one exception to "state holds no secrets": the
 # Bunny provider keeps the Stream library keys, the storage zone passwords and
-# the pull zone's token key there. The CI identities get nothing under its
-# prefix (objects or lock), so only developers can read it. Object names stay
-# listable, contents don't. live/dev/bunny refuses to apply until this
-# condition is in place.
+# the pull zone's token key there. CI identities other than tf-bunny get nothing
+# under its prefix (objects or lock), so only developers and tf-bunny can read
+# it; it's also encrypted with tofu-bunny, which only they can use (kms.tf).
+# Object names stay listable, contents don't. live/dev/bunny refuses to plan if
+# anything Bunny is public.
 locals {
-  # Prefixes no CI identity may read or write (keep in step with live/dev/bunny).
+  # Prefixes no CI identity but tf-bunny may read or write (keep in step with live/dev/bunny).
   private_state_prefixes = ["${var.environment}/bunny/"]
   ci_state_condition = join(" && ", [
     for p in local.private_state_prefixes :
@@ -81,6 +97,28 @@ data "google_iam_policy" "tfstate" {
       description = "No access to state that holds secrets (the bunny root)."
       expression  = local.ci_state_condition
     }
+  }
+  # The bucket-type clause lets the backend list object names (workspaces); object
+  # permissions are checked on the object, so other roots' contents stay closed.
+  binding {
+    role    = "roles/storage.objectAdmin"
+    members = [google_service_account.tf_bunny.member]
+    condition {
+      title       = "only-bunny-state"
+      description = "The bunny root's state, plans and logs only."
+      expression = join(" || ", [
+        "resource.type == 'storage.googleapis.com/Bucket'",
+        join(" || ", [
+          for p in local.private_state_prefixes :
+          "resource.name.startsWith('projects/_/buckets/${google_storage_bucket.tfstate.name}/objects/${p}')"
+        ]),
+      ])
+    }
+  }
+  # The bootstrap drift plan refreshes the bucket itself (storage.buckets.get).
+  binding {
+    role    = "roles/storage.bucketViewer"
+    members = [google_service_account.tf_planner.member]
   }
 }
 
