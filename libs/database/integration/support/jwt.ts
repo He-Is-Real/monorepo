@@ -8,7 +8,7 @@ import {
 
 /**
  * Stand-in for a Clerk instance: an RS256 key pair generated per test run. The public half
- * is pinned into `DEFINE ACCESS clerk` exactly as Terraform will pin Clerk's PEM public key
+ * is pinned into `DEFINE ACCESS clerk` exactly as OpenTofu will pin Clerk's PEM public key
  * (GKE has no internet egress, so SurrealDB can't fetch Clerk's JWKS).
  */
 export interface SigningKeys {

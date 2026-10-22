@@ -20,7 +20,7 @@ base/                     shared by every environment
   backup-cronjob.yaml     nightly `surreal export` → Cloud Storage
 overlays/local/           kind/k3d/minikube: 1 GiB disk, no backups
 overlays/gke/             External Secrets Operator, Workload Identity, SSD disk
-overlays/gke-dev/         dev values (settings.env, checked against Terraform), Spot Pods, small
+overlays/gke-dev/         dev values (settings.env, checked against OpenTofu), Spot Pods, small
                           requests, 5 GiB balanced disk, Cloud Run subnet allowed in, quota
 scripts/local-secrets.mjs creates a local cluster's Secrets from the dev project via gcloud
 scripts/local-migration.mjs creates a local cluster's migration bundle (ConfigMap)
@@ -47,12 +47,12 @@ Only the in-cluster Jobs are system users. Each identity has its own Secret Mana
 per-service system users (`api_read`, `api_write`, `api_admin`, `workflow`: an EDITOR could
 `REMOVE EVENT`), and writes each service's argon2 hash with `crypto::argon2::generate`, so only
 the hash is stored. The plaintext stays in that Secret (rendered in-cluster by ESO): never in
-Terraform state, the repo, the migration bundle or logs.
+OpenTofu state, the repo, the migration bundle or logs.
 
 Why at startup and not a Job: on 3.2.4, removing a user **doesn't end its open sessions** (an
 EDITOR session kept reading `PERMISSIONS NONE` tables; pinned by a test). A restart does, and the
 server answers nothing (503) until the import has finished, so nobody can sign in in between.
-Terraform names the ExternalSecret, its Secret and the template ConfigMap after a hash of the
+OpenTofu names the ExternalSecret, its Secret and the template ConfigMap after a hash of the
 template, the ExternalSecret definitions and the gcp root's `secret_rotation`, and stamps the hash
 on the pod (`heisreal.today/identity-config`). A change therefore restarts SurrealDB once, and the
 new pod can only start when ESO has rendered the new Secret: never with a stale script. Dev cost:
@@ -100,14 +100,14 @@ kubectl -n database port-forward svc/surrealdb 8000:8000   # apps use ws://local
 - After a schema change, re-run `local-migration.mjs` (it deletes the old migrate Job) and
   re-apply the overlay. `--clerk-public-key-file <pem>` turns on person sessions.
 
-## Deploy to GKE (Terraform only)
+## Deploy to GKE (OpenTofu only)
 
 Never `kubectl apply` to GKE. The `cluster` root applies the `gke-dev` overlay; the `gcp` root
-owns the cluster, secrets, bucket and identities (see [the Terraform README](../../terraform/README.md)).
+owns the cluster, secrets, bucket and identities (see [the OpenTofu README](../../terraform/README.md)).
 Cloud Run reaches SurrealDB at `surrealdb.database.svc.cluster.heisreal-dev.internal:8000`
 through VPC-scope DNS, with no load balancer.
 
-`settings.env` repeats a few Terraform values (project, bucket, service accounts, Cloud Run
+`settings.env` repeats a few OpenTofu values (project, bucket, service accounts, Cloud Run
 subnet) so the overlay renders on its own; the `cluster` root refuses to plan if they differ.
 
 Set `storageClassName` and the disk size **before the first deploy**: a StatefulSet can't change
@@ -119,7 +119,7 @@ them afterwards (disks can be grown by editing the PVC).
 `access-clerk.surql`, numbered `data/NNNN-*.surql` scripts (each runs once), `dpa-sync.surql`
 and the runner, `migrate.py` (its header has the details). On GKE the `cluster` root ships it as
 the ConfigMap `surrealdb-migration-<hash>` and runs the Job `surrealdb-migrate-<hash>` as
-`migrator`. The hash covers every file, the Terraform parameters (DPA hashes, Clerk key, identity
+`migrator`. The hash covers every file, the OpenTofu parameters (DPA hashes, Clerk key, identity
 config) and the Job spec: change any of them and the next apply replaces the Job, which runs;
 change nothing and there's no diff. The Job doesn't retry on its own (`backoffLimit: 0`); inside a run, the
 runner retries a step whose COMMIT the server refused with a retryable conflict (up to 3 attempts).
@@ -139,7 +139,7 @@ What a run does, in order (validate first, then change):
    A rollback to an older bundle is just a newer run.
 3. **Checks, read-only:** every file follows the grammar (below); no step was left unfinished
    (`_migrationPending`); no applied data script has changed (sha256 in `_migration`); no pending
-   script needs a parameter Terraform passed as null; every seeded DPA version still has its file
+   script needs a parameter OpenTofu passed as null; every seeded DPA version still has its file
    and a published one's text hasn't changed (`dpa-sync.surql` in a cancelled transaction).
 4. **Schema:** `schema.surql` and the Clerk access, one step.
 5. **Data scripts:** each new one, one step each, recorded in `_migration`.
@@ -260,11 +260,11 @@ records it in `_migration` with a checksum. Add tests in `libs/database/integrat
 a person session. Never a private key (the variable refuses one). After a Clerk key rotation,
 update it here and in the services' `CLERK_JWT_PUBLIC_KEY`, then migrate.
 
-**Dev story** (task 0.9): `seed_dev_story` (Terraform, true only in `live/dev/cluster`;
+**Dev story** (task 0.9): `seed_dev_story` (OpenTofu, true only in `live/dev/cluster`;
 `--seed-dev-story` for `local-migration.mjs`) makes data script 0003 publish one obviously fake story.
 Off, the script records itself as applied and writes nothing, so it can't be turned on later.
 
-**DPA text** (D20): Terraform passes each `libs/legal/dpa/*.md` file's sha256 (`$dpa_sha256`).
+**DPA text** (D20): OpenTofu passes each `libs/legal/dpa/*.md` file's sha256 (`$dpa_sha256`).
 While a version is a draft, its `contentHash` follows the file; once published, a changed file
 fails the migration. Every seeded version, draft or published, must keep its file: a missing one
 fails the migration (only a version that isn't seeded yet may lack it). A version created through
@@ -276,7 +276,7 @@ SurrealDB is down), and the deployed api-public-read signs in as the old `api_re
 it's redeployed:
 
 1. Wait for "Release Images" to build `main` (libs/database now signs in through `svc`).
-2. `gcp`: `terraform apply -target='module.gcp.google_secret_manager_secret_version.surreal' -target='module.gcp.google_secret_manager_secret_iam_member.surrealdb_secrets'`
+2. `gcp`: `tools/scripts/tf.sh gcp apply -target='module.gcp.google_secret_manager_secret_version.surreal' -target='module.gcp.google_secret_manager_secret_iam_member.surrealdb_secrets'`
    creates `surreal-api-public-read-password` and `surreal-api-user-password` and gives ESO
    access.
 3. `cluster`: apply. It deletes the old init Job, applies `surrealdb-init-<hash>`, restarts
@@ -312,7 +312,7 @@ Always export to a **file**: on stdout the CLI mixes its log lines into the dump
 
 ## Rotating passwords
 
-Terraform generates the passwords (`infra/terraform/modules/gcp/secrets.tf`, write-only).
+OpenTofu generates the passwords (`infra/terraform/modules/gcp/secrets.tf`, write-only).
 Rotating adds a new Secret Manager version and leaves the previous one in place.
 
 - **Services, migrator and backup:** bump `secret_rotation` in the gcp root and apply, then apply

@@ -19,7 +19,7 @@ import { newTestClerk, type TestClerk } from '../src/testing';
 /**
  * Task 0.5 end to end on SurrealDB 3.2.4: a token verified by `libs/auth` opens the person's
  * own database session (D27). The stand-in Clerk key is the one the harness pins as the
- * database's `clerk_jwt_public_key`, exactly as Terraform pins the dev instance's.
+ * database's `clerk_jwt_public_key`, exactly as OpenTofu pins the dev instance's.
  */
 describe('Clerk sign-in → person session', () => {
   let t: TestDatabase;

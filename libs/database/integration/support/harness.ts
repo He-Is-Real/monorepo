@@ -33,14 +33,14 @@ export type Row = Record<string, unknown>;
 export const sha256 = (text: string) =>
   createHash('sha256').update(text).digest('hex');
 
-/** The parameters Terraform passes the runner (params.json); null = not available yet. */
+/** The parameters OpenTofu passes the runner (params.json); null = not available yet. */
 export interface MigrationParams {
   clerk_jwt_public_key: string | null;
   /** { <dpaVersion id>: sha256 of libs/legal/dpa/<id>.md } for every file there */
   dpa_sha256: Record<string, string>;
   /** The identity config that must be verified first (GKE); null = don't check */
   identity_hash: string | null;
-  /** Seed 0003's walking-skeleton story (dev only, M0 0.9); Terraform's default is false. */
+  /** Seed 0003's walking-skeleton story (dev only, M0 0.9); OpenTofu's default is false. */
   seed_dev_story: boolean;
 }
 
@@ -190,7 +190,7 @@ export class TestDatabase {
     return t;
   }
 
-  /** What Terraform would pass, with this database's stand-in Clerk key. */
+  /** What OpenTofu would pass, with this database's stand-in Clerk key. */
   params(overrides: Partial<MigrationParams> = {}): MigrationParams {
     return {
       clerk_jwt_public_key: this.keys.publicKeyPem,

@@ -15,8 +15,6 @@ source of truth, so change them in the same PR as the code.
   (api-public-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
   through External Secrets Operator on clusters. Never commit secret values or add key files.
-- Install the secret-scanning hook once per clone: `mise install && tools/scripts/install-hooks.sh`
-  (gitleaks, `.gitleaks.toml`).
 - Nothing on GKE is reachable from the internet: private nodes only, and no `LoadBalancer` or
   `NodePort` Services and no Ingress/Gateway. Workers (Dapr workflow, inference workers) connect
   outbound only, to Pub/Sub. Public entry points are Cloud Run services only.
@@ -24,25 +22,28 @@ source of truth, so change them in the same PR as the code.
 - **Responsive everywhere (Joel):** every page and view is mobile-first and works from 320 px phones through foldables, tablets (both orientations) and 1920 px+ desktops: no horizontal scroll, 44 px touch targets, readable line lengths, safe-area insets. Cover each new page in `apps/web/e2e` (device matrix in `devices.ts`).
 - **Browse loads at most 2 extra pages automatically,** then shows a "Show more stories" button
   (D55). It's the only exception to the design principle "no infinite scroll".
-- **All cloud deployments and modifications go through Terraform (`infra/terraform`), including
-  proofs of concept.** Never use console clicks, `gcloud … create/update`, or `kubectl apply` against
-  GKE. Adopt anything made by hand with `import` blocks. Read-only commands are fine. Never
-  auto-apply: plans may run automatically, applies are manual (local developer machine or `terraform-apply.yml`).
-  Run every root through `tools/scripts/tf.sh <root> …` (OpenTofu, D54).
-  Solo project: gates mean "deliberate", never "needs a second person".
-  One narrow exception: the Clerk instance's settings, which have no maintained Terraform provider,
-  live in `infra/clerk/dev.json` and are applied with `infra/clerk/clerk-config.mjs` (decision 17 in
-  `docs/delivery-status.md`); Clerk's public keys, its secret-key container and all of GCP stay in Terraform.
-- Terraform state must never hold secrets: write-only attributes for values, `ephemeral` for tokens.
-  One approved exception (Joel, 2026-10-21): the `bunny` root's state holds the Bunny provider's
-  computed keys (`bunnynet_stream_library.api_key`/`api_key_readonly`,
-  `bunnynet_storage_zone.password`/`password_readonly`, `bunnynet_pullzone.token_auth_key`), which
-  have no write-only alternative. It's acceptable only because that prefix (`dev/bunny/`) is
-  readable by developers, and by Google-managed service agents acting for their own services. No
-  CI identity can read it, `tf-deployer` can't change the state bucket's or any `bunny-*` secret's
-  IAM, and the bunny root checks this before every plan. CI never plans or applies it, nothing
-  reads it via `terraform_remote_state` and plans are never saved (`infra/terraform/README.md`,
-  "Bunny.net"). Don't extend it to other resources or roots.
+- **All cloud deployments and modifications go through OpenTofu (`infra/terraform`; D54: never Terraform),
+  including proofs of concept.** Run it with `tools/scripts/tf.sh <root> …` (locally it acts as the root's
+  CI identity; `TF_SH_IDENTITY=self` uses yours). Never use console clicks, `gcloud … create/update`, or
+  `kubectl apply` against GKE. Adopt anything made by hand with `import` blocks. Read-only commands are fine.
+  Exceptions: the Clerk instance's settings (`infra/clerk/dev.json`, applied with
+  `infra/clerk/clerk-config.mjs`, decision 17 in `docs/delivery-status.md`), and recovering a KMS key
+  version (`infra/terraform/README.md`, "Break-glass").
+- **Plans run on their own; every apply needs one approval.** An approval means "I read this plan and
+  choose to apply it". It isn't access control, and approving your own run is expected. Claude may approve
+  dev applies. Applies happen through the `dev` environment in `tofu-apply.yml` (it applies exactly the plan
+  it saved) or a developer running `tf.sh <root> apply`. `bootstrap` is applied locally only.
+- State and saved plans are encrypted with Cloud KMS (`tofu-state`; `tofu-bunny` for bunny). Never disable
+  or destroy those keys or their versions, and never revert bootstrap wholesale. State must still never hold
+  secrets: write-only attributes for values, `ephemeral` for tokens. One approved exception (Joel,
+  2026-10-21; D57): the `bunny` root's state holds the Bunny provider's computed keys. Only developers and
+  `tf-bunny` can read or decrypt it; CI gets `tf-bunny` only on `main` (`tofu-apply.yml`, `tofu-drift.yml`),
+  never in PRs; and the root refuses to plan if anything Bunny is public. Don't extend it to other
+  resources or roots.
+- **CI logs are public (public repo).** Never print secrets. Bunny jobs mask the Bunny keys and publish only
+  `tf.sh … plan-summary`; raw output goes to `gs://heisreal-dev-tfstate/dev/bunny/logs/`. Never set
+  `TF_LOG` or step debug for tofu (`tf.sh` refuses). Workflows start from `permissions: {}`; never use
+  `pull_request_target`. Install the secret-scanning hook once per clone: `mise install && tools/scripts/install-hooks.sh`.
 - Budget guardrail: £15/month budget with alert emails at £3/£7.50/£15 (no automatic stop). Never
   unlink billing; storage is always kept.
 

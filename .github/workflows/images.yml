@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   # Skips the image job when no service could have changed since the last
-  # successful run (docs, Terraform, ...). Only a gate: the content-hash tag
+  # successful run (docs, OpenTofu, ...). Only a gate: the content-hash tag
   # in _images.yml still decides what is pushed.
   changes:
     runs-on: ubuntu-latest
