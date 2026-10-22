@@ -10,15 +10,14 @@ terraform {
     method "aes_gcm" "bunny" {
       keys = key_provider.gcp_kms.bunny
     }
-    method "unencrypted" "migration" {} # removed in Task 11
 
     state {
-      method = method.aes_gcm.bunny
-      fallback { method = method.unencrypted.migration }
+      method   = method.aes_gcm.bunny
+      enforced = true # never read or write plaintext
     }
     plan {
-      method = method.aes_gcm.bunny
-      fallback { method = method.unencrypted.migration }
+      method   = method.aes_gcm.bunny
+      enforced = true # never read or write plaintext
     }
   }
 }

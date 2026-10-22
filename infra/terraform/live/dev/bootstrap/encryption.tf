@@ -9,15 +9,14 @@ terraform {
     method "aes_gcm" "state" {
       keys = key_provider.gcp_kms.state
     }
-    method "unencrypted" "migration" {} # removed in Task 11
 
     state {
-      method = method.aes_gcm.state
-      fallback { method = method.unencrypted.migration }
+      method   = method.aes_gcm.state
+      enforced = true # never read or write plaintext
     }
     plan {
-      method = method.aes_gcm.state
-      fallback { method = method.unencrypted.migration }
+      method   = method.aes_gcm.state
+      enforced = true # never read or write plaintext
     }
   }
 }

@@ -71,17 +71,24 @@ jobs:
             tools/scripts/tf.sh "$root" validate
             echo "::endgroup::"
           done
-      # validate doesn't evaluate the encryption block (S6), so at least pin the key names: only
-      # bunny uses tofu-bunny. Plans against the real backend test the rest.
-      - name: Check the encryption keys
+      # validate doesn't evaluate the encryption block (S6), so at least pin the key names (only
+      # bunny uses tofu-bunny) and that state and plans are enforced, with no plaintext method or
+      # fallback. Plans against the real backend test the rest.
+      - name: Check the encryption config
         run: |
           key_only() { # key_only <root> <key> <other key>
             local file="infra/terraform/live/dev/$1/encryption.tf"
             grep -q "cryptoKeys/$2\"" "$file" || { echo "::error file=$file::must use $2"; exit 1; }
             if grep -q "$3" "$file"; then echo "::error file=$file::must not use $3"; exit 1; fi
+            [ "$(grep -c 'enforced *= *true' "$file")" -eq 2 ] ||
+              { echo "::error file=$file::state and plan must both be enforced"; exit 1; }
           }
           key_only bunny tofu-bunny tofu-state
           for root in bootstrap gcp images cluster; do key_only "$root" tofu-state tofu-bunny; done
+          if git grep -n -E 'method +"unencrypted"|fallback +\{' -- 'infra/terraform/*.tf'; then
+            echo "::error::no plaintext method or fallback: every state is encrypted (D54)"
+            exit 1
+          fi
       # S11: CI's Bunny jobs print only plan-summary, and that relies on the five Bunny key
       # attributes being sensitive in the locked bunnynet provider. A scratch root with only the
       # bunny root's lock file: `providers schema` evaluates the encryption block (it calls
