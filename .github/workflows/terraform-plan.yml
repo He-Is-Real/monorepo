@@ -80,9 +80,40 @@ jobs:
             tools/scripts/tf.sh "$root" validate
             echo "::endgroup::"
           done
+      # validate doesn't evaluate the encryption block (S6), so at least pin the key names: only
+      # bunny uses tofu-bunny. Plans against the real backend test the rest.
+      - name: Check the encryption keys
+        run: |
+          set -euo pipefail
+          key_only() { # key_only <root> <key> <other key>
+            local file="infra/terraform/live/dev/$1/encryption.tf"
+            grep -q "cryptoKeys/$2\"" "$file" || { echo "::error file=$file::must use $2"; exit 1; }
+            if grep -q "$3" "$file"; then echo "::error file=$file::must not use $3"; exit 1; fi
+          }
+          key_only bunny tofu-bunny tofu-state
+          for root in bootstrap gcp images cluster; do key_only "$root" tofu-state tofu-bunny; done
+      # S11: CI's Bunny jobs print only plan-summary, and that relies on the five Bunny key
+      # attributes being sensitive in the locked bunnynet provider. A scratch root with only the
+      # bunny root's lock file: `providers schema` evaluates the encryption block (it calls
+      # KMS), and this job has no Google credentials.
+      - name: Check the Bunny keys are sensitive
+        run: |
+          set -euo pipefail
+          schema="$(mktemp -d)"
+          cp infra/terraform/live/dev/bunny/.terraform.lock.hcl "$schema/"
+          printf 'terraform {\n  required_providers {\n    bunnynet = { source = "BunnyWay/bunnynet" }\n  }\n}\n' > "$schema/main.tf"
+          tofu -chdir="$schema" init -backend=false -input=false > /dev/null
+          tofu -chdir="$schema" providers schema -json |
+            jq -e '.provider_schemas["registry.opentofu.org/bunnyway/bunnynet"].resource_schemas
+              | [.bunnynet_stream_library.block.attributes.api_key,
+                 .bunnynet_stream_library.block.attributes.api_key_readonly,
+                 .bunnynet_storage_zone.block.attributes.password,
+                 .bunnynet_storage_zone.block.attributes.password_readonly,
+                 .bunnynet_pullzone.block.attributes.token_auth_key]
+              | map(.sensitive == true) | length == 5 and all'
       # The migrate Job's and the identity config's names change iff their content does (D14,
       # D13 B). No providers, no cloud access.
-      # bunny-state-guard: who may hold inherited object reads (the bunny root's pre-plan check).
+      # bunny-state-guard: nothing Bunny is public (the bunny root's pre-plan check).
       - name: Test the pure modules
         run: |
           set -euo pipefail
