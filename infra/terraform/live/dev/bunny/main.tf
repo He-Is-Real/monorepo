@@ -1,10 +1,11 @@
 # Dev Bunny.net: a Stream library (video/audio), an S3-compatible storage zone
 # in London and a pull zone (CDN) in front of it (images). Applied by a
-# developer only, after bootstrap, with tools/scripts/tf-bunny.sh:
+# developer only, after bootstrap, with tools/scripts/tf.sh (as tf-bunny by default;
+# TF_SH_IDENTITY=self for your own credentials):
 #
-#   tools/scripts/tf-bunny.sh init
-#   tools/scripts/tf-bunny.sh plan
-#   tools/scripts/tf-bunny.sh apply
+#   tools/scripts/tf.sh bunny init
+#   tools/scripts/tf.sh bunny plan
+#   tools/scripts/tf.sh bunny apply
 #
 # This root's state holds Bunny keys (the approved exception in AGENTS.md), so
 # CI neither plans nor applies it, nothing reads its state, and plans are never

@@ -23,7 +23,7 @@ live/dev/      one root per concern, applied in this order:
   gcp/         developer or the manual GitHub workflow            state: dev/gcp
   images/      developer (local image builds; needs Docker)       state: dev/images
   cluster/     developer or the manual GitHub workflow            state: dev/cluster
-  bunny/       developer only, with tools/scripts/tf-bunny.sh      state: dev/bunny (private)
+  bunny/       developer only, with tools/scripts/tf.sh bunny      state: dev/bunny (private)
 ```
 
 State is in `gs://heisreal-dev-tfstate` (London, versioned, locked). Roots read each other's
@@ -196,18 +196,20 @@ state nor plans. The keys the apps will need are copied into `bunny-stream-api-k
 `bunny-storage-password` with write-only versions; apps read them through `libs/secrets`. No
 service has access yet: grants come with the milestone that uses them (M2, api-user).
 
-**`tools/scripts/tf-bunny.sh`** runs Terraform for this root (any command:
-`tools/scripts/tf-bunny.sh plan`), refusing `-out` and clearing `TF_LOG*`. `tf-bunny.sh bunny
-<args>` runs the bunny CLI with the account key from Secret Manager in `BUNNYNET_API_KEY` for
-that one process, so you never need `bunny login`, a profile or a `.env` file. Don't run
-`terraform state pull` or `show -json` here unless you must: they print the keys.
+**`tools/scripts/tf.sh bunny <command>`** runs OpenTofu for this root (any command:
+`tools/scripts/tf.sh bunny plan`), as `tf-bunny` by default (`TF_SH_IDENTITY=self` for your own
+credentials, which you need until bootstrap creates `tf-bunny`). It refuses debug logs (`TF_LOG*`)
+and `state pull`, `show -json` and `output -json`, which print the keys; `tf.sh bunny plan-summary
+<plan>` prints only addresses and actions. `tf.sh bunny-cli <args>` runs the bunny CLI with the
+account key from Secret Manager in `BUNNYNET_API_KEY` for that one process, so you never need
+`bunny login`, a profile or a `.env` file.
 
-| Task                           | How                                                                                                                                                                                                                                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| First setup (once)             | apply `bootstrap` (private state prefix, deployer fences, secret container), add the account key (next row), then `tf-bunny.sh init` and `apply`                                                                                                                                                       |
-| Add or replace the account key | `jq -j .profiles.default.api_key ~/.config/bunnynet.json \| gcloud secrets versions add bunny-account-api-key --project heisreal-dev --data-file=-` (from a `bunny login` profile; never echo it), then `bunny logout`                                                                                 |
-| Check the AI features are off  | `tools/scripts/tf-bunny.sh bunny api GET /videolibrary/<id> \| jq '{EnableTranscribing, EnableTranscribingChaptersGeneration, EnableTranscribingMomentsGeneration, EnableContentTagging, KeepOriginalFiles, EnableMP4Fallback, ReplicationRegions}'` (keep the filter: the response includes the keys) |
-| Rotate a library or zone key   | reset it at Bunny (`tf-bunny.sh bunny ...`), then `tf-bunny.sh apply`: the new value becomes a new secret version; disable the old one once services restarted                                                                                                                                         |
+| Task                           | How                                                                                                                                                                                                                                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First setup (once)             | apply `bootstrap` (private state prefix, deployer fences, secret container), add the account key (next row), then `tf.sh bunny init` and `apply`                                                                                                                                                     |
+| Add or replace the account key | `jq -j .profiles.default.api_key ~/.config/bunnynet.json \| gcloud secrets versions add bunny-account-api-key --project heisreal-dev --data-file=-` (from a `bunny login` profile; never echo it), then `bunny logout`                                                                               |
+| Check the AI features are off  | `tools/scripts/tf.sh bunny-cli api GET /videolibrary/<id> \| jq '{EnableTranscribing, EnableTranscribingChaptersGeneration, EnableTranscribingMomentsGeneration, EnableContentTagging, KeepOriginalFiles, EnableMP4Fallback, ReplicationRegions}'` (keep the filter: the response includes the keys) |
+| Rotate a library or zone key   | reset it at Bunny (`tf.sh bunny-cli ...`), then `tf.sh bunny apply`: the new value becomes a new secret version; disable the old one once services restarted                                                                                                                                         |
 
 **Check the fences after applying `bootstrap`** (and again once the bunny root has state):
 `tools/scripts/check-bunny-fences.sh`. It impersonates `tf-deployer` for five minutes and checks,

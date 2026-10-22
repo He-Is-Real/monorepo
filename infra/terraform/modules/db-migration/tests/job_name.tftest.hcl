@@ -1,5 +1,8 @@
 # The migrate Job's name changes if and only if what it would apply changes (D14): Terraform
-# replaces the Job (so it runs again) exactly when the name changes. Offline: `terraform test`.
+# replaces the Job (so it runs again) exactly when the name changes. Offline: `tofu test`.
+#
+# OpenTofu doesn't accept run.<name>.<output> inside assert, so run "a" applies (no providers
+# or resources: still offline) and later runs take its values in as variables.
 
 variables {
   schema_dir = "tests/fixtures/a/schema"
@@ -51,7 +54,7 @@ run "repo_bundle" {
 }
 
 run "a" {
-  command = plan
+  command = apply
   assert {
     condition     = output.params.dpa_sha256 == { v1 = filesha256("tests/fixtures/a/dpa/v1.md") }
     error_message = "dpa_sha256 maps each DPA file to its sha256."
@@ -61,11 +64,12 @@ run "a" {
 run "same_content_elsewhere" {
   command = plan
   variables {
-    schema_dir = "tests/fixtures/a-copy/schema"
-    dpa_dir    = "tests/fixtures/a-copy/dpa"
+    base_job_name = run.a.job_name
+    schema_dir    = "tests/fixtures/a-copy/schema"
+    dpa_dir       = "tests/fixtures/a-copy/dpa"
   }
   assert {
-    condition     = output.job_name == run.a.job_name
+    condition     = output.job_name == var.base_job_name
     error_message = "Identical content must give the same name (no diff, no re-run)."
   }
 }
@@ -73,10 +77,11 @@ run "same_content_elsewhere" {
 run "data_script_changed" {
   command = plan
   variables {
-    schema_dir = "tests/fixtures/b/schema"
+    base_job_name = run.a.job_name
+    schema_dir    = "tests/fixtures/b/schema"
   }
   assert {
-    condition     = output.job_name != run.a.job_name
+    condition     = output.job_name != var.base_job_name
     error_message = "A one-byte change to a data script must give a new name."
   }
 }
@@ -84,10 +89,12 @@ run "data_script_changed" {
 run "dpa_text_changed" {
   command = plan
   variables {
-    dpa_dir = "tests/fixtures/dpa-changed"
+    base_job_name   = run.a.job_name
+    base_dpa_sha256 = run.a.params.dpa_sha256.v1
+    dpa_dir         = "tests/fixtures/dpa-changed"
   }
   assert {
-    condition     = output.job_name != run.a.job_name && output.params.dpa_sha256.v1 != run.a.params.dpa_sha256.v1
+    condition     = output.job_name != var.base_job_name && output.params.dpa_sha256.v1 != var.base_dpa_sha256
     error_message = "A changed DPA text must give a new hash parameter and a new name."
   }
 }
@@ -95,10 +102,11 @@ run "dpa_text_changed" {
 run "clerk_key_set" {
   command = plan
   variables {
+    base_job_name        = run.a.job_name
     clerk_jwt_public_key = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\n-----END PUBLIC KEY-----\n"
   }
   assert {
-    condition     = output.job_name != run.a.job_name && output.params.clerk_jwt_public_key != null
+    condition     = output.job_name != var.base_job_name && output.params.clerk_jwt_public_key != null
     error_message = "Setting the Clerk key must give a new name."
   }
 }
@@ -106,6 +114,7 @@ run "clerk_key_set" {
 run "job_spec_changed" {
   command = plan
   variables {
+    base_job_name = run.a.job_name
     job_template = {
       apiVersion = "batch/v1"
       kind       = "Job"
@@ -124,7 +133,7 @@ run "job_spec_changed" {
     }
   }
   assert {
-    condition     = output.job_name != run.a.job_name
+    condition     = output.job_name != var.base_job_name
     error_message = "A new image (or runner, or any Job field) must give a new name: Jobs are immutable."
   }
 }
@@ -132,10 +141,11 @@ run "job_spec_changed" {
 run "identity_config_changed" {
   command = plan
   variables {
+    base_job_name = run.a.job_name
     identity_hash = "abc"
   }
   assert {
-    condition     = output.job_name != run.a.job_name && output.params.identity_hash == "abc"
+    condition     = output.job_name != var.base_job_name && output.params.identity_hash == "abc"
     error_message = "A new identity config re-runs the Job, which checks the restart happened."
   }
 }
