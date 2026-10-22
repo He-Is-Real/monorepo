@@ -12,7 +12,7 @@
 - **A "never public" guard** runs before every bunny plan. It fails if `allUsers` or `allAuthenticatedUsers` holds any role on the state bucket, a `bunny-*` secret, the keyring or either key.
 - **Encryption in two steps.** Every root gets an `encryption.tf` with an `unencrypted` fallback. The fallback is removed once every state is encrypted.
 - **Three workflows replace `terraform-*.yml`.** `tofu-plan.yml` (PRs, read-only), `tofu-apply.yml` (any push to main, a finished image release, or dispatch → plan every root that is behind `main` → one approval per apply → apply the saved plan) and `tofu-drift.yml` (weekly).
-- **Correct by construction, no retirement logic.** Each apply run targets the `main` HEAD it sees at its start. Per-root "last applied commit" markers decide what is behind, so any later run picks up whatever an earlier run didn't apply. An apply refuses itself if `main` has moved on since its run started (the newer run plans again). There is no workflow-level concurrency group, so an old run waiting for approval never blocks a newer one; state locks and OpenTofu's stale-plan check keep applies safe.
+- **Correct by construction, no selection logic on `main`.** `tofu-apply.yml` runs one at a time (one concurrency group), plans every root on every run against the `main` HEAD it sees at its start, and asks for at most two approvals: one for gcp and bunny, one for cluster (planned after gcp's apply). A superseded run applies nothing; the next run plans everything again, so nothing is ever lost.
 
 **Tech Stack:**
 
@@ -36,7 +36,7 @@
 | **D57 = C: separate key holder, no fence** | Keep `tf-bunny` and the `tofu-bunny` key. tf-bunny's sign-in gate allows only `refs/heads/main` and `tofu-apply.yml` / `tofu-drift.yml`. PRs never plan bunny. Developers can impersonate tf-bunny, so `tf.sh bunny plan                                                                                                                                                                                                                    | apply` works locally from any branch. |
 | **Dropped with A**                         | Moving the 5 app SAs to bootstrap, the `removed {}` blocks in gcp, per-SA deployer grants, removing the deployer's project-level SA roles, the `org` root and org-admin login, the impersonator guard, the transitional bunny guard, `--stage=l1\|final`, and the "tf-deployer has no route to Bunny" probes.                                                                                                                               |
 | **Never-public guard**                     | Replaces the fence guard. Org-level checks live only in the local `check-bunny-fences.sh`. tf-bunny needs no org permission.                                                                                                                                                                                                                                                                                                                |
-| **Approval = read the plan, then apply**   | It isn't access control. Plans run unattended (bunny too, on `main`, as tf-bunny). Every apply needs exactly one approval in the `dev` environment. Claude may approve dev applies. Bunny uses the same single approval and has no gate before its plan. Bunny joins the weekly drift check. bootstrap stays local-only.                                                                                                                    |
+| **Approval = read the plan, then apply**   | It isn't access control. Plans run unattended (bunny too, on `main`, as tf-bunny). Applies need approval in the `dev` environment: one click covers gcp and bunny together, and a second click covers cluster only when cluster also changes (it's planned after gcp's apply). Claude may approve dev applies. Bunny has no gate before its plan. Bunny joins the weekly drift check. bootstrap stays local-only.                           |
 | **Logs stay public**                       | The repo stays public and on GitHub Actions. No private logs, private repo or Cloud Build. Kept: redacted Bunny summaries (raw output goes to the private bucket), refusing `TF_LOG` and step debug, no Bunny plans as artifacts. Added: masking the Bunny keys in Bunny jobs, `permissions: {}` in every workflow plus a CI check (also bans `pull_request_target`), gitleaks in CI and as a pre-commit hook, root `.gitignore` additions. |
 | **Not doing**                              | Narrow per-job Bunny keys, a key-rotation runbook, shorter raw-log retention, a soft-delete guard.                                                                                                                                                                                                                                                                                                                                          |
 | **Break-glass**                            | The only change allowed outside OpenTofu is recovering a KMS key version with `gcloud` (runbook below). Clerk config stays the other standing exception.                                                                                                                                                                                                                                                                                    |
@@ -67,7 +67,7 @@
 **Approvals and identities**
 
 - Never auto-apply. Plans may run unattended. An apply happens only after one approval in the `dev` environment, or when a developer deliberately runs `tf.sh <root> apply`.
-- One approval per apply. A merge that changes gcp and cluster asks twice, because cluster is planned only after gcp is applied.
+- At most two approvals per `tofu-apply.yml` run, one per wave that has changes: wave 1 is gcp and bunny, wave 2 is cluster (and images on request), planned after gcp's apply. A gcp + cluster change asks twice; any single-root change asks once.
 - `bootstrap` is local-only. CI plans it read-only (weekly drift as tf-planner) and never applies it.
 - `tf-bunny` covers the bunny root only: `dev/bunny/` state, the `bunny-*` secrets and `tofu-bunny`. CI can use it only on `main`, in `tofu-apply.yml` or `tofu-drift.yml`.
 - `tf-deployer` gets no grants on `tofu-bunny`, the `bunny-*` secrets or `dev/bunny/`. Its existing conditions (`not-bunny-secrets`, `not-state-bucket`, `!dev/bunny/`) stay as they are.
@@ -96,7 +96,7 @@
 
 1. **Bunny secrets in public CI output.** This covers sensitive attributes and provider error text, which redaction doesn't cover. CI writes only addresses, actions, counts and an exit class publicly. Pinned in Task 2 (`plan-summary`, `bunny-mask` tests) and Task 10 (bunny jobs never print raw output).
 2. **Bunny keys only on `main`.** tf-bunny's gate is tested with claim fixtures (Task 5). PRs never plan bunny (Task 10). The never-public guard is tested offline (Task 6).
-3. **Failed, rejected, stale or superseded stages, and lost roots.** Any of these upstream stops every later stage. "Not selected" and "no changes" stop nothing. A root that isn't applied stays pending until a later run applies it, whatever triggered that run. A run never plans one commit and applies over a newer one. Pinned in Task 10 (`tf-roots.sh pending` and `tf-stage.sh` tests, and the dry run).
+3. **Failed, rejected, stale or superseded stages.** Any of these upstream stops every later stage in the run. "Not selected" and "no changes" stop nothing. Nothing is lost, because every run plans every root. A run never plans one commit and applies over a newer one, and only one run is ever active. Pinned in Task 10 (`tf-stage.sh` tests and the dry run).
 4. **Wrong credentials picked up by `tf.sh`.** Defaults: the root's CI identity locally, ambient credentials in CI, your own with `self`, never impersonation for `bootstrap`. Pinned in Task 2.
 5. **Half-migrated encryption.** A reader with enforced encryption must never meet an unencrypted state, and `TF_ENCRYPTION` must never override the code. Pinned in Tasks 2, 9 and 11.
 6. **Workflow hygiene.** `permissions: {}`, no `pull_request_target`, gitleaks. Pinned in Task 4.
@@ -215,7 +215,7 @@ Before starting:
 
   Run `node --test tools/scripts/tests/*.test.mjs`: FAIL.
 
-- [ ] **Step 2: Implement `tf.sh`.** `set -euo pipefail`, a usage header, repo root `$(cd "$(dirname "$0")/../.." && pwd)`. Read the pin with `sed -n 's/^opentofu = "\(.*\)"/\1/p' mise.toml`. Make it executable. _(Done in this commit: the `opentofu = "1.13.2"` pin in `mise.toml` moved here from Task 3 Step 2, because tf.sh and its tests read it.)_
+- [ ] **Step 2: Implement `tf.sh`.** `set -euo pipefail`, a usage header, repo root `$(cd "$(dirname "$0")/../.." && pwd)`. Read the pin with `sed -n 's/^opentofu = "\(.*\)"/\1/p' mise.toml`. Make it executable. _(Done in this commit: the `opentofu = "1.13.2"` pin in `mise.toml` moved here from Task 3 Step 2, because tf.sh and its tests read it. `node --test <dir>/` doesn't work on Node 24, hence the `*.test.mjs` globs.)_
 - [ ] **Step 3: Verify.** `node --test tools/scripts/tests/*.test.mjs` PASS; `shellcheck tools/scripts/tf.sh` reports nothing.
 - [ ] **Step 4: Commit.**
 
@@ -357,11 +357,11 @@ paths = ['''(^|/)\.env\.example$''']
 
 Tests PASS. If the `[[allowlists]]` table isn't supported by 8.30.1, use the older `[allowlist]` form and note it.
 
-- [ ] **Step 6: Scan the full history once (local, read-only).** `gitleaks git --config .gitleaks.toml --redact --no-banner`. Expected: no findings. Any finding is a real leak until shown otherwise: stop and tell Joel (rotate first, then decide on history).
+- [ ] **Step 6: Scan the full history once (local, read-only).** `gitleaks git --config .gitleaks.toml --redact --no-banner`. Expected: no findings. Any finding is a real leak until shown otherwise: stop and tell Joel (rotate first, then decide on history). _(Result 2026-10-22: 8 findings, no Bunny ones, all reviewed as not secret: the Clerk dev `pk_test_` publishable key in `live/dev/gcp/main.tf` (public by design), the expired 60-second dev-instance session token fixture `libs/auth/src/lib/fixtures/dev-instance-token.jwt`, and idempotency-key strings in two spec files. The first two are allowlisted in `.gitleaks.toml`; the spec findings are fingerprinted in `.gitleaksignore`. Rerun: no leaks.)_
 - [ ] **Step 7: Pre-commit hook.**
   - Add `gitleaks = "8.30.1"` to `mise.toml`.
   - `tools/scripts/install-hooks.sh` writes `.git/hooks/pre-commit` (into `git rev-parse --git-common-dir`, so worktrees share it) containing: `exec gitleaks git --pre-commit --staged --redact --no-banner --config "$(git rev-parse --show-toplevel)/.gitleaks.toml"`. If `gitleaks` is missing, the hook fails with `gitleaks not found: run mise install`. The installer refuses to overwrite an existing hook it didn't write.
-  - Verify: stage a temp file holding a fake Bunny line; `git commit` is refused; unstage it.
+  - Verify: stage a temp file holding a fake Bunny line; `git commit` is refused; unstage it. _(Done 2026-10-22: refused. The installer uses `git rev-parse --git-path hooks`, which is the shared hooks dir in worktrees and honours `core.hooksPath`. The hook was removed after the check, because the main checkout's `mise.toml` has no gitleaks pin until this PR merges: install it after merging.)_
 - [ ] **Step 8: gitleaks in CI.** In `ci.yml`'s `main` job (it already checks out with `fetch-depth: 0`):
 
 ```yaml
@@ -379,7 +379,7 @@ env:
   run: gitleaks git --config .gitleaks.toml --redact --no-banner --log-opts="${{ github.event.pull_request.base.sha || github.event.before }}..${{ github.sha }}"
 ```
 
-Put the install step after "Install kubeconform" (it creates `$RUNNER_TEMP/bin` and adds it to `PATH`) and before the `node --test tools/scripts/tests/*.test.mjs` step, which needs gitleaks. (On the first push to a new branch `github.event.before` is all zeros: fall back to `--log-opts=-1`.)
+Put the install step after "Install kubeconform" (it creates `$RUNNER_TEMP/bin` and adds it to `PATH`) and before the `node --test tools/scripts/tests/*.test.mjs` step, which needs gitleaks. (On the first push to a new branch `github.event.before` is all zeros: fall back to `--log-opts=-1`.) _(Implemented with the base SHA in a step `env` and a bash fallback.)_
 
 - [ ] **Step 9: Write the failing workflow test.** `workflows.test.mjs` parses every `.github/workflows/*.yml` with `yaml` and asserts:
   - the top-level `permissions` exists and is exactly `{}`;
@@ -431,8 +431,8 @@ This commit must keep `main`'s gcp/cluster CI and `terraform-apply.yml` working,
     - Allowed on `refs/heads/main`: `push`, `workflow_dispatch` and `workflow_run` for `tofu-apply.yml@refs/heads/main`; `schedule` and `workflow_dispatch` for `tofu-drift.yml@refs/heads/main`; and, until L5, `workflow_dispatch` for `terraform-apply.yml@refs/heads/main`.
     - Denied: `pull_request`; a non-main ref; `tofu-apply.yml` from a feature branch; `tofu-plan.yml`; `tofu-drift.yml` on `push`; `terraform-apply.yml` on `push`; another repository.
   - `bunny-gate.test.mjs` (tf-bunny):
-    - Allowed on `refs/heads/main`: `tofu-apply.yml@refs/heads/main` with `push` or `workflow_dispatch`; `tofu-drift.yml@refs/heads/main` with `schedule` or `workflow_dispatch`. With or without an `environment` claim.
-    - Denied: `pull_request` (ref `refs/pull/1/merge`); a feature-branch ref; `tofu-apply.yml@refs/heads/feature`; `workflow_run`; `tofu-plan.yml`; `terraform-apply.yml`; `ci.yml`; another repository.
+    - Allowed on `refs/heads/main`: `tofu-apply.yml@refs/heads/main` with `push`, `workflow_dispatch` or `workflow_run` (a run after Release Images plans every root, bunny too; Codex r4 #6); `tofu-drift.yml@refs/heads/main` with `schedule` or `workflow_dispatch`. With or without an `environment` claim.
+    - Denied: `pull_request` (ref `refs/pull/1/merge`); a feature-branch ref; `tofu-apply.yml@refs/heads/feature`; `tofu-drift.yml` on `push`; `tofu-plan.yml`; `terraform-apply.yml`; `ci.yml`; another repository.
   - `cluster-plan-gate.test.mjs`: keep the existing cases. Add `tofu-plan.yml` on `pull_request` in env `cluster-plan` as allowed, and `tofu-plan.yml` on `push` as denied.
 
   Run `node --test infra/terraform/modules/bootstrap/tests/`: FAIL.
@@ -443,9 +443,9 @@ This commit must keep `main`'s gcp/cluster CI and `terraform-apply.yml` working,
     - `…/tofu-drift.yml@refs/heads/main` and event in `['schedule','workflow_dispatch']`;
     - `…/terraform-apply.yml@refs/heads/main` and event `workflow_dispatch` (removed at L5).
 
-    Result `? 'allowed' : 'denied'`. `job_workflow_ref`, like today's deploy gate.
+    Result `? 'allowed' : 'denied'`. Use `job_workflow_ref` in both new gates. It's what today's live deploy gate checks (`ci_identity.tf:61`), and `terraform-apply.yml` runs (a plain job, `workflow_dispatch`) authenticate with it today. GitHub documents the claim for reusable workflows; it's present for plain jobs in practice. Not yet proven: a `workflow_run`-triggered token (ref, event and this claim). Task 13 Step 2 proves it live; if it fails, switch both gates to `workflow_ref` (same value for a plain job) and re-run the gate tests.
 
-  - `bunny_gate.cel.tftpl`: ref main AND (`tofu-apply.yml@refs/heads/main` with `push`/`workflow_dispatch`, or `tofu-drift.yml@refs/heads/main` with `schedule`/`workflow_dispatch`).
+  - `bunny_gate.cel.tftpl`: ref main AND (`tofu-apply.yml@refs/heads/main` with `push`/`workflow_dispatch`/`workflow_run`, or `tofu-drift.yml@refs/heads/main` with `schedule`/`workflow_dispatch`).
   - `cluster_plan_gate.cel.tftpl`: also accept `tofu-plan.yml@` on `pull_request`.
 
   Wire them through `templatefile` in `ci_identity.tf`, adding `attribute.bunny_gate`. Update the header table of identities. Tests PASS.
@@ -472,12 +472,11 @@ This commit must keep `main`'s gcp/cluster CI and `terraform-apply.yml` working,
   - Add the new `google_project_iam_member` resources to `legacy_cloudbuild_builder`'s `depends_on` in `bunny.tf` (it must run after every project IAM write).
 - [ ] **Step 5: `state.tf`.** Keep the two existing bindings exactly as they are. Add (`O = projects/_/buckets/heisreal-dev-tfstate/objects/`):
 
-  | Role                                                                | Members    | Condition                                                                                                                                    |
-  | ------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `roles/storage.objectAdmin`                                         | tf-bunny   | `resource.type == 'storage.googleapis.com/Bucket' \|\| resource.name.startsWith(O + 'dev/bunny/') \|\| resource.name == O + 'applied/bunny'` |
-  | `roles/storage.bucketViewer` (BETA; `storage.buckets.get`, `.list`) | tf-planner | none (S12: the bootstrap drift plan refreshes the bucket)                                                                                    |
+  | Role                                                                | Members    | Condition                                                                                          |
+  | ------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+  | `roles/storage.objectAdmin`                                         | tf-bunny   | `resource.type == 'storage.googleapis.com/Bucket' \|\| resource.name.startsWith(O + 'dev/bunny/')` |
+  | `roles/storage.bucketViewer` (BETA; `storage.buckets.get`, `.list`) | tf-planner | none (S12: the bootstrap drift plan refreshes the bucket)                                          |
   - The bucket-type clause lets tf-bunny list object names (the backend lists workspaces). Object contents elsewhere stay closed, because object permissions are checked on the object.
-  - `applied/bunny` is bunny's "last applied commit" marker for the pipeline (Task 10). It holds only a commit SHA. tf-deployer writes `applied/gcp` and `applied/cluster` through its existing `!dev/bunny/` binding; tf-planner reads all three through its existing binding. tf-deployer could also overwrite `applied/bunny`; the worst case is that a bunny change waits for the next run or the weekly drift shows it. Accepted, like its other escalation paths.
   - Add one lifecycle rule: delete objects under `dev/bunny/plans/` and `dev/bunny/logs/` after 7 days. It's cleanup only. Real retention is about 14 days with versioning and soft delete; accepted.
   - Update the comments: CI identities other than tf-bunny get nothing under `dev/bunny/`.
 
@@ -676,37 +675,52 @@ git push && gh pr ready && gh pr merge --squash
 - Delete: `.github/workflows/terraform-plan.yml`, `.github/workflows/terraform-apply.yml`
 - Modify: `modules/bootstrap/{deploy_gate,cluster_plan_gate}.cel.tftpl` and their tests (drop the `terraform-*.yml` clauses; applied at L5)
 
+**Design (Codex rounds 3 and 4): correct by construction, no selection logic on `main`.**
+
+- **One apply run at a time.** `tofu-apply.yml` has one workflow-level concurrency group, `{ group: tofu-apply, cancel-in-progress: false }`. No two runs ever plan or apply at once, so there are no cross-run races. GitHub keeps at most one pending run and cancels older pending ones; that's harmless because of the next point.
+- **Every run plans every root** (gcp, cluster, bunny; images on request; never bootstrap). There's no per-event root selection, so a cancelled, rejected or superseded run loses nothing: the next run of any trigger plans everything again. Unchanged roots plan as "No changes" and skip their apply. Public-repo minutes are free.
+- **One target per run.** The first job resolves `main` HEAD once; every job checks out that SHA.
+- **Order inside a run.** gcp first. Then cluster, and images if requested, both planned **after** gcp's apply in the same run, so they plan against gcp's fresh outputs (cluster reads `outputs.gcp`; images reads `outputs.gcp.registry.apps_scratch`). Bunny is independent and runs in parallel.
+- **Recovery** from anything (a failed, rejected or superseded run): dispatch the workflow. Release Images completion also triggers it.
+
+**Approvals (option i).** At most two clicks per run, and only for waves that have changes:
+
+- **Wave 1:** gcp and bunny are planned in parallel. If either has changes, one `approve-1` job in environment `dev` waits for a single approval, then `apply-gcp` and `apply-bunny` run.
+- **Wave 2:** cluster (and images, when requested) are planned after wave 1. If either has changes, `approve-2` (`dev`) waits for a second approval.
+- So: a gcp-only, cluster-only or bunny-only change asks once; gcp + bunny asks once; gcp + cluster asks twice.
+- I didn't pick option (ii) (plan cluster up front, re-plan after gcp, and apply without a second approval if the re-plan's `resource_changes` match). It needs a JSON-diff rule that must ignore unknowns and refreshed values. Wrongly calling two plans "identical" would apply something nobody read. Option (i) costs one extra click only when both gcp and cluster change.
+- The approval gate is a job of its own, so the apply jobs need no `environment:`. The gates don't check environments (deploy_gate and bunny_gate check ref, workflow and event), so this works with today's identities.
+
+**Superseded runs.** While a run waits for approval it holds the group, and the newer run stays pending. Rejecting or approving the old run releases it.
+
+- Every plan job checks `git ls-remote origin refs/heads/main`. If it isn't the target, the summary starts with **`⚠ superseded by <sha>: reject this run; the next run plans again.`**
+- Each `approve-*` job checks again when it starts (after the click). If `main` has moved, it prints `superseded by <sha>: not applying` and sets `go=false`. The apply jobs need `go == 'true'`, so nothing applies, the stage is `blocked`, and the pending run takes over.
+
 **Interfaces:**
 
 - Consumes: `tf.sh` (`plan-summary`, `bunny-mask`), the gates, S6, S12.
 - Produces:
 
-  **`tf-roots.sh changed <base> <head>`** prints roots in apply order `gcp images cluster bunny`, then `bootstrap` (notice only). **`tf-roots.sh all`** prints `gcp cluster bunny`; images is never part of "all".
-
-  **`tf-roots.sh pending <target> gcp=<sha|-> cluster=<sha|-> bunny=<sha|-> [force=<root>...]`** prints the roots `tofu-apply.yml` must plan, in apply order:
-  - a root is pending if its marker is `-` (missing), isn't an ancestor of `<target>` (`git merge-base --is-ancestor`), or `tf-roots.sh changed <marker> <target>` lists it;
-  - each `force=<root>` is added (a finished image release forces gcp; a dispatch forces its input root, the only way to get images);
-  - cluster is added whenever gcp is in the list (same rule as `changed`).
-
-  **Markers:** `gs://heisreal-dev-tfstate/applied/{gcp,cluster,bunny}`, each holding the last commit that root was applied at (or planned with no changes). Written by the job that just applied it, or by its plan job when the plan shows no changes. Never moved backwards: write only if the current marker is an ancestor of the new commit. images has no marker (dispatch only).
+  **`tf-roots.sh changed <base> <head>`**, used only by `tofu-plan.yml` (PRs), prints roots in order `gcp images cluster bunny`, then `bootstrap` (notice only):
 
   | Root                   | Selected by                                                                                                                                                                     |
   | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | gcp                    | `live/dev/gcp/**`, `modules/gcp/**`                                                                                                                                             |
   | cluster                | `live/dev/cluster/**`, `modules/{cluster,db-migration,db-identity}/**`, `infra/k8s/surrealdb/**`, `libs/database/schema/**`, `libs/legal/dpa/**`; also whenever gcp is selected |
-  | bunny                  | `live/dev/bunny/**`, `modules/{bunny,bunny-state-guard}/**`                                                                                                                     |
-  | images                 | PR plans only: `live/dev/images/**`, `tools/scripts/image-tag.sh`. The apply pipeline runs images only on `workflow_dispatch`.                                                  |
+  | bunny                  | `live/dev/bunny/**`, `modules/{bunny,bunny-state-guard}/**` (PRs only validate it; listed for the summary)                                                                      |
+  | images                 | `live/dev/images/**`, `tools/scripts/image-tag.sh`                                                                                                                              |
   | bootstrap              | `live/dev/bootstrap/**`, `modules/bootstrap/**`                                                                                                                                 |
   | gcp, cluster and bunny | `tools/scripts/tf*.sh`, `.github/actions/tofu/**`, `.github/workflows/tofu-*.yml`, `mise.toml`                                                                                  |
 
-  **`tf-stage.sh <prev> <selected> <plan_result> <changes> <apply_result>`** prints `ok` or `blocked: <reason>` (Codex #3):
+  **`tf-stage.sh <prev> <selected> <plan_result> <changes> <go> <apply_result>`** prints `ok` or `blocked: <reason>` (round-2 #3):
   - `blocked: upstream` if `prev` isn't `ok`;
-  - else `ok` (not selected) if `selected` is `false`;
+  - else `ok` (not selected) if `selected` is `false` (images when not requested);
   - else `blocked: plan <result>` unless `plan_result` is `success`;
   - else `ok` (no changes) if `changes` is `false`;
-  - else `ok` only if `apply_result` is `success`; otherwise `blocked: apply <result> (failed, rejected, stale or superseded)`.
+  - else `blocked: superseded or rejected` unless `go` is `true` (a rejected approval leaves `go` empty);
+  - else `ok` only if `apply_result` is `success`; otherwise `blocked: apply <result>` (failed or stale).
 
-  GitHub reports a rejected approval, a stale saved plan and a superseded run all as a failed or cancelled apply job, so the reason names all of them. A blocked root keeps its old marker, so the next run of any trigger plans it again. Any value other than `success` (`failure`, `cancelled`, `skipped`, empty) blocks.
+  Any value other than `success` (`failure`, `cancelled`, `skipped`, empty) blocks.
 
   **Composite action `.github/actions/tofu`:** input `service_account` (empty: no auth). Runs setup-opentofu (pinned SHA, `tofu_version: 1.13.2`, `tofu_wrapper: false`), then `google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3` with the existing provider path.
 
@@ -715,18 +729,14 @@ git push && gh pr ready && gh pr merge --squash
   **Bunny raw logs:** `gs://heisreal-dev-tfstate/dev/bunny/logs/<run_id>-<attempt>-<job>.log`. Readable by developers and tf-bunny. Google-managed encryption.
 
 - [ ] **Step 1: Failing tests.**
-  - `tf-roots.test.mjs` (temp git repo):
-    - `modules/gcp/x.tf` → `gcp\ncluster`; `libs/legal/dpa/v2.md` → `cluster`; `modules/bunny-state-guard/main.tf` → `bunny`; `modules/bootstrap/kms.tf` → `bootstrap`; `tools/scripts/tf.sh` → `gcp\ncluster\nbunny`; `live/dev/images/main.tf` → `images`; `apps/web/x.ts` → empty; gcp + bunny → `gcp\ncluster\nbunny`; `all` → `gcp\ncluster\nbunny`; bad subcommand → exit 64.
-    - `pending`: all markers at target → empty; gcp marker one commit behind with a `modules/gcp` change → `gcp\ncluster`; bunny marker behind with only an `apps/` change → empty; marker `-` → that root; marker not an ancestor (rewritten history) → that root; `force=gcp` with all markers current → `gcp\ncluster`; `force=images` → `images`; a cluster change at commit B, then a docs commit C, cluster marker at A, target C → `cluster` (the root isn't lost when a later run has nothing new for it).
+  - `tf-roots.test.mjs` (temp git repo): `modules/gcp/x.tf` → `gcp\ncluster`; `libs/legal/dpa/v2.md` → `cluster`; `modules/bunny-state-guard/main.tf` → `bunny`; `modules/bootstrap/kms.tf` → `bootstrap`; `tools/scripts/tf.sh` → `gcp\ncluster\nbunny`; `live/dev/images/main.tf` → `images`; `apps/web/x.ts` → empty; gcp + bunny → `gcp\ncluster\nbunny`; bad subcommand → exit 64.
   - `tf-stage.test.mjs`:
     - not selected → `ok`;
-    - plan `failure` → `blocked: plan failure`;
-    - plan `skipped` while selected → blocked;
+    - plan `failure` → `blocked: plan failure`; plan `skipped` while selected → blocked;
     - plan `success`, no changes → `ok`;
-    - changes, apply `success` → `ok`;
-    - changes, apply `failure` (failed, rejected, stale or superseded) → blocked;
-    - changes, apply `cancelled` → blocked;
-    - changes, apply `skipped` → blocked;
+    - changes, `go` `false` (superseded) → `blocked: superseded or rejected`; changes, `go` empty (rejected) → same;
+    - changes, `go` `true`, apply `success` → `ok`;
+    - changes, `go` `true`, apply `failure` (failed or stale) → blocked; apply `cancelled` or `skipped` → blocked;
     - prev `blocked: …` → `blocked: upstream`, even if not selected.
 
   Both FAIL.
@@ -734,72 +744,66 @@ git push && gh pr ready && gh pr merge --squash
 - [ ] **Step 2: Implement both scripts.** Tests PASS; `shellcheck` clean.
 - [ ] **Step 3: `tofu-plan.yml`** (`pull_request` only; paths: `infra/**`, `libs/database/schema/**`, `libs/legal/**`, `tools/scripts/tf*.sh`, `tools/scripts/image-tag.sh`, `.github/actions/tofu/**`, `.github/workflows/tofu-*.yml`, `mise.toml`). Top-level `permissions: {}`.
   - `validate` (`contents: read`): the old job (fmt, validate 5 roots, `tofu test` of the 3 modules, kubeconform, the dry-run policy test, S11 and key-name checks).
-  - `roots` (`contents: read`): `tf-roots.sh changed <base.sha> <head.sha>`.
+  - `roots` (`contents: read`): `tf-roots.sh changed <base.sha> <head.sha>`. Selection is fine here: a PR plan is advice, and nothing is lost if one is skipped.
   - `plan-gcp` (`contents: read, id-token: write`): tf-planner, `-refresh=false -lock=false`.
   - `plan-images` (same): tf-planner, after `pnpm install --frozen-lockfile` and the prune. Only if selected.
-  - `plan-cluster` (same): env `cluster-plan`, tf-cluster-planner (D42, unchanged).
+  - `plan-cluster` (same): env `cluster-plan`, tf-cluster-planner (D42, unchanged; its reviewer stays).
   - **No bunny plan, ever.** The summary says: "bunny: planned after merge on main (tofu-apply.yml); bootstrap: plan and apply locally".
   - Fork guard as today (forks get no OIDC token).
 - [ ] **Step 4: `tofu-apply.yml`.**
-  - Triggers: `push` to main with **no paths filter** (every new `main` gets a run, so a superseded apply always has a successor; a run with nothing pending stops after `roots`); `workflow_run` (`[Release Images]`, completed, main, only when `conclusion == 'success'`); `workflow_dispatch` (input `root`: `pending|gcp|images|cluster|bunny|all`, default `pending`).
-  - Top-level `permissions: {}`. Per job: `contents: read` and `id-token: write`.
-  - **No concurrency group** (Codex round 3, #2 and #4). A workflow-level group serialises whole runs and cancels a _pending_ run when a newer one queues, which can drop roots and lets an old run waiting for approval block newer ones. Instead, safety comes from:
-    - plans use `-lock=false`, so runs plan in parallel;
-    - applies take the state lock with `-lock-timeout=10m`; OpenTofu refuses a saved plan if the state changed after it was made (stale);
-    - the superseded check below;
-    - markers, so nothing a cancelled, blocked or rejected run leaves undone is ever lost.
-  - Nothing is cancelled automatically. A run in `waiting` can have another job executing (bunny runs in parallel with the gcp chain), so cancelling runs could stop a running apply. An old run left waiting does no harm: if approved, its superseded check refuses it. Reject it, or let GitHub expire it (30 days).
-  - **One target commit per run (Codex round 3, #1).** The `roots` job checks out `main` (`ref: main`, `fetch-depth: 0`) and sets `target=$(git rev-parse HEAD)`. That's the `main` HEAD when the run starts, whatever the trigger. `$GITHUB_SHA` and `workflow_run.head_sha` are never used. Every later job checks out `ref: ${{ needs.roots.outputs.target }}` (`fetch-depth: 0`) and prints the target in its summary.
-  - **`roots`** (tf-planner, read-only):
-    1. Read the three markers (`gcloud storage cat gs://heisreal-dev-tfstate/applied/<root>`; missing → `-`).
-    2. Forced roots: `workflow_run` → `force=gcp`; dispatch `<root>` → `force=<root>`; dispatch `all` → force gcp, cluster and bunny; dispatch `pending` and push → none.
-    3. `tf-roots.sh pending "$target" gcp=… cluster=… bunny=… force=…`. Output one boolean per root and `target`.
-  - **Images on the gcp plan.** `images.auto.tfvars` entries set to `"main"` resolve at plan time to the newest image in `apps` (`data.google_artifact_registry_docker_image.newest`, no tag), not to anything tied to a commit. Release Images pushes only from `main`, so planning at HEAD picks up the newest released image whatever triggered the run. Pinned digests come from `images.auto.tfvars` at the target. If HEAD's own release is still building, the plan uses the previous image, and that release's `workflow_run` later forces gcp again.
-  - **Superseded check** (first step of every apply job): `git fetch origin main`; if `origin/main` isn't `target`, fail with `superseded: main is now <sha>; the run for it plans again` (no apply). Strict on purpose: no reasoning about which paths changed. The push that moved `main` started its own run, which recomputes everything pending.
-  - **Marker write** (last step of every apply job, and of every plan job whose plan shows no changes): `gcloud storage cat` the current marker; if it's missing or `git merge-base --is-ancestor <current> "$target"`, write `target` to it. bunny's marker is written by tf-bunny, the others by tf-deployer.
-  - **Stage gcp: `plan-gcp` → `apply-gcp` → `stage-gcp`.**
-    - `plan-gcp` (tf-deployer, only if gcp is selected): `tf.sh gcp init`; `tf.sh gcp plan -input=false -lock=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color`, output to the log (gcp and cluster plans hold no secrets). Exit 0: write the marker. Exit 2: upload to the plan object, `changes=true`. Summary: target and `tf.sh gcp plan-summary`.
-    - `apply-gcp`: `if: needs.plan-gcp.outputs.changes == 'true'`, `environment: dev` (the one approval), tf-deployer.
-      1. Superseded check.
-      2. Download the plan, `tf.sh gcp apply -input=false -lock-timeout=10m "$RUNNER_TEMP/tfplan"`, delete the object.
-      3. Write the marker.
-    - `stage-gcp`: `if: always()`, `needs: [roots, plan-gcp, apply-gcp]`. Runs `tf-stage.sh` with `prev = ok` if `needs.roots.result == 'success'`. Outputs `result`; writes the reason to the summary.
-  - **Stage images: `plan-images` → `apply-images` → `stage-images`.**
-    - `plan-images` and `apply-images` run only if `needs.stage-gcp.outputs.result == 'ok'` and images is selected (`if: always() && …`).
-    - `stage-images` **always runs** (`if: always()`), with `needs: [roots, stage-gcp, plan-images, apply-images]` and `prev = needs.stage-gcp.outputs.result`. "Not selected" gives `ok`, so cluster isn't blocked (Codex #3).
-    - **Build once in `plan-images` (Codex #6):** `pnpm install --frozen-lockfile`, the prune, then `tar -cpzf "$RUNNER_TEMP/images-dist.tgz" apps/{api-public-read,api-user,api-admin,workflow,web}/dist`. tar keeps hidden files (`apps/web/dist/apps/web/.next/static`), symlinks and modes; `upload-artifact` would drop `.next`. Upload that one file with `actions/upload-artifact` as `images-dist-${{ github.run_id }}`, `retention-days: 7`. App source is public; the dist holds no secrets.
-    - **`apply-images`:**
-      1. Superseded check.
-      2. `actions/download-artifact`, then `tar -xpzf images-dist.tgz -C "$GITHUB_WORKSPACE"`. No rebuild.
-      3. For every service, `tools/scripts/image-tag.sh <svc>` must equal the planned tag from `tf.sh images show -json tfplan | jq -r '.resource_changes[] | select(.address=="terraform_data.image[\"<svc>\"]") | .change.after.triggers_replace.tag'` (images isn't bunny, so `-json` is allowed). Any mismatch fails.
-      4. Apply.
-    - This is the existing snapshot root (`apps-scratch`, content tags, `apps/<svc>/dist` build context) run in CI on request. Releases to `apps` stay with `images.yml`.
-  - **Stage cluster: `plan-cluster` → `apply-cluster` → `stage-cluster`.** Same shape, gated on `needs.stage-images.outputs.result == 'ok'`. tf-deployer.
-  - **Stage bunny (independent, parallel): `plan-bunny` → `apply-bunny`.** tf-bunny. Both jobs, in this order:
-    1. Checkout; the composite action with `service_account: tf-bunny@heisreal-dev.iam.gserviceaccount.com`.
-    2. `tools/scripts/tf.sh bunny-mask secrets` (masks every `bunny-*` secret value, before any tofu step).
-    3. `tools/scripts/tf.sh bunny init -input=false > "$RUNNER_TEMP/bunny.log" 2>&1`.
-    4. `tools/scripts/tf.sh bunny-mask state` (masks the 5 keys from state; 3 of them exist only there).
-    5. plan job (only if bunny is selected): `tf.sh bunny plan -input=false -lock=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color >> "$RUNNER_TEMP/bunny.log" 2>&1`; exit 0 → write `applied/bunny`; exit 2 → upload to `dev/bunny/plans/…`. apply job (`environment: dev`): superseded check, download, `tf.sh bunny apply -lock-timeout=10m … >> bunny.log 2>&1`, delete the plan object, write `applied/bunny`.
-    6. Always: `gcloud storage cp "$RUNNER_TEMP/bunny.log" gs://heisreal-dev-tfstate/dev/bunny/logs/<run_id>-<attempt>-<job>.log`.
-    7. **Nothing from the log is echoed.** The summary and log get only `tf.sh bunny plan-summary` output, the exit code, and `plan failed (exit N), log: gs://heisreal-dev-tfstate/dev/bunny/logs/<file>`.
-    - No Bunny file is ever passed to `upload-artifact`.
-  - **Approvals:** one per apply with changes, all in `dev`. A merge touching one root asks once. gcp + cluster asks twice. Bunny asks once.
-- [ ] **Step 5: `tofu-drift.yml`.** `schedule: '17 6 * * 1'` and `workflow_dispatch` (root: `gcp|cluster|bootstrap|bunny|all`). `permissions: {}`; jobs `contents: read, id-token: write`. Each job runs `plan -lock=false -detailed-exitcode` with a full refresh. Exit 2 fails the job; the summary is `plan-summary` output.
+  - Triggers: `push` to main with **no paths filter** (every new `main` gets a run, so a superseded run always has a successor); `workflow_run` (`[Release Images]`, `types: [completed]`, main) **whatever its conclusion** (Codex r5 #1: a failed release's run can replace a pending push run in the queue, so it must still plan everything; gcp resolves whatever images exist); `workflow_dispatch` (input `images`: boolean, default `false`). No job checks the trigger or the release's conclusion.
+  - Top-level `permissions: {}`. Per job: `contents: read`, plus `id-token: write` where it authenticates.
+  - `concurrency: { group: tofu-apply, cancel-in-progress: false }`.
+  - **Every job that runs tofu**, plan or apply, starts with checkout of `ref: ${{ needs.target.outputs.sha }}`, the composite action, then `tools/scripts/tf.sh <root> init -input=false` (Codex r4 #3: apply jobs start on a fresh runner too).
+  - **`target`** (`contents: read`, no auth): `sha=$(git ls-remote origin refs/heads/main | cut -f1)`. `$GITHUB_SHA` and `workflow_run.head_sha` are never used.
+  - **Wave 1**
+    - `plan-gcp` (tf-deployer): `tf.sh gcp plan -input=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color`, output to the log (gcp and cluster plans hold no secrets). **Every plan job publishes `changes`**: `false` on exit 0, `true` on exit 2 (and uploads the plan object); any other exit fails the job (Codex r5 #3). Summary: target, the superseded warning if any, and `tf.sh gcp plan-summary`.
+      - **Images on the gcp plan.** `images.auto.tfvars` entries set to `"main"` resolve at plan time to the newest image in `apps` (`data.google_artifact_registry_docker_image.newest`, no tag), not to a commit. Release Images pushes only from `main`, so planning at HEAD picks up the newest release whatever triggered the run. Pinned digests come from `images.auto.tfvars` at the target. If HEAD's own release is still building, the plan uses the previous image, and that release's `workflow_run` plans again.
+    - `plan-bunny` (tf-bunny), in this order:
+      1. `tools/scripts/tf.sh bunny-mask secrets` (before any tofu step);
+      2. `tools/scripts/tf.sh bunny init -input=false > "$RUNNER_TEMP/bunny.log" 2>&1`;
+      3. `tools/scripts/tf.sh bunny-mask state` (the 5 keys; 3 exist only in state);
+      4. `tf.sh bunny plan -input=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color >> "$RUNNER_TEMP/bunny.log" 2>&1`; exit 2 → upload to `dev/bunny/plans/…`, `changes=true`;
+      5. always: `gcloud storage cp "$RUNNER_TEMP/bunny.log" gs://heisreal-dev-tfstate/dev/bunny/logs/<run_id>-<attempt>-plan-bunny.log`;
+      6. **nothing from the log is echoed**: the summary gets only `tf.sh bunny plan-summary` output, the exit code, and `plan failed (exit N), log: gs://…/<file>`. No Bunny file is ever passed to `upload-artifact`.
+    - `approve-1` (`environment: dev`, no auth; superseded check → output `go`):
+      `if: always() && needs.target.result == 'success' && ((needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true') || (needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'true'))`.
+      `always()` so a failed plan on one side doesn't stop the other side's approval.
+    - `apply-gcp` (tf-deployer): `if: always() && needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true' && needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'`. init, download the plan, `tf.sh gcp apply -input=false "$RUNNER_TEMP/tfplan"`, delete the object.
+    - `apply-bunny` (tf-bunny): the same `if:` with `plan-bunny` in place of `plan-gcp`. Masking steps 1–3 above, download, `tf.sh bunny apply … >> bunny.log 2>&1`, copy the log, delete the plan object. Summary only.
+    - `stage-gcp`: `if: always()`, `needs: [target, plan-gcp, approve-1, apply-gcp]`. `tf-stage.sh` with `prev = ok` if `needs.target.result == 'success'`, `selected = true`. Outputs `result`; writes the reason to the summary. (`stage-bunny` likewise, for the summary only.)
+  - **Wave 2.** Its gate checks wave 1's approval directly (Codex r5 #2): `stage-gcp` can say `ok` on its no-changes branch even when `approve-1` was rejected for bunny. Let **W1** be:
+    `needs.stage-gcp.outputs.result == 'ok' && (needs.approve-1.result == 'skipped' || (needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'))`.
+    - `approve-1` skipped (neither gcp nor bunny changed, given `stage-gcp` is `ok`) → proceed.
+    - Rejected (job `failure`), cancelled or superseded (`go=false`) → block.
+    - All wave-2 jobs list `needs: [target, stage-gcp, approve-1]` (plus their own ancestors).
+    - `plan-cluster` (tf-deployer): `if: always() && <W1>`. As `plan-gcp`, against gcp's fresh state; publishes `changes`.
+    - `plan-images` (tf-deployer): `if: always() && <W1> && github.event_name == 'workflow_dispatch' && inputs.images`. **Build once** (round-2 #6): `pnpm install --frozen-lockfile`, the prune, `tar -cpzf "$RUNNER_TEMP/images-dist.tgz" apps/{api-public-read,api-user,api-admin,workflow,web}/dist` (tar keeps `.next`, symlinks and modes; `upload-artifact` would drop `.next`), upload that one file as `images-dist-${{ github.run_id }}`, `retention-days: 7`. Then plan.
+    - `approve-2` (`environment: dev`, superseded check → `go`):
+      `if: always() && <W1> && ((needs.plan-cluster.result == 'success' && needs.plan-cluster.outputs.changes == 'true') || (needs.plan-images.result == 'success' && needs.plan-images.outputs.changes == 'true'))`.
+      A skipped `plan-images` (not requested) has an empty result, so only cluster counts.
+    - `apply-cluster`: `if: always() && needs.plan-cluster.result == 'success' && needs.plan-cluster.outputs.changes == 'true' && needs.approve-2.result == 'success' && needs.approve-2.outputs.go == 'true'`. init, download, apply, delete the object.
+    - `apply-images`: the same `if:` with `plan-images`. init; download the artifact and `tar -xpzf … -C "$GITHUB_WORKSPACE"` (no rebuild); for every service, `tools/scripts/image-tag.sh <svc>` must equal the planned tag from `tf.sh images show -json tfplan | jq -r '.resource_changes[] | select(.address=="terraform_data.image[\"<svc>\"]") | .change.after.triggers_replace.tag'`; then apply. This is the existing snapshot root (`apps-scratch`) run in CI on request. Releases to `apps` stay with `images.yml`. It's opt-in because planning it builds every app and its apply pushes development builds; nothing on `main` waits for it.
+    - `stage-cluster` and `stage-images`: `if: always()`; `prev = ok` if W1 holds, else `blocked: wave 1`; `go = needs.approve-2.outputs.go`.
+  - Header comment: the design rules above, and "recover by dispatching this workflow".
+- [ ] **Step 5: `tofu-drift.yml`.** `schedule: '17 6 * * 1'` and `workflow_dispatch` (root: `gcp|cluster|bootstrap|bunny|all`). `permissions: {}`; jobs `contents: read, id-token: write`. Each job runs `init`, then `plan -lock=false -detailed-exitcode` with a full refresh. Exit 2 fails the job; the summary is `plan-summary` output.
   - gcp and cluster: tf-deployer.
   - bootstrap: tf-planner (ambient in CI), using the bucket read from L1 (S12). If Task 13's S12 re-run fails, remove this job in a follow-up.
-  - bunny: tf-bunny, with the bunny job steps above (masking, private log, summary only).
+  - bunny: tf-bunny, with the masking, private-log and summary-only steps above.
   - images: never (its plan compares local build output).
-  - Header comment: a Cloud Run image diff means `main` has an unapproved build.
+  - Header comment: a Cloud Run image diff means a newer image is in `apps` than the one deployed; the next `tofu-apply.yml` run will plan it.
 - [ ] **Step 6: Delete the old workflows; drop the transitional gate clauses.** Delete `terraform-plan.yml` and `terraform-apply.yml`. Remove the `terraform-*.yml` clauses from the two templates and flip those tests to denied. Run `node --test infra/terraform/modules/bootstrap/tests/ tools/scripts/tests/` (includes `workflows.test.mjs`), `tofu -chdir=infra/terraform/modules/bunny-state-guard test` and `actionlint .github/workflows/*.yml`. All clean.
-- [ ] **Step 7: Job-graph dry run.** On a test branch, push `tofu-apply-dryrun.yml`: a copy of `tofu-apply.yml` with `workflow_dispatch` only, plan and apply steps replaced by `sleep ${{ inputs.sleep_<job> }}; exit ${{ inputs.fail_<job> }}`, no Google auth, markers in a temp file under `$RUNNER_TEMP` instead of GCS, and the real target and superseded logic against the test branch's HEAD. Apply jobs keep `environment: dev` (harmless without auth) so the timing case can wait. Run these cases and record them in the PR body:
-  1. plan-gcp fails → images and cluster blocked;
-  2. apply-gcp fails → images and cluster blocked;
-  3. gcp not selected, cluster selected → cluster runs;
-  4. gcp no changes → cluster runs;
-  5. **timing (Codex round 3, #4):** start run A with `sleep_plan_gcp=90`; while A is still planning, push a commit to the test branch and start run B. Expected: B plans and reaches its approval without waiting for A; A reaches its approval later; approving A fails with `superseded`; approving B applies.
+- [ ] **Step 7: Job-graph dry run.** On a test branch, push `tofu-apply-dryrun.yml`: a copy of `tofu-apply.yml` with `workflow_dispatch` only, its own concurrency group `tofu-apply-dryrun`, tofu steps replaced by `sleep ${{ inputs.sleep_<job> }}; exit ${{ inputs.fail_<job> }}` (plan jobs output `changes` from an input), no Google auth, and the target and superseded logic pointed at the test branch. `approve-*` keep `environment: dev` (harmless without auth). Run these cases and record them in the PR body:
+  1. plan-gcp fails → wave 2 blocked, no approval asked;
+  2. apply-gcp fails → wave 2 blocked;
+  3. gcp no changes, cluster changes → one approval (`approve-2`), cluster applies;
+  4. gcp and cluster change → two approvals;
+  5. reject `approve-1` → gcp and wave 2 blocked; bunny not applied;
+     5b. **gcp no changes, bunny and cluster change, reject `approve-1`** (Codex r5 #2) → `stage-gcp` is `ok` but W1 is false: `plan-cluster` is skipped, no `approve-2`;
+  6. **superseded:** start run A; while A waits at `approve-1`, push a commit to the test branch and start run B. Expected: B is pending; A's plan summary (if A planned after the push) or `approve-1` says superseded; approving A applies nothing; B then runs and plans.
+  7. **failed release in the queue** (Codex r5 #1): add a `workflow_run` trigger on a dummy `dryrun-release.yml` that just fails. Start run A and hold it at `approve-1`; push commit B to the test branch (run B pending); then run the dummy release so it completes with `failure`. Expected: its run replaces pending B, still plans every root at the new HEAD (B's change shows up), and none of its jobs skip because the release failed.
 
-  A real rejected approval is checked in Task 13. Delete the test branch afterwards.
+  Delete the test branch afterwards.
 
 - [ ] **Step 8: Commit and open PR 2.**
 
@@ -864,7 +868,7 @@ git commit -S -am "feat(infra): enforce encrypted state and plans in every root 
 - [ ] **Step 2: `infra/terraform/README.md`.** It must contain:
   - Layout and identity table (tf-planner, tf-cluster-planner, tf-deployer, tf-bunny, the two image pushers) with what each can reach. A plain note: "tf-deployer could grant itself access to Bunny through its service-account roles. That's accepted (D57)."
   - `tf.sh` usage, including `plan-summary`, `bunny-cli` and `bunny-mask`.
-  - CI table: tofu-plan, tofu-apply (approval rule: one per apply), tofu-drift (which roots and why), images and snapshot-images. How a run picks its target and roots (markers under `applied/`), the superseded check, and why there's no concurrency group. "A run ended blocked: re-run it, or dispatch `pending`."
+  - CI table: tofu-plan, tofu-apply, tofu-drift (which roots and why), images and snapshot-images. For tofu-apply: one run at a time, every root planned every run at `main` HEAD, the two approval waves, the superseded warning ("reject this run"), and "to recover from anything, dispatch the workflow".
   - D42, renamed to `tofu-plan.yml`.
   - Bunny.net: `tf.sh bunny`/`bunny-cli`, saved plans encrypted, raw logs under `dev/bunny/logs/` (cleanup after 7 days; about 14 days with versioning and soft delete), the never-public guard, `check-bunny-fences.sh`.
   - "Bootstrapping a new environment": first apply without `encryption.tf`, then add it with the fallback, apply `-refresh-only`, then enforce.
@@ -886,11 +890,12 @@ git push && gh pr ready
 
 ### Task 13: [LIVE, L4 + L5] Merge PR 2 and clean up
 
-- [ ] **Step 1 [L4]: Merge PR 2 and watch the merge run.** No markers exist yet, so gcp, cluster and bunny are all pending and planned. Afterwards `gcloud storage ls gs://heisreal-dev-tfstate/applied/` lists `gcp`, `cluster` and `bunny`, each holding the merge commit. Expected: every plan runs without waiting; gcp, cluster and bunny say "No changes" and ask for no approval. The bunny summary shows only addresses and counts.
+- [ ] **Step 1 [L4]: Merge PR 2 and watch the merge run.** It plans gcp, bunny and cluster. Expected: every plan runs without waiting; all say "No changes", so no approval is asked. The bunny summary shows only addresses and counts.
 - [ ] **Step 2 [L5]: Apply bootstrap from `main`.** Expected plan: only `attribute_mapping` changes (old clauses gone). Then `tf.sh bootstrap plan -detailed-exitcode` → 0 and `check-bunny-fences.sh` → exit 0.
 - [ ] **Step 3 [L5, GitHub]:** cancel old waiting runs: `gh run list --workflow terraform-apply.yml --status waiting --json databaseId --jq '.[].databaseId' | xargs -r -n1 gh run cancel`. Then remove `hashicorp/setup-terraform@*` from the allowlist (Task 3 Step 1's command without it). Expected `--jq .patterns_allowed`: four patterns.
 - [ ] **Step 4: Re-run S12 for the bootstrap drift job.** Run "OpenTofu drift" by hand with root `bootstrap`. Exit 0 or a list of addresses you recognise → keep the job. A permission error → remove the job in a follow-up PR and update the README.
-- [ ] **Step 5: Drift and end-to-end.** Run "OpenTofu drift" with `all`. Make one trivial gcp change through a PR. On merge, reject `apply-gcp` once: `stage-gcp` says `blocked: apply failure …` and `plan-cluster` is skipped. Re-run, approve once: `Apply complete!`, and the plan object is deleted.
+- [ ] **Step 4b: Prove a `workflow_run` token authenticates.** Re-run the latest successful "Release Images" run (`gh run rerun <id>`), or push any change under `apps/`. The `tofu-apply.yml` run it triggers must show `plan-gcp` (tf-deployer) and `plan-bunny` (tf-bunny) authenticating and planning. A 403 at `auth` means the gates don't accept the `workflow_run` claims: switch both to `workflow_ref` (Task 5 Step 2), apply bootstrap, re-run.
+- [ ] **Step 5: Drift and end-to-end.** Run "OpenTofu drift" with `all`. Make one trivial gcp change through a PR. On merge, reject `approve-1` once: `stage-gcp` says `blocked: superseded or rejected` and `plan-cluster` is skipped. Dispatch the workflow, approve once: `Apply complete!`, and the plan object is deleted.
 - [ ] **Step 6: Plaintext expiry check.** On the date noted in Task 9 Step 5: `gcloud storage ls -a 'gs://heisreal-dev-tfstate/dev/**/default.tfstate'` lists only generations written after Task 9, and `gcloud storage ls --soft-deleted -r gs://heisreal-dev-tfstate/dev/` lists none older. Record the result in `docs/delivery-status.md`.
 - [ ] **Step 7 (optional):** `sudo pacman -R terraform` on Joel's machine.
 
@@ -965,18 +970,29 @@ Anything else (key IAM, key settings, a key dropped from config) goes through Op
 | 4   | Impersonator guard rejects existing service agents     | Gone: no impersonator guard                                                                                                                    |
 | 5   | Org role lacks `iam.roles.get`                         | Gone: no org root; tf-bunny has no org permission                                                                                              |
 | 6   | `upload-artifact` drops `.next`                        | Fixed: tar before upload, untar after download (Task 10)                                                                                       |
-| 7   | retire-stale can't run inside the concurrency group    | Replaced in round 3: no concurrency group and no retirement at all (see below)                                                                 |
+| 7   | retire-stale can't run inside the concurrency group    | Gone: no retirement; see rounds 3 and 4                                                                                                        |
 
-**Codex round 3**
+**Codex rounds 3 and 4**
 
-| #   | Finding                                                                                                                                | Fix                                                                                                                                                                                            |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | On `workflow_run`, `$GITHUB_SHA` (main HEAD) and the checked-out `head_sha` differ, so the superseded check compared the wrong commits | One target per run: `main` HEAD resolved in `roots`, used by every checkout and check; strict `origin/main == target` before apply (Task 10 Step 4)                                            |
-| 2   | The concurrency group cancels pending runs, so roots of a cancelled push are lost; a docs push could retire a waiting bunny run        | No concurrency group, no retirement. Per-root markers under `applied/`; every run of every trigger plans all roots behind its target (`tf-roots.sh pending`)                                   |
-| 3   | Adding `"bunny"` to the Token Creator `setproduct` makes a second deployer grant                                                       | Explicit `planner/deployer/bunny` map with unchanged keys; plan and Task 7 check exactly one new grant on tf-bunny (Task 5 Step 4, Task 7 Step 2)                                              |
-| 4   | Retirement misses runs that reach "waiting" later; an obsolete waiting run blocks newer ones                                           | No concurrency group, so nothing blocks; obsolete approvals fail the superseded check; nothing is auto-cancelled (never stops an executing apply); timing case in the dry run (Task 10 Step 7) |
-| 5   | 4 of 5 real Bunny keys are 41-character hex 8-4-4-12-4-4, not UUIDs                                                                    | Regex accepts both shapes; fixtures for both, including `bunny="…"` labels (Task 4 Steps 4–5)                                                                                                  |
-| 8   | Raw Bunny logs recoverable beyond 7 days                                                                                               | Not doing (founder): the 7-day rule is cleanup only; the README states about 14 days                                                                                                           |
+Round 3's per-root markers without a concurrency group were replaced in round 4 by a simpler design: one run at a time, every root planned every run.
+
+| #      | Finding                                                                                 | Fix                                                                                                                                                          |
+| ------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| r3-1   | On `workflow_run`, `$GITHUB_SHA` and the checked-out `head_sha` differ                  | One target per run (`main` HEAD, from the `target` job), used by every checkout and the superseded check (Task 10)                                           |
+| r3-2   | The concurrency group cancels pending runs, losing their roots                          | Every run plans every root, so a cancelled pending run loses nothing                                                                                         |
+| r3-3   | Adding `"bunny"` to the Token Creator `setproduct` makes a second deployer grant        | Explicit `planner/deployer/bunny` map with unchanged keys; checked in the plan and in Task 7 Step 2 (Task 5 Step 4)                                          |
+| r3-4   | An obsolete run waiting for approval blocks newer ones                                  | Accepted as designed: it holds the group until rejected or approved; its plan summary warns "superseded by <sha>: reject this"; approving it applies nothing |
+| r3-5   | Real Bunny keys are 8-4-4-12-4-4, not UUIDs                                             | Regex accepts both shapes, with fixtures for each (Task 4 Steps 4–5)                                                                                         |
+| r4-1   | An unlocked no-change plan in run B could write a marker while run A was still applying | Gone: no markers; one run at a time                                                                                                                          |
+| r4-2   | Run A's cluster plan could be applied after run B changed gcp's outputs                 | Gone: one run at a time, and cluster is planned after gcp's apply in the same run                                                                            |
+| r4-3   | Apply jobs never ran `init` on their fresh runner                                       | Every job that runs tofu runs `tf.sh <root> init -input=false` first (Task 10 Step 4)                                                                        |
+| r4-4   | Marker writes weren't monotonic                                                         | Gone: no markers                                                                                                                                             |
+| r4-5   | `pending` couldn't recover rejected forced work                                         | Gone: recovery is a dispatch, which plans everything; a release triggers a full run too                                                                      |
+| r4-6   | tf-bunny's gate denied `workflow_run`                                                   | Allowed for `tofu-apply.yml@refs/heads/main`, with fixtures (Task 5 Steps 1–2); proven live in Task 13 Step 4b                                               |
+| r5-1   | A failed Release Images run's `workflow_run` replaces a pending push run, then skips    | Every release completion, success or failure, runs a full plan; dry-run case 7                                                                               |
+| r5-2   | Rejecting wave 1 doesn't block wave 2 when gcp had no changes                           | Wave 2 checks `approve-1`'s result directly (W1); dry-run case 5b                                                                                            |
+| r5-3   | Plans must publish `changes` both ways; `if:` conditions must survive skipped ancestors | Every plan job publishes `false`/`true`; explicit `always()` conditions for every approve and apply job                                                      |
+| r5-low | Gates rely on `job_workflow_ref`                                                        | Kept: it's the claim today's live deploy gate uses; `workflow_run` proven in Task 13 Step 4b, with `workflow_ref` as the fallback                            |
 
 ## Self-review
 
@@ -984,7 +1000,7 @@ Anything else (key IAM, key settings, a key dropped from config) goes through Op
    - OpenTofu everywhere: Tasks 3, 10–13.
    - KMS for state and plans: Tasks 5, 8, 9, 11.
    - Local and CI: Task 2; CI for gcp, images (dispatch), cluster and bunny (main only). Bootstrap local by rule, drift-planned in CI.
-   - Merge → unattended plan → one approval → apply the saved plan: Task 10.
+   - Merge → unattended plan of every root → at most two approvals (gcp + bunny, then cluster) → apply the saved plans: Task 10.
    - D57 C: tf-bunny and its gate (Task 5), never-public guard (Task 6), no fence work.
    - Hygiene: Task 4 (gitignore, gitleaks, permissions); masking and summaries: Tasks 2 and 10.
    - Break-glass: its own section; copied to the README in Task 12.
