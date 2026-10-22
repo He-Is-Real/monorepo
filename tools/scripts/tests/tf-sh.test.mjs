@@ -5,13 +5,22 @@
 //   node --test tools/scripts/tests/
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const repo = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '');
+const repo = fileURLToPath(new URL('../../..', import.meta.url)).replace(
+  /\/$/,
+  '',
+);
 const script = join(repo, 'tools/scripts/tf.sh');
 const deployer = 'tf-deployer@heisreal-dev.iam.gserviceaccount.com';
 const tfBunny = 'tf-bunny@heisreal-dev.iam.gserviceaccount.com';
@@ -89,7 +98,10 @@ process.exit(2);
 );
 
 // bunny: prints the key it was given.
-stub('bunny', `process.stdout.write(process.env.BUNNYNET_API_KEY ?? '<none>');`);
+stub(
+  'bunny',
+  `process.stdout.write(process.env.BUNNYNET_API_KEY ?? '<none>');`,
+);
 
 const run = (args, env = {}) => {
   const log = join(stubs, `gcloud-${Math.random().toString(36).slice(2)}.log`);
@@ -120,14 +132,22 @@ const IMPERSONATION = [
   'GOOGLE_BACKEND_IMPERSONATE_SERVICE_ACCOUNT',
   'CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT',
 ];
-const callerImpersonation = Object.fromEntries(IMPERSONATION.map((k) => [k, 'caller@x.iam.gserviceaccount.com']));
+const callerImpersonation = Object.fromEntries(
+  IMPERSONATION.map((k) => [k, 'caller@x.iam.gserviceaccount.com']),
+);
 
 // Identity defaults
 
 test('gcp defaults to tf-deployer locally', () => {
-  const result = run(['gcp', 'plan'], { GOOGLE_BACKEND_IMPERSONATE_SERVICE_ACCOUNT: 'other@x.iam.gserviceaccount.com' });
+  const result = run(['gcp', 'plan'], {
+    GOOGLE_BACKEND_IMPERSONATE_SERVICE_ACCOUNT:
+      'other@x.iam.gserviceaccount.com',
+  });
   const call = tofuCall(result);
-  assert.deepEqual(call.argv, [`-chdir=${repo}/infra/terraform/live/dev/gcp`, 'plan']);
+  assert.deepEqual(call.argv, [
+    `-chdir=${repo}/infra/terraform/live/dev/gcp`,
+    'plan',
+  ]);
   assert.equal(call.env.GOOGLE_IMPERSONATE_SERVICE_ACCOUNT, deployer);
   assert.equal(call.env.CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT, deployer);
   assert.ok(!('GOOGLE_BACKEND_IMPERSONATE_SERVICE_ACCOUNT' in call.env));
@@ -137,7 +157,10 @@ test('gcp defaults to tf-deployer locally', () => {
 test('images and cluster default to tf-deployer locally', () => {
   for (const root of ['images', 'cluster']) {
     const call = tofuCall(run([root, 'plan']));
-    assert.equal(call.argv[0], `-chdir=${repo}/infra/terraform/live/dev/${root}`);
+    assert.equal(
+      call.argv[0],
+      `-chdir=${repo}/infra/terraform/live/dev/${root}`,
+    );
     assert.equal(call.env.GOOGLE_IMPERSONATE_SERVICE_ACCOUNT, deployer);
   }
 });
@@ -151,7 +174,10 @@ test('bunny defaults to tf-bunny locally', () => {
 
 test('bootstrap never impersonates', () => {
   const call = tofuCall(run(['bootstrap', 'plan'], callerImpersonation));
-  assert.equal(call.argv[0], `-chdir=${repo}/infra/terraform/live/dev/bootstrap`);
+  assert.equal(
+    call.argv[0],
+    `-chdir=${repo}/infra/terraform/live/dev/bootstrap`,
+  );
   assert.deepEqual(call.env, {});
 });
 
@@ -164,19 +190,26 @@ test('bootstrap refuses another identity', () => {
 });
 
 test('TF_SH_IDENTITY=self uses own credentials', () => {
-  const call = tofuCall(run(['gcp', 'plan'], { TF_SH_IDENTITY: 'self', ...callerImpersonation }));
+  const call = tofuCall(
+    run(['gcp', 'plan'], { TF_SH_IDENTITY: 'self', ...callerImpersonation }),
+  );
   assert.deepEqual(call.env, {});
 });
 
 test('CI uses ambient credentials', () => {
-  const result = run(['gcp', 'plan'], { GITHUB_ACTIONS: 'true', ...callerImpersonation });
+  const result = run(['gcp', 'plan'], {
+    GITHUB_ACTIONS: 'true',
+    ...callerImpersonation,
+  });
   assert.deepEqual(tofuCall(result).env, {});
   assert.deepEqual(result.gcloudCalls, []);
 });
 
 test('explicit email wins', () => {
   const other = 'tf-planner@heisreal-dev.iam.gserviceaccount.com';
-  const call = tofuCall(run(['gcp', 'plan'], { TF_SH_IDENTITY: other, GITHUB_ACTIONS: 'true' }));
+  const call = tofuCall(
+    run(['gcp', 'plan'], { TF_SH_IDENTITY: other, GITHUB_ACTIONS: 'true' }),
+  );
   assert.equal(call.env.GOOGLE_IMPERSONATE_SERVICE_ACCOUNT, other);
   assert.equal(call.env.CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT, other);
 });
@@ -190,7 +223,9 @@ test('bad identity refused', () => {
 // Environment hygiene and refusals
 
 test('env encryption cleared', () => {
-  const call = tofuCall(run(['gcp', 'plan'], { TF_ENCRYPTION: 'key_provider "pbkdf2" "x" {}' }));
+  const call = tofuCall(
+    run(['gcp', 'plan'], { TF_ENCRYPTION: 'key_provider "pbkdf2" "x" {}' }),
+  );
   assert.ok(!('TF_ENCRYPTION' in call.env));
 });
 
@@ -205,7 +240,10 @@ test('debug logs refused', () => {
     for (const root of ['gcp', 'bunny']) {
       const result = run([root, 'plan'], env);
       assert.equal(result.status, 1, `${root} ${JSON.stringify(env)}`);
-      assert.match(result.stderr, /debug logs can print secrets into public CI logs/);
+      assert.match(
+        result.stderr,
+        /debug logs can print secrets into public CI logs/,
+      );
       assert.doesNotMatch(result.stdout, /argv/);
     }
   }
@@ -244,11 +282,18 @@ test('bunny refuses state pull and json', () => {
     assert.equal(result.status, 1, args.join(' '));
     assert.match(result.stderr, /plan-summary/);
   }
-  assert.deepEqual(tofuCall(run(['bunny', 'plan', '-out=x'])).argv.slice(1), ['plan', '-out=x']);
+  assert.deepEqual(tofuCall(run(['bunny', 'plan', '-out=x'])).argv.slice(1), [
+    'plan',
+    '-out=x',
+  ]);
 });
 
 test('other roots may use show -json', () => {
-  assert.deepEqual(tofuCall(run(['gcp', 'show', '-json', 'x'])).argv.slice(1), ['show', '-json', 'x']);
+  assert.deepEqual(tofuCall(run(['gcp', 'show', '-json', 'x'])).argv.slice(1), [
+    'show',
+    '-json',
+    'x',
+  ]);
 });
 
 // plan-summary
@@ -257,33 +302,57 @@ const plan = JSON.stringify({
   resource_changes: [
     {
       address: 'module.bunny.bunnynet_stream_library.media',
-      change: { actions: ['update'], before: { api_key: 'SECRET' }, after: { api_key: 'SECRET' } },
+      change: {
+        actions: ['update'],
+        before: { api_key: 'SECRET' },
+        after: { api_key: 'SECRET' },
+      },
     },
     {
       address: 'module.bunny.bunnynet_pullzone.media',
-      change: { actions: ['no-op'], before: { token_auth_key: 'SECRET' }, after: { token_auth_key: 'SECRET' } },
+      change: {
+        actions: ['no-op'],
+        before: { token_auth_key: 'SECRET' },
+        after: { token_auth_key: 'SECRET' },
+      },
     },
   ],
 });
 
 test('plan-summary prints only addresses, actions and count', () => {
-  const result = run(['bunny', 'plan-summary', 'tfplan'], { STUB_SHOW_JSON: plan, GITHUB_ACTIONS: 'true' });
+  const result = run(['bunny', 'plan-summary', 'tfplan'], {
+    STUB_SHOW_JSON: plan,
+    GITHUB_ACTIONS: 'true',
+  });
   assert.equal(result.status, 0, result.all);
-  assert.equal(result.stdout, 'update module.bunny.bunnynet_stream_library.media\nchanges: 1\n');
+  assert.equal(
+    result.stdout,
+    'update module.bunny.bunnynet_stream_library.media\nchanges: 1\n',
+  );
   assert.doesNotMatch(result.all, /SECRET/);
 });
 
 test('plan-summary joins replace actions and counts zero', () => {
   const replace = JSON.stringify({
-    resource_changes: [{ address: 'a.b', change: { actions: ['delete', 'create'] } }],
+    resource_changes: [
+      { address: 'a.b', change: { actions: ['delete', 'create'] } },
+    ],
   });
-  assert.equal(run(['gcp', 'plan-summary', 'p'], { STUB_SHOW_JSON: replace }).stdout, 'delete,create a.b\nchanges: 1\n');
+  assert.equal(
+    run(['gcp', 'plan-summary', 'p'], { STUB_SHOW_JSON: replace }).stdout,
+    'delete,create a.b\nchanges: 1\n',
+  );
   const none = JSON.stringify({ format_version: '1.2' });
-  assert.equal(run(['gcp', 'plan-summary', 'p'], { STUB_SHOW_JSON: none }).stdout, 'changes: 0\n');
+  assert.equal(
+    run(['gcp', 'plan-summary', 'p'], { STUB_SHOW_JSON: none }).stdout,
+    'changes: 0\n',
+  );
 });
 
 test('plan-summary hides show errors', () => {
-  const result = run(['bunny', 'plan-summary', 'tfplan'], { STUB_SHOW_FAIL: '1' });
+  const result = run(['bunny', 'plan-summary', 'tfplan'], {
+    STUB_SHOW_FAIL: '1',
+  });
   assert.equal(result.status, 1);
   assert.doesNotMatch(result.all, /SECRET/);
   assert.match(result.stderr, /plan-summary: could not read plan \(exit 1\)/);
@@ -296,7 +365,9 @@ test('plan-summary needs a plan file', () => {
 // bunny-mask
 
 test('bunny-mask refused outside CI', () => {
-  const result = run(['bunny-mask', 'secrets'], { STUB_SECRETS: 'bunny-account-api-key' });
+  const result = run(['bunny-mask', 'secrets'], {
+    STUB_SECRETS: 'bunny-account-api-key',
+  });
   assert.equal(result.status, 1);
   assert.doesNotMatch(result.stdout, /add-mask/);
 });
@@ -304,7 +375,8 @@ test('bunny-mask refused outside CI', () => {
 test('bunny-mask secrets', () => {
   const result = run(['bunny-mask', 'secrets'], {
     GITHUB_ACTIONS: 'true',
-    STUB_SECRETS: 'bunny-account-api-key\\nclerk-secret-key\\nbunny-stream-api-key',
+    STUB_SECRETS:
+      'bunny-account-api-key\\nclerk-secret-key\\nbunny-stream-api-key',
   });
   assert.equal(result.status, 0, result.all);
   assert.equal(
@@ -314,16 +386,30 @@ test('bunny-mask secrets', () => {
   assert.equal(result.stderr, '');
 });
 
-const resource = (type, values) => ({ address: `module.bunny.${type}.media`, type, values });
+const resource = (type, values) => ({
+  address: `module.bunny.${type}.media`,
+  type,
+  values,
+});
 const state = JSON.stringify({
   values: {
     root_module: {
       child_modules: [
         {
           resources: [
-            resource('bunnynet_stream_library', { api_key: 'k1', api_key_readonly: 'k2', name: 'not-a-key' }),
-            resource('bunnynet_storage_zone', { password: 'p1\np1-second-line', password_readonly: 'p2' }),
-            resource('bunnynet_pullzone', { token_auth_key: 't1', name: 'also-not' }),
+            resource('bunnynet_stream_library', {
+              api_key: 'k1',
+              api_key_readonly: 'k2',
+              name: 'not-a-key',
+            }),
+            resource('bunnynet_storage_zone', {
+              password: 'p1\np1-second-line',
+              password_readonly: 'p2',
+            }),
+            resource('bunnynet_pullzone', {
+              token_auth_key: 't1',
+              name: 'also-not',
+            }),
             resource('google_secret_manager_secret', { secret_id: 'bunny-x' }),
           ],
         },
@@ -333,7 +419,10 @@ const state = JSON.stringify({
 });
 
 test('bunny-mask state', () => {
-  const result = run(['bunny-mask', 'state'], { GITHUB_ACTIONS: 'true', STUB_SHOW_JSON: state });
+  const result = run(['bunny-mask', 'state'], {
+    GITHUB_ACTIONS: 'true',
+    STUB_SHOW_JSON: state,
+  });
   assert.equal(result.status, 0, result.all);
   assert.deepEqual(result.stdout.split('\n').filter(Boolean).sort(), [
     '::add-mask::k1',
@@ -347,21 +436,33 @@ test('bunny-mask state', () => {
 });
 
 test('bunny-mask state, no state yet', () => {
-  for (const json of [JSON.stringify({ format_version: '1.0', values: {} }), JSON.stringify({ format_version: '1.0' })]) {
-    const result = run(['bunny-mask', 'state'], { GITHUB_ACTIONS: 'true', STUB_SHOW_JSON: json });
+  for (const json of [
+    JSON.stringify({ format_version: '1.0', values: {} }),
+    JSON.stringify({ format_version: '1.0' }),
+  ]) {
+    const result = run(['bunny-mask', 'state'], {
+      GITHUB_ACTIONS: 'true',
+      STUB_SHOW_JSON: json,
+    });
     assert.equal(result.status, 0, result.all);
     assert.equal(result.all, '');
   }
 });
 
 test('bunny-mask errors stay quiet', () => {
-  const result = run(['bunny-mask', 'state'], { GITHUB_ACTIONS: 'true', STUB_SHOW_FAIL: '1' });
+  const result = run(['bunny-mask', 'state'], {
+    GITHUB_ACTIONS: 'true',
+    STUB_SHOW_FAIL: '1',
+  });
   assert.equal(result.status, 1);
   assert.equal(result.all, 'bunny-mask: failed (state)\n');
 });
 
 test('bunny-mask needs secrets or state', () => {
-  assert.equal(run(['bunny-mask', 'other'], { GITHUB_ACTIONS: 'true' }).status, 64);
+  assert.equal(
+    run(['bunny-mask', 'other'], { GITHUB_ACTIONS: 'true' }).status,
+    64,
+  );
 });
 
 // bunny-cli
@@ -371,10 +472,15 @@ test('bunny-cli passes key to one process', () => {
   assert.equal(result.status, 0, result.all);
   assert.equal(result.stdout, 'stub-bunny-account-api-key');
   const access = result.gcloudCalls.find((c) => c[0] === 'secrets');
-  assert.ok(access.includes(`--impersonate-service-account=${tfBunny}`), JSON.stringify(access));
+  assert.ok(
+    access.includes(`--impersonate-service-account=${tfBunny}`),
+    JSON.stringify(access),
+  );
 
   const self = run(['bunny-cli', 'api'], { TF_SH_IDENTITY: 'self' });
   assert.equal(self.stdout, 'stub-bunny-account-api-key');
   const selfAccess = self.gcloudCalls.find((c) => c[0] === 'secrets');
-  assert.ok(!selfAccess.some((a) => a.startsWith('--impersonate-service-account')));
+  assert.ok(
+    !selfAccess.some((a) => a.startsWith('--impersonate-service-account')),
+  );
 });
