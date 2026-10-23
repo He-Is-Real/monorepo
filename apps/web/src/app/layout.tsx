@@ -3,7 +3,15 @@ import { DM_Sans } from 'next/font/google';
 import { Suspense } from 'react';
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
-import { robotsNoindex } from '@/lib/config';
+import { robotsNoindex, siteUrl } from '@/lib/config';
+import {
+  DEFAULT_OG_IMAGE,
+  jsonLdScript,
+  OPEN_GRAPH_DEFAULTS,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  siteJsonLd,
+} from '@/lib/seo';
 import { THEME_SCRIPT } from '@/lib/theme';
 import './global.css';
 
@@ -14,14 +22,21 @@ const dmSans = DM_Sans({
   variable: '--font-dm-sans',
 });
 
-/** Per request, so the dev deployment's noindex comes from its environment (Terraform). */
+/**
+ * Per request, so the dev deployment's noindex and site URL come from its environment
+ * (OpenTofu). No canonical here: pages set their own (`pageMetadata`), or they'd inherit this.
+ */
 export function generateMetadata(): Metadata {
+  const origin = siteUrl();
   return {
+    ...(origin ? { metadataBase: new URL(origin) } : {}),
     title: {
-      default: 'He Is Real Today',
-      template: '%s | He Is Real Today',
+      default: SITE_NAME,
+      template: `%s | ${SITE_NAME}`,
     },
-    description: 'Real stories of encounters with God.',
+    description: SITE_DESCRIPTION,
+    openGraph: { ...OPEN_GRAPH_DEFAULTS, images: [DEFAULT_OG_IMAGE] },
+    twitter: { card: 'summary_large_image', images: [DEFAULT_OG_IMAGE] },
     ...(robotsNoindex() ? { robots: { index: false, follow: false } } : {}),
   };
 }
@@ -42,6 +57,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const origin = siteUrl();
   return (
     // The theme script sets `dark` before first paint, so React's markup differs from the
     // live class list by design.
@@ -60,6 +76,14 @@ export default function RootLayout({
           <SiteHeader />
         </Suspense>
         {children}
+        {origin && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: jsonLdScript(siteJsonLd(origin)),
+            }}
+          />
+        )}
         {/* D48: says when consent checks are relaxed (dev only); nothing otherwise. */}
         <Suspense fallback={null}>
           <SiteFooter />

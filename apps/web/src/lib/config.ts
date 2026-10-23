@@ -46,3 +46,38 @@ export function featuredStorySlug(): string | undefined {
 export function robotsNoindex(): boolean {
   return process.env['ROBOTS_NOINDEX'] === 'true';
 }
+
+/**
+ * The site's public origin (`SITE_URL`, set by OpenTofu: `web_site_url`), without a trailing
+ * slash, or undefined when unset. Canonical URLs, Open Graph, JSON-LD, robots.txt and the
+ * sitemap are built from it; it never comes from the visitor's request (D32).
+ */
+export function siteUrl(): string | undefined {
+  const raw = process.env['SITE_URL']?.trim().replace(/\/+$/, '');
+  if (!raw) return undefined;
+  let url: URL | undefined;
+  try {
+    url = new URL(raw);
+  } catch {
+    url = undefined;
+  }
+  if (
+    !url ||
+    (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+    url.origin !== raw
+  ) {
+    throw new Error(
+      'SITE_URL is not an http(s) origin without a path (e.g. https://www.heisreal.today)',
+    );
+  }
+  return raw;
+}
+
+/**
+ * Whether search engines are invited in: robots.txt allows crawling and lists the sitemap,
+ * and /sitemap.xml exists. Off while ROBOTS_NOINDEX is on (dev) and without a site URL (no
+ * absolute URLs to offer). Go live: `web_noindex = false` and `web_site_url` set.
+ */
+export function indexingAllowed(): boolean {
+  return !robotsNoindex() && siteUrl() !== undefined;
+}

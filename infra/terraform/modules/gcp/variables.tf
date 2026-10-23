@@ -183,6 +183,16 @@ variable "web_noindex" {
   default     = false
 }
 
+variable "web_site_url" {
+  description = "web's public origin (canonical URLs, Open Graph, sitemap), e.g. https://www.heisreal.today. Empty: none, and search engines aren't invited in."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.web_site_url == "" || can(regex("^https://[a-z0-9.-]+$", var.web_site_url))
+    error_message = "web_site_url is an https origin without a path or trailing slash, or empty."
+  }
+}
+
 variable "backup_retention_days" {
   description = "Delete database backups after this many days (GDPR erasure window)."
   type        = number

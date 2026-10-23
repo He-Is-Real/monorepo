@@ -47,11 +47,66 @@ describe('RootLayout', () => {
   });
 });
 
+const restoreEnv = (names: string[]) => {
+  const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+  return () => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
+};
+
+describe('site JSON-LD', () => {
+  afterEach(restoreEnv(['SITE_URL']));
+  const render = () =>
+    renderToStaticMarkup(
+      <RootLayout>
+        <main id="main">content</main>
+      </RootLayout>,
+    );
+
+  it('describes the organisation and website when the site URL is known', () => {
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    const scripts = render().match(
+      /<script type="application\/ld\+json">([^<]*)<\/script>/g,
+    );
+    expect(scripts).toHaveLength(1);
+    expect(scripts?.[0]).toContain('"@type":"Organization"');
+    expect(scripts?.[0]).toContain('"url":"https://www.heisreal.today/"');
+  });
+
+  it('is left out without a site URL (no absolute URLs to give)', () => {
+    delete process.env['SITE_URL'];
+    expect(render()).not.toContain('application/ld+json');
+  });
+});
+
 describe('generateMetadata', () => {
-  const saved = process.env['ROBOTS_NOINDEX'];
-  afterEach(() => {
-    if (saved === undefined) delete process.env['ROBOTS_NOINDEX'];
-    else process.env['ROBOTS_NOINDEX'] = saved;
+  afterEach(restoreEnv(['ROBOTS_NOINDEX', 'SITE_URL']));
+
+  it('resolves relative URLs against SITE_URL', () => {
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    expect(generateMetadata().metadataBase).toEqual(
+      new URL('https://www.heisreal.today'),
+    );
+  });
+
+  it('has no metadataBase without SITE_URL', () => {
+    delete process.env['SITE_URL'];
+    expect(generateMetadata().metadataBase).toBeUndefined();
+  });
+
+  it('sets the site’s Open Graph and Twitter defaults, but no canonical (pages set their own)', () => {
+    const metadata = generateMetadata();
+    expect(metadata.openGraph).toMatchObject({
+      siteName: 'He Is Real Today',
+      locale: 'en_GB',
+      type: 'website',
+      images: [expect.objectContaining({ url: '/og-default.png' })],
+    });
+    expect(metadata.twitter).toMatchObject({ card: 'summary_large_image' });
+    expect(metadata.alternates).toBeUndefined();
   });
 
   it('sets the site title, and lets pages be indexed by default', () => {

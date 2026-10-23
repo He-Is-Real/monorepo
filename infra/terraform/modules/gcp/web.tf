@@ -67,6 +67,13 @@ resource "google_cloud_run_v2_service" "web" {
         value = tostring(var.web_noindex)
       }
 
+      # The public origin: canonical URLs, Open Graph, JSON-LD, robots.txt and the sitemap.
+      # Indexing needs it and web_noindex = false (Go live).
+      env {
+        name  = "SITE_URL"
+        value = var.web_site_url
+      }
+
       # As for the APIs: ready = the port is open. GET /health exists for
       # manual checks.
       startup_probe {
