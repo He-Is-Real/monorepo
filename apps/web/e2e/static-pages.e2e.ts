@@ -147,3 +147,44 @@ test('dev isn’t indexed: robots.txt turns crawlers away and there is no sitema
   expect(sitemap.status()).toBe(404);
   expect(sitemap.headers()['x-robots-tag']).toBe('noindex, nofollow');
 });
+
+test.describe('as a real visitor’s browser', () => {
+  // Clerk turns its telemetry off for automated browsers (navigator.webdriver) and robot user
+  // agents, so look like an ordinary Chrome, or this test would pass whatever the setting.
+  test.use({
+    userAgent:
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+  });
+
+  test('no optional Clerk telemetry: no request to clerk-telemetry.com, nothing stored for it', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(Navigator.prototype, 'webdriver', {
+        get: () => false,
+      });
+      // Clerk samples events at random: make every event "sampled", so it's not a coin toss.
+      Math.random = () => 0;
+    });
+    const telemetry: string[] = [];
+    page.on('request', (r) => {
+      if (new URL(r.url()).hostname.endsWith('clerk-telemetry.com'))
+        telemetry.push(r.url());
+    });
+    for (const path of ['/about', '/', '/faqs']) {
+      await page.goto(path);
+      // Clerk loads in the browser: wait until its sign-in button is up, then give a batched
+      // telemetry flush time to happen.
+      await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+      await page.waitForTimeout(3_000);
+    }
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.waitForTimeout(3_000);
+    const keys = await page.evaluate(() => [
+      ...Object.keys(localStorage),
+      ...Object.keys(sessionStorage),
+    ]);
+    expect(keys.filter((k) => k.startsWith('clerk_telemetry'))).toEqual([]);
+    expect(telemetry).toEqual([]);
+  });
+});

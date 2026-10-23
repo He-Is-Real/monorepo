@@ -12,8 +12,9 @@ export function generateMetadata() {
   });
 }
 
-// What the site stores on a visitor's device, checked on the dev site (M1 step 6b-2): the
-// theme the visitor picks, and Clerk's sign-in (it runs in the header on every page, D32).
+// What the site stores on a visitor's device, checked in a real (non-automated) browser on
+// 2026-10-23 (M1 step 6b-2, #65 review): the theme the visitor picks, and Clerk's sign-in (it
+// runs in the header on every page, D32), with Clerk's optional telemetry off.
 // All strictly necessary (PECR reg. 6(4)), so no consent banner. Clerk may add a short suffix
 // to its cookie names.
 const STORAGE = [
@@ -164,10 +165,18 @@ export default function PrivacyPage() {
               </tbody>
             </table>
           </div>
-          <p className="mt-6 max-w-prose text-sm text-secondary-text">
-            Story videos and audio play in Bunny.net’s player, which sets no
-            cookies when a story page loads.
-          </p>
+          <div className="mt-6 max-w-prose space-y-3 text-sm text-secondary-text">
+            <p>
+              Clerk’s optional product telemetry is turned off, so it neither
+              stores anything nor sends usage data.
+            </p>
+            <p>
+              Story videos and audio play in Bunny.net’s player. It stores
+              nothing on your device, before or during playback. While a story
+              plays, it sends Bunny playback statistics (which video, and how
+              long it played) so we can tell that videos work.
+            </p>
+          </div>
         </section>
 
         <section aria-labelledby="questions" className="mt-12">

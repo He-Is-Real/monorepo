@@ -29,6 +29,18 @@ describe('Privacy policy (draft)', () => {
     ]);
   });
 
+  it('says what the video player sends, and that it stores nothing', () => {
+    const text = document.getElementById('cookies')?.textContent ?? '';
+    expect(text).toMatch(/stores nothing on your device/);
+    expect(text).toMatch(/playback statistics/);
+  });
+
+  it('says Clerk’s optional telemetry is off', () => {
+    expect(document.getElementById('cookies')?.textContent).toMatch(
+      /telemetry.*turned off/,
+    );
+  });
+
   it('explains why there is no cookie banner', () => {
     expect(screen.getByText(/no cookie banner/i)).toBeTruthy();
   });
