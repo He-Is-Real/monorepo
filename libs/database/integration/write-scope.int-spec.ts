@@ -229,14 +229,14 @@ describe('write scope on story fields (D41)', () => {
         migrator,
         'SELECT durationSeconds, media FROM publicStory:bob_pending',
       );
-    const reviewedClip = (durationSeconds: number) => [
+    const reviewedClip = (durationSeconds: number, thumbnailPath: string) => [
       {
         durationSeconds,
         media: [
           {
             format: 'video',
             bunnyVideoId: 'vid-orig',
-            thumbnailPath: 'thumbs/1.jpg',
+            thumbnailPath,
             width: 720,
             height: 1280,
           },
@@ -244,32 +244,38 @@ describe('write scope on story fields (D41)', () => {
       },
     ];
 
-    it('never copies a changed thumbnail: #61 treats it as unreviewed media', async () => {
-      // A regenerated thumbnail is part of #61's media fingerprint (Joel's decision pending; the
-      // rule is strict). The write succeeds, the public row keeps what was reviewed...
+    it('copies a thumbnail Bunny regenerated for the same clip (D60)', async () => {
+      // A re-encode can make a new thumbnail for the same video. It's a frame of the reviewed
+      // clip, so it isn't new media: the published row follows it, so its link works.
       await run(
         workflow,
         `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/2.jpg'`,
       );
-      expect(
-        await rows(
-          migrator,
-          'SELECT VALUE media[0].thumbnailPath FROM story:bob_pending',
-        ),
-      ).toEqual(['thumbs/2.jpg']);
-      expect(await published()).toEqual(reviewedClip(120));
-      // ...and while the story's media differs from it, later corrections wait too.
+      expect(await published()).toEqual(reviewedClip(120, 'thumbs/2.jpg'));
+      // Later corrections still reach the row.
       await run(
         workflow,
         'UPDATE story:bob_pending SET media[0].durationSeconds = 150',
       );
-      expect(
-        await rows(
-          migrator,
-          'SELECT VALUE media[0].durationSeconds FROM story:bob_pending',
-        ),
-      ).toEqual([150]);
-      expect(await published()).toEqual(reviewedClip(120));
+      expect(await published()).toEqual(reviewedClip(150, 'thumbs/2.jpg'));
+    });
+
+    it('never copies another clip: a new Bunny id is #61’s to hide and review', async () => {
+      // Only a system user can write it this way (no hide: the clip stays ready), so the row
+      // keeps what was reviewed, and later corrections wait too.
+      await run(
+        migrator,
+        `UPDATE story:bob_pending SET media[0].bunnyVideoId = 'vid-other'`,
+      );
+      await run(
+        workflow,
+        'UPDATE story:bob_pending SET media[0].durationSeconds = 160',
+      );
+      expect(await published()).toEqual(reviewedClip(150, 'thumbs/2.jpg'));
+      await run(
+        migrator,
+        `UPDATE story:bob_pending SET media[0].bunnyVideoId = 'vid-orig'`,
+      );
     });
 
     it('leaves #61’s hide and restore working, with the latest facts on return', async () => {
@@ -285,18 +291,18 @@ describe('write scope on story fields (D41)', () => {
           'SELECT VALUE record::id(id) FROM hiddenStory:bob_pending',
         ),
       ).toEqual(['bob_pending']);
-      // Ready again, but with the new thumbnail: not what was reviewed, so it stays hidden.
+      // Bunny re-encodes the same clip with another new thumbnail: ready again, it comes back
+      // on its own (D60), with that thumbnail and the duration processing found since.
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/3.jpg'`,
+      );
+      expect(await published()).toEqual([]);
       await run(
         workflow,
         `UPDATE story:bob_pending SET media[0].processing = 'ready'`,
       );
-      expect(await published()).toEqual([]);
-      // The reviewed thumbnail back: restored, with the duration processing found since.
-      await run(
-        workflow,
-        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/1.jpg'`,
-      );
-      expect(await published()).toEqual(reviewedClip(150));
+      expect(await published()).toEqual(reviewedClip(160, 'thumbs/3.jpg'));
       expect(
         await rows(migrator, 'SELECT VALUE id FROM hiddenStory:bob_pending'),
       ).toEqual([]);

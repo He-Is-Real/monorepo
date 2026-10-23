@@ -672,12 +672,6 @@ describe('approval waits for media processing (A2)', () => {
           `media[0].processing = 'failed'`,
         ],
       ],
-      [
-        'as another thumbnail',
-        [
-          `media[0].thumbnailPath = 'thumbs/unreviewed.jpg', media[0].processing = 'failed'`,
-        ],
-      ],
     ])(
       'media swapped %s never goes public unreviewed',
       async (_name, writes) => {
@@ -692,6 +686,70 @@ describe('approval waits for media processing (A2)', () => {
         expect(row).toMatchObject({ mediaChanged: true });
       },
     );
+
+    const publicThumbnail = (id: string) =>
+      truth(
+        `SELECT VALUE media[0].thumbnailPath FROM type::record('publicStory', $id)`,
+        { id },
+      );
+
+    it.each([
+      ['in the same write as the failure', true],
+      ['while hidden', false],
+    ])(
+      'a re-encode with a new thumbnail %s comes back on its own (D60)',
+      async (_name, sameWrite) => {
+        // Bunny re-encodes the same video and makes a new thumbnail: a frame of the reviewed
+        // clip, so no moderator is needed. The public row shows the new thumbnail.
+        const id = await live(video);
+        const thumb = `media[0].thumbnailPath = 'vid/thumbnail_2.jpg'`;
+        await update(
+          id,
+          sameWrite
+            ? `${thumb}, media[0].processing = 'failed'`
+            : `media[0].processing = 'failed'`,
+          workflow,
+        );
+        await expectHidden(id);
+        if (!sameWrite) await update(id, thumb, workflow);
+        await processed(workflow, id);
+        await expectLive(id);
+        expect(await publicThumbnail(id)).toEqual(['vid/thumbnail_2.jpg']);
+        expect(await history(id)).toEqual([
+          entry('HideStory'),
+          entry('RepublishStory'),
+        ]);
+      },
+    );
+
+    it('a new thumbnail on a public story reaches its row (D60)', async () => {
+      const id = await live(video);
+      await update(
+        id,
+        `media[0].thumbnailPath = 'vid/thumbnail_3.jpg'`,
+        workflow,
+      );
+      await expectLive(id);
+      expect(await publicThumbnail(id)).toEqual(['vid/thumbnail_3.jpg']);
+      expect(await history(id)).toEqual([]);
+    });
+
+    it('a written story’s new image path stays hidden: a moderator must review it', async () => {
+      // Only a system user (or, before submit, the person) can write image.path.
+      const id = await live(written);
+      await update(id, `image.processing = 'failed'`, workflow);
+      await update(
+        id,
+        `image.path = 'images/replacement.webp', image.processing = 'ready'`,
+        migrator,
+      );
+      await expectHidden(id);
+      const [row] = (await hidden()).filter(
+        (r) => String(r['id']) === `story:${id}`,
+      );
+      expect(row).toMatchObject({ mediaChanged: true });
+      expect(row['problem']).toBeUndefined();
+    });
 
     it('only api-admin and workflow can read the hidden marker', async () => {
       const id = await live(video);

@@ -17,11 +17,16 @@ import type { TagRef } from '../stories/story-summary';
 /** The order browse groups tags in. */
 export const CATEGORIES = ['theme', 'journey', 'emotion'] as const;
 
-const ALL_TAGS = `SELECT record::id(id) AS slug, name, category, version FROM tag`;
+// D63: only tags at least one published story uses, so no tag leads to an empty page. A tag
+// comes back as soon as a published story uses it. No input, so nothing to bind.
+const USED_TAGS = `
+  LET $used = array::distinct(array::flatten(SELECT VALUE tagRefs FROM publicStory));
+  SELECT record::id(id) AS slug, name, category, version FROM tag WHERE id IN $used;`;
 
 /**
  * api-public-read.yaml, tag Tags: listTags (M1). Reference data (D26), about 30 tags, unpaged.
- * No story counts: public responses carry no totals (docs/api-conventions.md).
+ * Only tags with a published story (D63). No story counts: public responses carry no totals
+ * (docs/api-conventions.md, D62).
  */
 @Controller('v1/tags')
 export class TagsController {
@@ -34,7 +39,10 @@ export class TagsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ data: TagRef[] } | undefined> {
     refuseQueryParameters(query);
-    const [tags] = (await runQuery(this.db, ALL_TAGS)) as [TagRef[]];
+    const [, tags] = (await runQuery(this.db, USED_TAGS)) as [
+      unknown,
+      TagRef[],
+    ];
     const rank = (t: TagRef) => CATEGORIES.indexOf(t.category as never);
     const body = {
       data: [...tags].sort(

@@ -453,16 +453,20 @@ DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever app
 -- hiddenStory. No new approval. Only workflow and system users can cause either: the person's
 -- content is locked after submission and api-admin can't write media. auditLog records
 -- HideStory/RepublishStory. If the media differs from the row that was hidden (another
--- bunnyVideoId, thumbnail or image path), it stays hidden: a moderator must review it
+-- bunnyVideoId or image path), it stays hidden: a moderator must review it
 -- (fn::story::hidden_by_media lists it with mediaChanged). Only a story that was public is
 -- hidden and restored. The event never writes the story itself, so the command's own write is
 -- the story's only version step (D29) and returns the committed version.
--- Which media is shown: formats, Bunny ids and thumbnails, and the image's path. Works on a
--- story or a publicStory row. The hide stores the identity of the row it deletes (what a
--- moderator approved), never the story's: workflow may have swapped the media in that write.
+-- Which media is shown: formats, Bunny ids and the image's path. Works on a story or a
+-- publicStory row. The hide stores the identity of the row it deletes (what a moderator
+-- approved), never the story's: workflow may have swapped the media in that write.
+-- D60 (Joel, 2026-10-23): not thumbnails. Re-encoding a video on Bunny can make a new thumbnail
+-- for the same video; it's a frame of the reviewed clip, so the story comes back on its own and
+-- the row shows the new thumbnail. api-public-read signs a thumbnail only inside its own video's
+-- folder (step 5), so no other picture can show. A written story's image stays strict.
 DEFINE FUNCTION OVERWRITE fn::story::media_identity($s: any) {
   RETURN crypto::sha256(<string> {
-    media: ($s.media ?? []).map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath]),
+    media: ($s.media ?? []).map(|$m| [$m.format, $m.bunnyVideoId]),
     image: $s.image.path
   });
 };
@@ -623,23 +627,25 @@ DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
 DEFINE EVENT OVERWRITE publicStory_clears_hide ON publicStory
   WHEN $event = 'CREATE'
   THEN { DELETE type::record('hiddenStory', record::id($after.id)) };
--- Processing (workflow, M7) may correct a published clip's size or duration. The same write copies
--- them into the published row (durationSeconds is recomputed there), so cards never keep old facts.
+-- Processing (workflow, M7) may correct a published clip's size or duration, and a re-encode may
+-- give it a new thumbnail (D60). The same write copies them into the published row
+-- (durationSeconds is recomputed there), so cards never keep old facts or a dead thumbnail link.
 -- Only while the clip is ready and the story's media is still what was reviewed: the published
--- row's fingerprint (fn::story::media_identity: formats, Bunny ids, thumbnails, image) equals the
--- story's. Never the fingerprint's own fields: a changed thumbnail or clip is #61's to hide and
--- review (story_media_availability), so copying it would make it look reviewed.
+-- row's fingerprint (fn::story::media_identity: formats, Bunny ids, image) equals the story's.
+-- Never the fingerprint's own fields: another clip or image is #61's to hide and review
+-- (story_media_availability), so copying it would make it look reviewed.
 DEFINE EVENT OVERWRITE story_published_media_facts ON story
   WHEN $event = 'UPDATE' AND $after.status = 'approved'
-    AND $after.media.map(|$m| [$m.width, $m.height, $m.durationSeconds])
-      != $before.media.map(|$m| [$m.width, $m.height, $m.durationSeconds])
+    AND $after.media.map(|$m| [$m.width, $m.height, $m.durationSeconds, $m.thumbnailPath])
+      != $before.media.map(|$m| [$m.width, $m.height, $m.durationSeconds, $m.thumbnailPath])
     AND fn::story::approval_problem($after) = NONE
   THEN {
     LET $public = type::record('publicStory', record::id($after.id));
     LET $row = (SELECT media, image FROM ONLY $public);
     IF $row != NONE AND fn::story::media_identity($row) = fn::story::media_identity($after) {
       UPDATE $public SET media = $row.media.map(|$m, $i| object::extend($m, {
-        width: $after.media[$i].width, height: $after.media[$i].height })) RETURN NONE;
+        width: $after.media[$i].width, height: $after.media[$i].height,
+        thumbnailPath: $after.media[$i].thumbnailPath })) RETURN NONE;
     };
   };
 DEFINE ANALYZER OVERWRITE story_en TOKENIZERS blank, class FILTERS lowercase, ascii, snowball(english);

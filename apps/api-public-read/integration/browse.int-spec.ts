@@ -490,14 +490,28 @@ describe('browse API over the dev dataset', () => {
   });
 
   describe('GET /v1/tags', () => {
-    it('lists every tag by category (theme, journey, emotion) then name, without counts', async () => {
+    const tagList = async () => {
+      const res = await get('/v1/tags');
+      expect(res.status).toBe(200);
+      return (
+        (await res.json()) as {
+          data: { slug: string; name: string; category: string }[];
+        }
+      ).data;
+    };
+    const usedBy = (stories: StoryFixture[]) =>
+      new Set(stories.flatMap((s) => s.tags));
+
+    it('lists the tags of published stories by category (theme, journey, emotion) then name, without counts', async () => {
       const res = await get('/v1/tags');
       expect(res.status).toBe(200);
       const { data } = (await res.json()) as {
         data: { slug: string; name: string; category: string }[];
       };
       const order = ['theme', 'journey', 'emotion'];
+      const used = usedBy(approved);
       const expected = [...DATASET.tags]
+        .filter((x) => used.has(x.id))
         .sort(
           (a, b) =>
             order.indexOf(a.category) - order.indexOf(b.category) ||
@@ -515,6 +529,47 @@ describe('browse API over the dev dataset', () => {
       expect((await get('/v1/tags', { 'if-none-match': etag })).status).toBe(
         304,
       );
+    });
+
+    it('hides tags with no published story, even when an unpublished one uses them (D63)', async () => {
+      const used = usedBy(approved);
+      const unused = DATASET.tags.filter((x) => !used.has(x.id));
+      // The dataset must keep this case covered.
+      expect(unused.length).toBeGreaterThan(0);
+      expect(unused.some((x) => usedBy(unpublished).has(x.id))).toBe(true);
+      const slugs = (await tagList()).map((x) => x.slug);
+      for (const x of unused) expect(slugs).not.toContain(x.id);
+    });
+
+    it('drops a tag when its last story leaves the public site, and brings it back when it returns (D63)', async () => {
+      // A tag only one published story uses, a clip, so #61 can hide and restore it.
+      const only = DATASET.tags.find((x) => {
+        const users = approved.filter((s) => s.tags.includes(x.id));
+        return users.length === 1 && users[0].format !== 'written';
+      });
+      expect(only).toBeDefined();
+      const tag = only?.id as string;
+      const id = approved.find((s) => s.tags.includes(tag))?.id as string;
+      const migrator = await t.migrator();
+      const processing = (state: string) =>
+        run(
+          migrator,
+          `UPDATE type::record('story', $id) SET media[0].processing = $state`,
+          { id, state },
+        );
+      await processing('failed');
+      expect((await tagList()).map((x) => x.slug)).not.toContain(tag);
+      await processing('ready');
+      expect(
+        await rows(
+          migrator,
+          `SELECT VALUE id FROM type::record('publicStory', $id)`,
+          {
+            id,
+          },
+        ),
+      ).toHaveLength(1);
+      expect((await tagList()).map((x) => x.slug)).toContain(tag);
     });
 
     it('refuses query parameters', async () => {

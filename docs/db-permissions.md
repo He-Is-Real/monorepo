@@ -345,8 +345,8 @@ retried`, on both RocksDB and the in-memory engine.
     finds a problem (an item `failed` or back to `processing`, a size or duration removed), the
     same write deletes the row and creates `hiddenStory:<same id>`: `since`, the row's
     `publishedAt` and `slugHistory`, and `identity`, a hash of the **deleted row's** media
-    (formats, Bunny ids, thumbnails, image path). When the problem is gone and the story's media
-    has that identity, the same write re-creates the row from the story (`publicStory_mirrors_story`
+    (formats, Bunny ids, image path; not thumbnails, D60 below). When the problem is gone and the
+    story's media has that identity, the same write re-creates the row from the story (`publicStory_mirrors_story`
     checks it as on approval) and deletes `hiddenStory`. The status never changes; no new
     approval is needed. **The identity comes from the public row, not the story** (security
     review): workflow can write media, so it could swap the video in the failing write; the swap
@@ -365,6 +365,13 @@ retried`, on both RocksDB and the in-memory engine.
     person's content is locked after submission and api-admin can't write media.
     `fn::story::hidden_by_media()` lists hidden approved stories for api-admin (it runs with the
     caller's permissions). Runbook: [media-runbook.md](media-runbook.md).
+    **D60 (Joel, 2026-10-23): thumbnails aren't part of the identity.** Re-encoding a video on
+    Bunny can make a new thumbnail for the same video. It's a frame of the reviewed clip, so the
+    story comes back on its own, and the restored row shows the new thumbnail. A different
+    `bunnyVideoId` or image `path` still counts as changed media. api-public-read signs a
+    thumbnail only inside its own video's folder (step 5), so no other picture can show.
+    `hiddenStory` rows written before D60 hold the old hash and stay `mediaChanged`; in dev,
+    reset the data.
 
 ### M1 step 4 (D49 dev-seed login)
 
@@ -386,11 +393,12 @@ retried`, on both RocksDB and the in-memory engine.
   reads the story's `media[0].durationSeconds` on every write, so no publisher copies it and none
   can set it (`write-scope.int-spec.ts`). The approval gate (A2) means a published clip always has
   it. Rows written before the migration get it on their next write; in dev, reset the data.
-- **`story_published_media_facts`.** When processing corrects an approved clip's size or duration
-  while it stays ready, the same write copies them into the published row. Only while the row's
-  media fingerprint (`fn::story::media_identity`, #61: formats, Bunny ids, thumbnails, image) equals
-  the story's, and never the fingerprint's fields themselves: a changed thumbnail or clip stays
-  under #61's hide and review. Copying it would make unreviewed media look reviewed.
+- **`story_published_media_facts`.** When processing corrects an approved clip's size or duration,
+  or a re-encode gives it a new thumbnail (D60), while it stays ready, the same write copies them
+  into the published row. Only while the row's media fingerprint (`fn::story::media_identity`,
+  #61: formats, Bunny ids, image) equals the story's, and never the fingerprint's fields
+  themselves: another clip or image stays under #61's hide and review. Copying it would make
+  unreviewed media look reviewed.
 - No permission changed: api-public-read still reads only `publicStory` and `tag`.
 
 ## Person-linked tables
