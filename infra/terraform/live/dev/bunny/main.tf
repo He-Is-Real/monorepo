@@ -124,6 +124,15 @@ module "bunny" {
   environment = "dev"
   region      = "europe-west2"
 
+  # D52: signed, expiring links everywhere; api-public-read signs them for
+  # published stories (its service account is made by the gcp root).
+  token_auth = {
+    stream_embed = true
+    stream_cdn   = true
+    images       = true
+  }
+  signing_key_readers = ["serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com"]
+
   depends_on = [terraform_data.never_public]
 }
 

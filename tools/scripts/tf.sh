@@ -144,7 +144,9 @@ if [ "$target" = bunny-mask ]; then
     done <<< "$names"
     ;;
   state)
-    # The five sensitive Bunny attributes (spike S11). No state yet: no values, no output.
+    # The five sensitive Bunny attributes (spike S11), plus the Stream pull zone's token_auth_key
+    # from data.bunnynet_pullzone (same type, resources and data sources alike; D52). No state
+    # yet: no values, no output.
     json="$(tofu -chdir="$dir" show -json 2> /dev/null)" || fail state
     values="$(jq -r '
       {

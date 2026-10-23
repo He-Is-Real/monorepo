@@ -90,7 +90,9 @@ jobs:
             exit 1
           fi
       # S11: CI's Bunny jobs print only plan-summary, and that relies on the five Bunny key
-      # attributes being sensitive in the locked bunnynet provider. A scratch root with only the
+      # attributes being sensitive in the locked bunnynet provider. (The Stream pull zone's key,
+      # read through data.bunnynet_pullzone, isn't marked sensitive: the module wraps it in
+      # sensitive() and `tf.sh bunny-mask state` masks it by type.) A scratch root with only the
       # bunny root's lock file: `providers schema` evaluates the encryption block (it calls
       # KMS), and this job has no Google credentials.
       - name: Check the Bunny keys are sensitive
@@ -112,9 +114,12 @@ jobs:
       # bunny-state-guard: nothing Bunny is public (the bunny root's pre-plan check).
       # cluster (mock providers, no cluster access): D48's relaxed consent and D49's dev-seed login
       # are refused outside dev.
+      # bunny (mock providers, no Bunny or Google access): D52's token auth is on and only the
+      # named service accounts may read the two token auth keys. gcp (mock providers): api-public-read
+      # gets the BUNNY_* settings only when api_public_read_media is set.
       - name: Test the pure modules
         run: |
-          for module in db-migration db-identity bunny-state-guard cluster; do
+          for module in db-migration db-identity bunny-state-guard cluster bunny gcp; do
             tofu -chdir="infra/terraform/modules/$module" init -backend=false -input=false
             tofu -chdir="infra/terraform/modules/$module" test
           done
