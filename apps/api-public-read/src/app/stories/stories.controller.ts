@@ -13,6 +13,7 @@ import { runQuery, SURREAL } from '@heisreal/database';
 import { ProblemException } from '@heisreal/http';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import { MediaUrls } from '../media/media-urls';
 
 /** `components.yaml#/components/schemas/StoryPublic`. */
 export interface StoryPublic {
@@ -65,11 +66,17 @@ const BY_SLUG = `
 type Row = Omit<StoryPublic, 'body' | 'bylineName' | 'media' | 'image'> & {
   body?: string;
   bylineName?: string;
-  media?: { format: 'video' | 'audio'; width?: number; height?: number }[];
+  media?: {
+    format: 'video' | 'audio';
+    bunnyVideoId?: string;
+    thumbnailPath?: string;
+    width?: number;
+    height?: number;
+  }[];
   image?: { path: string; width: number; height: number; alt?: string };
 };
 
-function toPublic(row: Row): StoryPublic {
+function toPublic(row: Row, urls: MediaUrls): StoryPublic {
   return {
     id: row.id,
     slug: row.slug,
@@ -78,12 +85,12 @@ function toPublic(row: Row): StoryPublic {
     body: row.body ?? null,
     bylineName: row.bylineName ?? null,
     primaryFormat: row.primaryFormat,
-    // Playback, thumbnail, caption and image URLs need Bunny's token-authenticated delivery
-    // (D52, M1); until then media and images carry no URLs, and never their storage paths.
+    // D52: signed, expiring links (MediaUrls), never bare ids or storage paths. Only
+    // `publicStory` is read, so only published media is signed. Captions come with M7.
     media: (row.media ?? []).map((m) => ({
       format: m.format,
-      playbackUrl: null,
-      thumbnailUrl: null,
+      playbackUrl: urls.playbackUrl(m.bunnyVideoId),
+      thumbnailUrl: urls.thumbnailUrl(m.thumbnailPath),
       width: m.width ?? null,
       height: m.height ?? null,
       captionsUrl: null,
@@ -91,7 +98,7 @@ function toPublic(row: Row): StoryPublic {
     })),
     image: row.image
       ? {
-          url: null,
+          url: urls.imageUrl(row.image.path),
           width: row.image.width,
           height: row.image.height,
           alt: row.image.alt ?? null,
@@ -132,7 +139,10 @@ function matches(ifNoneMatch: string | undefined, etag: string): boolean {
 /** api-public-read.yaml, tag Stories: `GET /v1/stories/{slug}` (M0 task 0.9). */
 @Controller('v1/stories')
 export class StoriesController {
-  constructor(@Inject(SURREAL) private readonly db: Surreal) {}
+  constructor(
+    @Inject(SURREAL) private readonly db: Surreal,
+    @Inject(MediaUrls) private readonly urls: MediaUrls,
+  ) {}
 
   @Get(':slug')
   async getStoryBySlug(
@@ -155,7 +165,7 @@ export class StoriesController {
         .setHeader('Cache-Control', CACHE_PUBLIC);
       return undefined;
     }
-    const story = toPublic(row);
+    const story = toPublic(row, this.urls);
     const etag = representationETag(story);
     res.setHeader('ETag', etag).setHeader('Cache-Control', CACHE_PUBLIC);
     if (matches(ifNoneMatch, etag)) {

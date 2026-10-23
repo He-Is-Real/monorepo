@@ -13,6 +13,7 @@ import {
 } from '@heisreal/database/integration-testing';
 import { ProblemFilter } from '@heisreal/http';
 import type { Surreal } from 'surrealdb';
+import { MediaUrls } from '../src/app/media/media-urls';
 import { StoriesModule } from '../src/app/stories/stories.controller';
 
 /**
@@ -48,8 +49,12 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
 
     @Global()
     @Module({
-      providers: [{ provide: SURREAL, useValue: connection }],
-      exports: [SURREAL],
+      // Media signing is covered by the unit tests; the seeded story has no media.
+      providers: [
+        { provide: SURREAL, useValue: connection },
+        { provide: MediaUrls, useValue: new MediaUrls(null) },
+      ],
+      exports: [SURREAL, MediaUrls],
     })
     class ReadOnlyDatabase {}
 

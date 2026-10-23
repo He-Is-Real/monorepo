@@ -1,0 +1,158 @@
+import { Global, Logger, Module } from '@nestjs/common';
+import { SecretsService } from '@heisreal/secrets';
+import { linkExpiry, signCdnUrl, signEmbedUrl } from './bunny-tokens';
+
+/**
+ * Signed, expiring media links for published stories (D52). api-public-read reads only
+ * `publicStory`, so whatever it signs is published. Identifiers come from the environment
+ * (OpenTofu, gcp root); the two keys only from Secret Manager, read once at startup and never
+ * logged. Without any `BUNNY_*` variable, signing is off and every URL is `null`.
+ */
+export interface MediaConfig {
+  streamLibraryId: string;
+  /** The Stream library's pull zone (thumbnails), e.g. `vz-….b-cdn.net`. */
+  streamCdnHost: string;
+  /** The `images` pull zone in front of the storage zone. */
+  imagesCdnHost: string;
+  /** Secret Manager ids of the keys (bunny root, `modules/bunny/secrets.tf`). */
+  streamTokenKeySecret: string;
+  imagesTokenKeySecret: string;
+}
+
+const VARIABLES = {
+  streamLibraryId: 'BUNNY_STREAM_LIBRARY_ID',
+  streamCdnHost: 'BUNNY_STREAM_CDN_HOST',
+  imagesCdnHost: 'BUNNY_IMAGES_CDN_HOST',
+  streamTokenKeySecret: 'BUNNY_STREAM_TOKEN_KEY_SECRET',
+  imagesTokenKeySecret: 'BUNNY_IMAGES_TOKEN_KEY_SECRET',
+} as const satisfies Record<keyof MediaConfig, string>;
+
+const HOST =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+const FORMATS: Record<keyof MediaConfig, RegExp> = {
+  streamLibraryId: /^[0-9]{1,12}$/,
+  streamCdnHost: HOST,
+  imagesCdnHost: HOST,
+  streamTokenKeySecret: /^[A-Za-z0-9_-]{1,255}$/,
+  imagesTokenKeySecret: /^[A-Za-z0-9_-]{1,255}$/,
+};
+
+type Env = Record<string, string | undefined>;
+
+/** All five variables, or none (signing off). Anything in between fails startup. */
+export function mediaConfigFromEnv(env: Env = process.env): MediaConfig | null {
+  const keys = Object.keys(VARIABLES) as (keyof MediaConfig)[];
+  const value = (k: keyof MediaConfig) => env[VARIABLES[k]]?.trim() ?? '';
+  const missing = keys.filter((k) => value(k) === '');
+  if (missing.length === keys.length) return null;
+  if (missing.length > 0) {
+    throw new Error(
+      `Media signing needs every BUNNY_* variable or none; missing ${missing.map((k) => VARIABLES[k]).join(', ')}`,
+    );
+  }
+  const malformed = keys.filter((k) => !FORMATS[k].test(value(k)));
+  if (malformed.length > 0) {
+    throw new Error(
+      `Malformed ${malformed.map((k) => VARIABLES[k]).join(', ')}`,
+    );
+  }
+  return Object.fromEntries(
+    keys.map((k) => [k, value(k)]),
+  ) as unknown as MediaConfig;
+}
+
+interface Signing {
+  config: MediaConfig;
+  streamKey: string;
+  imagesKey: string;
+}
+
+/** Inject `MediaUrls` (from `MediaUrlsModule`) wherever a response carries media. */
+export class MediaUrls {
+  constructor(
+    private readonly signing: Signing | null,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  /** The Bunny Stream player (video and audio). */
+  playbackUrl(videoId: string | null | undefined): string | null {
+    const s = this.signing;
+    if (!s || !videoId) return null;
+    return signEmbedUrl(
+      s.config.streamLibraryId,
+      videoId,
+      s.streamKey,
+      linkExpiry(this.now()),
+    );
+  }
+
+  /** A Stream thumbnail (`media[*].thumbnailPath`, e.g. `<videoId>/thumbnail.jpg`). */
+  thumbnailUrl(path: string | null | undefined): string | null {
+    const s = this.signing;
+    if (!s || !path) return null;
+    return signCdnUrl(
+      s.config.streamCdnHost,
+      path,
+      s.streamKey,
+      linkExpiry(this.now()),
+    );
+  }
+
+  /** A story image (`image.path` in the storage zone). */
+  imageUrl(path: string | null | undefined): string | null {
+    const s = this.signing;
+    if (!s || !path) return null;
+    return signCdnUrl(
+      s.config.imagesCdnHost,
+      path,
+      s.imagesKey,
+      linkExpiry(this.now()),
+    );
+  }
+}
+
+async function readKey(
+  secrets: Pick<SecretsService, 'get'>,
+  id: string,
+): Promise<string> {
+  const key = (await secrets.get(id)).trim();
+  if (key === '') throw new Error(`Secret ${id} is empty`);
+  return key;
+}
+
+export async function createMediaUrls(
+  secrets: Pick<SecretsService, 'get'>,
+  env: Env = process.env,
+  now: () => number = Date.now,
+): Promise<MediaUrls> {
+  const logger = new Logger('MediaUrls');
+  const config = mediaConfigFromEnv(env);
+  if (!config) {
+    logger.warn(
+      'Media signing is off (no BUNNY_* variables): media URLs are null',
+    );
+    return new MediaUrls(null, now);
+  }
+  const [streamKey, imagesKey] = await Promise.all([
+    readKey(secrets, config.streamTokenKeySecret),
+    readKey(secrets, config.imagesTokenKeySecret),
+  ]);
+  logger.log(
+    `Media signing on: Stream library ${config.streamLibraryId}, ${config.streamCdnHost}, ${config.imagesCdnHost}`,
+  );
+  return new MediaUrls({ config, streamKey, imagesKey }, now);
+}
+
+/** Provides {@link MediaUrls}. Requires `SecretsModule` (global) in the application. */
+@Global()
+@Module({
+  providers: [
+    {
+      provide: MediaUrls,
+      inject: [SecretsService],
+      useFactory: (secrets: SecretsService) => createMediaUrls(secrets),
+    },
+  ],
+  exports: [MediaUrls],
+})
+export class MediaUrlsModule {}
