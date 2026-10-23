@@ -163,8 +163,18 @@ if [ "$target" = bunny-mask ]; then
 fi
 
 if [ "${GITHUB_ACTIONS:-}" != true ]; then
-  gcloud auth application-default print-access-token > /dev/null 2>&1 ||
+  # Without the exported impersonation (gcloud honours it here too), so a failed impersonation
+  # isn't reported as missing credentials.
+  env -u CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT \
+    gcloud auth application-default print-access-token > /dev/null 2>&1 ||
     die "no Application Default Credentials: gcloud auth login --update-adc"
+  if [ -n "$identity" ]; then
+    hint="you need Token Creator on it"
+    [ "$root" != bunny ] || hint="tf-bunny exists only after bootstrap is applied (tf.sh bootstrap apply); $hint"
+    env -u CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT gcloud auth application-default \
+      print-access-token --impersonate-service-account="$identity" > /dev/null 2>&1 ||
+      die "couldn't impersonate $identity: $hint, or run as yourself with TF_SH_IDENTITY=self"
+  fi
 fi
 [ -z "$identity" ] || echo "tf.sh: $root as $identity" >&2
 
