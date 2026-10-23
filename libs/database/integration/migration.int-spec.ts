@@ -41,7 +41,11 @@ const JOB_ENV = {
   MIGRATE_EXPECT_SERVICES: SERVICES.join(','),
 };
 // Every data script in libs/database/schema/data (0003 writes nothing unless seed_dev_story).
-const SEEDS = ['0001-seed-dpa-v1', '0003-dev-seed-story'];
+const SEEDS = [
+  '0001-seed-dpa-v1',
+  '0003-dev-seed-story',
+  '0004-check-story-shapes',
+];
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
   'IF true THEN RETURN 17 END;',
@@ -1014,23 +1018,23 @@ describe('data scripts on an already-migrated database', () => {
 
   it('a failing script leaves no _migration row, none of its writes and no pending row, and stops there', async () => {
     const failing = await bundleWith({
-      'data/0004-fails.surql': `${tag('partial')}THROW 'boom';\n`,
-      'data/0005-after.surql': tag('after'),
+      'data/0014-fails.surql': `${tag('partial')}THROW 'boom';\n`,
+      'data/0015-after.surql': tag('after'),
     });
     const result = await t.runMigration(t.params(), { bundleDir: failing });
     expect(result.exitCode).toBe(1);
-    expect(result.output).toContain('0004-fails: An error occurred: boom');
+    expect(result.output).toContain('0014-fails: An error occurred: boom');
     expect(result.output).toContain("the server refused the step's COMMIT");
     expect(await appliedIds(t)).toEqual([...SEEDS, '0013-add-tag']);
     expect(await tagIds(t, 'partial', 'after')).toEqual([]);
     expect(await pendingSteps(t)).toEqual([]);
 
     const fixed = await bundleWith({
-      'data/0004-fails.surql': tag('partial'),
-      'data/0005-after.surql': tag('after'),
+      'data/0014-fails.surql': tag('partial'),
+      'data/0015-after.surql': tag('after'),
     });
     expect(await t.migrate(t.params(), { bundleDir: fixed })).toMatchObject({
-      applied: ['0004-fails', '0005-after'],
+      applied: ['0014-fails', '0015-after'],
     });
   });
 

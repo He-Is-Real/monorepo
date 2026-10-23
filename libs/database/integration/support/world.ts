@@ -47,9 +47,9 @@ export async function approve(admin: SurrealQueryable, id: string) {
      CREATE type::record('publicStory', $id) CONTENT {
        version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
        body: $s.body, bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-       tagRefs: $s.tagRefs, publishedAt: time::now(),
+       tagRefs: $s.tagRefs, publishedAt: time::now(), image: $s.image,
        media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
-         thumbnailPath: $m.thumbnailPath, aspectRatio: $m.aspectRatio })
+         thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height })
      };
      CREATE moderationReview CONTENT {
        story: $s.id, moderator: user:moderator, decision: 'approve', storyVersion: $s.version

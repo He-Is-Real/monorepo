@@ -78,6 +78,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       bylineName: 'Test Person',
       primaryFormat: 'written',
       media: [],
+      image: null,
       tags: [],
       version: 1,
     });
@@ -88,6 +89,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       'bylineName',
       'description',
       'id',
+      'image',
       'media',
       'primaryFormat',
       'publishedAt',
@@ -147,5 +149,24 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     });
     expect(moved.status).toBe(301);
     expect(moved.headers.get('location')).toBe(`/v1/stories/${SLUG}`);
+  });
+  it('serves a written story’s image by its shape, never its storage path (D53)', async () => {
+    await run(
+      await t.migrator(),
+      `BEGIN TRANSACTION;
+       UPDATE story:dev_seed SET image = { path: 'images/dev-seed.webp', width: 1200, height: 1600 };
+       UPDATE publicStory:dev_seed SET image = { path: 'images/dev-seed.webp', width: 1200, height: 1600 };
+       COMMIT TRANSACTION;`,
+    );
+    const story = (await (await fetch(`${url}/v1/stories/${SLUG}`)).json()) as {
+      image: unknown;
+    };
+    expect(story.image).toEqual({
+      url: null,
+      width: 1200,
+      height: 1600,
+      alt: null,
+    });
+    expect(JSON.stringify(story)).not.toContain('dev-seed.webp');
   });
 });

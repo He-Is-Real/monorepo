@@ -82,6 +82,10 @@ for (const scheme of ['light', 'dark'] as const) {
       });
       await expect(story).toBeVisible();
       await expect(page.getByText('Nobody shared this story')).toBeVisible();
+      // D48: the stub reports relaxed consent checks, as dev will while it holds dummy data.
+      await expect(
+        page.getByRole('contentinfo').getByText('Consent checks relaxed (dev)'),
+      ).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await shots(page, info.project.name, scheme, 'home');
     });

@@ -9,7 +9,8 @@
  *   - params.json: dpa_sha256 = { <id>: sha256 of libs/legal/dpa/<id>.md } for every file there,
  *     clerk_jwt_public_key = the PEM file given, or null. No identity_hash: locally, restart
  *     SurrealDB yourself after changing the init Secret (the identity-check sidecar still gates
- *     readiness on the credentials).
+ *     readiness on the credentials). environment = 'local', so consent checks are never relaxed
+ *     (D48 is dev only).
  *
  * It then deletes a finished surrealdb-migrate Job so that re-applying the overlay runs it again:
  *
@@ -74,7 +75,9 @@ const params = {
   clerk_jwt_public_key: clerkKeyFile
     ? readFileSync(clerkKeyFile, 'utf8')
     : null,
+  dev_consent_relaxed: false,
   dpa_sha256: dpaSha256,
+  environment: 'local',
   identity_hash: null,
   seed_dev_story: args['seed-dev-story'],
 };

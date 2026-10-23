@@ -3,6 +3,25 @@ import { apiPublicReadUrl } from './config';
 // D32: web reads stories from api-public-read only, server-side, with nothing from the
 // visitor's request (no cookies, no headers): every visitor gets the same page.
 
+/** `MediaPlayback` in libs/contracts/openapi/components.yaml: real pixel sizes (D53). */
+export interface MediaPlayback {
+  format: 'video' | 'audio';
+  playbackUrl: string | null;
+  thumbnailUrl: string | null;
+  width: number | null;
+  height: number | null;
+  captionsUrl: string | null;
+  durationSeconds: number | null;
+}
+
+/** `StoryImage`: a written story's image (D53). `alt: null` → `imageAlt()`'s default. */
+export interface StoryImage {
+  url: string | null;
+  width: number;
+  height: number;
+  alt: string | null;
+}
+
 /** `StoryPublic` in libs/contracts/openapi/components.yaml. */
 export interface PublicStory {
   id: string;
@@ -12,6 +31,8 @@ export interface PublicStory {
   body: string | null;
   bylineName: string | null;
   primaryFormat: 'video' | 'audio' | 'written';
+  media: MediaPlayback[];
+  image: StoryImage | null;
   tags: { slug: string; name: string }[];
   publishedAt: string;
   version: number;
@@ -32,6 +53,15 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** A cold api-public-read (scaled to zero, connecting to the database) can take a few seconds. */
 const TIMEOUT_MS = 10_000;
 
+function isImage(value: unknown): boolean {
+  const i = value as Partial<StoryImage> | null | undefined;
+  return (
+    i === null ||
+    i === undefined ||
+    (typeof i.width === 'number' && typeof i.height === 'number')
+  );
+}
+
 function isPublicStory(value: unknown): value is PublicStory {
   const s = value as Partial<PublicStory> | null;
   return (
@@ -40,6 +70,8 @@ function isPublicStory(value: unknown): value is PublicStory {
     typeof s.title === 'string' &&
     typeof s.description === 'string' &&
     Array.isArray(s.tags) &&
+    (s.media === undefined || Array.isArray(s.media)) &&
+    isImage(s.image) &&
     typeof s.publishedAt === 'string'
   );
 }

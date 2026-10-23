@@ -11,14 +11,14 @@ waiting to be made are in `project/context/research/required-decisions.html`.
 Keep this file current: update it in the same PR that finishes a task or changes a decision
 recorded here.
 
-**Last updated:** 2026-10-22
+**Last updated:** 2026-10-23
 
 ## Milestones
 
 | Milestone                     | Status         | Notes                                                                                                                                   |
 | ----------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | M0 Walking skeleton           | ✅ Done        | Every task done (0.6 deferred, D5); 0.9 applied to dev from #45                                                                         |
-| M1 Browse & view              | ⚪ Not started | Dev only, on dummy data (D46). Task 1.9 (legacy import) moves to Real stories                                                           |
+| M1 Browse & view              | 🟡 In progress | Dev only, on dummy data (D46). Task 1.9 (legacy import) moves to Real stories. Schema for D53 and D48: #57                              |
 | M2 Accounts & submission      | ⚪ Not started |                                                                                                                                         |
 | M3 Moderation                 | ⚪ Not started |                                                                                                                                         |
 | M4 Donations                  | ⚪ Not started |                                                                                                                                         |
@@ -179,6 +179,13 @@ changed two settings: passwords became optional with an 8-character minimum (was
 - **api-user and api-admin** still answer Nest's default error bodies; they adopt `libs/http`'s
   RFC 9457 `ProblemFilter` with their first M1/M2 commands.
 
+## M1: Browse & view (dev only, dummy data)
+
+| Step                                                                    | Status         | Where                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3. Schema: story types and shapes (D53), dev-only relaxed consent (D48) | 🟡 In review   | #57: the database enforces the three story types and real pixel sizes (1:3..3:1), `image` mirrored into `publicStory`, contracts `width`/`height`/`image`, data script 0004; `dev_consent_relaxed` (only in `live/dev/cluster`, refused elsewhere by OpenTofu and the database) → `_setting:consent` → `fn::consent::granted`; `/health` reports it, api-user/api-admin log it at startup, web's footer shows it. **Left off in dev** until step 4. Details: [db-permissions.md](db-permissions.md) items 20–23 |
+| 4. Dummy data: `dev-seed` Job (D47, D49, D50)                           | ⚪ Not started | Turns D48's flag on in dev; retires `0003-dev-seed-story`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
 ### Decisions made, not yet implemented (2026-10-17, 2026-10-18, 2026-10-22)
 
 These override the plan. D1–D12 were decided from `project/context/research/required-decisions.html`,
@@ -248,3 +255,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-21:** 0.9 done (#45), so M0 is done: api-public-read serves `GET /v1/stories/{slug}` from `publicStory` (D26) and, with `web`, is public through `invoker_iam_disabled` (decision 8); `web` server-renders the dev-only seeded test story (decision 22) from api-public-read only (D32), with a 404 page and a friendly error page; sign-in shows the person's name; CORS for web's origins on the APIs (D31). Light theme with a device-following toggle (decision 19), responsive everywhere with a Playwright device matrix in CI (decision 20, AGENTS.md), noindex in dev (decision 21). D26, D31 and D32 moved to implemented.
 - **2026-10-22:** D46–D56 recorded from `m1-dev-data-decisions.html` (D56 deferred to Go live). The plan is reordered: M1–M8 run in dev only on dummy data, then two new final phases, Real stories & legacy consent (task 1.9, D44) and Go live. Bunny token auth moves from an M2 prerequisite into M1 (D52); D39 erasure and the erased-identity tombstone now gate Real stories; the withdrawal cache window points to D51. AGENTS.md: the capped auto-load exception (D55) and a note that Terraform is moving to OpenTofu (D54).
 - **2026-10-22:** D54 and D57 implemented (#47, #53): OpenTofu 1.13.2 everywhere with `tools/scripts/tf.sh`, KMS-encrypted state and plans (every state encrypted 2026-10-22, then enforced), `tf-bunny` and the never-public guard, and the `tofu-plan`/`tofu-apply`/`tofu-drift` workflows replacing the Terraform ones. Decision 3 now says OpenTofu. Old plaintext state generations expire about 2026-11-28 (checked once then).
+- **2026-10-23:** M1 step 3 (#57, draft): D53 in the schema (three story types, pixel sizes replacing `aspectRatio`, the person-only `image`, data script 0004) and D48's dev-only switch (`dev_consent_relaxed` → `_setting:consent`, read by `fn::consent::granted`; off in dev until step 4). The `Health` contract now matches the code (`ok`/`degraded`) and reports `consentChecksRelaxed`.

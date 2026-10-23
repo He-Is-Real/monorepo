@@ -6,6 +6,10 @@ import RootLayout, { generateMetadata, viewport } from './layout';
 jest.mock('@/components/site-header', () => ({
   SiteHeader: () => <header>site header</header>,
 }));
+// So is the footer, which reads D48's setting from api-public-read (site-footer.spec.tsx).
+jest.mock('@/components/site-footer', () => ({
+  SiteFooter: () => <footer>site footer</footer>,
+}));
 
 describe('RootLayout', () => {
   // <html> can't be mounted inside jsdom's document, so render it to markup.
@@ -26,6 +30,12 @@ describe('RootLayout', () => {
   it('starts with a skip link to the main content, then the header', () => {
     expect(html).toMatch(
       /<body[^>]*><a href="#main"[^>]*>Skip to content<\/a><header>site header<\/header><main id="main">content<\/main>/,
+    );
+  });
+
+  it('ends with the footer, after the main content', () => {
+    expect(html).toMatch(
+      /<main id="main">content<\/main><footer>site footer<\/footer><\/body>/,
     );
   });
 

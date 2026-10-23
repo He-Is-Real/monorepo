@@ -198,8 +198,9 @@ describe('consent gates on edit, submit, approve and publish', () => {
       workflow = await t.service('workflow');
       p = await t.person('user_wf');
       for (const c of ALL) await consentEvent(p, c, 'granted');
-      await draft(p, 'wf_draft');
-      await draft(p, 'wf_live');
+      // Video stories: D53 allows media only on video and audio stories.
+      await draft(p, 'wf_draft', { primaryFormat: 'video' });
+      await draft(p, 'wf_live', { primaryFormat: 'video' });
       await run(
         workflow,
         `UPDATE story:wf_live SET media = [{ format: 'video', bunnyVideoId: 'vid-live' }]`,

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
 import { Suspense } from 'react';
+import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
 import { robotsNoindex } from '@/lib/config';
 import { THEME_SCRIPT } from '@/lib/theme';
@@ -59,6 +60,10 @@ export default function RootLayout({
           <SiteHeader />
         </Suspense>
         {children}
+        {/* D48: says when consent checks are relaxed (dev only); nothing otherwise. */}
+        <Suspense fallback={null}>
+          <SiteFooter />
+        </Suspense>
       </body>
     </html>
   );

@@ -10,6 +10,8 @@ export interface HealthResponse {
   status: 'ok' | 'degraded';
   service: string;
   db: DatabaseStatus;
+  /** D48: consent checks relaxed (dev only); absent when the database is down or can't say. */
+  consentChecksRelaxed?: boolean;
 }
 
 // D21: api-user and api-admin require a consent decision on every route, this probe included,
@@ -30,10 +32,14 @@ export class HealthController {
   ): Promise<HealthResponse> {
     const db = await this.database.check();
     if (db === 'down') res.status(HttpStatus.SERVICE_UNAVAILABLE);
+    // D48: web's footer note comes from here (api-public-read), read from the database's one switch.
+    const relaxed =
+      db === 'up' ? await this.database.consentChecksRelaxed() : undefined;
     return {
       status: db === 'up' ? 'ok' : 'degraded',
       service: this.service,
       db,
+      ...(relaxed === undefined ? {} : { consentChecksRelaxed: relaxed }),
     };
   }
 }

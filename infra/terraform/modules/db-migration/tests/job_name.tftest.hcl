@@ -39,8 +39,9 @@ run "repo_bundle" {
   assert {
     condition = (output.params.dpa_sha256["v1"] == filesha256("../../../../libs/legal/dpa/v1.md")
       && output.params.clerk_jwt_public_key == null && output.params.identity_hash == null
-    && output.params.seed_dev_story == false)
-    error_message = "dpa_sha256 holds the files' sha256 (D20); no Clerk key, identity config or dev story by default."
+      && output.params.seed_dev_story == false && output.params.dev_consent_relaxed == false
+    && output.params.environment == null)
+    error_message = "dpa_sha256 holds the files' sha256 (D20); no Clerk key, identity config, dev story, environment or relaxed consent (D48) by default."
   }
   assert {
     condition     = output.job.metadata.name == output.job_name && output.config_map.metadata.name == "surrealdb-migration-${output.hash}"
@@ -156,4 +157,49 @@ run "private_key_refused" {
     clerk_jwt_public_key = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"
   }
   expect_failures = [var.clerk_jwt_public_key]
+}
+
+# D48: relaxed consent is dev only. On in dev it reaches the runner (and re-runs the Job); in any
+# other environment, or an unknown one, it's refused before anything is planned. The database
+# refuses it outside dev too (libs/database/integration/dev-consent.int-spec.ts).
+run "consent_relaxed_in_dev" {
+  command = plan
+  variables {
+    base_job_name       = run.a.job_name
+    environment         = "dev"
+    dev_consent_relaxed = true
+  }
+  assert {
+    condition = (output.job_name != var.base_job_name && output.params.dev_consent_relaxed == true
+    && output.params.environment == "dev")
+    error_message = "Relaxing consent in dev passes it to the runner and re-runs the Job."
+  }
+}
+
+run "consent_enforced_in_dev_by_default" {
+  command = plan
+  variables {
+    environment = "dev"
+  }
+  assert {
+    condition     = output.params.dev_consent_relaxed == false
+    error_message = "Dev enforces consent unless the flag is set."
+  }
+}
+
+run "consent_relaxed_refused_in_prod" {
+  command = plan
+  variables {
+    environment         = "prod"
+    dev_consent_relaxed = true
+  }
+  expect_failures = [var.dev_consent_relaxed]
+}
+
+run "consent_relaxed_refused_without_environment" {
+  command = plan
+  variables {
+    dev_consent_relaxed = true
+  }
+  expect_failures = [var.dev_consent_relaxed]
 }

@@ -91,6 +91,17 @@ variable "clerk_jwt_public_key" {
   default     = ""
 }
 
+# D48: consent checks relaxed for dummy data. Declared only in this root: no other root may
+# declare it, and modules/cluster and modules/db-migration refuse it anywhere but dev (as does
+# the database). Off until the dev-seed Job loads dummy data (M1 step 4). Real stories (D46)
+# need it gone from every environment that holds real data.
+variable "dev_consent_relaxed" {
+  description = "D48: relax consent checks in dev for dummy data (the dev footer and api-user's startup log say so). Dev only."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "backup_run" {
   description = "Set to a new id to run a SurrealDB backup now (e.g. -var backup_run=20261005a)."
   type        = string
@@ -110,6 +121,8 @@ module "cluster" {
   clerk_jwt_public_key = var.clerk_jwt_public_key
   # M0 0.9: the one obviously fake story the walking-skeleton page shows. Dev only.
   seed_dev_story = true
+  # D48: off by default; see the variable.
+  dev_consent_relaxed = var.dev_consent_relaxed
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

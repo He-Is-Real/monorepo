@@ -42,6 +42,23 @@ variable "seed_dev_story" {
   default     = false
 }
 
+variable "environment" {
+  description = "The environment this database belongs to (\"dev\", \"prod\", ...; modules/cluster derives it from the GCP project). null = unknown, which is never dev."
+  type        = string
+  default     = null
+}
+
+variable "dev_consent_relaxed" {
+  description = "D48: relax consent checks for dummy data. The runner writes it to _setting:consent, which the database's consent functions read. Dev only: refused here unless environment is \"dev\", and by the database too."
+  type        = bool
+  default     = false
+  nullable    = false
+  validation {
+    condition     = !var.dev_consent_relaxed || var.environment == "dev"
+    error_message = "dev_consent_relaxed (D48) can only be set in dev."
+  }
+}
+
 variable "identity_hash" {
   description = "The identity config SurrealDB must have restarted with (modules/db-identity) before the Job migrates; null = don't wait for one."
   type        = string
@@ -62,7 +79,9 @@ locals {
 
   params = {
     clerk_jwt_public_key = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
+    dev_consent_relaxed  = var.dev_consent_relaxed
     dpa_sha256           = local.dpa_sha256
+    environment          = var.environment
     identity_hash        = var.identity_hash
     seed_dev_story       = var.seed_dev_story
   }

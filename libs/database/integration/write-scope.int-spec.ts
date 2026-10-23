@@ -17,7 +17,7 @@ describe('write scope on story fields (D41)', () => {
     (
       await rows<Record<string, unknown>>(
         migrator,
-        `SELECT slug, title, description, body, bylineName, primaryFormat, tagRefs, media,
+        `SELECT slug, title, description, body, bylineName, primaryFormat, tagRefs, media, image,
                 status, approvedAt, rejectionFeedback, lockedBy, lockedAt
            FROM type::record('story', $id)`,
         { id },
@@ -30,6 +30,7 @@ describe('write scope on story fields (D41)', () => {
     `body = 'Words the person never wrote'`,
     `bylineName = 'Someone else'`,
     `primaryFormat = 'audio'`,
+    `image = { path: 'not-theirs.webp', width: 10, height: 10 }`,
     `tagRefs = [tag:doubt]`,
     `slug = 'hijacked-slug'`,
   ];
@@ -40,10 +41,12 @@ describe('write scope on story fields (D41)', () => {
     migrator = await t.migrator();
     admin = await t.service('api_admin');
     workflow = await t.service('workflow');
-    // A media entry as the person's upload would leave it.
+    // A video story with its media entry as the person's upload would leave it (D53: only
+    // video and audio stories have media).
     await run(
       migrator,
-      `UPDATE story:bob_pending SET media = [{ format: 'video', bunnyVideoId: 'vid-orig' }]`,
+      `UPDATE story:bob_pending SET primaryFormat = 'video',
+         media = [{ format: 'video', bunnyVideoId: 'vid-orig' }]`,
     );
   });
   afterAll(() => t?.close());
@@ -90,7 +93,7 @@ describe('write scope on story fields (D41)', () => {
       await run(
         workflow,
         `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/1.jpg',
-           media[0].durationSeconds = 93, media[0].aspectRatio = '9:16'`,
+           media[0].durationSeconds = 93, media[0].width = 1080, media[0].height = 1920`,
       );
       expect((await stored('bob_pending'))['media']).toEqual([
         {
@@ -98,7 +101,8 @@ describe('write scope on story fields (D41)', () => {
           bunnyVideoId: 'vid-orig',
           thumbnailPath: 'thumbs/1.jpg',
           durationSeconds: 93,
-          aspectRatio: '9:16',
+          width: 1080,
+          height: 1920,
         },
       ]);
     });
