@@ -189,7 +189,7 @@ changed two settings: passwords became optional with an 8-character minimum (was
 | 4. Dummy data: `dev-seed` Job (D47, D49, D50)                                 | 🟡 In progress | #59 (`52a001f`), applied to dev 2026-10-23; media uploaded and the `dev-seed` image selected in this follow-up; the first reset is next. `apps/dev-seed`: a dev-only Cloud Run Job resets dev to the D47 dataset (26 stories, 8 fixture people, 10 clips, 5 images with fake GPS) in one transaction, as `dev_seed`, a dev-only EDITOR system user (`dev_seed_login`); media uploaded once by a developer (`bunny-media.json`); "Reset dev data" and "Dev behavioural tests" Actions as `ci-dev-seeder` (bootstrap). D48's flag on in dev; 0003 retired. Plan: [2026-10-23-m1-dev-seed.md](superpowers/plans/2026-10-23-m1-dev-seed.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 5. Media token auth (D52, D51)                                                | ✅ Done        | #63 (`12efae5`); rollout pending: a follow-up PR sets `api_public_read_media` after the bunny apply. Bunny refuses unsigned media (Stream player, Stream CDN incl. HLS and thumbnails, images pull zone); the two token auth keys reach api-public-read through Secret Manager only; api-public-read signs links for published stories, valid 6–7 h (expiry rounded up to the hour, so ETags stay stable); web plays video and audio in Bunny's player (no autoplay) and shows images. Signing in dev waits for a follow-up PR (`api_public_read_media`) after the bunny apply. Notes below. Plan: [2026-10-23-m1-media-token-auth.md](superpowers/plans/2026-10-23-m1-media-token-auth.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 6a. Browse read API: list, search, related, tags                              | 🟡 In review   | This PR. api-public-read: `GET /v1/stories` (cards with D55's facts: picture size, excerpt, duration; keyset cursors bound to the filters; `tag` (all of), `format`, `sort`, BM25 search `q`), `GET /v1/stories/{slug}/related` (3 cards: shared tags, then newest), `GET /v1/tags` (no counts; since D63 only tags in use). Inputs bounded, unknown or repeated parameters `400`; cursors checked field by field (real dates only). `publicStory.durationSeconds` is computed from the story, and processing's corrections of a published clip's size and duration reach the row in the same write, only while its media is what was reviewed (#61's fingerprint; since D60 a new thumbnail for the same clip is copied too). D51 built: every api-public-read response is `no-store` unless `PUBLIC_RESPONSE_CACHING=on` (never in dev), and web fetches story data `no-store` (tags cached 60 s). Cards' thumbnail and image links are signed by step 5's `MediaUrls`, as on the story page (never a player link). web `lib/browse.ts`: typed calls. Plan: [2026-10-23-m1-browse-api.md](superpowers/plans/2026-10-23-m1-browse-api.md) |
-| 6c. D60 and D63 (Joel's decisions of 2026-10-23)                              | 🟡 In review   | This PR. D60: a thumbnail change counts as unchanged media only for one of Bunny's generated frames of the same video (`thumbnail_1.jpg` to `thumbnail_5.jpg`); then a hidden story comes back on its own and a public row follows it (`fn::story::shows_reviewed_media`). Any other thumbnail, Bunny id or image path is changed media: a public story is hidden (reason `media_changed`) and a hidden one stays hidden (D59; Codex, #67). D63: `GET /v1/tags` lists only tags a published story uses, one indexed probe per tag (`publicStory.tagSlugs`; 3.2.4 can't index record links). Details: [db-permissions.md](db-permissions.md) item 27, step 6a notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 6b-2. Static pages, SEO, cookie notice (1.5, 1.7, 1.8)                        | 🟡 In review   | This PR. About, The Greatest Story, Get ready to share, Next steps, FAQs (WAI-ARIA accordion, FAQPage JSON-LD), Contact (no form: a mailto link) and draft Privacy and Terms pages, from the mockups; the site footer with the essential-cookies notice. SEO: `pageMetadata()` (canonical, Open Graph, Twitter), `metadataBase` from `SITE_URL` (`web_site_url`, OpenTofu), Organization/WebSite JSON-LD, `robots.txt` and `/sitemap.xml` (pages + every published story, cursor-paged) behind the indexing switch: dev stays non-indexed. Notes below. Plan: [2026-10-23-m1-static-pages-seo.md](superpowers/plans/2026-10-23-m1-static-pages-seo.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 #### Notes from step 5 (media token auth, D52)
 
@@ -218,6 +218,41 @@ changed two settings: passwords became optional with an 8-character minimum (was
 - **No CSP yet:** web sends no Content-Security-Policy. When one is added, it needs
   `frame-src https://player.mediadelivery.net` and `img-src` for the images CDN (and the Stream
   CDN for thumbnails).
+
+#### Notes from step 6b-2 (static pages, SEO, cookies)
+
+Coordinator's calls in this step (not yet numbered as decisions; Joel can overrule):
+
+- **Indexing is one switch.** `ROBOTS_NOINDEX` (`web_noindex`, decision 21) now also drives
+  `robots.txt` and the sitemap. Search engines are invited in only when `web_noindex = false`
+  **and** `web_site_url` is set (`indexingAllowed()`); otherwise `robots.txt` is `Disallow: /`
+  with no `Sitemap:` line and `/sitemap.xml` is `404`. The header and meta tag stay as before.
+  Go live: set `web_site_url` to the real domain and `web_noindex = false`. Note: a crawler that
+  obeys `Disallow: /` never sees the `noindex`, so a URL linked from elsewhere could still be
+  listed without content; acceptable for dev.
+- **`SITE_URL`** (`web_site_url`, an https origin; dev = web's `run.app` URL) is the only source
+  of absolute URLs (canonical, Open Graph, JSON-LD, sitemap), never the request (D32). Every page
+  sets its own canonical through `pageMetadata()`; the root layout sets none.
+- **Sitemap:** `no-store` like all story data (D51); `503` with `Retry-After` while
+  api-public-read is down rather than a sitemap missing its stories; capped at 50,000 URLs.
+- **No cookie banner (PECR, UK GDPR).** What the site stores, checked on dev on 2026-10-23:
+  `theme` in localStorage (only after the visitor picks a theme); Clerk on every page through
+  the header (D32): `__client_uat` (set for signed-out visitors too), `__session` when signed
+  in, `__clerk_db_jwt` (development instances only), `__clerk_environment` in localStorage, and
+  Cloudflare's `__cf_bm`/`_cfuvid` on Clerk's domain (bot protection). Bunny's player sets no
+  cookies or storage when a story page loads. All strictly necessary (reg. 6(4)): the
+  visitor's own preference, and sign-in and its security. So the footer says "We only use
+  essential cookies and storage" and links to `/privacy#cookies`, which lists them; no consent
+  wall, no consent SDK. Anything non-essential later (analytics, Sentry replay, embeds) needs
+  opt-in first.
+- **Contact has no form** until there's an email service (Resend) and a privacy basis: it
+  links to `mailto:info@heisreal.today`. The founder video on About is a placeholder (not
+  recorded); when it exists it plays through D52's signed links, not a third-party embed.
+- **Mockup copy changed to fit decisions:** the FAQ says social media sharing is a separate
+  choice (`share_socials`, gdpr-consent.md; the mockup said submitting implies consent), and
+  anonymous stories show "Anonymous" (as the story page does, not "A God Story"). Get ready
+  marks the PDFs, audio and video as coming soon and has no "Share your story" button until
+  submission (M2). Eyebrows and labels use the link colour, not brand teal (decision 19).
 
 #### Joel's decisions of 2026-10-23 (M1 follow-ups to #57)
 
@@ -349,3 +384,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-23:** M1 step 5: D52 built (#63, merged as `12efae5`; signing in dev waits for the `api_public_read_media` follow-up). The bunny root turns on token auth for the Stream player, Stream's CDN and the images pull zone, and copies the two token auth keys into `bunny-stream-token-key` and `bunny-images-token-key` (write-only) with access for api-public-read only. api-public-read signs player, thumbnail and image links for published stories (6–7 h); web plays and shows them. The gcp root's `api_public_read_media` turns signing on in a follow-up PR, after the bunny apply. "Dev behavioural tests" gain 4 media checks.
 - **2026-10-23:** M1 step 6a (in review): the browse read API on api-public-read and web's typed calls; pages are step 6b. Its integration tests load the whole D47 dataset with dev-seed's reset (`@heisreal/dev-seed/testing`). No featured endpoint: home uses the newest stories or `FEATURED_STORY_SLUG` until the M5 featured list. After the migration, rows published earlier get `durationSeconds` on their next write: run "Reset dev data".
 - **2026-10-23:** Joel decided D58–D66 and A1–A4 (`m1-open-decisions.html`), recorded above. A4 changed: no featured or pinned stories, home shows the newest (code removed in step 6b-1). D64 gates Real stories and D65 is an M2 prerequisite. D60 and D63 built in step 6c (in review).
+- **2026-10-23:** M1 step 6b-2 (in review): the static pages, the footer and its essential-cookies notice, per-page metadata, JSON-LD, `robots.txt` and the sitemap; dev stays non-indexed (`SITE_URL`/`web_site_url` added). Home, browse and story pages are step 6b-1.
