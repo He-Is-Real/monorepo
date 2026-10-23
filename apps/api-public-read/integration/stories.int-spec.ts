@@ -160,9 +160,13 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       await t.migrator(),
       `BEGIN TRANSACTION;
        -- A2: only a processed image can be published (the migrator may record that itself).
+       -- A new image on a public story hides it (D59), so publish the row again after it.
+       LET $row = (SELECT * FROM ONLY publicStory:dev_seed);
+       DELETE publicStory:dev_seed;
        UPDATE story:dev_seed SET image = { path: 'images/dev-seed.webp', width: 1200, height: 1600,
          processing: 'ready' };
-       UPDATE publicStory:dev_seed SET image = { path: 'images/dev-seed.webp', width: 1200, height: 1600 };
+       CREATE publicStory:dev_seed CONTENT object::extend($row, {
+         image: { path: 'images/dev-seed.webp', width: 1200, height: 1600 } });
        COMMIT TRANSACTION;`,
     );
     const story = (await (await fetch(`${url}/v1/stories/${SLUG}`)).json()) as {

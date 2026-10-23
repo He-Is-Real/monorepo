@@ -12,6 +12,7 @@ import {
   type StoryFixture,
 } from '@heisreal/dev-seed/testing';
 import { MediaUrls, mediaConfigFromEnv } from '../src/app/media/media-urls';
+import { tagInUse } from '../src/app/tags/tags.controller';
 import { startPublicRead } from './app';
 
 /**
@@ -570,6 +571,30 @@ describe('browse API over the dev dataset', () => {
         ),
       ).toHaveLength(1);
       expect((await tagList()).map((x) => x.slug)).toContain(tag);
+    });
+
+    it('probes one indexed match per tag, never scanning every published story', async () => {
+      const [plan] = await rows<Record<string, unknown>>(
+        await t.migrator(),
+        `${tagInUse('$slug')} EXPLAIN FULL`,
+        { slug: 'healing' },
+      );
+      const operators: { operator: string; index?: string }[] = [];
+      const walk = (n: Record<string, unknown>) => {
+        const attributes = (n['attributes'] ?? {}) as Record<string, string>;
+        operators.push({
+          operator: n['operator'] as string,
+          index: attributes['index'],
+        });
+        for (const c of (n['children'] ?? []) as Record<string, unknown>[])
+          walk(c);
+      };
+      walk(plan);
+      expect(operators).toContainEqual({
+        operator: 'IndexScan',
+        index: 'publicStory_tag_slugs',
+      });
+      expect(operators.map((o) => o.operator)).not.toContain('TableScan');
     });
 
     it('refuses query parameters', async () => {

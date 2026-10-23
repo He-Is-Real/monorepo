@@ -672,6 +672,39 @@ describe('approval waits for media processing (A2)', () => {
           `media[0].processing = 'failed'`,
         ],
       ],
+      // D60 exempts only Bunny's generated frames of the same video (thumbnail_1..5.jpg). A
+      // custom upload lands in the video's folder too, so any other name is unreviewed media.
+      [
+        'as a custom thumbnail in the same write',
+        [
+          `media[0].thumbnailPath = 'vid/unreviewed-custom.jpg', media[0].processing = 'failed'`,
+        ],
+      ],
+      [
+        'as a custom thumbnail while hidden',
+        [
+          `media[0].processing = 'failed'`,
+          `media[0].thumbnailPath = 'vid/unreviewed-custom.jpg'`,
+        ],
+      ],
+      [
+        'as another video’s generated frame',
+        [
+          `media[0].thumbnailPath = 'other/thumbnail_2.jpg', media[0].processing = 'failed'`,
+        ],
+      ],
+      [
+        'as the selected-thumbnail slot, which can hold a custom image',
+        [
+          `media[0].thumbnailPath = 'vid/thumbnail.jpg', media[0].processing = 'failed'`,
+        ],
+      ],
+      [
+        'as a frame number Bunny doesn’t generate',
+        [
+          `media[0].thumbnailPath = 'vid/thumbnail_6.jpg', media[0].processing = 'failed'`,
+        ],
+      ],
     ])(
       'media swapped %s never goes public unreviewed',
       async (_name, writes) => {
@@ -733,6 +766,57 @@ describe('approval waits for media processing (A2)', () => {
       expect(await publicThumbnail(id)).toEqual(['vid/thumbnail_3.jpg']);
       expect(await history(id)).toEqual([]);
     });
+
+    const changedEntry = {
+      ...entry('HideStory'),
+      reason: 'media_changed',
+    };
+
+    it.each<[string, () => Promise<string>, string, SurrealQueryable | null]>([
+      [
+        'a custom thumbnail',
+        video,
+        `media[0].thumbnailPath = 'vid/unreviewed-custom.jpg'`,
+        null,
+      ],
+      [
+        'another video’s generated frame',
+        video,
+        `media[0].thumbnailPath = 'other/thumbnail_1.jpg'`,
+        null,
+      ],
+      ['another Bunny id', video, `media[0].bunnyVideoId = 'other'`, null],
+      [
+        'another image path',
+        written,
+        `image.path = 'images/replacement.webp'`,
+        null,
+      ],
+    ])(
+      '%s on a public story hides it until a moderator reviews it (D59, D60)',
+      async (_name, make, set, db) => {
+        // Workflow writes thumbnails; only a system user can swap a Bunny id or image path.
+        const writer =
+          db ?? (set.includes('thumbnailPath') ? workflow : migrator);
+        const id = await live(make);
+        expect(await update(id, set, writer)).toMatchObject({ ok: true });
+        await expectHidden(id);
+        const [row] = (await hidden()).filter(
+          (r) => String(r['id']) === `story:${id}`,
+        );
+        expect(row).toMatchObject({ mediaChanged: true });
+        expect(row['problem']).toBeUndefined();
+        expect(await history(id)).toEqual([
+          {
+            ...changedEntry,
+            service: writer === workflow ? 'workflow' : 'migrator',
+          },
+        ]);
+        // Processing again doesn't bring it back: it isn't what was reviewed.
+        await processed(workflow, id);
+        await expectHidden(id);
+      },
+    );
 
     it('a written story’s new image path stays hidden: a moderator must review it', async () => {
       // Only a system user (or, before submit, the person) can write image.path.
@@ -967,7 +1051,7 @@ describe('approval waits for media processing (A2)', () => {
     it.each([
       ['the same state again', `media[0].processing = 'ready'`],
       ['another duration', `media[0].durationSeconds = 61`],
-      ['a thumbnail', `media[0].thumbnailPath = 'thumbs/v.jpg'`],
+      ['a generated frame', `media[0].thumbnailPath = 'vid/thumbnail_4.jpg'`],
       ['nothing', `media = media`],
     ])(
       'an unrelated workflow write on a ready item keeps it published: %s',

@@ -20,11 +20,13 @@ loading again; we don't approve the story again.
 
 Two cases don't come back on their own:
 
-- **The media changed** (another Bunny video id or image path). A moderator approved the old
-  media, so the new one needs a moderator's review. The list below shows `mediaChanged: true`.
-  A new thumbnail for the same video doesn't count (D60): re-encoding often makes one, and the
-  story comes back with it. So re-encode a broken video; don't upload it again, which gives it a
-  new Bunny video id.
+- **The media changed** (another Bunny video id or image path, or a thumbnail that isn't one of
+  Bunny's generated frames). A moderator approved the old media, so the new one needs a
+  moderator's review. The list below shows `mediaChanged: true`. This also hides a story that
+  was still public (`auditLog` reason `media_changed`).
+  A generated frame of the same video (`thumbnail_1.jpg` to `thumbnail_5.jpg`) doesn't count
+  (D60): re-encoding often picks one, and the story comes back with it. So re-encode a broken
+  video. Don't upload it again (a new Bunny video id), and don't upload a custom thumbnail.
 - **The person withdrew consent.** Consent rules publishing (D17), so the story stays off the
   public site. Withdrawing consent also ends the hide, so giving consent again later doesn't
   publish it. A story that wasn't public when its media broke is never hidden or published by

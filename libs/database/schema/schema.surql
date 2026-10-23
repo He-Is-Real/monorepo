@@ -29,6 +29,8 @@
 --   * array<object> items store undefined keys (media[0].junk), unlike nested objects
 --     (image.junk is refused), and REMOVE FIELD keeps stored values: fn::story::shape_problem
 --     checks media keys, data/0004 checks rows written earlier
+--   * an element index over record links (`tagRefs.*`, `tagRefs[*]`) makes `CONTAINS` return no
+--     rows; over strings it works (2026-10-24): publicStory.tagSlugs
 --   * a field VALUE also runs for a nested SET (`SET media[0].x = ...`), with $value the whole
 --     new field and $before the old one (2026-10-23): media/image VALUE use it to reset
 --     `processing` (A2)
@@ -453,22 +455,44 @@ DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever app
 -- hiddenStory. No new approval. Only workflow and system users can cause either: the person's
 -- content is locked after submission and api-admin can't write media. auditLog records
 -- HideStory/RepublishStory. If the media differs from the row that was hidden (another
--- bunnyVideoId or image path), it stays hidden: a moderator must review it
--- (fn::story::hidden_by_media lists it with mediaChanged). Only a story that was public is
--- hidden and restored. The event never writes the story itself, so the command's own write is
+-- bunnyVideoId or image path, or a thumbnail that isn't a frame Bunny generated, D60), it stays
+-- hidden: a moderator must review it (fn::story::hidden_by_media lists it with mediaChanged).
+-- A public story whose media changes that way is hidden too (reason media_changed; D59: changed
+-- after going public needs approving again). Only a story that was public is hidden and
+-- restored. The event never writes the story itself, so the command's own write is
 -- the story's only version step (D29) and returns the committed version.
 -- Which media is shown: formats, Bunny ids and the image's path. Works on a story or a
 -- publicStory row. The hide stores the identity of the row it deletes (what a moderator
 -- approved), never the story's: workflow may have swapped the media in that write.
--- D60 (Joel, 2026-10-23): not thumbnails. Re-encoding a video on Bunny can make a new thumbnail
--- for the same video; it's a frame of the reviewed clip, so the story comes back on its own and
--- the row shows the new thumbnail. api-public-read signs a thumbnail only inside its own video's
--- folder (step 5), so no other picture can show. A written story's image stays strict.
+-- Thumbnails are compared on their own (fn::story::shows_reviewed_media), not hashed here.
 DEFINE FUNCTION OVERWRITE fn::story::media_identity($s: any) {
   RETURN crypto::sha256(<string> {
     media: ($s.media ?? []).map(|$m| [$m.format, $m.bunnyVideoId]),
     image: $s.image.path
   });
+};
+-- D60 (Joel, 2026-10-23): re-encoding a video on Bunny can give it another thumbnail. A frame
+-- Bunny generated from the reviewed video is still reviewed media. Bunny's generated frames are
+-- thumbnail_1.jpg to thumbnail_5.jpg in the video's folder (Stream docs: storage structure, set
+-- thumbnail). A custom upload is stored in the same folder, and the selected-thumbnail file
+-- (thumbnail.jpg) isn't proof of a generated frame, so no other name counts (Codex, #67).
+DEFINE FUNCTION OVERWRITE fn::media::generated_thumbnail($m: any) {
+  RETURN type::is_string($m.bunnyVideoId) AND type::is_string($m.thumbnailPath)
+    AND $m.thumbnailPath IN ['1', '2', '3', '4', '5'].map(|$n|
+      $m.bunnyVideoId + '/thumbnail_' + $n + '.jpg');
+};
+-- Whether a story's media is still what was reviewed: the same identity (formats, Bunny ids,
+-- image path), and each thumbnail either the reviewed one or a frame Bunny generated for that
+-- video. $thumbnails: the reviewed row's thumbnail paths, in media order.
+DEFINE FUNCTION OVERWRITE fn::story::shows_reviewed_media($identity: string, $thumbnails: any, $s: any) {
+  LET $media = $s.media ?? [];
+  RETURN $identity = fn::story::media_identity($s)
+    AND type::is_array($thumbnails) AND array::len($thumbnails) = array::len($media)
+    AND array::all($media.map(|$m, $i|
+      $m.thumbnailPath = $thumbnails[$i] OR fn::media::generated_thumbnail($m)));
+};
+DEFINE FUNCTION OVERWRITE fn::story::thumbnails($s: any) {
+  RETURN ($s.media ?? []).map(|$m| $m.thumbnailPath);
 };
 DEFINE EVENT OVERWRITE story_media_availability ON story
   WHEN $event = 'UPDATE' AND $before.status = 'approved'
@@ -480,23 +504,27 @@ DEFINE EVENT OVERWRITE story_media_availability ON story
     IF $after.status != 'approved' {
       -- Left approved (withdrawn): nothing is hidden any more.
       DELETE $hidden;
-    } ELSE IF fn::story::approval_problem($after) != NONE AND record::exists($public) {
+    } ELSE IF record::exists($public) AND (fn::story::approval_problem($after) != NONE
+      OR !fn::story::shows_reviewed_media(fn::story::media_identity($public),
+        fn::story::thumbnails($public), $after)) {
       -- Only what is public gets hidden (and so restored): a story that wasn't public (consent
       -- withdrawn) is never published by a media fix. A marker left from an earlier hide never
       -- stops this one (Codex, #61): it is replaced by what is public now.
       LET $row = (SELECT * FROM ONLY $public);
+      LET $reason = IF fn::story::approval_problem($after) != NONE { 'media_unavailable' }
+        ELSE { 'media_changed' };
       DELETE $public;
       DELETE $hidden;
       CREATE $hidden CONTENT {
         publishedAt: $row.publishedAt, slugHistory: $row.slugHistory,
-        identity: fn::story::media_identity($row)
+        identity: fn::story::media_identity($row), thumbnails: fn::story::thumbnails($row)
       } RETURN NONE;
       CREATE auditLog CONTENT {
         service: $service, action: 'HideStory', entity: $after.id, storyVersion: $after.version,
-        fromStatus: 'approved', toStatus: 'approved', reason: 'media_unavailable'
+        fromStatus: 'approved', toStatus: 'approved', reason: $reason
       };
     } ELSE IF record::exists($hidden) AND fn::story::approval_problem($after) = NONE
-      AND $hidden.identity = fn::story::media_identity($after) {
+      AND fn::story::shows_reviewed_media($hidden.identity, $hidden.thumbnails, $after) {
       LET $h = (SELECT * FROM ONLY $hidden);
       DELETE $hidden;
       -- Consent rules publishing (D17): withdrawn meanwhile, the story stays off the read model.
@@ -579,6 +607,11 @@ DEFINE FIELD OVERWRITE image.alt              ON publicStory TYPE option<string>
 -- audio story always has it; NONE for written stories.
 DEFINE FIELD OVERWRITE durationSeconds ON publicStory TYPE option<int>
   VALUE type::record('story', record::id(id)).media[0].durationSeconds;
+-- D63: /v1/tags lists a tag only if a published story uses it, probing an index for one match
+-- per tag. The tags' slugs, computed on every write (no writer sets them): 3.2.4 returns no rows
+-- from an element index over record links (`tagRefs.*`), but indexes strings correctly.
+DEFINE FIELD OVERWRITE tagSlugs      ON publicStory TYPE array<string>
+  VALUE tagRefs.map(|$t| record::id($t));
 DEFINE FIELD OVERWRITE publishedAt   ON publicStory TYPE datetime;
 DEFINE FIELD OVERWRITE updatedAt     ON publicStory TYPE datetime VALUE time::now();
 -- A full-text index covers one field, so search goes over a computed field.
@@ -628,12 +661,12 @@ DEFINE EVENT OVERWRITE publicStory_clears_hide ON publicStory
   WHEN $event = 'CREATE'
   THEN { DELETE type::record('hiddenStory', record::id($after.id)) };
 -- Processing (workflow, M7) may correct a published clip's size or duration, and a re-encode may
--- give it a new thumbnail (D60). The same write copies them into the published row
--- (durationSeconds is recomputed there), so cards never keep old facts or a dead thumbnail link.
--- Only while the clip is ready and the story's media is still what was reviewed: the published
--- row's fingerprint (fn::story::media_identity: formats, Bunny ids, image) equals the story's.
--- Never the fingerprint's own fields: another clip or image is #61's to hide and review
--- (story_media_availability), so copying it would make it look reviewed.
+-- give it another frame Bunny generated as its thumbnail (D60). The same write copies them into
+-- the published row (durationSeconds is recomputed there), so cards never keep old facts or a
+-- dead thumbnail link. Only while the clip is ready and the story's media is still what was
+-- reviewed (fn::story::shows_reviewed_media against the published row). Anything else (another
+-- clip or image, a custom thumbnail) is never copied: story_media_availability hides the story
+-- in the same write, for a moderator to review.
 DEFINE EVENT OVERWRITE story_published_media_facts ON story
   WHEN $event = 'UPDATE' AND $after.status = 'approved'
     AND $after.media.map(|$m| [$m.width, $m.height, $m.durationSeconds, $m.thumbnailPath])
@@ -642,7 +675,8 @@ DEFINE EVENT OVERWRITE story_published_media_facts ON story
   THEN {
     LET $public = type::record('publicStory', record::id($after.id));
     LET $row = (SELECT media, image FROM ONLY $public);
-    IF $row != NONE AND fn::story::media_identity($row) = fn::story::media_identity($after) {
+    IF $row != NONE AND fn::story::shows_reviewed_media(fn::story::media_identity($row),
+      fn::story::thumbnails($row), $after) {
       UPDATE $public SET media = $row.media.map(|$m, $i| object::extend($m, {
         width: $after.media[$i].width, height: $after.media[$i].height,
         thumbnailPath: $after.media[$i].thumbnailPath })) RETURN NONE;
@@ -653,6 +687,7 @@ DEFINE INDEX OVERWRITE publicStory_slug     ON publicStory FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory;
 DEFINE INDEX OVERWRITE publicStory_browse   ON publicStory FIELDS publishedAt;
 DEFINE INDEX OVERWRITE publicStory_tags     ON publicStory FIELDS tagRefs;
+DEFINE INDEX OVERWRITE publicStory_tag_slugs ON publicStory FIELDS tagSlugs.*;  -- D63
 DEFINE INDEX OVERWRITE publicStory_fts      ON publicStory FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
 
@@ -669,6 +704,9 @@ DEFINE FIELD OVERWRITE since       ON hiddenStory TYPE datetime VALUE $before OR
 DEFINE FIELD OVERWRITE publishedAt ON hiddenStory TYPE datetime;
 DEFINE FIELD OVERWRITE slugHistory ON hiddenStory TYPE array<string>;
 DEFINE FIELD OVERWRITE identity    ON hiddenStory TYPE string ASSERT string::len($value) = 64;
+-- D60: the hidden row's thumbnail paths, in media order (rows from before D60 have none, so
+-- they stay hidden for a moderator).
+DEFINE FIELD OVERWRITE thumbnails  ON hiddenStory TYPE option<array<option<string>>>;
 DEFINE INDEX OVERWRITE hiddenStory_since ON hiddenStory FIELDS since;
 DEFINE EVENT OVERWRITE hiddenStory_fence ON hiddenStory          -- hide, restore
   WHEN true THEN {
@@ -683,14 +721,14 @@ DEFINE EVENT OVERWRITE hiddenStory_fence ON hiddenStory          -- hide, restor
 -- what was public, so it needs a moderator rather than Bunny. Runs with the caller's permissions
 -- (only api-admin and workflow read hiddenStory).
 DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
-  LET $hidden = (SELECT since, identity, type::record('story', record::id(id)) AS story
+  LET $hidden = (SELECT since, identity, thumbnails, type::record('story', record::id(id)) AS story
     FROM hiddenStory ORDER BY since ASC);
   RETURN $hidden.map(|$h| {
     LET $s = (SELECT * FROM ONLY $h.story);
     RETURN IF $s.status = 'approved' {
       { id: $s.id, slug: $s.slug, title: $s.title, primaryFormat: $s.primaryFormat,
         hiddenSince: $h.since, problem: fn::story::approval_problem($s),
-        mediaChanged: $h.identity != fn::story::media_identity($s) }
+        mediaChanged: !fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s) }
     };
   }).filter(|$r| $r != NONE);
 };
@@ -856,7 +894,7 @@ DEFINE FIELD OVERWRITE role       ON auditLog TYPE option<string>         -- Ass
   ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];
 DEFINE FIELD OVERWRITE reason     ON auditLog TYPE option<string>         -- a code, never free text
   ASSERT $value = NONE OR $value IN ['account_deleted', 'consent_withdrawn', 'clerk_user_deleted',  -- D39 erasure callers
-    'media_unavailable', 'media_restored'];                               -- Hide/RepublishStory
+    'media_unavailable', 'media_changed', 'media_restored'];              -- Hide/RepublishStory
 DEFINE FIELD OVERWRITE createdAt  ON auditLog TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE INDEX OVERWRITE audit_entity ON auditLog FIELDS entity, createdAt;
 DEFINE EVENT OVERWRITE audit_append_only ON auditLog

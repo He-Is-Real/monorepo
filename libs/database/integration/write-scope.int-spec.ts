@@ -195,6 +195,22 @@ describe('write scope on story fields (D41)', () => {
       ).toEqual([93]);
     });
 
+    it('computes tagSlugs from the story’s tags, whatever the writer sends (D63)', async () => {
+      // /v1/tags probes an index over tagSlugs (3.2.4 can't index record elements correctly).
+      const slugs = () =>
+        rows(migrator, 'SELECT VALUE tagSlugs FROM publicStory:bob_pending');
+      const expected = await rows(
+        migrator,
+        'SELECT VALUE tagRefs.map(|$t| record::id($t)) FROM story:bob_pending',
+      );
+      expect(await slugs()).toEqual(expected);
+      await run(
+        admin,
+        `UPDATE publicStory:bob_pending SET tagSlugs = ['not-a-tag']`,
+      );
+      expect(await slugs()).toEqual(expected);
+    });
+
     it('follows processing’s corrections of a published clip in the same write', async () => {
       // Workflow re-measures the approved clip (M7): its duration and size change, the clip
       // itself (format, Bunny id) doesn't. The published row must not keep the old facts.
@@ -229,6 +245,8 @@ describe('write scope on story fields (D41)', () => {
         migrator,
         'SELECT durationSeconds, media FROM publicStory:bob_pending',
       );
+    const migrator_ = () => migrator;
+    const workflow_ = () => workflow;
     const reviewedClip = (durationSeconds: number, thumbnailPath: string) => [
       {
         durationSeconds,
@@ -249,34 +267,50 @@ describe('write scope on story fields (D41)', () => {
       // clip, so it isn't new media: the published row follows it, so its link works.
       await run(
         workflow,
-        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/2.jpg'`,
+        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'vid-orig/thumbnail_2.jpg'`,
       );
-      expect(await published()).toEqual(reviewedClip(120, 'thumbs/2.jpg'));
+      expect(await published()).toEqual(
+        reviewedClip(120, 'vid-orig/thumbnail_2.jpg'),
+      );
       // Later corrections still reach the row.
       await run(
         workflow,
         'UPDATE story:bob_pending SET media[0].durationSeconds = 150',
       );
-      expect(await published()).toEqual(reviewedClip(150, 'thumbs/2.jpg'));
+      expect(await published()).toEqual(
+        reviewedClip(150, 'vid-orig/thumbnail_2.jpg'),
+      );
     });
 
-    it('never copies another clip: a new Bunny id is #61’s to hide and review', async () => {
-      // Only a system user can write it this way (no hide: the clip stays ready), so the row
-      // keeps what was reviewed, and later corrections wait too.
-      await run(
-        migrator,
-        `UPDATE story:bob_pending SET media[0].bunnyVideoId = 'vid-other'`,
-      );
-      await run(
-        workflow,
-        'UPDATE story:bob_pending SET media[0].durationSeconds = 160',
-      );
-      expect(await published()).toEqual(reviewedClip(150, 'thumbs/2.jpg'));
-      await run(
-        migrator,
-        `UPDATE story:bob_pending SET media[0].bunnyVideoId = 'vid-orig'`,
-      );
-    });
+    it.each([
+      ['another clip', `media[0].bunnyVideoId = 'vid-other'`, migrator_],
+      [
+        'a custom thumbnail',
+        `media[0].thumbnailPath = 'vid-orig/custom.jpg'`,
+        workflow_,
+      ],
+    ])(
+      'never copies %s: the story is hidden until it is reviewed (D59, D60)',
+      async (_name, set, who) => {
+        // The row isn't changed to unreviewed media; the story leaves the public site instead.
+        const db = who();
+        await run(db, `UPDATE story:bob_pending SET ${set}`);
+        await run(
+          workflow,
+          'UPDATE story:bob_pending SET media[0].durationSeconds = 160',
+        );
+        expect(await published()).toEqual([]);
+        // What was reviewed back: public again, with the latest facts.
+        await run(
+          migrator,
+          `UPDATE story:bob_pending SET media[0].bunnyVideoId = 'vid-orig',
+             media[0].thumbnailPath = 'vid-orig/thumbnail_2.jpg'`,
+        );
+        expect(await published()).toEqual(
+          reviewedClip(160, 'vid-orig/thumbnail_2.jpg'),
+        );
+      },
+    );
 
     it('leaves #61’s hide and restore working, with the latest facts on return', async () => {
       // Not ready: #61 hides the story (the row goes, its reviewed fingerprint is kept).
@@ -295,14 +329,16 @@ describe('write scope on story fields (D41)', () => {
       // on its own (D60), with that thumbnail and the duration processing found since.
       await run(
         workflow,
-        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/3.jpg'`,
+        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'vid-orig/thumbnail_3.jpg'`,
       );
       expect(await published()).toEqual([]);
       await run(
         workflow,
         `UPDATE story:bob_pending SET media[0].processing = 'ready'`,
       );
-      expect(await published()).toEqual(reviewedClip(160, 'thumbs/3.jpg'));
+      expect(await published()).toEqual(
+        reviewedClip(160, 'vid-orig/thumbnail_3.jpg'),
+      );
       expect(
         await rows(migrator, 'SELECT VALUE id FROM hiddenStory:bob_pending'),
       ).toEqual([]);
