@@ -1,6 +1,7 @@
 import {
   type DynamicModule,
   Global,
+  Inject,
   Logger,
   Module,
   type OnApplicationBootstrap,
@@ -8,6 +9,8 @@ import {
   type Type,
 } from '@nestjs/common';
 import { APP_GUARD, DiscoveryModule, DiscoveryService } from '@nestjs/core';
+import { readConsentRelaxed, SURREAL } from '@heisreal/database';
+import type { SurrealQueryable } from 'surrealdb';
 import { ConsentChecker } from './consent-checker';
 import { ConsentGuard } from './consent.guard';
 import { ConsentLedger } from './consent-ledger';
@@ -30,6 +33,7 @@ export interface ConsentModuleOptions {
 /**
  * Consent foundation for api-user and api-admin (D17–D21). Installs the global fail-closed
  * `ConsentGuard`, and refuses to start the application if any route lacks a consent decorator.
+ * At startup it says when the database relaxes consent checks (D48, dev only).
  * Requires `DatabaseModule`.
  */
 @Global()
@@ -37,7 +41,10 @@ export interface ConsentModuleOptions {
 export class ConsentModule implements OnApplicationBootstrap {
   private readonly logger = new Logger(ConsentModule.name);
 
-  constructor(private readonly discovery: DiscoveryService) {}
+  constructor(
+    private readonly discovery: DiscoveryService,
+    @Inject(SURREAL) private readonly db: SurrealQueryable,
+  ) {}
 
   static forRoot(options: ConsentModuleOptions = {}): DynamicModule {
     const authenticator: Provider = {
@@ -58,7 +65,7 @@ export class ConsentModule implements OnApplicationBootstrap {
     };
   }
 
-  onApplicationBootstrap(): void {
+  async onApplicationBootstrap(): Promise<void> {
     const routes = listRoutePolicies(this.discovery);
     const bad = routes.filter((r) => r.problem);
     if (bad.length) {
@@ -68,5 +75,16 @@ export class ConsentModule implements OnApplicationBootstrap {
       );
     }
     this.logger.log(`Consent policy set on all ${routes.length} routes`);
+    // D48: the database's one switch (fn::consent::relaxed), which the guard follows too.
+    const relaxed = await readConsentRelaxed(this.db);
+    if (relaxed === true) {
+      this.logger.warn(
+        'Consent checks are RELAXED (D48, dev only): the database treats every person as consenting, for dummy data',
+      );
+    } else if (relaxed === undefined) {
+      this.logger.warn(
+        'Couldn’t read the consent setting at startup (D48); the guard reads the database on every request regardless',
+      );
+    }
   }
 }

@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { withTimeout } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
+import { readConsentRelaxed } from './consent-setting';
 import { SURREAL } from './database.constants';
 
 export type DatabaseStatus = 'up' | 'down';
@@ -27,5 +28,12 @@ export class DatabaseHealthService {
       this.logger.warn(`Database health check failed: ${String(err)}`);
       return 'down';
     }
+  }
+
+  /** D48: whether consent checks are relaxed (dev only); `undefined` if the database can't say. */
+  consentChecksRelaxed(
+    timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
+  ): Promise<boolean | undefined> {
+    return readConsentRelaxed(this.db, timeoutMs);
   }
 }

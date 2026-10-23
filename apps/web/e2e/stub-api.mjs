@@ -7,6 +7,7 @@ const base = {
   bylineName: 'Test Person',
   primaryFormat: 'written',
   media: [],
+  image: null,
   tags: [],
   publishedAt: '2026-10-21T20:00:00Z',
   version: 1,
@@ -42,7 +43,13 @@ createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(
-      JSON.stringify({ status: 'ok', service: 'api-public-read', db: 'up' }),
+      // D48 on, so every page's footer note is checked on every device.
+      JSON.stringify({
+        status: 'ok',
+        service: 'api-public-read',
+        db: 'up',
+        consentChecksRelaxed: true,
+      }),
     );
   }
   if (match?.[1] === 'down') {

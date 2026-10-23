@@ -1,3 +1,4 @@
+export * from './lib/consent-setting';
 export * from './lib/database-health.service';
 export * from './lib/database.config';
 export * from './lib/database.constants';
