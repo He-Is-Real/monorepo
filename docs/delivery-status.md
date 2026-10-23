@@ -208,6 +208,11 @@ changed two settings: passwords became optional with an 8-character minimum (was
   (from its own upload targets, under a story-specific prefix), never from the client. Otherwise a
   person could name someone else's media and get it signed once their story is approved. When
   that's built, api-public-read can also require the prefix.
+- **Touch targets in Bunny's player:** its controls are 34–38 px by default. CSS in the library's
+  custom head (OpenTofu) makes them 44 × 44 px; measured in the real player at 240–640 px wide.
+  The behavioural tests check it on a 320 px phone after each reset, because a Bunny player update
+  could change the element names. Fallback if Bunny ever drops custom CSS: our own controls
+  through the player.js API (Bunny's playback control API).
 - **No CSP yet:** web sends no Content-Security-Policy. When one is added, it needs
   `frame-src https://player.mediadelivery.net` and `img-src` for the images CDN (and the Stream
   CDN for thumbnails).

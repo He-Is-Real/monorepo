@@ -1,4 +1,12 @@
-import { type APIRequestContext, expect, test } from '@playwright/test';
+/// <reference lib="dom" />
+// DOM types: playerControls runs inside the player frame.
+import {
+  type APIRequestContext,
+  expect,
+  type Frame,
+  type Page,
+  test,
+} from '@playwright/test';
 import { DATASET } from '../src/app/dataset';
 import { imagePath } from '../src/app/media';
 import { API_URL, WEB_URL } from './playwright.config';
@@ -133,4 +141,87 @@ test('the story page plays the signed video in Bunny’s player, without autopla
     .first()
     .click();
   expect((await playlist).status()).toBe(200);
+});
+
+/**
+ * Every visible control in the Bunny Player's bars (its media-chrome buttons and the seek bar):
+ * size and whether it lies inside the player. The web e2e stub can't prove this: only the real
+ * player, with the library's custom head CSS (modules/bunny/player-head.html), can.
+ */
+async function playerControls(frame: Frame) {
+  return frame.evaluate(() =>
+    Array.from(
+      document.querySelectorAll(
+        'media-control-bar *, bunny-media-control-bar *, bunny-media-time-range',
+      ),
+    )
+      .filter((el) => /-button$|-time-range$/i.test(el.tagName))
+      .filter((el) => {
+        const style = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          r.width > 0
+        );
+      })
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          name: el.tagName.toLowerCase(),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+          inside:
+            r.left >= 0 &&
+            r.top >= 0 &&
+            r.right <= window.innerWidth + 0.5 &&
+            r.bottom <= window.innerHeight + 0.5,
+        };
+      }),
+  );
+}
+
+async function playerFrame(page: Page) {
+  await expect
+    .poll(() =>
+      page.frames().some((f) => f.url().includes('mediadelivery.net')),
+    )
+    .toBe(true);
+  return page.frames().find((f) => f.url().includes('mediadelivery.net'))!;
+}
+
+test.describe('on a 320 px phone', () => {
+  test.use({
+    viewport: { width: 320, height: 568 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test('the real player’s controls are at least 44 × 44 px and fit inside it (AGENTS.md)', async ({
+    page,
+  }) => {
+    await page.goto(`/stories/${VIDEO.slug}`);
+    const title = `Video: ${VIDEO.title}`;
+    await expect(page.locator(`iframe[title="${title}"]`)).toBeVisible();
+    // Start playback so the control bar shows (it hides before the first play).
+    await page
+      .frameLocator(`iframe[title="${title}"]`)
+      .getByRole('button', { name: /play/i })
+      .first()
+      .tap();
+    const frame = await playerFrame(page);
+    await expect
+      .poll(async () => (await playerControls(frame)).length, {
+        timeout: 15_000,
+      })
+      .toBeGreaterThanOrEqual(4);
+    const controls = await playerControls(frame);
+    for (const c of controls) {
+      expect(c.inside, `${c.name} lies inside the player`).toBe(true);
+      expect(c.height, `${c.name} height`).toBeGreaterThanOrEqual(44);
+      if (c.name.endsWith('-button')) {
+        expect(c.width, `${c.name} width`).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
 });

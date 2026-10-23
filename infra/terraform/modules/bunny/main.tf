@@ -61,6 +61,9 @@ resource "bunnynet_stream_library" "media" {
   ]
   player_watchtime_heatmap_enabled = false
   vast_tag_url                     = "" # no adverts
+  # 44 px touch targets (AGENTS.md): CSS in the player's <head> (Bunny's
+  # "Custom HTML" setting). CSS only, no script.
+  player_custom_head = trimspace(file("${path.module}/player-head.html"))
 }
 
 # --- Storage + CDN: images ----------------------------------------------------

@@ -123,6 +123,8 @@ stories['image-story'] = {
 const WIDE_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="640" viewBox="0 0 1600 640">' +
   '<rect width="1600" height="640" fill="#336"/><text x="40" y="340" font-size="64" fill="#fff">DEV TEST 2.5:1</text></svg>';
+// A stand-in for Bunny's player: its 44 px button proves nothing about the real one. The real
+// player's control sizes are checked on dev (apps/dev-seed/behavioural/media.behaviour.ts).
 const PLAYER_HTML =
   '<!doctype html><title>Stub player</title><body style="margin:0;background:#000;color:#fff;font:16px sans-serif">' +
   '<button style="min-width:44px;min-height:44px">Play</button></body>';
