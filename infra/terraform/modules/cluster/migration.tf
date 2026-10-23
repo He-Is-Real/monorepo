@@ -21,7 +21,11 @@ module "migration" {
   clerk_jwt_public_key = var.clerk_jwt_public_key
   identity_hash        = module.identity.hash
   seed_dev_story       = var.seed_dev_story
-  job_template         = jsondecode(data.kustomization_overlay.surrealdb.manifests[local.migrate_template_id])
+  # D48: the environment comes from the GCP project the overlay and the gcp root agree on
+  # (surrealdb.tf), not from a free-form input: heisreal-dev -> dev.
+  environment         = trimprefix(lookup(var.surrealdb_expected_settings, "GCP_PROJECT", ""), "heisreal-")
+  dev_consent_relaxed = var.dev_consent_relaxed
+  job_template        = jsondecode(data.kustomization_overlay.surrealdb.manifests[local.migrate_template_id])
 }
 
 resource "kustomization_resource" "migration_bundle" {

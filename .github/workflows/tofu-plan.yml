@@ -110,9 +110,10 @@ jobs:
       # The migrate Job's and the identity config's names change iff their content does (D14,
       # D13 B). No providers, no cloud access.
       # bunny-state-guard: nothing Bunny is public (the bunny root's pre-plan check).
+      # cluster (mock providers, no cluster access): D48's relaxed consent is refused outside dev.
       - name: Test the pure modules
         run: |
-          for module in db-migration db-identity bunny-state-guard; do
+          for module in db-migration db-identity bunny-state-guard cluster; do
             tofu -chdir="infra/terraform/modules/$module" init -backend=false -input=false
             tofu -chdir="infra/terraform/modules/$module" test
           done

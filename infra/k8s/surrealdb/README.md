@@ -141,7 +141,8 @@ What a run does, in order (validate first, then change):
    (`_migrationPending`); no applied data script has changed (sha256 in `_migration`); no pending
    script needs a parameter OpenTofu passed as null; every seeded DPA version still has its file
    and a published one's text hasn't changed (`dpa-sync.surql` in a cancelled transaction).
-4. **Schema:** `schema.surql` and the Clerk access, one step.
+4. **Schema:** `schema.surql`, the Clerk access and the settings row (`_setting:consent`, D48),
+   one step.
 5. **Data scripts:** each new one, one step each, recorded in `_migration`.
 6. **DPA sync:** draft hashes follow their files, one step.
 
@@ -263,6 +264,14 @@ update it here and in the services' `CLERK_JWT_PUBLIC_KEY`, then migrate.
 **Dev story** (task 0.9): `seed_dev_story` (OpenTofu, true only in `live/dev/cluster`;
 `--seed-dev-story` for `local-migration.mjs`) makes data script 0003 publish one obviously fake story.
 Off, the script records itself as applied and writes nothing, so it can't be turned on later.
+
+**Relaxed consent in dev** (D48): `dev_consent_relaxed` (OpenTofu, declared only in
+`live/dev/cluster`, default false) for dummy data. The runner writes it, with the environment
+(from the GCP project), to `_setting:consent`, and `fn::consent::granted` (every consent check,
+including libs/consent's guard) then answers yes for any person. `modules/cluster` and
+`modules/db-migration` refuse it outside dev, and so does the database (`_setting_dev_only`).
+The run's log and summary say `consent checks: RELAXED` or `enforced`; api-user and api-admin log
+it at startup and the dev site's footer shows it. Turning it off takes the next migration.
 
 **DPA text** (D20): OpenTofu passes each `libs/legal/dpa/*.md` file's sha256 (`$dpa_sha256`).
 While a version is a draft, its `contentHash` follows the file; once published, a changed file

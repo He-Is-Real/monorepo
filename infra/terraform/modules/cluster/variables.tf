@@ -67,6 +67,17 @@ variable "seed_dev_story" {
   default     = false
 }
 
+variable "dev_consent_relaxed" {
+  description = "D48: relax consent checks for dummy data (modules/db-migration). Only for the heisreal-dev project: the GCP project in surrealdb_expected_settings, which surrealdb.tf checks against the overlay."
+  type        = bool
+  default     = false
+  nullable    = false
+  validation {
+    condition     = !var.dev_consent_relaxed || lookup(var.surrealdb_expected_settings, "GCP_PROJECT", "") == "heisreal-dev"
+    error_message = "dev_consent_relaxed (D48) can only be set in dev (GCP project heisreal-dev)."
+  }
+}
+
 variable "clerk_jwt_public_key" {
   description = "Clerk's RS256 PEM public key (public, not a secret). Empty: the migration removes DEFINE ACCESS clerk, so no person sessions."
   type        = string
