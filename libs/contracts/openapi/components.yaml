@@ -387,14 +387,47 @@ components:
           description: Bunny.net playback URL
         thumbnailUrl:
           type: [string, 'null']
-        aspectRatio:
-          type: [string, 'null']
-          example: '9:16'
+        width:
+          type: [integer, 'null']
+          minimum: 1
+          description: |
+            The video's real pixel width (Bunny's encode result; D53, replacing `aspectRatio`). With
+            `height`, the shape: never beyond 1:3 or 3:1 (the database refuses it); cards clamp it
+            between 9:16 and 2:1. `null` for audio, and for video until it's encoded.
+          example: 1080
+        height:
+          type: [integer, 'null']
+          minimum: 1
+          description: The video's real pixel height (see `width`).
+          example: 1920
         captionsUrl:
           type: [string, 'null']
           description: From M7 (transcription)
         durationSeconds:
           type: [integer, 'null']
+
+    StoryImage:
+      type: object
+      description: |
+        The optional image of a written story (D53): the person's own content, mirrored into the read
+        model. Never beyond 1:3 or 3:1; cards clamp it between 9:16 and 2:1 (cropped around the centre).
+      required: [url, width, height, alt]
+      properties:
+        url:
+          type: [string, 'null']
+          description: Token-authenticated image URL (D52); `null` until token auth is built.
+        width:
+          type: integer
+          minimum: 1
+          example: 1200
+        height:
+          type: integer
+          minimum: 1
+          example: 1600
+        alt:
+          type: [string, 'null']
+          maxLength: 500
+          description: The person's short description of the image; `null` = none given (clients show a neutral default).
 
     StorySummary:
       type: object
@@ -417,6 +450,19 @@ components:
           $ref: '#/components/schemas/Format'
         thumbnailUrl:
           type: [string, 'null']
+        thumbnailWidth:
+          type: [integer, 'null']
+          minimum: 1
+          description: The video's pixel width, for the card's shape (D53, D55); `null` for written and audio stories.
+        thumbnailHeight:
+          type: [integer, 'null']
+          minimum: 1
+          description: The video's pixel height (see `thumbnailWidth`).
+        image:
+          description: A written story's image (D53); `null` otherwise or when there is none.
+          oneOf:
+            - $ref: '#/components/schemas/StoryImage'
+            - type: 'null'
         tags:
           type: array
           items:
@@ -453,7 +499,7 @@ components:
           type: string
         body:
           type: [string, 'null']
-          description: Written-story text.
+          description: The story's text; required for written stories, optional for video and audio (D53).
         bylineName:
           type: [string, 'null']
           description: '`null` = anonymous.'
@@ -461,8 +507,14 @@ components:
           $ref: '#/components/schemas/Format'
         media:
           type: array
+          description: Exactly one item of the story's format for video and audio stories; empty for written ones (D53).
           items:
             $ref: '#/components/schemas/MediaPlayback'
+        image:
+          description: A written story's image (D53); `null` otherwise or when there is none.
+          oneOf:
+            - $ref: '#/components/schemas/StoryImage'
+            - type: 'null'
         tags:
           type: array
           items:
@@ -533,6 +585,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MediaPlayback'
+        image:
+          description: A written story's image (D53); `null` otherwise or when there is none.
+          oneOf:
+            - $ref: '#/components/schemas/StoryImage'
+            - type: 'null'
         tags:
           type: array
           items:
@@ -953,10 +1010,16 @@ components:
       properties:
         status:
           type: string
-          enum: [ok, error]
+          enum: [ok, degraded]
         service:
           type: string
           example: api-public-read
         db:
           type: string
           enum: [up, down]
+        consentChecksRelaxed:
+          type: boolean
+          description: |
+            D48: `true` only in dev while consent checks are relaxed for dummy data (the database's own
+            setting, read with this service's login). Present when the database is up. The dev site's
+            footer shows it.

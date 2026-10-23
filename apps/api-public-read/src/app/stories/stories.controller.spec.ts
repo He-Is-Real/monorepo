@@ -16,9 +16,15 @@ const story = {
   title: 'Test story',
   description: 'Placeholder',
   body: 'Test text',
-  primaryFormat: 'written',
+  primaryFormat: 'video',
   media: [
-    { format: 'video', aspectRatio: '9:16', bunnyVideoId: 'internal-id' },
+    {
+      format: 'video',
+      width: 1080,
+      height: 1920,
+      bunnyVideoId: 'internal-id',
+      thumbnailPath: 'internal-thumb.jpg',
+    },
   ],
   tags: [],
   publishedAt: '2026-10-21T20:00:00Z',
@@ -91,25 +97,65 @@ describe('GET /v1/stories/{slug}', () => {
         description: 'Placeholder',
         body: 'Test text',
         bylineName: null,
-        primaryFormat: 'written',
+        primaryFormat: 'video',
         media: [
           {
             format: 'video',
             playbackUrl: null,
             thumbnailUrl: null,
-            aspectRatio: '9:16',
+            width: 1080,
+            height: 1920,
             captionsUrl: null,
             durationSeconds: null,
           },
         ],
+        image: null,
         tags: [],
         publishedAt: '2026-10-21T20:00:00Z',
         version: 3,
       });
-      expect(JSON.stringify(body)).not.toContain('internal-id');
+      expect(JSON.stringify(body)).not.toContain('internal-');
       expect(vars).toEqual([{ slug: 'test-story' }]);
     } finally {
       await app.close();
+    }
+  });
+
+  it('returns a written story’s image by its shape and alt text, never its storage path (D53)', async () => {
+    const written = {
+      ...story,
+      primaryFormat: 'written',
+      media: [],
+      image: {
+        path: 'internal/a.webp',
+        width: 1200,
+        height: 1600,
+        alt: 'A sunrise',
+      },
+    };
+    for (const [image, expected] of [
+      [
+        written.image,
+        { url: null, width: 1200, height: 1600, alt: 'A sunrise' },
+      ],
+      // No alt text given: null, and clients show a neutral default.
+      [
+        { path: 'internal/b.webp', width: 800, height: 800 },
+        { url: null, width: 800, height: 800, alt: null },
+      ],
+    ] as const) {
+      const { app, url } = await boot(database([{ ...written, image }]).db);
+      try {
+        const body = await (await fetch(`${url}/v1/stories/test-story`)).json();
+        expect(body).toMatchObject({
+          primaryFormat: 'written',
+          media: [],
+          image: expected,
+        });
+        expect(JSON.stringify(body)).not.toContain('internal');
+      } finally {
+        await app.close();
+      }
     }
   });
 

@@ -24,6 +24,7 @@ export interface StoryPublic {
   bylineName: string | null;
   primaryFormat: 'video' | 'audio' | 'written';
   media: MediaPlayback[];
+  image: StoryImage | null;
   tags: { slug: string; name: string; category: string; version: number }[];
   publishedAt: string;
   updatedAt?: string;
@@ -34,9 +35,18 @@ export interface MediaPlayback {
   format: 'video' | 'audio';
   playbackUrl: string | null;
   thumbnailUrl: string | null;
-  aspectRatio: string | null;
+  width: number | null;
+  height: number | null;
   captionsUrl: string | null;
   durationSeconds: number | null;
+}
+
+/** `components.yaml#/components/schemas/StoryImage` (D53). */
+export interface StoryImage {
+  url: string | null;
+  width: number;
+  height: number;
+  alt: string | null;
 }
 
 /** Public queries (D30): shared caches may keep a story for a minute. */
@@ -46,16 +56,17 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // Only the read model (D26): never `story`, which this service's login can't see anyway (D13).
 const BY_SLUG = `
   SELECT record::id(id) AS id, slug, title, description, body, bylineName, primaryFormat,
-    media, publishedAt, updatedAt, version,
+    media, image, publishedAt, updatedAt, version,
     (SELECT record::id(id) AS slug, name, category, version FROM tag
       WHERE id IN $parent.tagRefs ORDER BY slug) AS tags
   FROM publicStory WHERE slug = $slug LIMIT 1;
   SELECT VALUE slug FROM publicStory WHERE slugHistory CONTAINS $slug LIMIT 1;`;
 
-type Row = Omit<StoryPublic, 'body' | 'bylineName' | 'media'> & {
+type Row = Omit<StoryPublic, 'body' | 'bylineName' | 'media' | 'image'> & {
   body?: string;
   bylineName?: string;
-  media?: { format: 'video' | 'audio'; aspectRatio?: string }[];
+  media?: { format: 'video' | 'audio'; width?: number; height?: number }[];
+  image?: { path: string; width: number; height: number; alt?: string };
 };
 
 function toPublic(row: Row): StoryPublic {
@@ -67,16 +78,25 @@ function toPublic(row: Row): StoryPublic {
     body: row.body ?? null,
     bylineName: row.bylineName ?? null,
     primaryFormat: row.primaryFormat,
-    // Playback, thumbnail and caption URLs need Bunny's token-authenticated delivery (an M2
-    // prerequisite, docs/delivery-status.md); until then media carries no URLs.
+    // Playback, thumbnail, caption and image URLs need Bunny's token-authenticated delivery
+    // (D52, M1); until then media and images carry no URLs, and never their storage paths.
     media: (row.media ?? []).map((m) => ({
       format: m.format,
       playbackUrl: null,
       thumbnailUrl: null,
-      aspectRatio: m.aspectRatio ?? null,
+      width: m.width ?? null,
+      height: m.height ?? null,
       captionsUrl: null,
       durationSeconds: null,
     })),
+    image: row.image
+      ? {
+          url: null,
+          width: row.image.width,
+          height: row.image.height,
+          alt: row.image.alt ?? null,
+        }
+      : null,
     tags: row.tags ?? [],
     publishedAt: row.publishedAt,
     ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
