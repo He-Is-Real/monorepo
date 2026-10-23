@@ -233,11 +233,9 @@ describe('browse API over the dev dataset', () => {
       expect(a03.excerpt.length).toBeGreaterThan(200);
     });
 
-    it('sends public caching headers and a weak ETag; If-None-Match answers 304', async () => {
+    it('sends no-store (D51) and a weak ETag; If-None-Match answers 304', async () => {
       const res = await get('/v1/stories?limit=3');
-      expect(res.headers.get('cache-control')).toBe(
-        'public, max-age=60, stale-while-revalidate=300',
-      );
+      expect(res.headers.get('cache-control')).toBe('no-store');
       const etag = res.headers.get('etag') as string;
       expect(etag).toMatch(/^W\/"[A-Za-z0-9_-]{27}"$/);
       const again = await get('/v1/stories?limit=3', {
@@ -245,9 +243,7 @@ describe('browse API over the dev dataset', () => {
       });
       expect(again.status).toBe(304);
       expect(again.headers.get('etag')).toBe(etag);
-      expect(again.headers.get('cache-control')).toBe(
-        'public, max-age=60, stale-while-revalidate=300',
-      );
+      expect(again.headers.get('cache-control')).toBe('no-store');
       expect(
         (await get('/v1/stories?limit=4', { 'if-none-match': etag })).status,
       ).toBe(200);
@@ -283,6 +279,43 @@ describe('browse API over the dev dataset', () => {
       // Never echoes what was sent.
       expect(JSON.stringify(problem)).not.toContain('Not A Slug');
       expect(JSON.stringify(problem)).not.toContain('aaaaaaaaaa');
+    });
+
+    it.each([
+      ['an impossible date', 'latest', '2026-99-99T99:99:99Z'],
+      ['31 February', 'oldest', '2026-02-31T00:00:00Z'],
+    ])(
+      'refuses a forged cursor with %s as a 400, never a 500',
+      async (_, sort, date) => {
+        const { nextCursor } = await page(`/v1/stories?limit=2&sort=${sort}`);
+        const decoded = JSON.parse(
+          Buffer.from(nextCursor as string, 'base64url').toString(),
+        ) as { k: unknown[] };
+        const forged = Buffer.from(
+          JSON.stringify({ ...decoded, k: [date, decoded.k[1]] }),
+        ).toString('base64url');
+        const res = await get(
+          `/v1/stories?limit=2&sort=${sort}&cursor=${forged}`,
+        );
+        expect(res.status).toBe(400);
+        expect(await res.json()).toMatchObject({ code: 'invalid_cursor' });
+      },
+    );
+
+    it('takes a forged but valid position as a place in the same public list', async () => {
+      const { nextCursor } = await page('/v1/stories?limit=2');
+      const decoded = JSON.parse(
+        Buffer.from(nextCursor as string, 'base64url').toString(),
+      ) as { k: unknown[] };
+      const forged = Buffer.from(
+        JSON.stringify({ ...decoded, k: ['2000-01-01T00:00:00Z', 'zzz'] }),
+      ).toString('base64url');
+      // Nothing was published before 2000, so the page is empty. A forged position only moves
+      // within the same public list: the filters come from the query string, not the cursor.
+      expect(await page(`/v1/stories?limit=2&cursor=${forged}`)).toEqual({
+        data: [],
+        nextCursor: null,
+      });
     });
 
     it('refuses a cursor from other filters', async () => {
@@ -447,9 +480,7 @@ describe('browse API over the dev dataset', () => {
           version: 1,
         }));
       expect(data).toEqual(expected);
-      expect(res.headers.get('cache-control')).toBe(
-        'public, max-age=60, stale-while-revalidate=300',
-      );
+      expect(res.headers.get('cache-control')).toBe('no-store');
       const etag = res.headers.get('etag') as string;
       expect((await get('/v1/tags', { 'if-none-match': etag })).status).toBe(
         304,
@@ -469,6 +500,64 @@ describe('browse API over the dev dataset', () => {
         media: { durationSeconds: number | null }[];
       };
       expect(story.media[0].durationSeconds).toEqual(expect.any(Number));
+    });
+  });
+
+  describe('caching (D51)', () => {
+    const saved = process.env['PUBLIC_RESPONSE_CACHING'];
+    afterEach(() => {
+      if (saved === undefined) delete process.env['PUBLIC_RESPONSE_CACHING'];
+      else process.env['PUBLIC_RESPONSE_CACHING'] = saved;
+    });
+
+    it('lets shared caches keep public reads only when turned on (Go live, D56)', async () => {
+      process.env['PUBLIC_RESPONSE_CACHING'] = 'on';
+      for (const path of [
+        '/v1/stories?limit=2',
+        '/v1/stories/test-video-vertical-phone/related',
+        '/v1/stories/test-video-vertical-phone',
+        '/v1/tags',
+      ])
+        expect((await get(path)).headers.get('cache-control')).toBe(
+          'public, max-age=60, stale-while-revalidate=300',
+        );
+    });
+
+    it('drops a hidden story from every read on the next request', async () => {
+      // The newest story, on every first page; PR #61 hides a story by deleting its row.
+      const slug = 'test-story-walking-skeleton';
+      const id = 'seed_w06';
+      const before = await page('/v1/stories?limit=5');
+      expect(before.data.map((c) => c.id)).toContain(id);
+      expect(
+        (
+          await page('/v1/stories/test-written-portrait-image/related')
+        ).data.map((c) => c.id),
+      ).toContain(id);
+      await run(await t.migrator(), `DELETE type::record('publicStory', $id)`, {
+        id,
+      });
+      const list = await get('/v1/stories?limit=5');
+      expect(list.headers.get('cache-control')).toBe('no-store');
+      expect(((await list.json()) as Page).data.map((c) => c.id)).not.toContain(
+        id,
+      );
+      expect(
+        (await page('/v1/stories?q=skeleton')).data.map((c) => c.id),
+      ).not.toContain(id);
+      expect(
+        (
+          await page('/v1/stories/test-written-portrait-image/related')
+        ).data.map((c) => c.id),
+      ).not.toContain(id);
+      for (const path of [
+        `/v1/stories/${slug}`,
+        `/v1/stories/${slug}/related`,
+      ]) {
+        const res = await get(path);
+        expect(res.status).toBe(404);
+        expect(res.headers.get('cache-control')).toBe('no-store');
+      }
     });
   });
 });

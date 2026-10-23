@@ -57,7 +57,7 @@ describe('browse client (api-public-read, server-side only)', () => {
   };
 
   describe('browseStories', () => {
-    it('asks for the newest stories, cached for a minute (ISR), with nothing from the visitor', async () => {
+    it('asks for the newest stories, never cached (D51), with nothing from the visitor', async () => {
       respond(200, { data: [card], nextCursor: 'abc' });
       await expect(browseStories()).resolves.toEqual({
         data: [card],
@@ -66,8 +66,24 @@ describe('browse client (api-public-read, server-side only)', () => {
       const { url, init } = called();
       expect(url.href).toBe('https://api-public-read.example/v1/stories');
       expect(init.headers).toEqual({ accept: 'application/json' });
-      expect(init.next).toEqual({ revalidate: 60 });
-      expect(init.cache).toBeUndefined();
+      expect(init.cache).toBe('no-store');
+      expect(init.next).toBeUndefined();
+    });
+
+    it('drops a hidden story on the next call: nothing is kept between requests', async () => {
+      const hidden = { ...card, id: 'seed_w06', slug: 'hidden' };
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ data: [hidden, card], nextCursor: null }),
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ data: [card], nextCursor: null })),
+        );
+      expect((await browseStories()).data).toEqual([hidden, card]);
+      expect((await browseStories()).data).toEqual([card]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('sends filters, sort, page size and cursor', async () => {
@@ -89,7 +105,7 @@ describe('browse client (api-public-read, server-side only)', () => {
       });
     });
 
-    it('fetches searches fresh, so visitors’ words don’t fill the cache', async () => {
+    it('fetches searches fresh too', async () => {
       respond(200, { data: [], nextCursor: null });
       await browseStories({ q: '  hope  ' });
       const { url, init } = called();
@@ -140,7 +156,7 @@ describe('browse client (api-public-read, server-side only)', () => {
   });
 
   describe('getRelatedStories', () => {
-    it('asks for a story’s related cards (following an old slug’s 301)', async () => {
+    it('asks for a story’s related cards, never cached (following an old slug’s 301)', async () => {
       respond(200, { data: [card] });
       await expect(getRelatedStories('test-story')).resolves.toEqual({
         kind: 'stories',
@@ -150,7 +166,8 @@ describe('browse client (api-public-read, server-side only)', () => {
       expect(url.href).toBe(
         'https://api-public-read.example/v1/stories/test-story/related',
       );
-      expect(init.next).toEqual({ revalidate: 60 });
+      expect(init.cache).toBe('no-store');
+      expect(init.next).toBeUndefined();
       expect(init.redirect).toBeUndefined();
     });
 
@@ -167,7 +184,7 @@ describe('browse client (api-public-read, server-side only)', () => {
   });
 
   describe('listTags', () => {
-    it('lists the tags, cached for a minute', async () => {
+    it('lists the tags, cached for a minute (they hold no story data)', async () => {
       const tags = [
         { slug: 'hope', name: 'Hope', category: 'emotion', version: 1 },
       ];

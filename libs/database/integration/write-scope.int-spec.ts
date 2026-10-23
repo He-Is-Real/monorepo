@@ -194,5 +194,58 @@ describe('write scope on story fields (D41)', () => {
         ),
       ).toEqual([93]);
     });
+
+    it('follows processing’s corrections of a published clip in the same write', async () => {
+      // Workflow re-measures the approved clip (M7): its duration and size change, the clip
+      // itself (format, Bunny id) doesn't. The published row must not keep the old facts.
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].durationSeconds = 120,
+           media[0].width = 720, media[0].height = 1280`,
+      );
+      expect(
+        await rows(
+          migrator,
+          'SELECT durationSeconds, media FROM publicStory:bob_pending',
+        ),
+      ).toEqual([
+        {
+          durationSeconds: 120,
+          media: [
+            {
+              format: 'video',
+              bunnyVideoId: 'vid-orig',
+              thumbnailPath: 'thumbs/1.jpg',
+              width: 720,
+              height: 1280,
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('copies nothing while the clip isn’t ready (hiding it is another event’s job)', async () => {
+      const published = await rows(
+        migrator,
+        'SELECT durationSeconds, media FROM publicStory:bob_pending',
+      );
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].durationSeconds = 5,
+           media[0].processing = 'processing'`,
+      );
+      expect(
+        await rows(
+          migrator,
+          'SELECT VALUE media[0].durationSeconds FROM story:bob_pending',
+        ),
+      ).toEqual([5]);
+      expect(
+        await rows(
+          migrator,
+          'SELECT durationSeconds, media FROM publicStory:bob_pending',
+        ),
+      ).toEqual(published);
+    });
   });
 });

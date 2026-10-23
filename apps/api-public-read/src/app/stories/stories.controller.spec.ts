@@ -8,8 +8,9 @@ import { APP_FILTER } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { SURREAL } from '@heisreal/database';
 import { ProblemFilter } from '@heisreal/http';
+import { representationETag } from '../caching';
 import { MediaUrls, mediaConfigFromEnv } from '../media/media-urls';
-import { representationETag, StoriesModule } from './stories.controller';
+import { StoriesModule } from './stories.controller';
 
 const story = {
   id: 'dev_seed',
@@ -116,15 +117,13 @@ async function boot(db: unknown, media: MediaUrls = SIGNING_OFF) {
 }
 
 describe('GET /v1/stories/{slug}', () => {
-  it('returns the public story with a strong ETag and public caching, and no internal media ids', async () => {
+  it('returns the public story with a strong ETag, no-store (D51), and no internal media ids', async () => {
     const { db, vars } = database([story]);
     const { app, url } = await boot(db);
     try {
       const res = await fetch(`${url}/v1/stories/test-story`);
       expect(res.status).toBe(200);
-      expect(res.headers.get('cache-control')).toBe(
-        'public, max-age=60, stale-while-revalidate=300',
-      );
+      expect(res.headers.get('cache-control')).toBe('no-store');
       const body = await res.json();
       // A strong validator of the representation (a hash of the body), not the version.
       expect(res.headers.get('etag')).toBe(representationETag(body));

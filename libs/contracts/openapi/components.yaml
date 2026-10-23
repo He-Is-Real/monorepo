@@ -121,10 +121,14 @@ components:
         type: string
         format: uri-reference
     CacheControlPublic:
-      description: Public queries (D30).
+      description: |
+        Public queries (D30). `no-store` unless shared caching is turned on
+        (`PUBLIC_RESPONSE_CACHING=on`; D51: never in dev), so a hidden, withdrawn or erased story
+        disappears on the next request. When on: `public, max-age=60, stale-while-revalidate=300`.
       schema:
         type: string
-        example: 'public, max-age=60, stale-while-revalidate=300'
+        enum: [no-store, 'public, max-age=60, stale-while-revalidate=300']
+        example: no-store
     CacheControlPrivate:
       description: Personal and admin queries (D30).
       schema:

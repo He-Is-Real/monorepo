@@ -1,4 +1,10 @@
-import { collectionETag, ifNoneMatchHits, representationETag } from './caching';
+import {
+  CACHE_PUBLIC,
+  collectionETag,
+  ifNoneMatchHits,
+  publicCacheControl,
+  representationETag,
+} from './caching';
 
 describe('ETags', () => {
   it('hashes the representation: strong for a resource, weak for a collection', () => {
@@ -20,6 +26,32 @@ describe('ETags', () => {
     'If-None-Match %s against %s: %s (weak comparison)',
     (header, etag, hit) => {
       expect(ifNoneMatchHits(header, etag)).toBe(hit);
+    },
+  );
+});
+
+describe('publicCacheControl (D51)', () => {
+  const saved = process.env['PUBLIC_RESPONSE_CACHING'];
+  afterEach(() => {
+    if (saved === undefined) delete process.env['PUBLIC_RESPONSE_CACHING'];
+    else process.env['PUBLIC_RESPONSE_CACHING'] = saved;
+  });
+
+  it('is no-store unless shared caching is turned on: a hidden story disappears at once', () => {
+    delete process.env['PUBLIC_RESPONSE_CACHING'];
+    expect(publicCacheControl()).toBe('no-store');
+  });
+
+  it('lets shared caches keep public reads when turned on (Go live, D56)', () => {
+    process.env['PUBLIC_RESPONSE_CACHING'] = 'on';
+    expect(publicCacheControl()).toBe(CACHE_PUBLIC);
+  });
+
+  it.each(['true', 'ON', '1', 'yes', ''])(
+    'fails safe to no-store for %j',
+    (value) => {
+      process.env['PUBLIC_RESPONSE_CACHING'] = value;
+      expect(publicCacheControl()).toBe('no-store');
     },
   );
 });

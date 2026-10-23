@@ -11,7 +11,7 @@ import {
 import { runQuery, SURREAL } from '@heisreal/database';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
-import { CACHE_PUBLIC, collectionETag, sendCached } from '../caching';
+import { collectionETag, publicCacheControl, sendCached } from '../caching';
 import { MediaUrls } from '../media/media-urls';
 import {
   type BrowseQuery,
@@ -148,7 +148,7 @@ export class BrowseController {
       res
         .status(HttpStatus.MOVED_PERMANENTLY)
         .setHeader('Location', `/v1/stories/${moved}/related`)
-        .setHeader('Cache-Control', CACHE_PUBLIC);
+        .setHeader('Cache-Control', publicCacheControl());
       return undefined;
     }
     const body = { data: related.map((row) => toSummary(row, this.urls)) };

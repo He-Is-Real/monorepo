@@ -2,9 +2,10 @@ import { apiPublicReadUrl } from './config';
 import { type StoryImage, StoriesUnavailableError } from './public-stories';
 
 // D32: web reads from api-public-read only, server-side, with nothing from the visitor's request
-// (no cookies, no headers). Lists are shared by every visitor, so Next caches them for a minute
-// (ISR, like the API's own `max-age=60`); searches carry the visitor's words, so they're fetched
-// fresh rather than filling the cache.
+// (no cookies, no headers). Anything that holds stories is fetched fresh (D51: `no-store`): Next's
+// `revalidate` keeps serving its last copy while a refresh fails, and a `404` never replaces it,
+// so a hidden, withdrawn or erased story could stay on the site. Only tags are kept for a minute:
+// they hold no story data.
 
 export type StoryFormat = 'video' | 'audio' | 'written';
 export type BrowseSort = 'latest' | 'oldest' | 'relevance';
@@ -59,6 +60,7 @@ export interface BrowseParams {
 export type RelatedResult =
   { kind: 'stories'; stories: StorySummary[] } | { kind: 'not_found' };
 
+/** Tags only. */
 const REVALIDATE_SECONDS = 60;
 /** A cold api-public-read (scaled to zero, connecting to the database) can take a few seconds. */
 const TIMEOUT_MS = 10_000;
@@ -80,7 +82,7 @@ export async function browseStories(
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   if (params.cursor) query.set('cursor', params.cursor);
   const search = query.size ? `?${query}` : '';
-  const res = await get(`/v1/stories${search}`, { fresh: Boolean(q) });
+  const res = await get(`/v1/stories${search}`, { cached: false });
   const body = await json(res);
   if (!isPage(body)) throw new StoriesUnavailableError('unexpected response');
   return body;
@@ -90,7 +92,7 @@ export async function browseStories(
 export async function getRelatedStories(slug: string): Promise<RelatedResult> {
   if (!SLUG.test(slug) || slug.length > 200) return { kind: 'not_found' };
   const res = await get(`/v1/stories/${slug}/related`, {
-    fresh: false,
+    cached: false,
     notFound: true,
   });
   if (res.status === 404) return { kind: 'not_found' };
@@ -102,7 +104,7 @@ export async function getRelatedStories(slug: string): Promise<RelatedResult> {
 
 /** `GET /v1/tags`: every tag, by category (theme, journey, emotion) then name. */
 export async function listTags(): Promise<StoryTag[]> {
-  const body = (await json(await get('/v1/tags', { fresh: false }))) as
+  const body = (await json(await get('/v1/tags', { cached: true }))) as
     { data?: unknown } | undefined;
   if (!Array.isArray(body?.data) || !body.data.every(isTag))
     throw new StoriesUnavailableError('unexpected response');
@@ -111,21 +113,21 @@ export async function listTags(): Promise<StoryTag[]> {
 
 async function get(
   path: string,
-  opts: { fresh: boolean; notFound?: boolean },
+  opts: { cached: boolean; notFound?: boolean },
 ): Promise<Response> {
   let res: Response;
   try {
     const url = `${apiPublicReadUrl()}${path}`;
     const signal = AbortSignal.timeout(TIMEOUT_MS);
-    res = opts.fresh
+    res = opts.cached
       ? await fetch(url, {
           headers: { accept: 'application/json' },
-          cache: 'no-store',
+          next: { revalidate: REVALIDATE_SECONDS },
           signal,
         })
       : await fetch(url, {
           headers: { accept: 'application/json' },
-          next: { revalidate: REVALIDATE_SECONDS },
+          cache: 'no-store',
           signal,
         });
   } catch (err) {

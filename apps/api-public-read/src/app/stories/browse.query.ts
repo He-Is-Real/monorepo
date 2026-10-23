@@ -40,7 +40,8 @@ const FORMATS: readonly StoryFormat[] = ['video', 'audio', 'written'];
 const KNOWN = new Set(['q', 'tag', 'format', 'sort', 'limit', 'cursor']);
 const ID = /^[A-Za-z0-9_]{1,64}$/;
 // SurrealDB's own datetime text: UTC, up to nanoseconds.
-const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const DATETIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?Z$/;
 
 const invalid = (errors: FieldError[]) =>
   new ProblemException(
@@ -160,7 +161,14 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
   return parsed;
 }
 
-/** An opaque cursor for the page after `last`, valid only with the same filters and sort. */
+/**
+ * An opaque cursor for the page after `last`, valid only with the same filters and sort.
+ *
+ * Not signed, on purpose. A cursor holds only a position in the list (a sort key and an id). The
+ * filters come from the query string every time; the fingerprint only refuses a mix-up, and the
+ * database applies them. Every field is validated strictly, so a changed cursor is a `400`, and a
+ * forged but valid one can only start the same public, published list at another point.
+ */
 export function encodeCursor(query: BrowseQuery, last: CursorKey): string {
   return Buffer.from(
     JSON.stringify({ v: 1, f: fingerprint(query), k: [last.key, last.id] }),
@@ -187,10 +195,37 @@ function decodeCursor(query: BrowseQuery, cursor: string): CursorKey {
   const [key, id] = c.k as unknown[];
   const keyOk =
     query.sort === 'relevance'
-      ? typeof key === 'number' && Number.isFinite(key)
-      : typeof key === 'string' && DATETIME.test(key);
-  if (!keyOk || typeof id !== 'string' || !ID.test(id)) throw invalidCursor();
+      ? typeof key === 'number' && Number.isFinite(key) && key >= 0
+      : typeof key === 'string' && isDateTime(key);
+  if (
+    Object.keys(c).length !== 3 ||
+    !keyOk ||
+    typeof id !== 'string' ||
+    !ID.test(id)
+  )
+    throw invalidCursor();
   return { key: key as string | number, id };
+}
+
+/**
+ * A real UTC date and time from 1970 to 9999, at SurrealDB's precision. The database casts it, so
+ * anything it would refuse (31 February, 24:00) must be a `400` here, never a `500` there.
+ */
+function isDateTime(text: string): boolean {
+  const m = DATETIME.exec(text);
+  if (!m) return false;
+  const [year, month, day, hour, minute, second] = m.slice(1).map(Number);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return (
+    year >= 1970 &&
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= daysInMonth &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59
+  );
 }
 
 /** What the cursor is bound to: the filters and the sort (not the page size). */

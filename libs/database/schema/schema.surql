@@ -623,6 +623,25 @@ DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
 DEFINE EVENT OVERWRITE publicStory_clears_hide ON publicStory
   WHEN $event = 'CREATE'
   THEN { DELETE type::record('hiddenStory', record::id($after.id)) };
+-- Processing (workflow, M7) may correct a published clip's facts: its duration, size or thumbnail.
+-- The same write copies them into the published row (durationSeconds is recomputed there), so
+-- cards never keep old facts. Only while the clip stays the same (format, Bunny id) and ready:
+-- anything else is hiding or review, not a correction.
+DEFINE EVENT OVERWRITE story_published_media_facts ON story
+  WHEN $event = 'UPDATE' AND $after.status = 'approved'
+    AND $after.media.map(|$m| [$m.thumbnailPath, $m.width, $m.height, $m.durationSeconds])
+      != $before.media.map(|$m| [$m.thumbnailPath, $m.width, $m.height, $m.durationSeconds])
+    AND $after.media.map(|$m| [$m.format, $m.bunnyVideoId])
+      = $before.media.map(|$m| [$m.format, $m.bunnyVideoId])
+    AND fn::story::approval_problem($after) = NONE
+  THEN {
+    LET $public = type::record('publicStory', record::id($after.id));
+    IF record::exists($public) {
+      UPDATE $public SET media = $after.media.map(|$m| { format: $m.format,
+        bunnyVideoId: $m.bunnyVideoId, thumbnailPath: $m.thumbnailPath, width: $m.width,
+        height: $m.height }) RETURN NONE;
+    };
+  };
 DEFINE ANALYZER OVERWRITE story_en TOKENIZERS blank, class FILTERS lowercase, ascii, snowball(english);
 DEFINE INDEX OVERWRITE publicStory_slug     ON publicStory FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory;

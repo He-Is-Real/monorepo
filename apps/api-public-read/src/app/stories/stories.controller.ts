@@ -11,8 +11,8 @@ import {
 import { runQuery, SURREAL } from '@heisreal/database';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import { publicCacheControl, representationETag, sendCached } from '../caching';
 import { MediaUrls } from '../media/media-urls';
-import { CACHE_PUBLIC, representationETag, sendCached } from '../caching';
 import { BrowseController } from './browse.controller';
 import { isSlug, notFound } from './slug';
 import type { StoredImage, StoredMedia } from './story-summary';
@@ -51,8 +51,6 @@ export interface StoryImage {
   height: number;
   alt: string | null;
 }
-
-export { CACHE_PUBLIC, representationETag };
 
 // Only the read model (D26): never `story`, which this service's login can't see anyway (D13).
 const BY_SLUG = `
@@ -133,7 +131,7 @@ export class StoriesController {
       res
         .status(HttpStatus.MOVED_PERMANENTLY)
         .setHeader('Location', `/v1/stories/${moved}`)
-        .setHeader('Cache-Control', CACHE_PUBLIC);
+        .setHeader('Cache-Control', publicCacheControl());
       return undefined;
     }
     const story = toPublic(row, this.urls);

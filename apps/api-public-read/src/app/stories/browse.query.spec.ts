@@ -202,6 +202,88 @@ describe('cursors', () => {
   });
 });
 
+describe('forged cursor positions', () => {
+  const latest = parseBrowseQuery({});
+  const search = parseBrowseQuery({ q: 'hope' });
+  const forge = (query: BrowseQuery, k: unknown[]) => {
+    const real = encodeCursor(query, { key: query.q ? 1 : AT, id: 'a1' });
+    const decoded = JSON.parse(Buffer.from(real, 'base64url').toString());
+    return Buffer.from(JSON.stringify({ ...decoded, k })).toString('base64url');
+  };
+
+  it.each([
+    '2026-99-99T99:99:99Z',
+    '2026-13-01T00:00:00Z',
+    '2026-00-10T00:00:00Z',
+    '2026-02-30T00:00:00Z',
+    '2025-02-29T00:00:00Z',
+    '2026-04-31T00:00:00Z',
+    '2026-01-01T24:00:00Z',
+    '2026-01-01T23:60:00Z',
+    '2026-01-01T23:59:60Z',
+    '1969-12-31T23:59:59Z',
+    '2026-01-01T00:00:00.1234567890Z',
+    '2026-01-01T00:00:00+01:00',
+  ])('refuses the date %s', (date) => {
+    expect(
+      problem(() => parseBrowseQuery({ cursor: forge(latest, [date, 'a1']) })),
+    ).toMatchObject({
+      status: 400,
+      code: 'invalid_cursor',
+    });
+  });
+
+  it.each([
+    '2024-02-29T23:59:59.999999999Z',
+    '2026-12-31T00:00:00Z',
+    '1970-01-01T00:00:00.5Z',
+  ])('accepts the real date %s at full precision', (date) => {
+    expect(
+      parseBrowseQuery({ cursor: forge(latest, [date, 'a1']) }).after,
+    ).toEqual({
+      key: date,
+      id: 'a1',
+    });
+  });
+
+  it.each([['1.5'], [null], [-1], [true], [[1]]])(
+    'refuses the score %j',
+    (score) => {
+      expect(
+        problem(() =>
+          parseBrowseQuery({ q: 'hope', cursor: forge(search, [score, 'a1']) }),
+        ),
+      ).toMatchObject({
+        status: 400,
+        code: 'invalid_cursor',
+      });
+    },
+  );
+
+  it.each([['a-b'], ['x'.repeat(65)], [7], ['story:a1'], ['']])(
+    'refuses the id %j',
+    (id) => {
+      expect(
+        problem(() => parseBrowseQuery({ cursor: forge(latest, [AT, id]) })),
+      ).toMatchObject({
+        status: 400,
+        code: 'invalid_cursor',
+      });
+    },
+  );
+
+  it('refuses extra fields in the cursor', () => {
+    const real = encodeCursor(latest, { key: AT, id: 'a1' });
+    const decoded = JSON.parse(Buffer.from(real, 'base64url').toString());
+    const cursor = Buffer.from(JSON.stringify({ ...decoded, x: 1 })).toString(
+      'base64url',
+    );
+    expect(problem(() => parseBrowseQuery({ cursor }))).toMatchObject({
+      code: 'invalid_cursor',
+    });
+  });
+});
+
 describe('refuseQueryParameters', () => {
   it('accepts none', () => {
     expect(() => refuseQueryParameters({})).not.toThrow();

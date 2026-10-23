@@ -10,7 +10,8 @@ info:
 
     - Called by the browser, and server-side by `web` to prerender pages (D32).
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
-    - Queries return an `ETag` and `Cache-Control: public, max-age=60, stale-while-revalidate`.
+    - Queries return an `ETag` and `Cache-Control: no-store` (D51); shared caching (`public, max-age=60,
+      stale-while-revalidate=300`) only when turned on for Go live (D56).
     - Public stories are addressed by slug; an old slug answers `301` (D30).
     - Cursor pagination (`?limit=&cursor=` → `{ data, nextCursor }`), no totals, no engagement metrics.
     - `x-milestone` on each operation is the delivery milestone that builds it.
@@ -65,7 +66,8 @@ paths:
         `publicStory` read model, D26). Full-text search is `q` (BM25 on title, description and
         text; English stemming, any script). Keyset pages: `nextCursor` gives the next page and
         works only with the same `q`, `tag`, `format` and `sort` (any `limit`); a cursor used with
-        others is `400 invalid_cursor`. Ties in the sort are broken by ID, so pages never overlap.
+        others is `400 invalid_cursor`, and so is any changed cursor (every field is checked). Ties
+        in the sort are broken by ID, so pages never overlap.
         Unknown or repeated parameters are `400`. No totals (D30). Browse loads at most two more
         pages on its own, then shows a button (D55).
       x-milestone: M1
