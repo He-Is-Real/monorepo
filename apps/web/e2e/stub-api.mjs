@@ -1,5 +1,6 @@
 // A stand-in api-public-read for the e2e tests: the dev seed's story, a story with long
-// unbroken words (overflow check), a 503 for "down" and 404 problems for anything else.
+// unbroken words (overflow check), a long written story (the "Continue reading" preview), a 503
+// for "down" and 404 problems for anything else.
 import { createServer } from 'node:http';
 
 const port = Number(process.env.STUB_PORT ?? 4310);
@@ -36,6 +37,27 @@ const stories = {
       { slug: 'healing', name: 'Healing', category: 'theme', version: 1 },
     ],
   },
+};
+
+// About 2,000 characters in five paragraphs, so the preview (about 600) cuts inside the second.
+const LONG_PARAGRAPHS = [
+  'This is test text for a long written story. ' +
+    'It goes on for a while, sentence after sentence. '.repeat(7),
+  'The second paragraph is where the preview stops. ' +
+    'Each sentence here is placeholder text and nothing more. '.repeat(6),
+  'A third paragraph, hidden until the reader asks for it. ' +
+    'Still more placeholder words. '.repeat(6),
+  'A fourth paragraph with a long link: https://example.com/a/very/long/unbroken/url/that/must/not/push/the/page/sideways',
+  'The last sentence of the long test story.',
+].map((p) => p.trim());
+stories['long-story'] = {
+  ...base,
+  id: 'long_story',
+  slug: 'long-story',
+  title: 'Test story: a long written story',
+  description:
+    'Placeholder text to check the preview and the Continue reading button.',
+  body: LONG_PARAGRAPHS.join('\n\n'),
 };
 
 createServer((req, res) => {

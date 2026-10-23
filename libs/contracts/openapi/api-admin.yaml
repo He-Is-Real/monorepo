@@ -197,6 +197,10 @@ paths:
         at submission (D21), then creates the `publicStory` row, a `moderationReview` and an `auditLog`
         entry in one transaction. The caller must hold the lock (`409`). The submitter is emailed after
         the commit (address fetched from Clerk, D16).
+
+        Approval waits for processing (A2): every video, audio file and image must be `ready`, and a
+        video must have its width, height and duration, an audio file its duration. Otherwise `409`
+        with `code: media_not_ready` (the database refuses it; nothing is written or published).
       x-required-role: Moderator
       x-requires-consent:
         subject: submitter

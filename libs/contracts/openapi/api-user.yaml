@@ -588,7 +588,9 @@ paths:
       description: |
         Command `SubmitStory`: moves `draft`/`changes_requested` → `pending` and publishes
         `story-submitted` for the worker tier. Needs the person's current Art 9, publish and age consent
-        (D17); `403` if any is missing or withdrawn.
+        (D17); `403` if any is missing or withdrawn. A written story needs at least 200 characters of
+        text, not counting leading and trailing spaces (Joel, 2026-10-23, from the POC); shorter is `400`
+        with `code: story_text_too_short` and an `errors` entry for `/body`. The database refuses it too.
       x-required-role: User
       x-requires-consent:
         subject: caller

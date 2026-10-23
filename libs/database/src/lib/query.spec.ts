@@ -1,6 +1,8 @@
 import type { SurrealQueryable } from 'surrealdb';
 import {
   DatabaseQueryError,
+  isMediaNotReadyError,
+  isStoryTextTooShortError,
   isTransactionConflict,
   requireWritten,
   retryOnConflict,
@@ -98,5 +100,35 @@ describe('requestHash', () => {
       requestHash({ b: [1, { d: 3, c: 2 }], a: 1 }),
     );
     expect(requestHash({ a: 1 })).not.toBe(requestHash({ a: 2 }));
+  });
+});
+
+describe('database refusals the APIs map to 4xx', () => {
+  it('recognises the approval gate (A2)', () => {
+    expect(
+      isMediaNotReadyError(
+        new DatabaseQueryError(
+          'An error occurred: media_not_ready: a video needs its width, height and duration',
+          1,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isMediaNotReadyError(new Error('publicStory must mirror the story')),
+    ).toBe(false);
+    expect(isMediaNotReadyError('media not ready')).toBe(false);
+  });
+
+  it('recognises the 200-character minimum on submit', () => {
+    expect(
+      isStoryTextTooShortError(
+        new Error(
+          'An error occurred: a written story needs at least 200 characters before it is submitted',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isStoryTextTooShortError(new Error('a written story needs its text')),
+    ).toBe(false);
   });
 });

@@ -29,6 +29,9 @@
 --   * array<object> items store undefined keys (media[0].junk), unlike nested objects
 --     (image.junk is refused), and REMOVE FIELD keeps stored values: fn::story::shape_problem
 --     checks media keys, data/0004 checks rows written earlier
+--   * a field VALUE also runs for a nested SET (`SET media[0].x = ...`), with $value the whole
+--     new field and $before the old one (2026-10-23): media/image VALUE use it to reset
+--     `processing` (A2)
 
 -- ---------------------------------------------------------------- bookkeeping
 -- One row per data script, written by the runner in the script's own transaction (so a failed
@@ -174,8 +177,9 @@ DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
 -- api-user's own login can only delete (erasure): it can't read, create, reassign or edit stories.
 -- Write scope per field (D41): the person's words (content fields) only by the person; moderation
--- fields only by api-admin; media/processing fields by the person and workflow. A field write
--- outside its scope is silently dropped (field PERMISSIONS), so check the stored state.
+-- fields only by api-admin; media/processing fields by the person and workflow, and `processing`
+-- (A2) by workflow only. A field write outside its scope is silently dropped (field PERMISSIONS,
+-- or the field's VALUE for `processing`), so check the stored state.
 DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:<ulid>
   FOR select WHERE submitter = $auth.id OR $auth.id IN [service:api_admin, service:workflow],
   FOR create WHERE submitter = $auth.id AND status = 'draft'                -- own draft only,
@@ -195,7 +199,7 @@ DEFINE FIELD OVERWRITE title         ON story TYPE string
 DEFINE FIELD OVERWRITE description   ON story TYPE string ASSERT string::len($value) <= 5000
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE body          ON story TYPE option<string>   -- written stories
-  ASSERT $value = NONE OR string::len($value) <= 20000
+  ASSERT $value = NONE OR string::len($value) <= 10000           -- A3: the POC's limit
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE bylineName    ON story TYPE option<string>   -- story content chosen per story (D16); NONE = anonymous
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
@@ -211,8 +215,26 @@ DEFINE FIELD OVERWRITE status        ON story TYPE string DEFAULT 'draft'
 -- D53: the optional image of a written story. Content: only the person writes it (D41), like the
 -- text. path = its file in the images storage zone; width/height = the real pixel size; alt =
 -- the person's short description (NONE: readers show a neutral default).
+-- A2: image.processing is workflow's (the server-side check before approval), so workflow may
+-- write `image`, but its VALUE keeps only workflow's `processing` and the person's other fields.
+-- The person's writes never set `processing`: it stays as it was while the image is unchanged,
+-- and goes back to NONE (not processed) when anything in it changes. System users ($auth NONE,
+-- the migrator) write it as given.
 DEFINE FIELD OVERWRITE image         ON story TYPE option<object>
-  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+  VALUE IF $auth = NONE { $value }
+    ELSE IF $auth = service:workflow {
+      IF $before = NONE OR $value = NONE { $before }
+      ELSE { object::extend(object::remove($before, 'processing'), { processing: $value.processing }) }
+    }
+    ELSE IF $value = NONE { NONE }
+    ELSE {
+      object::extend(object::remove($value, 'processing'), {
+        processing: IF $before != NONE
+          AND object::remove($before, 'processing') = object::remove($value, 'processing')
+          { $before.processing } ELSE { NONE }
+      })
+    }
+  PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE image.path    ON story TYPE string
   ASSERT string::len($value) > 0 AND string::len($value) <= 500
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
@@ -223,11 +245,26 @@ DEFINE FIELD OVERWRITE image.height  ON story TYPE int ASSERT $value > 0
 DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
   ASSERT $value = NONE OR string::len($value) <= 500
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+-- A2: NONE = not processed yet (just uploaded or replaced); then 'processing', 'ready' or
+-- 'failed'. Only 'ready' can be approved and published (fn::story::approval_problem).
+DEFINE FIELD OVERWRITE image.processing ON story TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
+  PERMISSIONS FOR update WHERE $auth != service:api_admin;
 -- Media and processing fields: the person (upload) and workflow (M7 processing); never api-admin.
 -- Each nested field carries the same rule, so `SET media[0].x = ...` is covered too.
 -- 3.2.4 stores undefined keys inside array<object> items (tested), so fn::story::shape_problem
 -- allows only the fields defined here ($mediaFields there).
+-- A2: media[*].processing is workflow's. For everyone else (the person) the VALUE keeps an item's
+-- stored `processing` only while the item is otherwise unchanged; a new or changed item (another
+-- upload, a different size) starts again at NONE, and a person's own `processing` is ignored.
 DEFINE FIELD OVERWRITE media                    ON story TYPE array<object> DEFAULT []
+  VALUE IF $auth = NONE OR $auth = service:workflow { $value }
+    ELSE {
+      $value.map(|$m| object::extend(object::remove($m, 'processing'), {
+        processing: ($before ?? []).find(|$b|
+          object::remove($b, 'processing') = object::remove($m, 'processing')).processing
+      }))
+    }
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE media[*].format          ON story TYPE string ASSERT $value IN ['video', 'audio']
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
@@ -242,6 +279,10 @@ DEFINE FIELD OVERWRITE media[*].width           ON story TYPE option<int> ASSERT
 DEFINE FIELD OVERWRITE media[*].height          ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE media[*].durationSeconds ON story TYPE option<int>
+  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+-- A2: NONE = not processed yet; then 'processing', 'ready' or 'failed' (set by workflow, M7).
+DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 -- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary, with the same
 -- rule (and adds them to $mediaFields in fn::story::shape_problem).
@@ -288,10 +329,13 @@ DEFINE FUNCTION OVERWRITE fn::shape::allowed($width: any, $height: any) {
 -- A draft is created before its upload (CreateDraftStory), so video and audio need their media
 -- item from submit on (pending, in_review, approved), and may lack it while editable or after
 -- (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its upload).
+-- A written story needs at least 200 characters of text (trimmed) from submit on (Joel,
+-- 2026-10-23, from the POC), so a short draft can still be saved while it's being written.
 -- Used by the story_shape event and by data/0004 (the rows written before it).
 DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
   LET $media = $s.media ?? [];
-  LET $mediaFields = ['format', 'bunnyVideoId', 'thumbnailPath', 'width', 'height', 'durationSeconds'];
+  LET $mediaFields = ['format', 'bunnyVideoId', 'thumbnailPath', 'width', 'height', 'durationSeconds',
+    'processing'];
   IF $media.any(|$m| object::keys($m).any(|$k| $k NOT IN $mediaFields)) {
     RETURN 'a media item has a field the schema doesn’t define (D53: width and height replace aspectRatio)';
   };
@@ -309,6 +353,9 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
   };
   IF $s.primaryFormat = 'written' {
     IF string::len(string::trim($s.body ?? '')) = 0 { RETURN 'a written story needs its text' };
+    IF string::len(string::trim($s.body)) < 200 AND $s.status IN ['pending', 'in_review', 'approved'] {
+      RETURN 'a written story needs at least 200 characters before it is submitted';
+    };
     IF array::len($media) > 0 { RETURN 'a written story has no video or audio' };
   } ELSE {
     IF $s.image != NONE { RETURN 'only a written story can have an image' };
@@ -319,6 +366,29 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
     IF array::len($media) = 0 AND $s.status IN ['pending', 'in_review', 'approved'] {
       RETURN 'a ' + $s.primaryFormat + ' story needs its ' + $s.primaryFormat + ' before it is submitted';
     };
+  };
+  RETURN NONE;
+};
+-- A2 (Joel, 2026-10-23): what keeps a story from being approved or published, or NONE. Every
+-- upload must be processed by workflow (M7: size, duration, the malware and content checks) and
+-- carry the facts processing found: a video its width, height and duration, an audio file its
+-- duration, an image (already sized by the person's browser) processing = 'ready'. So nothing
+-- unprocessed, or possibly malicious, reaches the public view. Messages start with
+-- 'media_not_ready:' so api-admin answers 409 (libs/database isMediaNotReadyError).
+DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
+  LET $media = $s.media ?? [];
+  IF $media.any(|$m| $m.processing != 'ready') {
+    RETURN 'media_not_ready: the story’s video or audio hasn’t finished processing';
+  };
+  IF $media.any(|$m| $m.format = 'video' AND !(type::is_int($m.width) AND type::is_int($m.height)
+       AND type::is_int($m.durationSeconds) AND $m.durationSeconds > 0)) {
+    RETURN 'media_not_ready: a video needs its width, height and duration';
+  };
+  IF $media.any(|$m| $m.format = 'audio' AND !(type::is_int($m.durationSeconds) AND $m.durationSeconds > 0)) {
+    RETURN 'media_not_ready: an audio file needs its duration';
+  };
+  IF $s.image != NONE AND $s.image.processing != 'ready' {
+    RETURN 'media_not_ready: the story’s image hasn’t finished processing';
   };
   RETURN NONE;
 };
@@ -358,6 +428,12 @@ DEFINE EVENT OVERWRITE story_consent ON story
        AND !fn::consent::granted($after.submitter, ['special_category_religious', 'publish', 'age_18plus']) {
       THROW 'submitting a story needs current Art 9, publish and age consent';
     };
+  };
+DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever approves (system users too)
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.status = 'approved' AND $before.status != 'approved'
+  THEN {
+    LET $problem = fn::story::approval_problem($after);
+    IF $problem != NONE { THROW $problem };
   };
 DEFINE EVENT OVERWRITE story_approval_consent ON story
   WHEN $event IN ['CREATE', 'UPDATE'] AND $after.status = 'approved' AND $before.status != 'approved'
@@ -435,6 +511,9 @@ DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
     IF $s = NONE OR $s.status != 'approved' {
       THROW 'publicStory needs an approved story with the same id';
     };
+    -- A2, defence in depth: never publish unprocessed media, even for a story approved earlier.
+    LET $unready = fn::story::approval_problem($s);
+    IF $unready != NONE { THROW $unready };
     IF [$after.slug, $after.title, $after.description, $after.body, $after.bylineName,
         $after.primaryFormat, $after.tagRefs]
        != [$s.slug, $s.title, $s.description, $s.body, $s.bylineName, $s.primaryFormat, $s.tagRefs]

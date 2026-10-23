@@ -154,7 +154,9 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     await run(
       await t.migrator(),
       `BEGIN TRANSACTION;
-       UPDATE story:dev_seed SET image = { path: 'images/dev-seed.webp', width: 1200, height: 1600 };
+       -- A2: only a processed image can be published (the migrator may record that itself).
+       UPDATE story:dev_seed SET image = { path: 'images/dev-seed.webp', width: 1200, height: 1600,
+         processing: 'ready' };
        UPDATE publicStory:dev_seed SET image = { path: 'images/dev-seed.webp', width: 1200, height: 1600 };
        COMMIT TRANSACTION;`,
     );
@@ -168,5 +170,6 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       alt: null,
     });
     expect(JSON.stringify(story)).not.toContain('dev-seed.webp');
+    expect(JSON.stringify(story)).not.toContain('processing');
   });
 });

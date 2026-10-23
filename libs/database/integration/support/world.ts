@@ -7,8 +7,12 @@ import {
   rows,
   run,
   sha256,
+  STORY_TEXT_PADDING,
   type TestDatabase,
 } from './harness';
+
+/** The text `draft` gives story `id`: long enough to submit (200 characters). */
+export const storyText = (id: string) => `Text of ${id}${STORY_TEXT_PADDING}`;
 
 /** The person creates a draft with a known id, in their own session. */
 export async function draft(
@@ -20,9 +24,9 @@ export async function draft(
     person,
     `CREATE type::record('story', $id) CONTENT object::extend({
        submitter: $auth, slug: $id, title: 'Story ' + $id,
-       description: 'How I came to faith', body: 'Text of ' + $id, primaryFormat: 'written'
+       description: 'How I came to faith', body: $body, primaryFormat: 'written'
      }, $fields)`,
-    { id, fields },
+    { id, fields, body: storyText(id) },
   );
 }
 
@@ -32,6 +36,30 @@ export function submit(person: SurrealQueryable, id: string): Promise<Row[]> {
     person,
     `UPDATE type::record('story', $id) SET status = 'pending'`,
     { id },
+  );
+}
+
+/**
+ * M7 processing as workflow will record it (A2): every media item and the image `ready`, with
+ * the facts processing found (a video's size and duration, an audio file's duration). Approval
+ * and publishing are refused until then.
+ */
+export function processed(
+  workflow: SurrealQueryable,
+  id: string,
+  { durationSeconds = 60 }: { durationSeconds?: number } = {},
+): Promise<Row[]> {
+  return rows(
+    workflow,
+    `UPDATE type::record('story', $id) SET
+       media = media.map(|$m| object::extend($m, IF $m.format = 'video' {
+         { processing: 'ready', durationSeconds: $m.durationSeconds ?? $durationSeconds,
+           width: $m.width ?? 1080, height: $m.height ?? 1920 }
+       } ELSE {
+         { processing: 'ready', durationSeconds: $m.durationSeconds ?? $durationSeconds }
+       })),
+       image = IF image != NONE { object::extend(image, { processing: 'ready' }) }`,
+    { id, durationSeconds },
   );
 }
 
@@ -47,7 +75,9 @@ export async function approve(admin: SurrealQueryable, id: string) {
      CREATE type::record('publicStory', $id) CONTENT {
        version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
        body: $s.body, bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-       tagRefs: $s.tagRefs, publishedAt: time::now(), image: $s.image,
+       tagRefs: $s.tagRefs, publishedAt: time::now(),
+       image: IF $s.image != NONE { { path: $s.image.path, width: $s.image.width,
+         height: $s.image.height, alt: $s.image.alt } },
        media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
          thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height })
      };
