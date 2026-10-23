@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { connection } from 'next/server';
@@ -154,8 +155,8 @@ export default async function BrowsePage({ searchParams }: Props) {
           </div>
         ) : (
           <BrowseResults
-            // A new search starts a new list.
-            key={JSON.stringify(filters)}
+            // New on every server render: the list restarts from these cards (BrowseResults).
+            snapshot={randomUUID()}
             filters={filters}
             cards={result.cards}
             nextCursor={result.cursor}

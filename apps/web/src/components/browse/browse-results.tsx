@@ -50,18 +50,25 @@ function currentColumns(): 1 | 2 | 3 {
  * loads further pages through a server action (web's server calls the API, D32). At most 2
  * pages load on their own as the reader nears the end; then "Show more stories". The number of
  * pages is kept in the URL, so Back and reloads show the same list.
+ *
+ * Every server render is the truth (D51: stories are read fresh): `snapshot` is new each time
+ * the server renders the page, and the list starts again from that render's cards, so a story
+ * hidden or withdrawn since the last render never stays on screen. It then reloads up to the
+ * URL's page count, from the API.
  */
-export function BrowseResults({
-  filters,
-  cards,
-  nextCursor,
-  pagesLoaded,
-}: {
+export function BrowseResults(props: ListProps & { snapshot: string }) {
+  const { snapshot, ...list } = props;
+  return <BrowseList key={snapshot} {...list} />;
+}
+
+interface ListProps {
   filters: BrowseFilters;
   cards: StorySummary[];
   nextCursor: string | null;
   pagesLoaded: number;
-}) {
+}
+
+function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
   const [loaded, setLoaded] = useState<Loaded>(() => {
     const layout = layoutFor(cards);
     return {
@@ -80,6 +87,15 @@ export function BrowseResults({
   const current = useRef(loaded);
   current.current = loaded;
   const focusFrom = useRef<number | null>(null);
+  // False once this list is gone (a new render, other filters): a load still in flight then
+  // changes nothing, not even the URL.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   /** Column heights to continue from: measured for the columns on screen, predicted otherwise. */
   const startHeights = useCallback((predicted: ColumnHeights) => {
@@ -104,8 +120,15 @@ export function BrowseResults({
       if (busy.current || !cursor) return false;
       busy.current = true;
       setStatus('loading');
-      const result = await loadMoreStories(filters, cursor);
-      busy.current = false;
+      let result: Awaited<ReturnType<typeof loadMoreStories>>;
+      try {
+        result = await loadMoreStories(filters, cursor);
+      } catch {
+        result = { ok: false }; // the request itself failed (offline, server unreachable)
+      } finally {
+        busy.current = false;
+      }
+      if (!alive.current) return false;
       if (!result.ok) {
         setStatus('error');
         return false;
@@ -255,8 +278,9 @@ export function BrowseResults({
             </Button>
           </>
         )}
-        {status === 'idle' && loaded.cursor && autoLeft > 0 && (
-          // Without JavaScript nothing loads on its own: the server renders one page more.
+        {loaded.cursor && (
+          // Without JavaScript nothing loads on its own and the button can't work: a link makes
+          // the server render one page more, however many pages are on screen.
           <noscript>
             <a
               href={browseHref(filters, { pages: loaded.pages + 1 })}

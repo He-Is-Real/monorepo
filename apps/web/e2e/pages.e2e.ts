@@ -108,10 +108,19 @@ for (const scheme of ['light', 'dark'] as const) {
         Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
       );
       const box = await popup.boundingBox();
-      const width = page.viewportSize()?.width ?? 0;
+      const { width, height } = page.viewportSize() ?? { width: 0, height: 0 };
       expect(
         (box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= width,
       ).toBe(true);
+      // Codex review of #66, finding 6: on a 320 × 568 phone the popup must fit vertically too
+      // (it scrolls inside itself when it can't), so Copy link is always reachable.
+      expect(box?.y ?? -1).toBeGreaterThanOrEqual(0);
+      expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(
+        height + 0.5,
+      );
+      const copy = popup.getByRole('button', { name: /Copy link/ });
+      await copy.scrollIntoViewIfNeeded();
+      await expect(copy).toBeInViewport();
       // The popup sits at a fractional offset (Radix's transform), so at 2.5× and 3× a 44 px
       // option can measure 43.9999 px: allow a hundredth of a pixel of rounding.
       for (const option of await popup.locator('a, button').all())
@@ -279,5 +288,97 @@ test.describe('behaviour', () => {
     for (const col of byColumn)
       for (let i = 1; i < col.length; i++)
         expect(col[i].top).toBeGreaterThanOrEqual(col[i - 1].bottom - 1);
+  });
+
+  // Codex review of #66, findings 1, 3, 4, 5 and 7.
+  test('a story hidden since the last render is gone when the same filters are sent again', async ({
+    page,
+    request,
+  }, info) => {
+    const mine = `hide-test-${info.project.name}`;
+    const stub = 'http://127.0.0.1:4310';
+    await request.post(`${stub}/__test/show?slug=${mine}`);
+    await page.goto('/stories?tag=hide-test');
+    const card = page.getByRole('link', {
+      name: `Hide test story (${info.project.name})`,
+    });
+    await expect(card).toBeVisible();
+    await request.post(`${stub}/__test/hide?slug=${mine}`);
+    await page.getByRole('button', { name: 'Search' }).click();
+    await expect(card).toHaveCount(0);
+    await request.post(`${stub}/__test/show?slug=${mine}`);
+  });
+
+  test('after Back, the filter fields show the filters of the list on screen', async ({
+    page,
+  }) => {
+    await page.goto('/stories?format=audio');
+    await page.getByLabel('Search stories').fill('placeholder');
+    await page.getByLabel('Format').selectOption('video');
+    await expect(page).toHaveURL(/format=video/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/stories\?format=audio$/);
+    await expect(page.getByLabel('Format')).toHaveValue('audio');
+    await expect(page.getByLabel('Search stories')).toHaveValue('');
+  });
+
+  test('a failed load (network) offers Try again, which works', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    await expect(cards(page)).toHaveCount(15);
+    // Server actions are POSTs to the page: fail the first one.
+    let failed = false;
+    await page.route('**/stories*', (route) => {
+      if (route.request().method() === 'POST' && !failed) {
+        failed = true;
+        return route.abort('internetdisconnected');
+      }
+      return route.continue();
+    });
+    await scrollToEnd(page);
+    await expect(page.getByText('More stories couldn’t load.')).toBeVisible();
+    await expect(page.getByText('Loading more stories…')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect(cards(page)).toHaveCount(30);
+  });
+
+  test('keyboard focus stays in the open phone menu', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'phone-320', 'phones only');
+    await page.goto('/');
+    const menu = page.getByRole('button', { name: 'Menu' });
+    await menu.click();
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press('Tab');
+      const inside = await page.evaluate(() => {
+        const el = document.activeElement;
+        return !!el?.closest('[data-mobile-nav]');
+      });
+      expect(inside, `Tab ${i + 1} left the open menu`).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('navigation', { name: 'Menu' })).toBeHidden();
+    await expect(menu).toBeFocused();
+  });
+});
+
+test.describe('without JavaScript', () => {
+  test.use({ javaScriptEnabled: false });
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(info.project.name !== 'desktop-1280', 'one device');
+  });
+
+  test('“Show more stories” links to the next page while there is one', async ({
+    page,
+  }) => {
+    await page.goto('/stories?pages=3');
+    await expect(cards(page)).toHaveCount(45);
+    await page.getByRole('link', { name: 'Show more stories' }).click();
+    await expect(page).toHaveURL(/pages=4/);
+    await expect(cards(page)).toHaveCount(54);
+    await expect(page.getByText('You’ve seen every story here.')).toBeVisible();
   });
 });

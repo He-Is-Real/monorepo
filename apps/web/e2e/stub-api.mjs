@@ -228,6 +228,29 @@ for (let i = 0; i < 48; i++) {
   };
 }
 
+// Test hooks for "a hidden story disappears on the next server render" (pages.e2e.ts): stories
+// listed only under `tag=hide-test`, one per device project, each hidden or shown again by
+// POST /__test/hide?slug= and /__test/show?slug= (projects run in parallel, so each hides its
+// own). Nothing else lists them.
+const HIDE_TEST = 'hide-test';
+const hidden = new Set();
+for (const name of ['phone-320', 'desktop-1280', 'spare']) {
+  const slug = `hide-test-${name.replace('.', '-')}`;
+  stories[slug] = {
+    ...base,
+    id: `hide_${name}`,
+    slug,
+    title: `Hide test story (${name})`,
+    description: 'Dummy story for the hide test.',
+    body: 'Placeholder text.',
+    tags: [
+      { slug: HIDE_TEST, name: 'Hide test', category: 'theme', version: 1 },
+    ],
+    publishedAt: '2026-10-22T20:00:00Z',
+  };
+}
+const onlyUnderHideTest = (s) => s.tags.some((t) => t.slug === HIDE_TEST);
+
 /** `StorySummary` (libs/contracts): a card, never a player link. */
 function summaryOf(s) {
   const media = s.media?.[0];
@@ -292,6 +315,8 @@ function listStories(url, res) {
   }
   let list = published().filter(
     (s) =>
+      !hidden.has(s.slug) &&
+      (tags.includes(HIDE_TEST) || !onlyUnderHideTest(s)) &&
       tags.every((t) => s.tags.some((x) => x.slug === t)) &&
       (!format || s.primaryFormat === format) &&
       (!q ||
@@ -316,7 +341,9 @@ function listStories(url, res) {
 function related(slug, res) {
   const story = stories[slug];
   if (!story) return problem(res, 404, 'story_not_found');
-  const others = published().filter((s) => s.slug !== slug);
+  const others = published().filter(
+    (s) => s.slug !== slug && !onlyUnderHideTest(s) && !hidden.has(s.slug),
+  );
   const shared = others.filter((s) =>
     s.tags.some((t) => story.tags.some((x) => x.slug === t.slug)),
   );
@@ -351,6 +378,14 @@ createServer((req, res) => {
     );
   }
   const url = new URL(req.url ?? '/', 'http://stub');
+  const hook = /^\/__test\/(hide|show)$/.exec(url.pathname);
+  if (hook && req.method === 'POST') {
+    const slug = url.searchParams.get('slug') ?? '';
+    if (hook[1] === 'hide') hidden.add(slug);
+    else hidden.delete(slug);
+    res.writeHead(204);
+    return res.end();
+  }
   if (url.pathname === '/v1/stories') return listStories(url, res);
   if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);

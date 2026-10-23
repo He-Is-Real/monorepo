@@ -63,7 +63,7 @@ export function ShareMenu({ title }: { title: string }) {
           sideOffset={8}
           collisionPadding={16}
           aria-labelledby={`${gradient}-title`}
-          className="z-50 w-64 max-w-[calc(100vw-2rem)] rounded-2xl border border-border-hover bg-card p-3 text-card-foreground shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in data-[state=open]:zoom-in-95"
+          className="z-50 max-h-[var(--radix-popover-content-available-height)] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-2xl border border-border-hover bg-card p-3 text-card-foreground shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in data-[state=open]:zoom-in-95"
         >
           <h2
             id={`${gradient}-title`}

@@ -90,4 +90,15 @@ describe('ShareMenu', () => {
     // Radix gives focus back in a timeout after the popup unmounts (FocusScope).
     await waitFor(() => expect(document.activeElement).toBe(button));
   });
+
+  // Codex review of #66, finding 6: never taller than the room Radix measured; it scrolls.
+  it('fits the screen’s height and scrolls inside when it must', async () => {
+    render(<ShareMenu title="A story" />);
+    await open();
+    const popup = screen.getByRole('dialog');
+    expect(popup.className).toContain(
+      'max-h-[var(--radix-popover-content-available-height)]',
+    );
+    expect(popup.className).toContain('overflow-y-auto');
+  });
 });

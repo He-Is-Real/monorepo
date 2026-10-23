@@ -19,6 +19,9 @@ export function BrowseFilters({ filters }: { filters: Filters }) {
     e.currentTarget.form?.requestSubmit();
   return (
     <Form
+      // The fields start from the URL's filters; when those change without a new page (Back,
+      // a tag link), the form starts again so it never disagrees with the list.
+      key={JSON.stringify(filters)}
       action="/stories"
       role="search"
       aria-label="Stories"

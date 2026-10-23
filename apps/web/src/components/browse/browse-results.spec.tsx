@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { StorySummary } from '@/lib/browse';
 import type { BrowseFilters } from '@/lib/browse-query';
 import { loadMoreStories } from '@/app/stories/actions';
@@ -72,6 +73,7 @@ const renderResults = (pages = 1, nextCursor: string | null = 'c1') =>
       cards={first}
       nextCursor={nextCursor}
       pagesLoaded={pages}
+      snapshot="s1"
     />,
   );
 
@@ -168,4 +170,79 @@ describe('BrowseResults (D55: 2 automatic pages, then a button)', () => {
     expect(screen.getByText('You’ve seen every story here.')).toBeTruthy();
     expect(screen.queryByRole('button')).toBeNull();
   });
+
+  // Codex review of #66, finding 1: a new server render is the truth.
+  it('replaces its cards when a fresh server render arrives, dropping removed stories', async () => {
+    loadMore.mockResolvedValueOnce(page(15, 'c2'));
+    const { rerender } = renderResults();
+    await scrollToEnd(); // 30 cards on screen
+    expect(screen.getAllByRole('article')).toHaveLength(30);
+    // The same filters, rendered again by the server: story 3 was hidden meanwhile.
+    window.history.replaceState(null, '', '/stories?tag=hope');
+    const fresh = first.filter((c) => c.id !== 's3');
+    await act(async () => {
+      rerender(
+        <BrowseResults
+          filters={{ ...filters }}
+          cards={fresh}
+          nextCursor="c1b"
+          pagesLoaded={1}
+          snapshot="s2"
+        />,
+      );
+    });
+    expect(screen.queryByText('Story 3')).toBeNull();
+    expect(screen.getAllByRole('article')).toHaveLength(14);
+  });
+
+  // Finding 2: a load that finishes after the list is gone changes nothing.
+  it('ignores a load that finishes after the list was replaced', async () => {
+    let resolve: (v: unknown) => void = () => undefined;
+    loadMore.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    const { unmount } = renderResults();
+    await scrollToEnd();
+    unmount();
+    window.history.replaceState(null, '', '/stories?tag=loss');
+    const replace = jest.spyOn(window.history, 'replaceState');
+    await act(async () => resolve(page(15, 'c2')));
+    expect(replace).not.toHaveBeenCalled();
+    expect(window.location.search).toBe('?tag=loss');
+    replace.mockRestore();
+  });
+
+  // Finding 4: a failed server action (network) shows the error, and Try again works.
+  it('recovers from a server action that rejects', async () => {
+    loadMore
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(page(15, null));
+    renderResults();
+    await scrollToEnd();
+    expect(screen.getByText('More stories couldn’t load.')).toBeTruthy();
+    expect(screen.queryByText('Loading more stories…')).toBeNull();
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' })),
+    );
+    expect(screen.getAllByRole('article')).toHaveLength(30);
+  });
+
+  // Finding 7: without JavaScript, a link to the next page whenever there is one.
+  it.each([1, 3, 5])(
+    'offers the no-JavaScript link after %p server pages',
+    (pages) => {
+      const html = renderToStaticMarkup(
+        <BrowseResults
+          filters={filters}
+          cards={first}
+          nextCursor="c"
+          pagesLoaded={pages}
+          snapshot="s1"
+        />,
+      );
+      expect(html).toMatch(
+        new RegExp(
+          `<noscript><a href="/stories\\?tag=hope&amp;pages=${pages + 1}"`,
+        ),
+      );
+    },
+  );
 });

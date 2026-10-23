@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { type KeyboardEvent, useId, useRef, useState } from 'react';
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 
 // The site's sections (mockups' nav). The static pages are M1 step 6b-2; Donate is a placeholder
 // until M4. "Impact" from the mockups waits for real figures. Submission is M2, so "Share your
@@ -56,14 +56,45 @@ export function MobileNav() {
     setOpen(false);
   }
 
-  const closeOnEscape = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !open) return;
-    setOpen(false);
-    button.current?.focus();
+  const wrapper = useRef<HTMLDivElement>(null);
+
+  // While open, Escape closes the menu wherever focus is, and gives focus back to the button.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      button.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  // While open, Tab stays in the menu (the panel covers the page): it wraps from the last link
+  // to the button and back.
+  const keepFocusInside = (e: KeyboardEvent) => {
+    if (e.key !== 'Tab' || !open || !wrapper.current) return;
+    const items = Array.from(
+      wrapper.current.querySelectorAll<HTMLElement>('button, a[href]'),
+    );
+    const first = items[0];
+    const last = items.at(-1);
+    if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first?.focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last?.focus();
+    }
   };
 
   return (
-    <div className="sm:hidden" onKeyDown={closeOnEscape}>
+    <div
+      ref={wrapper}
+      data-mobile-nav=""
+      className="sm:hidden"
+      onKeyDown={keepFocusInside}
+    >
       <button
         ref={button}
         type="button"
