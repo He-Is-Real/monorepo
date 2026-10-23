@@ -9,11 +9,17 @@ const story = (id: string) => {
   return s;
 };
 
-test('the home page shows the featured story and the relaxed-consent note', async ({
+test('the home page shows the three newest stories and the relaxed-consent note', async ({
   page,
 }) => {
+  // Newest first, never a chosen one (Joel, 2026-10-23: no featured stories).
+  const newest = DATASET.stories
+    .filter((s) => s.status === 'approved')
+    .sort((a, b) => (a.publishedDaysAgo ?? 0) - (b.publishedDaysAgo ?? 0))
+    .slice(0, 3)
+    .map((s) => s.title);
   await page.goto('/');
-  await expect(page.getByText(story('seed_w06').title).first()).toBeVisible();
+  await expect(page.locator('main article h3')).toHaveText(newest);
   await expect(page.getByText('Consent checks relaxed (dev)')).toBeVisible();
 });
 

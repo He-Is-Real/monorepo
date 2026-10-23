@@ -105,11 +105,11 @@ describe('the D47 dummy dataset', () => {
     }
   });
 
-  it('keeps web’s featured story (FEATURED_STORY_SLUG in live/dev/gcp) approved', () => {
-    const featured = stories.find(
+  it('keeps the walking skeleton’s old slug published (old dev links)', () => {
+    const skeleton = stories.find(
       (s) => s.slug === 'test-story-walking-skeleton',
     );
-    expect(featured?.status).toBe('approved');
+    expect(skeleton?.status).toBe('approved');
   });
 
   it('uses only the browse tags, in their three categories', () => {

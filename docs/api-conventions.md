@@ -11,7 +11,7 @@ brackets).
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
 | `api-public-read` | Anonymous public queries: published stories, tags, published DPA versions                                                                             | None                                | Its own login; sees only public tables           |
 | `api-user`        | **Everything that needs to know who you are**: own stories, account, consents, favourites, feed, and the person's commands; Clerk and Stripe webhooks | Clerk JWT (webhooks: signature)     | Runs as the person, with their Clerk token (D27) |
-| `api-admin`       | Moderation, roles, tags, featured stories, DPA versions                                                                                               | Clerk JWT, role Moderator or higher | Its own login                                    |
+| `api-admin`       | Moderation, roles, tags, DPA versions                                                                                                                 | Clerk JWT, role Moderator or higher | Its own login                                    |
 
 - **Anything personal goes to `api-user`; anything public goes to `api-public-read`.**
   `api-public-read` has no auth code at all.
@@ -64,8 +64,7 @@ short-lived upload credentials.
 **Naming rules:**
 
 - Collections are plural nouns (`/stories`, `/tags`, `/consents`, `/concerns`); the method says
-  what happens. Singletons are singular (`/account`, `/feed`, `/moderation/queue`,
-  `/admin/stories/featured`).
+  what happens. Singletons are singular (`/account`, `/feed`, `/moderation/queue`).
 - A verb only as the last segment of a state-changing `POST` that isn't create/replace/delete:
   `/submit`, `/withdraw`, `/approve`, `/reject`, `/request-changes`, `/escalate`, `/lock`,
   `/release`, `/assign-role`, `/publish`. Never a verb in a `GET`, never `/getStories`.
@@ -76,7 +75,7 @@ short-lived upload credentials.
 
 ## Concurrency and idempotency (D29)
 
-- **Versions:** every aggregate (story, tag, dpaVersion, the featured list) has a `version`
+- **Versions:** every aggregate (story, tag, dpaVersion) has a `version`
   integer, +1 on every command. A query for one resource returns it as a strong
   `ETag: "<version>"`.
 - **Collections** (lists, pages, composite views such as consent state) and resources without a

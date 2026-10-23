@@ -4,40 +4,21 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { browseStories, listTags, type StorySummary } from '@/lib/browse';
-import { getPublicStory, StoriesUnavailableError } from '@/lib/public-stories';
+import { StoriesUnavailableError } from '@/lib/public-stories';
 import Page, { generateMetadata } from './page';
 
 jest.mock('next/server', () => ({
   connection: jest.fn(async () => undefined),
 }));
 jest.mock('@/components/logo', () => ({ Logo: () => <span>logo</span> }));
-jest.mock('@/lib/public-stories', () => ({
-  ...jest.requireActual('@/lib/public-stories'),
-  getPublicStory: jest.fn(),
-}));
 jest.mock('@/lib/browse', () => ({
   ...jest.requireActual('@/lib/browse'),
   browseStories: jest.fn(),
   listTags: jest.fn(),
 }));
-const getStory = getPublicStory as jest.Mock;
 const browse = browseStories as jest.Mock;
 const tags = listTags as jest.Mock;
 
-const featured = {
-  id: 'dev_seed',
-  slug: 'featured-story',
-  title: 'The featured story',
-  description: 'Placeholder content.',
-  body: 'Text.',
-  bylineName: 'Test Person',
-  primaryFormat: 'written',
-  media: [],
-  image: null,
-  tags: [],
-  publishedAt: '2026-10-21T20:00:00Z',
-  version: 1,
-};
 const card = (n: number, slug = `newest-${n}`): StorySummary => ({
   id: `s${n}`,
   slug,
@@ -61,18 +42,12 @@ const TAGS = [
 ];
 
 describe('Home page (plan 1.1)', () => {
-  const saved = process.env['FEATURED_STORY_SLUG'];
   beforeEach(() => {
-    getStory.mockReset();
     browse.mockReset().mockResolvedValue({
-      data: [card(1, 'featured-story'), card(2), card(3), card(4)],
+      data: [card(1), card(2), card(3)],
       nextCursor: 'c',
     });
     tags.mockReset().mockResolvedValue(TAGS);
-  });
-  afterEach(() => {
-    if (saved === undefined) delete process.env['FEATURED_STORY_SLUG'];
-    else process.env['FEATURED_STORY_SLUG'] = saved;
   });
 
   it('opens with the question and the two ways in', async () => {
@@ -85,24 +60,17 @@ describe('Home page (plan 1.1)', () => {
     expect(html).toMatch(/href="\/get-ready"[^>]*>Share your story</);
   });
 
-  it('features the FEATURED_STORY_SLUG story first, then the newest, three in all', async () => {
-    process.env['FEATURED_STORY_SLUG'] = 'featured-story';
-    getStory.mockResolvedValue({ kind: 'story', story: featured });
+  it('shows the three newest stories, never a chosen one (Joel, 2026-10-23)', async () => {
     const html = renderToStaticMarkup(await Page());
-    expect(getStory).toHaveBeenCalledWith('featured-story');
+    expect(browse).toHaveBeenCalledTimes(1);
+    expect(browse).toHaveBeenCalledWith({ limit: 3 });
     const titles = [...html.matchAll(/<h3[^>]*><a[^>]*>([^<]+)<\/a>/g)].map(
       (m) => m[1],
     );
-    expect(titles).toEqual(['The featured story', 'Newest 2', 'Newest 3']);
+    expect(titles).toEqual(['Newest 1', 'Newest 2', 'Newest 3']);
+    expect(html).toContain('Recently shared</h2>');
+    expect(html).not.toMatch(/featured/i);
     expect(html).toMatch(/href="\/stories"[^>]*>View all stories</);
-  });
-
-  it('shows the three newest without a featured story', async () => {
-    delete process.env['FEATURED_STORY_SLUG'];
-    const html = renderToStaticMarkup(await Page());
-    expect(getStory).not.toHaveBeenCalled();
-    expect(html).toContain('Newest 1');
-    expect(html).not.toContain('Newest 4');
   });
 
   it('links theme and faith-journey tags to browse', async () => {
@@ -122,8 +90,6 @@ describe('Home page (plan 1.1)', () => {
   });
 
   it('keeps the page when the API is down', async () => {
-    process.env['FEATURED_STORY_SLUG'] = 'featured-story';
-    getStory.mockRejectedValue(new StoriesUnavailableError('x'));
     browse.mockRejectedValue(new StoriesUnavailableError('x'));
     tags.mockRejectedValue(new StoriesUnavailableError('x'));
     const html = renderToStaticMarkup(await Page());
@@ -132,11 +98,14 @@ describe('Home page (plan 1.1)', () => {
   });
 
   it('has its own title and canonical', async () => {
+    // pageMetadata (lib/seo.ts) builds absolute URLs from SITE_URL, read per request.
+    process.env['SITE_URL'] = 'https://example.org';
     const meta = await generateMetadata();
+    delete process.env['SITE_URL'];
     expect(meta.title).toEqual({
       absolute:
         'He Is Real Today: Is God real? Does God exist? Real stories from real people.',
     });
-    expect(meta.alternates?.canonical).toBe('/');
+    expect(meta.alternates?.canonical).toBe('https://example.org/');
   });
 });

@@ -4,7 +4,8 @@ info:
   version: 1.0.0-draft
   description: |
     **Moderation and admin.** The moderation queue and decisions, flag triage, role assignment, tag
-    and featured-story curation, and DPA versions. Its own service and database login (D13, D33).
+    curation, and DPA versions. Its own service and database login (D13, D33). No featured or
+    pinned stories (Joel, 2026-10-23: unfair to everyone else).
 
     - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
       (Moderator for moderation; Admin / SuperAdmin for the rest). Called directly by the browser (D31).
@@ -42,7 +43,7 @@ tags:
   - name: Moderation
     description: 'The queue, pick-up lock, decisions and flags.'
   - name: Admin
-    description: 'Users and roles, featured stories.'
+    description: 'Users and roles.'
   - name: Tags
     description: 'Tag taxonomy writes.'
   - name: DPA
@@ -462,62 +463,6 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
-
-  /v1/admin/stories/featured:
-    get:
-      tags: [Admin]
-      operationId: getFeaturedStories
-      summary: The featured-story list
-      description: Gives the `ETag` the replace below needs.
-      x-required-role: Admin
-      x-milestone: M5
-      parameters:
-        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
-      responses:
-        '200':
-          description: Featured story IDs, in order.
-          headers:
-            ETag:
-              $ref: './components.yaml#/components/headers/ETag'
-            Cache-Control:
-              $ref: './components.yaml#/components/headers/CacheControlPrivate'
-          content:
-            application/json:
-              schema:
-                $ref: './components.yaml#/components/schemas/FeaturedStories'
-        '304':
-          $ref: './components.yaml#/components/responses/NotModified'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-    put:
-      tags: [Admin]
-      operationId: setFeaturedStories
-      summary: Replace the featured-story list
-      x-required-role: Admin
-      x-milestone: M5
-      parameters:
-        - $ref: './components.yaml#/components/parameters/ifMatch'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: './components.yaml#/components/schemas/FeaturedStories'
-      responses:
-        '200':
-          $ref: './components.yaml#/components/responses/CommandApplied'
-        '400':
-          $ref: './components.yaml#/components/responses/BadRequest'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '412':
-          $ref: './components.yaml#/components/responses/PreconditionFailed'
-        '428':
-          $ref: './components.yaml#/components/responses/PreconditionRequired'
 
   # ------------------------------------------------------------------ tags
   /v1/tags:

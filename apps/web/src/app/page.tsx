@@ -6,11 +6,14 @@ import backdrop from '@/assets/hero-backdrop.webp';
 import { Logo } from '@/components/logo';
 import { SHARE_HREF } from '@/components/nav/site-nav';
 import { StoryCard } from '@/components/stories/story-card';
-import { browseStories, listTags, type StoryTag } from '@/lib/browse';
-import { featuredStorySlug } from '@/lib/config';
-import { getPublicStory, StoriesUnavailableError } from '@/lib/public-stories';
+import {
+  browseStories,
+  listTags,
+  type StorySummary,
+  type StoryTag,
+} from '@/lib/browse';
+import { StoriesUnavailableError } from '@/lib/public-stories';
 import { pageMetadata } from '@/lib/seo';
-import { type CardStory, summaryFromStory } from '@/lib/story-summary';
 
 export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata({
@@ -24,7 +27,8 @@ export async function generateMetadata(): Promise<Metadata> {
   });
 }
 
-const FEATURED_COUNT = 3;
+/** How many of the newest stories home shows. */
+const NEWEST_COUNT = 3;
 
 // The content spec's placeholder figures (home.md: "replace with real live figures before
 // launch"). Shown marked as placeholders until then.
@@ -42,22 +46,14 @@ const unavailable =
     throw err;
   };
 
-/** FEATURED_STORY_SLUG's story first (until M5's featured list), then the newest. */
-async function featuredStories(): Promise<CardStory[] | null> {
-  const slug = featuredStorySlug();
-  const [first, newest] = await Promise.all([
-    slug
-      ? getPublicStory(slug)
-          .then((r) => (r.kind === 'story' ? summaryFromStory(r.story) : null))
-          .catch(unavailable(null))
-      : null,
-    browseStories({ limit: FEATURED_COUNT + 1 })
-      .then((p) => p.data as CardStory[])
-      .catch(unavailable(null)),
-  ]);
-  if (!first && !newest) return null;
-  const rest = (newest ?? []).filter((s) => s.slug !== first?.slug);
-  return [...(first ? [first] : []), ...rest].slice(0, FEATURED_COUNT);
+/**
+ * The newest published stories. Never a chosen or pinned one (Joel, 2026-10-23: featuring one
+ * person's story above the others is unfair to everyone else).
+ */
+async function newestStories(): Promise<StorySummary[] | null> {
+  return browseStories({ limit: NEWEST_COUNT })
+    .then((p) => p.data)
+    .catch(unavailable(null));
 }
 
 /** The mockups' section label, as the section's heading. */
@@ -106,13 +102,13 @@ const button =
 const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground`;
 
 /**
- * Home (plan 1.1), server-rendered from api-public-read (D32): the question, featured stories,
+ * Home (plan 1.1), server-rendered from api-public-read (D32): the question, the newest stories,
  * ways in by theme, the invitation to share, and the giving placeholder (donations are M4).
  */
 export default async function Page() {
   await connection();
   const [stories, tags] = await Promise.all([
-    featuredStories(),
+    newestStories(),
     listTags().catch(unavailable([] as StoryTag[])),
   ]);
   const themes = tags.filter((t) => t.category === 'theme');
@@ -172,10 +168,10 @@ export default async function Page() {
       </section>
 
       <section
-        aria-labelledby="featured"
+        aria-labelledby="newest"
         className="mx-auto max-w-site px-4 py-16 sm:px-10 sm:py-24"
       >
-        <Eyebrow id="featured">Featured stories</Eyebrow>
+        <Eyebrow id="newest">Recently shared</Eyebrow>
         {stories === null ? (
           <p
             role="status"

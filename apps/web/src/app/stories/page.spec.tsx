@@ -135,8 +135,11 @@ describe('/stories (browse)', () => {
   });
 
   it('has its own canonical and Open Graph card', async () => {
+    // pageMetadata (lib/seo.ts) builds absolute URLs from SITE_URL, read per request.
+    process.env['SITE_URL'] = 'https://example.org';
     const meta = await generateMetadata();
+    delete process.env['SITE_URL'];
     expect(meta.title).toBe('God Stories');
-    expect(meta.alternates?.canonical).toBe('/stories');
+    expect(meta.alternates?.canonical).toBe('https://example.org/stories');
   });
 });

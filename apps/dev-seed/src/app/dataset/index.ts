@@ -382,8 +382,8 @@ const STORIES: StoryFixture[] = [
     status: 'pending',
   },
   {
-    // web's featured story (FEATURED_STORY_SLUG, live/dev/gcp): the slug the walking skeleton
-    // used (0003), so the home page keeps working.
+    // The slug the walking skeleton used (0003), kept so old dev links still work. The newest
+    // story, so home's first card.
     id: 'seed_w06',
     slug: 'test-story-walking-skeleton',
     title: 'Test story: the walking skeleton',

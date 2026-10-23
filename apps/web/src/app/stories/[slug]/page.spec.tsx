@@ -106,17 +106,24 @@ describe('/stories/[slug]', () => {
 
   it('describes the story for search and share previews (Open Graph, schema.org)', async () => {
     mockGet.mockResolvedValue({ kind: 'story', story });
+    // pageMetadata (lib/seo.ts) builds absolute URLs from SITE_URL, read per request.
+    process.env['SITE_URL'] = 'https://example.org';
     const meta = await generateMetadata(params('test-story'));
+    delete process.env['SITE_URL'];
     expect(meta.title).toBe('Test story');
     expect(meta.description).toBe('Placeholder');
-    expect(meta.alternates?.canonical).toBe('/stories/test-story');
+    expect(meta.alternates?.canonical).toBe(
+      'https://example.org/stories/test-story',
+    );
     expect(meta.openGraph).toMatchObject({
       type: 'article',
       title: 'Test story',
-      url: '/stories/test-story',
+      url: 'https://example.org/stories/test-story',
       publishedTime: '2026-10-21T20:00:00Z',
       tags: ['Doubt'],
-      images: [expect.objectContaining({ url: '/og-default.png' })],
+      images: [
+        expect.objectContaining({ url: 'https://example.org/og-default.png' }),
+      ],
     });
     expect(meta.twitter).toMatchObject({ card: 'summary_large_image' });
     const html = renderToStaticMarkup(await StoryPage(params('test-story')));

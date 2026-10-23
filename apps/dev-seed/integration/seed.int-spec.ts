@@ -134,11 +134,11 @@ describe('dev-seed reset on SurrealDB (dev, consent relaxed)', () => {
       'SELECT VALUE slug FROM publicStory ORDER BY slug',
     );
     expect(slugs).toEqual(approved.map((s) => s.slug).sort());
-    const [featured] = await rows<{ title: string; publishedAt: unknown }>(
+    const [skeleton] = await rows<{ title: string; publishedAt: unknown }>(
       reader,
       "SELECT title, publishedAt FROM publicStory WHERE slug = 'test-story-walking-skeleton'",
     );
-    expect(featured.title).toBe('Test story: the walking skeleton');
+    expect(skeleton.title).toBe('Test story: the walking skeleton');
     const [w01] = await rows<{ image: unknown }>(
       reader,
       'SELECT image FROM publicStory:seed_w01',

@@ -23,7 +23,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });
 
-    test('home fits: hero, featured stories, themes, giving', async ({
+    test('home fits: hero, newest stories, themes, giving', async ({
       page,
     }, info) => {
       await page.goto('/');

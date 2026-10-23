@@ -868,20 +868,6 @@ components:
         role:
           $ref: '#/components/schemas/Role'
 
-    FeaturedStories:
-      type: object
-      required: [storyIds]
-      properties:
-        storyIds:
-          type: array
-          items:
-            type: string
-          maxItems: 12
-        version:
-          allOf:
-            - $ref: '#/components/schemas/Version'
-          readOnly: true
-
     ConsentType:
       type: string
       enum: [special_category_religious, publish, share_socials, age_18plus]

@@ -9,7 +9,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });
 
-    test('home: the featured story, header and sign-in fit', async ({
+    test('home: the newest stories, header and sign-in fit', async ({
       page,
     }, info) => {
       const response = await page.goto('/');
@@ -34,12 +34,13 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(
         page.getByRole('heading', { level: 1, name: /Is God Real\?/ }),
       ).toBeVisible();
-      // FEATURED_STORY_SLUG's story is the first featured card.
+      // The newest stories, never a chosen one (Joel, 2026-10-23: no featured stories).
+      await expect(page.locator('main article')).toHaveCount(3);
       await expect(
         page
           .getByRole('heading', { level: 3 })
           .first()
-          .getByRole('link', { name: 'Test story: the walking skeleton' }),
+          .getByRole('link', { name: 'Test story: audio' }),
       ).toBeVisible();
       // D48: the stub reports relaxed consent checks, as dev will while it holds dummy data.
       await expect(

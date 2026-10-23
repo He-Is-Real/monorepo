@@ -873,7 +873,7 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
   'GrantConsent', 'WithdrawConsent', 'UpdateAccount', 'EraseAccount',
   -- api-admin (M3, M5)
   'LockStory', 'ReleaseStory', 'ApproveStory', 'RejectStory', 'RequestStoryChanges', 'EscalateStory',
-  'AssignRole', 'LinkLegacyUser', 'SetFeaturedStories', 'CreateTag', 'UpdateTag', 'DeleteTag',
+  'AssignRole', 'LinkLegacyUser', 'CreateTag', 'UpdateTag', 'DeleteTag',
   'CreateDpaDraft', 'PublishDpa',
   -- workflow (M7)
   'ProcessMedia',
@@ -940,5 +940,5 @@ DEFINE EVENT OVERWRITE idempotencyKey_owner ON idempotencyKey
 DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- pruned by the nightly job
 
 -- Later milestones add (same file): favourited/seen edges (M2), donor/donation (M4),
--- featuredStories (M5), helped/concern edges + trust/quality fields (M6), embedOrigin (M8).
+-- helped/concern edges + trust/quality fields (M6), embedOrigin (M8).
 
