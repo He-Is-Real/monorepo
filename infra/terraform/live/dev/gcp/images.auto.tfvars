@@ -8,4 +8,5 @@
 images = {
   "api-public-read" = "main"
   "web"             = "main"
+  "dev-seed"        = "main" # D49: the dev-seed Cloud Run Job (dev only)
 }

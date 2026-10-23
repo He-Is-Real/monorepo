@@ -1,1 +1,93 @@
-{ "clips": {}, "images": {} }
+{
+  "libraryId": "786537",
+  "clips": {
+    "clip-01": {
+      "videoId": "b8a77258-abfd-469d-ba63-9b89b62fcce6",
+      "thumbnailPath": "b8a77258-abfd-469d-ba63-9b89b62fcce6/thumbnail.jpg",
+      "width": 360,
+      "height": 640,
+      "durationSeconds": 12
+    },
+    "clip-02": {
+      "videoId": "229dbd44-d1a2-4044-be13-bee63c2a0cc1",
+      "thumbnailPath": "229dbd44-d1a2-4044-be13-bee63c2a0cc1/thumbnail.jpg",
+      "width": 360,
+      "height": 780,
+      "durationSeconds": 10
+    },
+    "clip-03": {
+      "videoId": "c91885b1-b4f6-402f-bc48-e38d55d8f1f2",
+      "thumbnailPath": "c91885b1-b4f6-402f-bc48-e38d55d8f1f2/thumbnail.jpg",
+      "width": 640,
+      "height": 360,
+      "durationSeconds": 15
+    },
+    "clip-04": {
+      "videoId": "6672b991-340e-43ff-8551-584a76ab9484",
+      "thumbnailPath": "6672b991-340e-43ff-8551-584a76ab9484/thumbnail.jpg",
+      "width": 768,
+      "height": 320,
+      "durationSeconds": 8
+    },
+    "clip-05": {
+      "videoId": "6b60893c-3975-4e94-8461-4571169207a4",
+      "thumbnailPath": "6b60893c-3975-4e94-8461-4571169207a4/thumbnail.jpg",
+      "width": 480,
+      "height": 480,
+      "durationSeconds": 10
+    },
+    "clip-06": {
+      "videoId": "f58deb52-c611-4829-9d24-d324b51864fe",
+      "thumbnailPath": "f58deb52-c611-4829-9d24-d324b51864fe/thumbnail.jpg",
+      "width": 360,
+      "height": 640,
+      "durationSeconds": 20
+    },
+    "clip-07": {
+      "videoId": "8cd7f7f0-3bd2-4719-912b-6d48d0cb6827",
+      "thumbnailPath": "8cd7f7f0-3bd2-4719-912b-6d48d0cb6827/thumbnail.jpg",
+      "width": 640,
+      "height": 360,
+      "durationSeconds": 6
+    },
+    "clip-08": {
+      "videoId": "5f801563-6d21-40cf-b76e-48712e3eeda6",
+      "durationSeconds": 12
+    },
+    "clip-09": {
+      "videoId": "36cb54b8-ce30-439b-a990-b9af9ffedfb1",
+      "durationSeconds": 15
+    },
+    "clip-10": {
+      "videoId": "4bbf70b4-01d4-4b0a-94e7-54908494a4e1",
+      "durationSeconds": 20
+    }
+  },
+  "images": {
+    "image-01": {
+      "path": "dev-seed/image-01.webp",
+      "width": 1200,
+      "height": 1600
+    },
+    "image-02": {
+      "path": "dev-seed/image-02.webp",
+      "width": 1600,
+      "height": 1066
+    },
+    "image-03": {
+      "path": "dev-seed/image-03.webp",
+      "width": 1200,
+      "height": 1200
+    },
+    "image-04": {
+      "path": "dev-seed/image-04.webp",
+      "width": 1600,
+      "height": 640
+    },
+    "image-05": {
+      "path": "dev-seed/image-05.webp",
+      "width": 1080,
+      "height": 1350
+    }
+  }
+}
