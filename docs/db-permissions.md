@@ -68,7 +68,7 @@ bypasses permissions) that the row is unchanged or absent.
 | Concurrency (round 2): a story create overlapping erasure, an approval overlapping a publish withdrawal, a submit overlapping an Art 9 withdrawal, and a workflow media write overlapping erasure all lose at commit with a retryable conflict, with stored state clean. Erasure losing to a create is retried and then erases it. Unrelated people never conflict. No session can read or write a fence.                                                                                                                                                                                                                                                                                                                                          | `concurrency`                     |
 | Service writes check the **submitter's** consent: workflow media/processing writes (draft and approved) are refused once Art 9 is withdrawn, stored state unchanged. Moderation without content change, withdrawal and deletion stay consent-free.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `consent-gates`                   |
 | D38 retention: only the migrator, and only for subjects erased more than 6 years ago (2192 days), can delete consent; live, recently erased and 2191-day-old subjects are refused, and so is every service and person. Audit rows: the migrator can prune; no service or person can.                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `retention`                       |
-| Round 3 sweep: every table is classified (a new, unclassified table fails the test). For each person-linked table (`story`, `publicStory`, `consent`, `moderationReview`, `idempotencyKey`), a control write works, the same write is refused after erasure from a session opened before it, and a write racing erasure loses at commit with nothing stored. Root (`user`): two racing erasures, one wins, the retry is a no-op. Kept (`auditLog`): a racing audit write commits with typed fields only.                                                                                                                                                                                                                                           | `person-linked`                   |
+| Round 3 sweep: every table is classified (a new, unclassified table fails the test). For each person-linked table (`story`, `publicStory`, `hiddenStory`, `consent`, `moderationReview`, `idempotencyKey`), a control write works, the same write is refused after erasure from a session opened before it, and a write racing erasure loses at commit with nothing stored. Root (`user`): two racing erasures, one wins, the retry is a no-op. Kept (`auditLog`): a racing audit write commits with typed fields only.                                                                                                                                                                                                                            | `person-linked`                   |
 | Round 3, P2: a service-supplied `gdprDeletedAt` (2200 days ago) is replaced by the server time and can't be re-dated, so the nightly prune keeps the consent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | `retention`                       |
 | D53 story types: `written` needs non-blank text and no video or audio; `video`/`audio` hold at most one media item of their own format, exactly one from submit on (a draft is created before its upload), and no image; images only on written stories. Pixel sizes are positive ints, both or neither, refused beyond 1:3 or 3:1; audio has none; undefined media or image fields (the old `aspectRatio`, free text) are refused. The image is the person's content: `api_admin`/`workflow` writes are dropped, it's locked after submit and needs Art 9 to change. `publicStory` mirrors the image and media sizes and refuses extra fields. Same rules for the migrator. Data script 0004 fails the migration for earlier rows that don't fit. | `story-shape`                     |
 | A2 processing gate (Joel, 2026-10-23): `media[*].processing` and `image.processing` are set only by `workflow` and system users. A person's value is ignored on create and update, `api_admin`'s is dropped, and workflow can't change the image's other fields. Any change to a media item or the image by the person sets it back to not processed. Approval (by anyone, the migrator too) is refused unless every item is `ready`, a video has width, height and duration, an audio file its duration, and the image is `ready`; `publicStory` refuses to publish or re-sync otherwise. A3/POC text limits: `body` at most 10,000 characters; a written story needs 200 trimmed characters from submit on.                                      | `media-processing`, `story-shape` |
@@ -151,7 +151,8 @@ record::id(id)).submitter = $u` and `DELETE moderationReview WHERE story.submitt
 9. **D38 audit.** `auditLog.payload` (`object FLEXIBLE`) is replaced by typed optional fields:
    `storyVersion`, `fromStatus`/`toStatus`, `consentType`, `dpaVersion` and `role`, plus `reason`,
    an enum of the three D39 erasure callers. `action` and `actorRole` are enums too. The
-   `action` list is the API plan's commands plus `LinkLegacyUser` and workflow's `ProcessMedia`.
+   `action` list is the API plan's commands plus `LinkLegacyUser` and workflow's `ProcessMedia`
+   (and, since item 27, the database's own `HideStory` and `RepublishStory`).
    SCHEMAFULL **rejects** unknown fields (an error, not a silent drop), so a payload can't be
    smuggled in.
 
@@ -326,8 +327,7 @@ retried`, on both RocksDB and the in-memory engine.
     ApproveStory must copy the image's `path`, `width`, `height` and `alt` only
     (`integration/support/world.ts` `approve()`). Rows approved before this aren't re-checked
     (no data script): dev's only story is 0003's written story without media or image. If a later
-    check marks an approved item `failed`, the read model can't be re-synced until it's fixed or
-    unpublished; unpublishing on `failed` is M7's job.
+    check marks an approved item `failed`, item 27 hides the story until it's ready again.
 26. **A3 and the POC's minimum: text limits.** `story.body` is at most 10,000 characters (was
     20,000; the POC's limit). A written story needs at least 200 characters of trimmed text from
     submit on (`pending`, `in_review`, `approved`) in `fn::story::shape_problem`, so a short draft
@@ -338,6 +338,33 @@ retried`, on both RocksDB and the in-memory engine.
     `string::trim` already strips every other Unicode space (and U+0085, which JavaScript keeps). `isStoryTextTooShortError` lets
     api-user's SubmitStory (M2) answer `400` `code: story_text_too_short`. Dev's 0003 story has
     222 characters, so no data script is needed.
+
+27. **An approved story is hidden, not reverted, while its media isn't ready (Joel,
+    2026-10-23).** Event `story_media_availability` runs on every update of an approved story.
+    If the story stays `approved`, has a `publicStory` row, and `fn::story::approval_problem`
+    finds a problem (an item `failed` or back to `processing`, a size or duration removed), the
+    same write deletes the row and creates `hiddenStory:<same id>`: `since`, the row's
+    `publishedAt` and `slugHistory`, and `identity`, a hash of the **deleted row's** media
+    (formats, Bunny ids, thumbnails, image path). When the problem is gone and the story's media
+    has that identity, the same write re-creates the row from the story (`publicStory_mirrors_story`
+    checks it as on approval) and deletes `hiddenStory`. The status never changes; no new
+    approval is needed. **The identity comes from the public row, not the story** (security
+    review): workflow can write media, so it could swap the video in the failing write; the swap
+    then never matches. Different media stays hidden for a moderator. Any publication (ApproveStory, a moderator's re-publish, the restore) deletes the marker (event `publicStory_clears_hide`), and a marker never stops a hide while a public row exists: the hide replaces it with what is public now (Codex, #61: a stale marker for replaced media let failed media stay public). A story that wasn't public
+    (consent withdrawn, D17) is never hidden, so a media fix never publishes it. Withdrawn consent
+    at restore time keeps it off too, and withdrawing `publish` or Art 9 consent deletes the person's `hiddenStory` rows (event `consent_withdrawal_unhides`), so giving consent again doesn't publish them either. Leaving `approved` deletes `hiddenStory`, and so does
+    erasure (`story_erasure_cascade`). `auditLog` gets `HideStory` / `RepublishStory` (no actor;
+    reason `media_unavailable` / `media_restored`).
+    **`hiddenStory` is a table, not a story field (Codex, #61):** an event that writes its own
+    story bumps `version` again after the command returned, so the caller got a stale version
+    (hiding at 4 returned 5 but committed 6), breaking D29. The event never writes the story, so
+    the command's own write is its only version step and returns the committed version; the
+    re-created row mirrors it. `hiddenStory` is `select` for api_admin and workflow only and
+    `create, update, delete NONE`: only the event (events run elevated) and system users write
+    it; it's fenced like `publicStory`. Only workflow and system users can trigger it: the
+    person's content is locked after submission and api-admin can't write media.
+    `fn::story::hidden_by_media()` lists hidden approved stories for api-admin (it runs with the
+    caller's permissions). Runbook: [media-runbook.md](media-runbook.md).
 
 ### M1 step 4 (D49 dev-seed login)
 
@@ -362,6 +389,7 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | `user`                                                                                                      | the person (Clerk id until erasure)            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB | stub: id, `createdAt`, `gdprDeletedAt`                            |
 | `story`                                                                                                     | testimony; `submitter`                         | linked     | submitter live + fence (and owner/consent rules)                           | deleted                                                           |
 | `publicStory`                                                                                               | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
+| `hiddenStory`                                                                                               | hidden publish data; same id as story          | linked     | event only; submitter live + fence                                         | deleted (cascade)                                                 |
 | `consent`                                                                                                   | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
 | `moderationReview`                                                                                          | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
 | `idempotencyKey`                                                                                            | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt); people: own keys only             | deleted by erasure; others expire in 24 h                         |

@@ -16,7 +16,9 @@ name: OpenTofu apply
 #     Wave 2: cluster (and images) plan after gcp's apply, against its fresh outputs; a second
 #     approval (approve-2) only if they change.
 #   - Superseded: if main moves while a run waits, its plan summaries say "reject this run",
-#     and the approve jobs re-check main after the click and apply nothing (go=false).
+#     and the approve jobs re-check main after the click and apply nothing (go=false). The
+#     `superseded` job then warns and fails on purpose, so the run is red, not a green tick that
+#     looks like a deploy.
 #   - Failed, rejected, stale or superseded stops every later stage (tools/scripts/tf-stage.sh);
 #     "no changes" and "not selected" stop nothing.
 #   - Every Release Images completion, success or failure, triggers a full run: it may replace
@@ -209,7 +211,8 @@ jobs:
           if [ "$main" = "$SHA" ]; then
             echo go=true >> "$GITHUB_OUTPUT"
           else
-            echo "superseded by $main: not applying" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Superseded::superseded by $main: not applying"
+            echo "superseded by $main: not applying" >> "$GITHUB_STEP_SUMMARY"
             echo go=false >> "$GITHUB_OUTPUT"
           fi
 
@@ -481,7 +484,8 @@ jobs:
           if [ "$main" = "$SHA" ]; then
             echo go=true >> "$GITHUB_OUTPUT"
           else
-            echo "superseded by $main: not applying" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Superseded::superseded by $main: not applying"
+            echo "superseded by $main: not applying" >> "$GITHUB_STEP_SUMMARY"
             echo go=false >> "$GITHUB_OUTPUT"
           fi
 
@@ -599,3 +603,60 @@ jobs:
         run: |
           result="$(tools/scripts/tf-stage.sh "$PREV" "$SELECTED" "$PLAN" "$CHANGES" "$GO" "$APPLY")"
           echo "images: $result" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ---- Superseded after approval ---------------------------------------------------------------
+  # Joel, 2026-10-23: a superseded run must not end green. A workflow can't set a neutral
+  # conclusion (only Checks API check runs can), and cancelling itself would need actions: write
+  # and cut the stage summaries short. So this last job warns, writes the summary line and fails.
+  # Safe: protect-main requires only ci.yml's `main` check on pull requests; this workflow runs on
+  # main and is never required, and the newer run starts as soon as this one ends.
+  superseded:
+    needs:
+      - target
+      - approve-1
+      - approve-2
+      - plan-gcp
+      - plan-bunny
+      - plan-cluster
+      - plan-images
+      - apply-gcp
+      - apply-bunny
+      - apply-cluster
+      - apply-images
+      - stage-gcp
+      - stage-bunny
+      - stage-cluster
+      - stage-images
+    if: always() && (needs.approve-1.outputs.go == 'false' || needs.approve-2.outputs.go == 'false')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # the newer run's number
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          sparse-checkout: tools/scripts
+      # Each root's real results, so the summary says exactly what applied and what failed.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GCP: ${{ needs.plan-gcp.result }},${{ needs.plan-gcp.outputs.changes }},${{ needs.apply-gcp.result }}
+          BUNNY: ${{ needs.plan-bunny.result }},${{ needs.plan-bunny.outputs.changes }},${{ needs.apply-bunny.result }}
+          CLUSTER: ${{ needs.plan-cluster.result }},${{ needs.plan-cluster.outputs.changes }},${{ needs.apply-cluster.result }}
+          IMAGES: ${{ needs.plan-images.result }},${{ needs.plan-images.outputs.changes }},${{ needs.apply-images.result }}
+        run: |
+          newer="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tofu-apply.yml/runs?per_page=20" \
+            --jq "[.workflow_runs[] | select(.id > $GITHUB_RUN_ID)] | max_by(.run_number) | .run_number // empty" \
+            2>/dev/null)" || newer=''
+          {
+            read -r message
+            read -r advice
+          } < <(tools/scripts/tf-superseded.sh "$newer" "gcp=$GCP" "bunny=$BUNNY" "cluster=$CLUSTER" "images=$IMAGES")
+          echo "::warning title=Superseded::$message"
+          {
+            echo "### ⚠ $message"
+            echo "$advice"
+            echo 'This job fails on purpose so a superseded run is never green.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Failing on purpose: superseded, not deployed. $advice"
+          exit 1

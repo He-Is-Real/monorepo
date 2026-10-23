@@ -137,7 +137,11 @@ available only on `main`); bootstrap is planned and applied locally.
   state changed meanwhile.
 - **Superseded runs.** If `main` moves while a run waits, its plan summaries say **"⚠ superseded by
   <sha>: reject this run; the next run plans again."** Reject it. Approving it applies nothing:
-  the approve job re-checks `main` after the click.
+  the approve job re-checks `main` after the click. Then the `superseded` job warns "Superseded
+  by run N: …" and fails on purpose, so the run is red rather than a green tick. Its summary
+  names the roots that applied, failed or weren't applied (a failed or cancelled apply may have
+  changed some resources, so it never says "nothing applied" then). If one failed, read that job's log;
+  otherwise nothing is needed: the newer run plans `main` HEAD.
 - **Failed, rejected, stale or superseded stops every later stage** (`tools/scripts/tf-stage.sh`;
   the `stage-*` jobs write each root's result to the summary). A rejected wave 1 skips wave 2.
 - **To recover from anything** (a failed, rejected or superseded run, or an image built while a

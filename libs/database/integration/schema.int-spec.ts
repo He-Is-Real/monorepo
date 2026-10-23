@@ -99,6 +99,7 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
       'consent_fence',
       'consent_legacy_only_migrator',
       'consent_published_dpa',
+      'consent_withdrawal_unhides',
     ]);
     expect(
       await rows(migrator, 'SELECT VALUE id FROM service ORDER BY id'),
