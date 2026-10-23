@@ -124,6 +124,34 @@ test('About loads no video or third-party frame; Contact collects nothing', asyn
   ).toHaveCount(0);
 });
 
+test('structured data: the organisation and website on every page, the FAQs as an FAQPage', async ({
+  page,
+}) => {
+  await page.goto('/faqs');
+  const data = await page
+    .locator('script[type="application/ld+json"]')
+    .evaluateAll((els) => els.map((e) => JSON.parse(e.textContent ?? '{}')));
+  const types = data.flatMap((d) =>
+    d['@graph']
+      ? d['@graph'].map((g: { '@type': string }) => g['@type'])
+      : [d['@type']],
+  );
+  expect(types).toEqual(
+    expect.arrayContaining(['Organization', 'WebSite', 'FAQPage']),
+  );
+  const faq = data.find((d) => d['@type'] === 'FAQPage');
+  const questions = faq.mainEntity.map((q: { name: string }) => q.name);
+  expect(questions).toContain('What proof is there that God exists?');
+  // The page and its structured data say what the consent model says: socials are a choice.
+  const where = faq.mainEntity.find(
+    (q: { name: string }) => q.name === 'Where will my story appear?',
+  );
+  expect(where.acceptedAnswer.text).toMatch(/only if you say yes/);
+  expect(questions).toHaveLength(
+    await page.getByRole('main').getByRole('button').count(),
+  );
+});
+
 test('the footer links the site’s pages', async ({ page }) => {
   await page.goto('/about');
   const nav = page.getByRole('navigation', { name: 'Footer' });
@@ -156,30 +184,32 @@ test.describe('as a real visitor’s browser', () => {
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
   });
 
-  test('no optional Clerk telemetry: no request to clerk-telemetry.com, nothing stored for it', async ({
+  test('no optional Clerk telemetry: collector off, no request to clerk-telemetry.com, nothing stored', async ({
     page,
   }) => {
     await page.addInitScript(() => {
       Object.defineProperty(Navigator.prototype, 'webdriver', {
         get: () => false,
       });
-      // Clerk samples events at random: make every event "sampled", so it's not a coin toss.
-      Math.random = () => 0;
     });
     const telemetry: string[] = [];
     page.on('request', (r) => {
       if (new URL(r.url()).hostname.endsWith('clerk-telemetry.com'))
         telemetry.push(r.url());
     });
-    for (const path of ['/about', '/', '/faqs']) {
-      await page.goto(path);
-      // Clerk loads in the browser: wait until its sign-in button is up, then give a batched
-      // telemetry flush time to happen.
-      await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-      await page.waitForTimeout(3_000);
-    }
+    await page.goto('/about');
+    // Deterministic, no waiting for a flush: once Clerk has loaded, its telemetry collector is
+    // either absent (telemetry={false}) or would report itself enabled (it did before the fix).
+    await page.waitForFunction(
+      () => (window as { Clerk?: { loaded?: boolean } }).Clerk?.loaded === true,
+    );
+    const collector = await page.evaluate(() => {
+      const t = (window as { Clerk?: { telemetry?: { isEnabled?: boolean } } })
+        .Clerk?.telemetry;
+      return t ? { enabled: t.isEnabled === true } : null;
+    });
+    expect(collector?.enabled ?? false).toBe(false);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await page.waitForTimeout(3_000);
     const keys = await page.evaluate(() => [
       ...Object.keys(localStorage),
       ...Object.keys(sessionStorage),
