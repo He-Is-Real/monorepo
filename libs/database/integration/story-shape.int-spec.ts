@@ -203,6 +203,42 @@ describe('story types and shapes (D53)', () => {
       expect(await submit(pat, enough)).toHaveLength(1);
     });
 
+    // One whitespace policy (fn::text::trimmed_length): what JavaScript's trim() strips, which the
+    // web uses, plus what string::trim strips. 3.2.4's string::trim keeps U+FEFF (Codex, #58).
+    const SUBMIT_REFUSED = 'a written story needs at least 200 characters';
+    it.each([
+      ['199 characters and a U+FEFF', `${chars(199)}\uFEFF`],
+      ['199 characters between U+FEFFs', `\uFEFF${chars(199)}\uFEFF\uFEFF`],
+      ['199 characters padded with NBSP', `\u00A0${chars(199)}\u00A0`],
+      [
+        '199 characters padded with other Unicode spaces',
+        `\u3000\u2003${chars(199)}\u2028\u2029\u0085`,
+      ],
+    ])('refuses to submit %s', async (_name, text) => {
+      const id = await created(body(text));
+      expect(await update(id, `status = 'pending'`)).toEqual({
+        ok: false,
+        error: expect.stringContaining(SUBMIT_REFUSED),
+      });
+    });
+
+    it.each([
+      ['only U+FEFF', '\uFEFF\uFEFF\uFEFF'],
+      ['only NBSP and U+FEFF', '\u00A0\uFEFF \u3000'],
+    ])(
+      'refuses a written story of %s, even as a draft',
+      async (_name, text) => {
+        await refused(body(text), 'a written story needs its text');
+      },
+    );
+
+    it('submits 200 real characters with invisible padding around them', async () => {
+      const id = await created(
+        body(`\uFEFF\u00A0 \n${chars(200)}\u3000\uFEFF\u2028`),
+      );
+      expect(await submit(pat, id)).toHaveLength(1);
+    });
+
     it('needs no minimum for a video or audio story’s text', async () => {
       const id = await created(
         `primaryFormat: 'audio', body: 'A few words', media: [${AUDIO}]`,

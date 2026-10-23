@@ -44,7 +44,8 @@ contract), the dev seed (step 4).
 ## A3 tasks
 
 1. **Schema:** `story.body` at most 10,000 characters; a written story needs 200 trimmed characters
-   from submit on (`fn::story::shape_problem`). Tests: 10,000 vs 10,001, a short draft saved,
+   from submit on (`fn::story::shape_problem`), measured by `fn::text::trimmed_length` (JavaScript's
+   trim plus `string::trim`; 3.2.4's `string::trim` keeps U+FEFF). Tests: 10,000 vs 10,001, a short draft saved,
    199 vs 200 trimmed on submit, no minimum for video/audio, the migrator held to it too.
 2. **Harness:** drafts get text long enough to submit (`STORY_TEXT_PADDING`, `storyText()`).
 3. **`libs/database`:** `STORY_TEXT` limits and `isStoryTextTooShortError` for SubmitStory's `400`.

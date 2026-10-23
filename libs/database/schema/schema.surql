@@ -322,6 +322,14 @@ DEFINE FUNCTION OVERWRITE fn::shape::allowed($width: any, $height: any) {
   RETURN type::is_int($width) AND type::is_int($height) AND $width > 0 AND $height > 0
     AND $height <= $width * 3 AND $width <= $height * 3;
 };
+-- The length of a text without the spaces around it, as readers see it. One policy for every
+-- length rule: string::trim strips Unicode White_Space (U+0085 too), and JavaScript's trim()
+-- also strips U+FEFF, which string::trim keeps (3.2.4, tested). So U+FEFF counts as a space
+-- (interior ones too: the length is the same), and nothing invisible pads a text past a minimum
+-- or makes an empty one look written. Mirrored by trimmedTextLength in libs/database.
+DEFINE FUNCTION OVERWRITE fn::text::trimmed_length($text: option<string>) {
+  RETURN string::len(string::trim(string::replace($text ?? '', '\u{FEFF}', ' ')));
+};
 -- D53: what's wrong with a story's type and shape, or NONE. Three types, each with one main part
 -- and one optional part:
 --   written: text (body, not blank), no video or audio; optional image
@@ -352,8 +360,9 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
     RETURN 'an image’s shape is beyond 1:3 or 3:1';
   };
   IF $s.primaryFormat = 'written' {
-    IF string::len(string::trim($s.body ?? '')) = 0 { RETURN 'a written story needs its text' };
-    IF string::len(string::trim($s.body)) < 200 AND $s.status IN ['pending', 'in_review', 'approved'] {
+    LET $length = fn::text::trimmed_length($s.body);
+    IF $length = 0 { RETURN 'a written story needs its text' };
+    IF $length < 200 AND $s.status IN ['pending', 'in_review', 'approved'] {
       RETURN 'a written story needs at least 200 characters before it is submitted';
     };
     IF array::len($media) > 0 { RETURN 'a written story has no video or audio' };

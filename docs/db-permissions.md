@@ -13,7 +13,7 @@ automated tests. It also records what had to change in the draft and what is sti
 | `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
 | `libs/database/schema/data/000N-*.surql`    | Run-once: 0001 draft DPA v1; 0002 dropped (D44); 0003 dev story |
 | `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
-| `libs/database/integration/*.int-spec.ts`   | 506 integration tests against a real SurrealDB                  |
+| `libs/database/integration/*.int-spec.ts`   | 513 integration tests against a real SurrealDB                  |
 | `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
 
 ```bash
@@ -331,7 +331,11 @@ retried`, on both RocksDB and the in-memory engine.
 26. **A3 and the POC's minimum: text limits.** `story.body` is at most 10,000 characters (was
     20,000; the POC's limit). A written story needs at least 200 characters of trimmed text from
     submit on (`pending`, `in_review`, `approved`) in `fn::story::shape_problem`, so a short draft
-    can still be saved. Video and audio text has no minimum. `isStoryTextTooShortError` lets
+    can still be saved. Video and audio text has no minimum. Both this and "needs its text" use
+    one whitespace policy, `fn::text::trimmed_length` (mirrored by `trimmedTextLength` in
+    `libs/database`). **3.2.4's `string::trim` keeps U+FEFF**, which JavaScript's `trim()` (the
+    web) strips, so 199 characters and a U+FEFF passed (Codex, #58). U+FEFF now counts as a space;
+    `string::trim` already strips every other Unicode space (and U+0085, which JavaScript keeps). `isStoryTextTooShortError` lets
     api-user's SubmitStory (M2) answer `400` `code: story_text_too_short`. Dev's 0003 story has
     222 characters, so no data script is needed.
 

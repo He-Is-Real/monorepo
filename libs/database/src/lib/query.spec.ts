@@ -4,6 +4,7 @@ import {
   isMediaNotReadyError,
   isStoryTextTooShortError,
   isTransactionConflict,
+  trimmedTextLength,
   requireWritten,
   retryOnConflict,
   runQuery,
@@ -130,5 +131,28 @@ describe('database refusals the APIs map to 4xx', () => {
     expect(
       isStoryTextTooShortError(new Error('a written story needs its text')),
     ).toBe(false);
+  });
+});
+
+describe('trimmedTextLength', () => {
+  it.each([
+    ['plain text', 'abc', 3],
+    ['ASCII spaces and line breaks', ' \t\n abc \r\n', 3],
+    [
+      'U+FEFF (JavaScript trims it, string::trim keeps it)',
+      '\uFEFFabc\uFEFF',
+      3,
+    ],
+    [
+      'U+0085 (string::trim strips it, JavaScript keeps it)',
+      '\u0085abc\u0085',
+      3,
+    ],
+    ['NBSP and other Unicode spaces', '\u00A0\u2000\u3000abc\u2028\u2029', 3],
+    ['only invisible padding', '\uFEFF \u00A0\uFEFF', 0],
+    ['interior spaces, kept', 'a\uFEFFb c', 5],
+    ['no text', undefined, 0],
+  ])('%s', (_name, text, length) => {
+    expect(trimmedTextLength(text)).toBe(length);
   });
 });

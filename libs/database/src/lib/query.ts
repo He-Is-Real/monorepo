@@ -106,6 +106,15 @@ export const STORY_TEXT = {
 } as const;
 
 /**
+ * A text's length without the spaces around it: the database's fn::text::trimmed_length, so API
+ * validation and the database agree. Strips what JavaScript's trim() strips (Unicode spaces,
+ * line terminators, U+FEFF) and what SurrealDB's string::trim strips (also U+0085).
+ */
+export function trimmedTextLength(text: string | null | undefined): number {
+  return [...(text ?? '').replace(/^[\s\u0085]+|[\s\u0085]+$/g, '')].length;
+}
+
+/**
  * The database refused to approve or publish a story whose media isn't processed yet (A2,
  * fn::story::approval_problem). api-admin answers `409` with `code: media_not_ready`.
  */
