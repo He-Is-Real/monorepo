@@ -23,7 +23,6 @@ permissions: {}
 
 env:
   REGISTRY: europe-west2-docker.pkg.dev
-  SERVICES: api-public-read api-user api-admin workflow web dev-seed
   NX_CACHE_DIRECTORY: .nx/cache
   NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
   NX_CACHE_PATHS: |
@@ -54,7 +53,8 @@ jobs:
           restore-keys: nx-images-
       - run: tools/scripts/nx-cache-adopt.sh
 
-      - run: pnpm nx run-many -t prune -p ${{ env.SERVICES }}
+      # Every image service: tools/scripts/image-services.txt.
+      - run: pnpm nx run-many -t prune -p $(tools/scripts/image-services.sh)
       - if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -92,6 +92,7 @@ jobs:
         # empty digest in a green run.
         run: |
           set -o pipefail
+          SERVICES="$(tools/scripts/image-services.sh)"
           {
             echo "### ${{ inputs.repository }} @ ${GITHUB_SHA::12}"
             echo '| Service | Image | |'

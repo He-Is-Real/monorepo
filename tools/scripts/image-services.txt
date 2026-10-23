@@ -1,0 +1,10 @@
+# The services built into container images, one per line: the single list for _images.yml
+# (Release Images, Snapshot images), tofu-plan.yml and tofu-apply.yml (via image-services.sh)
+# and the images root (live/dev/images). tools/scripts/tests/image-services.test.mjs checks it
+# equals the Nx projects with a `container` target and that nothing else lists them by hand.
+api-public-read
+api-user
+api-admin
+workflow
+web
+dev-seed
