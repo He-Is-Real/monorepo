@@ -1,12 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
 import { Suspense } from 'react';
+import { JsonLd } from '@/components/page/json-ld';
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
 import { robotsNoindex, siteUrl } from '@/lib/config';
 import {
   DEFAULT_OG_IMAGE,
-  jsonLdScript,
   OPEN_GRAPH_DEFAULTS,
   SITE_DESCRIPTION,
   SITE_NAME,
@@ -76,14 +76,7 @@ export default function RootLayout({
           <SiteHeader />
         </Suspense>
         {children}
-        {origin && (
-          <script
-            type="application/ld+json"
-            dangerouslySetInnerHTML={{
-              __html: jsonLdScript(siteJsonLd(origin)),
-            }}
-          />
-        )}
+        {origin && <JsonLd data={siteJsonLd(origin)} />}
         {/* D48: says when consent checks are relaxed (dev only); nothing otherwise. */}
         <Suspense fallback={null}>
           <SiteFooter />
