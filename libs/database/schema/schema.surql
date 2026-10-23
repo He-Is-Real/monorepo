@@ -476,12 +476,13 @@ DEFINE EVENT OVERWRITE story_media_availability ON story
     IF $after.status != 'approved' {
       -- Left approved (withdrawn): nothing is hidden any more.
       DELETE $hidden;
-    } ELSE IF !record::exists($hidden) AND fn::story::approval_problem($after) != NONE
-      AND record::exists($public) {
+    } ELSE IF fn::story::approval_problem($after) != NONE AND record::exists($public) {
       -- Only what is public gets hidden (and so restored): a story that wasn't public (consent
-      -- withdrawn) is never published by a media fix.
+      -- withdrawn) is never published by a media fix. A marker left from an earlier hide never
+      -- stops this one (Codex, #61): it is replaced by what is public now.
       LET $row = (SELECT * FROM ONLY $public);
       DELETE $public;
+      DELETE $hidden;
       CREATE $hidden CONTENT {
         publishedAt: $row.publishedAt, slugHistory: $row.slugHistory,
         identity: fn::story::media_identity($row)
@@ -611,6 +612,12 @@ DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
       THROW 'publishing needs the submitter’s current Art 9, publish and age consent';
     };
   };
+-- Any publication (ApproveStory, a moderator's re-publish, or the media restore) ends a media
+-- hide: the row now shows what was reviewed, so a later failure hides it afresh (Codex, #61:
+-- a stale marker for replaced media blocked the next hide).
+DEFINE EVENT OVERWRITE publicStory_clears_hide ON publicStory
+  WHEN $event = 'CREATE'
+  THEN { DELETE type::record('hiddenStory', record::id($after.id)) };
 DEFINE ANALYZER OVERWRITE story_en TOKENIZERS blank, class FILTERS lowercase, ascii, snowball(english);
 DEFINE INDEX OVERWRITE publicStory_slug     ON publicStory FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory;

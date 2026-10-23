@@ -89,6 +89,7 @@ test('a failed or cancelled plan counts as failed', () => {
     'Superseded by run 60: applied: gcp; failed: bunny, cluster; the newer run plans main HEAD.',
   );
   assert.match(advice, /^Failed: bunny, cluster\. /);
+  assert.match(advice, /may have changed some resources/); // cluster's apply was cancelled
 });
 
 test('nothing applied but something failed → says so', () => {
@@ -104,6 +105,32 @@ test('nothing applied but something failed → says so', () => {
     'Superseded by run 61: nothing applied; failed: bunny; not applied: gcp; the newer run plans main HEAD.',
   );
   assert.match(advice, /^Failed: bunny\. /);
+});
+
+test('an apply that started and failed is not "nothing applied" (Codex, #61)', () => {
+  const [message, advice] = superseded(
+    '62',
+    'gcp=success,false,skipped',
+    'bunny=success,true,failure',
+    'cluster=success,true,skipped',
+    `images=${NOT_RUN}`,
+  );
+  assert.equal(
+    message,
+    'Superseded by run 62: no apply completed; failed: bunny; not applied: cluster; the newer run plans main HEAD.',
+  );
+  assert.doesNotMatch(message, /nothing applied/);
+  assert.match(advice, /^Failed: bunny\. /);
+  assert.match(advice, /may have changed some resources/);
+});
+
+test('only failed plans → no apply started, so no partial-change note', () => {
+  const [, advice] = superseded(
+    '63',
+    'gcp=failure,,skipped',
+    `bunny=${NOT_RUN}`,
+  );
+  assert.doesNotMatch(advice, /may have changed/);
 });
 
 test('newer run not found → still a clear message', () => {

@@ -350,7 +350,7 @@ retried`, on both RocksDB and the in-memory engine.
     checks it as on approval) and deletes `hiddenStory`. The status never changes; no new
     approval is needed. **The identity comes from the public row, not the story** (security
     review): workflow can write media, so it could swap the video in the failing write; the swap
-    then never matches. Different media stays hidden for a moderator. A story that wasn't public
+    then never matches. Different media stays hidden for a moderator. Any publication (ApproveStory, a moderator's re-publish, the restore) deletes the marker (event `publicStory_clears_hide`), and a marker never stops a hide while a public row exists: the hide replaces it with what is public now (Codex, #61: a stale marker for replaced media let failed media stay public). A story that wasn't public
     (consent withdrawn, D17) is never hidden, so a media fix never publishes it. Withdrawn consent
     at restore time keeps it off too, and withdrawing `publish` or Art 9 consent deletes the person's `hiddenStory` rows (event `consent_withdrawal_unhides`), so giving consent again doesn't publish them either. Leaving `approved` deletes `hiddenStory`, and so does
     erasure (`story_erasure_cascade`). `auditLog` gets `HideStory` / `RepublishStory` (no actor;

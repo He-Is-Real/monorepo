@@ -799,6 +799,70 @@ describe('approval waits for media processing (A2)', () => {
       expect(await history(id)).toEqual([entry('HideStory')]);
     });
 
+    it('reviewed replacement media, published again by a moderator, is hidden when it fails (Codex, #61)', async () => {
+      const id = await live(video);
+      await update(id, `media[0].processing = 'failed'`, workflow);
+      await expectHidden(id);
+      // Bunny can't recover A: workflow records replacement video B, ready.
+      await update(
+        id,
+        `media = [{ format: 'video', bunnyVideoId: 'replacement-b', processing: 'ready',
+                    width: 1080, height: 1920, durationSeconds: 60 }]`,
+        workflow,
+      );
+      await expectHidden(id); // B differs from what was public: it waits for a moderator
+      // A moderator reviews B and publishes it (ApproveStory's transaction).
+      await approve(admin, id);
+      await expectLive(id);
+      expect(
+        await truth(`SELECT VALUE id FROM type::record('hiddenStory', $id)`, {
+          id,
+        }),
+      ).toEqual([]);
+      // B fails later: hidden again, nothing failed stays public.
+      await update(id, `media[0].processing = 'failed'`, workflow);
+      await expectHidden(id);
+      expect(await history(id)).toEqual([
+        entry('HideStory'),
+        entry('HideStory'),
+      ]);
+    });
+
+    it('a hide marker left behind never stops a hide, and any publication clears it', async () => {
+      const marker = () =>
+        truth(`SELECT VALUE identity FROM type::record('hiddenStory', $id)`, {
+          id,
+        });
+      const stale = () =>
+        run(
+          migrator,
+          `UPSERT type::record('hiddenStory', $id) CONTENT {
+             publishedAt: time::now(), slugHistory: [], identity: $x }`,
+          { id, x: 'f'.repeat(64) },
+        );
+      const id = await live(video);
+      // A stale marker next to the public row (only a system user could write it).
+      await stale();
+      await update(id, `media[0].processing = 'failed'`, workflow);
+      expect(await published(id)).toEqual([]);
+      expect(await marker()).not.toEqual(['f'.repeat(64)]); // replaced by what was public
+      await processed(workflow, id);
+      await expectLive(id); // so the same media comes back
+      expect(await marker()).toEqual([]);
+
+      // A moderator's publication (delete and re-create the row) clears one too.
+      await stale();
+      await run(
+        admin,
+        `LET $row = (SELECT * OMIT id, updatedAt, searchText FROM ONLY type::record('publicStory', $id));
+         DELETE type::record('publicStory', $id);
+         CREATE type::record('publicStory', $id) CONTENT $row;`,
+        { id },
+      );
+      await expectLive(id);
+      expect(await marker()).toEqual([]);
+    });
+
     it('withdrawing consent while hidden, then giving it again, publishes nothing', async () => {
       await createPeople(t, { dee: 'user_dee' });
       const dee = await t.person('user_dee');

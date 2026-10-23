@@ -9,7 +9,9 @@
 #              the apply job's result (any may be empty)
 #
 # Prints two lines: the message (which roots applied, failed, or weren't applied), then the
-# advice. It never says "no action is needed" when a plan or apply failed (Codex, #61).
+# advice. It never says "no action is needed" when a plan or apply failed, and says "nothing
+# applied" only when no apply job started: a failed or cancelled apply may have changed some
+# resources (Codex, #61).
 # Exit codes: 64 usage, else 0.
 set -euo pipefail
 
@@ -21,7 +23,7 @@ usage() {
 newer="$1"
 shift
 
-applied=() failed=() pending=()
+applied=() failed=() pending=() started=0
 for arg in "$@"; do
   [[ "$arg" =~ ^([a-z]+)=([a-z]*),([a-z]*),([a-z]*)$ ]] || usage
   root="${BASH_REMATCH[1]}" plan="${BASH_REMATCH[2]}" changes="${BASH_REMATCH[3]}" apply="${BASH_REMATCH[4]}"
@@ -31,7 +33,10 @@ for arg in "$@"; do
     if [ "$changes" = true ]; then
       case "$apply" in
       success) applied+=("$root") ;;
-      failure | cancelled) failed+=("$root") ;;
+      failure | cancelled)
+        failed+=("$root")
+        started=1
+        ;;
       *) pending+=("$root") ;; # skipped: superseded (or never approved)
       esac
     fi
@@ -48,7 +53,9 @@ list() {
 by='a newer run'
 [ -z "$newer" ] || by="run $newer"
 parts=()
-if [ ${#applied[@]} -eq 0 ]; then
+if [ ${#applied[@]} -eq 0 ] && [ "$started" -eq 1 ]; then
+  parts+=('no apply completed')
+elif [ ${#applied[@]} -eq 0 ]; then
   parts+=('nothing applied')
 else
   parts+=("applied: $(list "${applied[@]}")")
@@ -63,5 +70,7 @@ echo "$message"
 if [ ${#failed[@]} -eq 0 ]; then
   echo 'Nothing failed: no action is needed.'
 else
-  echo "Failed: $(list "${failed[@]}"). Read that job's log: the newer run plans again, but it may fail the same way."
+  advice="Failed: $(list "${failed[@]}"). Read that job's log: the newer run plans again, but it may fail the same way."
+  [ "$started" -eq 0 ] || advice+=' A failed or cancelled apply may have changed some resources; the newer run plans from the real state.'
+  echo "$advice"
 fi
