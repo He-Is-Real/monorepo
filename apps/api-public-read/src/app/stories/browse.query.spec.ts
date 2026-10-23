@@ -246,6 +246,32 @@ describe('forged cursor positions', () => {
     });
   });
 
+  it.each([
+    [1e20],
+    [Number.MAX_SAFE_INTEGER + 1],
+    [9007199254740994],
+    [Number.MAX_VALUE],
+  ])(
+    'refuses the score %d: beyond what the database driver can send (a 500 before)',
+    (score) => {
+      expect(
+        problem(() =>
+          parseBrowseQuery({ q: 'hope', cursor: forge(search, [score, 'a1']) }),
+        ),
+      ).toMatchObject({ status: 400, code: 'invalid_cursor' });
+    },
+  );
+
+  it.each([[0], [12.345], [Number.MAX_SAFE_INTEGER], [1e-300]])(
+    'accepts the score %d',
+    (score) => {
+      expect(
+        parseBrowseQuery({ q: 'hope', cursor: forge(search, [score, 'a1']) })
+          .after,
+      ).toEqual({ key: score, id: 'a1' });
+    },
+  );
+
   it.each([['1.5'], [null], [-1], [true], [[1]]])(
     'refuses the score %j',
     (score) => {

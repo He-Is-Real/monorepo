@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
 import { type FieldError, ProblemException } from '@heisreal/http';
+import { CborCodec } from 'surrealdb';
 
 // `GET /v1/stories` parameters (api-public-read.yaml, browseStories). Every one is bounded, and
 // unknown or repeated parameters are refused: fewer cache keys, no silent typos. Errors never
@@ -193,9 +194,11 @@ function decodeCursor(query: BrowseQuery, cursor: string): CursorKey {
   )
     throw invalidCursor();
   const [key, id] = c.k as unknown[];
+  // BM25 scores are small fractions. Above 2^53 every number is a whole one that surrealdb.js's
+  // CBOR encoder refuses ("Number too big"), so a score is at most MAX_SAFE_INTEGER.
   const keyOk =
     query.sort === 'relevance'
-      ? typeof key === 'number' && Number.isFinite(key) && key >= 0
+      ? typeof key === 'number' && key >= 0 && key <= Number.MAX_SAFE_INTEGER
       : typeof key === 'string' && isDateTime(key);
   if (
     Object.keys(c).length !== 3 ||
@@ -204,7 +207,15 @@ function decodeCursor(query: BrowseQuery, cursor: string): CursorKey {
     !ID.test(id)
   )
     throw invalidCursor();
-  return { key: key as string | number, id };
+  const after = { key: key as string | number, id };
+  // The position is bound as a query parameter. Anything the database driver can't send would be
+  // a 500 there, so check it with the driver's own encoder here (defence in depth).
+  try {
+    CborCodec.DEFAULT.encode(after);
+  } catch {
+    throw invalidCursor();
+  }
+  return after;
 }
 
 /**

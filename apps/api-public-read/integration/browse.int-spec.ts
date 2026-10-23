@@ -303,6 +303,35 @@ describe('browse API over the dev dataset', () => {
       },
     );
 
+    describe('forged relevance scores', () => {
+      const withScore = async (score: number) => {
+        const { nextCursor } = await page('/v1/stories?q=test&limit=2');
+        const decoded = JSON.parse(
+          Buffer.from(nextCursor as string, 'base64url').toString(),
+        ) as { k: unknown[] };
+        const forged = Buffer.from(
+          JSON.stringify({ ...decoded, k: [score, decoded.k[1]] }),
+        ).toString('base64url');
+        return get(`/v1/stories?q=test&limit=2&cursor=${forged}`);
+      };
+
+      it.each([[1e20], [Number.MAX_SAFE_INTEGER + 1], [9007199254740994]])(
+        'refuses %d as a 400, never a 500',
+        async (score) => {
+          const res = await withScore(score);
+          expect(res.status).toBe(400);
+          expect(await res.json()).toMatchObject({ code: 'invalid_cursor' });
+        },
+      );
+
+      it('still takes the largest safe score: the page after it is the whole list', async () => {
+        const res = await withScore(Number.MAX_SAFE_INTEGER);
+        expect(res.status).toBe(200);
+        const all = (await page('/v1/stories?q=test&limit=2')).data;
+        expect(((await res.json()) as Page).data).toEqual(all);
+      });
+    });
+
     it('takes a forged but valid position as a place in the same public list', async () => {
       const { nextCursor } = await page('/v1/stories?limit=2');
       const decoded = JSON.parse(
