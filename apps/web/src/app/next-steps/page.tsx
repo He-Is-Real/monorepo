@@ -3,12 +3,15 @@ import { Card } from '@/components/page/card';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'Next steps',
-  description:
-    'You don’t need all the answers to keep exploring faith. Try Alpha, find a church near you, or ask us a question. No pressure, no agenda.',
-  path: '/next-steps',
-});
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export function generateMetadata() {
+  return pageMetadata({
+    title: 'Next steps',
+    description:
+      'You don’t need all the answers to keep exploring faith. Try Alpha, find a church near you, or ask us a question. No pressure, no agenda.',
+    path: '/next-steps',
+  });
+}
 
 const STEPS = [
   {

@@ -7,71 +7,135 @@ import {
 } from './seo';
 
 describe('pageMetadata', () => {
-  const metadata = pageMetadata({
-    title: 'About us',
-    description: 'Why He Is Real Today exists.',
-    path: '/about',
+  const saved = process.env['SITE_URL'];
+  afterEach(() => {
+    if (saved === undefined) delete process.env['SITE_URL'];
+    else process.env['SITE_URL'] = saved;
   });
-
-  it('sets the title, description and the page’s own canonical URL', () => {
-    expect(metadata.title).toBe('About us');
-    expect(metadata.description).toBe('Why He Is Real Today exists.');
-    expect(metadata.alternates).toEqual({ canonical: '/about' });
-  });
-
-  it('keeps the site’s Open Graph defaults (Next replaces the whole object per page)', () => {
-    expect(metadata.openGraph).toEqual({
-      siteName: SITE_NAME,
-      locale: 'en_GB',
-      type: 'website',
+  const about = () =>
+    pageMetadata({
       title: 'About us',
       description: 'Why He Is Real Today exists.',
-      url: '/about',
-      images: [DEFAULT_OG_IMAGE],
+      path: '/about',
     });
-    expect(metadata.twitter).toEqual({
-      card: 'summary_large_image',
-      title: 'About us',
-      description: 'Why He Is Real Today exists.',
-      images: [DEFAULT_OG_IMAGE],
+  const card = {
+    ...DEFAULT_OG_IMAGE,
+    url: 'https://www.heisreal.today/og-default.png',
+  };
+
+  describe('with SITE_URL', () => {
+    beforeEach(() => {
+      process.env['SITE_URL'] = 'https://www.heisreal.today';
+    });
+
+    it('sets the title, description and the page’s own absolute canonical URL', () => {
+      const metadata = about();
+      expect(metadata.title).toBe('About us');
+      expect(metadata.description).toBe('Why He Is Real Today exists.');
+      expect(metadata.alternates).toEqual({
+        canonical: 'https://www.heisreal.today/about',
+      });
+    });
+
+    it('keeps the site’s Open Graph defaults (Next replaces the whole object per page)', () => {
+      const metadata = about();
+      expect(metadata.openGraph).toEqual({
+        siteName: SITE_NAME,
+        locale: 'en_GB',
+        type: 'website',
+        title: 'About us',
+        description: 'Why He Is Real Today exists.',
+        url: 'https://www.heisreal.today/about',
+        images: [card],
+      });
+      expect(metadata.twitter).toEqual({
+        card: 'summary_large_image',
+        title: 'About us',
+        description: 'Why He Is Real Today exists.',
+        images: [card],
+      });
+    });
+
+    it('takes an absolute title (the home page) and uses its text for Open Graph', () => {
+      const home = pageMetadata({
+        title: { absolute: 'He Is Real Today' },
+        description: 'd',
+        path: '/',
+      });
+      expect(home.title).toEqual({ absolute: 'He Is Real Today' });
+      expect(home.openGraph?.title).toBe('He Is Real Today');
+      expect(home.alternates).toEqual({
+        canonical: 'https://www.heisreal.today/',
+      });
+    });
+
+    it('merges extra Open Graph fields over the defaults (story pages)', () => {
+      const story = pageMetadata({
+        title: 't',
+        description: 'd',
+        path: '/stories/s',
+        openGraph: { type: 'article', publishedTime: '2026-10-23T00:00:00Z' },
+      });
+      expect(story.openGraph).toMatchObject({
+        siteName: SITE_NAME,
+        type: 'article',
+        publishedTime: '2026-10-23T00:00:00Z',
+        url: 'https://www.heisreal.today/stories/s',
+      });
+    });
+
+    it('uses the given images instead of the default card, made absolute', () => {
+      const m = pageMetadata({
+        title: 't',
+        description: 'd',
+        path: '/',
+        images: [{ url: '/x.png', width: 1200, height: 630, alt: 'x' }],
+      });
+      const image = {
+        url: 'https://www.heisreal.today/x.png',
+        width: 1200,
+        height: 630,
+        alt: 'x',
+      };
+      expect(m.openGraph?.images).toEqual([image]);
+      expect(m.twitter?.images).toEqual([image]);
     });
   });
 
-  it('takes an absolute title (the home page) and uses its text for Open Graph', () => {
-    const home = pageMetadata({
-      title: { absolute: 'He Is Real Today' },
-      description: 'd',
-      path: '/',
+  describe('without SITE_URL', () => {
+    beforeEach(() => {
+      delete process.env['SITE_URL'];
     });
-    expect(home.title).toEqual({ absolute: 'He Is Real Today' });
-    expect(home.openGraph?.title).toBe('He Is Real Today');
-  });
 
-  it('merges extra Open Graph fields over the defaults (story pages)', () => {
-    const story = pageMetadata({
-      title: 't',
-      description: 'd',
-      path: '/stories/s',
-      openGraph: { type: 'article', publishedTime: '2026-10-23T00:00:00Z' },
+    it('emits no URLs: no canonical, og:url or images (no localhost or relative fallbacks)', () => {
+      const metadata = about();
+      expect(metadata.alternates).toBeUndefined();
+      expect(metadata.openGraph).toEqual({
+        siteName: SITE_NAME,
+        locale: 'en_GB',
+        type: 'website',
+        title: 'About us',
+        description: 'Why He Is Real Today exists.',
+      });
+      expect(metadata.twitter).toEqual({
+        card: 'summary',
+        title: 'About us',
+        description: 'Why He Is Real Today exists.',
+      });
+      expect(JSON.stringify(metadata)).not.toMatch(/url|http|\.png/i);
     });
-    expect(story.openGraph).toMatchObject({
-      siteName: SITE_NAME,
-      type: 'article',
-      publishedTime: '2026-10-23T00:00:00Z',
-      url: '/stories/s',
-    });
-  });
 
-  it('uses the given images instead of the default card', () => {
-    const image = { url: '/x.png', width: 1200, height: 630, alt: 'x' };
-    const m = pageMetadata({
-      title: 't',
-      description: 'd',
-      path: '/',
-      images: [image],
+    it('drops given images and URL-bearing Open Graph extras too', () => {
+      const m = pageMetadata({
+        title: 't',
+        description: 'd',
+        path: '/stories/s',
+        images: [{ url: '/x.png', width: 1, height: 1, alt: 'x' }],
+        openGraph: { type: 'article', url: '/elsewhere' },
+      });
+      expect(m.openGraph).toMatchObject({ type: 'article' });
+      expect(JSON.stringify(m)).not.toMatch(/url|http|\.png/i);
     });
-    expect(m.openGraph?.images).toEqual([image]);
-    expect(m.twitter?.images).toEqual([image]);
   });
 });
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import AboutPage, { metadata } from './page';
+import AboutPage, { generateMetadata } from './page';
 
 describe('About page', () => {
   beforeEach(() => render(<AboutPage />));
@@ -48,6 +48,13 @@ describe('About page', () => {
   });
 
   it('has its own canonical URL', () => {
-    expect(metadata.alternates).toEqual({ canonical: '/about' });
+    const saved = process.env['SITE_URL'];
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    const metadata = generateMetadata();
+    if (saved === undefined) delete process.env['SITE_URL'];
+    else process.env['SITE_URL'] = saved;
+    expect(metadata.alternates).toEqual({
+      canonical: 'https://www.heisreal.today/about',
+    });
   });
 });

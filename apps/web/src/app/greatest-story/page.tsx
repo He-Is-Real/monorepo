@@ -10,12 +10,15 @@ import {
 } from '@/components/greatest-story/illustrations';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'The Greatest Story Ever Told',
-  description:
-    'The story every testimony points back to: God made you to know Him, and Jesus came to find us. Is God real? Read the story of love, sacrifice and hope.',
-  path: '/greatest-story',
-});
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export function generateMetadata() {
+  return pageMetadata({
+    title: 'The Greatest Story Ever Told',
+    description:
+      'The story every testimony points back to: God made you to know Him, and Jesus came to find us. Is God real? Read the story of love, sacrifice and hope.',
+    path: '/greatest-story',
+  });
+}
 
 interface Part {
   heading: React.ReactNode;

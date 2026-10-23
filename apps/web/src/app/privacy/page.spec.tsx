@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
-import PrivacyPage, { metadata } from './page';
+import PrivacyPage, { generateMetadata } from './page';
 
 describe('Privacy policy (draft)', () => {
   beforeEach(() => render(<PrivacyPage />));
@@ -34,6 +34,13 @@ describe('Privacy policy (draft)', () => {
   });
 
   it('has its own canonical URL', () => {
-    expect(metadata.alternates).toEqual({ canonical: '/privacy' });
+    const saved = process.env['SITE_URL'];
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    const metadata = generateMetadata();
+    if (saved === undefined) delete process.env['SITE_URL'];
+    else process.env['SITE_URL'] = saved;
+    expect(metadata.alternates).toEqual({
+      canonical: 'https://www.heisreal.today/privacy',
+    });
   });
 });

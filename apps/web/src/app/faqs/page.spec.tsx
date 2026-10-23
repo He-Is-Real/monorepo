@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { FAQ_GROUPS } from '@/lib/faqs';
-import FaqsPage, { metadata } from './page';
+import FaqsPage, { generateMetadata } from './page';
 
 describe('FAQs page', () => {
   beforeEach(() => render(<FaqsPage />));
@@ -66,7 +66,14 @@ describe('FAQs page', () => {
 
 describe('FAQs metadata', () => {
   it('has its own canonical URL and a description with a search term', () => {
-    expect(metadata.alternates).toEqual({ canonical: '/faqs' });
-    expect(metadata.description).toContain('Is God real?');
+    const saved = process.env['SITE_URL'];
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    const metadata = generateMetadata();
+    if (saved === undefined) delete process.env['SITE_URL'];
+    else process.env['SITE_URL'] = saved;
+    expect(metadata.alternates).toEqual({
+      canonical: 'https://www.heisreal.today/faqs',
+    });
+    expect(generateMetadata().description).toContain('Is God real?');
   });
 });

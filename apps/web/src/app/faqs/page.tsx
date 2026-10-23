@@ -5,12 +5,15 @@ import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { FAQ_GROUPS, faqPageJsonLd } from '@/lib/faqs';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'FAQs',
-  description:
-    'Answers about sharing your story, about He Is Real Today, and bigger questions like “Is God real?” and “Can I believe and still have doubts?”',
-  path: '/faqs',
-});
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export function generateMetadata() {
+  return pageMetadata({
+    title: 'FAQs',
+    description:
+      'Answers about sharing your story, about He Is Real Today, and bigger questions like “Is God real?” and “Can I believe and still have doubts?”',
+    path: '/faqs',
+  });
+}
 
 export default function FaqsPage() {
   return (

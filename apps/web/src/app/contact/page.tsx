@@ -3,12 +3,15 @@ import { Card } from '@/components/page/card';
 import { PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'Contact us',
-  description:
-    'Got a question, an idea, or just want to say hello? Email He Is Real Today and a real person will read your message.',
-  path: '/contact',
-});
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export function generateMetadata() {
+  return pageMetadata({
+    title: 'Contact us',
+    description:
+      'Got a question, an idea, or just want to say hello? Email He Is Real Today and a real person will read your message.',
+    path: '/contact',
+  });
+}
 
 const EMAIL = 'info@heisreal.today';
 

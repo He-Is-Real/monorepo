@@ -13,7 +13,7 @@ const collect = jest.mocked(collectStoryEntries);
 
 describe('GET /sitemap.xml', () => {
   const saved = {
-    ROBOTS_NOINDEX: process.env['ROBOTS_NOINDEX'],
+    INDEXING: process.env['INDEXING'],
     SITE_URL: process.env['SITE_URL'],
   };
   afterEach(() => {
@@ -24,7 +24,7 @@ describe('GET /sitemap.xml', () => {
     }
   });
   const live = () => {
-    process.env['ROBOTS_NOINDEX'] = 'false';
+    process.env['INDEXING'] = 'allow';
     process.env['SITE_URL'] = 'https://www.heisreal.today';
   };
 
@@ -32,8 +32,8 @@ describe('GET /sitemap.xml', () => {
     expect(dynamic).toBe('force-dynamic');
   });
 
-  it('doesn’t exist in dev (ROBOTS_NOINDEX), and doesn’t ask the API', async () => {
-    process.env['ROBOTS_NOINDEX'] = 'true';
+  it('doesn’t exist in dev (INDEXING unset), and doesn’t ask the API', async () => {
+    delete process.env['INDEXING'];
     process.env['SITE_URL'] = 'https://web-abc-nw.a.run.app';
     const res = await GET();
     expect(res.status).toBe(404);
@@ -41,7 +41,7 @@ describe('GET /sitemap.xml', () => {
   });
 
   it('doesn’t exist without a site URL', async () => {
-    process.env['ROBOTS_NOINDEX'] = 'false';
+    process.env['INDEXING'] = 'allow';
     delete process.env['SITE_URL'];
     expect((await GET()).status).toBe(404);
   });

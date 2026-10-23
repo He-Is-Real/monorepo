@@ -7,7 +7,7 @@ import {
 
 // M1 step 6b-2: the static pages on every device in the matrix and in both colour schemes,
 // the site footer, keyboard use of the FAQ accordion, and robots.txt and the sitemap while
-// ROBOTS_NOINDEX is on (as in dev; playwright.config.ts).
+// indexing is off (no INDEXING=allow, as in dev; playwright.config.ts).
 
 const PAGES = [
   {

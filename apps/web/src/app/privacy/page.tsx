@@ -2,12 +2,15 @@ import { DraftNotice } from '@/components/page/draft-notice';
 import { NarrowColumn } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'Privacy policy',
-  description:
-    'How He Is Real Today looks after your data, and the few cookies and storage items the site needs to work.',
-  path: '/privacy',
-});
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export function generateMetadata() {
+  return pageMetadata({
+    title: 'Privacy policy',
+    description:
+      'How He Is Real Today looks after your data, and the few cookies and storage items the site needs to work.',
+    path: '/privacy',
+  });
+}
 
 // What the site stores on a visitor's device, checked on the dev site (M1 step 6b-2): the
 // theme the visitor picks, and Clerk's sign-in (it runs in the header on every page, D32).

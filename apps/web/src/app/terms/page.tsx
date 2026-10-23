@@ -2,11 +2,14 @@ import { DraftNotice } from '@/components/page/draft-notice';
 import { NarrowColumn } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'Terms of use',
-  description: 'The terms for using He Is Real Today.',
-  path: '/terms',
-});
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export function generateMetadata() {
+  return pageMetadata({
+    title: 'Terms of use',
+    description: 'The terms for using He Is Real Today.',
+    path: '/terms',
+  });
+}
 
 export default function TermsPage() {
   return (

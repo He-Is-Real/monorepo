@@ -3,12 +3,15 @@ import { Card } from '@/components/page/card';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'Get ready to share',
-  description:
-    'Recording or writing your story can feel daunting. Practical tips to help you share your testimony with confidence: be yourself, find a quiet space, keep it focused.',
-  path: '/get-ready',
-});
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export function generateMetadata() {
+  return pageMetadata({
+    title: 'Get ready to share',
+    description:
+      'Recording or writing your story can feel daunting. Practical tips to help you share your testimony with confidence: be yourself, find a quiet space, keep it focused.',
+    path: '/get-ready',
+  });
+}
 
 const RESOURCES = [
   {

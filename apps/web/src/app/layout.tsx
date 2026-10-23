@@ -6,11 +6,10 @@ import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
 import { robotsNoindex, siteUrl } from '@/lib/config';
 import {
-  DEFAULT_OG_IMAGE,
-  OPEN_GRAPH_DEFAULTS,
   SITE_DESCRIPTION,
   SITE_NAME,
   siteJsonLd,
+  socialDefaults,
 } from '@/lib/seo';
 import { THEME_SCRIPT } from '@/lib/theme';
 import './global.css';
@@ -35,8 +34,7 @@ export function generateMetadata(): Metadata {
       template: `%s | ${SITE_NAME}`,
     },
     description: SITE_DESCRIPTION,
-    openGraph: { ...OPEN_GRAPH_DEFAULTS, images: [DEFAULT_OG_IMAGE] },
-    twitter: { card: 'summary_large_image', images: [DEFAULT_OG_IMAGE] },
+    ...socialDefaults(origin),
     ...(robotsNoindex() ? { robots: { index: false, follow: false } } : {}),
   };
 }

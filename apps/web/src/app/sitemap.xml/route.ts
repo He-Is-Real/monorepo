@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 /**
- * /sitemap.xml: only when indexing is allowed (Go live). In dev (ROBOTS_NOINDEX) it doesn't
+ * /sitemap.xml: only when indexing is allowed (Go live). Until then (always in dev) it doesn't
  * exist, so nothing invites a crawler in. While api-public-read is down: 503, never a sitemap
  * missing its stories.
  */

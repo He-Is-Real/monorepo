@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import GreatestStoryPage, { metadata } from './page';
+import GreatestStoryPage, { generateMetadata } from './page';
 
 describe('Greatest Story page', () => {
   beforeEach(() => render(<GreatestStoryPage />));
@@ -59,7 +59,14 @@ describe('Greatest Story page', () => {
   });
 
   it('has its own canonical URL and a description with a search term', () => {
-    expect(metadata.alternates).toEqual({ canonical: '/greatest-story' });
-    expect(metadata.description).toMatch(/Jesus/);
+    const saved = process.env['SITE_URL'];
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    const metadata = generateMetadata();
+    if (saved === undefined) delete process.env['SITE_URL'];
+    else process.env['SITE_URL'] = saved;
+    expect(metadata.alternates).toEqual({
+      canonical: 'https://www.heisreal.today/greatest-story',
+    });
+    expect(generateMetadata().description).toMatch(/Jesus/);
   });
 });

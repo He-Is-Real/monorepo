@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import GetReadyPage, { metadata } from './page';
+import GetReadyPage, { generateMetadata } from './page';
 
 describe('Get Ready to Share page', () => {
   beforeEach(() => render(<GetReadyPage />));
@@ -47,6 +47,13 @@ describe('Get Ready to Share page', () => {
   });
 
   it('has its own canonical URL', () => {
-    expect(metadata.alternates).toEqual({ canonical: '/get-ready' });
+    const saved = process.env['SITE_URL'];
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    const metadata = generateMetadata();
+    if (saved === undefined) delete process.env['SITE_URL'];
+    else process.env['SITE_URL'] = saved;
+    expect(metadata.alternates).toEqual({
+      canonical: 'https://www.heisreal.today/get-ready',
+    });
   });
 });

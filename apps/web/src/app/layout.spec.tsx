@@ -83,44 +83,68 @@ describe('site JSON-LD', () => {
 });
 
 describe('generateMetadata', () => {
-  afterEach(restoreEnv(['ROBOTS_NOINDEX', 'SITE_URL']));
+  afterEach(restoreEnv(['INDEXING', 'SITE_URL']));
 
-  it('resolves relative URLs against SITE_URL', () => {
+  it('resolves URLs against SITE_URL and shares the brand card by absolute URL', () => {
     process.env['SITE_URL'] = 'https://www.heisreal.today';
-    expect(generateMetadata().metadataBase).toEqual(
+    const metadata = generateMetadata();
+    expect(metadata.metadataBase).toEqual(
       new URL('https://www.heisreal.today'),
     );
-  });
-
-  it('has no metadataBase without SITE_URL', () => {
-    delete process.env['SITE_URL'];
-    expect(generateMetadata().metadataBase).toBeUndefined();
-  });
-
-  it('sets the site’s Open Graph and Twitter defaults, but no canonical (pages set their own)', () => {
-    const metadata = generateMetadata();
     expect(metadata.openGraph).toMatchObject({
       siteName: 'He Is Real Today',
       locale: 'en_GB',
       type: 'website',
-      images: [expect.objectContaining({ url: '/og-default.png' })],
+      images: [
+        expect.objectContaining({
+          url: 'https://www.heisreal.today/og-default.png',
+        }),
+      ],
     });
-    expect(metadata.twitter).toMatchObject({ card: 'summary_large_image' });
-    expect(metadata.alternates).toBeUndefined();
+    expect(metadata.twitter).toMatchObject({
+      card: 'summary_large_image',
+      images: [
+        expect.objectContaining({
+          url: 'https://www.heisreal.today/og-default.png',
+        }),
+      ],
+    });
   });
 
-  it('sets the site title, and lets pages be indexed by default', () => {
-    delete process.env['ROBOTS_NOINDEX'];
+  it('emits no URL at all without SITE_URL (no localhost or relative fallbacks)', () => {
+    delete process.env['SITE_URL'];
     const metadata = generateMetadata();
-    expect(metadata.title).toEqual({
+    expect(metadata.metadataBase).toBeUndefined();
+    expect(JSON.stringify(metadata)).not.toMatch(/url|og-default|http/i);
+    expect(metadata.openGraph).toEqual({
+      siteName: 'He Is Real Today',
+      locale: 'en_GB',
+      type: 'website',
+    });
+    expect(metadata.twitter).toEqual({ card: 'summary' });
+  });
+
+  it('sets no canonical (pages set their own)', () => {
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    expect(generateMetadata().alternates).toBeUndefined();
+  });
+
+  it('sets the site title', () => {
+    expect(generateMetadata().title).toEqual({
       default: 'He Is Real Today',
       template: '%s | He Is Real Today',
     });
-    expect(metadata.robots).toBeUndefined();
   });
 
-  it('asks search engines not to index or follow when ROBOTS_NOINDEX is on (dev)', () => {
-    process.env['ROBOTS_NOINDEX'] = 'true';
+  it('asks search engines not to index or follow unless indexing is allowed (the default)', () => {
+    delete process.env['INDEXING'];
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
     expect(generateMetadata().robots).toEqual({ index: false, follow: false });
+  });
+
+  it('has no robots tag once INDEXING=allow and a site URL (Go live)', () => {
+    process.env['INDEXING'] = 'allow';
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    expect(generateMetadata().robots).toBeUndefined();
   });
 });

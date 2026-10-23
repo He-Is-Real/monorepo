@@ -3,12 +3,15 @@ import { RaisedBand } from '@/components/page/card';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'About us',
-  description:
-    'Why He Is Real Today exists: to carry real testimonies beyond church walls to anyone asking “Does God exist?” No pressure. No preaching.',
-  path: '/about',
-});
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export function generateMetadata() {
+  return pageMetadata({
+    title: 'About us',
+    description:
+      'Why He Is Real Today exists: to carry real testimonies beyond church walls to anyone asking “Does God exist?” No pressure. No preaching.',
+    path: '/about',
+  });
+}
 
 const VALUES = [
   {
