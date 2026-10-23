@@ -1,4 +1,5 @@
 import type { PublicStory } from '@/lib/public-stories';
+import { StoryMedia } from './story-media';
 import { StoryText } from './story-text';
 
 const published = (iso: string) =>
@@ -33,6 +34,7 @@ export function StoryView({
         {story.bylineName ?? 'Anonymous'} ·{' '}
         <time dateTime={story.publishedAt}>{published(story.publishedAt)}</time>
       </p>
+      <StoryMedia story={story} />
       <p className="mt-6 text-lg text-secondary-text">{story.description}</p>
       {paragraphs.length > 0 && (
         <StoryText id={`story-${story.id}-text`} paragraphs={paragraphs} />

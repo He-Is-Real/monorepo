@@ -4,12 +4,14 @@ import { DatabaseModule } from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
+import { MediaUrlsModule } from './media/media-urls';
 import { StoriesModule } from './stories/stories.controller';
 
 @Module({
   imports: [
     SecretsModule,
     DatabaseModule,
+    MediaUrlsModule,
     HealthModule.forService('api-public-read'),
     StoriesModule,
   ],

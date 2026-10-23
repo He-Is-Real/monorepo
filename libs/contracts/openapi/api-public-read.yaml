@@ -115,8 +115,9 @@ paths:
       summary: Get a published story by slug
       description: |
         The one route built in M0 (task 0.9). A previous slug returns `301` to the current one; an
-        unknown or malformed slug is `404` with code `story_not_found`. Media carries no playback URLs
-        until Bunny's token-authenticated delivery (M2 prerequisite).
+        unknown or malformed slug is `404` with code `story_not_found`. Media and image URLs are
+        signed and expire (D52, M1 step 5): see `MediaPlayback`. They expire at least 6 hours after the
+        response, rounded up to the hour, so the body (and its ETag) changes at most once an hour.
       x-milestone: M0
       parameters:
         - $ref: './components.yaml#/components/parameters/storySlug'

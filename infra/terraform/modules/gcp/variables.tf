@@ -99,6 +99,34 @@ variable "api_public_read_public" {
   default     = false
 }
 
+variable "api_public_read_media" {
+  description = <<-EOT
+    D52: what api-public-read needs to sign Bunny media links. Identifiers only;
+    the keys stay in the bunny-* secrets named here, which the bunny root
+    creates and lets api-public-read read. null = signing off (media URLs are
+    null). Set it only after the bunny root has applied: a revision that can't
+    read its keys doesn't start.
+  EOT
+  type = object({
+    stream_library_id       = string
+    stream_cdn_hostname     = string
+    images_cdn_hostname     = string
+    stream_token_key_secret = optional(string, "bunny-stream-token-key")
+    images_token_key_secret = optional(string, "bunny-images-token-key")
+  })
+  default = null
+  validation {
+    condition = var.api_public_read_media == null || (
+      can(regex("^[0-9]{1,12}$", var.api_public_read_media.stream_library_id)) &&
+      can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", var.api_public_read_media.stream_cdn_hostname)) &&
+      can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", var.api_public_read_media.images_cdn_hostname)) &&
+      can(regex("^bunny-[a-z0-9-]+$", var.api_public_read_media.stream_token_key_secret)) &&
+      can(regex("^bunny-[a-z0-9-]+$", var.api_public_read_media.images_token_key_secret))
+    )
+    error_message = "api_public_read_media: a numeric library id, bare hostnames, and bunny-* secret names."
+  }
+}
+
 variable "api_public_read_invokers" {
   description = "Members allowed to call api-public-read when it isn't public (e.g. user:someone@heisreal.today)."
   type        = list(string)

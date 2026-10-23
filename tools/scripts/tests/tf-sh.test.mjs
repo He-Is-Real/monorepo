@@ -438,6 +438,13 @@ const state = JSON.stringify({
               token_auth_key: 't1',
               name: 'also-not',
             }),
+            // D52: the Stream pull zone, read as a data source (key not marked sensitive).
+            {
+              address: 'module.bunny.data.bunnynet_pullzone.stream',
+              mode: 'data',
+              type: 'bunnynet_pullzone',
+              values: { token_auth_key: 't2', name: 'vz-not-a-key' },
+            },
             resource('google_secret_manager_secret', { secret_id: 'bunny-x' }),
           ],
         },
@@ -459,6 +466,7 @@ test('bunny-mask state', () => {
     '::add-mask::p1-second-line',
     '::add-mask::p2',
     '::add-mask::t1',
+    '::add-mask::t2',
   ]);
   assert.equal(result.stderr, '');
 });

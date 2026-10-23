@@ -31,3 +31,33 @@ variable "cdn_routing_zones" {
   type        = set(string)
   default     = ["EU", "US"]
 }
+
+variable "token_auth" {
+  description = <<-EOT
+    Bunny token authentication (D52): signed, expiring links for the Stream
+    player (stream_embed), Stream's CDN files incl. HLS and thumbnails
+    (stream_cdn) and the images pull zone (images). Unsigned links get 403.
+  EOT
+  type = object({
+    stream_embed = bool
+    stream_cdn   = bool
+    images       = bool
+  })
+  default = {
+    stream_embed = true
+    stream_cdn   = true
+    images       = true
+  }
+}
+
+variable "signing_key_readers" {
+  description = "IAM members (e.g. serviceAccount:api-public-read@…) that may read the two token auth keys, and no other bunny-* secret."
+  type        = set(string)
+  default     = []
+  validation {
+    condition = alltrue([for m in var.signing_key_readers :
+      can(regex("^serviceAccount:[a-z][a-z0-9-]{4,28}[a-z0-9]@${var.project_id}\\.iam\\.gserviceaccount\\.com$", m))
+    ])
+    error_message = "Only this project's service accounts (serviceAccount:<name>@<project>.iam.gserviceaccount.com) may read the signing keys; never allUsers, groups or people."
+  }
+}

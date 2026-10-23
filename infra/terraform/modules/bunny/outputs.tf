@@ -11,6 +11,11 @@ output "stream_cdn_pullzone_id" {
   value       = bunnynet_stream_library.media.pullzone
 }
 
+output "stream_cdn_hostname" {
+  description = "The Stream library's CDN hostname (thumbnails, HLS); api-public-read's BUNNY_STREAM_CDN_HOST."
+  value       = "${data.bunnynet_pullzone.stream.name}.${data.bunnynet_pullzone.stream.cdn_domain}"
+}
+
 output "storage_zone_name" {
   description = "Also the S3 bucket name and access key ID."
   value       = bunnynet_storage_zone.images.name
@@ -22,6 +27,11 @@ output "storage_s3_hostname" {
 
 output "images_cdn_hostname" {
   value = "${bunnynet_pullzone.images.name}.${bunnynet_pullzone.images.cdn_domain}"
+}
+
+output "token_auth" {
+  description = "Which deliveries refuse unsigned links (D52)."
+  value       = var.token_auth
 }
 
 output "app_secrets" {

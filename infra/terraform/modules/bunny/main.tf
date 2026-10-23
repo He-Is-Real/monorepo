@@ -3,7 +3,8 @@
 #
 # STATE HOLDS SECRETS here, and only here (approved exception, see AGENTS.md):
 # the provider stores the library keys (api_key, api_key_readonly), the zone
-# passwords (password, password_readonly) and the pull zone's token_auth_key
+# passwords (password, password_readonly) and the pull zones' token_auth_key
+# (the images zone, and the Stream zone through data.bunnynet_pullzone.stream)
 # as computed attributes, with no write-only alternative. The state prefix is
 # readable by developers only (modules/bootstrap/state.tf).
 #
@@ -40,13 +41,16 @@ resource "bunnynet_stream_library" "media" {
   transcribing_smart_description_enabled = false
   content_tagging_enabled                = false
 
-  # Security: no domain yet (D7), so no referrer lists or token auth; revisit
-  # when the site has a domain. The embed player is how videos are watched, so
-  # direct play URLs are off and requests without a referrer are refused.
+  # Security: no domain yet (D7), so no referrer lists. The embed player is how
+  # videos are watched, so direct play URLs are off and requests without a
+  # referrer are refused. Token auth (D52): the player needs a signed embed URL
+  # (view token) and every CDN file, HLS and thumbnails included, a signed URL
+  # (CDN token). The player signs its own HLS requests. Both use the Stream
+  # pull zone's key (secrets.tf), which api-public-read signs with.
   direct_play_enabled                = false
   direct_url_file_access_blocked     = true
-  view_token_authentication_required = false
-  cdn_token_authentication_required  = false
+  view_token_authentication_required = var.token_auth.stream_embed
+  cdn_token_authentication_required  = var.token_auth.stream_cdn
   drm_mediacage_basic_enabled        = false
 
   # Player: Bunny's defaults without AirPlay (no Apple-specific technology).
@@ -57,6 +61,9 @@ resource "bunnynet_stream_library" "media" {
   ]
   player_watchtime_heatmap_enabled = false
   vast_tag_url                     = "" # no adverts
+  # 44 px touch targets (AGENTS.md): CSS in the player's <head> (Bunny's
+  # "Custom HTML" setting). CSS only, no script.
+  player_custom_head = trimspace(file("${path.module}/player-head.html"))
 }
 
 # --- Storage + CDN: images ----------------------------------------------------
@@ -102,6 +109,18 @@ resource "bunnynet_pullzone" "images" {
   block_root_path     = true # no directory-style requests
   block_post_requests = true
   block_no_referer    = false # no domain yet (D7): referrer rules come with it
-  token_auth_enabled  = false # images of published stories are public
   tls_support         = []    # TLS 1.2+ only
+
+  # D52: every image needs a signed, expiring URL (api-public-read signs those of
+  # published stories), so unpublished images aren't reachable. No IP binding:
+  # visitors' addresses change (mobile networks).
+  token_auth_enabled       = var.token_auth.images
+  token_auth_ip_validation = false
+}
+
+# The pull zone Bunny made for the Stream library (embed and HLS delivery,
+# thumbnails). Read for its hostname and token auth key only; the library
+# resource manages its settings.
+data "bunnynet_pullzone" "stream" {
+  id = bunnynet_stream_library.media.pullzone
 }

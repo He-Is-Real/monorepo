@@ -1,6 +1,7 @@
 // A stand-in api-public-read for the e2e tests: the dev seed's story, a story with long
-// unbroken words (overflow check), a long written story (the "Continue reading" preview), a 503
-// for "down" and 404 problems for anything else.
+// unbroken words (overflow check), a long written story (the "Continue reading" preview),
+// video, audio and image stories with stub media, a 503 for "down" and 404 problems for
+// anything else.
 import { createServer } from 'node:http';
 
 const port = Number(process.env.STUB_PORT ?? 4310);
@@ -60,7 +61,83 @@ stories['long-story'] = {
   body: LONG_PARAGRAPHS.join('\n\n'),
 };
 
+// Media (D52): signed-looking links to this stub, which plays the part of Bunny's player and
+// the images CDN. Shapes: a tall phone video, a wide image beyond the card clamp, and audio.
+const stub = `http://127.0.0.1:${port}`;
+const playback = (id) => `${stub}/embed/1/${id}?token=stub&expires=4102444800`;
+const mediaItem = (over) => ({
+  format: 'video',
+  thumbnailUrl: null,
+  width: null,
+  height: null,
+  captionsUrl: null,
+  durationSeconds: 12,
+  ...over,
+});
+stories['video-story'] = {
+  ...base,
+  id: 'video_story',
+  slug: 'video-story',
+  primaryFormat: 'video',
+  title: 'Test story: a tall video',
+  description: 'Placeholder video story (9:16).',
+  body: null,
+  media: [
+    mediaItem({
+      playbackUrl: playback('b8a77258-abfd-469d-ba63-9b89b62fcce6'),
+      width: 360,
+      height: 640,
+    }),
+  ],
+};
+stories['audio-story'] = {
+  ...base,
+  id: 'audio_story',
+  slug: 'audio-story',
+  primaryFormat: 'audio',
+  title: 'Test story: audio',
+  description: 'Placeholder audio story.',
+  body: null,
+  media: [
+    mediaItem({
+      format: 'audio',
+      playbackUrl: playback('5f801563-6d21-40cf-b76e-48712e3eeda6'),
+    }),
+  ],
+};
+stories['image-story'] = {
+  ...base,
+  id: 'image_story',
+  slug: 'image-story',
+  title: 'Test story: a wide image',
+  description: 'Placeholder written story with a 2.5:1 image.',
+  body: 'A short placeholder text under the image.',
+  image: {
+    url: `${stub}/images/wide.svg?token=HS256-stub&expires=4102444800`,
+    width: 1600,
+    height: 640,
+    alt: 'A wide test pattern (dummy image)',
+  },
+};
+
+const WIDE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="640" viewBox="0 0 1600 640">' +
+  '<rect width="1600" height="640" fill="#336"/><text x="40" y="340" font-size="64" fill="#fff">DEV TEST 2.5:1</text></svg>';
+// A stand-in for Bunny's player: its 44 px button proves nothing about the real one. The real
+// player's control sizes are checked on dev (apps/dev-seed/behavioural/media.behaviour.ts).
+const PLAYER_HTML =
+  '<!doctype html><title>Stub player</title><body style="margin:0;background:#000;color:#fff;font:16px sans-serif">' +
+  '<button style="min-width:44px;min-height:44px">Play</button></body>';
+
 createServer((req, res) => {
+  if (req.url?.startsWith('/embed/')) {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(PLAYER_HTML);
+  }
+  if (req.url?.startsWith('/images/wide.svg')) {
+    res.writeHead(200, { 'content-type': 'image/svg+xml' });
+    return res.end(WIDE_SVG);
+  }
   const match = /^\/v1\/stories\/([^/?]+)$/.exec(req.url ?? '');
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });

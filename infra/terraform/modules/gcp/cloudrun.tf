@@ -15,6 +15,16 @@ resource "google_secret_manager_secret_iam_member" "api_public_read" {
   member    = google_service_account.api_public_read.member
 }
 
+locals {
+  api_public_read_media_env = var.api_public_read_media == null ? {} : {
+    BUNNY_STREAM_LIBRARY_ID       = var.api_public_read_media.stream_library_id
+    BUNNY_STREAM_CDN_HOST         = var.api_public_read_media.stream_cdn_hostname
+    BUNNY_IMAGES_CDN_HOST         = var.api_public_read_media.images_cdn_hostname
+    BUNNY_STREAM_TOKEN_KEY_SECRET = var.api_public_read_media.stream_token_key_secret
+    BUNNY_IMAGES_TOKEN_KEY_SECRET = var.api_public_read_media.images_token_key_secret
+  }
+}
+
 resource "google_cloud_run_v2_service" "api_public_read" {
   project             = var.project_id
   name                = "api-public-read"
@@ -84,6 +94,15 @@ resource "google_cloud_run_v2_service" "api_public_read" {
       env {
         name  = "CORS_ALLOWED_ORIGINS"
         value = join(",", var.web_origins)
+      }
+      # D52: signs Bunny media links. Secret names, never values: the service reads
+      # the keys from Secret Manager at startup (bunny root grants the access).
+      dynamic "env" {
+        for_each = local.api_public_read_media_env
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
 
       # Readiness to receive traffic = the port is open. /health reports the

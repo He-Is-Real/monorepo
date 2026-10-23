@@ -313,9 +313,10 @@ encrypts its state and saved plans; CI gets `tf-bunny` only on `main`, in `tofu-
 `tofu-drift.yml`, never on a PR; and debug logs are refused. The account API key lives in Secret
 Manager (`bunny-account-api-key`, container from the `bootstrap` root) and reaches the provider
 through an `ephemeral` read, so it's in neither state nor plans. The keys the apps will need are
-copied into `bunny-stream-api-key` and `bunny-storage-password` with write-only versions; apps read
-them through `libs/secrets`. No service has access yet: grants come with the milestone that uses
-them (M2, api-user).
+copied into Secret Manager with write-only versions; apps read them through `libs/secrets`.
+`bunny-stream-api-key` and `bunny-storage-password` (uploads) have no reader yet: grants come with
+M2 (api-user). `bunny-stream-token-key` and `bunny-images-token-key` (D52) are read by
+api-public-read only (`signing_key_readers`, a grant on each secret made by this root).
 
 **The never-public guard.** Before every plan the root reads the IAM policies of the state bucket,
 the project, the `tofu` keyring and both keys, and every `bunny-*` secret, and refuses to plan if
@@ -328,7 +329,7 @@ branch. `tf.sh bunny-cli <args>` runs the bunny CLI with the account key in `BUN
 that one process, so you never need `bunny login`, a profile or a `.env` file.
 
 **In CI (public logs).** Bunny jobs mask every `bunny-*` secret before any tofu step, and the five
-keys from state right after `init` (`tf.sh bunny-mask`). Masking is a backstop (it misses encoded
+keys from state (the five sensitive attributes and the Stream pull zone's key) right after `init` (`tf.sh bunny-mask`). Masking is a backstop (it misses encoded
 or split values), so tofu's own output never goes to the public log either: it goes to a private
 raw log, and the summary gets only `tf.sh bunny plan-summary` (addresses, actions, a count), an exit
 code and the log's name. No Bunny plan is ever an artifact.
@@ -373,11 +374,36 @@ S3-compatible (create-time only). Bunny documents presigned URLs (S3 API in publ
 file (then delete it), including whether signed `Content-Length`/`Content-Type` are enforced.
 If not, the options are in #39 ("Questions for Joel").
 
-**M2 prerequisite, before the first draft upload:** token authentication on image delivery (pull
-zone `token_auth_enabled`, signed URLs from api-user) and on Stream playback and embeds (library
-`view_token_authentication_required` and `cdn_token_authentication_required`). Drafts are Art 9
-data and Bunny URLs are otherwise public to anyone who has them. Neither needs a custom domain.
-Until then the dev library and zone hold no testimonies.
+**Media token auth (D52, M1 step 5).** Bunny refuses every media link without a valid `token`
+and `expires` (403): the Stream player (`view_token_authentication_required`), Stream's CDN files,
+HLS and thumbnails included (`cdn_token_authentication_required`; the player signs its own HLS
+requests), and the images pull zone (`token_auth_enabled`, no IP binding). Unpublished media is
+therefore unreachable: nobody issues links for it. The Stream key is the Stream pull zone's token
+auth key (read with `data.bunnynet_pullzone.stream`; it signs both embed and CDN tokens); the
+images key is the `images` zone's. api-public-read signs links for published stories, valid 6–7
+hours (`apps/api-public-read/src/app/media`). Each switch is in `token_auth` (live root), so one
+can be turned off on its own if Bunny's player ever stops signing its HLS requests. In M2, api-user
+signs short-lived links for the person's own drafts with the same keys.
+
+Rollout, in order (a revision that can't read its keys doesn't start):
+
+1. Merge the PR. `tofu-apply.yml` wave 1 applies `bunny` (token auth on, the two key secrets and
+   api-public-read's access) and `gcp` (the new images; signing still off, so media URLs stay
+   `null` as before). Turning token auth on breaks nothing: no page used media links yet.
+2. A follow-up PR sets `api_public_read_media` in `live/dev/gcp/main.tf` (values from
+   `tf.sh bunny output bunny`: `stream_library_id`, `stream_cdn_hostname`, `images_cdn_hostname`).
+   Its gcp apply restarts api-public-read with signing on.
+3. Run "Dev behavioural tests": `media.behaviour.ts` checks signed links load and unsigned or
+   tampered ones get 403.
+
+The player's controls are made 44 × 44 px (AGENTS.md touch targets) by CSS in the library's
+custom head (`player_custom_head`, `modules/bunny/player-head.html`; plain CSS, no script, checked
+by the module's tftest). It targets the player's media-chrome element names, so a Bunny player
+update could undo it: the behavioural media checks measure the real player on a 320 px phone.
+
+Rotating a token key: reset it at Bunny, apply bunny (new secret version), then start a new
+api-public-read revision (keys are read at startup). Links signed with the old key stop working
+at once.
 
 **Cost:** Bunny bills at least $1 a month per account; dev usage (a few test files) stays under
 it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, free encoding.

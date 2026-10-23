@@ -1,0 +1,23 @@
+<style>
+  /* AGENTS.md: touch targets are at least 44 x 44 px, on 320 px phones too. The Bunny Player
+   (media-chrome) draws its controls at 34-38 px. Checked on dev by apps/dev-seed/behavioural
+   (media.behaviour.ts) on a 320 px phone. CSS only: no script runs from here. */
+  media-play-button,
+  media-mute-button,
+  media-fullscreen-button,
+  media-pip-button,
+  media-captions-button,
+  media-seek-forward-button,
+  media-seek-backward-button,
+  media-cast-button,
+  media-airplay-button,
+  bunny-settings-menu-button {
+    min-width: 44px !important;
+    width: 44px !important;
+    min-height: 44px !important;
+    flex: 0 0 44px !important;
+  }
+  bunny-media-time-range {
+    min-height: 44px !important;
+  }
+</style>

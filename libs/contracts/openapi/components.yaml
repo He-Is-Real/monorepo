@@ -377,16 +377,28 @@ components:
 
     MediaPlayback:
       type: object
-      description: Playback-safe media info (no internal storage keys).
+      description: |
+        Playback-safe media info (no internal storage keys). URLs are Bunny.net links signed with
+        token authentication (D52): Bunny refuses them without their `token` and `expires`, and after
+        `expires`. Public views sign only published stories; links last at least 6 hours, longer than
+        any cached response may be served. Never store them; fetch the story again for fresh ones.
       properties:
         format:
           type: string
           enum: [video, audio]
         playbackUrl:
           type: [string, 'null']
-          description: Bunny.net playback URL
+          format: uri
+          description: |
+            The Bunny Stream player for an iframe (video and audio):
+            `https://player.mediadelivery.net/embed/{libraryId}/{videoId}?token=…&expires=…`. Clients
+            may append player options (e.g. `autoplay=false`); the token covers only the video and
+            expiry. `null` when signing is off or the media has no video yet.
+          example: https://player.mediadelivery.net/embed/786537/b8a77258-abfd-469d-ba63-9b89b62fcce6?token=0f1e2d3c&expires=1792789200
         thumbnailUrl:
           type: [string, 'null']
+          format: uri
+          description: The video's thumbnail on Bunny's Stream CDN, signed (`token=HS256-…&expires=…`). `null` for audio, or when signing is off.
         width:
           type: [integer, 'null']
           minimum: 1
@@ -423,7 +435,10 @@ components:
       properties:
         url:
           type: [string, 'null']
-          description: Token-authenticated image URL (D52); `null` until token auth is built.
+          format: uri
+          description: |
+            The image on Bunny's `images` CDN, signed with token authentication (D52;
+            `token=HS256-…&expires=…`, at least 6 hours). `null` when signing is off.
         width:
           type: integer
           minimum: 1
