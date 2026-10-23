@@ -31,7 +31,7 @@ export function NavLinks({ className = '' }: { className?: string }) {
             <Link
               href={l.href}
               aria-current={isCurrent(pathname, l.href) ? 'page' : undefined}
-              className="relative inline-flex min-h-11 items-center text-sm font-medium text-secondary-text after:absolute after:inset-x-0 after:bottom-2 after:h-0.5 after:origin-left after:scale-x-0 after:bg-teal after:transition-transform hover:text-foreground hover:after:scale-x-100 aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100 motion-reduce:after:transition-none"
+              className="relative inline-flex min-h-11 min-w-11 items-center justify-center text-sm font-medium text-secondary-text after:absolute after:inset-x-0 after:bottom-2 after:h-0.5 after:origin-left after:scale-x-0 after:bg-teal after:transition-transform hover:text-foreground hover:after:scale-x-100 aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100 motion-reduce:after:transition-none"
             >
               {l.label}
             </Link>

@@ -146,6 +146,23 @@ describe('BrowseResults (D55: 2 automatic pages, then a button)', () => {
     expect(screen.getAllByRole('article')).toHaveLength(30);
   });
 
+  it('rebuilds the pages the URL asks for when Back restores an older render', async () => {
+    // Next's router cache can restore the first render (1 page) under a URL with pages=3.
+    window.history.replaceState(null, '', '/stories?tag=hope&pages=3');
+    loadMore
+      .mockResolvedValueOnce(page(15, 'c2'))
+      .mockResolvedValueOnce(page(30, 'c3'));
+    await act(async () => {
+      renderResults();
+    });
+    expect(loadMore).toHaveBeenNthCalledWith(1, filters, 'c1');
+    expect(loadMore).toHaveBeenNthCalledWith(2, filters, 'c2');
+    expect(screen.getAllByRole('article')).toHaveLength(45);
+    expect(
+      screen.getByRole('button', { name: 'Show more stories' }),
+    ).toBeTruthy();
+  });
+
   it('says it’s the end when there is nothing more', () => {
     renderResults(1, null);
     expect(screen.getByText('You’ve seen every story here.')).toBeTruthy();

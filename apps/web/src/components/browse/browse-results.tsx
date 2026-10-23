@@ -16,6 +16,7 @@ import {
   autoLoadsLeft,
   type BrowseFilters,
   browseHref,
+  parseBrowseSearch,
 } from '@/lib/browse-query';
 import {
   type CardLayout,
@@ -100,35 +101,59 @@ export function BrowseResults({
   const load = useCallback(
     async (byButton: boolean) => {
       const { cursor } = current.current;
-      if (busy.current || !cursor) return;
+      if (busy.current || !cursor) return false;
       busy.current = true;
       setStatus('loading');
       const result = await loadMoreStories(filters, cursor);
       busy.current = false;
       if (!result.ok) {
         setStatus('error');
-        return;
+        return false;
       }
       const prev = current.current;
       const next = layoutFor(result.page.data, startHeights(prev.heights));
       const pages = prev.pages + 1;
       focusFrom.current = byButton ? prev.cards.length : null;
-      setLoaded({
+      // The ref first, so a load straight after this one continues from here.
+      current.current = {
         cards: [...prev.cards, ...result.page.data],
         layouts: [...prev.layouts, ...next.cards],
         heights: next.heights,
         cursor: result.page.nextCursor,
         pages,
-      });
+      };
+      setLoaded(current.current);
       setStatus('idle');
       const n = result.page.data.length;
       setAnnouncement(
         n === 1 ? '1 more story loaded.' : `${n} more stories loaded.`,
       );
       window.history.replaceState(null, '', browseHref(filters, { pages }));
+      return true;
     },
     [filters, startHeights],
   );
+
+  // Back can restore an older render of this page from Next's router cache (the first page
+  // only) under a URL that says more pages were loaded: load the missing ones.
+  useEffect(() => {
+    const wanted = parseBrowseSearch({
+      pages:
+        new URLSearchParams(window.location.search).get('pages') ?? undefined,
+    }).pages;
+    let cancelled = false;
+    void (async () => {
+      while (
+        !cancelled &&
+        current.current.pages < wanted &&
+        current.current.cursor &&
+        (await load(false))
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [load]);
 
   const autoLeft = autoLoadsLeft(loaded.pages);
 

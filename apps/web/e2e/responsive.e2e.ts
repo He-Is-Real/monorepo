@@ -1,51 +1,9 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { expectNoHorizontalOverflow, expectTarget, shots } from './helpers';
 
 // Responsive everywhere (Joel, 0.9) and the walking-skeleton page: on every device in the
 // matrix and in both colour schemes, no horizontal scrolling, the key elements visible, touch
 // targets at least 44 px, and a screenshot of each page for review.
-
-const MIN_TARGET = 44;
-async function shots(
-  page: Page,
-  project: string,
-  scheme: string,
-  name: string,
-) {
-  // The full header in every screenshot: Clerk's sign-in button loads in the browser.
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-  await page.screenshot({
-    path: `test-output/e2e/screenshots/${project}/${scheme}-${name}.png`,
-    fullPage: true,
-  });
-}
-
-async function expectNoHorizontalOverflow(page: Page) {
-  // Compare with the device's width, not window.innerWidth: mobile browsers widen the layout
-  // viewport (zoom out) to fit content that overflows, which would hide the problem.
-  const deviceWidth = page.viewportSize()?.width ?? 0;
-  const { scrollWidth, innerWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-  }));
-  expect(innerWidth, 'the page zoomed out to fit overflowing content').toBe(
-    deviceWidth,
-  );
-  expect(scrollWidth, 'page is wider than the viewport').toBeLessThanOrEqual(
-    deviceWidth,
-  );
-}
-
-async function expectTarget(page: Page, locator: ReturnType<Page['locator']>) {
-  await expect(locator).toBeVisible();
-  const box = await locator.boundingBox();
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
-  expect(box?.width ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
-  // Fully inside the viewport horizontally.
-  const width = page.viewportSize()?.width ?? 0;
-  expect(
-    (box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= width,
-  ).toBe(true);
-}
 
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
@@ -74,14 +32,15 @@ for (const scheme of ['light', 'dark'] as const) {
       await expectTarget(page, page.getByRole('button', { name: /theme/i }));
       await expectTarget(page, page.getByRole('button', { name: 'Sign in' }));
       await expect(
-        page.getByRole('heading', { level: 1, name: 'He Is Real Today' }),
+        page.getByRole('heading', { level: 1, name: /Is God Real\?/ }),
       ).toBeVisible();
-      const story = page.getByRole('heading', {
-        level: 2,
-        name: 'Test story: the walking skeleton',
-      });
-      await expect(story).toBeVisible();
-      await expect(page.getByText('Nobody shared this story')).toBeVisible();
+      // FEATURED_STORY_SLUG's story is the first featured card.
+      await expect(
+        page
+          .getByRole('heading', { level: 3 })
+          .first()
+          .getByRole('link', { name: 'Test story: the walking skeleton' }),
+      ).toBeVisible();
       // D48: the stub reports relaxed consent checks, as dev will while it holds dummy data.
       await expect(
         page.getByRole('contentinfo').getByText('Consent checks relaxed (dev)'),
@@ -251,7 +210,7 @@ test('blocked storage (the localStorage getter throws) still renders the site an
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('/');
   await expect(
-    page.getByRole('heading', { level: 1, name: 'He Is Real Today' }),
+    page.getByRole('heading', { level: 1, name: /Is God Real\?/ }),
   ).toBeVisible();
   await expect(page.locator('html')).toHaveClass(/\bdark\b/); // the device's setting
   const toggle = page.getByRole('button', { name: /theme/i });

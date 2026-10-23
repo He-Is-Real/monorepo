@@ -26,7 +26,7 @@ function Breadcrumb({ story }: { story: PublicStory }) {
         <li>
           <Link
             href="/stories"
-            className="inline-flex min-h-11 items-center text-muted-foreground hover:text-foreground"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center text-muted-foreground hover:text-foreground"
           >
             Stories
           </Link>
@@ -36,7 +36,7 @@ function Breadcrumb({ story }: { story: PublicStory }) {
           <li>
             <Link
               href={`/stories?tag=${tag.slug}`}
-              className="inline-flex min-h-11 items-center text-muted-foreground hover:text-foreground"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center text-muted-foreground hover:text-foreground"
             >
               {tag.name}
             </Link>
@@ -136,7 +136,7 @@ export function StoryView({
     >
       <Breadcrumb story={story} />
       {written ? (
-        <header className="border-b border-border pb-10 text-center">
+        <header className="pb-8 text-center">
           {!story.image?.url && (
             <span
               aria-hidden="true"

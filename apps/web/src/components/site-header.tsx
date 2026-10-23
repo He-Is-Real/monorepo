@@ -22,7 +22,7 @@ export async function SiteHeader() {
       <div className="mx-auto flex max-w-site flex-wrap items-center gap-x-4 px-4 py-2 sm:px-10">
         <Link
           href="/"
-          className="inline-flex min-h-11 items-center gap-2 rounded-md text-foreground hover:text-foreground"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md text-foreground hover:text-foreground"
           aria-label="He Is Real Today, home"
         >
           <Logo size={36} />

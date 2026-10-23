@@ -121,7 +121,7 @@ export default async function Page() {
   return (
     <main id="main" className="flex-1">
       {/* Always dark, in both themes: the photograph is the page's one bold moment. */}
-      <section className="relative isolate flex min-h-[min(88svh,52rem)] items-center justify-center overflow-hidden bg-[#111113] px-4 py-24 text-center text-white">
+      <section className="relative isolate flex min-h-[min(88svh,52rem)] items-center justify-center overflow-hidden bg-[#111113] px-4 pt-20 pb-32 text-center text-white">
         <Image
           src={backdrop}
           alt=""
@@ -132,7 +132,12 @@ export default async function Page() {
         />
         <div
           aria-hidden="true"
-          className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_30%,rgb(78_155_160/0.08),transparent_60%),linear-gradient(180deg,rgb(17_17_19/0.15)_0%,rgb(17_17_19/0.55)_60%,var(--background)_100%)]"
+          className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_30%,rgb(78_155_160/0.08),transparent_60%),linear-gradient(180deg,rgb(17_17_19/0.15)_0%,rgb(17_17_19/0.6)_100%)]"
+        />
+        {/* The fade into the page stays below the content (pb-32), so text keeps its contrast. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 -z-10 h-24 bg-linear-to-b from-transparent to-background"
         />
         <div className="max-w-2xl">
           <Logo
