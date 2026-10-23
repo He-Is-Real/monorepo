@@ -444,6 +444,87 @@ DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever app
     LET $problem = fn::story::approval_problem($after);
     IF $problem != NONE { THROW $problem };
   };
+-- Joel, 2026-10-23: an approved story stays approved when its media stops being ready ('failed',
+-- back to 'processing', a size fact removed): "we need to ... get it loading again instead of
+-- approving again". While any item isn't ready the story is hidden: the same write deletes its
+-- publicStory row and sets mediaHidden. When the same media is ready again (Bunny re-encodes it;
+-- workflow or a system user sets processing back to 'ready' with its facts) the same write
+-- re-creates the row, with its first publishedAt and its slugHistory, and clears mediaHidden. No
+-- new approval. Only workflow and system users can cause either: the person's content is locked
+-- after submission and api-admin can't write media. auditLog records HideStory/RepublishStory.
+-- If the media differs from the row that was hidden (another bunnyVideoId, thumbnail or image
+-- path), it stays hidden: a moderator must review it (fn::story::hidden_by_media lists it with
+-- mediaChanged). Only a story that was public is hidden and restored.
+DEFINE FIELD OVERWRITE mediaHidden             ON story TYPE option<object>
+  PERMISSIONS FOR create, update NONE;                 -- this event only (and system users)
+DEFINE FIELD OVERWRITE mediaHidden.since       ON story TYPE datetime;
+DEFINE FIELD OVERWRITE mediaHidden.publishedAt ON story TYPE datetime;       -- kept for the row
+DEFINE FIELD OVERWRITE mediaHidden.slugHistory ON story TYPE array<string>;  -- kept for the row
+DEFINE FIELD OVERWRITE mediaHidden.identity    ON story TYPE string;         -- the hidden media
+-- Which media is shown: formats, Bunny ids and thumbnails, and the image's path. Works on a
+-- story or a publicStory row. The hide stores the identity of the row it deletes (what a
+-- moderator approved), never the story's: workflow may have swapped the media in that write.
+DEFINE FUNCTION OVERWRITE fn::story::media_identity($s: any) {
+  RETURN crypto::sha256(<string> {
+    media: ($s.media ?? []).map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath]),
+    image: $s.image.path
+  });
+};
+DEFINE EVENT OVERWRITE story_media_availability ON story
+  WHEN $event = 'UPDATE' AND $before.status = 'approved'
+  THEN {
+    LET $public = type::record('publicStory', record::id($after.id));
+    LET $service = IF $auth = NONE { 'migrator' }
+      ELSE IF $auth = service:api_admin { 'api-admin' } ELSE { 'workflow' };
+    IF $after.status != 'approved' {
+      -- Left approved (withdrawn, erasure's cascade aside): nothing is hidden any more.
+      IF $after.mediaHidden != NONE { UPDATE ONLY $after.id SET mediaHidden = NONE RETURN NONE };
+    } ELSE IF $after.mediaHidden = NONE AND fn::story::approval_problem($after) != NONE
+      AND record::exists($public) {
+      -- Only what is public gets hidden (and so restored): a story that wasn't public (consent
+      -- withdrawn) is never published by a media fix.
+      LET $row = (SELECT * FROM ONLY $public);
+      DELETE $public;
+      LET $s = (UPDATE ONLY $after.id SET mediaHidden = {
+        since: time::now(), publishedAt: $row.publishedAt, slugHistory: $row.slugHistory,
+        identity: fn::story::media_identity($row)
+      });
+      CREATE auditLog CONTENT {
+        service: $service, action: 'HideStory', entity: $s.id, storyVersion: $s.version,
+        fromStatus: 'approved', toStatus: 'approved', reason: 'media_unavailable'
+      };
+    } ELSE IF $after.mediaHidden != NONE AND fn::story::approval_problem($after) = NONE
+      AND $after.mediaHidden.identity = fn::story::media_identity($after) {
+      LET $h = $after.mediaHidden;
+      LET $s = (UPDATE ONLY $after.id SET mediaHidden = NONE);
+      -- Consent rules publishing (D17): withdrawn meanwhile, the story stays off the read model.
+      IF fn::consent::granted($s.submitter, ['special_category_religious', 'publish', 'age_18plus'])
+         AND !record::exists($public) {
+        CREATE $public CONTENT {
+          version: $s.version, slug: $s.slug, slugHistory: $h.slugHistory, title: $s.title,
+          description: $s.description, body: $s.body, bylineName: $s.bylineName,
+          primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, publishedAt: $h.publishedAt,
+          image: IF $s.image != NONE { { path: $s.image.path, width: $s.image.width,
+            height: $s.image.height, alt: $s.image.alt } },
+          media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
+            thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height })
+        } RETURN NONE;
+        CREATE auditLog CONTENT {
+          service: $service, action: 'RepublishStory', entity: $s.id, storyVersion: $s.version,
+          fromStatus: 'approved', toStatus: 'approved', reason: 'media_restored'
+        };
+      };
+    };
+  };
+-- For api-admin (someone chases Bunny): approved stories hidden because of their media, oldest
+-- first. problem = what's still not ready (NONE once ready); mediaChanged = the media differs from
+-- what was approved, so it needs a moderator rather than Bunny. Runs with the caller's permissions.
+DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
+  RETURN SELECT id, slug, title, primaryFormat, mediaHidden.since AS hiddenSince,
+      fn::story::approval_problem($this) AS problem,
+      mediaHidden.identity != fn::story::media_identity($this) AS mediaChanged
+    FROM story WHERE status = 'approved' AND mediaHidden != NONE ORDER BY hiddenSince ASC;
+};
 DEFINE EVENT OVERWRITE story_approval_consent ON story
   WHEN $event IN ['CREATE', 'UPDATE'] AND $after.status = 'approved' AND $before.status != 'approved'
    AND !fn::consent::granted($after.submitter, ['special_category_religious', 'publish', 'age_18plus'])
@@ -677,7 +758,9 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
   'AssignRole', 'LinkLegacyUser', 'SetFeaturedStories', 'CreateTag', 'UpdateTag', 'DeleteTag',
   'CreateDpaDraft', 'PublishDpa',
   -- workflow (M7)
-  'ProcessMedia'
+  'ProcessMedia',
+  -- the database itself (story_media_availability), in the writer's transaction
+  'HideStory', 'RepublishStory'
 ];
 DEFINE FIELD OVERWRITE actor      ON auditLog TYPE option<record<user>>;  -- NONE = system/job
 DEFINE FIELD OVERWRITE actorRole  ON auditLog TYPE option<string>         -- snapshot of the Clerk claim (D1)
@@ -694,7 +777,8 @@ DEFINE FIELD OVERWRITE dpaVersion ON auditLog TYPE option<record<dpaVersion>>;
 DEFINE FIELD OVERWRITE role       ON auditLog TYPE option<string>         -- AssignRole: the role given
   ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];
 DEFINE FIELD OVERWRITE reason     ON auditLog TYPE option<string>         -- a code, never free text
-  ASSERT $value = NONE OR $value IN ['account_deleted', 'consent_withdrawn', 'clerk_user_deleted'];  -- D39 erasure callers
+  ASSERT $value = NONE OR $value IN ['account_deleted', 'consent_withdrawn', 'clerk_user_deleted',  -- D39 erasure callers
+    'media_unavailable', 'media_restored'];                               -- Hide/RepublishStory
 DEFINE FIELD OVERWRITE createdAt  ON auditLog TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE INDEX OVERWRITE audit_entity ON auditLog FIELDS entity, createdAt;
 DEFINE EVENT OVERWRITE audit_append_only ON auditLog

@@ -151,7 +151,8 @@ record::id(id)).submitter = $u` and `DELETE moderationReview WHERE story.submitt
 9. **D38 audit.** `auditLog.payload` (`object FLEXIBLE`) is replaced by typed optional fields:
    `storyVersion`, `fromStatus`/`toStatus`, `consentType`, `dpaVersion` and `role`, plus `reason`,
    an enum of the three D39 erasure callers. `action` and `actorRole` are enums too. The
-   `action` list is the API plan's commands plus `LinkLegacyUser` and workflow's `ProcessMedia`.
+   `action` list is the API plan's commands plus `LinkLegacyUser` and workflow's `ProcessMedia`
+   (and, since item 27, the database's own `HideStory` and `RepublishStory`).
    SCHEMAFULL **rejects** unknown fields (an error, not a silent drop), so a payload can't be
    smuggled in.
 
@@ -326,8 +327,7 @@ retried`, on both RocksDB and the in-memory engine.
     ApproveStory must copy the image's `path`, `width`, `height` and `alt` only
     (`integration/support/world.ts` `approve()`). Rows approved before this aren't re-checked
     (no data script): dev's only story is 0003's written story without media or image. If a later
-    check marks an approved item `failed`, the read model can't be re-synced until it's fixed or
-    unpublished; unpublishing on `failed` is M7's job.
+    check marks an approved item `failed`, item 27 hides the story until it's ready again.
 26. **A3 and the POC's minimum: text limits.** `story.body` is at most 10,000 characters (was
     20,000; the POC's limit). A written story needs at least 200 characters of trimmed text from
     submit on (`pending`, `in_review`, `approved`) in `fn::story::shape_problem`, so a short draft
@@ -338,6 +338,27 @@ retried`, on both RocksDB and the in-memory engine.
     `string::trim` already strips every other Unicode space (and U+0085, which JavaScript keeps). `isStoryTextTooShortError` lets
     api-user's SubmitStory (M2) answer `400` `code: story_text_too_short`. Dev's 0003 story has
     222 characters, so no data script is needed.
+
+27. **An approved story is hidden, not reverted, while its media isn't ready (Joel,
+    2026-10-23).** Event `story_media_availability` runs on every update of an approved story.
+    If the story stays `approved`, has a `publicStory` row, and `fn::story::approval_problem`
+    finds a problem (an item `failed` or back to `processing`, a size or duration removed), the
+    same write deletes the row and sets `story.mediaHidden`: `since`, the row's `publishedAt` and
+    `slugHistory`, and `identity`, a hash of the **deleted row's** media (formats, Bunny ids,
+    thumbnails, image path). When the problem is gone and the story's media has that identity,
+    the same write re-creates the row from the story (`publicStory_mirrors_story` checks it as
+    on approval) and clears `mediaHidden`. The status never changes; no new approval is needed.
+    **The identity comes from the public row, not the story** (security review): workflow can
+    write media, so it could swap the video in the failing write; the swap then never matches.
+    Different media stays hidden for a moderator. A story that wasn't public (consent withdrawn,
+    D17) is never hidden, so a media fix never publishes it. Withdrawn consent at restore time
+    keeps it off too. Leaving `approved` clears `mediaHidden`. `auditLog` gets `HideStory` /
+    `RepublishStory` (no actor; reason `media_unavailable` / `media_restored`). `mediaHidden` is
+    `PERMISSIONS FOR create, update NONE`: a person's value is dropped, even on create; only the
+    event (events run elevated) and system users write it. Only workflow and system users can
+    trigger it: the person's content is locked after submission and api-admin can't write
+    media. `fn::story::hidden_by_media()` lists hidden approved stories for api-admin (it runs
+    with the caller's permissions). Runbook: [media-runbook.md](media-runbook.md).
 
 ### M1 step 4 (D49 dev-seed login)
 
