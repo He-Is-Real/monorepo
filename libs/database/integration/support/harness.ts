@@ -281,6 +281,8 @@ export class TestDatabase {
       services: Record<string, string>;
     },
     expected?: string,
+    /** system-users.json: other system users (D49: dev_seed in dev) and their passwords. */
+    extraUsers?: Record<string, string>,
   ): Promise<{ ready: boolean; output: string }> {
     const dir = await mkdtemp(join(tmpdir(), 'identity-check-'));
     try {
@@ -290,6 +292,11 @@ export class TestDatabase {
       );
       if (expected)
         await writeFile(join(dir, 'identity-hash'), `${expected}\n`);
+      if (extraUsers)
+        await writeFile(
+          join(dir, 'system-users.json'),
+          JSON.stringify(extraUsers),
+        );
       return await new Promise((resolve) => {
         execFile(
           'python3',
@@ -303,6 +310,7 @@ export class TestDatabase {
               SURREAL_DATABASE: this.database,
               IDENTITY_CREDENTIALS: join(dir, 'credentials.json'),
               IDENTITY_EXPECTED_FILE: join(dir, 'identity-hash'),
+              IDENTITY_EXTRA_USERS: join(dir, 'system-users.json'),
             },
           },
           (error, stdout, stderr) =>

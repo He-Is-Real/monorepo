@@ -113,11 +113,16 @@ module "gcp" {
     "https://web-jbxp6odnsa-nw.a.run.app",
     "https://web-236063168938.europe-west2.run.app",
   ]
-  web_featured_story_slug = "test-story-walking-skeleton" # seed 0003, dev only
+  web_featured_story_slug = "test-story-walking-skeleton" # the dev-seed dataset's (D47), dev only
   web_noindex             = true
   # The Clerk dev instance (D7: no production instance without our own domain). Public.
   clerk_publishable_key   = "pk_test_c3VwZXJiLW1pbmstODk2Ny5jbGVyay5hY2NvdW50cy5kZXYk"
   run_deletion_protection = var.run_deletion_protection
+
+  # D49/D50: the dev-seed Job (dev only) and who may start it. try(): until bootstrap is applied
+  # with ci-dev-seeder, the Job exists but no CI identity may start it.
+  dev_seed            = true
+  ci_dev_seeder_email = try(local.bootstrap.ci_dev_seeder_email, "")
 }
 
 # --- Adopt the SurrealDB secrets created by hand on 2026-09-27 ---------------

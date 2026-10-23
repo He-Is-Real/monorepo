@@ -419,7 +419,7 @@ jobs:
       # Built once: the apply untars this exact output (tar keeps .next, symlinks and modes,
       # which upload-artifact would drop) and checks each tag against the plan.
       - run: |
-          pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow web
+          pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow web dev-seed
           tar -cpzf "$RUNNER_TEMP/images-dist.tgz" apps/{api-public-read,api-user,api-admin,workflow,web}/dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -536,7 +536,7 @@ jobs:
           tools/scripts/tf.sh images init -input=false
           gcloud storage cp --no-user-output-enabled "$OBJECT" "$RUNNER_TEMP/tfplan"
           planned="$(tools/scripts/tf.sh images show -json "$RUNNER_TEMP/tfplan")"
-          for svc in api-public-read api-user api-admin workflow web; do
+          for svc in api-public-read api-user api-admin workflow web dev-seed; do
             want="$(jq -r --arg a "terraform_data.image[\"$svc\"]" \
               '.resource_changes[] | select(.address == $a) | .change.after.triggers_replace.tag' <<< "$planned")"
             got="$(tools/scripts/image-tag.sh "$svc")"

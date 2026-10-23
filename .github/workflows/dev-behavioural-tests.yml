@@ -1,0 +1,46 @@
+name: Dev behavioural tests
+
+# D50: reset dev to the D47 dummy dataset, then test the deployed dev site and api-public-read
+# against it (apps/dev-seed/behavioural). Actions → "Dev behavioural tests" → Run workflow on
+# main. One run at a time, shared with reset-dev-data.yml, so runs can't collide.
+# The tests upload nothing yet; when M2's upload tests arrive, they label their media as test
+# data and a final step (plus a weekly sweep) deletes it (D50).
+
+on:
+  workflow_dispatch:
+
+# Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
+permissions: {}
+
+concurrency:
+  group: dev-data
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # keyless Google sign-in as ci-dev-seeder (this job only)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/dev-seed
+
+  test:
+    needs: reset
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # No Google identity: the tests use the public dev URLs only.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm nx run dev-seed:behavioural

@@ -11,7 +11,7 @@ variables {
   config_map = {
     apiVersion = "v1", kind = "ConfigMap"
     metadata   = { name = "surrealdb-init-template", namespace = "database" }
-    data       = { "init.surql" = "BEGIN TRANSACTION;\nDEFINE USER OVERWRITE migrator ON DATABASE PASSWORD {{ .migrator | toJson }} ROLES OWNER;\n-- @identity-marker\nCOMMIT TRANSACTION;\n" }
+    data       = { "init.surql" = "BEGIN TRANSACTION;\nDEFINE USER OVERWRITE migrator ON DATABASE PASSWORD {{ .migrator | toJson }} ROLES OWNER;\n-- @dev-seed-login\n-- @identity-marker\nCOMMIT TRANSACTION;\n" }
   }
   external_secret = {
     apiVersion = "external-secrets.io/v1", kind = "ExternalSecret"
@@ -57,6 +57,13 @@ run "base" {
   assert {
     condition     = output.external_secret.spec.data[0].remoteRef.key == "surreal-migrator-password"
     error_message = "Secret references pass through unchanged."
+  }
+  assert {
+    condition = (strcontains(output.config_map.data["init.surql"], "\nREMOVE USER IF EXISTS dev_seed ON DATABASE;\n")
+      && !strcontains(output.config_map.data["init.surql"], "DEFINE USER OVERWRITE dev_seed")
+      && length(output.external_secret.spec.data) == 1
+    && !contains(keys(output.external_secret.spec.target.template.data), "system-users.json"))
+    error_message = "D49: without dev_seed_login the init removes dev_seed, and no dev-seed password goes in."
   }
 }
 
@@ -114,6 +121,61 @@ run "no_sentinel" {
       apiVersion = "v1", kind = "ConfigMap"
       metadata   = { name = "surrealdb-init-template", namespace = "database" }
       data       = { "init.surql" = "DEFINE USER OVERWRITE migrator ON DATABASE PASSWORD {{ .migrator | toJson }} ROLES OWNER;\n" }
+    }
+  }
+  expect_failures = [output.config_map]
+}
+
+# D49: the dev-seed Job's system user, in dev only.
+run "dev_seed_login" {
+  command = plan
+  variables {
+    base_hash      = run.base.hash
+    environment    = "dev"
+    dev_seed_login = true
+  }
+  assert {
+    condition = (strcontains(output.config_map.data["init.surql"],
+      "\nDEFINE USER OVERWRITE dev_seed ON DATABASE PASSWORD {{ .dev_seed | toJson }} ROLES EDITOR")
+    && !strcontains(output.config_map.data["init.surql"], "REMOVE USER IF EXISTS dev_seed"))
+    error_message = "The init defines dev_seed as an EDITOR, with its password from the Secret."
+  }
+  assert {
+    condition = (output.external_secret.spec.data[1].secretKey == "dev_seed"
+      && output.external_secret.spec.data[1].remoteRef.key == "surreal-dev-seed-password"
+    && output.external_secret.spec.target.template.data["system-users.json"] == "{\"dev_seed\": {{ .dev_seed | toJson }}}")
+    error_message = "The Secret gets the dev-seed password, and the sidecar expects the user."
+  }
+  assert {
+    condition     = output.hash != var.base_hash
+    error_message = "Turning the login on or off restarts SurrealDB with the new init."
+  }
+}
+
+run "dev_seed_login_refused_outside_dev" {
+  command = plan
+  variables {
+    environment    = "prod"
+    dev_seed_login = true
+  }
+  expect_failures = [var.dev_seed_login]
+}
+
+run "dev_seed_login_refused_without_environment" {
+  command = plan
+  variables {
+    dev_seed_login = true
+  }
+  expect_failures = [var.dev_seed_login]
+}
+
+run "no_dev_seed_sentinel" {
+  command = plan
+  variables {
+    config_map = {
+      apiVersion = "v1", kind = "ConfigMap"
+      metadata   = { name = "surrealdb-init-template", namespace = "database" }
+      data       = { "init.surql" = "BEGIN TRANSACTION;\n-- @identity-marker\nCOMMIT TRANSACTION;\n" }
     }
   }
   expect_failures = [output.config_map]

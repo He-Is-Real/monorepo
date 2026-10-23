@@ -35,6 +35,11 @@ output "ci_snapshot_pusher_email" {
   value = google_service_account.ci_snapshot_pusher.email
 }
 
+output "ci_dev_seeder_email" {
+  description = "D50: starts the dev-seed Job from the Reset dev data workflow (granted by the gcp root)."
+  value       = google_service_account.ci_dev_seeder.email
+}
+
 output "bunny_account_api_key_secret" {
   description = "Secret Manager secret holding the Bunny.net account API key (value added by a developer; read by live/<env>/bunny)."
   value       = google_secret_manager_secret.bunny_account_api_key.secret_id

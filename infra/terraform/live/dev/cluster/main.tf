@@ -93,12 +93,12 @@ variable "clerk_jwt_public_key" {
 
 # D48: consent checks relaxed for dummy data. Declared only in this root: no other root may
 # declare it, and modules/cluster and modules/db-migration refuse it anywhere but dev (as does
-# the database). Off until the dev-seed Job loads dummy data (M1 step 4). Real stories (D46)
-# need it gone from every environment that holds real data.
+# the database). On since M1 step 4: the dev-seed Job's dummy stories have no consent records.
+# Real stories (D46) need it gone from every environment that holds real data.
 variable "dev_consent_relaxed" {
   description = "D48: relax consent checks in dev for dummy data (the dev footer and api-user's startup log say so). Dev only."
   type        = bool
-  default     = false
+  default     = true
   nullable    = false
 }
 
@@ -119,10 +119,12 @@ module "cluster" {
   schema_dir           = "${path.root}/../../../../../libs/database/schema"
   dpa_dir              = "${path.root}/../../../../../libs/legal/dpa"
   clerk_jwt_public_key = var.clerk_jwt_public_key
-  # M0 0.9: the one obviously fake story the walking-skeleton page shows. Dev only.
-  seed_dev_story = true
-  # D48: off by default; see the variable.
+  # D48: on in dev; see the variable.
   dev_consent_relaxed = var.dev_consent_relaxed
+  # D49: the dev-seed Job's own system user (password from the gcp root's dev_seed). Dev only:
+  # modules/cluster and modules/db-identity refuse it anywhere else. It replaces data script
+  # 0003's walking-skeleton story (seed_dev_story, retired): the Job loads the D47 dataset.
+  dev_seed_login = true
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

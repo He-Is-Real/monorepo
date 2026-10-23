@@ -160,3 +160,20 @@ variable "backup_retention_days" {
   type        = number
   default     = 30
 }
+
+variable "dev_seed" {
+  description = "D49: the dev-seed Cloud Run Job that resets dev to the D47 dummy dataset, its service account and its database password (surreal-dev-seed-password; the cluster root's dev_seed_login creates the user). Dev only: refused unless the project is heisreal-dev."
+  type        = bool
+  default     = false
+  nullable    = false
+  validation {
+    condition     = !var.dev_seed || var.project_id == "heisreal-dev"
+    error_message = "dev_seed (D49) can only be set in dev (project heisreal-dev)."
+  }
+}
+
+variable "ci_dev_seeder_email" {
+  description = "D50: the CI identity (bootstrap root, ci-dev-seeder) allowed to start the dev-seed Job and watch its executions. Empty: none yet (bootstrap not applied)."
+  type        = string
+  default     = ""
+}

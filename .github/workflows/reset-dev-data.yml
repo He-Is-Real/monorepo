@@ -1,0 +1,28 @@
+name: Reset dev data
+
+# D50: one click (Actions → "Reset dev data" → Run workflow on main) resets the dev database to the
+# D47 dummy dataset: it starts the dev-seed Cloud Run Job (D49) and waits for it, about a minute.
+# No approval: it only touches dummy data in dev. Only main may run it (ci-dev-seeder's gate,
+# modules/bootstrap/dev_seed_gate.cel.tftpl); on any other branch the sign-in is refused.
+
+on:
+  workflow_dispatch:
+
+# Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
+permissions: {}
+
+# One reset or test run at a time, shared with dev-behavioural-tests.yml, never cancelled.
+concurrency:
+  group: dev-data
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # the local action
+      id-token: write # keyless Google sign-in as ci-dev-seeder
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/dev-seed

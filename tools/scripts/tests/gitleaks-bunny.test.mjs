@@ -104,6 +104,16 @@ test('ignores UUIDs without Bunny context', () => {
   assert.equal(scan('a.yaml', `id: ${U}\nother: ${L}\n`).status, 0);
 });
 
+// apps/dev-seed/src/app/bunny-media.json records Bunny video ids (public GUIDs, not keys) under
+// `videoId`, so the record never trips the rule and nothing needs an allowlist.
+test('ignores the dev-seed media record’s video ids', () => {
+  const record = `{\n  "libraryId": "123",\n  "clips": {\n    "clip-01": {\n      "videoId": "${U}",\n      "thumbnailPath": "${U}/thumbnail.jpg"\n    }\n  }\n}\n`;
+  assert.equal(
+    scan('apps/dev-seed/src/app/bunny-media.json', record).status,
+    0,
+  );
+});
+
 test('ignores package-lock integrity lines', () => {
   const integrity = `"integrity": "sha512-${randomBytes(48).toString('base64')}"`;
   assert.equal(scan('package-lock.json', `{ ${integrity} }\n`).status, 0);

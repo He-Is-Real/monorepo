@@ -40,6 +40,7 @@ Only the in-cluster Jobs are system users. Each identity has its own Secret Mana
 | `service:workflow`        | service login      | `surreal-workflow-password`        | workflow (M7)                         |
 | `backup`                  | system user VIEWER | `surreal-backup-password`          | backup CronJob                        |
 | `migrator`                | system user OWNER  | `surreal-migrator-password`        | migrate Job only                      |
+| `dev_seed` (dev only)     | system user EDITOR | `surreal-dev-seed-password`        | dev-seed Cloud Run Job (D49)          |
 | `root`                    | root OWNER         | `surreal-root-password`            | people only (restore drill, rotation) |
 
 **The init runs inside SurrealDB, at every start** (`surreal start --import-file`, from the
@@ -48,6 +49,14 @@ per-service system users (`api_read`, `api_write`, `api_admin`, `workflow`: an E
 `REMOVE EVENT`), and writes each service's argon2 hash with `crypto::argon2::generate`, so only
 the hash is stored. The plaintext stays in that Secret (rendered in-cluster by ESO): never in
 OpenTofu state, the repo, the migration bundle or logs.
+
+**`dev_seed` (D49), dev only.** With `dev_seed_login` (OpenTofu, `live/dev/cluster`; refused by
+`modules/cluster` and `modules/db-identity` outside dev) the init's `-- @dev-seed-login` line
+becomes `DEFINE USER OVERWRITE dev_seed … ROLES EDITOR`, its password goes into the init Secret,
+and the identity check and the migrate Job expect it (`system-users.json`,
+`MIGRATE_EXPECT_USERS`). Without it the line is `REMOVE USER IF EXISTS dev_seed`. It's the one
+EDITOR system user: acceptable because it exists only in dev, which holds dummy data, and every
+migration re-applies the full schema. The dev-seed Job (`apps/dev-seed`) uses it to reset dev.
 
 Why at startup and not a Job: on 3.2.4, removing a user **doesn't end its open sessions** (an
 EDITOR session kept reading `PERMISSIONS NONE` tables; pinned by a test). A restart does, and the
@@ -261,12 +270,15 @@ records it in `_migration` with a checksum. Add tests in `libs/database/integrat
 a person session. Never a private key (the variable refuses one). After a Clerk key rotation,
 update it here and in the services' `CLERK_JWT_PUBLIC_KEY`, then migrate.
 
-**Dev story** (task 0.9): `seed_dev_story` (OpenTofu, true only in `live/dev/cluster`;
+**Dev story** (task 0.9, retired in M1 step 4): `seed_dev_story` (`modules/db-migration`;
 `--seed-dev-story` for `local-migration.mjs`) makes data script 0003 publish one obviously fake story.
-Off, the script records itself as applied and writes nothing, so it can't be turned on later.
+Off, the script records itself as applied and writes nothing, so it can't be turned on later. Dev
+no longer sets it (`modules/cluster` doesn't pass it): the dev-seed Job (D49, `apps/dev-seed`)
+loads the dummy data and its reset deletes 0003's story. 0003's user, consent rows and fixture DPA
+stay (the ledger is append-only, the DPA immutable); the script stays because dev's ledger lists it.
 
 **Relaxed consent in dev** (D48): `dev_consent_relaxed` (OpenTofu, declared only in
-`live/dev/cluster`, default false) for dummy data. The runner writes it, with the environment
+`live/dev/cluster`; on in dev since M1 step 4) for dummy data. The runner writes it, with the environment
 (from the GCP project), to `_setting:consent`, and `fn::consent::granted` (every consent check,
 including libs/consent's guard) then answers yes for any person. `modules/cluster` and
 `modules/db-migration` refuse it outside dev, and so does the database (`_setting_dev_only`).

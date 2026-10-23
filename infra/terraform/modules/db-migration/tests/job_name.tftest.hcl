@@ -203,3 +203,45 @@ run "consent_relaxed_refused_without_environment" {
   }
   expect_failures = [var.dev_consent_relaxed]
 }
+
+# D49: the Job waits for exactly the system users the init creates, dev_seed included in dev.
+run "extra_system_users" {
+  command = plan
+  variables {
+    base_job_name      = run.a.job_name
+    extra_system_users = ["dev_seed"]
+    job_template = {
+      apiVersion = "batch/v1"
+      kind       = "Job"
+      metadata   = { name = "surrealdb-migrate", namespace = "database", labels = { app = "x" } }
+      spec = {
+        template = {
+          spec = {
+            containers = [{
+              name = "migrate", image = "google/cloud-sdk:1"
+              env  = [{ name = "MIGRATE_EXPECT_USERS", value = "backup,migrator" }, { name = "OTHER", value = "backup" }]
+            }]
+            volumes = [{ name = "migration", configMap = { name = "surrealdb-migration" } }]
+          }
+        }
+      }
+    }
+  }
+  assert {
+    condition = (output.job.spec.template.spec.containers[0].env[0].value == "backup,dev_seed,migrator"
+    && output.job.spec.template.spec.containers[0].env[1].value == "backup")
+    error_message = "MIGRATE_EXPECT_USERS gains dev_seed (sorted); nothing else changes."
+  }
+  assert {
+    condition     = output.job_name != var.base_job_name
+    error_message = "A different user set is a different Job."
+  }
+}
+
+run "extra_system_users_refused" {
+  command = plan
+  variables {
+    extra_system_users = ["migrator"]
+  }
+  expect_failures = [var.extra_system_users]
+}
