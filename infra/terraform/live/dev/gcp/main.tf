@@ -106,15 +106,14 @@ module "gcp" {
   # stay capped at 2 instances and scale to zero (budget, decision 10).
   api_public_read_public   = true
   api_public_read_invokers = []
-  # D52: media signing. Off (null) until the bunny root has applied its token auth keys and
-  # api-public-read's access to them; then set it in its own PR (infra/terraform/README.md,
-  # "Media token auth"). Values: `tf.sh bunny output bunny`.
-  api_public_read_media = null
-  # api_public_read_media = {
-  #   stream_library_id   = "786537"
-  #   stream_cdn_hostname = "vz-da4dce15-a49.b-cdn.net"
-  #   images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
-  # }
+  # D52: media signing, on since the bunny root applied its token auth keys and
+  # api-public-read's access to them (#63; infra/terraform/README.md, "Media token auth").
+  # Values: `tf.sh bunny output bunny`.
+  api_public_read_media = {
+    stream_library_id   = "786537"
+    stream_cdn_hostname = "vz-da4dce15-a49.b-cdn.net"
+    images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
+  }
   web_public   = true
   web_invokers = []
   # web's two generated URLs (project number and hash forms); CORS on the APIs (D31).
