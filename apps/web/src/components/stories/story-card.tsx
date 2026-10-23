@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import type { StorySummary } from '@/lib/browse';
+import type { CardStory } from '@/lib/story-summary';
 import { cardAspect } from '@/lib/shape';
 
 // A story's card (browse, home, related). Its parts and sizes mirror lib/masonry.ts, which
@@ -34,7 +34,7 @@ function placeholderFor(id: string) {
   return PLACEHOLDERS[hash % PLACEHOLDERS.length];
 }
 
-export function cardLabel(story: StorySummary): string {
+export function cardLabel(story: CardStory): string {
   if (story.primaryFormat === 'written')
     return `Written · ${readingMinutes(story.textLength)} min read`;
   const kind = story.primaryFormat === 'video' ? 'Video' : 'Audio';
@@ -43,7 +43,7 @@ export function cardLabel(story: StorySummary): string {
     : kind;
 }
 
-function mediaOf(story: StorySummary, uniform: boolean) {
+function mediaOf(story: CardStory, uniform: boolean) {
   const { primaryFormat: format, image } = story;
   if (format === 'video')
     return {
@@ -69,7 +69,7 @@ export function StoryCard({
   headingLevel = 3,
   eager = false,
 }: {
-  story: StorySummary;
+  story: CardStory;
   /** Home: every card's media in the same 16:10 box, cropped. */
   uniform?: boolean;
   headingLevel?: 2 | 3;
