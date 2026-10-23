@@ -69,7 +69,9 @@ console.log(JSON.stringify({ argv, env: pick }));
 `,
 );
 
-// gcloud: logs every call; ADC succeeds unless STUB_NO_ADC; secrets list/access are canned.
+// gcloud: logs every call; ADC succeeds unless STUB_NO_ADC, and impersonating through ADC (flag
+// or CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT, as real gcloud does) fails if STUB_NO_IMPERSONATION;
+// secrets list/access are canned.
 stub(
   'gcloud',
   `
@@ -80,6 +82,9 @@ if (env.STUB_GCLOUD_LOG) fs.appendFileSync(env.STUB_GCLOUD_LOG, JSON.stringify(a
 const joined = argv.join(' ');
 if (joined.startsWith('auth application-default print-access-token')) {
   if (env.STUB_NO_ADC) { console.error('no credentials'); process.exit(1); }
+  const as = argv.some((a) => a.startsWith('--impersonate-service-account')) ||
+    env.CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT;
+  if (as && env.STUB_NO_IMPERSONATION) { console.error('Permission denied'); process.exit(1); }
   console.log('ya29.token');
   process.exit(0);
 }
@@ -270,6 +275,29 @@ test('no ADC refused locally', () => {
   const result = run(['gcp', 'plan'], { STUB_NO_ADC: '1' });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /gcloud auth login --update-adc/);
+});
+
+test('failed impersonation is not reported as missing ADC', () => {
+  const result = run(['bunny', 'plan'], { STUB_NO_IMPERSONATION: '1' });
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stderr, /Application Default Credentials/);
+  assert.match(result.stderr, new RegExp(`couldn't impersonate ${tfBunny}`));
+  assert.match(result.stderr, /bootstrap/);
+  assert.match(result.stderr, /TF_SH_IDENTITY=self/);
+  assert.ok(!result.stdout.includes('argv'), 'tofu must not run');
+});
+
+test('own credentials skip the impersonation check', () => {
+  const result = run(['bunny', 'plan'], {
+    TF_SH_IDENTITY: 'self',
+    STUB_NO_IMPERSONATION: '1',
+  });
+  tofuCall(result);
+  assert.ok(
+    !result.gcloudCalls.some((c) =>
+      c.some((a) => a.startsWith('--impersonate-service-account')),
+    ),
+  );
 });
 
 test('bunny refuses state pull and json', () => {
