@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { StoryTag } from '@/lib/browse';
 import { type BrowseFilters, browseHref, toggleTag } from '@/lib/browse-query';
 
-// Every tag from GET /v1/tags (hiding tags with no published stories waits for a decision).
+// The tags from GET /v1/tags: only tags some published story uses (D63).
 // Each is a link that adds or removes it (a story must have all selected tags); "All" clears
 // them. Theme tags come first; the faith-journey and feelings tags sit behind "More tags".
 

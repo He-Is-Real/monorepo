@@ -266,9 +266,8 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
         )}
         {status === 'idle' && loaded.cursor && autoLeft === 0 && (
           <>
-            <p className="text-secondary-text">
-              You’ve seen {loaded.cards.length} stories.
-            </p>
+            {/* D62: no story counts anywhere, not even of what has loaded. */}
+            <p className="text-secondary-text">There are more stories.</p>
             <Button
               variant="outline"
               className="min-h-11 px-6"

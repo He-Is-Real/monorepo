@@ -34,8 +34,13 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(
         page.getByRole('link', { name: 'Healing', exact: true }),
       ).toBeVisible();
+      // No made-up figures and no photograph until they're confirmed (2026-10-24, pending Joel).
+      await expect(page.getByText('Countries reached')).toHaveCount(0);
       await expect(
-        page.getByText('Placeholder figures until launch.'),
+        page.locator('main > section').first().locator('img'),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole('heading', { name: 'Support this work' }),
       ).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
@@ -153,7 +158,7 @@ test.describe('behaviour', () => {
     await expect(cards(page)).toHaveCount(45);
     const more = page.getByRole('button', { name: 'Show more stories' });
     await expect(more).toBeVisible();
-    await expect(page.getByText('You’ve seen 45 stories.')).toBeVisible();
+    await expect(page.getByText('There are more stories.')).toBeVisible();
     await expect(page).toHaveURL(/[?&]pages=3$/);
 
     // No more automatic loads, however far the reader scrolls.

@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import Link from 'next/link';
 import { connection } from 'next/server';
-import backdrop from '@/assets/hero-backdrop.webp';
+import { IMPACT_FIGURES, ImpactStrip } from '@/components/home/impact-strip';
 import { Logo } from '@/components/logo';
 import { SHARE_HREF } from '@/components/nav/site-nav';
 import { StoryCard } from '@/components/stories/story-card';
@@ -29,15 +28,6 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** How many of the newest stories home shows. */
 const NEWEST_COUNT = 3;
-
-// The content spec's placeholder figures (home.md: "replace with real live figures before
-// launch"). Shown marked as placeholders until then.
-const IMPACT = [
-  ['250+', 'Stories shared'],
-  ['18', 'Countries reached'],
-  ['25', 'Life themes covered'],
-  ['12k+', 'People touched'],
-] as const;
 
 const unavailable =
   <T,>(fallback: T) =>
@@ -116,19 +106,15 @@ export default async function Page() {
 
   return (
     <main id="main" className="flex-1">
-      {/* Always dark, in both themes: the photograph is the page's one bold moment. */}
+      {/*
+        Always dark, in both themes: the page's one bold moment. A brand background, not a
+        photograph: the design's backdrop photo waits until its licence is confirmed (it can
+        come back as a next/image under this layer).
+      */}
       <section className="relative isolate flex min-h-[min(88svh,52rem)] items-center justify-center overflow-hidden bg-[#111113] px-4 pt-20 pb-32 text-center text-white">
-        <Image
-          src={backdrop}
-          alt=""
-          fill
-          priority
-          sizes="100vw"
-          className="-z-20 object-cover opacity-70"
-        />
         <div
           aria-hidden="true"
-          className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_30%,rgb(78_155_160/0.08),transparent_60%),linear-gradient(180deg,rgb(17_17_19/0.15)_0%,rgb(17_17_19/0.6)_100%)]"
+          className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_60%_45%_at_50%_28%,rgb(78_155_160/0.24),transparent_70%),radial-gradient(ellipse_45%_40%_at_12%_85%,rgb(61_122_126/0.16),transparent_70%),radial-gradient(ellipse_40%_35%_at_90%_70%,rgb(110_196_201/0.08),transparent_70%),linear-gradient(180deg,#151517_0%,#111113_100%)]"
         />
         {/* The fade into the page stays below the content (pb-32), so text keeps its contrast. */}
         <div
@@ -239,29 +225,7 @@ export default async function Page() {
         </p>
       </section>
 
-      <section
-        aria-labelledby="impact"
-        className="border-y border-border bg-raised"
-      >
-        <div className="mx-auto max-w-site px-4 py-14 sm:px-10">
-          <h2 id="impact" className="sr-only">
-            Impact
-          </h2>
-          <dl className="grid grid-cols-2 gap-8 lg:grid-cols-4">
-            {IMPACT.map(([value, label]) => (
-              <div key={label} className="flex flex-col text-center">
-                <dt className="text-sm text-muted-foreground">{label}</dt>
-                <dd className="order-first mb-2 text-[clamp(2.25rem,5vw,3.25rem)] leading-none font-bold text-link">
-                  {value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <p className="mt-8 text-center text-xs text-muted-foreground">
-            Placeholder figures until launch.
-          </p>
-        </div>
-      </section>
+      <ImpactStrip figures={IMPACT_FIGURES} />
 
       <section
         aria-labelledby="support"

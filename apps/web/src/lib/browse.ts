@@ -109,7 +109,10 @@ export async function getRelatedStories(slug: string): Promise<RelatedResult> {
   return { kind: 'stories', stories: body.data };
 }
 
-/** `GET /v1/tags`: every tag, by category (theme, journey, emotion) then name. */
+/**
+ * `GET /v1/tags`: the tags published stories use (D63), by category (theme, journey, emotion)
+ * then name. No counts (D62).
+ */
 export async function listTags(): Promise<StoryTag[]> {
   const body = (await json(await get('/v1/tags', { cached: true }))) as
     { data?: unknown } | undefined;

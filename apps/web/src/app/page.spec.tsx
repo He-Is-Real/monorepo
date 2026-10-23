@@ -82,11 +82,20 @@ describe('Home page (plan 1.1)', () => {
     expect(html).not.toContain('tag=joy');
   });
 
-  it('marks the impact figures as placeholders and links giving to the placeholder page', async () => {
+  it('shows no impact figures until there are real ones, and links giving to the placeholder page', async () => {
     const html = renderToStaticMarkup(await Page());
-    expect(html).toContain('Placeholder figures');
+    expect(html).not.toContain('Placeholder figures');
+    expect(html).not.toMatch(/250\+|12k\+|Countries reached|People touched/);
+    expect(html).not.toContain('aria-labelledby="impact"');
     expect(html).toMatch(/href="\/donate"[^>]*>Give once</);
     expect(html).toMatch(/href="\/donate"[^>]*>Give monthly</);
+  });
+
+  it('publishes no photograph: the hero is a brand background (licence unconfirmed)', async () => {
+    const html = renderToStaticMarkup(await Page());
+    const hero = html.slice(0, html.indexOf('</section>'));
+    expect(hero).not.toContain('<img');
+    expect(html).not.toMatch(/hero-backdrop|backdrop\.(jpg|webp)/);
   });
 
   it('keeps the page when the API is down', async () => {

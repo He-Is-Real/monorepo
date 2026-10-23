@@ -101,7 +101,9 @@ describe('BrowseResults (D55: 2 automatic pages, then a button)', () => {
     await scrollToEnd(); // a third time: nothing
     expect(loadMore).toHaveBeenCalledTimes(2);
     expect(screen.getAllByRole('article')).toHaveLength(45);
-    expect(screen.getByText('You’ve seen 45 stories.')).toBeTruthy();
+    // D62: no story counts anywhere, not even of the stories loaded.
+    expect(screen.getByText('There are more stories.')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\d+ stories/);
     expect(window.location.search).toBe('?tag=hope&pages=3');
 
     await act(async () =>
