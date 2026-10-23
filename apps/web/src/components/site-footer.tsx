@@ -15,7 +15,7 @@ const SHARE = [
 ];
 
 const linkClass =
-  'inline-flex min-h-11 items-center text-sm text-secondary-text hover:text-foreground';
+  'inline-flex min-h-11 min-w-11 items-center text-sm text-secondary-text hover:text-foreground';
 
 function LinkGroup({
   heading,

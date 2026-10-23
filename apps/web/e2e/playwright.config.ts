@@ -51,6 +51,7 @@ export default defineConfig({
         API_PUBLIC_READ_URL: `http://127.0.0.1:${STUB_PORT}`,
         FEATURED_STORY_SLUG: 'test-story-walking-skeleton',
         ROBOTS_NOINDEX: 'true',
+        SITE_URL: `http://localhost:${WEB_PORT}`,
         // The Clerk dev instance (public): the real sign-in button loads in the browser.
         CLERK_PUBLISHABLE_KEY:
           'pk_test_c3VwZXJiLW1pbmstODk2Ny5jbGVyay5hY2NvdW50cy5kZXYk',

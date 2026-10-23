@@ -60,6 +60,12 @@ const STORAGE = [
   },
 ];
 
+const COLUMNS = ['Name', 'Set by', 'What it’s for', 'How long'];
+// On phones each cell shows its column name above it (from data-label; the header row is
+// visually hidden there).
+const cell =
+  'max-sm:block max-sm:py-1 max-sm:before:block max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:text-foreground max-sm:before:content-[attr(data-label)] sm:px-4 sm:py-3';
+
 export default function PrivacyPage() {
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
@@ -100,50 +106,56 @@ export default function PrivacyPage() {
               we’ll ask you first.
             </p>
           </div>
-          {/* Scrolls sideways on narrow phones; focusable so keyboards can scroll it too. */}
-          <div
-            role="region"
-            aria-label="Cookies and storage table"
-            tabIndex={0}
-            className="overflow-x-auto rounded-xl border border-border"
-          >
-            <table className="w-full min-w-[36rem] text-left text-sm">
+          {/* Below sm each row stacks as a block with its column names, so nothing scrolls
+              sideways; explicit roles keep it a table for screen readers despite the CSS. */}
+          <div className="rounded-xl border border-border">
+            <table role="table" className="w-full text-left text-sm">
               <caption className="sr-only">
                 Cookies and storage this site uses
               </caption>
-              <thead className="bg-raised text-foreground">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-semibold">
-                    Name
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-semibold">
-                    Set by
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-semibold">
-                    What it’s for
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-semibold">
-                    How long
-                  </th>
+              <thead
+                role="rowgroup"
+                className="bg-raised text-foreground max-sm:sr-only"
+              >
+                <tr role="row">
+                  {COLUMNS.map((c) => (
+                    <th
+                      key={c}
+                      role="columnheader"
+                      scope="col"
+                      className="px-4 py-3 font-semibold"
+                    >
+                      {c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="text-secondary-text">
-                {STORAGE.map((s) => (
-                  <tr key={s.name} className="border-t border-border align-top">
+              <tbody role="rowgroup" className="text-secondary-text">
+                {STORAGE.map((s, i) => (
+                  <tr
+                    key={s.name}
+                    role="row"
+                    className={`align-top max-sm:block max-sm:px-4 max-sm:py-4 ${i ? 'border-t border-border' : 'sm:border-t sm:border-border'}`}
+                  >
                     <th
+                      role="rowheader"
                       scope="row"
-                      className="px-4 py-3 font-mono text-xs font-normal break-all text-foreground"
+                      className="font-mono text-xs font-normal break-all text-foreground max-sm:block max-sm:pb-2 sm:px-4 sm:py-3"
                     >
                       {s.name}
                     </th>
-                    <td className="px-4 py-3">
+                    <td role="cell" data-label={COLUMNS[1]} className={cell}>
                       {s.by}
                       <span className="block text-xs text-muted-foreground">
                         {s.kind}
                       </span>
                     </td>
-                    <td className="px-4 py-3">{s.purpose}</td>
-                    <td className="px-4 py-3">{s.lasts}</td>
+                    <td role="cell" data-label={COLUMNS[2]} className={cell}>
+                      {s.purpose}
+                    </td>
+                    <td role="cell" data-label={COLUMNS[3]} className={cell}>
+                      {s.lasts}
+                    </td>
                   </tr>
                 ))}
               </tbody>
