@@ -418,6 +418,10 @@ components:
           description: From M7 (transcription)
         durationSeconds:
           type: [integer, 'null']
+          minimum: 1
+          description: |
+            The clip's length in seconds (processing's result). A published clip always has it
+            (A2); `null` before processing.
         processing:
           type: [string, 'null']
           enum: [processing, ready, failed, null]
@@ -460,8 +464,28 @@ components:
 
     StorySummary:
       type: object
-      description: Card view for browse, related, favourites and feed. From `publicStory`; no metrics, no submitter data.
-      required: [id, slug, title, primaryFormat, tags, publishedAt]
+      description: |
+        Card view for browse, related, favourites and feed. From `publicStory`; no metrics, no
+        submitter data, no playback or storage data. Carries what D55's balanced masonry predicts a
+        card's height from: the picture's size (`thumbnailWidth`/`thumbnailHeight` or `image`) and
+        the `excerpt` to measure.
+      required:
+        [
+          id,
+          slug,
+          title,
+          excerpt,
+          bylineName,
+          primaryFormat,
+          durationSeconds,
+          thumbnailUrl,
+          thumbnailWidth,
+          thumbnailHeight,
+          image,
+          textLength,
+          tags,
+          publishedAt,
+        ]
       properties:
         id:
           type: string
@@ -470,15 +494,25 @@ components:
           type: string
         title:
           type: string
-        description:
+          maxLength: 140
+        excerpt:
           type: string
+          maxLength: 241
+          description: |
+            The start of the description, or of the text when there is no description, on one
+            line: at most 240 characters, cut at a word, then `…` when cut.
         bylineName:
           type: [string, 'null']
           description: '`null` = anonymous.'
         primaryFormat:
           $ref: '#/components/schemas/Format'
+        durationSeconds:
+          type: [integer, 'null']
+          minimum: 1
+          description: The clip's length (video and audio); `null` for written stories.
         thumbnailUrl:
           type: [string, 'null']
+          description: Token-authenticated thumbnail URL (D52); `null` until token auth is built, and for audio and written stories.
         thumbnailWidth:
           type: [integer, 'null']
           minimum: 1
@@ -492,6 +526,11 @@ components:
           oneOf:
             - $ref: '#/components/schemas/StoryImage'
             - type: 'null'
+        textLength:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Characters in the story's text (0 = none), e.g. for "5 min read" (A3).
         tags:
           type: array
           items:

@@ -38,6 +38,22 @@ class Probe {
       'Story not found',
     );
   }
+  @Get('invalid')
+  invalid() {
+    throw new ProblemException(
+      HttpStatus.BAD_REQUEST,
+      'validation_failed',
+      'Validation failed',
+      undefined,
+      [
+        {
+          pointer: '/limit',
+          code: 'out_of_range',
+          message: 'Between 1 and 50.',
+        },
+      ],
+    );
+  }
   @Get('plain')
   plain() {
     throw new NotFoundException();
@@ -74,6 +90,24 @@ describe('ProblemFilter', () => {
       title: 'Story not found',
       status: 404,
       code: 'story_not_found',
+    });
+  });
+
+  it('lists field errors (RFC 9457 errors[])', async () => {
+    const res = await fetch(`${url}/invalid`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      type: 'about:blank',
+      title: 'Validation failed',
+      status: 400,
+      code: 'validation_failed',
+      errors: [
+        {
+          pointer: '/limit',
+          code: 'out_of_range',
+          message: 'Between 1 and 50.',
+        },
+      ],
     });
   });
 

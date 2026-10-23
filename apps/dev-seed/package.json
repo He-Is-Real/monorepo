@@ -2,6 +2,14 @@
   "name": "@heisreal/dev-seed",
   "version": "0.0.1",
   "private": true,
+  "exports": {
+    "./testing": {
+      "types": "./testing/index.ts",
+      "import": "./testing/index.ts",
+      "default": "./testing/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
   "nx": {
     "name": "dev-seed",
     "targets": {

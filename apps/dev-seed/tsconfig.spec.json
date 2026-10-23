@@ -13,7 +13,8 @@
     "src/**/*.d.ts",
     "jest.integration.config.cts",
     "integration/**/*.ts",
-    "behavioural/**/*.ts"
+    "behavioural/**/*.ts",
+    "testing/**/*.ts"
   ],
   "references": [
     {

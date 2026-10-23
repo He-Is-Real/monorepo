@@ -173,5 +173,26 @@ describe('write scope on story fields (D41)', () => {
         { title: 'Story bob_pending', body: storyText('bob_pending') },
       ]);
     });
+
+    it('takes the clip’s duration from the story, whatever the writer sends', async () => {
+      // Cards show a clip's length (step 6a). The read model computes it from the approved
+      // story's processed media, so no publisher copies it and none can change it.
+      expect(
+        await rows(
+          migrator,
+          'SELECT VALUE durationSeconds FROM publicStory:bob_pending',
+        ),
+      ).toEqual([93]);
+      await run(
+        admin,
+        'UPDATE publicStory:bob_pending SET durationSeconds = 1',
+      );
+      expect(
+        await rows(
+          migrator,
+          'SELECT VALUE durationSeconds FROM publicStory:bob_pending',
+        ),
+      ).toEqual([93]);
+    });
   });
 });

@@ -1,9 +1,8 @@
-import { randomBytes } from 'node:crypto';
 import {
   outcome,
   rows,
   run,
-  TestDatabase,
+  type TestDatabase,
 } from '@heisreal/database/integration-testing';
 import type { Surreal } from 'surrealdb';
 import { DATASET } from '../src/app/dataset';
@@ -11,6 +10,7 @@ import bunnyMedia from '../src/app/bunny-media.json';
 import type { BunnyMedia } from '../src/app/media';
 import { buildVars, fakeUploads } from '../src/app/plan';
 import { reset, RESET_SQL } from '../src/app/seed';
+import { devDatabase } from '../testing';
 
 /**
  * D49: the dev-seed reset against SurrealDB 3.2.4 with the real schema, as the dev-only `dev_seed`
@@ -21,28 +21,6 @@ import { reset, RESET_SQL } from '../src/app/seed';
  */
 const vars = () => buildVars(DATASET, fakeUploads());
 const approved = DATASET.stories.filter((s) => s.status === 'approved');
-
-async function devDatabase(params: {
-  relaxed: boolean;
-  environment: string | null;
-}) {
-  const t = await TestDatabase.create({ migrate: false });
-  await t.migrate(
-    t.params({
-      dev_consent_relaxed: params.relaxed,
-      environment: params.environment,
-    }),
-  );
-  await t.createServices();
-  const password = randomBytes(18).toString('hex');
-  // What init.surql.tmpl's dev-seed line does in dev (modules/db-identity).
-  await run(
-    await t.root(),
-    `USE NS ${t.namespace} DB ${t.database};
-     DEFINE USER dev_seed ON DATABASE PASSWORD '${password}' ROLES EDITOR;`,
-  ); // PASSWORD takes a literal only; the password is random hex
-  return { t, seeder: await t.systemUser('dev_seed', password) };
-}
 
 describe('dev-seed reset on SurrealDB (dev, consent relaxed)', () => {
   let t: TestDatabase;

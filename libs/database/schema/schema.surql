@@ -570,6 +570,11 @@ DEFINE FIELD OVERWRITE image.path             ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE image.width            ON publicStory TYPE int;
 DEFINE FIELD OVERWRITE image.height           ON publicStory TYPE int;
 DEFINE FIELD OVERWRITE image.alt              ON publicStory TYPE option<string>;
+-- Cards show a clip's length (M1 step 6a). Computed from the story on every write, so no
+-- publisher copies it and none can change it. The approval gate (A2) means a published video or
+-- audio story always has it; NONE for written stories.
+DEFINE FIELD OVERWRITE durationSeconds ON publicStory TYPE option<int>
+  VALUE type::record('story', record::id(id)).media[0].durationSeconds;
 DEFINE FIELD OVERWRITE publishedAt   ON publicStory TYPE datetime;
 DEFINE FIELD OVERWRITE updatedAt     ON publicStory TYPE datetime VALUE time::now();
 -- A full-text index covers one field, so search goes over a computed field.
