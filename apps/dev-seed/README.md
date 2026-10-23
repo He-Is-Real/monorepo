@@ -57,6 +57,11 @@ pnpm nx run dev-seed:upload-media --args="--library-id <id>"
 git add apps/dev-seed/src/app/bunny-media.json  # commit it in a PR
 ```
 
+**Uploaded on 2026-10-23** to the dev library (786537) and storage zone: 7 video clips, 3 audio
+clips and 5 images, all encoded with the spec's sizes and lengths. Bunny Stream accepts audio-only
+MP3s: it encodes them as a blank 1280x720 video at 360p, 480p and 720p (about 1 MB each), so
+`bunny-media.json` keeps only their length (audio has no width or height in the schema).
+
 `upload-media` finds each clip by its title (`dev-seed/<id>`) and each image by its path
 (`dev-seed/<id>.webp`) and uploads only what's missing, so a second run uploads nothing. It waits
 for Bunny's encode and refuses a size or length that doesn't match the spec. Until

@@ -7,6 +7,8 @@ import {
 } from '@heisreal/database/integration-testing';
 import type { Surreal } from 'surrealdb';
 import { DATASET } from '../src/app/dataset';
+import bunnyMedia from '../src/app/bunny-media.json';
+import type { BunnyMedia } from '../src/app/media';
 import { buildVars, fakeUploads } from '../src/app/plan';
 import { reset, RESET_SQL } from '../src/app/seed';
 
@@ -66,6 +68,15 @@ describe('dev-seed reset on SurrealDB (dev, consent relaxed)', () => {
       tags: DATASET.tags.length,
       fixturePeople: DATASET.people.length + 1,
     });
+  });
+
+  it('loads with the committed media record (the uploaded dev media)', async () => {
+    const summary = await reset(
+      seeder,
+      buildVars(DATASET, bunnyMedia as BunnyMedia),
+    );
+    expect(summary.publicStories).toBe(approved.length);
+    await reset(seeder, vars()); // back to the stand-ins for the tests below
   });
 
   it('is idempotent: a second reset gives the same data', async () => {
