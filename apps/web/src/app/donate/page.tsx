@@ -1,12 +1,16 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { pageMetadata } from '@/lib/seo';
 
-export const metadata = pageMetadata({
-  title: 'Support this work',
-  description:
-    'He Is Real Today is a not-for-profit. Online giving opens soon.',
-  path: '/donate',
-});
+/** At request time: the site's address (SITE_URL) is read per request. */
+export async function generateMetadata(): Promise<Metadata> {
+  return pageMetadata({
+    title: 'Support this work',
+    description:
+      'He Is Real Today is a not-for-profit. Online giving opens soon.',
+    path: '/donate',
+  });
+}
 
 /** A placeholder for giving: donations are M4. No payment of any kind here. */
 export default function DonatePage() {
