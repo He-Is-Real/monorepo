@@ -49,6 +49,33 @@ describe('/stories/[slug]', () => {
     });
   });
 
+  it('embeds a video story’s signed player (D52)', async () => {
+    mockGet.mockResolvedValue({
+      kind: 'story',
+      story: {
+        ...story,
+        primaryFormat: 'video',
+        media: [
+          {
+            format: 'video',
+            playbackUrl:
+              'https://player.mediadelivery.net/embed/1/b8a77258-abfd-469d-ba63-9b89b62fcce6?token=t&expires=1',
+            thumbnailUrl: null,
+            width: 640,
+            height: 360,
+            captionsUrl: null,
+            durationSeconds: 10,
+          },
+        ],
+        image: null,
+      },
+    });
+    const html = renderToStaticMarkup(await StoryPage(params('test-story')));
+    expect(html).toContain(
+      'src="https://player.mediadelivery.net/embed/1/b8a77258-abfd-469d-ba63-9b89b62fcce6?token=t&amp;expires=1&amp;autoplay=false&amp;preload=false"',
+    );
+  });
+
   it('answers 404 for an unknown slug', async () => {
     mockGet.mockResolvedValue({ kind: 'not_found' });
     await expect(StoryPage(params('nope'))).rejects.toThrow('NEXT_NOT_FOUND');

@@ -151,6 +151,46 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(again).toBeInViewport();
     });
 
+    test('video, audio and image stories: signed media fits without autoplay (D52)', async ({
+      page,
+    }, info) => {
+      for (const [slug, title] of [
+        ['video-story', 'Video: Test story: a tall video'],
+        ['audio-story', 'Audio: Test story: audio'],
+      ] as const) {
+        await page.goto(`/stories/${slug}`);
+        const player = page.locator(`iframe[title="${title}"]`);
+        await expect(player).toBeVisible();
+        const src = new URL((await player.getAttribute('src')) ?? '');
+        expect(src.searchParams.get('token')).toBe('stub');
+        expect(src.searchParams.get('autoplay')).toBe('false');
+        expect(await player.getAttribute('allow')).not.toContain('autoplay');
+        await expect(
+          page.frameLocator(`iframe[title="${title}"]`).getByRole('button', {
+            name: 'Play',
+          }),
+        ).toBeVisible();
+        const box = await player.boundingBox();
+        const viewport = page.viewportSize();
+        // A tall video stays within the screen's height (75svh) and the page's width.
+        expect(box?.height ?? 0).toBeLessThanOrEqual(viewport?.height ?? 0);
+        expect(box?.width ?? 0).toBeLessThanOrEqual(viewport?.width ?? 0);
+        await expectNoHorizontalOverflow(page);
+        await shots(page, info.project.name, scheme, slug);
+      }
+
+      await page.goto('/stories/image-story');
+      const image = page.getByRole('img', {
+        name: 'A wide test pattern (dummy image)',
+      });
+      await expect(image).toBeVisible();
+      expect(
+        await image.evaluate((i: HTMLImageElement) => i.naturalWidth),
+      ).toBe(1600);
+      await expectNoHorizontalOverflow(page);
+      await shots(page, info.project.name, scheme, 'image-story');
+    });
+
     test('unknown story: the 404 page', async ({ page }, info) => {
       const response = await page.goto('/stories/no-such-story');
       expect(response?.status()).toBe(404);
