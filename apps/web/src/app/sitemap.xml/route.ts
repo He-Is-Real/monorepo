@@ -1,6 +1,10 @@
 import { indexingAllowed, siteUrl } from '@/lib/config';
 import { StoriesUnavailableError } from '@/lib/public-stories';
-import { collectStoryEntries, renderSitemap } from '@/lib/sitemap';
+import {
+  renderSitemap,
+  SitemapBudgetError,
+  sharedStoryEntries,
+} from '@/lib/sitemap';
 
 // Per request: the switch is the deployment's (OpenTofu), and stories change.
 export const dynamic = 'force-dynamic';
@@ -9,12 +13,20 @@ export const dynamic = 'force-dynamic';
 // Caching at Go live is the front door's question (D56).
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
+/** Failures that mean "try again later": the API, the walk's budget, or an aborted walk. */
+const retryable = (err: unknown) =>
+  err instanceof StoriesUnavailableError ||
+  err instanceof SitemapBudgetError ||
+  (err instanceof DOMException &&
+    (err.name === 'AbortError' || err.name === 'TimeoutError'));
+
 /**
  * /sitemap.xml: only when indexing is allowed (Go live). Until then (always in dev) it doesn't
- * exist, so nothing invites a crawler in. While api-public-read is down: 503, never a sitemap
- * missing its stories.
+ * exist, so nothing invites a crawler in. While api-public-read is down, or the walk goes over
+ * its budget: 503, never a sitemap missing its stories. Only the request's abort signal is
+ * used (so a closed request can stop the walk); nothing is read from the request (D32).
  */
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   const origin = siteUrl();
   if (!indexingAllowed() || !origin) {
     return new Response('Not found\n', {
@@ -23,7 +35,7 @@ export async function GET(): Promise<Response> {
     });
   }
   try {
-    const stories = await collectStoryEntries();
+    const stories = await sharedStoryEntries(request.signal);
     return new Response(renderSitemap(origin, stories), {
       headers: {
         'Content-Type': 'application/xml; charset=utf-8',
@@ -31,7 +43,7 @@ export async function GET(): Promise<Response> {
       },
     });
   } catch (err) {
-    if (!(err instanceof StoriesUnavailableError)) throw err;
+    if (!retryable(err)) throw err;
     return new Response('Stories are unavailable; try again later.\n', {
       status: 503,
       headers: {
