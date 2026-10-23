@@ -49,7 +49,7 @@
   },
   "dependencies": {
     "@heisreal/secrets": "workspace:*",
-    "@nestjs/common": "^11.2.6",
+    "@nestjs/common": "^12.2.0",
     "surrealdb": "^2.0.8"
   }
 }
