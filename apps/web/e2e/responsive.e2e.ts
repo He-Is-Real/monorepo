@@ -100,6 +100,57 @@ for (const scheme of ['light', 'dark'] as const) {
       await shots(page, info.project.name, scheme, 'story');
     });
 
+    test('long story: a preview with Continue reading, expanded in place', async ({
+      page,
+      request,
+    }, info) => {
+      // The full text is in the server-rendered HTML (search engines), not fetched on expand.
+      const html = await (await request.get('/stories/long-story')).text();
+      expect(html).toContain('The last sentence of the long test story.');
+
+      await page.goto('/stories/long-story');
+      const button = page.getByRole('button', { name: 'Continue reading' });
+      await expectTarget(page, button);
+      await expect(button).toHaveAttribute('aria-expanded', 'false');
+      const text = page.locator(
+        `#${await button.getAttribute('aria-controls')}`,
+      );
+      await expect(text).toBeVisible();
+      await expect(text.getByText(/where the preview stops/)).toBeVisible();
+      const last = page.getByText('The last sentence of the long test story.');
+      await expect(last).toBeHidden();
+      await expectNoHorizontalOverflow(page);
+      await shots(page, info.project.name, scheme, 'long-story');
+
+      // Expanding keeps everything above the button where it was (in the document; clicking
+      // may scroll the page to the button).
+      const heading = page.getByRole('heading', { level: 1 });
+      const top = () =>
+        heading.evaluate(
+          (el) => el.getBoundingClientRect().top + window.scrollY,
+        );
+      const headingTop = await top();
+      await button.click();
+      await expect(
+        page.getByRole('button', { name: 'Show less' }),
+      ).toHaveAttribute('aria-expanded', 'true');
+      await expect(last).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Show less' }),
+      ).toBeFocused();
+      expect(await top()).toBe(headingTop);
+      await expectNoHorizontalOverflow(page);
+      await shots(page, info.project.name, scheme, 'long-story-expanded');
+
+      const less = page.getByRole('button', { name: 'Show less' });
+      await expectTarget(page, less);
+      await less.click();
+      await expect(last).toBeHidden();
+      const again = page.getByRole('button', { name: 'Continue reading' });
+      await expect(again).toBeFocused();
+      await expect(again).toBeInViewport();
+    });
+
     test('unknown story: the 404 page', async ({ page }, info) => {
       const response = await page.goto('/stories/no-such-story');
       expect(response?.status()).toBe(404);

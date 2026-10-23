@@ -1,6 +1,6 @@
 import type { Surreal } from 'surrealdb';
 import { outcome, rows, run, TestDatabase } from './support/harness';
-import { approve, buildWorld } from './support/world';
+import { approve, buildWorld, storyText } from './support/world';
 
 /**
  * D41 (review round 1, finding 3): field-level write scope on `story`.
@@ -93,7 +93,8 @@ describe('write scope on story fields (D41)', () => {
       await run(
         workflow,
         `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/1.jpg',
-           media[0].durationSeconds = 93, media[0].width = 1080, media[0].height = 1920`,
+           media[0].durationSeconds = 93, media[0].width = 1080, media[0].height = 1920,
+           media[0].processing = 'ready'`,
       );
       expect((await stored('bob_pending'))['media']).toEqual([
         {
@@ -103,6 +104,7 @@ describe('write scope on story fields (D41)', () => {
           durationSeconds: 93,
           width: 1080,
           height: 1920,
+          processing: 'ready',
         },
       ]);
     });
@@ -122,6 +124,7 @@ describe('write scope on story fields (D41)', () => {
       `media = []`,
       `media[0].bunnyVideoId = 'someone-elses-video'`,
       `media[0].thumbnailPath = 'admin.jpg'`,
+      `media[0].processing = 'failed'`,
     ])('cannot change media: SET %s', async (set) => {
       const before = await stored('bob_pending');
       await run(admin, `UPDATE story:bob_pending SET ${set}`);
@@ -166,7 +169,9 @@ describe('write scope on story fields (D41)', () => {
       }
       expect(
         await rows(migrator, 'SELECT title, body FROM publicStory:bob_pending'),
-      ).toEqual([{ title: 'Story bob_pending', body: 'Text of bob_pending' }]);
+      ).toEqual([
+        { title: 'Story bob_pending', body: storyText('bob_pending') },
+      ]);
     });
   });
 });

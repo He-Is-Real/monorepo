@@ -1,7 +1,10 @@
 import type { SurrealQueryable } from 'surrealdb';
 import {
   DatabaseQueryError,
+  isMediaNotReadyError,
+  isStoryTextTooShortError,
   isTransactionConflict,
+  trimmedTextLength,
   requireWritten,
   retryOnConflict,
   runQuery,
@@ -98,5 +101,58 @@ describe('requestHash', () => {
       requestHash({ b: [1, { d: 3, c: 2 }], a: 1 }),
     );
     expect(requestHash({ a: 1 })).not.toBe(requestHash({ a: 2 }));
+  });
+});
+
+describe('database refusals the APIs map to 4xx', () => {
+  it('recognises the approval gate (A2)', () => {
+    expect(
+      isMediaNotReadyError(
+        new DatabaseQueryError(
+          'An error occurred: media_not_ready: a video needs its width, height and duration',
+          1,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isMediaNotReadyError(new Error('publicStory must mirror the story')),
+    ).toBe(false);
+    expect(isMediaNotReadyError('media not ready')).toBe(false);
+  });
+
+  it('recognises the 200-character minimum on submit', () => {
+    expect(
+      isStoryTextTooShortError(
+        new Error(
+          'An error occurred: a written story needs at least 200 characters before it is submitted',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isStoryTextTooShortError(new Error('a written story needs its text')),
+    ).toBe(false);
+  });
+});
+
+describe('trimmedTextLength', () => {
+  it.each([
+    ['plain text', 'abc', 3],
+    ['ASCII spaces and line breaks', ' \t\n abc \r\n', 3],
+    [
+      'U+FEFF (JavaScript trims it, string::trim keeps it)',
+      '\uFEFFabc\uFEFF',
+      3,
+    ],
+    [
+      'U+0085 (string::trim strips it, JavaScript keeps it)',
+      '\u0085abc\u0085',
+      3,
+    ],
+    ['NBSP and other Unicode spaces', '\u00A0\u2000\u3000abc\u2028\u2029', 3],
+    ['only invisible padding', '\uFEFF \u00A0\uFEFF', 0],
+    ['interior spaces, kept', 'a\uFEFFb c', 5],
+    ['no text', undefined, 0],
+  ])('%s', (_name, text, length) => {
+    expect(trimmedTextLength(text)).toBe(length);
   });
 });

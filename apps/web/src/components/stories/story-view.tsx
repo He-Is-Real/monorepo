@@ -1,4 +1,5 @@
 import type { PublicStory } from '@/lib/public-stories';
+import { StoryText } from './story-text';
 
 const published = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', {
@@ -34,11 +35,7 @@ export function StoryView({
       </p>
       <p className="mt-6 text-lg text-secondary-text">{story.description}</p>
       {paragraphs.length > 0 && (
-        <div className="mt-6 space-y-4 text-base leading-relaxed">
-          {paragraphs.map((p, i) => (
-            <p key={i}>{p}</p>
-          ))}
-        </div>
+        <StoryText id={`story-${story.id}-text`} paragraphs={paragraphs} />
       )}
       {story.tags.length > 0 && (
         <ul className="mt-8 flex flex-wrap gap-2" aria-label="Tags">

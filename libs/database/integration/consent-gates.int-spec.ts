@@ -8,7 +8,7 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { approve, draft, submit } from './support/world';
+import { approve, draft, processed, storyText, submit } from './support/world';
 
 /**
  * Consent at every step that processes testimony, enforced by the database (review round 1,
@@ -76,7 +76,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
     });
     expect(
       await truth('SELECT body, media, status FROM story:codex_story'),
-    ).toEqual([{ body: 'Text of codex_story', media: [], status: 'draft' }]);
+    ).toEqual([{ body: storyText('codex_story'), media: [], status: 'draft' }]);
 
     // Even if the story had reached pending earlier, approval is refused and nothing is published.
     await run(migrator, `UPDATE story:codex_story SET status = 'pending'`);
@@ -206,6 +206,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
         `UPDATE story:wf_live SET media = [{ format: 'video', bunnyVideoId: 'vid-live' }]`,
       );
       await submit(p, 'wf_live');
+      await processed(workflow, 'wf_live'); // A2: approval waits for processing
       await approve(admin, 'wf_live');
     });
 

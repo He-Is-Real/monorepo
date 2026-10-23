@@ -284,7 +284,8 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
          };
          CREATE story:legacy_story CONTENT { submitter: user:legacy_1, slug: 'legacy-story',
            title: 'Legacy', description: 'From the prototype', primaryFormat: 'video', status: 'approved',
-           media: [{ format: 'video', bunnyVideoId: 'legacy-video' }] };`,
+           media: [{ format: 'video', bunnyVideoId: 'legacy-video', width: 1080, height: 1920,
+             durationSeconds: 90, processing: 'ready' }] };`,
         { types: [...CONSENT_TYPES], h: LEGACY_SHA256 },
       );
       const [story] = await rows<{ consent: Record<string, Consent> }>(

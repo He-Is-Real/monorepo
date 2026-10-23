@@ -96,3 +96,40 @@ export function requireWritten<T>(result: unknown, what: string): T {
   if (rows.length !== 1) throw new WriteNotAppliedError(what);
   return rows[0] as T;
 }
+
+/** A written story's text limits (schema.surql `story.body`, fn::story::shape_problem). */
+export const STORY_TEXT = {
+  /** A3: the POC's limit. */
+  maxLength: 10_000,
+  /** Trimmed, from submit on (Joel, 2026-10-23, from the POC). */
+  minLengthToSubmit: 200,
+} as const;
+
+/**
+ * A text's length without the spaces around it: the database's fn::text::trimmed_length, so API
+ * validation and the database agree. Strips what JavaScript's trim() strips (Unicode spaces,
+ * line terminators, U+FEFF) and what SurrealDB's string::trim strips (also U+0085).
+ */
+export function trimmedTextLength(text: string | null | undefined): number {
+  return [...(text ?? '').replace(/^[\s\u0085]+|[\s\u0085]+$/g, '')].length;
+}
+
+/**
+ * The database refused to approve or publish a story whose media isn't processed yet (A2,
+ * fn::story::approval_problem). api-admin answers `409` with `code: media_not_ready`.
+ */
+export function isMediaNotReadyError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /\bmedia_not_ready:/.test(message);
+}
+
+/**
+ * The database refused to submit a written story under 200 characters (fn::story::shape_problem).
+ * api-user answers `400` with `code: story_text_too_short`.
+ */
+export function isStoryTextTooShortError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes(
+    `a written story needs at least ${STORY_TEXT.minLengthToSubmit} characters`,
+  );
+}

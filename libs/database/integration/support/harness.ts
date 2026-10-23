@@ -540,6 +540,13 @@ export async function grantAll(
   }
 }
 
+/**
+ * Story text long enough to submit: a written story needs at least 200 characters from submit
+ * on (Joel, 2026-10-23, from the POC). Plain filler, no testimony words.
+ */
+export const STORY_TEXT_PADDING =
+  '. Filler for the tests, long enough to submit. '.repeat(5).trimEnd();
+
 let storySeq = 0;
 /** The person creates a draft story in their own session. */
 export function createDraft(
@@ -551,8 +558,12 @@ export function createDraft(
     person,
     `CREATE story CONTENT object::extend({
        submitter: $auth, slug: $slug, title: 'A story', description: 'How I came to faith',
-       primaryFormat: 'written', body: 'Text'
+       primaryFormat: 'written', body: 'Text' + $padding
      }, $fields)`,
-    { slug: `story-${storySeq}-${randomBytes(3).toString('hex')}`, fields },
+    {
+      slug: `story-${storySeq}-${randomBytes(3).toString('hex')}`,
+      fields,
+      padding: STORY_TEXT_PADDING,
+    },
   );
 }

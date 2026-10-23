@@ -13,7 +13,7 @@ import {
   SCHEMA_DIR,
   TestDatabase,
 } from './support/harness';
-import { approve, submit } from './support/world';
+import { approve, processed, submit } from './support/world';
 
 /**
  * D53: a story is exactly one of three types, each with one main part and one optional part,
@@ -76,6 +76,8 @@ describe('story types and shapes (D53)', () => {
   const VIDEO = `{ format: 'video', bunnyVideoId: 'vid', width: 1080, height: 1920 }`;
   const AUDIO = `{ format: 'audio', bunnyVideoId: 'aud', durationSeconds: 60 }`;
   const IMAGE = `{ path: 'images/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
+  /** A written story's text, long enough to submit (200 characters). */
+  const TEXT = `body: '${'Words of the story. '.repeat(11)}'`;
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -161,6 +163,100 @@ describe('story types and shapes (D53)', () => {
       ],
     ])('refuses %s', async (_name, fields, message) => {
       await refused(fields, message);
+    });
+  });
+
+  describe('text length (Joel, 2026-10-23, from the POC)', () => {
+    const body = (text: string) =>
+      `primaryFormat: 'written', body: ${JSON.stringify(text)}`;
+    const chars = (n: number) => 'a'.repeat(n);
+
+    it('stores at most 10,000 characters', async () => {
+      await created(body(chars(10_000)));
+      await refused(body(chars(10_001)), 'body');
+      // Edits are held to the same limit.
+      const id = await created(body('Short'));
+      expect(await update(id, `body = '${chars(10_001)}'`)).toEqual({
+        ok: false,
+        error: expect.stringContaining('body'),
+      });
+    });
+
+    it('saves a short draft, but submits a written story only from 200 characters (trimmed)', async () => {
+      const short = await created(body(`  \n${chars(199)} \n `));
+      expect(await update(short, `status = 'pending'`)).toEqual({
+        ok: false,
+        error: expect.stringContaining(
+          'a written story needs at least 200 characters before it is submitted',
+        ),
+      });
+      expect(
+        await truth(
+          `SELECT VALUE status FROM ONLY type::record('story', $short)`,
+          {
+            short,
+          },
+        ),
+      ).toEqual(['draft']);
+
+      const enough = await created(body(`  ${chars(200)}  `));
+      expect(await submit(pat, enough)).toHaveLength(1);
+    });
+
+    // One whitespace policy (fn::text::trimmed_length): what JavaScript's trim() strips, which the
+    // web uses, plus what string::trim strips. 3.2.4's string::trim keeps U+FEFF (Codex, #58).
+    const SUBMIT_REFUSED = 'a written story needs at least 200 characters';
+    it.each([
+      ['199 characters and a U+FEFF', `${chars(199)}\uFEFF`],
+      ['199 characters between U+FEFFs', `\uFEFF${chars(199)}\uFEFF\uFEFF`],
+      ['199 characters padded with NBSP', `\u00A0${chars(199)}\u00A0`],
+      [
+        '199 characters padded with other Unicode spaces',
+        `\u3000\u2003${chars(199)}\u2028\u2029\u0085`,
+      ],
+    ])('refuses to submit %s', async (_name, text) => {
+      const id = await created(body(text));
+      expect(await update(id, `status = 'pending'`)).toEqual({
+        ok: false,
+        error: expect.stringContaining(SUBMIT_REFUSED),
+      });
+    });
+
+    it.each([
+      ['only U+FEFF', '\uFEFF\uFEFF\uFEFF'],
+      ['only NBSP and U+FEFF', '\u00A0\uFEFF \u3000'],
+    ])(
+      'refuses a written story of %s, even as a draft',
+      async (_name, text) => {
+        await refused(body(text), 'a written story needs its text');
+      },
+    );
+
+    it('submits 200 real characters with invisible padding around them', async () => {
+      const id = await created(
+        body(`\uFEFF\u00A0 \n${chars(200)}\u3000\uFEFF\u2028`),
+      );
+      expect(await submit(pat, id)).toHaveLength(1);
+    });
+
+    it('needs no minimum for a video or audio story’s text', async () => {
+      const id = await created(
+        `primaryFormat: 'audio', body: 'A few words', media: [${AUDIO}]`,
+      );
+      expect(await submit(pat, id)).toHaveLength(1);
+    });
+
+    it('refuses a system user’s short written story from submit on, too', async () => {
+      expect(
+        await outcome(
+          migrator,
+          `CREATE story CONTENT { submitter: user:pat, slug: 'mig-short', title: 't', description: 'd',
+             primaryFormat: 'written', body: 'Too short', status: 'pending' }`,
+        ),
+      ).toEqual({
+        ok: false,
+        error: expect.stringContaining('at least 200 characters'),
+      });
     });
   });
 
@@ -354,7 +450,7 @@ describe('story types and shapes (D53)', () => {
 
     it('is locked with the rest of the content after submit', async () => {
       const s = await created(
-        `primaryFormat: 'written', body: 'x', image: ${IMAGE}`,
+        `primaryFormat: 'written', ${TEXT}, image: ${IMAGE}`,
       );
       expect(await submit(pat, s)).toHaveLength(1);
       expect(await update(s, `image.alt = 'Changed after submit'`)).toEqual({
@@ -367,11 +463,12 @@ describe('story types and shapes (D53)', () => {
   describe('publicStory mirrors the image and media shapes', () => {
     it('publishes a written story with its image, and a video with its size', async () => {
       const w = await created(
-        `primaryFormat: 'written', body: 'x', image: ${IMAGE}`,
+        `primaryFormat: 'written', ${TEXT}, image: ${IMAGE}`,
       );
       const v = await created(`primaryFormat: 'video', media: [${VIDEO}]`);
       for (const id of [w, v]) {
         await submit(pat, id);
+        await processed(workflow, id);
         await approve(admin, id);
       }
       const reader = await t.service('api_public_read');
@@ -402,11 +499,12 @@ describe('story types and shapes (D53)', () => {
       ['an extra media field', `media[0].note = 'free text'`],
     ])('refuses a read model with %s', async (_name, set) => {
       const w = await created(
-        `primaryFormat: 'written', body: 'x', image: ${IMAGE}`,
+        `primaryFormat: 'written', ${TEXT}, image: ${IMAGE}`,
       );
       const v = await created(`primaryFormat: 'video', media: [${VIDEO}]`);
       for (const id of [w, v]) {
         await submit(pat, id);
+        await processed(workflow, id);
         await approve(admin, id);
       }
       const target = set.startsWith('media') ? v : w;
@@ -500,8 +598,8 @@ describe('data/0004: rows written before D53', () => {
          description: 'd', primaryFormat: 'written', body: 'x',
          media: [{ format: 'video', aspectRatio: '9:16' }] };
        CREATE story:old_video CONTENT { submitter: user:old, slug: 'old-video', title: 't',
-         description: 'd', primaryFormat: 'video', media: [{ format: 'video' }],
-         status: 'approved' };
+         description: 'd', primaryFormat: 'video', status: 'approved',
+         media: [{ format: 'video', width: 1920, height: 1080, durationSeconds: 30, processing: 'ready' }] };
        CREATE publicStory:old_video CONTENT { version: 1, slug: 'old-video', title: 't',
          description: 'd', primaryFormat: 'video', tagRefs: [], publishedAt: time::now(),
          media: [{ format: 'video', aspectRatio: '16:9' }] };`,
@@ -524,7 +622,7 @@ describe('data/0004: rows written before D53', () => {
     // The re-sync api-admin will do: the read model mirrors the story again.
     await run(
       await t.service('api_admin'),
-      `UPDATE publicStory:old_video SET media = [{ format: 'video' }]`,
+      `UPDATE publicStory:old_video SET media = [{ format: 'video', width: 1920, height: 1080 }]`,
     );
     await t.migrate();
     expect(await applied()).toContain('0004-check-story-shapes');
