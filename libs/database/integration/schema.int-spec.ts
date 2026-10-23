@@ -55,6 +55,28 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
     ]);
   });
 
+  it('3.2.4 gotcha: an element index over record links finds nothing; over strings it works', async () => {
+    // Why publicStory has tagSlugs (D63): `tagRefs.*` or `tagRefs[*]` indexes make
+    // `tagRefs CONTAINS tag:x` use the index and return no rows.
+    const migrator = await t.migrator();
+    const found = await rows(
+      migrator,
+      `DEFINE TABLE gotcha_tag SCHEMAFULL; DEFINE TABLE gotcha SCHEMAFULL;
+       DEFINE FIELD refs ON gotcha TYPE array<record<gotcha_tag>>;
+       DEFINE FIELD names ON gotcha TYPE array<string>;
+       DEFINE INDEX gotcha_refs ON gotcha FIELDS refs.*;
+       DEFINE INDEX gotcha_names ON gotcha FIELDS names.*;
+       CREATE gotcha_tag:a;
+       CREATE gotcha:1 SET refs = [gotcha_tag:a], names = ['a'];
+       RETURN {
+         refs: (SELECT VALUE id FROM gotcha WHERE refs CONTAINS gotcha_tag:a),
+         names: (SELECT VALUE id FROM gotcha WHERE names CONTAINS 'a')
+       };`,
+    );
+    await run(migrator, 'REMOVE TABLE gotcha; REMOVE TABLE gotcha_tag;');
+    expect(found.at(-1)).toEqual({ refs: [], names: ['gotcha:1'] });
+  });
+
   it('lets the migrator (OWNER) define and remove schema', async () => {
     const migrator = await t.migrator();
     await run(

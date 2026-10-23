@@ -12,6 +12,7 @@ import {
   type StoryFixture,
 } from '@heisreal/dev-seed/testing';
 import { MediaUrls, mediaConfigFromEnv } from '../src/app/media/media-urls';
+import { tagProbes } from '../src/app/tags/tags.controller';
 import { startPublicRead } from './app';
 
 /**
@@ -490,14 +491,28 @@ describe('browse API over the dev dataset', () => {
   });
 
   describe('GET /v1/tags', () => {
-    it('lists every tag by category (theme, journey, emotion) then name, without counts', async () => {
+    const tagList = async () => {
+      const res = await get('/v1/tags');
+      expect(res.status).toBe(200);
+      return (
+        (await res.json()) as {
+          data: { slug: string; name: string; category: string }[];
+        }
+      ).data;
+    };
+    const usedBy = (stories: StoryFixture[]) =>
+      new Set(stories.flatMap((s) => s.tags));
+
+    it('lists the tags of published stories by category (theme, journey, emotion) then name, without counts', async () => {
       const res = await get('/v1/tags');
       expect(res.status).toBe(200);
       const { data } = (await res.json()) as {
         data: { slug: string; name: string; category: string }[];
       };
       const order = ['theme', 'journey', 'emotion'];
+      const used = usedBy(approved);
       const expected = [...DATASET.tags]
+        .filter((x) => used.has(x.id))
         .sort(
           (a, b) =>
             order.indexOf(a.category) - order.indexOf(b.category) ||
@@ -515,6 +530,85 @@ describe('browse API over the dev dataset', () => {
       expect((await get('/v1/tags', { 'if-none-match': etag })).status).toBe(
         304,
       );
+    });
+
+    it('hides tags with no published story, even when an unpublished one uses them (D63)', async () => {
+      const used = usedBy(approved);
+      const unused = DATASET.tags.filter((x) => !used.has(x.id));
+      // The dataset must keep this case covered.
+      expect(unused.length).toBeGreaterThan(0);
+      expect(unused.some((x) => usedBy(unpublished).has(x.id))).toBe(true);
+      const slugs = (await tagList()).map((x) => x.slug);
+      for (const x of unused) expect(slugs).not.toContain(x.id);
+    });
+
+    it('drops a tag when its last story leaves the public site, and brings it back when it returns (D63)', async () => {
+      // A tag only one published story uses, a clip, so #61 can hide and restore it.
+      const only = DATASET.tags.find((x) => {
+        const users = approved.filter((s) => s.tags.includes(x.id));
+        return users.length === 1 && users[0].format !== 'written';
+      });
+      expect(only).toBeDefined();
+      const tag = only?.id as string;
+      const id = approved.find((s) => s.tags.includes(tag))?.id as string;
+      const migrator = await t.migrator();
+      const processing = (state: string) =>
+        run(
+          migrator,
+          `UPDATE type::record('story', $id) SET media[0].processing = $state`,
+          { id, state },
+        );
+      await processing('failed');
+      expect((await tagList()).map((x) => x.slug)).not.toContain(tag);
+      await processing('ready');
+      expect(
+        await rows(
+          migrator,
+          `SELECT VALUE id FROM type::record('publicStory', $id)`,
+          {
+            id,
+          },
+        ),
+      ).toHaveLength(1);
+      expect((await tagList()).map((x) => x.slug)).toContain(tag);
+    });
+
+    it('probes one indexed match per tag, never scanning every published story', async () => {
+      // EXPLAIN each statement exactly as the endpoint sends it (top level, bound slug): inside a
+      // closure 3.2.4 iterates the table instead (Codex, #67).
+      const migrator = await t.migrator();
+      const slugs = await rows<string>(
+        migrator,
+        'SELECT VALUE record::id(id) FROM tag',
+      );
+      const { statements, vars } = tagProbes(slugs);
+      expect(statements).toHaveLength(slugs.length);
+      const plans = (await run(
+        migrator,
+        statements.map((st) => `${st} EXPLAIN FULL`).join(';\n'),
+        vars,
+      )) as Record<string, unknown>[];
+      expect(plans).toHaveLength(slugs.length);
+      for (const plan of plans) {
+        const operators: { operator: string; index?: string }[] = [];
+        const walk = (n: Record<string, unknown>) => {
+          const attributes = (n['attributes'] ?? {}) as Record<string, string>;
+          operators.push({
+            operator: n['operator'] as string,
+            index: attributes['index'],
+          });
+          for (const c of (n['children'] ?? []) as Record<string, unknown>[])
+            walk(c);
+        };
+        walk(plan);
+        expect(operators).toContainEqual({
+          operator: 'IndexScan',
+          index: 'publicStory_tag_slugs',
+        });
+        expect(
+          operators.filter((o) => /Scan|Iterate/.test(o.operator)),
+        ).toEqual([{ operator: 'IndexScan', index: 'publicStory_tag_slugs' }]);
+      }
     });
 
     it('refuses query parameters', async () => {

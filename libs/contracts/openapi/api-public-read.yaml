@@ -207,17 +207,19 @@ paths:
     get:
       tags: [Tags]
       operationId: listTags
-      summary: List the tag taxonomy
+      summary: List the tags in use
       description: |
-        Every tag, by category (theme, journey, emotion) then name; clients group them by
-        `category`. No story counts (no totals in public responses, D30). Takes no query
-        parameters (`400`).
+        Every tag at least one published story uses, by category (theme, journey, emotion) then
+        name; clients group them by `category`. A tag with no published story is left out, so
+        none leads to an empty page; it comes back when a published story uses it (D63). No
+        story counts (no totals in public responses, D30, D62). Takes no query parameters
+        (`400`).
       x-milestone: M1
       parameters:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: All tags (a few dozen, so unpaged).
+          description: The tags in use (a few dozen at most, so unpaged).
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'

@@ -345,8 +345,8 @@ retried`, on both RocksDB and the in-memory engine.
     finds a problem (an item `failed` or back to `processing`, a size or duration removed), the
     same write deletes the row and creates `hiddenStory:<same id>`: `since`, the row's
     `publishedAt` and `slugHistory`, and `identity`, a hash of the **deleted row's** media
-    (formats, Bunny ids, thumbnails, image path). When the problem is gone and the story's media
-    has that identity, the same write re-creates the row from the story (`publicStory_mirrors_story`
+    (formats, Bunny ids, image path) and its `thumbnails` (D60 below). When the problem is gone
+    and the story's media is still what was reviewed (`fn::story::shows_reviewed_media`), the same write re-creates the row from the story (`publicStory_mirrors_story`
     checks it as on approval) and deletes `hiddenStory`. The status never changes; no new
     approval is needed. **The identity comes from the public row, not the story** (security
     review): workflow can write media, so it could swap the video in the failing write; the swap
@@ -365,6 +365,20 @@ retried`, on both RocksDB and the in-memory engine.
     person's content is locked after submission and api-admin can't write media.
     `fn::story::hidden_by_media()` lists hidden approved stories for api-admin (it runs with the
     caller's permissions). Runbook: [media-runbook.md](media-runbook.md).
+    **D60 (Joel, 2026-10-23): a frame Bunny generated for the same video is still reviewed
+    media.** Re-encoding a video on Bunny can change its thumbnail. A thumbnail counts as
+    unchanged if it is the reviewed one, or one of Bunny's generated frames of that video:
+    `<videoId>/thumbnail_1.jpg` to `thumbnail_5.jpg` (`fn::media::generated_thumbnail`). Then
+    the story comes back on its own and the row shows the new thumbnail. **Any other thumbnail is
+    changed media** (Codex, #67): Bunny stores custom thumbnail uploads in the same video folder,
+    so the folder alone proves nothing, and `thumbnail.jpg` (the selected thumbnail) may hold a
+    custom image. A different `bunnyVideoId` or image `path` is changed media too. Changed media
+    on a public story hides it in the same write (`auditLog` reason `media_changed`; D59: it
+    needs approving again), and a hidden story stays hidden. api-public-read still signs a
+    thumbnail only as a file directly in its own video's folder (step 5). Not covered: Bunny
+    replacing a file's contents under the same name; workflow must never upload custom
+    thumbnails. `hiddenStory` rows written before D60 have no `thumbnails` and stay
+    `mediaChanged`; in dev, reset the data.
 
 ### M1 step 4 (D49 dev-seed login)
 
@@ -386,11 +400,21 @@ retried`, on both RocksDB and the in-memory engine.
   reads the story's `media[0].durationSeconds` on every write, so no publisher copies it and none
   can set it (`write-scope.int-spec.ts`). The approval gate (A2) means a published clip always has
   it. Rows written before the migration get it on their next write; in dev, reset the data.
-- **`story_published_media_facts`.** When processing corrects an approved clip's size or duration
-  while it stays ready, the same write copies them into the published row. Only while the row's
-  media fingerprint (`fn::story::media_identity`, #61: formats, Bunny ids, thumbnails, image) equals
-  the story's, and never the fingerprint's fields themselves: a changed thumbnail or clip stays
-  under #61's hide and review. Copying it would make unreviewed media look reviewed.
+- **`story_published_media_facts`.** When processing corrects an approved clip's size or duration,
+  or a re-encode gives it another frame Bunny generated (D60), while it stays ready, the same
+  write copies them into the published row. Only while the story's media is still what was
+  reviewed (`fn::story::shows_reviewed_media` against the row). Anything else (another clip or
+  image, a custom thumbnail) is never copied: #61's event hides the story in the same write.
+  Copying it would make unreviewed media look reviewed.
+- **`publicStory.tagSlugs` (D63), computed.** `GET /v1/tags` lists a tag only if a published
+  story uses it: one probe per tag, at most one match, through the element index
+  `publicStory_tag_slugs` (`tagSlugs.*`), never a scan of every story. Each probe is a top-level
+  statement with its slug bound (`$t0`, `$t1`, ...): inside a closure 3.2.4 iterates the whole
+  table instead (Codex, #67; at 10,000 rows 313 ms against 20 ms for 30 tags). The slugs are computed
+  from `tagRefs` on every write, so no writer sets them. Not an index over `tagRefs` itself:
+  on 3.2.4 an element index over record links makes `CONTAINS` return no rows (a gotcha test in
+  `schema.int-spec.ts`). Rows written before the migration get it on their next write; in dev,
+  reset the data.
 - No permission changed: api-public-read still reads only `publicStory` and `tag`.
 
 ## Person-linked tables

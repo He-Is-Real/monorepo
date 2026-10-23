@@ -163,6 +163,14 @@ describe('MediaUrls', () => {
     expect(urls.thumbnailUrl(VIDEO, `${other}/thumbnail.jpg`)).toBeNull();
     expect(urls.thumbnailUrl(VIDEO, `${VIDEO}x/thumbnail.jpg`)).toBeNull();
     expect(urls.thumbnailUrl(VIDEO, `${VIDEO}/a/b.jpg`)).toBeNull();
+    // Never out of the folder (D60 trusts only frames inside it).
+    for (const escape of [
+      `${VIDEO}/..`,
+      `${VIDEO}/.`,
+      `${VIDEO}/../${other}/thumbnail.jpg`,
+      `${VIDEO}/..%2f${other}%2fthumbnail.jpg`,
+    ])
+      expect(urls.thumbnailUrl(VIDEO, escape)).toBeNull();
     expect(urls.thumbnailUrl(VIDEO, `${VIDEO}/thumbnail_2.jpg`)).toContain(
       `/${VIDEO}/thumbnail_2.jpg?`,
     );
