@@ -313,9 +313,7 @@ export function fakeUploads(): BunnyMedia {
         compact({
           videoId: `test-video-${id}`,
           thumbnailPath:
-            c.kind === 'video'
-              ? `test-video-${id}/thumbnail.jpg`
-              : undefined,
+            c.kind === 'video' ? `test-video-${id}/thumbnail.jpg` : undefined,
           width: 'width' in c ? c.width : undefined,
           height: 'height' in c ? c.height : undefined,
           durationSeconds: c.durationSeconds,
