@@ -78,3 +78,11 @@ for Bunny's encode and refuses a size or length that doesn't match the spec. Unt
 | Unit / integration tests | `pnpm nx test dev-seed`, `pnpm nx run dev-seed:test-integration` (Docker)              |
 
 Exit status: 0 done, 1 failed (nothing changed), 2 refused.
+
+The behavioural tests (`behavioural/`) check the API (`api.behaviour.ts`), the pages
+(`web.behaviour.ts`) and media token auth (`media.behaviour.ts`, D52): a published video's player,
+thumbnail and HLS, an audio player and a written story's image are signed and load; the same links
+unsigned or with a moved expiry get 403 from Bunny, and so do the images of unpublished stories
+(`image-02`, `image-05`); the story page's player plays (it fetches the HLS playlist). The media
+checks need signing on in dev (`api_public_read_media`, `infra/terraform/README.md`, "Media token
+auth").
