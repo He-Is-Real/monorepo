@@ -9,9 +9,13 @@ import { MediaUrls } from '../src/app/media/media-urls';
 import { StoriesModule } from '../src/app/stories/stories.controller';
 import { TagsModule } from '../src/app/tags/tags.controller';
 
-/** api-public-read's real controllers on its own read-only login (D13), listening locally. */
+/**
+ * api-public-read's real controllers on its own read-only login (D13), listening locally. Media
+ * signing is off unless a `MediaUrls` is given.
+ */
 export async function startPublicRead(
   t: TestDatabase,
+  media: MediaUrls = new MediaUrls(null),
 ): Promise<{ app: INestApplication; url: string }> {
   const connection: Surreal = await t.service('api_public_read');
 
@@ -19,7 +23,7 @@ export async function startPublicRead(
   @Module({
     providers: [
       { provide: SURREAL, useValue: connection },
-      { provide: MediaUrls, useValue: new MediaUrls(null) },
+      { provide: MediaUrls, useValue: media },
     ],
     exports: [SURREAL, MediaUrls],
   })

@@ -516,7 +516,8 @@ components:
           description: The clip's length (video and audio); `null` for written stories.
         thumbnailUrl:
           type: [string, 'null']
-          description: Token-authenticated thumbnail URL (D52); `null` until token auth is built, and for audio and written stories.
+          format: uri
+          description: The video's thumbnail, signed like the story page's (`MediaPlayback.thumbnailUrl`, D52). `null` for audio and written stories, or when signing is off. Cards never carry a player link.
         thumbnailWidth:
           type: [integer, 'null']
           minimum: 1

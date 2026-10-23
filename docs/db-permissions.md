@@ -386,10 +386,11 @@ retried`, on both RocksDB and the in-memory engine.
   reads the story's `media[0].durationSeconds` on every write, so no publisher copies it and none
   can set it (`write-scope.int-spec.ts`). The approval gate (A2) means a published clip always has
   it. Rows written before the migration get it on their next write; in dev, reset the data.
-- **`story_published_media_facts`.** When processing corrects an approved clip's facts (duration,
-  size, thumbnail) while the clip itself stays the same and ready, the same write copies them into
-  the published row. Not while the clip isn't ready (hiding is #61's event), and not for a new clip
-  (that needs review).
+- **`story_published_media_facts`.** When processing corrects an approved clip's size or duration
+  while it stays ready, the same write copies them into the published row. Only while the row's
+  media fingerprint (`fn::story::media_identity`, #61: formats, Bunny ids, thumbnails, image) equals
+  the story's, and never the fingerprint's fields themselves: a changed thumbnail or clip stays
+  under #61's hide and review. Copying it would make unreviewed media look reviewed.
 - No permission changed: api-public-read still reads only `publicStory` and `tag`.
 
 ## Person-linked tables

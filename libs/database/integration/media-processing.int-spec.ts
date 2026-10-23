@@ -545,7 +545,17 @@ describe('approval waits for media processing (A2)', () => {
         if (fix) await update(id, fix, workflow);
         else await processed(workflow, id);
         await expectLive(id);
-        expect(await publicRow(id)).toEqual(before); // same publishedAt, same content
+        // Same publishedAt, same content. The clip's duration is processing's latest fact
+        // (publicStory.durationSeconds is computed from the story, step 6a).
+        const [after] = (await publicRow(id)) as Record<string, unknown>[];
+        const [was] = before as Record<string, unknown>[];
+        expect({ ...after, durationSeconds: undefined }).toEqual({
+          ...was,
+          durationSeconds: undefined,
+        });
+        expect(after['durationSeconds']).toEqual(
+          (await story(id)).media[0]?.['durationSeconds'],
+        );
         expect(await history(id)).toEqual([
           entry('HideStory'),
           entry('RepublishStory'),

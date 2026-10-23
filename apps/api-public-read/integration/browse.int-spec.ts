@@ -11,6 +11,7 @@ import {
   devDatabaseWithDataset,
   type StoryFixture,
 } from '@heisreal/dev-seed/testing';
+import { MediaUrls, mediaConfigFromEnv } from '../src/app/media/media-urls';
 import { startPublicRead } from './app';
 
 /**
@@ -500,6 +501,57 @@ describe('browse API over the dev dataset', () => {
         media: { durationSeconds: number | null }[];
       };
       expect(story.media[0].durationSeconds).toEqual(expect.any(Number));
+    });
+  });
+
+  describe('signed media on cards (D52)', () => {
+    it('signs thumbnails and images with the story page’s MediaUrls, and gives cards no player', async () => {
+      const media = new MediaUrls(
+        {
+          config: mediaConfigFromEnv({
+            BUNNY_STREAM_LIBRARY_ID: '786537',
+            BUNNY_STREAM_CDN_HOST: 'vz-test.b-cdn.net',
+            BUNNY_IMAGES_CDN_HOST: 'images-test.b-cdn.net',
+            BUNNY_STREAM_TOKEN_KEY_SECRET: 'bunny-stream-token-key',
+            BUNNY_IMAGES_TOKEN_KEY_SECRET: 'bunny-images-token-key',
+          }) as NonNullable<ReturnType<typeof mediaConfigFromEnv>>,
+          streamKey: 'stream-key',
+          imagesKey: 'images-key',
+        },
+        () => Date.UTC(2026, 9, 23, 10, 15),
+      );
+      const signed = await startPublicRead(t, media);
+      try {
+        const cards = async (path: string) =>
+          ((await (await fetch(`${signed.url}${path}`)).json()) as Page).data;
+        const all = await cards('/v1/stories?limit=50');
+        const v01 = all.find((c) => c.id === 'seed_v01') as Card;
+        expect(v01.thumbnailUrl).toMatch(
+          /^https:\/\/vz-test\.b-cdn\.net\/test-video-clip-01\/thumbnail\.jpg\?token=HS256-[^&]+&expires=\d+$/,
+        );
+        // The same link as the story page's: one signing function for both.
+        const page = (await (
+          await fetch(`${signed.url}/v1/stories/${v01.slug}`)
+        ).json()) as { media: { thumbnailUrl: string }[] };
+        expect(v01.thumbnailUrl).toBe(page.media[0].thumbnailUrl);
+        const w01 = all.find((c) => c.id === 'seed_w01') as Card;
+        expect(w01.image?.url).toMatch(
+          /^https:\/\/images-test\.b-cdn\.net\/dev-seed\/image-01\.webp\?token=HS256-/,
+        );
+        expect(all.find((c) => c.id === 'seed_a01')?.thumbnailUrl).toBeNull();
+        const related = await cards(
+          '/v1/stories/test-video-vertical-phone/related',
+        );
+        for (const c of related.filter((x) => x.primaryFormat === 'video'))
+          expect(c.thumbnailUrl).toMatch(/^https:\/\/vz-test\.b-cdn\.net\//);
+        // Cards never carry a player link, a bare video id or the image's bare path.
+        const text = JSON.stringify(all);
+        expect(text).not.toContain('playbackUrl');
+        expect(text).not.toContain('player.mediadelivery.net');
+        expect(text).not.toMatch(/"test-video-clip-\d+"/);
+      } finally {
+        await signed.app.close();
+      }
     });
   });
 
