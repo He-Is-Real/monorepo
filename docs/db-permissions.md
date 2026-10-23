@@ -7,14 +7,14 @@ automated tests. It also records what had to change in the draft and what is sti
 
 ## Where it lives and how to run it
 
-| Path                                        | What                                                            |
-| ------------------------------------------- | --------------------------------------------------------------- |
-| `libs/database/schema/schema.surql`         | Declarative schema (D14), applied in full in one transaction    |
-| `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set |
-| `libs/database/schema/data/000N-*.surql`    | Run-once: 0001 draft DPA v1; 0002 dropped (D44); 0003 dev story |
-| `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it     |
-| `libs/database/integration/*.int-spec.ts`   | 513 integration tests against a real SurrealDB                  |
-| `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests               |
+| Path                                        | What                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------ |
+| `libs/database/schema/schema.surql`         | Declarative schema (D14), applied in full in one transaction                   |
+| `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set                |
+| `libs/database/schema/data/000N-*.surql`    | Run-once: 0001 draft DPA v1; 0002 dropped (D44); 0003 dev story (retired, D49) |
+| `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it                    |
+| `libs/database/integration/*.int-spec.ts`   | 514 integration tests against a real SurrealDB                                 |
+| `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests                              |
 
 ```bash
 pnpm nx run database:test-integration    # needs Docker; about 20 s
@@ -338,6 +338,20 @@ retried`, on both RocksDB and the in-memory engine.
     `string::trim` already strips every other Unicode space (and U+0085, which JavaScript keeps). `isStoryTextTooShortError` lets
     api-user's SubmitStory (M2) answer `400` `code: story_text_too_short`. Dev's 0003 story has
     222 characters, so no data script is needed.
+
+### M1 step 4 (D49 dev-seed login)
+
+- **`dev_seed`, a dev-only system user (EDITOR).** The dev-seed Job (`apps/dev-seed`) writes every
+  content table, so it signs in as a system user rather than a `service` record: no table
+  permission had to widen, and every event still runs (types and shapes, text limits, the
+  approval gate, the read-model mirror; `apps/dev-seed/integration` loads the dataset through
+  them). SurrealDB's startup init creates it only with OpenTofu's `dev_seed_login` (refused
+  outside dev) and removes it otherwise; the identity check and the migrate Job expect it then.
+  An EDITOR could `REMOVE EVENT`, the reason D13 removed the per-service system users; accepted
+  here because it exists only in dev, which holds only dummy data, and every migration re-applies
+  the full schema. The reset itself refuses unless `_setting:consent` says dev with consent
+  relaxed, so it can't load dummy stories into a database with the real rules.
+- **0003 retired.** Dev no longer sets `seed_dev_story`; the reset deletes 0003's story.
 
 ## Person-linked tables
 

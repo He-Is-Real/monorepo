@@ -15,7 +15,7 @@ Background and decisions (project docs, `context/research/`): `terraform-state-o
 ```
 modules/
   bootstrap/   project, APIs, state bucket, KMS keys, CI identities (keyless), budget, Bunny account key secret
-  gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run
+  gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run, dev-seed Job (dev)
   cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
   db-migration/ the D14 migration bundle and Job name (no providers; `tofu test` offline)
   db-identity/ SurrealDB's identity config: init Secret names, restart hash, marker (same)
@@ -81,14 +81,14 @@ converges on git and git history is the deploy log. Decision doc:
 | `"snapshot"`   | newest development build (repo `apps-scratch`; unmerged code; never allowed in prod)  |
 | `"…@sha256:…"` | hold the service on exact build                                                       |
 
-| Task                        | How                                                                                                                |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Deploy the latest `main`    | approve the gcp plan of the `tofu-apply.yml` run Release Images triggers; the plan shows the new digest            |
-| Build a snapshot locally    | `pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow web`, then `tf.sh images apply` (Docker) |
-| Build a snapshot in CI      | Actions → "Snapshot images" → Run workflow on your branch                                                          |
-| Run a snapshot in dev, once | apply `gcp` locally with `-var 'image_overrides={"api-public-read"="snapshot"}'`                                   |
-| Keep dev on snapshots       | set the service to `"snapshot"` in `images.auto.tfvars` on your branch, apply `gcp` locally                        |
-| Roll back                   | revert the change to `images.auto.tfvars` (or pin the previous digest), then apply                                 |
+| Task                        | How                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Deploy the latest `main`    | approve the gcp plan of the `tofu-apply.yml` run Release Images triggers; the plan shows the new digest |
+| Build a snapshot locally    | `pnpm nx run-many -t prune -p $(tools/scripts/image-services.sh)`, then `tf.sh images apply` (Docker)   |
+| Build a snapshot in CI      | Actions → "Snapshot images" → Run workflow on your branch                                               |
+| Run a snapshot in dev, once | apply `gcp` locally with `-var 'image_overrides={"api-public-read"="snapshot"}'`                        |
+| Keep dev on snapshots       | set the service to `"snapshot"` in `images.auto.tfvars` on your branch, apply `gcp` locally             |
+| Roll back                   | revert the change to `images.auto.tfvars` (or pin the previous digest), then apply                      |
 
 An apply from `main` always moves dev back to what `main` says; read the plan. `apps` tags
 are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes older ones after
@@ -96,13 +96,15 @@ are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes
 
 ## CI
 
-| Workflow              | When                                                      | Identity                                                                                          | Changes the cloud?                              |
-| --------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `tofu-plan.yml`       | automatically on PRs touching infra                       | `tf-planner` (gcp, images; read-only); `tf-cluster-planner` (cluster, `cluster-plan` env)         | Dry-run writes in `database`                    |
-| `tofu-apply.yml`      | every push to `main`, every Release Images run, dispatch  | `tf-deployer` (gcp, cluster, images), `tf-bunny` (bunny): only this workflow and drift, on `main` | Yes, after an approval in the `dev` environment |
-| `tofu-drift.yml`      | weekly (Monday 06:17 UTC) and dispatch                    | `tf-deployer` (gcp, cluster), `tf-planner` (bootstrap), `tf-bunny` (bunny)                        | No                                              |
-| `images.yml`          | pushes to `main` that affect a service ("Release Images") | `ci-image-pusher`: only `main` pushes                                                             | Pushes to `apps`                                |
-| `snapshot-images.yml` | **manual** Run workflow, any branch                       | `ci-snapshot-pusher`: only that workflow                                                          | Pushes to `apps-scratch`                        |
+| Workflow                    | When                                                      | Identity                                                                                          | Changes the cloud?                              |
+| --------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `tofu-plan.yml`             | automatically on PRs touching infra                       | `tf-planner` (gcp, images; read-only); `tf-cluster-planner` (cluster, `cluster-plan` env)         | Dry-run writes in `database`                    |
+| `tofu-apply.yml`            | every push to `main`, every Release Images run, dispatch  | `tf-deployer` (gcp, cluster, images), `tf-bunny` (bunny): only this workflow and drift, on `main` | Yes, after an approval in the `dev` environment |
+| `tofu-drift.yml`            | weekly (Monday 06:17 UTC) and dispatch                    | `tf-deployer` (gcp, cluster), `tf-planner` (bootstrap), `tf-bunny` (bunny)                        | No                                              |
+| `images.yml`                | pushes to `main` that affect a service ("Release Images") | `ci-image-pusher`: only `main` pushes                                                             | Pushes to `apps`                                |
+| `snapshot-images.yml`       | **manual** Run workflow, any branch                       | `ci-snapshot-pusher`: only that workflow                                                          | Pushes to `apps-scratch`                        |
+| `reset-dev-data.yml`        | **manual** Run workflow, `main` (D50)                     | `ci-dev-seeder`: only this and `dev-behavioural-tests.yml`, dispatched on `main`                  | Starts the dev-seed Job (dummy data, no apply)  |
+| `dev-behavioural-tests.yml` | **manual** Run workflow, `main` (D50)                     | `ci-dev-seeder` for the reset job; the test job has no identity                                   | Resets dev data, then tests the dev URLs        |
 
 All keyless (Workload Identity Federation, limited to this repository's ID; forks get nothing).
 The repository is public, so **Actions logs, summaries and artifacts are world-readable**
@@ -186,15 +188,16 @@ kubectl -n database get secrets --as "$P"                                       
 
 ## Who can do what
 
-| Identity                      | Used by                                                     | Can reach                                                                                                                                                                    |
-| ----------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| developers (`var.developers`) | people                                                      | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys                                                                |
-| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)    | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/`), `tofu-state`, bucket metadata. No secret values or backups                                            |
-| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment   | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/`), `tofu-state`                                                               |
-| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`             | what the gcp, cluster and images roots manage; state (not `dev/bunny/`), `tofu-state`, saved plans in `plans/`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes |
-| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                               |
-| `ci-image-pusher`             | `images.yml` on a push to `main`                            | push to `apps`                                                                                                                                                               |
-| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                  | push to `apps-scratch`                                                                                                                                                       |
+| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys                                                                |
+| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/`), `tofu-state`, bucket metadata. No secret values or backups                                            |
+| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/`), `tofu-state`                                                               |
+| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster and images roots manage; state (not `dev/bunny/`), `tofu-state`, saved plans in `plans/`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes |
+| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                               |
+| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                               |
+| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                       |
+| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                     |
 
 The gates are CEL expressions over GitHub's OIDC claims (`modules/bootstrap/*.cel.tftpl`, tested
 with claim fixtures in `modules/bootstrap/tests/`): ref, workflow file and event. Environments
@@ -212,6 +215,18 @@ control.
 - **`dev/bunny/`:** readable by developers and `tf-bunny`, and by Google-managed service agents
   acting for their own services; its state is encrypted with `tofu-bunny`, which only developers
   and `tf-bunny` can use. Object names stay listable for the other CI identities, contents don't.
+
+## Dev data (D49, D50)
+
+The `dev-seed` Cloud Run Job (`modules/gcp/dev_seed.tf`, app `apps/dev-seed`) resets the dev
+database to the D47 dummy dataset in one transaction. Dev only: `dev_seed` in the gcp module and
+`dev_seed_login` in the cluster module refuse any project but `heisreal-dev` (tested in
+`modules/cluster/tests/dev_seed.tftest.hcl` and `modules/db-identity/tests`), like D48's
+`dev_consent_relaxed`. The Job signs in as `dev_seed`, a system user (EDITOR) that SurrealDB's
+startup init creates only with `dev_seed_login`; its password is `surreal-dev-seed-password`.
+Starting the Job is an operation, not an infrastructure change: no apply. `ci-dev-seeder` may
+start it from "Reset dev data" and "Dev behavioural tests" on `main`, nothing else. Media were
+uploaded once by a developer (`apps/dev-seed/README.md`); the Job never talks to Bunny.
 
 ## Encryption
 

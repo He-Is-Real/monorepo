@@ -53,3 +53,8 @@ output "api_public_read_url" {
 output "web_url" {
   value = google_cloud_run_v2_service.web.uri
 }
+
+output "dev_seed_job" {
+  description = "D49: the dev-seed Cloud Run Job (gcloud run jobs execute <name> --region <region> --wait), or null outside dev."
+  value       = var.dev_seed ? google_cloud_run_v2_job.dev_seed[0].name : null
+}

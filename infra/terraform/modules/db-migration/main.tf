@@ -37,7 +37,7 @@ variable "clerk_jwt_public_key" {
 }
 
 variable "seed_dev_story" {
-  description = "Seed 0003's walking-skeleton story (test content, M0 0.9). true only in live/dev/cluster; anywhere else the script records itself as applied and writes nothing."
+  description = "Seed 0003's walking-skeleton story (test content, M0 0.9). Retired in M1 step 4 (D49: the dev-seed Job loads dummy data); kept for tests and local runs. Off, the script records itself as applied and writes nothing."
   type        = bool
   default     = false
 }
@@ -56,6 +56,17 @@ variable "dev_consent_relaxed" {
   validation {
     condition     = !var.dev_consent_relaxed || var.environment == "dev"
     error_message = "dev_consent_relaxed (D48) can only be set in dev."
+  }
+}
+
+variable "extra_system_users" {
+  description = "System users besides backup and migrator that SurrealDB's startup init creates (D49: dev_seed, in dev only). The Job waits for exactly these (MIGRATE_EXPECT_USERS)."
+  type        = list(string)
+  default     = []
+  nullable    = false
+  validation {
+    condition     = alltrue([for u in var.extra_system_users : can(regex("^[a-z][a-z0-9_]*$", u)) && !contains(["backup", "migrator"], u)])
+    error_message = "extra_system_users are other lowercase user names."
   }
 }
 
@@ -93,12 +104,22 @@ locals {
   )
 
   # jsonencode sorts object keys, so the hash depends on content only.
-  hash = substr(sha256(jsonencode({ bundle = local.bundle, job = var.job_template })), 0, 10)
+  hash = substr(sha256(jsonencode({ bundle = local.bundle, job = var.job_template, extra_system_users = var.extra_system_users })), 0, 10)
 
   config_map_name = "surrealdb-migration-${local.hash}"
   job_name        = "surrealdb-migrate-${local.hash}"
 
   template_spec = var.job_template.spec.template.spec
+
+  # MIGRATE_EXPECT_USERS: the template's users plus the extra ones, sorted.
+  containers = [
+    for c in local.template_spec.containers : can(c.env) ? merge(c, {
+      env = [
+        for e in c.env :
+        e.name == "MIGRATE_EXPECT_USERS" ? merge(e, { value = join(",", sort(distinct(concat(split(",", e.value), var.extra_system_users)))) }) : e
+      ]
+    }) : c
+  ]
 }
 
 output "hash" {
@@ -151,6 +172,7 @@ output "job" {
     spec = merge(var.job_template.spec, {
       template = merge(var.job_template.spec.template, {
         spec = merge(local.template_spec, {
+          containers = local.containers
           volumes = [
             for v in local.template_spec.volumes :
             v.name == "migration" ? merge(v, { configMap = merge(v.configMap, { name = local.config_map_name }) }) : v

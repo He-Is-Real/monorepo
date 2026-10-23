@@ -7,7 +7,8 @@ Ready, on every start and every probe: it proves the init succeeded with the INT
 credentials, from the same Secret the init was rendered from (credentials.json, identity-hash):
 
   * migrator and backup sign in with their current passwords;
-  * the system users are exactly backup and migrator;
+  * the system users are exactly backup and migrator, plus any in system-users.json (D49: in dev
+    only, `dev_seed`), each signing in with its current password;
   * each service's stored hash matches its current password (crypto::argon2::compare, so it works
     before the schema defines `svc`), and once `svc` exists each service signs in through it;
   * _identity:current (the init's last write) equals the expected identity config hash.
@@ -22,7 +23,9 @@ identities are wrong (fail closed).
 
 Environment: SURREAL_ENDPOINT (default http://127.0.0.1:8000), SURREAL_NAMESPACE,
 SURREAL_DATABASE, IDENTITY_CREDENTIALS (default /init/credentials.json), IDENTITY_EXPECTED_FILE
-(default /init/identity-hash; absent = no marker check, e.g. locally). Standard library only.
+(default /init/identity-hash; absent = no marker check, e.g. locally), IDENTITY_EXTRA_USERS
+(default /init/system-users.json, {name: password}; absent = none: OpenTofu adds it only with
+dev_seed_login). Standard library only.
 Prints reasons, never a password or token.
 """
 
@@ -84,13 +87,30 @@ def check():
         with open(expected_path, encoding="utf-8") as f:
             expected = f.read().strip() or None
 
+    extra = {}
+    extra_path = os.environ.get("IDENTITY_EXTRA_USERS", "/init/system-users.json")
+    if os.path.exists(extra_path):
+        try:
+            with open(extra_path, encoding="utf-8") as f:
+                extra = json.load(f)
+        except (OSError, ValueError) as err:
+            raise NotReady(f"unreadable {extra_path} ({type(err).__name__})")
+        if not isinstance(extra, dict) or not all(
+            isinstance(k, str) and k.isidentifier() and k not in ("backup", "migrator") and isinstance(v, str)
+            for k, v in extra.items()
+        ):
+            raise NotReady(f"{extra_path} must map other user names to passwords")
+
     token = signin("migrator", {"ns": NS, "db": DB, "user": "migrator", "pass": creds["migrator"]})
     signin("backup", {"ns": NS, "db": DB, "user": "backup", "pass": creds["backup"]})
+    for name, password in sorted(extra.items()):
+        signin(name, {"ns": NS, "db": DB, "user": name, "pass": password})
 
     info = query(token, "INFO FOR DB")[0]
     users = sorted(info["users"].keys())
-    if users != ["backup", "migrator"]:
-        raise NotReady(f"system users are {users}, expected ['backup', 'migrator']")
+    expected_users = sorted(["backup", "migrator", *extra])
+    if users != expected_users:
+        raise NotReady(f"system users are {users}, expected {expected_users}")
 
     for name, password in sorted(creds["services"].items()):
         [matches] = query(

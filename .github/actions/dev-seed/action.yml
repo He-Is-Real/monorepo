@@ -1,0 +1,40 @@
+name: Reset dev data
+description: >-
+  Starts the dev-seed Cloud Run Job (D49), which resets the dev database to the D47 dummy
+  dataset in one transaction, and waits for it. Signs in as ci-dev-seeder (D50), which may only
+  start and watch that Job; its gate allows only reset-dev-data.yml and
+  dev-behavioural-tests.yml dispatched on main. The job using this needs `id-token: write`
+  (tools/scripts/tests/workflows.test.mjs).
+
+runs:
+  using: composite
+  steps:
+    - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+      with:
+        workload_identity_provider: projects/236063168938/locations/global/workloadIdentityPools/github/providers/github-actions
+        service_account: ci-dev-seeder@heisreal-dev.iam.gserviceaccount.com
+    # The Job prints counts only (apps/dev-seed); its log is for developers (Cloud Logging).
+    # Here: the execution's name and result, nothing else.
+    - shell: bash
+      run: |
+        set -o pipefail
+        started=$(date -u +%FT%TZ)
+        if execution=$(gcloud run jobs execute dev-seed --project heisreal-dev --region europe-west2 \
+            --wait --format='value(metadata.name)' 2>"$RUNNER_TEMP/dev-seed.err"); then
+          result=succeeded
+        else
+          result=failed
+        fi
+        {
+          echo "### Reset dev data"
+          echo "dev-seed execution \`${execution:-?}\` (started $started): **$result**."
+          if [ "$result" = failed ]; then
+            echo 'Nothing changed: the reset is one transaction. A developer can read the log:'
+            echo '`gcloud run jobs executions list --job dev-seed --region europe-west2 --project heisreal-dev`.'
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$result" = failed ]; then
+          # gcloud's own message (status and execution), no credentials.
+          tail -n 5 "$RUNNER_TEMP/dev-seed.err" >&2
+          exit 1
+        fi

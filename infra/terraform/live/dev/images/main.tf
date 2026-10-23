@@ -2,7 +2,7 @@
 # from its pruned Nx output and pushes it to apps-scratch (development builds;
 # dev can run them, prod never). Nothing reads this root's state.
 #
-#   pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow web
+#   pnpm nx run-many -t prune -p $(tools/scripts/image-services.sh)
 #   terraform apply
 #
 # Then run it in dev: set the service to "snapshot" in
@@ -41,7 +41,11 @@ data "terraform_remote_state" "gcp" {
 
 locals {
   registry = data.terraform_remote_state.gcp.outputs.gcp.registry.apps_scratch
-  services = toset(["api-public-read", "api-user", "api-admin", "workflow", "web"])
+  # Every image service, from the one list CI uses too (tools/scripts/image-services.txt).
+  services = toset([
+    for l in split("\n", file("${path.root}/../../../../../tools/scripts/image-services.txt")) :
+    trimspace(l) if trimspace(l) != "" && !startswith(trimspace(l), "#")
+  ])
   app_root = "${path.root}/../../../../../apps"
 
   # Tag = hash of the pruned build output, so unchanged builds aren't re-pushed.

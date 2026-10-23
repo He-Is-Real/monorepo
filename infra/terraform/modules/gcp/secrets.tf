@@ -9,7 +9,7 @@
 # password can still be read to tell the database about the new one.
 
 resource "google_secret_manager_secret" "surreal" {
-  for_each = toset(var.surreal_secret_names)
+  for_each = toset(local.surreal_secret_names)
 
   project   = var.project_id
   secret_id = each.value
@@ -25,14 +25,14 @@ resource "google_secret_manager_secret" "surreal" {
 }
 
 ephemeral "random_password" "surreal" {
-  for_each = toset(var.surreal_secret_names)
+  for_each = toset(local.surreal_secret_names)
 
   length  = 40
   special = false
 }
 
 resource "google_secret_manager_secret_version" "surreal" {
-  for_each = toset(var.surreal_secret_names)
+  for_each = toset(local.surreal_secret_names)
 
   secret                 = google_secret_manager_secret.surreal[each.value].id
   secret_data_wo         = ephemeral.random_password.surreal[each.value].result

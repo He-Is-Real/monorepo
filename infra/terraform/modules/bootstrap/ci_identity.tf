@@ -11,6 +11,8 @@
 #                       main
 #   tf-bunny            tofu-apply.yml / tofu-drift.yml on     the bunny root only (tf_bunny.tf)
 #                       main
+#   ci-dev-seeder       reset-dev-data.yml / dev-behavioural-  start the dev-seed Job (D50; the
+#                       tests.yml dispatched on main           gcp root grants it on that Job only)
 #
 # The gates are computed from the token's claims, so a workflow on another
 # branch, another workflow file, or an automatic trigger cannot obtain the
@@ -66,6 +68,13 @@ resource "google_iam_workload_identity_pool_provider" "github" {
       repository = var.github_repository
     }))
     "attribute.bunny_gate" = trimspace(templatefile("${path.module}/bunny_gate.cel.tftpl", {
+      repository = var.github_repository
+    }))
+    # D50: ci-dev-seeder. Only "Reset dev data" and "Dev behavioural tests" dispatched on main,
+    # so branch code never gets it; in those workflows only the reset job asks for an OIDC token
+    # (the test job can't sign in at all). Not as a reusable workflow called from elsewhere.
+    # Tests: tests/dev-seed-gate.test.mjs.
+    "attribute.dev_seed_gate" = trimspace(templatefile("${path.module}/dev_seed_gate.cel.tftpl", {
       repository = var.github_repository
     }))
   }
@@ -162,6 +171,22 @@ resource "google_service_account_iam_member" "ci_snapshot_pusher_wif" {
   service_account_id = google_service_account.ci_snapshot_pusher.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "${local.pool}/attribute.snapshot_gate/allowed"
+}
+
+# --- dev seeder: "Reset dev data" (D50) -------------------------------------
+# Starts the dev-seed Cloud Run Job (D49), which resets dev to dummy data. No project role: the
+# gcp root grants it jobsExecutor and viewer on that one Job only. No approval step: it only
+# touches dummy data in dev.
+resource "google_service_account" "ci_dev_seeder" {
+  project      = google_project.this.project_id
+  account_id   = "ci-dev-seeder"
+  display_name = "CI dev seeder (Reset dev data: start the dev-seed Job)"
+}
+
+resource "google_service_account_iam_member" "ci_dev_seeder_wif" {
+  service_account_id = google_service_account.ci_dev_seeder.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "${local.pool}/attribute.dev_seed_gate/allowed"
 }
 
 # --- deployer: manual applies ----------------------------------------------

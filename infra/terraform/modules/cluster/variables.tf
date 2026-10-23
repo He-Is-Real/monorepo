@@ -61,10 +61,15 @@ variable "identity_rotation" {
   default     = "1"
 }
 
-variable "seed_dev_story" {
-  description = "Seed the dev-only walking-skeleton story (data script 0003, M0 0.9). Never true outside dev."
+variable "dev_seed_login" {
+  description = "D49: SurrealDB's startup init creates dev_seed, the dev-seed Job's own system user (EDITOR; password: Secret Manager surreal-dev-seed-password from the gcp root's dev_seed). Only for the heisreal-dev project, like dev_consent_relaxed."
   type        = bool
   default     = false
+  nullable    = false
+  validation {
+    condition     = !var.dev_seed_login || lookup(var.surrealdb_expected_settings, "GCP_PROJECT", "") == "heisreal-dev"
+    error_message = "dev_seed_login (D49) can only be set in dev (GCP project heisreal-dev)."
+  }
 }
 
 variable "dev_consent_relaxed" {

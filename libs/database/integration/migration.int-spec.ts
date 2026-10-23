@@ -61,12 +61,21 @@ const CODEX_EXAMPLES = [
 async function renderInit(
   t: TestDatabase,
   identityHash?: string,
-  { breakApiUser = false, namespace = t.namespace } = {},
+  {
+    breakApiUser = false,
+    namespace = t.namespace,
+    devSeedPassword,
+  }: {
+    breakApiUser?: boolean;
+    namespace?: string;
+    devSeedPassword?: string;
+  } = {},
 ): Promise<string> {
   const passwords: Record<string, string> = {
     ...Object.fromEntries(t.servicePasswords),
     migrator: t.migratorPassword,
     backup: t.backupPassword,
+    ...(devSeedPassword ? { dev_seed: devSeedPassword } : {}),
   };
   let text = (await readFile(INIT_TEMPLATE, 'utf8'))
     .replace(/\{\{\s*\.(\w+)\s*\|\s*toJson\s*\}\}/g, (_, key: string) => {
@@ -74,6 +83,13 @@ async function renderInit(
       return JSON.stringify(passwords[key]);
     })
     .replace(/\bheisreal\b/g, namespace);
+  // modules/db-identity's two forms of the dev-seed line (D49), with or without dev_seed_login.
+  text = text.replace(
+    '-- @dev-seed-login',
+    devSeedPassword
+      ? `DEFINE USER OVERWRITE dev_seed ON DATABASE PASSWORD ${JSON.stringify(devSeedPassword)} ROLES EDITOR COMMENT "dev-seed: dev only (D49)";`
+      : 'REMOVE USER IF EXISTS dev_seed ON DATABASE;',
+  );
   if (identityHash) {
     text = text.replace(
       '-- @identity-marker',
@@ -421,6 +437,66 @@ describe('P2: a failed startup init fails closed', () => {
       output: expect.stringContaining(
         "system users are ['api_admin', 'backup', 'migrator']",
       ),
+    });
+  });
+});
+
+describe('D49: the dev-only dev_seed login', () => {
+  let t: TestDatabase;
+  const devSeedPassword = randomBytes(18).toString('hex');
+  beforeAll(async () => {
+    t = await TestDatabase.create({ migrate: false });
+  });
+  afterAll(() => t?.close());
+
+  it('exists only while the init defines it, and the identity check knows it', async () => {
+    expect(
+      await initAsRoot(t, await renderInit(t, 'seed-1', { devSeedPassword })),
+    ).toBe(true);
+    const extra = { dev_seed: devSeedPassword };
+    expect(
+      await t.identityCheck(t.credentials(), 'seed-1', extra),
+    ).toMatchObject({ ready: true });
+    // Without system-users.json the extra user is unexpected: not Ready.
+    expect(await t.identityCheck(t.credentials(), 'seed-1')).toMatchObject({
+      ready: false,
+      output: expect.stringContaining(
+        "system users are ['backup', 'dev_seed', 'migrator']",
+      ),
+    });
+    expect(
+      await t.identityCheck(t.credentials(), 'seed-1', {
+        dev_seed: 'not-the-password',
+      }),
+    ).toMatchObject({
+      ready: false,
+      output: expect.stringContaining("dev_seed can't sign in"),
+    });
+    const migrated = await t.runMigration(
+      t.params({ identity_hash: 'seed-1' }),
+      { env: { ...JOB_ENV, MIGRATE_EXPECT_USERS: 'backup,dev_seed,migrator' } },
+    );
+    expect(migrated.exitCode).toBe(0);
+
+    // An EDITOR: it writes data but can't manage users or access.
+    const seeder = await t.systemUser('dev_seed', devSeedPassword);
+    expect(
+      await outcome(
+        seeder,
+        "CREATE tag:probe SET name = 'Probe', category = 'theme'",
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await outcome(
+        seeder,
+        "DEFINE USER intruder ON DATABASE PASSWORD 'x' ROLES OWNER",
+      ),
+    ).toMatchObject({ ok: false });
+
+    // Turned off (the default everywhere but dev): the next start removes it.
+    expect(await initAsRoot(t, await renderInit(t, 'seed-2'))).toBe(true);
+    expect(await t.identityCheck(t.credentials(), 'seed-2')).toMatchObject({
+      ready: true,
     });
   });
 });

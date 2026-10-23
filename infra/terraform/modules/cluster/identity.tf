@@ -7,6 +7,10 @@
 # passwords stay in the cluster: Terraform only sees the template and secret names.
 
 locals {
+  # D48, D49: the environment comes from the GCP project the overlay and the gcp root agree on
+  # (surrealdb.tf), not from a free-form input: heisreal-dev -> dev.
+  environment = trimprefix(lookup(var.surrealdb_expected_settings, "GCP_PROJECT", ""), "heisreal-")
+
   init_template_id = one([
     for id, m in data.kustomization_overlay.surrealdb.manifests : id
     if jsondecode(m).kind == "ConfigMap" && jsondecode(m).metadata.name == "surrealdb-init-template"
@@ -24,6 +28,8 @@ module "identity" {
   template         = file("${var.surrealdb_overlay_path}/../../base/init.surql.tmpl")
   external_secrets = file("${var.surrealdb_overlay_path}/../gke/externalsecrets.yaml")
   rotation         = var.identity_rotation
+  environment      = local.environment
+  dev_seed_login   = var.dev_seed_login
   config_map       = jsondecode(data.kustomization_overlay.surrealdb.manifests[local.init_template_id])
   external_secret  = jsondecode(data.kustomization_overlay.surrealdb.manifests[local.init_secret_id])
 }

@@ -19,6 +19,7 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 | `apps/api-user`        | The signed-in person's reads and commands      | DB user `api_write` (until the schema PR), EDITOR                        |
 | `apps/api-admin`       | Moderation/admin API (restricted hostname)     | DB user `api_admin`, EDITOR                                              |
 | `apps/workflow`        | Dapr Workflow orchestrator (M7, GKE)           | DB user `workflow`, EDITOR                                               |
+| `apps/dev-seed`        | Dev-only Job: resets dev to dummy data (D49)   | System user `dev_seed` (dev only); [README](apps/dev-seed/README.md)     |
 | `libs/secrets`         | Reads GCP Secret Manager via the SDK           | Fetched once at startup; missing secret = clear failure                  |
 | `libs/database`        | SurrealDB client (surrealdb.js)                | Own user per service; startup fails after 15 s if DB is down             |
 | `libs/health`          | `GET /health` → `{ status, service, db }`      | 503 when the DB is down; `/testing` boots an app in tests                |
@@ -88,3 +89,6 @@ GKE Autopilot Spot Pods, about £3–5/month.
   Release Images run) plans every root unattended; each apply waits for one approval in the `dev`
   environment, then applies exactly the saved plan. Dispatch it to recover from anything.
 - **`tofu-drift.yml`**: weekly full-refresh plans; fails on drift.
+- **`reset-dev-data.yml`** and **`dev-behavioural-tests.yml`** (manual, `main`; D50): reset dev to
+  the dummy dataset with the `dev-seed` Job, then (tests) check the dev URLs against it
+  ([apps/dev-seed](apps/dev-seed/README.md)).

@@ -32,6 +32,12 @@ REMOVE USER IF EXISTS workflow        ON DATABASE;
 REMOVE USER IF EXISTS api_public_read ON DATABASE;
 REMOVE USER IF EXISTS api_user        ON DATABASE;
 
+-- D49: the dev-seed Job's login, in dev only. On GKE OpenTofu (modules/db-identity) replaces the
+-- next line: with `DEFINE USER OVERWRITE dev_seed … ROLES EDITOR` where dev_seed_login is on
+-- (refused outside dev), and with `REMOVE USER IF EXISTS dev_seed ON DATABASE` everywhere else.
+-- Locally it stays a comment: no dev_seed user.
+-- @dev-seed-login
+
 -- Service logins (D13 B, DEFINE ACCESS svc in schema.surql): the argon2 hash of each service's
 -- Secret Manager password, computed by the database, so only the hash is stored and the
 -- plaintext stays in the init Secret. Written here, not by the migrator, so the migrator and

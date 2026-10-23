@@ -33,6 +33,23 @@ variable "rotation" {
   type        = string
 }
 
+variable "environment" {
+  description = "The environment this database belongs to (modules/cluster derives it from the GCP project: heisreal-dev -> dev). null = unknown, which is never dev."
+  type        = string
+  default     = null
+}
+
+variable "dev_seed_login" {
+  description = "D49: give the dev-seed Job its own system user, dev_seed (EDITOR), password from Secret Manager surreal-dev-seed-password. Dev only: refused unless environment is \"dev\". Off: the init removes the user."
+  type        = bool
+  default     = false
+  nullable    = false
+  validation {
+    condition     = !var.dev_seed_login || var.environment == "dev"
+    error_message = "dev_seed_login (D49) can only be set in dev."
+  }
+}
+
 variable "config_map" {
   description = "The rendered surrealdb-init-template ConfigMap (decoded)."
   type        = any
@@ -48,6 +65,7 @@ locals {
     template         = var.template
     external_secrets = var.external_secrets
     rotation         = var.rotation
+    dev_seed_login   = var.dev_seed_login
   })), 0, 10)
   secret_name   = "surrealdb-init-${local.hash}"
   template_name = "surrealdb-init-template-${local.hash}"
@@ -55,6 +73,17 @@ locals {
   marker        = "UPSERT _identity:current SET hash = ${jsonencode(local.hash)}, appliedAt = time::now();"
   es            = var.external_secret
   script        = var.config_map.data["init.surql"]
+
+  # D49: the dev-seed line. ESO fills in {{ .dev_seed }} from the Secret Manager password; elsewhere
+  # the line removes any dev_seed user, so turning the login off takes effect at the next start.
+  dev_seed_sentinel = "-- @dev-seed-login"
+  dev_seed_line = (var.dev_seed_login
+    ? "DEFINE USER OVERWRITE dev_seed ON DATABASE PASSWORD {{ .dev_seed | toJson }} ROLES EDITOR COMMENT \"dev-seed Job: dummy data, dev only (D49)\";"
+    : "REMOVE USER IF EXISTS dev_seed ON DATABASE;"
+  )
+  dev_seed_data = var.dev_seed_login ? [{ secretKey = "dev_seed", remoteRef = { key = "surreal-dev-seed-password" } }] : []
+  # The identity-check sidecar's list of extra system users (identity_check.py, IDENTITY_EXTRA_USERS).
+  dev_seed_users = var.dev_seed_login ? { "system-users.json" = "{\"dev_seed\": {{ .dev_seed | toJson }}}" } : {}
 }
 
 output "hash" {
@@ -69,12 +98,16 @@ output "config_map" {
   value = merge(var.config_map, {
     metadata  = merge(var.config_map.metadata, { name = local.template_name })
     immutable = true
-    data      = { "init.surql" = replace(local.script, local.sentinel, local.marker) }
+    data      = { "init.surql" = replace(replace(local.script, local.sentinel, local.marker), local.dev_seed_sentinel, local.dev_seed_line) }
   })
 
   precondition {
     condition     = length(split(local.sentinel, local.script)) == 2
     error_message = "init.surql.tmpl must contain the line `-- @identity-marker` exactly once (inside its transaction, last)."
+  }
+  precondition {
+    condition     = length(split(local.dev_seed_sentinel, local.script)) == 2
+    error_message = "init.surql.tmpl must contain the line `-- @dev-seed-login` exactly once (inside its transaction)."
   }
 }
 
@@ -85,13 +118,14 @@ output "external_secret" {
       target = merge(local.es.spec.target, {
         name = local.secret_name
         template = merge(local.es.spec.target.template, {
-          data = merge(try(local.es.spec.target.template.data, {}), { "identity-hash" = local.hash })
+          data = merge(try(local.es.spec.target.template.data, {}), { "identity-hash" = local.hash }, local.dev_seed_users)
           templateFrom = [
             for t in local.es.spec.target.template.templateFrom :
             merge(t, { configMap = merge(t.configMap, { name = local.template_name }) })
           ]
         })
       })
+      data = concat(local.es.spec.data, local.dev_seed_data)
     })
   })
 

@@ -110,7 +110,8 @@ jobs:
       # The migrate Job's and the identity config's names change iff their content does (D14,
       # D13 B). No providers, no cloud access.
       # bunny-state-guard: nothing Bunny is public (the bunny root's pre-plan check).
-      # cluster (mock providers, no cluster access): D48's relaxed consent is refused outside dev.
+      # cluster (mock providers, no cluster access): D48's relaxed consent and D49's dev-seed login
+      # are refused outside dev.
       - name: Test the pure modules
         run: |
           for module in db-migration db-identity bunny-state-guard cluster; do
@@ -206,7 +207,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # The images root hashes each service's pruned build output (tools/scripts/image-tag.sh).
-      - run: pnpm nx run-many -t prune -p api-public-read api-user api-admin workflow web
+      - run: pnpm nx run-many -t prune -p $(tools/scripts/image-services.sh)
       - uses: ./.github/actions/tofu
         with:
           service_account: tf-planner@heisreal-dev.iam.gserviceaccount.com
