@@ -173,5 +173,133 @@ describe('write scope on story fields (D41)', () => {
         { title: 'Story bob_pending', body: storyText('bob_pending') },
       ]);
     });
+
+    it('takes the clip’s duration from the story, whatever the writer sends', async () => {
+      // Cards show a clip's length (step 6a). The read model computes it from the approved
+      // story's processed media, so no publisher copies it and none can change it.
+      expect(
+        await rows(
+          migrator,
+          'SELECT VALUE durationSeconds FROM publicStory:bob_pending',
+        ),
+      ).toEqual([93]);
+      await run(
+        admin,
+        'UPDATE publicStory:bob_pending SET durationSeconds = 1',
+      );
+      expect(
+        await rows(
+          migrator,
+          'SELECT VALUE durationSeconds FROM publicStory:bob_pending',
+        ),
+      ).toEqual([93]);
+    });
+
+    it('follows processing’s corrections of a published clip in the same write', async () => {
+      // Workflow re-measures the approved clip (M7): its duration and size change, the clip
+      // itself (format, Bunny id) doesn't. The published row must not keep the old facts.
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].durationSeconds = 120,
+           media[0].width = 720, media[0].height = 1280`,
+      );
+      expect(
+        await rows(
+          migrator,
+          'SELECT durationSeconds, media FROM publicStory:bob_pending',
+        ),
+      ).toEqual([
+        {
+          durationSeconds: 120,
+          media: [
+            {
+              format: 'video',
+              bunnyVideoId: 'vid-orig',
+              thumbnailPath: 'thumbs/1.jpg',
+              width: 720,
+              height: 1280,
+            },
+          ],
+        },
+      ]);
+    });
+
+    const published = () =>
+      rows(
+        migrator,
+        'SELECT durationSeconds, media FROM publicStory:bob_pending',
+      );
+    const reviewedClip = (durationSeconds: number) => [
+      {
+        durationSeconds,
+        media: [
+          {
+            format: 'video',
+            bunnyVideoId: 'vid-orig',
+            thumbnailPath: 'thumbs/1.jpg',
+            width: 720,
+            height: 1280,
+          },
+        ],
+      },
+    ];
+
+    it('never copies a changed thumbnail: #61 treats it as unreviewed media', async () => {
+      // A regenerated thumbnail is part of #61's media fingerprint (Joel's decision pending; the
+      // rule is strict). The write succeeds, the public row keeps what was reviewed...
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/2.jpg'`,
+      );
+      expect(
+        await rows(
+          migrator,
+          'SELECT VALUE media[0].thumbnailPath FROM story:bob_pending',
+        ),
+      ).toEqual(['thumbs/2.jpg']);
+      expect(await published()).toEqual(reviewedClip(120));
+      // ...and while the story's media differs from it, later corrections wait too.
+      await run(
+        workflow,
+        'UPDATE story:bob_pending SET media[0].durationSeconds = 150',
+      );
+      expect(
+        await rows(
+          migrator,
+          'SELECT VALUE media[0].durationSeconds FROM story:bob_pending',
+        ),
+      ).toEqual([150]);
+      expect(await published()).toEqual(reviewedClip(120));
+    });
+
+    it('leaves #61’s hide and restore working, with the latest facts on return', async () => {
+      // Not ready: #61 hides the story (the row goes, its reviewed fingerprint is kept).
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].processing = 'processing'`,
+      );
+      expect(await published()).toEqual([]);
+      expect(
+        await rows(
+          migrator,
+          'SELECT VALUE record::id(id) FROM hiddenStory:bob_pending',
+        ),
+      ).toEqual(['bob_pending']);
+      // Ready again, but with the new thumbnail: not what was reviewed, so it stays hidden.
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].processing = 'ready'`,
+      );
+      expect(await published()).toEqual([]);
+      // The reviewed thumbnail back: restored, with the duration processing found since.
+      await run(
+        workflow,
+        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/1.jpg'`,
+      );
+      expect(await published()).toEqual(reviewedClip(150));
+      expect(
+        await rows(migrator, 'SELECT VALUE id FROM hiddenStory:bob_pending'),
+      ).toEqual([]);
+    });
   });
 });

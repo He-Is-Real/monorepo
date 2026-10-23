@@ -54,7 +54,7 @@ pnpm nx validate surrealdb-k8s                   # render the Kubernetes manifes
 pnpm nx run database:test-integration            # schema + permission tests on SurrealDB (needs Docker)
 pnpm nx run consent:test-integration             # consent ledger + endpoints on SurrealDB (needs Docker)
 pnpm nx run auth:test-integration                # Clerk sign-in → person session on SurrealDB (needs Docker)
-pnpm nx run api-public-read:test-integration     # the public story endpoint on SurrealDB (needs Docker)
+pnpm nx run api-public-read:test-integration     # the public read API over the dev dataset on SurrealDB (needs Docker)
 pnpm exec playwright install chromium && pnpm nx e2e web   # responsive device matrix, light + dark
 ```
 

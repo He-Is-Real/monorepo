@@ -15,6 +15,15 @@ export interface Problem {
   status: number;
   detail?: string;
   code?: string;
+  errors?: FieldError[];
+}
+
+/** A field error in a `400` (`Problem.errors[]`). Never echoes the value that was sent. */
+export interface FieldError {
+  /** JSON Pointer to the field; for query parameters, `/<name>`. */
+  pointer: string;
+  code?: string;
+  message: string;
 }
 
 /** Throw this for a problem with a stable `code` (D30). */
@@ -24,6 +33,7 @@ export class ProblemException extends HttpException {
     code: string,
     title: string,
     detail?: string,
+    errors?: FieldError[],
   ) {
     super(
       {
@@ -32,6 +42,7 @@ export class ProblemException extends HttpException {
         status,
         code,
         ...(detail ? { detail } : {}),
+        ...(errors?.length ? { errors } : {}),
       },
       status,
     );

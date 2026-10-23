@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   Controller,
   Get,
@@ -10,10 +9,13 @@ import {
   Res,
 } from '@nestjs/common';
 import { runQuery, SURREAL } from '@heisreal/database';
-import { ProblemException } from '@heisreal/http';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import { publicCacheControl, representationETag, sendCached } from '../caching';
 import { MediaUrls } from '../media/media-urls';
+import { BrowseController } from './browse.controller';
+import { isSlug, notFound } from './slug';
+import type { StoredImage, StoredMedia } from './story-summary';
 
 /** `components.yaml#/components/schemas/StoryPublic`. */
 export interface StoryPublic {
@@ -50,14 +52,10 @@ export interface StoryImage {
   alt: string | null;
 }
 
-/** Public queries (D30): shared caches may keep a story for a minute. */
-export const CACHE_PUBLIC = 'public, max-age=60, stale-while-revalidate=300';
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
 // Only the read model (D26): never `story`, which this service's login can't see anyway (D13).
 const BY_SLUG = `
   SELECT record::id(id) AS id, slug, title, description, body, bylineName, primaryFormat,
-    media, image, publishedAt, updatedAt, version,
+    media, image, durationSeconds, publishedAt, updatedAt, version,
     (SELECT record::id(id) AS slug, name, category, version FROM tag
       WHERE id IN $parent.tagRefs ORDER BY slug) AS tags
   FROM publicStory WHERE slug = $slug LIMIT 1;
@@ -66,14 +64,9 @@ const BY_SLUG = `
 type Row = Omit<StoryPublic, 'body' | 'bylineName' | 'media' | 'image'> & {
   body?: string;
   bylineName?: string;
-  media?: {
-    format: 'video' | 'audio';
-    bunnyVideoId?: string;
-    thumbnailPath?: string;
-    width?: number;
-    height?: number;
-  }[];
-  image?: { path: string; width: number; height: number; alt?: string };
+  media?: StoredMedia[];
+  image?: StoredImage;
+  durationSeconds?: number;
 };
 
 function toPublic(row: Row, urls: MediaUrls): StoryPublic {
@@ -94,7 +87,8 @@ function toPublic(row: Row, urls: MediaUrls): StoryPublic {
       width: m.width ?? null,
       height: m.height ?? null,
       captionsUrl: null,
-      durationSeconds: null,
+      // One clip per story (D53); the read model computes its duration from the story.
+      durationSeconds: row.durationSeconds ?? null,
     })),
     image: row.image
       ? {
@@ -111,31 +105,6 @@ function toPublic(row: Row, urls: MediaUrls): StoryPublic {
   };
 }
 
-const notFound = () =>
-  new ProblemException(
-    HttpStatus.NOT_FOUND,
-    'story_not_found',
-    'Story not found',
-  );
-
-/**
- * A strong validator of exactly what's sent: a hash of the JSON body, which is what Nest
- * serialises. Not the story's `version` alone, because the response embeds its tags by
- * reference (#45 review): renaming a tag changes the body, so the ETag must change too.
- */
-export function representationETag(body: unknown): string {
-  return `"${createHash('sha256').update(JSON.stringify(body)).digest('base64url').slice(0, 27)}"`;
-}
-
-/** `If-None-Match` matches a strong ETag (also `*` and lists; weak comparison, RFC 9110). */
-function matches(ifNoneMatch: string | undefined, etag: string): boolean {
-  if (!ifNoneMatch) return false;
-  return ifNoneMatch
-    .split(',')
-    .map((t) => t.trim().replace(/^W\//, ''))
-    .some((t) => t === '*' || t === etag);
-}
-
 /** api-public-read.yaml, tag Stories: `GET /v1/stories/{slug}` (M0 task 0.9). */
 @Controller('v1/stories')
 export class StoriesController {
@@ -150,7 +119,7 @@ export class StoriesController {
     @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StoryPublic | undefined> {
-    if (!SLUG.test(slug) || slug.length > 200) throw notFound();
+    if (!isSlug(slug)) throw notFound();
     const [current, previous] = (await runQuery(this.db, BY_SLUG, {
       slug,
     })) as [Row[], string[]];
@@ -162,19 +131,14 @@ export class StoriesController {
       res
         .status(HttpStatus.MOVED_PERMANENTLY)
         .setHeader('Location', `/v1/stories/${moved}`)
-        .setHeader('Cache-Control', CACHE_PUBLIC);
+        .setHeader('Cache-Control', publicCacheControl());
       return undefined;
     }
     const story = toPublic(row, this.urls);
-    const etag = representationETag(story);
-    res.setHeader('ETag', etag).setHeader('Cache-Control', CACHE_PUBLIC);
-    if (matches(ifNoneMatch, etag)) {
-      res.status(HttpStatus.NOT_MODIFIED);
-      return undefined;
-    }
-    return story;
+    return sendCached(res, ifNoneMatch, story, representationETag(story));
   }
 }
 
-@Module({ controllers: [StoriesController] })
+// BrowseController first: `GET /v1/stories` and `…/{slug}/related` before `…/{slug}`.
+@Module({ controllers: [BrowseController, StoriesController] })
 export class StoriesModule {}

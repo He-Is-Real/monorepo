@@ -570,6 +570,11 @@ DEFINE FIELD OVERWRITE image.path             ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE image.width            ON publicStory TYPE int;
 DEFINE FIELD OVERWRITE image.height           ON publicStory TYPE int;
 DEFINE FIELD OVERWRITE image.alt              ON publicStory TYPE option<string>;
+-- Cards show a clip's length (M1 step 6a). Computed from the story on every write, so no
+-- publisher copies it and none can change it. The approval gate (A2) means a published video or
+-- audio story always has it; NONE for written stories.
+DEFINE FIELD OVERWRITE durationSeconds ON publicStory TYPE option<int>
+  VALUE type::record('story', record::id(id)).media[0].durationSeconds;
 DEFINE FIELD OVERWRITE publishedAt   ON publicStory TYPE datetime;
 DEFINE FIELD OVERWRITE updatedAt     ON publicStory TYPE datetime VALUE time::now();
 -- A full-text index covers one field, so search goes over a computed field.
@@ -618,6 +623,25 @@ DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
 DEFINE EVENT OVERWRITE publicStory_clears_hide ON publicStory
   WHEN $event = 'CREATE'
   THEN { DELETE type::record('hiddenStory', record::id($after.id)) };
+-- Processing (workflow, M7) may correct a published clip's size or duration. The same write copies
+-- them into the published row (durationSeconds is recomputed there), so cards never keep old facts.
+-- Only while the clip is ready and the story's media is still what was reviewed: the published
+-- row's fingerprint (fn::story::media_identity: formats, Bunny ids, thumbnails, image) equals the
+-- story's. Never the fingerprint's own fields: a changed thumbnail or clip is #61's to hide and
+-- review (story_media_availability), so copying it would make it look reviewed.
+DEFINE EVENT OVERWRITE story_published_media_facts ON story
+  WHEN $event = 'UPDATE' AND $after.status = 'approved'
+    AND $after.media.map(|$m| [$m.width, $m.height, $m.durationSeconds])
+      != $before.media.map(|$m| [$m.width, $m.height, $m.durationSeconds])
+    AND fn::story::approval_problem($after) = NONE
+  THEN {
+    LET $public = type::record('publicStory', record::id($after.id));
+    LET $row = (SELECT media, image FROM ONLY $public);
+    IF $row != NONE AND fn::story::media_identity($row) = fn::story::media_identity($after) {
+      UPDATE $public SET media = $row.media.map(|$m, $i| object::extend($m, {
+        width: $after.media[$i].width, height: $after.media[$i].height })) RETURN NONE;
+    };
+  };
 DEFINE ANALYZER OVERWRITE story_en TOKENIZERS blank, class FILTERS lowercase, ascii, snowball(english);
 DEFINE INDEX OVERWRITE publicStory_slug     ON publicStory FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory;

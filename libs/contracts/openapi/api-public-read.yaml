@@ -10,7 +10,8 @@ info:
 
     - Called by the browser, and server-side by `web` to prerender pages (D32).
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
-    - Queries return an `ETag` and `Cache-Control: public, max-age=60, stale-while-revalidate`.
+    - Queries return an `ETag` and `Cache-Control: no-store` (D51); shared caching (`public, max-age=60,
+      stale-while-revalidate=300`) only when turned on for Go live (D56).
     - Public stories are addressed by slug; an old slug answers `301` (D30).
     - Cursor pagination (`?limit=&cursor=` → `{ data, nextCursor }`), no totals, no engagement metrics.
     - `x-milestone` on each operation is the delivery milestone that builds it.
@@ -60,27 +61,46 @@ paths:
       tags: [Stories]
       operationId: browseStories
       summary: Browse and search published stories
-      description: Full-text search (BM25 on `searchText`) is folded in as `q`. Approved stories only.
+      description: |
+        Story cards for browse and home, newest first by default. Approved stories only (the
+        `publicStory` read model, D26). Full-text search is `q` (BM25 on title, description and
+        text; English stemming, any script). Keyset pages: `nextCursor` gives the next page and
+        works only with the same `q`, `tag`, `format` and `sort` (any `limit`); a cursor used with
+        others is `400 invalid_cursor`, and so is any changed cursor (every field is checked). Ties
+        in the sort are broken by ID, so pages never overlap.
+        Unknown or repeated parameters are `400`. No totals (D30). Browse loads at most two more
+        pages on its own, then shows a button (D55).
       x-milestone: M1
       parameters:
-        - name: tag
-          in: query
-          description: Tag slug to filter by.
-          schema:
-            type: string
         - name: q
           in: query
-          description: Full-text query.
+          description: Full-text search, trimmed; blank = no search. At most 200 characters.
           schema:
             type: string
             maxLength: 200
+        - name: tag
+          in: query
+          description: Tag slug. Repeat it for several; a story must have all of them. An unknown tag gives no stories.
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 5
+            items:
+              type: string
+              maxLength: 60
+              pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        - name: format
+          in: query
+          description: Only stories of this format.
+          schema:
+            $ref: './components.yaml#/components/schemas/Format'
         - name: sort
           in: query
-          description: '`relevance` needs `q`.'
+          description: Default `relevance` with `q`, otherwise `latest`. `relevance` needs `q`.
           schema:
             type: string
             enum: [latest, oldest, relevance]
-            default: latest
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
@@ -146,16 +166,14 @@ paths:
       tags: [Stories]
       operationId: getRelatedStories
       summary: Related stories (shared tags)
+      description: |
+        Three cards for the story page's sidebar: the published stories sharing the most tags,
+        then the newest. Never the story itself; filled with the newest stories when few share a
+        tag. A previous slug answers `301` to the current one's `/related`. Takes no query
+        parameters (`400`).
       x-milestone: M1
       parameters:
         - $ref: './components.yaml#/components/parameters/storySlug'
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 6
-            minimum: 1
-            maximum: 12
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
@@ -173,12 +191,15 @@ paths:
                 properties:
                   data:
                     type: array
+                    maxItems: 3
                     items:
                       $ref: './components.yaml#/components/schemas/StorySummary'
         '301':
           $ref: './components.yaml#/components/responses/MovedToCurrentSlug'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
 
@@ -187,12 +208,16 @@ paths:
       tags: [Tags]
       operationId: listTags
       summary: List the tag taxonomy
+      description: |
+        Every tag, by category (theme, journey, emotion) then name; clients group them by
+        `category`. No story counts (no totals in public responses, D30). Takes no query
+        parameters (`400`).
       x-milestone: M1
       parameters:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: All tags (about 30, so unpaged).
+          description: All tags (a few dozen, so unpaged).
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'

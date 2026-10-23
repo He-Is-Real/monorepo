@@ -380,6 +380,19 @@ retried`, on both RocksDB and the in-memory engine.
   relaxed, so it can't load dummy stories into a database with the real rules.
 - **0003 retired.** Dev no longer sets `seed_dev_story`; the reset deletes 0003's story.
 
+### M1 step 6a (browse read API)
+
+- **`publicStory.durationSeconds`, computed.** Cards show a clip's length. The field's `VALUE`
+  reads the story's `media[0].durationSeconds` on every write, so no publisher copies it and none
+  can set it (`write-scope.int-spec.ts`). The approval gate (A2) means a published clip always has
+  it. Rows written before the migration get it on their next write; in dev, reset the data.
+- **`story_published_media_facts`.** When processing corrects an approved clip's size or duration
+  while it stays ready, the same write copies them into the published row. Only while the row's
+  media fingerprint (`fn::story::media_identity`, #61: formats, Bunny ids, thumbnails, image) equals
+  the story's, and never the fingerprint's fields themselves: a changed thumbnail or clip stays
+  under #61's hide and review. Copying it would make unreviewed media look reviewed.
+- No permission changed: api-public-read still reads only `publicStory` and `tag`.
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.

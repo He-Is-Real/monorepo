@@ -34,10 +34,13 @@
       "path": "../../libs/health/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/database/tsconfig.lib.json"
+      "path": "../dev-seed/tsconfig.app.json"
     },
     {
       "path": "../../libs/http/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/database/tsconfig.lib.json"
     }
   ]
 }

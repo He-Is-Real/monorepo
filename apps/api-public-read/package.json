@@ -140,6 +140,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "@heisreal/dev-seed": "workspace:*"
   }
 }
