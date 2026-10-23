@@ -8,7 +8,7 @@ gets typed calls for them. The pages themselves are step 6b.
 **Architecture:** New query handlers in `apps/api-public-read/src/app/stories/`, reading only
 `publicStory` and `tag` on the read-only login. Keyset pagination with an opaque, filter-bound
 cursor. One shared function builds media and image URLs (null until step 5 signs them). The read
-model gains `media[*].durationSeconds`, because cards show the length of a clip.
+model gains a computed `durationSeconds`, because cards show the length of a clip.
 
 **Tech Stack:** NestJS 11 on Express 5, surrealdb.js 2, SurrealDB 3.2.4 (BM25 full-text index
 `publicStory_fts`), Next.js (web `lib` only), Jest, OpenAPI 3.1 (Redocly).
@@ -69,17 +69,18 @@ thumbnailUrl, thumbnailWidth, thumbnailHeight, image, textLength, tags, publishe
 
 ### Task 1: The read model carries media duration
 
+Changed while building: a computed field instead of a mirrored one. Mirroring would have changed
+every publisher's `CREATE` (the test world, dev-seed, and the unpublish branch's republish event).
+
 **Files:**
 
-- Modify: `libs/database/schema/schema.surql` (publicStory `media[*].durationSeconds`; the mirror
-  event compares and allows it)
-- Modify: `apps/dev-seed/src/app/seed.ts` (mirror it when publishing)
-- Test: `libs/database/integration/*.int-spec.ts` (the mirror test), `apps/dev-seed/integration/seed.int-spec.ts`
+- Modify: `libs/database/schema/schema.surql` (`publicStory.durationSeconds` with
+  `VALUE type::record('story', record::id(id)).media[0].durationSeconds`)
+- Test: `libs/database/integration/write-scope.int-spec.ts`
 
-- [ ] Failing test: publishing without the story's duration is refused (`must mirror`); with it, accepted.
-- [ ] Add the field and the mirror rule; seed.ts copies it. Tests pass.
-- [ ] `getStoryBySlug` returns `media[].durationSeconds` (the contract already has it).
-- [ ] Commit.
+- [x] Failing test: after approval the row has the story's duration, and a writer can't change it.
+- [x] Add the field. Tests pass.
+- [x] `getStoryBySlug` returns `media[].durationSeconds`.
 
 ### Task 2: List published stories (latest/oldest, tags, format, cursor)
 
