@@ -20,6 +20,17 @@ source of truth, so change them in the same PR as the code.
   outbound only, to Pub/Sub. Public entry points are Cloud Run services only.
 - Testimonies are GDPR Article 9 data. New personal data must fit the consent and erasure model.
 - **Responsive everywhere (Joel):** every page and view is mobile-first and works from 320 px phones through foldables, tablets (both orientations) and 1920 px+ desktops: no horizontal scroll, 44 px touch targets, readable line lengths, safe-area insets. Cover each new page in `apps/web/e2e` (device matrix in `devices.ts`).
+- **Tests measure behaviour (Joel, 2026-10-24).**
+  - What matters is the system's behaviour, checked by good, reliable tests. A bad test costs more than a failure that a behaviour test catches and we fix.
+  - Test at the highest level that can see the behaviour:
+    - Playwright in `apps/web/e2e`, across the device matrix;
+    - the dev behavioural suite (`apps/dev-seed/behavioural`);
+    - integration tests against a real SurrealDB, where the database is the behaviour (permissions, consent, publishing).
+  - Avoid unit tests, unless something is hard to test from above or the logic is complex enough to need its own coverage. Backend changes reach the behaviour tests above them through the Nx `affected` graph.
+  - Don't test an API route that no finished frontend feature uses yet.
+  - Tests must give the same result locally and in CI: no dependence on timing, machine load, ports or shared state.
+  - Remove a flaky test, or one that stubs away the behaviour it claims to check, or rebuild it at the right level. Deleting low-value tests is welcome.
+  - TDD belongs at the behaviour level, at the point in our process where that behaviour is defined.
 - **Browse loads at most 2 extra pages automatically,** then shows a "Show more stories" button
   (D55). It's the only exception to the design principle "no infinite scroll".
 - **All cloud deployments and modifications go through OpenTofu (`infra/terraform`; D54: never Terraform),
