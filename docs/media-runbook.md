@@ -15,7 +15,8 @@ loading again; we don't approve the story again.
   to approve it again.
 - Each step writes an `auditLog` row: `HideStory` (reason `media_unavailable`) and
   `RepublishStory` (reason `media_restored`). The actor is empty: the database did it.
-- The story's `mediaHidden` field says it is hidden and since when. Nobody can set it by hand.
+- A `hiddenStory` row (same id as the story) says it is hidden and since when. Nobody can
+  write it by hand.
 
 Two cases don't come back on their own:
 
@@ -23,8 +24,9 @@ Two cases don't come back on their own:
   the old media, so the new one needs a moderator's review. The list below shows
   `mediaChanged: true`.
 - **The person withdrew consent.** Consent rules publishing (D17), so the story stays off the
-  public site. A story that wasn't public when its media broke is never hidden or published
-  by a media fix.
+  public site. Withdrawing consent also ends the hide, so giving consent again later doesn't
+  publish it. A story that wasn't public when its media broke is never hidden or published by
+  a media fix.
 
 ## Find hidden stories
 

@@ -615,12 +615,15 @@ describe('approval waits for media processing (A2)', () => {
       expect(ids).not.toContain(`story:${ok}`);
       // Nobody can mark a story hidden or unhidden by hand.
       for (const db of [admin, workflow, pat]) {
-        await update(
-          ok,
-          `mediaHidden = { since: time::now(), publishedAt: time::now(), slugHistory: [], identity: 'x' }`,
+        await outcome(
           db,
+          `CREATE type::record('hiddenStory', $id) CONTENT {
+             publishedAt: time::now(), slugHistory: [], identity: 'x' }`,
+          { id: ok },
         );
-        await update(first, `mediaHidden = NONE`, db);
+        await outcome(db, `DELETE type::record('hiddenStory', $id)`, {
+          id: first,
+        });
       }
       expect(await hiddenIds()).toContain(`story:${first}`);
       expect(await hiddenIds()).not.toContain(`story:${ok}`);
@@ -680,19 +683,82 @@ describe('approval waits for media processing (A2)', () => {
       },
     );
 
-    it('nobody can supply mediaHidden, not even on create', async () => {
-      const id = await create(
-        `primaryFormat: 'video', media: [${VIDEO}],
-         mediaHidden: { since: time::now(), publishedAt: time::now(), slugHistory: ['x'], identity: 'x' }`,
-      );
+    it('only api-admin and workflow can read the hidden marker', async () => {
+      const id = await live(video);
+      await update(id, `media[0].processing = 'failed'`, workflow);
+      const read = (db: SurrealQueryable) =>
+        rows(db, `SELECT VALUE id FROM type::record('hiddenStory', $id)`, {
+          id,
+        });
+      expect(await read(admin)).toEqual([`hiddenStory:${id}`]);
+      expect(await read(workflow)).toEqual([`hiddenStory:${id}`]);
+      expect(await read(pat)).toEqual([]);
+    });
+
+    it('erasure deletes the hidden marker with the story', async () => {
+      const id = await live(video);
+      await update(id, `media[0].processing = 'failed'`, workflow);
+      await run(admin, `DELETE type::record('story', $id)`, { id });
       expect(
+        await truth(`SELECT VALUE id FROM type::record('hiddenStory', $id)`, {
+          id,
+        }),
+      ).toEqual([]);
+    });
+
+    /** D29: one command, one version. The hide and restore add no story write of their own. */
+    describe('versions (D29)', () => {
+      const version = async (id: string) =>
         (
-          await truth(
-            `SELECT VALUE mediaHidden FROM ONLY type::record('story', $id)`,
+          await truth<number>(
+            `SELECT VALUE version FROM ONLY type::record('story', $id)`,
             { id },
           )
-        )[0],
-      ).toBeUndefined();
+        )[0];
+      const command = async (db: SurrealQueryable, id: string, set: string) =>
+        (
+          await rows<number>(
+            db,
+            `UPDATE type::record('story', $id) SET ${set} RETURN VALUE version`,
+            { id },
+          )
+        )[0];
+
+      it('hiding returns the committed version, one more than before', async () => {
+        const id = await live(video);
+        const before = await version(id);
+        const returned = await command(
+          workflow,
+          id,
+          `media[0].processing = 'failed'`,
+        );
+        expect(await published(id)).toEqual([]);
+        expect(returned).toBe(before + 1);
+        expect(await version(id)).toBe(before + 1);
+      });
+
+      it('restoring returns the committed version, one more than before', async () => {
+        const id = await live(video);
+        await update(id, `media[0].processing = 'failed'`, workflow);
+        const before = await version(id);
+        const returned = await command(
+          workflow,
+          id,
+          `media[0].processing = 'ready'`,
+        );
+        expect(await published(id)).toEqual([`publicStory:${id}`]);
+        expect(returned).toBe(before + 1);
+        expect(await version(id)).toBe(before + 1);
+      });
+
+      it('withdrawing a hidden story returns the committed version, one more than before', async () => {
+        const id = await live(video);
+        await update(id, `media[0].processing = 'failed'`, workflow);
+        const before = await version(id);
+        const returned = await command(pat, id, `status = 'withdrawn'`);
+        expect(returned).toBe(before + 1);
+        expect(await version(id)).toBe(before + 1);
+      });
     });
 
     it('stays off the read model if consent was withdrawn meanwhile', async () => {
@@ -728,6 +794,39 @@ describe('approval waits for media processing (A2)', () => {
       // Consent given again: the story isn't public, so a media outage and fix publishes nothing.
       await grantAll(cal);
       await update(id, `media[0].processing = 'failed'`, workflow);
+      await processed(workflow, id);
+      expect(await published(id)).toEqual([]);
+      expect(await history(id)).toEqual([entry('HideStory')]);
+    });
+
+    it('withdrawing consent while hidden, then giving it again, publishes nothing', async () => {
+      await createPeople(t, { dee: 'user_dee' });
+      const dee = await t.person('user_dee');
+      await grantAll(dee);
+      const id = 'proc_dee';
+      expect(
+        await outcome(
+          dee,
+          `CREATE type::record('story', $id) CONTENT {
+             submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
+             primaryFormat: 'audio', media: [${AUDIO}] } RETURN VALUE id`,
+          { id },
+        ),
+      ).toMatchObject({ ok: true });
+      await submit(dee, id);
+      await processed(workflow, id);
+      await approve(admin, id);
+      await update(id, `media[0].processing = 'failed'`, workflow);
+      await expectHidden(id);
+      await run(
+        dee,
+        `CREATE consent CONTENT { subject: $auth, type: 'publish', dpaVersion: dpaVersion:v1,
+           event: 'withdrawn', mechanism: 'account_settings', evidenceHash: $h }`,
+        { h: 'b'.repeat(64) },
+      );
+      // The withdrawal ends the hide: the story isn't public, so a media fix can't publish it.
+      expect(await hiddenIds()).not.toContain(`story:${id}`);
+      await grantAll(dee);
       await processed(workflow, id);
       expect(await published(id)).toEqual([]);
       expect(await history(id)).toEqual([entry('HideStory')]);
@@ -819,13 +918,10 @@ describe('approval waits for media processing (A2)', () => {
       });
       expect((await story(id)).status).toBe('withdrawn');
       expect(
-        (
-          await truth(
-            `SELECT VALUE mediaHidden FROM ONLY type::record('story', $id)`,
-            { id },
-          )
-        )[0],
-      ).toBeUndefined();
+        await truth(`SELECT VALUE id FROM type::record('hiddenStory', $id)`, {
+          id,
+        }),
+      ).toEqual([]);
       // Ready again later: still withdrawn, nothing published.
       await processed(workflow, id);
       expect(await published(id)).toEqual([]);

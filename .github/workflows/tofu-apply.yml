@@ -612,15 +612,21 @@ jobs:
   # main and is never required, and the newer run starts as soon as this one ends.
   superseded:
     needs:
-      [
-        target,
-        approve-1,
-        approve-2,
-        stage-gcp,
-        stage-bunny,
-        stage-cluster,
-        stage-images,
-      ]
+      - target
+      - approve-1
+      - approve-2
+      - plan-gcp
+      - plan-bunny
+      - plan-cluster
+      - plan-images
+      - apply-gcp
+      - apply-bunny
+      - apply-cluster
+      - apply-images
+      - stage-gcp
+      - stage-bunny
+      - stage-cluster
+      - stage-images
     if: always() && (needs.approve-1.outputs.go == 'false' || needs.approve-2.outputs.go == 'false')
     runs-on: ubuntu-latest
     permissions:
@@ -631,19 +637,26 @@ jobs:
         with:
           ref: ${{ needs.target.outputs.sha }}
           sparse-checkout: tools/scripts
+      # Each root's real results, so the summary says exactly what applied and what failed.
       - env:
           GH_TOKEN: ${{ github.token }}
-          GO1: ${{ needs.approve-1.outputs.go }}
-          GO2: ${{ needs.approve-2.outputs.go }}
+          GCP: ${{ needs.plan-gcp.result }},${{ needs.plan-gcp.outputs.changes }},${{ needs.apply-gcp.result }}
+          BUNNY: ${{ needs.plan-bunny.result }},${{ needs.plan-bunny.outputs.changes }},${{ needs.apply-bunny.result }}
+          CLUSTER: ${{ needs.plan-cluster.result }},${{ needs.plan-cluster.outputs.changes }},${{ needs.apply-cluster.result }}
+          IMAGES: ${{ needs.plan-images.result }},${{ needs.plan-images.outputs.changes }},${{ needs.apply-images.result }}
         run: |
           newer="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tofu-apply.yml/runs?per_page=20" \
             --jq "[.workflow_runs[] | select(.id > $GITHUB_RUN_ID)] | max_by(.run_number) | .run_number // empty" \
             2>/dev/null)" || newer=''
-          message="$(tools/scripts/tf-superseded.sh "$GO1" "$GO2" "$newer")"
+          {
+            read -r message
+            read -r advice
+          } < <(tools/scripts/tf-superseded.sh "$newer" "gcp=$GCP" "bunny=$BUNNY" "cluster=$CLUSTER" "images=$IMAGES")
           echo "::warning title=Superseded::$message"
           {
             echo "### ⚠ $message"
-            echo 'This job fails on purpose so the run is not green. Nothing is broken: no action is needed.'
+            echo "$advice"
+            echo 'This job fails on purpose so a superseded run is never green.'
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "Failing on purpose: superseded, not deployed."
+          echo "Failing on purpose: superseded, not deployed. $advice"
           exit 1

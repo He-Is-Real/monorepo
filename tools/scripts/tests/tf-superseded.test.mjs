@@ -19,49 +19,103 @@ const workflow = parse(
   ),
 );
 
-// message(go1, go2, newer_run)
-const message = (...args) => {
+// superseded(newer_run, ...roots) → [message, advice]; each root is `name=plan,changes,apply`
+// (the plan job's result and `changes` output, the apply job's result).
+const superseded = (...args) => {
   const result = spawnSync(script, args, { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  return result.stdout.trim();
+  return result.stdout.trimEnd().split('\n');
 };
+const NOT_RUN = ',,';
 
 test('wave 1 superseded → nothing applied, names the newer run', () => {
-  assert.equal(
-    message('false', '', '57'),
-    'Superseded by run 57: nothing applied; the newer run plans main HEAD.',
+  assert.deepEqual(
+    superseded(
+      '57',
+      'gcp=success,true,skipped',
+      'bunny=success,false,skipped',
+      `cluster=${NOT_RUN}`,
+      `images=${NOT_RUN}`,
+    ),
+    [
+      'Superseded by run 57: nothing applied; the newer run plans main HEAD.',
+      'Nothing failed: no action is needed.',
+    ],
   );
 });
 
-test('wave 2 superseded after wave 1 applied → says what was applied', () => {
-  assert.equal(
-    message('true', 'false', '58'),
-    'Superseded by run 58: wave 1 (gcp, bunny) applied, wave 2 (cluster, images) not; the newer run plans main HEAD.',
+test('wave 2 superseded after wave 1 applied → says exactly what applied', () => {
+  assert.deepEqual(
+    superseded(
+      '58',
+      'gcp=success,true,success',
+      'bunny=success,true,success',
+      'cluster=success,true,skipped',
+      'images=skipped,,skipped',
+    ),
+    [
+      'Superseded by run 58: applied: gcp, bunny; not applied: cluster; the newer run plans main HEAD.',
+      'Nothing failed: no action is needed.',
+    ],
   );
 });
 
-test('wave 2 superseded, wave 1 had no changes → nothing applied', () => {
-  assert.equal(
-    message('', 'false', '59'),
-    'Superseded by run 59: nothing applied; the newer run plans main HEAD.',
+test('a failed apply is named and never called fine (Codex, #61)', () => {
+  const [message, advice] = superseded(
+    '59',
+    'gcp=success,true,success',
+    'bunny=success,true,failure',
+    'cluster=success,true,skipped',
+    `images=${NOT_RUN}`,
   );
+  assert.equal(
+    message,
+    'Superseded by run 59: applied: gcp; failed: bunny; not applied: cluster; the newer run plans main HEAD.',
+  );
+  assert.match(advice, /^Failed: bunny\. /);
+  assert.doesNotMatch(advice, /no action is needed|Nothing (failed|is broken)/);
+});
+
+test('a failed or cancelled plan counts as failed', () => {
+  const [message, advice] = superseded(
+    '60',
+    'gcp=success,true,success',
+    'bunny=failure,,skipped',
+    'cluster=success,true,cancelled',
+    `images=${NOT_RUN}`,
+  );
+  assert.equal(
+    message,
+    'Superseded by run 60: applied: gcp; failed: bunny, cluster; the newer run plans main HEAD.',
+  );
+  assert.match(advice, /^Failed: bunny, cluster\. /);
+});
+
+test('nothing applied but something failed → says so', () => {
+  const [message, advice] = superseded(
+    '61',
+    'gcp=success,true,skipped',
+    'bunny=failure,,skipped',
+    `cluster=${NOT_RUN}`,
+    `images=${NOT_RUN}`,
+  );
+  assert.equal(
+    message,
+    'Superseded by run 61: nothing applied; failed: bunny; not applied: gcp; the newer run plans main HEAD.',
+  );
+  assert.match(advice, /^Failed: bunny\. /);
 });
 
 test('newer run not found → still a clear message', () => {
   assert.equal(
-    message('false', '', ''),
+    superseded('', 'gcp=success,true,skipped')[0],
     'Superseded by a newer run: nothing applied; the newer run plans main HEAD.',
   );
 });
 
-test('not superseded → nothing', () => {
-  assert.equal(message('true', 'true', '60'), '');
-  assert.equal(message('true', '', '60'), '');
-  assert.equal(message('', '', ''), '');
-});
-
-test('usage error → exit 64', () => {
-  assert.equal(spawnSync(script, ['false'], { encoding: 'utf8' }).status, 64);
+test('usage errors → exit 64', () => {
+  for (const args of [[], ['57'], ['57', 'gcp'], ['57', 'gcp=a,b']])
+    assert.equal(spawnSync(script, args, { encoding: 'utf8' }).status, 64);
 });
 
 const job = workflow.jobs.superseded;
@@ -80,6 +134,24 @@ test('tofu-apply.yml: the superseded job runs last, only when an approval was su
   assert.match(job.if, /^always\(\) && /);
   assert.match(job.if, /needs\.approve-1\.outputs\.go == 'false'/);
   assert.match(job.if, /needs\.approve-2\.outputs\.go == 'false'/);
+});
+
+test('tofu-apply.yml: the superseded job is given every root’s plan and apply results', () => {
+  const run = job.steps.map((s) => s.run ?? '').join('\n');
+  const env = job.steps
+    .map((s) => s.env ?? {})
+    .reduce((a, e) => ({ ...a, ...e }), {});
+  for (const root of ['gcp', 'bunny', 'cluster', 'images']) {
+    assert.ok(job.needs.includes(`plan-${root}`), `needs plan-${root}`);
+    assert.ok(job.needs.includes(`apply-${root}`), `needs apply-${root}`);
+    const value = env[root.toUpperCase()];
+    assert.equal(
+      value,
+      `\${{ needs.plan-${root}.result }},\${{ needs.plan-${root}.outputs.changes }},\${{ needs.apply-${root}.result }}`,
+    );
+    assert.match(run, new RegExp(`"${root}=\\$${root.toUpperCase()}"`));
+  }
+  assert.doesNotMatch(run, /Nothing is broken/);
 });
 
 test('tofu-apply.yml: the superseded job warns, writes the summary and fails', () => {

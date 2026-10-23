@@ -26,6 +26,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   user: 'root',
   story: 'linked', // submitter
   publicStory: 'linked', // same id as the story → submitter
+  hiddenStory: 'linked', // same id as the story → submitter
   consent: 'linked', // subject (kept after erasure as proof; pruned after 6 years)
   moderationReview: 'linked', // story → submitter
   idempotencyKey: 'linked', // id[1] = user record
@@ -46,9 +47,13 @@ type Ctx = {
   person: Surreal; // the person's own session, opened BEFORE erasure
   admin: Surreal;
   apiUser: Surreal;
+  workflow: Surreal;
+  migrator: Surreal;
   p: string; // user id, e.g. 'story_seq'
 };
 type LinkedCase = {
+  /** Run before the write, while the person is live (the state the write needs). */
+  setup?: (c: Ctx) => Promise<unknown>;
   /** The write, linked to person `p`, on the session that would make it in production. */
   write: (c: Ctx, db: (c: Ctx) => SurrealQueryable) => Promise<unknown>;
   writer: (c: Ctx) => Surreal;
@@ -74,6 +79,29 @@ const LINKED: Record<string, LinkedCase> = {
            publishedAt: time::now() };`,
       ),
     landed: (c) => `SELECT VALUE id FROM publicStory:${c.p}_s`,
+  },
+  hiddenStory: {
+    // Written by story_media_availability when workflow finds a public story's image broken.
+    setup: async (c) => {
+      await run(
+        c.migrator,
+        `UPDATE story:${c.p}_s SET image = {
+           path: 'images/x.webp', width: 10, height: 10, processing: 'ready' }`,
+      );
+      await run(
+        c.admin,
+        `LET $s = (SELECT * FROM ONLY story:${c.p}_s);
+         CREATE publicStory:${c.p}_s CONTENT {
+           version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
+           body: $s.body, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: [],
+           image: { path: $s.image.path, width: $s.image.width, height: $s.image.height },
+           publishedAt: time::now() };`,
+      );
+    },
+    writer: (c) => c.workflow,
+    write: (c, db) =>
+      run(db(c), `UPDATE story:${c.p}_s SET image.processing = 'failed'`),
+    landed: (c) => `SELECT VALUE id FROM hiddenStory:${c.p}_s`,
   },
   consent: {
     writer: (c) => c.person,
@@ -119,6 +147,7 @@ describe('person-linked tables (round 3 sweep)', () => {
   let migrator: Surreal;
   let admin: Surreal;
   let apiUser: Surreal;
+  let workflow: Surreal;
 
   /** A live person with full consent and an approved story (no publicStory yet). */
   async function livePerson(p: string): Promise<Ctx> {
@@ -131,7 +160,7 @@ describe('person-linked tables (round 3 sweep)', () => {
       admin,
       `UPDATE story:${p}_s SET status = 'approved', approvedAt = time::now()`,
     );
-    return { t, person, admin, apiUser, p };
+    return { t, person, admin, apiUser, workflow, migrator, p };
   }
   const erase = (p: string) =>
     run(apiUser, ERASE, {
@@ -144,6 +173,7 @@ describe('person-linked tables (round 3 sweep)', () => {
     migrator = await t.migrator();
     admin = await t.service('api_admin');
     apiUser = await t.service('api_user');
+    workflow = await t.service('workflow');
     await createPeople(t, { moderator: 'user_mod' });
     await publishDpa(t, 'v1');
   });
@@ -169,12 +199,14 @@ describe('person-linked tables (round 3 sweep)', () => {
 
     it('the write works for a live person (control)', async () => {
       const ctx = await livePerson(`${table}_ok`);
+      await c.setup?.(ctx);
       await c.write(ctx, c.writer);
       expect(await rows(migrator, c.landed(ctx))).toHaveLength(1);
     });
 
     it('refuses the write after erasure, from a session opened before it', async () => {
       const ctx = await livePerson(`${table}_seq`);
+      await c.setup?.(ctx);
       await erase(ctx.p);
       await c.write(ctx, c.writer).catch(() => undefined); // refused: error or empty result
       expect(await rows(migrator, c.landed(ctx))).toEqual([]);
@@ -182,6 +214,7 @@ describe('person-linked tables (round 3 sweep)', () => {
 
     it('a write racing erasure loses at commit and leaves nothing behind', async () => {
       const ctx = await livePerson(`${table}_race`);
+      await c.setup?.(ctx);
       const tx = await c.writer(ctx).beginTransaction();
       await c.write(ctx, () => tx);
       await erase(ctx.p);
