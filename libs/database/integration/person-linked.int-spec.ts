@@ -38,6 +38,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   _migrationRun: 'none', // the migration fencing token
   _migrationPending: 'none', // a migration step in progress
   _identity: 'none', // the identity config SurrealDB started with
+  _setting: 'none', // settings from OpenTofu (D48's dev-only switch)
 };
 
 type Ctx = {

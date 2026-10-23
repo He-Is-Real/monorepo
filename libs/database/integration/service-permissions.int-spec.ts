@@ -179,7 +179,7 @@ describe('service identities (D13 B)', () => {
       await run(
         migrator,
         `CREATE story:throwaway CONTENT { submitter: user:ann, slug: 'throwaway', title: 'x',
-           description: 'x', primaryFormat: 'written' }`,
+           description: 'x', primaryFormat: 'written', body: 'x' }`,
       );
       await run(svc.apiUser, 'DELETE story:throwaway');
       expect(await truth('SELECT * FROM story:throwaway')).toEqual([]);
@@ -363,6 +363,12 @@ describe('service identities (D13 B)', () => {
     it('reads and updates stories (M7 media), but cannot create, delete or publish them', async () => {
       const db = svc.workflow;
       expect((await ids(db, 'SELECT id FROM story')).length).toBe(5);
+      // A video story (D53: only video and audio stories have media), as its upload left it.
+      await run(
+        migrator,
+        `UPDATE story:bob_pending SET primaryFormat = 'video',
+           media = [{ format: 'video', bunnyVideoId: 'vid-0' }]`,
+      );
       const [updated] = await rows(
         db,
         `UPDATE story:bob_pending SET media = [{ format: 'video', bunnyVideoId: 'vid-1' }] RETURN media`,

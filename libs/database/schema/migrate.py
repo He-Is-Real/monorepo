@@ -61,7 +61,7 @@ Order, validate first:
   2. take the token; refuse if a pending row exists (after waiting for an overtaken run to clean
      up); read-only checks: no applied data script changed, DPA texts still match (dpa-sync.surql
      in a cancelled transaction);
-  3. schema.surql + the Clerk access (or its removal), one step;
+  3. schema.surql + the Clerk access (or its removal) + the settings row (SETTINGS), one step;
   4. each data script not yet in _migration, in number order, one step each (a pending script that
      uses a parameter whose value is null is refused in step 2, before anything changes);
   5. dpa-sync.surql, one step.
@@ -428,6 +428,12 @@ TAKE_TOKEN = """
 LET $previous = (SELECT VALUE token FROM ONLY _migrationRun:lock) ?? 0;
 UPSERT _migrationRun:lock SET token = $previous + 1, bundle = $migration_bundle,
   takenAt = time::now(), touchedAt = NONE"""
+# The settings OpenTofu passes, as the row schema.surql's functions read (D48). A missing
+# parameter is NONE, so off. The schema refuses `true` outside dev (event _setting_dev_only).
+SETTINGS = """
+UPSERT _setting:consent CONTENT {
+  devConsentRelaxed: $dev_consent_relaxed = true, environment: $environment
+} RETURN NONE"""
 # (3.2.4: a bare record path like _migrationRun:lock.token in an IF fails with "Specify a database
 # to use"; SELECT … FROM ONLY works.)
 FENCE = """
@@ -527,7 +533,7 @@ class Runner:
 def migrate(client, top, data, params, deadline):
     variables = {k: v for k, v in params.items() if v is not None}
     bundle_id = hashlib.sha256(json.dumps([top, data, params], sort_keys=True).encode()).hexdigest()
-    summary = {"schemaStatements": 0, "clerk": "clerk_jwt_public_key" in variables,
+    summary = {"schemaStatements": 0, "clerk": "clerk_jwt_public_key" in variables, "devConsentRelaxed": None,
                "applied": [], "alreadyApplied": [], "token": None, "bundle": bundle_id}
 
     def try_signin():
@@ -632,12 +638,16 @@ def migrate(client, top, data, params, deadline):
         run(client, f"{DPA_SYNC} (check)", sql, variables, cancelled=True)
     log("checks passed: applying")
 
-    # 3. Declarative schema + Clerk access, one step.
+    # 3. Declarative schema + Clerk access + settings, one step.
     access = top[CLERK] if summary["clerk"] else "REMOVE ACCESS IF EXISTS clerk ON DATABASE"
-    runner.step("schema", [top[SCHEMA], access])
+    runner.step("schema", [top[SCHEMA], access, SETTINGS])
     summary["schemaStatements"], _ = scan(top[SCHEMA], "runner")
     log(f"{SCHEMA}: {summary['schemaStatements']} statements applied; clerk access "
         + ("defined" if summary["clerk"] else "removed (no clerk_jwt_public_key)"))
+    # What the database now answers, not what was asked for.
+    relaxed = run(client, "consent setting", "RETURN fn::consent::relaxed()", {})[0]["result"]
+    summary["devConsentRelaxed"] = relaxed is True
+    log("consent checks: " + ("RELAXED (dev only, D48)" if relaxed is True else "enforced"))
 
     # 4. Data scripts, each exactly once; the _migration row is the last write.
     for name, text in data.items():

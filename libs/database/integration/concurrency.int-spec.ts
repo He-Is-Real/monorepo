@@ -164,7 +164,7 @@ describe('concurrent transactions are fenced per person', () => {
 
   it('workflow media write that overlaps erasure: the write never lands', async () => {
     const wes = await t.person('user_wes');
-    await draft(wes, 'wes_story');
+    await draft(wes, 'wes_story', { primaryFormat: 'video' });
     const processing = await begin(workflow);
     await processing
       .query(

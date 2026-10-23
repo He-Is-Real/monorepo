@@ -24,6 +24,11 @@
 --   * $auth IS usable in a field VALUE (the 2026-10-18 draft said otherwise; tested 2026-10-20):
 --     user.gdprDeletedAt uses it to let only the migrator supply a historical date
 --   * DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (... READONLY)
+--   * inside a function a caller's bound variable shadows a DEFINE PARAM (2026-10-23), so no
+--     switch a caller mustn't control lives in a param (D48 uses the _setting row)
+--   * array<object> items store undefined keys (media[0].junk), unlike nested objects
+--     (image.junk is refused), and REMOVE FIELD keeps stored values: fn::story::shape_problem
+--     checks media keys, data/0004 checks rows written earlier
 
 -- ---------------------------------------------------------------- bookkeeping
 -- One row per data script, written by the runner in the script's own transaction (so a failed
@@ -51,6 +56,21 @@ DEFINE FIELD OVERWRITE startedAt ON _migrationPending TYPE datetime;
 DEFINE TABLE OVERWRITE _identity SCHEMAFULL PERMISSIONS NONE;     -- id = _identity:current
 DEFINE FIELD OVERWRITE hash      ON _identity TYPE string;
 DEFINE FIELD OVERWRITE appliedAt ON _identity TYPE datetime;
+
+-- Settings from OpenTofu's parameters, written by the runner in the schema step of every
+-- migration (migrate.py, SETTINGS). Everyone may read them (functions run with the caller's
+-- permissions); only system users write. A row, not DEFINE PARAM: inside a function a caller's
+-- bound variable shadows a defined param (3.2.4, tested), so a person could set their own.
+-- _setting:consent (D48): consent checks relaxed for dummy data, in dev only. OpenTofu refuses the
+-- variable outside dev; this event refuses the row outside dev too, whoever writes it.
+DEFINE TABLE OVERWRITE _setting SCHEMAFULL PERMISSIONS
+  FOR select FULL,
+  FOR create, update, delete NONE;
+DEFINE FIELD OVERWRITE devConsentRelaxed ON _setting TYPE bool DEFAULT false;
+DEFINE FIELD OVERWRITE environment       ON _setting TYPE option<string>;  -- e.g. 'dev'
+DEFINE EVENT OVERWRITE _setting_dev_only ON _setting
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.devConsentRelaxed = true AND $after.environment != 'dev'
+  THEN { THROW 'consent checks can be relaxed in dev only (D48)' };
 
 -- ---------------------------------------------------------------- identities (D13 B, D27 B)
 -- Services sign in as `service` records: service:api_public_read, :api_user, :api_admin,
@@ -188,8 +208,25 @@ DEFINE FIELD OVERWRITE tagRefs       ON story TYPE array<record<tag>> DEFAULT []
 DEFINE FIELD OVERWRITE status        ON story TYPE string DEFAULT 'draft'
   ASSERT $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn']
   PERMISSIONS FOR update WHERE $auth != service:workflow;
+-- D53: the optional image of a written story. Content: only the person writes it (D41), like the
+-- text. path = its file in the images storage zone; width/height = the real pixel size; alt =
+-- the person's short description (NONE: readers show a neutral default).
+DEFINE FIELD OVERWRITE image         ON story TYPE option<object>
+  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+DEFINE FIELD OVERWRITE image.path    ON story TYPE string
+  ASSERT string::len($value) > 0 AND string::len($value) <= 500
+  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+DEFINE FIELD OVERWRITE image.width   ON story TYPE int ASSERT $value > 0
+  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+DEFINE FIELD OVERWRITE image.height  ON story TYPE int ASSERT $value > 0
+  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
+  ASSERT $value = NONE OR string::len($value) <= 500
+  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 -- Media and processing fields: the person (upload) and workflow (M7 processing); never api-admin.
 -- Each nested field carries the same rule, so `SET media[0].x = ...` is covered too.
+-- 3.2.4 stores undefined keys inside array<object> items (tested), so fn::story::shape_problem
+-- allows only the fields defined here ($mediaFields there).
 DEFINE FIELD OVERWRITE media                    ON story TYPE array<object> DEFAULT []
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE media[*].format          ON story TYPE string ASSERT $value IN ['video', 'audio']
@@ -198,11 +235,16 @@ DEFINE FIELD OVERWRITE media[*].bunnyVideoId    ON story TYPE option<string>
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE media[*].thumbnailPath   ON story TYPE option<string>
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
-DEFINE FIELD OVERWRITE media[*].aspectRatio     ON story TYPE option<string>
+-- D53: the real pixel size (Bunny's encode result), replacing the aspectRatio label. Video only.
+REMOVE FIELD IF EXISTS media[*].aspectRatio ON story;
+DEFINE FIELD OVERWRITE media[*].width           ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
+  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+DEFINE FIELD OVERWRITE media[*].height          ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE media[*].durationSeconds ON story TYPE option<int>
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
--- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary, with the same rule.
+-- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary, with the same
+-- rule (and adds them to $mediaFields in fn::story::shape_problem).
 -- D17: consent is per person; a story derives it from its submitter's current ledger state.
 -- Not stored, so it can't drift: withdrawing or re-consenting changes every story at once.
 -- Uses the record's own `submitter`, never $parent (see the 3.2.4 gotchas at the top).
@@ -229,9 +271,64 @@ DEFINE FIELD OVERWRITE approvedAt    ON story TYPE option<datetime>
 DEFINE FUNCTION OVERWRITE fn::story::content($s: any) {
   RETURN {
     slug: $s.slug, title: $s.title, description: $s.description, body: $s.body,
-    bylineName: $s.bylineName, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: $s.media
+    bylineName: $s.bylineName, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: $s.media,
+    image: $s.image
   };
 };
+-- D53: whether a picture's pixel size is allowed: positive, and no taller than 1:3 or wider
+-- than 3:1 (strips, not photos). Cards clamp further, between 9:16 and 2:1 (the readers' job).
+DEFINE FUNCTION OVERWRITE fn::shape::allowed($width: any, $height: any) {
+  RETURN type::is_int($width) AND type::is_int($height) AND $width > 0 AND $height > 0
+    AND $height <= $width * 3 AND $width <= $height * 3;
+};
+-- D53: what's wrong with a story's type and shape, or NONE. Three types, each with one main part
+-- and one optional part:
+--   written: text (body, not blank), no video or audio; optional image
+--   video / audio: one media item of that format, optional text; no image
+-- A draft is created before its upload (CreateDraftStory), so video and audio need their media
+-- item from submit on (pending, in_review, approved), and may lack it while editable or after
+-- (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its upload).
+-- Used by the story_shape event and by data/0004 (the rows written before it).
+DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
+  LET $media = $s.media ?? [];
+  LET $mediaFields = ['format', 'bunnyVideoId', 'thumbnailPath', 'width', 'height', 'durationSeconds'];
+  IF $media.any(|$m| object::keys($m).any(|$k| $k NOT IN $mediaFields)) {
+    RETURN 'a media item has a field the schema doesn’t define (D53: width and height replace aspectRatio)';
+  };
+  IF $media.any(|$m| ($m.width = NONE) != ($m.height = NONE)) {
+    RETURN 'a media item needs both width and height, or neither';
+  };
+  IF $media.any(|$m| $m.format = 'audio' AND $m.width != NONE) {
+    RETURN 'audio has no width or height';
+  };
+  IF $media.any(|$m| $m.width != NONE AND !fn::shape::allowed($m.width, $m.height)) {
+    RETURN 'a video’s shape is beyond 1:3 or 3:1';
+  };
+  IF $s.image != NONE AND !fn::shape::allowed($s.image.width, $s.image.height) {
+    RETURN 'an image’s shape is beyond 1:3 or 3:1';
+  };
+  IF $s.primaryFormat = 'written' {
+    IF string::len(string::trim($s.body ?? '')) = 0 { RETURN 'a written story needs its text' };
+    IF array::len($media) > 0 { RETURN 'a written story has no video or audio' };
+  } ELSE {
+    IF $s.image != NONE { RETURN 'only a written story can have an image' };
+    IF array::len($media) > 1 { RETURN 'a ' + $s.primaryFormat + ' story has exactly one media item' };
+    IF $media.any(|$m| $m.format != $s.primaryFormat) {
+      RETURN 'a ' + $s.primaryFormat + ' story’s media must be ' + $s.primaryFormat;
+    };
+    IF array::len($media) = 0 AND $s.status IN ['pending', 'in_review', 'approved'] {
+      RETURN 'a ' + $s.primaryFormat + ' story needs its ' + $s.primaryFormat + ' before it is submitted';
+    };
+  };
+  RETURN NONE;
+};
+-- Every write, by anyone (system users too): the stored story always has a valid type and shape.
+DEFINE EVENT OVERWRITE story_shape ON story
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    LET $problem = fn::story::shape_problem($after);
+    IF $problem != NONE { THROW $problem };
+  };
 -- Once a story leaves draft/changes_requested, its owner can no longer change its content
 -- (only withdraw it); what a moderator reviewed is what gets published.
 DEFINE EVENT OVERWRITE story_owner_content_lock ON story
@@ -307,7 +404,14 @@ DEFINE FIELD OVERWRITE media         ON publicStory TYPE array<object>;  -- play
 DEFINE FIELD OVERWRITE media[*].format        ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE media[*].bunnyVideoId  ON publicStory TYPE option<string>;
 DEFINE FIELD OVERWRITE media[*].thumbnailPath ON publicStory TYPE option<string>;
-DEFINE FIELD OVERWRITE media[*].aspectRatio   ON publicStory TYPE option<string>;
+REMOVE FIELD IF EXISTS media[*].aspectRatio ON publicStory;               -- D53: width + height
+DEFINE FIELD OVERWRITE media[*].width         ON publicStory TYPE option<int>;
+DEFINE FIELD OVERWRITE media[*].height        ON publicStory TYPE option<int>;
+DEFINE FIELD OVERWRITE image                  ON publicStory TYPE option<object>;   -- D53
+DEFINE FIELD OVERWRITE image.path             ON publicStory TYPE string;
+DEFINE FIELD OVERWRITE image.width            ON publicStory TYPE int;
+DEFINE FIELD OVERWRITE image.height           ON publicStory TYPE int;
+DEFINE FIELD OVERWRITE image.alt              ON publicStory TYPE option<string>;
 DEFINE FIELD OVERWRITE publishedAt   ON publicStory TYPE datetime;
 DEFINE FIELD OVERWRITE updatedAt     ON publicStory TYPE datetime VALUE time::now();
 -- A full-text index covers one field, so search goes over a computed field.
@@ -334,8 +438,13 @@ DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
     IF [$after.slug, $after.title, $after.description, $after.body, $after.bylineName,
         $after.primaryFormat, $after.tagRefs]
        != [$s.slug, $s.title, $s.description, $s.body, $s.bylineName, $s.primaryFormat, $s.tagRefs]
-       OR $after.media.map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath, $m.aspectRatio])
-       != $s.media.map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath, $m.aspectRatio]) {
+       OR $after.media.map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath, $m.width, $m.height])
+       != $s.media.map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath, $m.width, $m.height])
+       -- array<object> items take undefined keys (3.2.4): playback fields only, nothing else
+       OR $after.media.any(|$m| object::keys($m).any(|$k|
+            $k NOT IN ['format', 'bunnyVideoId', 'thumbnailPath', 'width', 'height']))
+       OR [$after.image.path, $after.image.width, $after.image.height, $after.image.alt]
+       != [$s.image.path, $s.image.width, $s.image.height, $s.image.alt] {
       THROW 'publicStory must mirror the approved story’s content';
     };
     IF !fn::consent::granted($s.submitter, ['special_category_religious', 'publish', 'age_18plus']) {
@@ -398,12 +507,19 @@ DEFINE FUNCTION OVERWRITE fn::consent::current($user: option<record<user>>, $typ
   RETURN array::last((SELECT event, dpaVersion, occurredAt FROM consent
     WHERE subject = $user AND type = $type ORDER BY occurredAt ASC));
 };
+-- D48: whether consent checks are relaxed (dev only; see _setting). The one switch: every
+-- consent gate goes through fn::consent::granted below, and so does libs/consent's guard.
+DEFINE FUNCTION OVERWRITE fn::consent::relaxed() {
+  LET $s = (SELECT devConsentRelaxed, environment FROM ONLY _setting:consent);
+  RETURN $s.devConsentRelaxed = true AND $s.environment = 'dev';
+};
 -- Whether every listed consent type is currently granted. Runs with the caller's permissions:
--- whoever can't read the person's ledger gets false (fail closed).
+-- whoever can't read the person's ledger gets false (fail closed). With D48's dev-only switch on,
+-- true for any person (the ledger itself, fn::consent::current, is unchanged).
 DEFINE FUNCTION OVERWRITE fn::consent::granted($user: option<record<user>>, $types: array<string>) {
-  RETURN $user != NONE
-    AND array::len(array::filter($types, |$t| fn::consent::current($user, $t).event = 'granted'))
-      = array::len($types);
+  RETURN $user != NONE AND (fn::consent::relaxed()
+    OR array::len(array::filter($types, |$t| fn::consent::current($user, $t).event = 'granted'))
+      = array::len($types));
 };
 -- Legacy consent (D22) may only be written by the in-cluster migrator (a system user: $auth = NONE).
 DEFINE EVENT OVERWRITE consent_legacy_only_migrator ON consent

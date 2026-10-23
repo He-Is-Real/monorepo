@@ -283,7 +283,8 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
              evidenceHash: $h, legacyGivenAt: d'2024-03-01T00:00:00Z' };
          };
          CREATE story:legacy_story CONTENT { submitter: user:legacy_1, slug: 'legacy-story',
-           title: 'Legacy', description: 'From the prototype', primaryFormat: 'video', status: 'approved' };`,
+           title: 'Legacy', description: 'From the prototype', primaryFormat: 'video', status: 'approved',
+           media: [{ format: 'video', bunnyVideoId: 'legacy-video' }] };`,
         { types: [...CONSENT_TYPES], h: LEGACY_SHA256 },
       );
       const [story] = await rows<{ consent: Record<string, Consent> }>(

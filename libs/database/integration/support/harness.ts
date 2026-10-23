@@ -42,11 +42,17 @@ export interface MigrationParams {
   identity_hash: string | null;
   /** Seed 0003's walking-skeleton story (dev only, M0 0.9); OpenTofu's default is false. */
   seed_dev_story: boolean;
+  /** D48: relax consent checks for dummy data; OpenTofu allows true in dev only (default false). */
+  dev_consent_relaxed: boolean;
+  /** The environment OpenTofu migrates ('dev', ...); null = not given. */
+  environment: string | null;
 }
 
 export interface MigrationSummary {
   schemaStatements: number;
   clerk: boolean;
+  /** D48: whether the database relaxes consent checks after this run (read back, not assumed). */
+  devConsentRelaxed: boolean;
   applied: string[];
   alreadyApplied: string[];
   /** The fencing token this run took from the database */
@@ -197,6 +203,8 @@ export class TestDatabase {
       dpa_sha256: { v1: DPA_V1_SHA256 },
       identity_hash: null,
       seed_dev_story: false,
+      dev_consent_relaxed: false,
+      environment: null,
       ...overrides,
     };
   }
