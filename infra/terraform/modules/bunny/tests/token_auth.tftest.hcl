@@ -97,6 +97,14 @@ run "people_and_groups_refused" {
   expect_failures = [var.signing_key_readers]
 }
 
+run "other_projects_accounts_refused" {
+  command = plan
+  variables {
+    signing_key_readers = ["serviceAccount:api-public-read@heisreal-prod.iam.gserviceaccount.com"]
+  }
+  expect_failures = [var.signing_key_readers]
+}
+
 run "token_auth_can_be_turned_off_per_delivery" {
   command = plan
   variables {

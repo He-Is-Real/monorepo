@@ -56,7 +56,7 @@ variable "signing_key_readers" {
   default     = []
   validation {
     condition = alltrue([for m in var.signing_key_readers :
-      can(regex("^serviceAccount:[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]+\\.iam\\.gserviceaccount\\.com$", m))
+      can(regex("^serviceAccount:[a-z][a-z0-9-]{4,28}[a-z0-9]@${var.project_id}\\.iam\\.gserviceaccount\\.com$", m))
     ])
     error_message = "Only this project's service accounts (serviceAccount:<name>@<project>.iam.gserviceaccount.com) may read the signing keys; never allUsers, groups or people."
   }
