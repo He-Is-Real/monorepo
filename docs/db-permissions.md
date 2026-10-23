@@ -408,7 +408,9 @@ retried`, on both RocksDB and the in-memory engine.
   Copying it would make unreviewed media look reviewed.
 - **`publicStory.tagSlugs` (D63), computed.** `GET /v1/tags` lists a tag only if a published
   story uses it: one probe per tag, at most one match, through the element index
-  `publicStory_tag_slugs` (`tagSlugs.*`), never a scan of every story. The slugs are computed
+  `publicStory_tag_slugs` (`tagSlugs.*`), never a scan of every story. Each probe is a top-level
+  statement with its slug bound (`$t0`, `$t1`, ...): inside a closure 3.2.4 iterates the whole
+  table instead (Codex, #67; at 10,000 rows 313 ms against 20 ms for 30 tags). The slugs are computed
   from `tagRefs` on every write, so no writer sets them. Not an index over `tagRefs` itself:
   on 3.2.4 an element index over record links makes `CONTAINS` return no rows (a gotcha test in
   `schema.int-spec.ts`). Rows written before the migration get it on their next write; in dev,

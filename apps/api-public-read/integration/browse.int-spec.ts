@@ -12,7 +12,7 @@ import {
   type StoryFixture,
 } from '@heisreal/dev-seed/testing';
 import { MediaUrls, mediaConfigFromEnv } from '../src/app/media/media-urls';
-import { tagInUse } from '../src/app/tags/tags.controller';
+import { tagProbes } from '../src/app/tags/tags.controller';
 import { startPublicRead } from './app';
 
 /**
@@ -574,27 +574,41 @@ describe('browse API over the dev dataset', () => {
     });
 
     it('probes one indexed match per tag, never scanning every published story', async () => {
-      const [plan] = await rows<Record<string, unknown>>(
-        await t.migrator(),
-        `${tagInUse('$slug')} EXPLAIN FULL`,
-        { slug: 'healing' },
+      // EXPLAIN each statement exactly as the endpoint sends it (top level, bound slug): inside a
+      // closure 3.2.4 iterates the table instead (Codex, #67).
+      const migrator = await t.migrator();
+      const slugs = await rows<string>(
+        migrator,
+        'SELECT VALUE record::id(id) FROM tag',
       );
-      const operators: { operator: string; index?: string }[] = [];
-      const walk = (n: Record<string, unknown>) => {
-        const attributes = (n['attributes'] ?? {}) as Record<string, string>;
-        operators.push({
-          operator: n['operator'] as string,
-          index: attributes['index'],
+      const { statements, vars } = tagProbes(slugs);
+      expect(statements).toHaveLength(slugs.length);
+      const plans = (await run(
+        migrator,
+        statements.map((st) => `${st} EXPLAIN FULL`).join(';\n'),
+        vars,
+      )) as Record<string, unknown>[];
+      expect(plans).toHaveLength(slugs.length);
+      for (const plan of plans) {
+        const operators: { operator: string; index?: string }[] = [];
+        const walk = (n: Record<string, unknown>) => {
+          const attributes = (n['attributes'] ?? {}) as Record<string, string>;
+          operators.push({
+            operator: n['operator'] as string,
+            index: attributes['index'],
+          });
+          for (const c of (n['children'] ?? []) as Record<string, unknown>[])
+            walk(c);
+        };
+        walk(plan);
+        expect(operators).toContainEqual({
+          operator: 'IndexScan',
+          index: 'publicStory_tag_slugs',
         });
-        for (const c of (n['children'] ?? []) as Record<string, unknown>[])
-          walk(c);
-      };
-      walk(plan);
-      expect(operators).toContainEqual({
-        operator: 'IndexScan',
-        index: 'publicStory_tag_slugs',
-      });
-      expect(operators.map((o) => o.operator)).not.toContain('TableScan');
+        expect(
+          operators.filter((o) => /Scan|Iterate/.test(o.operator)),
+        ).toEqual([{ operator: 'IndexScan', index: 'publicStory_tag_slugs' }]);
+      }
     });
 
     it('refuses query parameters', async () => {

@@ -17,18 +17,25 @@ import type { TagRef } from '../stories/story-summary';
 /** The order browse groups tags in. */
 export const CATEGORIES = ['theme', 'journey', 'emotion'] as const;
 
-/**
- * D63: whether a published story uses the tag whose slug `slug` names. One indexed match at most
- * (`publicStory_tag_slugs`), so the cost doesn't grow with the stories.
- */
-export const tagInUse = (slug: string) =>
-  `SELECT VALUE id FROM publicStory WHERE tagSlugs CONTAINS ${slug} LIMIT 1`;
+const ALL_TAGS = `SELECT record::id(id) AS slug, name, category, version FROM tag`;
 
-// D63: only tags at least one published story uses, so no tag leads to an empty page; a tag
-// comes back as soon as a published story uses it. One probe per tag (a few dozen). No input.
-const USED_TAGS = `
-  LET $tags = (SELECT record::id(id) AS slug, name, category, version FROM tag);
-  RETURN $tags.filter(|$tag| array::len(${tagInUse('$tag.slug')}) > 0);`;
+/**
+ * D63: one probe per tag for whether a published story uses it, each a top-level statement with
+ * the slug bound ($t0, $t1, ...), at most one match through `publicStory_tag_slugs`. Only top
+ * level: inside a closure 3.2.4 iterates the whole table instead (Codex, #67).
+ */
+export function tagProbes(slugs: string[]): {
+  statements: string[];
+  vars: Record<string, string>;
+} {
+  return {
+    statements: slugs.map(
+      (_, i) =>
+        `SELECT VALUE id FROM publicStory WHERE tagSlugs CONTAINS $t${i} LIMIT 1`,
+    ),
+    vars: Object.fromEntries(slugs.map((slug, i) => [`t${i}`, slug])),
+  };
+}
 
 /**
  * api-public-read.yaml, tag Tags: listTags (M1). Reference data (D26), about 30 tags, unpaged.
@@ -46,10 +53,14 @@ export class TagsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ data: TagRef[] } | undefined> {
     refuseQueryParameters(query);
-    const [, tags] = (await runQuery(this.db, USED_TAGS)) as [
-      unknown,
-      TagRef[],
-    ];
+    // D63: only tags a published story uses, so none leads to an empty page; a tag comes back
+    // as soon as a published story uses it. A few dozen tags, so a few dozen indexed probes.
+    const [all] = (await runQuery(this.db, ALL_TAGS)) as [TagRef[]];
+    const { statements, vars } = tagProbes(all.map((t) => t.slug));
+    const found = statements.length
+      ? ((await runQuery(this.db, statements.join(';\n'), vars)) as unknown[][])
+      : [];
+    const tags = all.filter((_, i) => found[i].length > 0);
     const rank = (t: TagRef) => CATEGORIES.indexOf(t.category as never);
     const body = {
       data: [...tags].sort(

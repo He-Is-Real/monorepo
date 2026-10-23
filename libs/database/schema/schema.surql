@@ -31,6 +31,8 @@
 --     checks media keys, data/0004 checks rows written earlier
 --   * an element index over record links (`tagRefs.*`, `tagRefs[*]`) makes `CONTAINS` return no
 --     rows; over strings it works (2026-10-24): publicStory.tagSlugs
+--   * a query inside a closure (`$list.filter(|$x| ...)`) iterates the whole table, never an
+--     index (Codex, #67): /v1/tags sends its probes as top-level statements
 --   * a field VALUE also runs for a nested SET (`SET media[0].x = ...`), with $value the whole
 --     new field and $before the old one (2026-10-23): media/image VALUE use it to reset
 --     `processing` (A2)
@@ -608,7 +610,7 @@ DEFINE FIELD OVERWRITE image.alt              ON publicStory TYPE option<string>
 DEFINE FIELD OVERWRITE durationSeconds ON publicStory TYPE option<int>
   VALUE type::record('story', record::id(id)).media[0].durationSeconds;
 -- D63: /v1/tags lists a tag only if a published story uses it, probing an index for one match
--- per tag. The tags' slugs, computed on every write (no writer sets them): 3.2.4 returns no rows
+-- per tag (top-level statements, see the gotchas). The tags' slugs, computed on every write (no writer sets them): 3.2.4 returns no rows
 -- from an element index over record links (`tagRefs.*`), but indexes strings correctly.
 DEFINE FIELD OVERWRITE tagSlugs      ON publicStory TYPE array<string>
   VALUE tagRefs.map(|$t| record::id($t));
