@@ -38,8 +38,11 @@ describe('mediaConfigFromEnv', () => {
   });
 
   it('refuses a partial configuration, naming what is missing', () => {
-    const { BUNNY_IMAGES_TOKEN_KEY_SECRET, BUNNY_STREAM_CDN_HOST, ...rest } =
-      ENV;
+    const rest: Record<string, string | undefined> = {
+      ...ENV,
+      BUNNY_STREAM_CDN_HOST: undefined,
+      BUNNY_IMAGES_TOKEN_KEY_SECRET: undefined,
+    };
     expect(() => mediaConfigFromEnv(rest)).toThrow(
       /BUNNY_STREAM_CDN_HOST, BUNNY_IMAGES_TOKEN_KEY_SECRET/,
     );

@@ -78,6 +78,13 @@ class MediaStub {
 }
 
 const SIGNING_OFF = new MediaUrls(null);
+/** What the signing tests read from a response. */
+type Signed = {
+  media: { playbackUrl: string; thumbnailUrl: string; captionsUrl: null }[];
+  image: { url: string; width: number; height: number; alt: null };
+};
+const signedBody = async (url: string) =>
+  (await (await fetch(`${url}/v1/stories/test-story`)).json()) as Signed;
 /** 2026-10-23 10:15 UTC: links expire at 17:00 (6 h, rounded up to the hour). */
 const NOW = Date.UTC(2026, 9, 23, 10, 15);
 const signing = (now = () => NOW) =>
@@ -207,7 +214,7 @@ describe('GET /v1/stories/{slug}', () => {
     };
     const { app, url } = await boot(database([row]).db, signing());
     try {
-      const body = await (await fetch(`${url}/v1/stories/test-story`)).json();
+      const body = await signedBody(url);
       const [media] = body.media;
       const playback = new URL(media.playbackUrl);
       expect(playback.origin + playback.pathname).toBe(
@@ -237,7 +244,7 @@ describe('GET /v1/stories/{slug}', () => {
     };
     const { app, url } = await boot(database([row]).db, signing());
     try {
-      const body = await (await fetch(`${url}/v1/stories/test-story`)).json();
+      const body = await signedBody(url);
       const image = new URL(body.image.url);
       expect(image.origin + image.pathname).toBe(
         'https://images-test.b-cdn.net/dev-seed/image-01.webp',
@@ -268,7 +275,7 @@ describe('GET /v1/stories/{slug}', () => {
     };
     const { app, url } = await boot(database([row]).db, signing());
     try {
-      const body = await (await fetch(`${url}/v1/stories/test-story`)).json();
+      const body = await signedBody(url);
       expect(body.media[0]).toMatchObject({
         playbackUrl: null,
         thumbnailUrl: null,
