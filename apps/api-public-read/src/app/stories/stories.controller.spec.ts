@@ -256,7 +256,14 @@ describe('GET /v1/stories/{slug}', () => {
   it('gives null links for media the read model has no ids for, or unsafe ones', async () => {
     const row = {
       ...story,
-      media: [{ format: 'audio' }],
+      media: [
+        {
+          format: 'video',
+          bunnyVideoId: 'not-a-uuid',
+          // Another video's thumbnail: never signed for this story.
+          thumbnailPath: '229dbd44-d1a2-4044-be13-bee63c2a0cc1/thumbnail.jpg',
+        },
+      ],
       image: { path: '../elsewhere.webp', width: 10, height: 10 },
     };
     const { app, url } = await boot(database([row]).db, signing());

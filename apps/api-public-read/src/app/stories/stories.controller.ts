@@ -90,7 +90,7 @@ function toPublic(row: Row, urls: MediaUrls): StoryPublic {
     media: (row.media ?? []).map((m) => ({
       format: m.format,
       playbackUrl: urls.playbackUrl(m.bunnyVideoId),
-      thumbnailUrl: urls.thumbnailUrl(m.thumbnailPath),
+      thumbnailUrl: urls.thumbnailUrl(m.bunnyVideoId, m.thumbnailPath),
       width: m.width ?? null,
       height: m.height ?? null,
       captionsUrl: null,

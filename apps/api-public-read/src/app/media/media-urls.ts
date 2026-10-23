@@ -86,10 +86,19 @@ export class MediaUrls {
     );
   }
 
-  /** A Stream thumbnail (`media[*].thumbnailPath`, e.g. `<videoId>/thumbnail.jpg`). */
-  thumbnailUrl(path: string | null | undefined): string | null {
+  /**
+   * A Stream thumbnail (`media[*].thumbnailPath`, e.g. `<videoId>/thumbnail.jpg`). Signed only
+   * as a file directly in the item's own video folder, so a story can't get another video's
+   * thumbnail signed by naming its path.
+   */
+  thumbnailUrl(
+    videoId: string | null | undefined,
+    path: string | null | undefined,
+  ): string | null {
     const s = this.signing;
-    if (!s || !path) return null;
+    if (!s || !videoId || !path) return null;
+    const [folder, file, ...rest] = path.split('/');
+    if (folder !== videoId || !file || rest.length > 0) return null;
     return signCdnUrl(
       s.config.streamCdnHost,
       path,

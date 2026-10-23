@@ -109,7 +109,7 @@ describe('createMediaUrls', () => {
     const urls = await createMediaUrls(store, {}, () => NOW);
     expect(store.get).not.toHaveBeenCalled();
     expect(urls.playbackUrl(VIDEO)).toBeNull();
-    expect(urls.thumbnailUrl(`${VIDEO}/thumbnail.jpg`)).toBeNull();
+    expect(urls.thumbnailUrl(VIDEO, `${VIDEO}/thumbnail.jpg`)).toBeNull();
     expect(urls.imageUrl('dev-seed/image-01.webp')).toBeNull();
   });
 });
@@ -134,7 +134,7 @@ describe('MediaUrls', () => {
   });
 
   it('signs thumbnails on the Stream CDN and images on the images zone, with different keys', () => {
-    const thumb = new URL(urls.thumbnailUrl(`${VIDEO}/thumbnail.jpg`)!);
+    const thumb = new URL(urls.thumbnailUrl(VIDEO, `${VIDEO}/thumbnail.jpg`)!);
     const image = new URL(urls.imageUrl(`${VIDEO}/thumbnail.jpg`)!);
     expect(thumb.host).toBe('vz-da4dce15-a49.b-cdn.net');
     expect(image.host).toBe('heisreal-dev-images.b-cdn.net');
@@ -149,10 +149,21 @@ describe('MediaUrls', () => {
     'gives null for a missing id or path (%p)',
     (missing) => {
       expect(urls.playbackUrl(missing)).toBeNull();
-      expect(urls.thumbnailUrl(missing)).toBeNull();
+      expect(urls.thumbnailUrl(missing, `${VIDEO}/thumbnail.jpg`)).toBeNull();
+      expect(urls.thumbnailUrl(VIDEO, missing)).toBeNull();
       expect(urls.imageUrl(missing)).toBeNull();
     },
   );
+
+  it('signs a thumbnail only inside its own video’s folder', () => {
+    const other = '229dbd44-d1a2-4044-be13-bee63c2a0cc1';
+    expect(urls.thumbnailUrl(VIDEO, `${other}/thumbnail.jpg`)).toBeNull();
+    expect(urls.thumbnailUrl(VIDEO, `${VIDEO}x/thumbnail.jpg`)).toBeNull();
+    expect(urls.thumbnailUrl(VIDEO, `${VIDEO}/a/b.jpg`)).toBeNull();
+    expect(urls.thumbnailUrl(VIDEO, `${VIDEO}/thumbnail_2.jpg`)).toContain(
+      `/${VIDEO}/thumbnail_2.jpg?`,
+    );
+  });
 
   it('gives null for an unsafe path instead of signing it', () => {
     expect(urls.imageUrl('../other-zone/file.webp')).toBeNull();
