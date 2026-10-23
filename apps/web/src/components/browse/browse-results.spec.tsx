@@ -49,14 +49,18 @@ beforeEach(() => {
     constructor(cb: (entries: { isIntersecting: boolean }[]) => void) {
       intersect = () => cb([{ isIntersecting: true }]);
     }
-    observe() {}
-    disconnect() {}
+    observe() {
+      // the test triggers it by hand
+    }
+    disconnect() {
+      // nothing to release
+    }
   };
   window.matchMedia = ((q: string) => ({
     matches: false,
     media: q,
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
   })) as unknown as typeof window.matchMedia;
 });
 

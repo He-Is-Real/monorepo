@@ -47,14 +47,16 @@ describe('MobileNav', () => {
     const button = screen.getByRole('button', { name: 'Menu' });
     expect(button.className).toContain('size-11');
     expect(button.getAttribute('aria-expanded')).toBe('false');
-    const menu = document.getElementById(button.getAttribute('aria-controls')!);
+    const menu = document.getElementById(
+      button.getAttribute('aria-controls') ?? '',
+    );
     expect(menu?.hidden).toBe(true);
 
     await act(async () => fireEvent.click(button));
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(menu?.hidden).toBe(false);
     expect(
-      within(menu!)
+      within(menu as HTMLElement)
         .getByRole('link', { name: 'Share your story' })
         .getAttribute('href'),
     ).toBe('/get-ready');

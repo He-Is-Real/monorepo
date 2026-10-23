@@ -8,7 +8,7 @@ import { type BrowseFilters, browseHref, toggleTag } from '@/lib/browse-query';
 
 const chip =
   'inline-flex min-h-11 items-center rounded-full border px-4 text-sm transition-colors';
-const idle = `${chip} border-border bg-surface text-secondary-text hover:border-teal hover:text-foreground`;
+export const TAG_CHIP = `${chip} border-border bg-surface text-secondary-text hover:border-teal hover:text-foreground`;
 const selected = `${chip} border-teal bg-accent font-medium text-foreground hover:text-foreground`;
 
 function TagLink({ tag, filters }: { tag: StoryTag; filters: BrowseFilters }) {
@@ -17,7 +17,7 @@ function TagLink({ tag, filters }: { tag: StoryTag; filters: BrowseFilters }) {
     <li>
       <Link
         href={browseHref(toggleTag(filters, tag.slug))}
-        className={on ? selected : idle}
+        className={on ? selected : TAG_CHIP}
         scroll={false}
       >
         {on && (
@@ -62,7 +62,7 @@ export function TagFilter({
         <li>
           <Link
             href={browseHref({ ...filters, tags: [] })}
-            className={filters.tags.length === 0 ? selected : idle}
+            className={filters.tags.length === 0 ? selected : TAG_CHIP}
             scroll={false}
           >
             All
