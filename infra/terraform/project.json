@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "terraform",
+  "projectType": "application",
+  "tags": ["type:infra", "scope:infra"],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "{projectRoot}/modules/**/*",
+        "{projectRoot}/live/dev/*/.terraform.lock.hcl",
+        "{projectRoot}/test-modules.sh",
+        {
+          "runtime": "tofu version -json 2>/dev/null || echo missing"
+        }
+      ],
+      "options": {
+        "command": "infra/terraform/test-modules.sh"
+      }
+    }
+  }
+}

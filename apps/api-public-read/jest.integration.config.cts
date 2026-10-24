@@ -22,6 +22,7 @@ module.exports = {
   roots: ['<rootDir>/integration'],
   testMatch: ['<rootDir>/integration/**/*.int-spec.ts'],
   setupFiles: [`${support}/host-typed-arrays.ts`],
+  setupFilesAfterEnv: ['<rootDir>/integration/contract-setup.ts'],
   globalSetup: `${support}/global-setup.ts`,
   globalTeardown: `${support}/global-teardown.ts`,
   testTimeout: 30_000,

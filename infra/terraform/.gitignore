@@ -2,3 +2,5 @@
 .build/
 # Lock files ARE committed (pin provider versions/checksums).
 !.terraform.lock.hcl
+# Copied from the matching root by test-modules.sh; the roots own them.
+/modules/*/.terraform.lock.hcl

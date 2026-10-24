@@ -323,12 +323,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      result: ${{ steps.stage.outputs.result }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.target.outputs.sha }}
           sparse-checkout: tools/scripts
-      - env:
+      - id: stage
+        env:
           PREV: "${{ needs.target.result == 'success' && 'ok' || 'blocked: target' }}"
           PLAN: ${{ needs.plan-bunny.result }}
           CHANGES: ${{ needs.plan-bunny.outputs.changes }}
@@ -336,6 +339,7 @@ jobs:
           APPLY: ${{ needs.apply-bunny.result }}
         run: |
           result="$(tools/scripts/tf-stage.sh "$PREV" true "$PLAN" "$CHANGES" "$GO" "$APPLY")"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
           echo "bunny: $result" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ---- Wave 2: cluster (and images), after gcp's apply ----------------------------------------
@@ -561,12 +565,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      result: ${{ steps.stage.outputs.result }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.target.outputs.sha }}
           sparse-checkout: tools/scripts
-      - env:
+      - id: stage
+        env:
           PREV: >-
             ${{ (needs.stage-gcp.outputs.result == 'ok' &&
             (needs.approve-1.result == 'skipped' || (needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true')))
@@ -577,6 +584,7 @@ jobs:
           APPLY: ${{ needs.apply-cluster.result }}
         run: |
           result="$(tools/scripts/tf-stage.sh "$PREV" true "$PLAN" "$CHANGES" "$GO" "$APPLY")"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
           echo "cluster: $result" | tee -a "$GITHUB_STEP_SUMMARY"
 
   stage-images:
@@ -585,12 +593,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      result: ${{ steps.stage.outputs.result }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.target.outputs.sha }}
           sparse-checkout: tools/scripts
-      - env:
+      - id: stage
+        env:
           PREV: >-
             ${{ (needs.stage-gcp.outputs.result == 'ok' &&
             (needs.approve-1.result == 'skipped' || (needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true')))
@@ -602,7 +613,60 @@ jobs:
           APPLY: ${{ needs.apply-images.result }}
         run: |
           result="$(tools/scripts/tf-stage.sh "$PREV" "$SELECTED" "$PLAN" "$CHANGES" "$GO" "$APPLY")"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
           echo "images: $result" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ---- After a deploy: the dev behavioural suite (T3) -----------------------------------------
+  # Only after a complete deploy: every root's stage is ok (nothing failed, was rejected, went
+  # stale or was superseded, so no half-deployed dev) and at least one apply changed something
+  # (tools/scripts/tf-behavioural.sh). Then dispatch "Dev behavioural tests": it resets dev to
+  # the dummy dataset and tests the real site, the real API and real Bunny together. A dispatch,
+  # not a call: only a dispatched run on main may sign in as ci-dev-seeder (dev_seed_gate in
+  # modules/bootstrap), so this needs no new identity or secret. It queues behind any reset
+  # (concurrency `dev-data`).
+  behavioural:
+    needs:
+      - target
+      - apply-gcp
+      - apply-bunny
+      - apply-cluster
+      - apply-images
+      - stage-gcp
+      - stage-bunny
+      - stage-cluster
+      - stage-images
+    if: always() && needs.target.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # dispatch dev-behavioural-tests.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          sparse-checkout: tools/scripts
+      - id: decide
+        # One variable per value, passed as separate quoted arguments: a stage job that never
+        # published its result gives an empty argument (not ok), never a shorter list.
+        env:
+          STAGE_GCP: ${{ needs.stage-gcp.outputs.result }}
+          STAGE_BUNNY: ${{ needs.stage-bunny.outputs.result }}
+          STAGE_CLUSTER: ${{ needs.stage-cluster.outputs.result }}
+          STAGE_IMAGES: ${{ needs.stage-images.outputs.result }}
+          APPLY_GCP: ${{ needs.apply-gcp.result }}
+          APPLY_BUNNY: ${{ needs.apply-bunny.result }}
+          APPLY_CLUSTER: ${{ needs.apply-cluster.result }}
+          APPLY_IMAGES: ${{ needs.apply-images.result }}
+        run: |
+          decision="$(tools/scripts/tf-behavioural.sh \
+            "${STAGE_GCP:-}" "${STAGE_BUNNY:-}" "${STAGE_CLUSTER:-}" "${STAGE_IMAGES:-}" -- \
+            "${APPLY_GCP:-}" "${APPLY_BUNNY:-}" "${APPLY_CLUSTER:-}" "${APPLY_IMAGES:-}")"
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+          echo "Dev behavioural tests: $decision" | tee -a "$GITHUB_STEP_SUMMARY"
+      - if: steps.decide.outputs.decision == 'dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run dev-behavioural-tests.yml --repo "$GITHUB_REPOSITORY" --ref main
 
   # ---- Superseded after approval ---------------------------------------------------------------
   # Joel, 2026-10-23: a superseded run must not end green. A workflow can't set a neutral

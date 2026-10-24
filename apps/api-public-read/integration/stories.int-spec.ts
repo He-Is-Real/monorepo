@@ -1,9 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Global, type INestApplication, Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
-import { Test } from '@nestjs/testing';
-import { SURREAL } from '@heisreal/database';
+import type { INestApplication } from '@nestjs/common';
 import {
   DPA_V1_SHA256,
   run,
@@ -11,10 +8,7 @@ import {
   SCHEMA_DIR,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
-import { ProblemFilter } from '@heisreal/http';
-import type { Surreal } from 'surrealdb';
-import { MediaUrls } from '../src/app/media/media-urls';
-import { StoriesModule } from '../src/app/stories/stories.controller';
+import { startPublicRead } from './app';
 
 /**
  * M0 task 0.9 end to end: the dev seed (0003) migrated into SurrealDB 3.2.4, read by
@@ -45,26 +39,8 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       }),
     );
     await t.createServices();
-    const connection: Surreal = await t.service('api_public_read');
-
-    @Global()
-    @Module({
-      // Media signing is covered by the unit tests; the seeded story has no media.
-      providers: [
-        { provide: SURREAL, useValue: connection },
-        { provide: MediaUrls, useValue: new MediaUrls(null) },
-      ],
-      exports: [SURREAL, MediaUrls],
-    })
-    class ReadOnlyDatabase {}
-
-    const moduleRef = await Test.createTestingModule({
-      imports: [ReadOnlyDatabase, StoriesModule],
-      providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
-    }).compile();
-    app = moduleRef.createNestApplication({ logger: false });
-    await app.listen(0, '127.0.0.1');
-    url = await app.getUrl();
+    // Through startPublicRead, so every response is checked against the contract.
+    ({ app, url } = await startPublicRead(t));
   });
   afterAll(async () => {
     await app?.close();

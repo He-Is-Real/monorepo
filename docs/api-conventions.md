@@ -117,16 +117,20 @@ short-lived upload credentials.
   `code` and `errors[]` (`pointer`, `message`) for field errors. **Never echo testimony text or other
   personal data in an error.**
 
-  | Status | When                                                                |
-  | ------ | ------------------------------------------------------------------- |
-  | 400    | Malformed or invalid request; missing `Idempotency-Key`             |
-  | 401    | Missing or invalid Clerk token                                      |
-  | 403    | Role, ownership or consent check failed                             |
-  | 404    | Not found, or not visible to the caller                             |
-  | 409    | The resource's state doesn't allow it (not a draft, locked, in use) |
-  | 412    | `If-Match` doesn't match the current version                        |
-  | 422    | `Idempotency-Key` reused with a different body                      |
-  | 428    | `If-Match` missing                                                  |
+  | Status | When                                                                                                                  |
+  | ------ | --------------------------------------------------------------------------------------------------------------------- |
+  | 400    | Malformed or invalid request; missing `Idempotency-Key`                                                               |
+  | 401    | Missing or invalid Clerk token                                                                                        |
+  | 403    | Role, ownership or consent check failed                                                                               |
+  | 404    | Not found, or not visible to the caller                                                                               |
+  | 409    | The resource's state doesn't allow it (not a draft, locked, in use)                                                   |
+  | 412    | `If-Match` doesn't match the current version                                                                          |
+  | 422    | `Idempotency-Key` reused with a different body                                                                        |
+  | 428    | `If-Match` missing                                                                                                    |
+  | 5XX    | The service couldn't answer (e.g. the database is down): a bare `title` and `status`, never the cause (`ServerError`) |
+
+  Contracts list every status an operation can answer, `5XX` included: api-public-read's
+  integration tests and web's e2e stub are checked against the contract (`@heisreal/contracts/testing`).
 
 - **IDs and slugs:** public queries use the slug (`GET /v1/stories/{slug}`); commands and admin
   routes use the ID. An old slug answers `301` to the current one (through `slugHistory`), so
