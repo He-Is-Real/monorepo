@@ -170,7 +170,7 @@ export default async function Page() {
         {stories === null ? (
           <p
             role="status"
-            className="mx-auto max-w-prose rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
+            className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
           >
             Stories can’t be loaded right now. Please try again in a moment.
           </p>
@@ -251,7 +251,8 @@ export default async function Page() {
             He Is Real Today is a not-for-profit. We rely on the generosity of
             people who believe these stories matter.
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">
+          {/* Narrower than the box: small text at 36 rem ran to 85 characters a line. */}
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
             Every donation goes to publishing more stories and reaching more
             people. UK taxpayers can add 25% through Gift Aid at no extra cost.
           </p>

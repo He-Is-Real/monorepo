@@ -65,7 +65,7 @@ export function FaqAccordion({ items }: { items: FaqItem[] }) {
               hidden={!expanded}
               className="px-5 pb-5 sm:px-6"
             >
-              <p className="max-w-prose text-[15px] leading-relaxed text-secondary-text">
+              <p className="max-w-measure text-[15px] leading-relaxed text-secondary-text">
                 {answer}
               </p>
             </div>
