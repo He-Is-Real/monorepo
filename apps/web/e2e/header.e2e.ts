@@ -6,7 +6,8 @@ import {
 } from './helpers';
 import { SIGNED_IN_NAME, SIGNED_IN_PORT } from './playwright.config';
 
-// The header with its account controls, signed out (Clerk's Sign in button) and signed in (a
+// The header with its account controls, signed out (the E2E_FIXTURES stand-in for Clerk's Sign
+// in button, the same Button; the real one is in static-pages.e2e.ts) and signed in (a
 // 40-character name from the E2E_FIXTURES server: no Clerk session needed). On every device and
 // in both schemes the action group stays on the first row, beside the logo, right-aligned:
 // never wrapped under the navigation or pushed left, nothing wider than the screen, every

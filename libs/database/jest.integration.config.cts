@@ -22,4 +22,6 @@ module.exports = {
   globalSetup: '<rootDir>/integration/support/global-setup.ts',
   globalTeardown: '<rootDir>/integration/support/global-teardown.ts',
   testTimeout: 30_000,
+  // The same on every machine (T4): files at once against the one SurrealDB container.
+  maxWorkers: 3,
 };
