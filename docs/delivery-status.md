@@ -374,7 +374,7 @@ wiring; C responsive and the device matrix; D WebKit; E local equals CI.
 
 Notes from PR A:
 
-- **Quick tests:** 71 files, 653 cases → 43 files, 360 cases. **Real-database tests:** the
+- **Quick tests:** 71 files, 653 cases → 43 files, 365 cases. **Real-database tests:** the
   api-user consent route suites and the Viewer-403 suite are gone; api-public-read's 400 table is
   cut to a sample (parsing is the unit table's).
 - **Rebuilt higher up first, each shown failing with the behaviour broken:** home and browse with
@@ -392,6 +392,13 @@ Notes from PR A:
 - **`account-control.spec.tsx` keeps 2 of 4 cases:** the signed-in e2e (#71, `header.e2e.ts`)
   covers the name, the panel and Sign out on every device, but its fixture bypasses Clerk, so
   the email fallback and the loading state stay as unit cases.
+- **Kept where they were the only protection (Codex review of #72, each shown by mutation):** the
+  real-database bad-token case in `clerk-session.int-spec` (the authenticator must verify the
+  token itself: SurrealDB doesn't check expiry, audience, issuer or role); hide markers can't be
+  created or deleted by hand (`media-processing.int-spec`, D13); the consent evidence hash checked
+  against independently computed values and a fixed vector, changing with the DPA text, type,
+  event and mechanism (`ledger.int-spec`, D19, Art 9); RoleGuard's role minimums (D1) and the
+  consent guard's submitter check and 401 without sign-in (D21).
 - `request-sessions.int-spec` now checks the real `withPersonSession`; its 3 s sleep (a
   surrealdb.js 2.0.8 quirk) and its unchecked benchmark are gone (T4). The gitleaks test scans all
   its flagged fixtures in one run (about 10 s → 2 s).

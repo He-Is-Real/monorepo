@@ -98,6 +98,33 @@ describe('Clerk sign-in → person session', () => {
       expect(await usersFor('user_racer')).toHaveLength(1);
     });
 
+    // The authenticator's own verification (Codex review of #72): SurrealDB checks the
+    // signature and ns/db, but not the expiry, audience (azp), issuer or role claim, so these
+    // are refused here or nowhere. Nothing reaches the database.
+    it('refuses bad tokens with 401 and creates no row', async () => {
+      const auth = new ApiUserAuthenticator(config, apiUser);
+      for (const token of [
+        clerk.token('user_bad1', { exp: Math.floor(Date.now() / 1000) - 60 }),
+        clerk.token('user_bad2', { azp: 'https://evil.example' }),
+        clerk.token('user_bad3', { iss: 'https://other.clerk.accounts.dev' }),
+        newTestClerk().token('user_bad4'),
+        clerk.token('user_bad5', { role: undefined }),
+      ]) {
+        await expect(auth.authenticate(request(token))).rejects.toBeInstanceOf(
+          UnauthorizedException,
+        );
+      }
+      for (const id of [
+        'user_bad1',
+        'user_bad2',
+        'user_bad3',
+        'user_bad4',
+        'user_bad5',
+      ]) {
+        expect(await usersFor(id)).toHaveLength(0);
+      }
+    });
+
     it('SurrealDB itself refuses a token our checks would accept but it can’t verify (wrong ns)', async () => {
       const auth = new ApiUserAuthenticator(config, apiUser);
       const people = new PersonSessions(apiUser, auth);

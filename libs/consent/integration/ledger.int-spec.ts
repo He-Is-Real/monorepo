@@ -1,6 +1,7 @@
 import {
   approve,
   createPeople,
+  DPA_V1_SHA256,
   draft,
   publishDpa,
   rows,
@@ -12,6 +13,7 @@ import {
   PersonSessionRefusedError,
   withPersonSession,
 } from '@heisreal/database';
+import { createHash } from 'node:crypto';
 import type { Surreal, SurrealSession } from 'surrealdb';
 import { ConsentChecker } from '../src/lib/consent-checker';
 import {
@@ -19,7 +21,16 @@ import {
   ConsentLedger,
   evidenceHash,
 } from '../src/lib/consent-ledger';
-import { CONSENT_REQUIRED, CONSENT_TYPES } from '../src/lib/consent.types';
+import {
+  CONSENT_REQUIRED,
+  CONSENT_TYPES,
+  type ConsentMechanism,
+  type ConsentType,
+} from '../src/lib/consent.types';
+
+/** sha256 of ["heisreal-consent-evidence/v1","v1","bbb…","publish","granted","web_form_submission"]. */
+const FIXED_VECTOR =
+  '742fa2d7efa880025031ba5410d3e85f63e1179b49f8680fe126e34001db62e0';
 
 /**
  * The ledger service, the consent checks and person sessions against SurrealDB 3.2.4, on the
@@ -307,6 +318,140 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
       expect(state.current.find((c) => c.type === 'age_18plus')).toMatchObject({
         reconsentRequired: true,
       });
+    });
+  });
+
+  // GDPR Art 9 evidence (D19): the recorded hash binds what was presented and chosen. The
+  // expected values are computed here, independently of the ledger's evidenceHash() (Codex
+  // review of #72: a constant hash passed every test).
+  describe('evidence binds the DPA text, type, event and mechanism (D19)', () => {
+    const independent = (r: {
+      dpa: string;
+      dpaText: string;
+      type: string;
+      event: string;
+      mechanism: string;
+    }) =>
+      createHash('sha256')
+        .update(
+          JSON.stringify([
+            'heisreal-consent-evidence/v1',
+            r.dpa,
+            r.dpaText,
+            r.type,
+            r.event,
+            r.mechanism,
+          ]),
+        )
+        .digest('hex');
+    type Evidence = {
+      who: string;
+      type: string;
+      event: string;
+      mechanism: string;
+      dpa: string;
+      dpaText: string;
+      evidenceHash: string;
+    };
+    let rowsByKey: Evidence[];
+    const find = (
+      who: string,
+      type: string,
+      event: string,
+      dpa: string,
+      mechanism: string,
+    ) => {
+      const row = rowsByKey.find(
+        (r) =>
+          r.who === who &&
+          r.type === type &&
+          r.event === event &&
+          r.dpa === dpa &&
+          r.mechanism === mechanism,
+      );
+      if (!row)
+        throw new Error(`no ${who} ${type} ${event} ${dpa} ${mechanism}`);
+      return row.evidenceHash;
+    };
+
+    beforeAll(async () => {
+      // Pairs that differ in one input only (v2 is in force now).
+      const grant = (
+        who: string,
+        type: ConsentType,
+        mechanism: ConsentMechanism,
+      ) =>
+        as(who, (s) => ledger.grant(s, { type, dpaVersion: 'v2', mechanism }));
+      await grant('user_bob', 'share_socials', 'web_form_submission');
+      await grant('user_cat', 'share_socials', 'account_settings');
+      await as('user_cat', (s) => ledger.withdraw(s, 'share_socials'));
+      rowsByKey = await rows<Evidence>(
+        await t.migrator(),
+        `SELECT record::id(subject) AS who, type, event, mechanism,
+           record::id(dpaVersion) AS dpa, dpaVersion.contentHash AS dpaText, evidenceHash
+         FROM consent`,
+      );
+    });
+
+    it('every recorded hash is the sha256 of exactly what was presented and chosen', () => {
+      expect(rowsByKey.length).toBeGreaterThan(5);
+      for (const r of rowsByKey) expect(r.evidenceHash).toBe(independent(r));
+    });
+
+    it('matches a fixed vector (the format can’t drift unnoticed)', () => {
+      expect(
+        find('ann', 'publish', 'granted', 'v1', 'web_form_submission'),
+      ).toBe(
+        independent({
+          dpa: 'v1',
+          dpaText: DPA_V1_SHA256,
+          type: 'publish',
+          event: 'granted',
+          mechanism: 'web_form_submission',
+        }),
+      );
+      expect(
+        independent({
+          dpa: 'v1',
+          dpaText: 'b'.repeat(64),
+          type: 'publish',
+          event: 'granted',
+          mechanism: 'web_form_submission',
+        }),
+      ).toBe(FIXED_VECTOR);
+    });
+
+    it('changes with the DPA text, the type, the event and the mechanism', () => {
+      const base = find(
+        'bob',
+        'share_socials',
+        'granted',
+        'v2',
+        'web_form_submission',
+      );
+      // The DPA (version and text): the same grant under v1.
+      expect(
+        find('ann', 'share_socials', 'granted', 'v1', 'web_form_submission'),
+      ).not.toBe(base);
+      // The type.
+      expect(
+        find('ann', 'publish', 'granted', 'v1', 'web_form_submission'),
+      ).not.toBe(
+        find('ann', 'share_socials', 'granted', 'v1', 'web_form_submission'),
+      );
+      // The mechanism.
+      const viaSettings = find(
+        'cat',
+        'share_socials',
+        'granted',
+        'v2',
+        'account_settings',
+      );
+      expect(viaSettings).not.toBe(base);
+      // The event.
+      expect(
+        find('cat', 'share_socials', 'withdrawn', 'v2', 'account_settings'),
+      ).not.toBe(viaSettings);
     });
   });
 

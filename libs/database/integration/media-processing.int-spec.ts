@@ -612,6 +612,37 @@ describe('approval waits for media processing (A2)', () => {
       expect(row['hiddenSince']).toBeDefined();
     });
 
+    // D13: hide markers are written only by the guard events and system users. No service
+    // and no person may create or delete one directly (Codex review of #72).
+    it('nobody marks a story hidden or unhidden by hand', async () => {
+      const first = await live(video);
+      const ok = await live(audio);
+      await update(first, `media[0].processing = 'failed'`, workflow);
+      // A denied write is a silent no-op (D13), so the state is what counts, after each one.
+      for (const [name, db] of Object.entries({ admin, workflow, pat })) {
+        await outcome(
+          db,
+          // A valid row (identity is 64 characters), so only the permission can refuse it.
+          `CREATE type::record('hiddenStory', $id) CONTENT {
+             publishedAt: time::now(), slugHistory: [], identity: $identity }`,
+          { id: ok, identity: 'a'.repeat(64) },
+        );
+        await outcome(db, `DELETE type::record('hiddenStory', $id)`, {
+          id: first,
+        });
+        const ids = await hiddenIds();
+        expect({ name, kept: ids.includes(`story:${first}`) }).toEqual({
+          name,
+          kept: true,
+        });
+        expect({ name, added: ids.includes(`story:${ok}`) }).toEqual({
+          name,
+          added: false,
+        });
+      }
+      await expectLive(ok);
+    });
+
     it('different media stays hidden: a moderator must review it', async () => {
       const id = await live(video);
       await update(id, `media[0].processing = 'failed'`, workflow);

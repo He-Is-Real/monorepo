@@ -130,10 +130,35 @@ describe('ConsentModule', () => {
       });
     });
 
+    it('checks the submitter of the story in the route, fresh on every call', async () => {
+      submitterHas.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      const path = `${url}/v1/moderation/stories/s1/approve`;
+      expect((await fetch(path, { method: 'POST' })).status).toBe(201);
+      expect((await fetch(path, { method: 'POST' })).status).toBe(403);
+      expect(submitterHas).toHaveBeenCalledTimes(2);
+      expect(submitterHas).toHaveBeenCalledWith('s1', [
+        'special_category_religious',
+        'publish',
+        'age_18plus',
+      ]);
+    });
+
     it('fails closed when the check itself fails', async () => {
       callerHas.mockRejectedValue(new Error('database down'));
       const res = await fetch(`${url}/v1/stories`, { method: 'POST' });
       expect(res.status).toBe(500);
     });
+  });
+
+  it('answers 401 on consent-guarded routes without an authenticator (nobody can sign in)', async () => {
+    const callerHas = jest.fn();
+    const { app, url } = await boot([TestController], { callerHas });
+    try {
+      const res = await fetch(`${url}/v1/stories`, { method: 'POST' });
+      expect(res.status).toBe(401);
+      expect(callerHas).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
   });
 });
