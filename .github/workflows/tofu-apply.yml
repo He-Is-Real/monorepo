@@ -604,6 +604,40 @@ jobs:
           result="$(tools/scripts/tf-stage.sh "$PREV" "$SELECTED" "$PLAN" "$CHANGES" "$GO" "$APPLY")"
           echo "images: $result" | tee -a "$GITHUB_STEP_SUMMARY"
 
+  # ---- After a deploy: the dev behavioural suite (T3) -----------------------------------------
+  # When this run applied something (new images, a migration, Bunny settings) and nothing failed
+  # or was superseded, dispatch "Dev behavioural tests": it resets dev to the dummy dataset and
+  # tests the real site, the real API and real Bunny together. A dispatch, not a call: only a
+  # dispatched run on main may sign in as ci-dev-seeder (dev_seed_gate in modules/bootstrap), so
+  # this needs no new identity or secret. It queues behind any reset (concurrency `dev-data`).
+  behavioural:
+    needs:
+      [
+        approve-1,
+        approve-2,
+        apply-gcp,
+        apply-bunny,
+        apply-cluster,
+        apply-images,
+      ]
+    if: >-
+      always() && needs.approve-1.outputs.go != 'false' && needs.approve-2.outputs.go != 'false' &&
+      contains(fromJSON('["success","skipped"]'), needs.apply-gcp.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.apply-bunny.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.apply-cluster.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.apply-images.result) &&
+      (needs.apply-gcp.result == 'success' || needs.apply-bunny.result == 'success' ||
+      needs.apply-cluster.result == 'success' || needs.apply-images.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # dispatch dev-behavioural-tests.yml
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run dev-behavioural-tests.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Dispatched [Dev behavioural tests]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/dev-behavioural-tests.yml) on main after this deploy." >> "$GITHUB_STEP_SUMMARY"
+
   # ---- Superseded after approval ---------------------------------------------------------------
   # Joel, 2026-10-23: a superseded run must not end green. A workflow can't set a neutral
   # conclusion (only Checks API check runs can), and cancelling itself would need actions: write

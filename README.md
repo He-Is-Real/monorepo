@@ -58,6 +58,7 @@ pnpm nx run api-public-read:test-integration     # the public read API over the 
 pnpm exec playwright install chromium && pnpm nx e2e web   # responsive device matrix, light + dark
 # Ports 4300 (web), 4301 (web signed in, E2E_FIXTURES) and 4310 (stub API); if one is busy:
 # E2E_WEB_PORT=4400 E2E_SIGNED_IN_PORT=4401 E2E_STUB_PORT=4410 pnpm nx e2e web
+pnpm nx run terraform:test                        # `tofu test` of every OpenTofu module (offline, mock providers)
 ```
 
 ## Secrets
@@ -76,12 +77,14 @@ Dev runs in GCP project `heisreal-dev` (London): `api-public-read` and `web` on 
 0.9, scale to zero, max 2 instances; https://web-jbxp6odnsa-nw.a.run.app, not indexed) and SurrealDB on
 GKE Autopilot Spot Pods, about £3–5/month.
 
-- **`ci.yml`** (every PR): format check, then `lint test build typecheck validate`, `test-integration`
+- **`ci.yml`** (every PR, the required check): format check, then `lint test build typecheck validate`
+  (`test` includes `terraform:test`, the OpenTofu modules' `tofu test`), `test-integration`
   (`libs/database`, `libs/consent`, `libs/auth` and `api-public-read` against a SurrealDB container, see
   [docs/db-permissions.md](docs/db-permissions.md)), `web:e2e` when web is affected (Playwright device
   matrix; screenshots in the `web-e2e` artifact) and container builds for affected projects (`validate`
   includes kubeconform on the Kubernetes manifests). The Nx cache is kept between runs in the Actions
-  cache.
+  cache. Both api-public-read's integration tests and web's e2e stub are checked against
+  `libs/contracts/openapi/api-public-read.yaml`, so the stub can't drift from the API.
 - **`images.yml`** ("Release Images", pushes to `main` that affect a service) and
   **`snapshot-images.yml`** (manual, any branch): build the services whose code changed and push
   them to `apps` / `apps-scratch`. Which build each
@@ -89,7 +92,9 @@ GKE Autopilot Spot Pods, about £3–5/month.
 - **`tofu-plan.yml`**: automatic, read-only OpenTofu plans of the roots a PR touches (never bunny).
 - **`tofu-apply.yml`**: the only CI path that changes the cloud. Every push to `main` (and every
   Release Images run) plans every root unattended; each apply waits for one approval in the `dev`
-  environment, then applies exactly the saved plan. Dispatch it to recover from anything.
+  environment, then applies exactly the saved plan. Dispatch it to recover from anything. After a
+  successful apply it dispatches **`dev-behavioural-tests.yml`** (reset dev, then test the real site,
+  API and Bunny together).
 - **`tofu-drift.yml`**: weekly full-refresh plans; fails on drift.
 - **`reset-dev-data.yml`** and **`dev-behavioural-tests.yml`** (manual, `main`; D50): reset dev to
   the dummy dataset with the `dev-seed` Job, then (tests) check the dev URLs against it

@@ -8,6 +8,7 @@ import type { Surreal } from 'surrealdb';
 import { MediaUrls } from '../src/app/media/media-urls';
 import { StoriesModule } from '../src/app/stories/stories.controller';
 import { TagsModule } from '../src/app/tags/tags.controller';
+import { checkResponsesAgainstContract } from './contract';
 
 /**
  * api-public-read's real controllers on its own read-only login (D13), listening locally. Media
@@ -34,6 +35,7 @@ export async function startPublicRead(
     providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
   }).compile();
   const app = moduleRef.createNestApplication({ logger: false });
+  checkResponsesAgainstContract(app);
   await app.listen(0, '127.0.0.1');
   return { app, url: await app.getUrl() };
 }
