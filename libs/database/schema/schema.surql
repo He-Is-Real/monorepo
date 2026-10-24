@@ -381,16 +381,21 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
   };
   RETURN NONE;
 };
--- An audio file's thumbnail (Joel, 2026-10-24): a file in its own video's folder on Bunny,
--- `<bunnyVideoId>/<file>`, the only thumbnails api-public-read signs (MediaUrls). Not empty, no
--- sub-folders or `..`, so a published audio story always has a picture (Codex, #79).
+-- An audio file's thumbnail (Joel, 2026-10-24): exactly the paths api-public-read signs
+-- (MediaUrls.thumbnailUrl, bunny-tokens.ts safePath), so a published audio story always has a
+-- picture: `<bunnyVideoId>/<file>`, at most 500 characters, each segment only A-Z a-z 0-9 . _ -,
+-- no `.` or `..` segment. Both are tested against one table of cases
+-- (libs/contracts/src/media-paths.ts; Codex, #79).
+DEFINE FUNCTION OVERWRITE fn::media::safe_segment($s: any) {
+  RETURN type::is_string($s) AND string::matches($s, '^[A-Za-z0-9._-]+$')
+    AND $s NOT IN ['.', '..'];
+};
 DEFINE FUNCTION OVERWRITE fn::media::own_thumbnail($m: any) {
-  RETURN type::is_string($m.bunnyVideoId) AND string::len($m.bunnyVideoId) > 0
-    AND type::is_string($m.thumbnailPath)
-    AND string::starts_with($m.thumbnailPath, $m.bunnyVideoId + '/')
-    AND string::len($m.thumbnailPath) > string::len($m.bunnyVideoId) + 1
-    AND !string::contains(string::slice($m.thumbnailPath, string::len($m.bunnyVideoId) + 1), '/')
-    AND !string::contains($m.thumbnailPath, '..');
+  IF !type::is_string($m.thumbnailPath) OR !type::is_string($m.bunnyVideoId)
+    OR string::len($m.thumbnailPath) > 500 { RETURN false };
+  LET $parts = string::split($m.thumbnailPath, '/');
+  RETURN array::len($parts) = 2 AND $parts[0] = $m.bunnyVideoId
+    AND fn::media::safe_segment($parts[0]) AND fn::media::safe_segment($parts[1]);
 };
 -- A2 (Joel, 2026-10-23): what keeps a story from being approved or published, or NONE. Every
 -- upload must be processed by workflow (M7: size, duration, the malware and content checks) and

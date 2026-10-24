@@ -1,3 +1,4 @@
+import { THUMBNAIL_PATH_CASES } from '@heisreal/contracts/media-paths';
 import type { Surreal, SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
@@ -382,6 +383,33 @@ describe('approval waits for media processing (A2)', () => {
       expect((await story(id)).status).toBe('approved');
       expect(await published(id)).toEqual([`publicStory:${id}`]);
     });
+
+    // An audio file's thumbnail: the same table api-public-read's signer is tested against
+    // (libs/contracts media-paths), so every path the database lets through can be signed.
+    it.each(THUMBNAIL_PATH_CASES.map((c) => [c.why, c] as const))(
+      'audio thumbnail path rule, shared with the signer: %s',
+      async (_why, c) => {
+        const id = await pending(
+          () =>
+            create(
+              `primaryFormat: 'audio',
+               media: [{ format: 'audio', bunnyVideoId: ${JSON.stringify(c.videoId)} }]`,
+            ),
+          `media[0].processing = 'ready', media[0].durationSeconds = 30,
+           media[0].thumbnailPath = ${JSON.stringify(c.path)},
+           media[0].width = 1280, media[0].height = 720`,
+        );
+        if (c.ok) {
+          await approve(admin, id);
+          expect(await published(id)).toEqual([`publicStory:${id}`]);
+        } else {
+          await refusedApproval(
+            id,
+            'an audio file needs its thumbnail and that picture’s width and height',
+          );
+        }
+      },
+    );
 
     it('is refused for system users too (the migrator)', async () => {
       const id = await pending(video);

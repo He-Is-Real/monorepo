@@ -144,36 +144,6 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     }
   });
 
-  it('surrealdb.js 2.0.8 quirk: a closed session’s renewal timer still fires unless invalidated first (fixed in 2.1.0)', async () => {
-    const errors: Error[] = [];
-    const off = connection.subscribe('error', (e) => errors.push(e));
-    try {
-      const leaky = await connection.newSession();
-      await leaky.use(scope);
-      await leaky.authenticate(t.token('user_ann', { expiresIn: 2 }));
-      await leaky.closeSession(); // no invalidate()
-      const clean = await connection.newSession();
-      await clean.use(scope);
-      await clean.authenticate(t.token('user_bob', { expiresIn: 2 }));
-      await clean.invalidate();
-      await clean.closeSession();
-      // Wait for the leaky session's timer (due after 2 s; later on a busy machine), not a fixed
-      // time. Both timers are due at the same moment, so once one has fired the other would have
-      // too: one more second is margin, not a guess at the machine's speed.
-      for (
-        let waited = 0;
-        errors.length === 0 && waited < 20_000;
-        waited += 100
-      )
-        await new Promise((r) => setTimeout(r, 100));
-      await new Promise((r) => setTimeout(r, 1_000));
-      // One error, from the leaky session's timer; none from the invalidated one.
-      expect(errors).toHaveLength(1);
-    } finally {
-      off();
-    }
-  }, 40_000);
-
   it('HTTP alternative: a stateless request with the person’s token as a Bearer header', async () => {
     // What surrealdb.js 2.1's `.as(token)` does over HTTP. Nothing is held per person on the
     // server; Node's fetch keeps the TCP connection alive between requests.

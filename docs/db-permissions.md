@@ -540,8 +540,10 @@ try {
   token on a `newSession()` leaves a session that can't run any query ("Anonymous access not
   allowed").
 - **2.0.8 renewal-timer leak.** A session closed without `invalidate()` leaves its token-renewal
-  timer running; at expiry it emits an `error` event on the connection (pinned by a test). 2.1.0
-  cancels it on close (surrealdb.js#688).
+  timer running; at expiry it emits an `error` event on the connection. 2.1.0 cancels it on
+  close (surrealdb.js#688). `withPersonSession` always invalidates first. (The SDK-diagnostic
+  test that pinned this was removed in #79: it waited on timers it couldn't control, and it
+  tested the SDK, not our behaviour.)
 - **Service sign-in typing.** `connect({ authentication })` in 2.0.8 is typed for system users
   and tokens only, but the runtime signs in with record access (`access: 'svc'`). That path is
   needed so the SDK re-signs in after reconnects and the 15-minute token expiry. 2.1.0 types it.
