@@ -261,7 +261,10 @@ changed two settings: passwords became optional with an 8-character minimum (was
   nothing here. Closed, every browser shows the theme's field and chevron (`appearance: none`).
   Open, Chromium shows a themed list through customizable select (`appearance: base-select`,
   `::picker(select)`): a rounded panel on the popover surface, 44 px options, teal for the
-  hovered option and for the chosen one (with a check mark). Firefox and Safari show their own
+  hovered option and for the chosen one (with a check mark). Keyboard focus in the list shows
+  the site's focus ring inside the option; the chosen option turns the stronger link colour when
+  hovered or focused (text 4.5:1 on the tint; Codex, #78); the list's short fade is off with
+  reduced motion. Firefox and Safari show their own
   list until they support it.
 
 #### Notes from step 5 (media token auth, D52)

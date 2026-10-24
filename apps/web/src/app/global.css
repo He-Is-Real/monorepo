@@ -330,12 +330,29 @@
     .native-select option:hover,
     .native-select option:focus-visible {
       background: color-mix(in srgb, var(--teal) 16%, transparent);
-      outline: none;
+    }
+
+    /* Keyboard focus: the site's focus ring, inside the option (the tint alone is too faint). */
+    .native-select option:focus-visible {
+      outline: 2px solid var(--ring);
+      outline-offset: -2px;
     }
 
     .native-select option:checked {
       color: var(--link);
       font-weight: 600;
+    }
+
+    /* On the tint, the chosen option's teal needs the stronger link colour (4.5:1 for 14 px). */
+    .native-select option:checked:is(:hover, :focus-visible),
+    .native-select option:checked:is(:hover, :focus-visible)::checkmark {
+      color: var(--link-hover);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .native-select::picker(select) {
+        transition: none;
+      }
     }
   }
 }
