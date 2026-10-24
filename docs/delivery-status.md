@@ -398,7 +398,7 @@ Notes from PR A:
   created or deleted by hand (`media-processing.int-spec`, D13); the consent evidence hash checked
   against independently computed values and a fixed vector, changing with the DPA text, type,
   event and mechanism (`ledger.int-spec`, D19, Art 9); RoleGuard's role minimums (D1) and the
-  consent guard's submitter check and 401 without sign-in (D21).
+  consent guard's submitter check and 401 without sign-in (D21); the consent guard asks for the caller's own consent, of exactly the route's types (`consent-guard.int-spec`: a person without Art 9 consent is refused on the real database); hide, restore and withdraw return the version they committed (`media-processing.int-spec`, D29).
 - `request-sessions.int-spec` now checks the real `withPersonSession`; its 3 s sleep (a
   surrealdb.js 2.0.8 quirk) and its unchecked benchmark are gone (T4). The gitleaks test scans all
   its flagged fixtures in one run (about 10 s → 2 s).

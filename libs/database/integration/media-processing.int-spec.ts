@@ -861,6 +861,64 @@ describe('approval waits for media processing (A2)', () => {
       ).toEqual([]);
     });
 
+    /**
+     * D29: one command, one version. The hide and restore add no story write of their own, so
+     * the version a command returns is the one it committed (Codex review of #72).
+     */
+    describe('versions (D29)', () => {
+      const version = async (id: string) =>
+        (
+          await truth<number>(
+            `SELECT VALUE version FROM ONLY type::record('story', $id)`,
+            { id },
+          )
+        )[0];
+      const command = async (db: SurrealQueryable, id: string, set: string) =>
+        (
+          await rows<number>(
+            db,
+            `UPDATE type::record('story', $id) SET ${set} RETURN VALUE version`,
+            { id },
+          )
+        )[0];
+
+      it('hiding returns the committed version, one more than before', async () => {
+        const id = await live(video);
+        const before = await version(id);
+        const returned = await command(
+          workflow,
+          id,
+          `media[0].processing = 'failed'`,
+        );
+        expect(await published(id)).toEqual([]);
+        expect(returned).toBe(before + 1);
+        expect(await version(id)).toBe(before + 1);
+      });
+
+      it('restoring returns the committed version, one more than before', async () => {
+        const id = await live(video);
+        await update(id, `media[0].processing = 'failed'`, workflow);
+        const before = await version(id);
+        const returned = await command(
+          workflow,
+          id,
+          `media[0].processing = 'ready'`,
+        );
+        expect(await published(id)).toEqual([`publicStory:${id}`]);
+        expect(returned).toBe(before + 1);
+        expect(await version(id)).toBe(before + 1);
+      });
+
+      it('withdrawing a hidden story returns the committed version, one more than before', async () => {
+        const id = await live(video);
+        await update(id, `media[0].processing = 'failed'`, workflow);
+        const before = await version(id);
+        const returned = await command(pat, id, `status = 'withdrawn'`);
+        expect(returned).toBe(before + 1);
+        expect(await version(id)).toBe(before + 1);
+      });
+    });
+
     it('stays off the read model if consent was withdrawn meanwhile', async () => {
       await createPeople(t, { cal: 'user_cal' });
       const cal = await t.person('user_cal');
