@@ -1,6 +1,6 @@
 import { ButtonLink } from '@/components/page/button-link';
 import { RaisedBand } from '@/components/page/card';
-import { NarrowColumn, PageHeader } from '@/components/page/page-header';
+import { WideColumn, PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -35,7 +35,7 @@ export default function AboutPage() {
   return (
     <main id="main" className="flex-1">
       <section className="py-12 sm:py-20">
-        <NarrowColumn>
+        <WideColumn>
           <PageHeader
             eyebrow="About"
             title="The heart behind He Is Real"
@@ -54,15 +54,15 @@ export default function AboutPage() {
             <p className="text-sm">Founder’s introduction</p>
             <p className="text-xs text-white/60">Video coming soon</p>
           </div>
-        </NarrowColumn>
+        </WideColumn>
       </section>
 
       <RaisedBand aria-labelledby="mission">
-        <NarrowColumn>
+        <WideColumn>
           <h2 id="mission" className="sr-only">
             Why we exist
           </h2>
-          <div className="max-w-measure space-y-7 text-lg leading-loose text-secondary-text sm:text-xl">
+          <div className="max-w-prose space-y-7 text-lg leading-loose text-secondary-text sm:text-xl">
             <p>
               Churches are full of extraordinary testimonies. Week after week,
               people share what God has done in their lives, and those stories
@@ -90,7 +90,7 @@ export default function AboutPage() {
               who shows up in real life.
             </p>
           </div>
-        </NarrowColumn>
+        </WideColumn>
       </RaisedBand>
 
       <section aria-labelledby="values" className="py-14 sm:py-20">
@@ -115,7 +115,7 @@ export default function AboutPage() {
       </section>
 
       <RaisedBand aria-labelledby="share" className="text-center">
-        <NarrowColumn>
+        <WideColumn>
           <h2
             id="share"
             className="mb-4 text-[1.75rem] font-normal sm:text-[2.375rem]"
@@ -133,7 +133,7 @@ export default function AboutPage() {
               Get in touch
             </ButtonLink>
           </div>
-        </NarrowColumn>
+        </WideColumn>
       </RaisedBand>
     </main>
   );

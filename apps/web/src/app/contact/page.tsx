@@ -1,6 +1,6 @@
 import { ButtonLink } from '@/components/page/button-link';
 import { Card } from '@/components/page/card';
-import { PageHeader } from '@/components/page/page-header';
+import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -22,7 +22,7 @@ const EMAIL = 'info@heisreal.today';
 export default function ContactPage() {
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
-      <div className="mx-auto w-full max-w-[36rem] px-4 sm:px-10">
+      <NarrowColumn>
         <PageHeader
           eyebrow="Hello"
           title="Get in touch"
@@ -40,7 +40,7 @@ export default function ContactPage() {
             Email {EMAIL}
           </ButtonLink>
         </Card>
-      </div>
+      </NarrowColumn>
     </main>
   );
 }

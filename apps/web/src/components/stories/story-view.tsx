@@ -129,71 +129,73 @@ export function StoryView({
   );
 
   return (
-    // overflow-wrap: anywhere: long words and pasted links wrap instead of widening the page.
+    // The reading column (max-w-measure, Joel's R1) holds the breadcrumb, header, media, share
+    // row and text, so their edges line up; from 1024 px the sidebar sits beside the text, one
+    // design gap (3rem) away, and the whole composition is centred. overflow-wrap: anywhere:
+    // long words and pasted links wrap instead of widening the page.
     <article
-      className="mx-auto w-full max-w-[60rem] [overflow-wrap:anywhere]"
+      className="mx-auto grid w-full max-w-measure gap-x-12 [overflow-wrap:anywhere] lg:max-w-[calc(var(--container-measure)+3rem+17.5rem)] lg:grid-cols-[minmax(0,1fr)_17.5rem]"
       aria-labelledby={`story-${story.id}`}
     >
-      <Breadcrumb story={story} />
-      {written ? (
-        <header className="pb-8 text-center">
-          {!story.image?.url && (
-            <span
-              aria-hidden="true"
-              className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-teal-dark text-3xl font-bold text-white shadow-lg"
-            >
-              {initial}
-            </span>
-          )}
-          <h1
-            id={`story-${story.id}`}
-            className="mx-auto max-w-[24ch] text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
-          >
-            {story.title}
-          </h1>
-          <Meta story={story} center />
-          <StoryMedia story={story} />
-        </header>
-      ) : (
-        <>
-          <StoryMedia story={story} />
-          {share}
-          <header className="mt-8">
+      <div data-story-column="" className="min-w-0">
+        <Breadcrumb story={story} />
+        {written ? (
+          <header className="pb-8 text-center">
+            {!story.image?.url && (
+              <span
+                aria-hidden="true"
+                className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-teal-dark text-3xl font-bold text-white shadow-lg"
+              >
+                {initial}
+              </span>
+            )}
             <h1
               id={`story-${story.id}`}
-              className="text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
+              className="mx-auto max-w-[24ch] text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
             >
               {story.title}
             </h1>
-            <Meta story={story} />
+            <Meta story={story} center />
+            <StoryMedia story={story} />
           </header>
-        </>
-      )}
-      {written && share}
+        ) : (
+          <>
+            <StoryMedia story={story} />
+            {share}
+            <header className="mt-8">
+              <h1
+                id={`story-${story.id}`}
+                className="text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
+              >
+                {story.title}
+              </h1>
+              <Meta story={story} />
+            </header>
+          </>
+        )}
+        {written && share}
+      </div>
 
-      <div className="mt-10 grid gap-12 lg:grid-cols-[minmax(0,1fr)_17.5rem]">
-        <div className="max-w-measure">
-          {written ? (
-            <blockquote className="border-l-[3px] border-teal pl-6 text-[1.375rem] leading-relaxed text-foreground italic">
-              {story.description}
-            </blockquote>
-          ) : (
-            <p className="text-lg text-secondary-text">{story.description}</p>
-          )}
-          {paragraphs.length > 0 && (
-            <>
-              {!written && (
-                <h2 className="mt-10 text-sm font-semibold text-link">
-                  In their words
-                </h2>
-              )}
-              <StoryText
-                id={`story-${story.id}-text`}
-                paragraphs={paragraphs}
-              />
-            </>
-          )}
-        </div>
+      <div data-story-text="" className="mt-10 min-w-0 lg:col-start-1">
+        {written ? (
+          <blockquote className="border-l-[3px] border-teal pl-6 text-[1.375rem] leading-relaxed text-foreground italic">
+            {story.description}
+          </blockquote>
+        ) : (
+          <p className="text-lg text-secondary-text">{story.description}</p>
+        )}
+        {paragraphs.length > 0 && (
+          <>
+            {!written && (
+              <h2 className="mt-10 text-sm font-semibold text-link">
+                In their words
+              </h2>
+            )}
+            <StoryText id={`story-${story.id}-text`} paragraphs={paragraphs} />
+          </>
+        )}
+      </div>
+      <div className="mt-12 lg:col-start-2 lg:row-start-2 lg:mt-10">
         <Sidebar related={related} />
       </div>
     </article>

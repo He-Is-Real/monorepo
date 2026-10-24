@@ -65,18 +65,32 @@ test('a failed load’s Try again fits with a full-size target', async ({
   await expectNoHorizontalOverflow(page);
 });
 
-// Readable line length (AGENTS.md): at most 80 characters per line, checked on the widest
-// screen, where lines are longest. Characters are counted on each rendered line of every text
-// block (one without blocks inside), with FAQ answers open.
-test('lines stay readable on the widest screen: at most 80 characters', async ({
+// Readable line length (AGENTS.md; Joel, R1 = A, 2026-10-24: the reading column): body text
+// (15 px and up) runs to at most 80 characters per rendered line on one device per layout band,
+// About (kept wide by Joel) included. Only text a reader sees: FAQ answers opened and
+// "Continue reading" expanded first; hidden, collapsed, aria-hidden and screen-reader-only
+// text skipped. Small print (under 15 px: the Scripture
+// copyright, the cookie-table note, captions) is exempt.
+const LINE_LIMIT = 80;
+const BANDS = [
+  'small-tablet-portrait', // 600
+  'ipad-mini-portrait', // 768
+  'ipad-pro-12.9-portrait', // 1024
+  'desktop-1280',
+  'desktop-2560',
+];
+
+test(`body text runs to at most ${LINE_LIMIT} characters a line`, async ({
   page,
 }, info) => {
-  test.skip(info.project.name !== 'desktop-2560', 'the widest screen');
+  test.skip(!BANDS.includes(info.project.name), 'one device per layout band');
   const tooLong: string[] = [];
   for (const path of [
     '/',
     '/stories',
     '/stories/long-story',
+    '/stories/browse-test-02',
+    '/stories/video-story',
     '/about',
     '/greatest-story',
     '/get-ready',
@@ -88,53 +102,61 @@ test('lines stay readable on the widest screen: at most 80 characters', async ({
     '/donate',
   ]) {
     await page.goto(path);
+    // Open every FAQ answer and expand a long story.
     await page
-      .getByRole('main')
-      .getByRole('button')
-      .evaluateAll((buttons) =>
-        buttons
-          .filter((b) => b.getAttribute('aria-expanded') === 'false')
-          .forEach((b) => (b as HTMLButtonElement).click()),
+      .locator('main h3 button[aria-expanded="false"]')
+      .evaluateAll((questions) =>
+        questions.forEach((q) => (q as HTMLButtonElement).click()),
       );
+    const more = page.getByRole('button', { name: 'Continue reading' });
+    if (await more.count()) await more.click();
     await page.evaluate(() => document.fonts.ready);
-    const long = await page.evaluate(() => {
+    const lines = await page.evaluate((limit) => {
       const out: string[] = [];
-      const blocks = Array.from(document.querySelectorAll('main *')).filter(
-        (el) =>
-          el.checkVisibility() &&
-          !el.closest('.sr-only') &&
-          getComputedStyle(el).display !== 'inline' &&
-          Array.from(el.childNodes).some(
-            (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim(),
-          ) &&
-          !Array.from(el.children).some(
-            (c) => getComputedStyle(c).display !== 'inline',
-          ),
-      );
       const range = document.createRange();
-      for (const el of blocks) {
-        const lines = new Map<number, number>();
-        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const text = node.textContent ?? '';
-          for (let i = 0; i < text.length; i++) {
-            range.setStart(node, i);
-            range.setEnd(node, i + 1);
-            const rect = range.getBoundingClientRect();
-            if (rect.width === 0) continue;
-            const top = Math.round(rect.top);
-            lines.set(top, (lines.get(top) ?? 0) + 1);
-          }
+      const seen = (el: Element) =>
+        el.checkVisibility({
+          opacityProperty: true,
+          visibilityProperty: true,
+        }) && !el.closest('[aria-hidden="true"], .sr-only, [hidden]');
+      // Each rendered line of a text block: its text nodes, inline elements included.
+      const blocks = new Map<Element, Map<number, number>>();
+      const walker = document.createTreeWalker(
+        document.querySelector('main') ?? document.body,
+        NodeFilter.SHOW_TEXT,
+      );
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const parent = node.parentElement;
+        if (!parent || !seen(parent)) continue;
+        if (parseFloat(getComputedStyle(parent).fontSize) < 15) continue;
+        let block: Element = parent;
+        while (
+          block.parentElement &&
+          getComputedStyle(block).display.startsWith('inline')
+        )
+          block = block.parentElement;
+        const perLine = blocks.get(block) ?? new Map<number, number>();
+        blocks.set(block, perLine);
+        const text = node.textContent ?? '';
+        for (let i = 0; i < text.length; i++) {
+          range.setStart(node, i);
+          range.setEnd(node, i + 1);
+          const rect = range.getBoundingClientRect();
+          if (rect.width === 0) continue;
+          const top = Math.round(rect.top);
+          perLine.set(top, (perLine.get(top) ?? 0) + 1);
         }
-        const longest = Math.max(0, ...lines.values());
-        if (longest > 80)
+      }
+      for (const [block, perLine] of blocks) {
+        const longest = Math.max(0, ...perLine.values());
+        if (longest > limit)
           out.push(
-            `${longest} chars: "${(el.textContent ?? '').trim().slice(0, 50)}"`,
+            `${longest} chars: "${(block.textContent ?? '').trim().slice(0, 50)}"`,
           );
       }
       return out;
-    });
-    tooLong.push(...long.map((l) => `${path} ${l}`));
+    }, LINE_LIMIT);
+    tooLong.push(...lines.map((l) => `${path} ${l}`));
   }
-  expect(tooLong, 'lines over 80 characters').toEqual([]);
+  expect(tooLong, `lines over ${LINE_LIMIT} characters`).toEqual([]);
 });

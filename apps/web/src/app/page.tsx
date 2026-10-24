@@ -240,7 +240,7 @@ export default async function Page() {
         aria-labelledby="support"
         className="bg-[radial-gradient(ellipse_at_50%_0%,rgb(78_155_160/0.15),transparent_70%)] px-4 py-16 text-center sm:py-24"
       >
-        <div className="mx-auto max-w-xl">
+        <div className="mx-auto max-w-measure">
           <h2
             id="support"
             className="mb-3 text-[clamp(1.75rem,3.5vw,2.5rem)] font-normal"
@@ -251,8 +251,7 @@ export default async function Page() {
             He Is Real Today is a not-for-profit. We rely on the generosity of
             people who believe these stories matter.
           </p>
-          {/* Narrower than the box: small text at 36 rem ran to 85 characters a line. */}
-          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-muted-foreground">
             Every donation goes to publishing more stories and reaching more
             people. UK taxpayers can add 25% through Gift Aid at no extra cost.
           </p>

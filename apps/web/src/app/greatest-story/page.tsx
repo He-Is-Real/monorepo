@@ -121,12 +121,12 @@ function PartText({ part, number }: { part: Part; number: number }) {
       <h2 className="mb-5 text-[1.75rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
         {part.heading}
       </h2>
-      <div className="max-w-[37.5rem] space-y-5 text-base leading-[1.9] text-secondary-text sm:text-lg">
+      <div className="space-y-5 text-base leading-[1.9] text-secondary-text sm:text-lg">
         {part.paragraphs.map((p) => (
           <p key={p}>{p}</p>
         ))}
       </div>
-      <figure className="mt-6 max-w-[37.5rem] border-l-2 border-teal pl-5">
+      <figure className="mt-6 border-l-2 border-teal pl-5">
         <blockquote className="text-[0.9375rem] text-muted-foreground italic sm:text-[1.0625rem]">
           <p>“{part.verse}”</p>
         </blockquote>
@@ -149,7 +149,7 @@ export default function GreatestStoryPage() {
           The Greatest Story <br />
           <em>Ever Told</em>
         </h1>
-        <p className="max-w-[37.5rem] text-lg leading-relaxed text-secondary-text sm:text-xl">
+        <p className="text-lg leading-relaxed text-secondary-text sm:text-xl">
           Every testimony on this site points back to one story. A story of
           love, sacrifice, and hope that changed the world, and that can change
           yours.
@@ -167,7 +167,7 @@ export default function GreatestStoryPage() {
               className={`py-12 sm:py-16 ${shaded ? 'border-y border-border bg-raised' : ''}`}
             >
               {Illustration ? (
-                <div className="mx-auto grid max-w-site items-center gap-8 px-4 sm:px-10 md:grid-cols-2 md:gap-16">
+                <div className="mx-auto grid max-w-[calc(var(--container-measure)+2rem)] items-center gap-8 px-4 sm:max-w-[calc(var(--container-measure)+5rem)] sm:px-10 md:max-w-site md:grid-cols-2 md:gap-16">
                   <PartText part={part} number={i + 1} />
                   <div
                     className={`flex aspect-video items-center justify-center rounded-3xl border border-border bg-card p-6 text-teal md:aspect-square ${
@@ -195,7 +195,7 @@ export default function GreatestStoryPage() {
           >
             A simple prayer
           </h2>
-          <p className="mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
+          <p className="mb-8 text-[1.0625rem] text-secondary-text">
             If you’d like to take this step, there are no magic words. But if it
             helps, you could pray something like this:
           </p>
@@ -218,11 +218,11 @@ export default function GreatestStoryPage() {
           >
             What now?
           </h2>
-          <p className="mx-auto max-w-measure text-[1.0625rem] text-secondary-text">
+          <p className="text-[1.0625rem] text-secondary-text">
             If you prayed that prayer, or even if you’re still thinking about
             it, you’re not alone.
           </p>
-          <p className="mx-auto mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
+          <p className="mb-8 text-[1.0625rem] text-secondary-text">
             Here are some ways to keep going.
           </p>
           <div className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
@@ -236,7 +236,7 @@ export default function GreatestStoryPage() {
               Talk to someone
             </ButtonLink>
           </div>
-          <p className="mx-auto mt-12 max-w-measure text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-12 text-xs leading-relaxed text-muted-foreground">
             Scripture quotations taken from The Holy Bible, New International
             Version (Anglicised edition). Copyright © 1979, 1984, 2011 by
             Biblica. Used by permission of Hodder &amp; Stoughton Publishers, an
