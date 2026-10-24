@@ -3,6 +3,7 @@
 import Form from 'next/form';
 import { type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 import type { BrowseFilters as Filters } from '@/lib/browse-query';
 
 const field =
@@ -47,32 +48,30 @@ export function BrowseFilters({ filters }: { filters: Filters }) {
       <label htmlFor="browse-sort" className="sr-only">
         Sort
       </label>
-      <select
+      <NativeSelect
         id="browse-sort"
         name="sort"
         defaultValue={filters.sort}
         onChange={submitOnChange}
-        className={field}
       >
         {filters.q && <option value="relevance">Best match</option>}
         <option value="latest">Latest first</option>
         <option value="oldest">Oldest first</option>
-      </select>
+      </NativeSelect>
       <label htmlFor="browse-format" className="sr-only">
         Format
       </label>
-      <select
+      <NativeSelect
         id="browse-format"
         name="format"
         defaultValue={filters.format ?? ''}
         onChange={submitOnChange}
-        className={field}
       >
         <option value="">All formats</option>
         <option value="video">Video</option>
         <option value="audio">Audio</option>
         <option value="written">Written</option>
-      </select>
+      </NativeSelect>
       <Button type="submit" className="h-11 px-5">
         Search
       </Button>

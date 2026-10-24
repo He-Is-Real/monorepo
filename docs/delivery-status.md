@@ -252,6 +252,18 @@ changed two settings: passwords became optional with an 8-character minimum (was
   opens, and browse's masonry re-measures it. The dev behavioural suite checks the real player's
   controls inside an audio card at 320 px, and that a card's media really plays from the click.
 
+#### Themed dropdowns (Joel, 2026-10-24)
+
+- **Selects stay native and are styled** (`components/ui/native-select.tsx`, `.native-select` in
+  `global.css`). Browse's form must work without JavaScript, browsers keep their keyboard
+  handling, and phones without customizable select keep their native picker. A Radix or shadcn
+  Select would need JavaScript for the list and a hidden native select for the form, and it adds
+  nothing here. Closed, every browser shows the theme's field and chevron (`appearance: none`).
+  Open, Chromium shows a themed list through customizable select (`appearance: base-select`,
+  `::picker(select)`): a rounded panel on the popover surface, 44 px options, teal for the
+  hovered option and for the chosen one (with a check mark). Firefox and Safari show their own
+  list until they support it.
+
 #### Notes from step 5 (media token auth, D52)
 
 - **Expiry: 6–7 hours.** Links outlive any cached response (60 s + 300 s today, D52) and a page
@@ -477,3 +489,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-24:** Test clean-up PR C (T6, T7, T8): device matrix 16 → 14 (5 look-alikes out; 2 phones in landscape and a 600 px small tablet in); screen-independent tests on one phone and one desktop; the footer in the 44 px check, also on the static, 404 and error pages; 200% text on every page at 320 px (overflow fixed with `overflow-wrap: anywhere` and the privacy table's header cells; prose sizes moved from px to rem so a reader's text size really scales them); menus, More tags, Show more and Try again checked open at every width; screenshots on 4 sizes as JPEG (about 14 MB), traces only on failure, kept 7 days. **Joel's R1 (reading width): option A, the reading column.** Pages narrow their whole content column to `max-w-measure` (32rem), so body text runs to at most 80 characters a line at every band and headings, dividers, tables and text share their edges; the story sidebar sits one gap (3rem) from the text and the composition is centred; the privacy table breaks out symmetrically from 1024 px. **About stays as it was** (Joel: wider for the video and title; its text is under 80). Phones are unchanged. e2e: `alignment.e2e.ts`, per-band line length (visible text of 15 px and up; small print exempt). The header is no longer streamed in late: it was inside a Suspense boundary, so without JavaScript there was no header at all and on slow servers it popped in and pushed the page down (an ipad-air-landscape flake); now only the account control streams in, behind a placeholder of its size. The signed-in header is #71's.
 - **2026-10-24:** Test clean-up PR E (T4, local equals CI): Playwright 0 retries and 4 workers everywhere; the e2e header uses an `E2E_FIXTURES` stand-in for Clerk's Sign in except on the real-Clerk server (two tests, one phone and one desktop); integration suites at 3 Jest workers everywhere; the behavioural suite wakes both Cloud Run services first, then runs with 0 retries; the migration runner's "paused mid-step" test uses an explicit pause (`MIGRATE_TEST_PAUSE_BEFORE`) instead of about 9 s of bcrypt. The 3 s sleep and the benchmark went in PR A.
 - **2026-10-24:** Card playback (Joel): video and audio cards on home and browse play in place; player links are signed on demand through a server action (notes under M1). The dev behavioural suite checks a card's link on dev.
+- **2026-10-24:** Themed dropdowns (Joel): browse's Sort and Format selects use the theme closed and, in Chromium, open (notes under M1).
