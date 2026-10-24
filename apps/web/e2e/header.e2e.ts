@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import {
   expectAllTargets,
   expectNoHorizontalOverflow,
@@ -108,3 +108,86 @@ for (const scheme of ['light', 'dark'] as const) {
     });
   });
 }
+
+// Nothing in the header moves when the account control arrives: the first paint shows a
+// placeholder in its place (and that's all a visitor without JavaScript ever gets), then it
+// resolves to "Sign in" or the signed-in control. Share and the theme toggle keep their places
+// on every device, signed out and signed in with a long name.
+for (const [state, baseURL, resolved] of [
+  ['signed out', undefined, 'Sign in'],
+  ['signed in', WEB_SIGNED_IN_URL, `Account: ${SIGNED_IN_NAME}`],
+] as const) {
+  test(`${state}: Share and the theme toggle don't move when the account control resolves`, async ({
+    browser,
+    page,
+  }, info) => {
+    const url = `${baseURL ?? ''}/`;
+    const positions = async (p: Page) => {
+      await p.evaluate(() => document.fonts.ready);
+      const actions = p.locator('[data-header-actions]');
+      const x = async (l: Locator) =>
+        (await l.isVisible()) ? ((await l.boundingBox())?.x ?? null) : null;
+      return {
+        share: await x(actions.getByRole('link', { name: 'Share your story' })),
+        theme: await x(actions.getByRole('button', { name: /theme/i })),
+      };
+    };
+    const {
+      viewport,
+      isMobile,
+      hasTouch,
+      deviceScaleFactor,
+      baseURL: base,
+    } = info.project.use;
+    const firstPaint = await browser.newContext({
+      viewport,
+      isMobile,
+      hasTouch,
+      deviceScaleFactor,
+      baseURL: base,
+      javaScriptEnabled: false,
+    });
+    const before = await firstPaint.newPage();
+    await before.goto(url);
+    const placeholder = await positions(before);
+    await firstPaint.close();
+
+    await page.goto(url);
+    await expect(page.getByRole('button', { name: resolved })).toBeVisible();
+    const after = await positions(page);
+    expect(after.theme, 'the theme toggle is shown').not.toBeNull();
+    for (const part of ['share', 'theme'] as const) {
+      if (after[part] === null) continue; // Share is in the menu below 640 px
+      expect(
+        Math.abs((after[part] ?? 0) - (placeholder[part] ?? -999)),
+        `${part} moved`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+  });
+}
+
+// The phone menu without JavaScript (a disclosure the browser opens itself): Menu opens it and
+// its links work. 320 and 375 px.
+test.describe('phone menu without JavaScript', () => {
+  test.use({ javaScriptEnabled: false });
+
+  test('Menu opens the links, and Stories is reachable', async ({
+    page,
+  }, info) => {
+    test.skip(
+      !['phone-320', 'iphone-se'].includes(info.project.name),
+      '320 and 375 px',
+    );
+    await page.goto('/about');
+    const nav = page.getByRole('navigation', { name: 'Menu' });
+    await expect(nav).toBeHidden();
+    await page
+      .locator('[data-mobile-nav] summary', { hasText: 'Menu' })
+      .click();
+    await expect(nav).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await nav.getByRole('link', { name: 'Stories', exact: true }).click();
+    await expect(page).toHaveURL(/\/stories$/);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  });
+});

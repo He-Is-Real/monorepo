@@ -21,7 +21,7 @@ import {
  * account area. The header itself is static, in the HTML as it arrives (no JavaScript needed for
  * the navigation, no layout shift when a stream lands late). Only the account area renders per
  * request (HeaderAccount: OpenTofu sets the publishable key on the Cloud Run service; images
- * are built once for every environment), behind a placeholder of the same size. Without a key
+ * are built once for every environment), in a slot of fixed width. Without a key
  * (e.g. local dev without one) there's no sign-in control.
  *
  * Layout (mobile first, 44 px targets): a three-column grid, so the logo and the actions always
@@ -56,9 +56,14 @@ export function SiteHeader() {
             Share your story
           </Link>
           <ThemeToggle />
-          <Suspense fallback={ACCOUNT_PLACEHOLDER}>
-            <HeaderAccount />
-          </Suspense>
+          <div
+            data-account-slot=""
+            className="flex w-20 shrink-0 justify-end sm:w-44"
+          >
+            <Suspense fallback={ACCOUNT_PLACEHOLDER}>
+              <HeaderAccount />
+            </Suspense>
+          </div>
           <MobileNav />
         </div>
       </div>
@@ -66,7 +71,12 @@ export function SiteHeader() {
   );
 }
 
-/** The account control's size while it streams in or Clerk loads (AccountControl's own). */
+/**
+ * The account area has one width whatever it holds (this placeholder while it streams in or
+ * Clerk loads, and all a visitor without JavaScript gets; "Sign in"; or the signed-in control,
+ * whose name truncates to fit), so Share and the theme toggle never move when it resolves:
+ * 80 px on phones (Sign in, or the avatar alone), 176 px from 640 px (avatar, first name, ▾).
+ */
 const ACCOUNT_PLACEHOLDER = <div className="h-11 w-20" aria-hidden="true" />;
 
 /** The account area: per request, so it reads the deployment's Clerk key (and e2e fixtures). */

@@ -2,7 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import {
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 // The site's sections (mockups' nav). The static pages are M1 step 6b-2; Donate is a placeholder
 // until M4. "Impact" from the mockups waits for real figures. Submission is M2, so "Share your
@@ -42,8 +49,84 @@ export function NavLinks({ className = '' }: { className?: string }) {
   );
 }
 
-/** Phones (below 640 px): a menu button and the links in a panel under the header. */
+// Nothing to subscribe to: whether React has hydrated never changes after it has.
+const noSubscription = () => () => undefined;
+/** False in the server's HTML and during hydration, true once React runs in the browser. */
+const useHydrated = () =>
+  useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+
+const MENU_BUTTON =
+  'inline-flex size-11 items-center justify-center rounded-md text-secondary-text hover:text-foreground';
+const PANEL =
+  'absolute inset-x-0 top-full z-40 border-b border-border bg-background px-4 pb-6 shadow-lg';
+
+function MenuIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="size-6 fill-none stroke-current"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      {open ? (
+        <path d="M6 6l12 12M18 6L6 18" />
+      ) : (
+        <path d="M3 6h18M3 12h18M3 18h18" />
+      )}
+    </svg>
+  );
+}
+
+/** The menu's links and its "Share your story" button. */
+function MenuLinks({
+  pathname,
+  onLink,
+}: {
+  pathname: string;
+  onLink?: () => void;
+}) {
+  return (
+    <>
+      <nav aria-label="Menu">
+        <ul>
+          {NAV_LINKS.map((l) => (
+            <li key={l.href} className="border-b border-border">
+              <Link
+                href={l.href}
+                onClick={onLink}
+                aria-current={isCurrent(pathname, l.href) ? 'page' : undefined}
+                className="flex min-h-12 items-center text-lg text-secondary-text hover:text-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground"
+              >
+                {l.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <Link
+        href={SHARE_HREF}
+        onClick={onLink}
+        className="mt-6 flex min-h-11 items-center justify-center rounded-md bg-primary px-6 font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+      >
+        Share your story
+      </Link>
+    </>
+  );
+}
+
+/**
+ * Phones (below 640 px): a menu button and the links in a panel under the header. In the
+ * server's HTML (and so for visitors without JavaScript) it's a disclosure the browser opens
+ * by itself; once React runs, the button below takes over, with its focus handling and Escape.
+ * Both are the same size, so nothing moves when it swaps.
+ */
 export function MobileNav() {
+  const hydrated = useHydrated();
   const pathname = usePathname() ?? '/';
   const [open, setOpen] = useState(false);
   const [shownFor, setShownFor] = useState(pathname);
@@ -95,6 +178,21 @@ export function MobileNav() {
     }
   };
 
+  if (!hydrated)
+    return (
+      <details data-mobile-nav="" className="sm:hidden">
+        <summary
+          className={`${MENU_BUTTON} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}
+        >
+          <span className="sr-only">Menu</span>
+          <MenuIcon open={false} />
+        </summary>
+        <div className={PANEL}>
+          <MenuLinks pathname={pathname} />
+        </div>
+      </details>
+    );
+
   return (
     <div
       ref={wrapper}
@@ -108,53 +206,13 @@ export function MobileNav() {
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex size-11 items-center justify-center rounded-md text-secondary-text hover:text-foreground"
+        className={MENU_BUTTON}
       >
         <span className="sr-only">Menu</span>
-        <svg
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          className="size-6 fill-none stroke-current"
-          strokeWidth="2"
-          strokeLinecap="round"
-        >
-          {open ? (
-            <path d="M6 6l12 12M18 6L6 18" />
-          ) : (
-            <path d="M3 6h18M3 12h18M3 18h18" />
-          )}
-        </svg>
+        <MenuIcon open={open} />
       </button>
-      <div
-        id={id}
-        hidden={!open}
-        className="absolute inset-x-0 top-full z-40 border-b border-border bg-background px-4 pb-6 shadow-lg"
-      >
-        <nav aria-label="Menu">
-          <ul>
-            {NAV_LINKS.map((l) => (
-              <li key={l.href} className="border-b border-border">
-                <Link
-                  href={l.href}
-                  onClick={closeAfterLink}
-                  aria-current={
-                    isCurrent(pathname, l.href) ? 'page' : undefined
-                  }
-                  className="flex min-h-12 items-center text-lg text-secondary-text hover:text-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground"
-                >
-                  {l.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <Link
-          href={SHARE_HREF}
-          onClick={closeAfterLink}
-          className="mt-6 flex min-h-11 items-center justify-center rounded-md bg-primary px-6 font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-        >
-          Share your story
-        </Link>
+      <div id={id} hidden={!open} className={PANEL}>
+        <MenuLinks pathname={pathname} onLink={closeAfterLink} />
       </div>
     </div>
   );
