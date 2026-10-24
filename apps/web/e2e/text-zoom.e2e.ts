@@ -1,0 +1,60 @@
+import { expect, test } from '@playwright/test';
+import { expectNoHorizontalOverflow } from './helpers';
+
+// T7 (WCAG 1.4.4): with text at 200% on the smallest phone, every page still fits without
+// sideways scrolling and nothing is cut off. The site sizes text in rem, so a 200% root font
+// size is what a reader's text-size setting does. Whole-page zoom is covered by the device
+// matrix (a 1280 px desktop at 200% is a 640 px viewport).
+const PAGES = [
+  '/',
+  '/stories',
+  '/stories?tag=healing',
+  '/stories/video-story',
+  '/stories/long-words',
+  '/stories/long-story',
+  '/stories/image-story',
+  '/about',
+  '/greatest-story',
+  '/get-ready',
+  '/next-steps',
+  '/faqs',
+  '/contact',
+  '/privacy',
+  '/terms',
+  '/donate',
+  '/stories/no-such-story',
+];
+
+// eslint-disable-next-line no-empty-pattern
+test.beforeEach(({}, info) => {
+  test.skip(info.project.name !== 'phone-320', 'the smallest phone');
+});
+
+for (const path of PAGES) {
+  test(`200% text: ${path} fits on a 320 px phone`, async ({ page }) => {
+    await page.addInitScript(() => {
+      document.addEventListener('DOMContentLoaded', () => {
+        const style = document.createElement('style');
+        style.textContent = 'html { font-size: 200% !important; }';
+        document.head.append(style);
+      });
+    });
+    await page.goto(path);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    expect(
+      await page.evaluate(() =>
+        parseFloat(getComputedStyle(document.documentElement).fontSize),
+      ),
+    ).toBe(32);
+    await expectNoHorizontalOverflow(page);
+    // No heading runs out of its box (a cut-off or overlapping word). Screen-reader-only
+    // headings are clipped on purpose.
+    const clipped = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('main h1, main h2, main h3'))
+        .filter((el) => !el.closest('.sr-only'))
+        .filter((el) => el.scrollWidth > el.clientWidth + 1)
+        .map((el) => (el.textContent ?? '').trim().slice(0, 40)),
+    );
+    expect(clipped, 'headings cut off').toEqual([]);
+  });
+}
