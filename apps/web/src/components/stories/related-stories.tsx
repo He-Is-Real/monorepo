@@ -1,23 +1,29 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
-import { cardLabel } from './story-card';
+import { cardLabel, StoryCard } from './story-card';
 
-/** The story page's sidebar list (GET /v1/stories/{slug}/related): 3 cards, small. */
+/**
+ * The story page's related stories (GET /v1/stories/{slug}/related: 3 cards), below the story,
+ * never beside it (Joel, 2026-10-25). Below 1024 px a small list in the reading column, as it
+ * always was on phones; from 1024 px a row of the site's story cards (home's: uniform 16:10
+ * media, play in place), in the story's media band. Each layout is hidden at the other's
+ * widths (display: none), so only one is ever read or focused.
+ */
 export function RelatedStories({ stories }: { stories: StorySummary[] }) {
   if (stories.length === 0) return null;
   return (
     <section
       aria-labelledby="related"
-      className="rounded-2xl border border-border bg-card p-5"
+      className="mx-auto max-w-measure rounded-2xl border border-border bg-card p-5 lg:max-w-narrow lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
     >
       <h2
         id="related"
-        className="mb-3 text-sm font-semibold text-secondary-text"
+        className="mb-3 text-sm font-semibold text-secondary-text lg:mb-5"
       >
         Related stories
       </h2>
-      <ul className="space-y-1">
+      <ul className="space-y-1 lg:hidden">
         {stories.map((s) => {
           const picture = s.thumbnailUrl ?? s.image?.url ?? null;
           return (
@@ -60,6 +66,13 @@ export function RelatedStories({ stories }: { stories: StorySummary[] }) {
             </li>
           );
         })}
+      </ul>
+      <ul className="hidden grid-cols-3 gap-6 lg:grid">
+        {stories.map((s) => (
+          <li key={s.id}>
+            <StoryCard story={s} uniform />
+          </li>
+        ))}
       </ul>
     </section>
   );

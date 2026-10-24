@@ -258,6 +258,22 @@ test.describe('signing on demand', () => {
   });
 });
 
+test("a story page's related cards play in place from 1024 px", async ({
+  page,
+}, info) => {
+  // Below 1024 px, Related is a small list of links (story-view.tsx), as on phones.
+  test.skip(info.project.name !== 'desktop-1280', 'one desktop');
+  await page.goto('/stories/browse-test-03');
+  const related = page.getByRole('region', { name: 'Related stories' });
+  const play = related.getByRole('button', { name: /^Play / }).first();
+  await expectTarget(page, play);
+  const title = ((await play.getAttribute('aria-label')) ?? '').slice(5);
+  await play.click();
+  await expect(related.locator(`iframe[title$=": ${title}"]`)).toBeVisible();
+  await expect(page).toHaveURL(/\/stories\/browse-test-03$/);
+  await expectNoHorizontalOverflow(page);
+});
+
 test.describe('without JavaScript', () => {
   test.use({ javaScriptEnabled: false });
   // eslint-disable-next-line no-empty-pattern
