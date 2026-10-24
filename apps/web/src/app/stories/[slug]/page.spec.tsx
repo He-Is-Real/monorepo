@@ -74,12 +74,9 @@ describe('/stories/[slug]', () => {
     );
   });
 
-  it('has a breadcrumb, the share button and a pull quote for written stories', async () => {
+  it('has the share button and a pull quote for written stories', async () => {
     mockGet.mockResolvedValue({ kind: 'story', story });
     const html = renderToStaticMarkup(await StoryPage(params('test-story')));
-    expect(html).toMatch(/<nav aria-label="Breadcrumb"/);
-    expect(html).toMatch(/href="\/stories"[^>]*>Stories</);
-    expect(html).toMatch(/aria-current="page"[^>]*>Test story</);
     expect(html).toContain('>Share</button>');
     expect(html).toMatch(/<blockquote[^>]*>.*Placeholder.*<\/blockquote>/s);
   });

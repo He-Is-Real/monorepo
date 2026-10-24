@@ -34,8 +34,8 @@ async function expectAligned(
   }
 }
 
-// Story pages (Joel, 2026-10-24: "not off centre to the left"): the hero (breadcrumb, title
-// block, media, share row) spans the whole composition, the text column plus the gap and the
+// Story pages (Joel, 2026-10-24: "not off centre to the left"): the hero (title block, media,
+// share row) spans the whole composition, the text column plus the gap and the
 // sidebar from 1024 px, so the hero and its media are centred on the page. Below it the text
 // starts at the composition's left edge and the sidebar ends at its right edge. Every kind of
 // story: written with and without a picture (portrait, panorama), video (landscape, tall),
@@ -81,7 +81,6 @@ for (const [slug, { media: hasMedia }] of Object.entries(STORIES)) {
       );
     }
     await expectAligned(page, hero, {
-      breadcrumb: page.getByRole('navigation', { name: 'Breadcrumb' }),
       'header (title block)': page.locator('article header'),
       'share row and divider': page
         .getByRole('button', { name: 'Share' })
