@@ -53,7 +53,13 @@ export default defineConfig({
       const d = DEVICES.find((x) => x.name === name) as (typeof DEVICES)[0];
       return {
         name: `webkit-${d.name}`,
-        grepInvert: /dark scheme/,
+        // Light only, and not the two browse tests that need the page to keep rendering frames
+        // (scrolling to the 45-card page's end; the automatic load, set off by an
+        // IntersectionObserver): Playwright's software-rendered WebKit on Linux slows to about
+        // 300 ms a frame with 30 cards and stops producing frames with 45. Chromium checks both
+        // on every device.
+        grepInvert:
+          /dark scheme|“Show more stories” fits|a failed load’s Try again fits/,
         use: {
           browserName: 'webkit' as const,
           viewport: { width: d.width, height: d.height },
