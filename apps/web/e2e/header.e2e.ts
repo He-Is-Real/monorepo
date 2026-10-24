@@ -4,6 +4,7 @@ import {
   expectNoHorizontalOverflow,
   expectTarget,
 } from './helpers';
+import { SCREENSHOT_DEVICES } from './devices';
 import { SIGNED_IN_NAME, SIGNED_IN_PORT } from './playwright.config';
 
 // The header with its account controls, signed out (Clerk's Sign in button) and signed in (a
@@ -63,10 +64,14 @@ for (const scheme of ['light', 'dark'] as const) {
         name: `Account: ${SIGNED_IN_NAME}`,
       });
       await expect(account).toBeVisible();
-      // Before the checks, so a failing layout is on record too.
-      await page.screenshot({
-        path: `test-output/e2e/screenshots/${info.project.name}/${scheme}-header-signed-in.png`,
-      });
+      // Before the checks, so a failing layout is on record too (on the 4 screenshot sizes).
+      if (SCREENSHOT_DEVICES.includes(info.project.name))
+        await page.screenshot({
+          path: `test-output/e2e/screenshots/${info.project.name}/${scheme}-header-signed-in.jpg`,
+          type: 'jpeg',
+          scale: 'css',
+          quality: 50,
+        });
       await expectActionsOnFirstRow(page);
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
