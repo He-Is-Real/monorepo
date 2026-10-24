@@ -25,7 +25,7 @@ export function NavLinks({ className = '' }: { className?: string }) {
   const pathname = usePathname() ?? '/';
   return (
     <nav aria-label="Main navigation" className={className}>
-      <ul className="flex flex-wrap items-center gap-x-5 gap-y-0 lg:gap-x-7">
+      <ul className="flex flex-wrap items-center gap-x-5 gap-y-0 lg:gap-x-7 xl:flex-nowrap">
         {NAV_LINKS.map((l) => (
           <li key={l.href}>
             <Link

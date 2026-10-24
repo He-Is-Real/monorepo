@@ -88,3 +88,14 @@ export function siteUrl(): string | undefined {
 export function indexingAllowed(): boolean {
   return process.env['INDEXING'] === 'allow' && siteUrl() !== undefined;
 }
+
+/**
+ * e2e only: the signed-in name the header shows instead of Clerk's control, so the device
+ * matrix can check the signed-in header without a Clerk session or secret. Needs
+ * `E2E_FIXTURES=true` as well; OpenTofu never sets either, so deployed sites always use Clerk.
+ */
+export function e2eSignedInName(): string | undefined {
+  if (process.env['E2E_FIXTURES'] !== 'true') return undefined;
+  const name = process.env['E2E_SIGNED_IN_NAME']?.trim();
+  return name ? name : undefined;
+}

@@ -1,4 +1,5 @@
 import {
+  e2eSignedInName,
   apiPublicReadUrl,
   clerkPublishableKey,
   indexingAllowed,
@@ -143,5 +144,21 @@ describe('indexing (explicit opt-in: INDEXING=allow)', () => {
     process.env['SITE_URL'] = 'https://www.heisreal.today';
     process.env['ROBOTS_NOINDEX'] = 'false';
     expect(robotsNoindex()).toBe(true);
+  });
+});
+
+describe('e2eSignedInName (the e2e signed-in fixture)', () => {
+  afterEach(() => {
+    delete process.env['E2E_FIXTURES'];
+    delete process.env['E2E_SIGNED_IN_NAME'];
+  });
+
+  it('is ignored unless E2E_FIXTURES=true, so a deployed site always uses Clerk', () => {
+    process.env['E2E_SIGNED_IN_NAME'] = 'Ann Example';
+    expect(e2eSignedInName()).toBeUndefined();
+    process.env['E2E_FIXTURES'] = '1';
+    expect(e2eSignedInName()).toBeUndefined();
+    process.env['E2E_FIXTURES'] = 'true';
+    expect(e2eSignedInName()).toBe('Ann Example');
   });
 });

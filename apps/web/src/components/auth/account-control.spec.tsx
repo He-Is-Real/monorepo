@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useUser } from '@clerk/react';
 import { AccountControl } from './account-control';
 
@@ -34,15 +34,24 @@ describe('AccountControl', () => {
     ).toBe('Sign in');
   });
 
-  it('shows the signed-in person’s name and a sign-out button', () => {
+  it('shows the signed-in person’s first name, and their full name with Clerk’s sign-out in its panel', async () => {
     mockUseUser.mockReturnValue({
       isLoaded: true,
       isSignedIn: true,
       user: { fullName: 'Ann Example', firstName: 'Ann' },
     });
     render(<AccountControl />);
-    expect(screen.getByText('Ann Example')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
+    const account = screen.getByRole('button', {
+      name: 'Account: Ann Example',
+    });
+    expect(account.textContent).toContain('Ann');
+    await act(async () => fireEvent.click(account));
+    expect(screen.getByRole('dialog').textContent).toContain(
+      'Signed in as Ann Example',
+    );
+    expect(
+      screen.getByTestId('clerk-sign-out').querySelector('button')?.textContent,
+    ).toBe('Sign out');
   });
 
   it('falls back to the email address when there is no name', () => {
@@ -56,6 +65,8 @@ describe('AccountControl', () => {
       },
     });
     render(<AccountControl />);
-    expect(screen.getByText('ann@example.com')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Account: ann@example.com' }),
+    ).toBeTruthy();
   });
 });
