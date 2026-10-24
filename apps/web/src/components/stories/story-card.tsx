@@ -142,11 +142,11 @@ export function StoryCard({
         </div>
       )}
       <div className="flex flex-1 flex-col p-5">
-        <p className="mb-2 flex items-baseline justify-between gap-3 text-[13px] leading-5 text-muted-foreground">
+        <p className="mb-2 flex items-baseline justify-between gap-3 text-[0.8125rem] leading-5 text-muted-foreground">
           <span className="shrink-0">{cardLabel(story)}</span>
           <span className="truncate">{story.bylineName ?? 'Anonymous'}</span>
         </p>
-        <Heading className="mb-1.5 line-clamp-3 text-[17px] leading-6 font-semibold">
+        <Heading className="mb-1.5 line-clamp-3 text-[1.0625rem] leading-6 font-semibold">
           <Link
             href={`/stories/${story.slug}`}
             className="text-foreground outline-none after:absolute after:inset-0 after:content-[''] hover:text-foreground"
@@ -159,7 +159,7 @@ export function StoryCard({
             {story.excerpt}
           </blockquote>
         ) : (
-          <p className="line-clamp-3 text-[15px] leading-6 text-secondary-text italic">
+          <p className="line-clamp-3 text-[0.9375rem] leading-6 text-secondary-text italic">
             {story.excerpt}
           </p>
         )}

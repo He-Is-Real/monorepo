@@ -37,7 +37,7 @@ export function StoryText({
     <>
       <div
         id={id}
-        className="mt-6 space-y-5 text-[17px] leading-8 text-secondary-text"
+        className="mt-6 space-y-5 text-[1.0625rem] leading-8 text-secondary-text"
         data-collapsed={collapsed ? '' : undefined}
       >
         {paragraphs.map((p, i) => {

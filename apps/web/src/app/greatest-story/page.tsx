@@ -127,10 +127,10 @@ function PartText({ part, number }: { part: Part; number: number }) {
         ))}
       </div>
       <figure className="mt-6 max-w-[37.5rem] border-l-2 border-teal pl-5">
-        <blockquote className="text-[15px] text-muted-foreground italic sm:text-[17px]">
+        <blockquote className="text-[0.9375rem] text-muted-foreground italic sm:text-[1.0625rem]">
           <p>“{part.verse}”</p>
         </blockquote>
-        <figcaption className="mt-2 text-[13px] text-muted-foreground">
+        <figcaption className="mt-2 text-[0.8125rem] text-muted-foreground">
           <cite className="not-italic">{part.reference}</cite>
         </figcaption>
       </figure>
@@ -195,7 +195,7 @@ export default function GreatestStoryPage() {
           >
             A simple prayer
           </h2>
-          <p className="mb-8 max-w-measure text-[17px] text-secondary-text">
+          <p className="mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
             If you’d like to take this step, there are no magic words. But if it
             helps, you could pray something like this:
           </p>
@@ -218,11 +218,11 @@ export default function GreatestStoryPage() {
           >
             What now?
           </h2>
-          <p className="mx-auto max-w-measure text-[17px] text-secondary-text">
+          <p className="mx-auto max-w-measure text-[1.0625rem] text-secondary-text">
             If you prayed that prayer, or even if you’re still thinking about
             it, you’re not alone.
           </p>
-          <p className="mx-auto mb-8 max-w-measure text-[17px] text-secondary-text">
+          <p className="mx-auto mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
             Here are some ways to keep going.
           </p>
           <div className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">

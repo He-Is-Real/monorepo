@@ -23,7 +23,7 @@ export function PageHeader({
         {title}
       </h1>
       {lead && (
-        <p className="mx-auto mt-3 max-w-[34rem] text-[17px] text-secondary-text">
+        <p className="mx-auto mt-3 max-w-[34rem] text-[1.0625rem] text-secondary-text">
           {lead}
         </p>
       )}

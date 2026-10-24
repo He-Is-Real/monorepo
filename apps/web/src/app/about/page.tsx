@@ -105,7 +105,7 @@ export default function AboutPage() {
                   {v.icon}
                 </div>
                 <h3 className="mb-3 text-2xl font-normal">{v.title}</h3>
-                <p className="mx-auto max-w-xs text-[15px] leading-relaxed text-muted-foreground">
+                <p className="mx-auto max-w-xs text-[0.9375rem] leading-relaxed text-muted-foreground">
                   {v.text}
                 </p>
               </li>
@@ -122,7 +122,7 @@ export default function AboutPage() {
           >
             Have a story to share?
           </h2>
-          <p className="mb-7 text-[17px] text-secondary-text">
+          <p className="mb-7 text-[1.0625rem] text-secondary-text">
             Your testimony could be exactly what someone needs to hear today.
           </p>
           <div className="flex flex-col justify-center gap-4 sm:flex-row">
