@@ -140,8 +140,7 @@ for (const scheme of ['light', 'dark'] as const) {
       const width = page.viewportSize()?.width ?? 0;
       for (const option of await options.all()) {
         const box = await option.boundingBox();
-        // Fractional layout: WebKit can measure a 44 px option as 43.99997 px.
-        expect(box?.height ?? 0).toBeGreaterThanOrEqual(MIN_TARGET - 0.5);
+        expect(box?.height ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
         // The list fits on the screen, also on a 320 px phone.
         expect(
           (box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= width,
