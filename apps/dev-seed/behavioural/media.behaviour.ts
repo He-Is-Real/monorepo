@@ -143,6 +143,53 @@ test('the story page plays the signed video in Bunny’s player, without autopla
   expect((await playlist).status()).toBe(200);
 });
 
+// The privacy page's storage list (web /privacy#cookies): Bunny's player stores nothing during
+// default playback, and keeps the visitor's own playback preferences (speed, volume, mute) in
+// its frame's localStorage only once they change one: strictly necessary, like our theme.
+test('Bunny’s player stores nothing until the visitor changes a setting, then only that preference', async ({
+  page,
+}) => {
+  const title = `Video: ${VIDEO.title}`;
+  await page.goto(`/stories/${VIDEO.slug}`);
+  const player = page.frameLocator(`iframe[title="${title}"]`);
+  const playlist = page.waitForResponse(
+    (r) => /\.b-cdn\.net\/.*\.m3u8/.test(r.url()),
+    { timeout: 30_000 },
+  );
+  await player.getByRole('button', { name: /play/i }).first().click();
+  expect((await playlist).status()).toBe(200);
+
+  const frame = () => {
+    const f = page
+      .frames()
+      .find((x) => x.url().startsWith('https://player.mediadelivery.net/'));
+    if (!f) throw new Error('no Bunny player frame');
+    return f;
+  };
+  const stored = () =>
+    frame().evaluate(() => ({
+      local: Object.fromEntries(
+        Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)]),
+      ),
+      session: Object.keys(sessionStorage),
+      cookies: document.cookie,
+    }));
+  expect(await stored()).toEqual({ local: {}, session: [], cookies: '' });
+
+  await player.getByRole('button', { name: 'settings' }).click();
+  await player.getByRole('menuitem', { name: 'Playback rate' }).click();
+  await player.getByRole('menuitemradio', { name: '1.5x' }).click();
+  await expect
+    .poll(async () => {
+      const { local } = await stored();
+      return Object.entries(local).map(([k, v]) => [
+        k.replace(/\d+$/, '<library>'),
+        JSON.parse(v ?? 'null'),
+      ]);
+    })
+    .toEqual([['bunny_stream_settings_<library>', { speed: 1.5 }]]);
+});
+
 /**
  * Every visible control in the Bunny Player's bars (its media-chrome buttons and the seek bar):
  * size and whether it lies inside the player. The web e2e stub can't prove this: only the real

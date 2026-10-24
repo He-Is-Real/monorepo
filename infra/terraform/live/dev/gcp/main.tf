@@ -122,7 +122,8 @@ module "gcp" {
     "https://web-236063168938.europe-west2.run.app",
   ]
   web_featured_story_slug = "test-story-walking-skeleton" # the dev-seed dataset's (D47), dev only
-  web_noindex             = true
+  # Not indexed: web_indexing stays off (the module refuses it in dev).
+  web_site_url = "https://web-jbxp6odnsa-nw.a.run.app" # canonical URLs
   # The Clerk dev instance (D7: no production instance without our own domain). Public.
   clerk_publishable_key   = "pk_test_c3VwZXJiLW1pbmstODk2Ny5jbGVyay5hY2NvdW50cy5kZXYk"
   run_deletion_protection = var.run_deletion_protection

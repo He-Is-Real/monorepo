@@ -68,9 +68,13 @@ const Q_MAX_CHARS = 200;
 const TAGS_MAX = 5;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/** `GET /v1/stories`: a page of cards. */
+/**
+ * `GET /v1/stories`: a page of cards. `signal` lets a caller stop early (the sitemap's overall
+ * budget, or the request it serves going away); the 10 s timeout applies either way.
+ */
 export async function browseStories(
   params: BrowseParams = {},
+  opts: { signal?: AbortSignal } = {},
 ): Promise<StoryPage> {
   const query = new URLSearchParams();
   const q = [...(params.q?.trim() ?? '')].slice(0, Q_MAX_CHARS).join('');
@@ -82,7 +86,10 @@ export async function browseStories(
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   if (params.cursor) query.set('cursor', params.cursor);
   const search = query.size ? `?${query}` : '';
-  const res = await get(`/v1/stories${search}`, { cached: false });
+  const res = await get(`/v1/stories${search}`, {
+    cached: false,
+    signal: opts.signal,
+  });
   const body = await json(res);
   if (!isPage(body)) throw new StoriesUnavailableError('unexpected response');
   return body;
@@ -113,12 +120,15 @@ export async function listTags(): Promise<StoryTag[]> {
 
 async function get(
   path: string,
-  opts: { cached: boolean; notFound?: boolean },
+  opts: { cached: boolean; notFound?: boolean; signal?: AbortSignal },
 ): Promise<Response> {
   let res: Response;
   try {
     const url = `${apiPublicReadUrl()}${path}`;
-    const signal = AbortSignal.timeout(TIMEOUT_MS);
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    const signal = opts.signal
+      ? AbortSignal.any([timeout, opts.signal])
+      : timeout;
     res = opts.cached
       ? await fetch(url, {
           headers: { accept: 'application/json' },

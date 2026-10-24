@@ -177,10 +177,34 @@ variable "web_featured_story_slug" {
   default     = ""
 }
 
-variable "web_noindex" {
-  description = "Tell search engines not to index web (X-Robots-Tag + robots meta). On in dev: public, but not a real site yet."
+variable "web_indexing" {
+  description = "Invite search engines in (web's INDEXING=allow: no noindex, robots.txt allows crawling, /sitemap.xml exists). An explicit opt-in for Go live; off = noindex everywhere. Refused in dev."
   type        = bool
   default     = false
+  nullable    = false
+  validation {
+    condition     = !var.web_indexing || var.project_id != "heisreal-dev"
+    error_message = "web_indexing can't be turned on in dev (project heisreal-dev): dev holds dummy data and must stay out of search engines."
+  }
+  validation {
+    condition     = !var.web_indexing || var.web_site_url != ""
+    error_message = "web_indexing needs web_site_url (the canonical origin for URLs and the sitemap)."
+  }
+}
+
+variable "web_site_url" {
+  description = "web's public origin (canonical URLs, Open Graph, sitemap), e.g. https://www.heisreal.today. Empty: none, so no absolute URLs and no indexing."
+  type        = string
+  default     = ""
+  # A DNS name whose last label starts with a letter (no IPs, ports, paths or trailing dot): the
+  # same rule as web's siteUrl() (apps/web/src/lib/config.ts), so web never ignores it.
+  validation {
+    condition = var.web_site_url == "" || (
+      length(var.web_site_url) <= 261 &&
+      can(regex("^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", var.web_site_url))
+    )
+    error_message = "web_site_url is an https origin with a DNS host name (no path, port, IP or trailing slash), or empty."
+  }
 }
 
 variable "backup_retention_days" {

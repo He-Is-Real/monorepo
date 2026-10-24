@@ -47,25 +47,104 @@ describe('RootLayout', () => {
   });
 });
 
-describe('generateMetadata', () => {
-  const saved = process.env['ROBOTS_NOINDEX'];
-  afterEach(() => {
-    if (saved === undefined) delete process.env['ROBOTS_NOINDEX'];
-    else process.env['ROBOTS_NOINDEX'] = saved;
+const restoreEnv = (names: string[]) => {
+  const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+  return () => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
+};
+
+describe('site JSON-LD', () => {
+  afterEach(restoreEnv(['SITE_URL']));
+  const render = () =>
+    renderToStaticMarkup(
+      <RootLayout>
+        <main id="main">content</main>
+      </RootLayout>,
+    );
+
+  it('describes the organisation and website when the site URL is known', () => {
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    const scripts = render().match(
+      /<script type="application\/ld\+json">([^<]*)<\/script>/g,
+    );
+    expect(scripts).toHaveLength(1);
+    expect(scripts?.[0]).toContain('"@type":"Organization"');
+    expect(scripts?.[0]).toContain('"url":"https://www.heisreal.today/"');
   });
 
-  it('sets the site title, and lets pages be indexed by default', () => {
-    delete process.env['ROBOTS_NOINDEX'];
+  it('is left out without a site URL (no absolute URLs to give)', () => {
+    delete process.env['SITE_URL'];
+    expect(render()).not.toContain('application/ld+json');
+  });
+});
+
+describe('generateMetadata', () => {
+  afterEach(restoreEnv(['INDEXING', 'SITE_URL']));
+
+  it('resolves URLs against SITE_URL and shares the brand card by absolute URL', () => {
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
     const metadata = generateMetadata();
-    expect(metadata.title).toEqual({
+    expect(metadata.metadataBase).toEqual(
+      new URL('https://www.heisreal.today'),
+    );
+    expect(metadata.openGraph).toMatchObject({
+      siteName: 'He Is Real Today',
+      locale: 'en_GB',
+      type: 'website',
+      images: [
+        expect.objectContaining({
+          url: 'https://www.heisreal.today/og-default.png',
+        }),
+      ],
+    });
+    expect(metadata.twitter).toMatchObject({
+      card: 'summary_large_image',
+      images: [
+        expect.objectContaining({
+          url: 'https://www.heisreal.today/og-default.png',
+        }),
+      ],
+    });
+  });
+
+  it('emits no URL at all without SITE_URL (no localhost or relative fallbacks)', () => {
+    delete process.env['SITE_URL'];
+    const metadata = generateMetadata();
+    expect(metadata.metadataBase).toBeUndefined();
+    expect(JSON.stringify(metadata)).not.toMatch(/url|og-default|http/i);
+    expect(metadata.openGraph).toEqual({
+      siteName: 'He Is Real Today',
+      locale: 'en_GB',
+      type: 'website',
+    });
+    expect(metadata.twitter).toEqual({ card: 'summary' });
+  });
+
+  it('sets no canonical (pages set their own)', () => {
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    expect(generateMetadata().alternates).toBeUndefined();
+  });
+
+  it('sets the site title', () => {
+    expect(generateMetadata().title).toEqual({
       default: 'He Is Real Today',
       template: '%s | He Is Real Today',
     });
-    expect(metadata.robots).toBeUndefined();
   });
 
-  it('asks search engines not to index or follow when ROBOTS_NOINDEX is on (dev)', () => {
-    process.env['ROBOTS_NOINDEX'] = 'true';
+  it('asks search engines not to index or follow unless indexing is allowed (the default)', () => {
+    delete process.env['INDEXING'];
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
     expect(generateMetadata().robots).toEqual({ index: false, follow: false });
+  });
+
+  it('has no robots tag once INDEXING=allow and a site URL (Go live)', () => {
+    process.env['INDEXING'] = 'allow';
+    process.env['SITE_URL'] = 'https://www.heisreal.today';
+    expect(generateMetadata().robots).toBeUndefined();
   });
 });

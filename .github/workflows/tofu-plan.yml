@@ -116,7 +116,7 @@ jobs:
       # are refused outside dev.
       # bunny (mock providers, no Bunny or Google access): D52's token auth is on and only the
       # named service accounts may read the two token auth keys. gcp (mock providers): api-public-read
-      # gets the BUNNY_* settings only when api_public_read_media is set.
+      # gets the BUNNY_* settings only when api_public_read_media is set, and web_site_url is an https origin.
       - name: Test the pure modules
         run: |
           for module in db-migration db-identity bunny-state-guard cluster bunny gcp; do

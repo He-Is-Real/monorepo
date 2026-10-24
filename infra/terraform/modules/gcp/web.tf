@@ -61,10 +61,26 @@ resource "google_cloud_run_v2_service" "web" {
         value = var.web_featured_story_slug
       }
 
-      # X-Robots-Tag and a robots meta tag: not indexed while the site isn't real.
+      # Indexing is an explicit opt-in (web_indexing; refused in dev): anything but "allow"
+      # means X-Robots-Tag and a robots meta tag say noindex, robots.txt disallows everything
+      # and there's no sitemap.
+      env {
+        name  = "INDEXING"
+        value = var.web_indexing ? "allow" : "deny"
+      }
+
+      # Read only by images built before #65 (the old switch); keeps them noindex during the
+      # rollout. Remove once every environment runs a newer image.
       env {
         name  = "ROBOTS_NOINDEX"
-        value = tostring(var.web_noindex)
+        value = tostring(!var.web_indexing)
+      }
+
+      # The public origin: canonical URLs, Open Graph, JSON-LD, robots.txt and the sitemap.
+      # Indexing needs it and web_indexing (Go live).
+      env {
+        name  = "SITE_URL"
+        value = var.web_site_url
       }
 
       # As for the APIs: ready = the port is open. GET /health exists for

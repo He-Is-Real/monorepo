@@ -70,6 +70,22 @@ describe('browse client (api-public-read, server-side only)', () => {
       expect(init.next).toBeUndefined();
     });
 
+    it('stops when the caller’s signal aborts (the sitemap’s budget, a closed request)', async () => {
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(init.signal?.reason),
+            );
+          }),
+      );
+      const controller = new AbortController();
+      const pending = browseStories({}, { signal: controller.signal });
+      controller.abort();
+      await expect(pending).rejects.toBeInstanceOf(StoriesUnavailableError);
+      expect(called().init.signal?.aborted).toBe(true);
+    });
+
     it('drops a hidden story on the next call: nothing is kept between requests', async () => {
       const hidden = { ...card, id: 'seed_w06', slug: 'hidden' };
       fetchMock
