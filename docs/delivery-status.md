@@ -359,18 +359,18 @@ From `project/context/research/test-inventory.html` (every test file judged agai
 "Tests measure behaviour"). Built in separate PRs: A deletions, trims and MOVE-UP rebuilds; B CI
 wiring; C responsive and the device matrix; D WebKit; E local equals CI.
 
-| #   | Decision                                                                                                                                                                  | State         |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| T1  | **Delete or trim small tests that a browser or real-database test already covers**, per the inventory's per-file verdicts. MOVE-UP checks are rebuilt higher up first.    | Built in PR A |
-| T2  | **No api-user/api-admin route tests until a page uses the route.** Each app's start-up check stays (D21, D1), and the D29 retry-key test is rebuilt below the HTTP route. | Built in PR A |
-| T3  | **The web e2e stub and api-public-read are checked against one OpenAPI contract; the dev behavioural suite runs after each dev deploy.**                                  | PR B          |
-| T4  | **Same result locally and in CI:** 0 retries, the same explicit worker counts, ports from config, fake Clerk outside the real-Clerk tests, no timing-dependent tests.     | PR E          |
-| T5  | **OpenTofu tests block merges** (the required CI job, offline: mock providers and plan-only).                                                                             | PR B          |
-| T6  | **Device matrix 16 → 14:** drop 5 look-alikes, add 2 phones in landscape and one device between 480 and 767 px.                                                           | PR C          |
-| T7  | **Responsive additions:** signed-in header with a long name, 200% text, the footer in the 44 px check, line length, menus and popups open at every width.                 | PR C          |
-| T8  | **No screenshot comparison.** Screenshots stay images to look at, on 4 sizes (320, 768, 1280, 2560), uploaded as a 7-day CI artifact, never committed.                    | PR C          |
-| T9  | **WebKit on 2 devices**, kept only if it proves reliable and fast enough on Linux (Safari is a lower priority).                                                           | PR D          |
-| T10 | **Depth: the inventory's plan (about −47% of quick-test cases)**, open to further low-value deletions.                                                                    | Built in PR A |
+| #   | Decision                                                                                                                                                                  | State                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| T1  | **Delete or trim small tests that a browser or real-database test already covers**, per the inventory's per-file verdicts. MOVE-UP checks are rebuilt higher up first.    | Built in PR A             |
+| T2  | **No api-user/api-admin route tests until a page uses the route.** Each app's start-up check stays (D21, D1), and the D29 retry-key test is rebuilt below the HTTP route. | Built in PR A             |
+| T3  | **The web e2e stub and api-public-read are checked against one OpenAPI contract; the dev behavioural suite runs after each dev deploy.**                                  | Built in #73              |
+| T4  | **Same result locally and in CI:** 0 retries, the same explicit worker counts, ports from config, fake Clerk outside the real-Clerk tests, no timing-dependent tests.     | Built in #75              |
+| T5  | **OpenTofu tests block merges** (the required CI job, offline: mock providers and plan-only).                                                                             | Built in #73              |
+| T6  | **Device matrix 16 → 14:** drop 5 look-alikes, add 2 phones in landscape and one device between 480 and 767 px.                                                           | Built in #74              |
+| T7  | **Responsive additions:** signed-in header with a long name, 200% text, the footer in the 44 px check, line length, menus and popups open at every width.                 | Built in #74              |
+| T8  | **No screenshot comparison.** Screenshots stay images to look at, on 4 sizes (320, 768, 1280, 2560), uploaded as a 7-day CI artifact, never committed.                    | Built in #74              |
+| T9  | **WebKit on 2 devices**, kept only if it proves reliable and fast enough on Linux (Safari is a lower priority).                                                           | PR D (#76), Joel deciding |
+| T10 | **Depth: the inventory's plan (about −47% of quick-test cases)**, open to further low-value deletions.                                                                    | Built in PR A             |
 
 Notes from PR A:
 
@@ -386,9 +386,9 @@ Notes from PR A:
   signed player and thumbnail and hourly ETag (D52) in api-public-read's integration tests; D29's
   retry-key test on the consent ledger with a person session, no HTTP route.
 - **The e2e stub plays three roles** (`apps/web/e2e/servers.ts`): dev as today, Go live (indexing
-  on, D48 off) and api-public-read down, each behind its own copy of the built site (a fourth is
-  #71's signed-in fixture). Every port moves with `E2E_PORT_BASE` (replacing #71's three
-  `E2E_*_PORT` variables), so two checkouts can run the suite at once.
+  on, D48 off) and api-public-read down, each behind its own copy of the built site (two more are
+  #71's signed-in fixture and #75's real-Clerk server). Every port moves with `E2E_PORT_BASE`
+  (replacing #71's and #75's `E2E_*_PORT` variables), so two checkouts can run the suite at once.
 - **`account-control.spec.tsx` keeps 2 of 4 cases:** the signed-in e2e (#71, `header.e2e.ts`)
   covers the name, the panel and Sign out on every device, but its fixture bypasses Clerk, so
   the email fallback and the loading state stay as unit cases.
@@ -491,7 +491,7 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-23:** Joel decided there are no featured or pinned stories (unfair to everyone else): home shows the newest stories. 6b-1 removes `FEATURED_STORY_SLUG` from web and OpenTofu and the M5 featured list from the api-admin contract and the schema (`SetFeaturedStories`); the schema change needs a migration run after merge.
 - **2026-10-24:** M1 steps 6a, 6c and 6b-2 merged (#62, #67, #65); 6b-1 (#66) rebased onto them.
 - **2026-10-24:** M1 done (dev only, dummy data): #66 merged (`f4d9d92`) after Codex's second round and applied to dev (web's `FEATURED_STORY_SLUG` removed, migration run, web, api-public-read and dev-seed images updated). "Reset dev data" then "Dev behavioural tests": 44 passed.
+- **2026-10-24:** Joel decided the test clean-up (T1–T10, `test-inventory.html`), recorded above. PR A: deletions, trims and MOVE-UP rebuilds (T1, T2, T10).
 - **2026-10-24:** Test clean-up PR B (T3, T5): the OpenTofu modules' `tofu test` runs in ci.yml's required job (`terraform:test`); api-public-read's integration tests and web's e2e stub are checked against `api-public-read.yaml` (which now lists `5XX`, `ServerError`); `tofu-apply.yml` dispatches "Dev behavioural tests" only after a complete deploy: every root's stage ok and at least one apply done (`tools/scripts/tf-behavioural.sh`), never after a failed, rejected or superseded run.
 - **2026-10-24:** Test clean-up PR C (T6, T7, T8): device matrix 16 → 14 (5 look-alikes out; 2 phones in landscape and a 600 px small tablet in); screen-independent tests on one phone and one desktop; the footer in the 44 px check, also on the static, 404 and error pages; 200% text on every page at 320 px (overflow fixed with `overflow-wrap: anywhere` and the privacy table's header cells; prose sizes moved from px to rem so a reader's text size really scales them); menus, More tags, Show more and Try again checked open at every width; screenshots on 4 sizes as JPEG (about 14 MB), traces only on failure, kept 7 days. **Joel's R1 (reading width): option A, the reading column.** Pages narrow their whole content column to `max-w-measure` (32rem), so body text runs to at most 80 characters a line at every band and headings, dividers, tables and text share their edges; the story sidebar sits one gap (3rem) from the text and the composition is centred; the privacy table breaks out symmetrically from 1024 px. **About stays as it was** (Joel: wider for the video and title; its text is under 80). Phones are unchanged. e2e: `alignment.e2e.ts`, per-band line length (visible text of 15 px and up; small print exempt). The header is no longer streamed in late: it was inside a Suspense boundary, so without JavaScript there was no header at all and on slow servers it popped in and pushed the page down (an ipad-air-landscape flake); now only the account control streams in, behind a placeholder of its size. The signed-in header is #71's.
 - **2026-10-24:** Test clean-up PR E (T4, local equals CI): Playwright 0 retries and 4 workers everywhere; the e2e header uses an `E2E_FIXTURES` stand-in for Clerk's Sign in except on the real-Clerk server (two tests, one phone and one desktop); integration suites at 3 Jest workers everywhere; the behavioural suite wakes both Cloud Run services first, then runs with 0 retries; the migration runner's "paused mid-step" test uses an explicit pause (`MIGRATE_TEST_PAUSE_BEFORE`) instead of about 9 s of bcrypt. The 3 s sleep and the benchmark went in PR A.
-- **2026-10-24:** Joel decided the test clean-up (T1–T10, `test-inventory.html`), recorded above. PR A: deletions, trims and MOVE-UP rebuilds (T1, T2, T10).
