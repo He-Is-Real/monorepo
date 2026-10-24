@@ -6,7 +6,9 @@
 //   node --test tools/scripts/tests/
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
@@ -200,7 +202,7 @@ test('a missing stage result (the stage job never ran) → no dispatch', () => {
 });
 
 test('usage errors exit 64', () => {
-  const result = spawnSync(script('tf-behavioural.sh'), ['ok'], {
+  const result = spawnSync(script('tf-behavioural.sh'), ['ok', '--', 'x'], {
     encoding: 'utf8',
   });
   assert.equal(result.status, 64);
@@ -229,15 +231,104 @@ test('tofu-apply.yml feeds every stage and apply to it, and dispatches only on i
   const decide = job.steps.find((s) => s.id === 'decide');
   for (const root of roots) {
     assert.match(
-      decide.env.STAGES,
+      decide.env[`STAGE_${root.toUpperCase()}`],
       new RegExp(`needs\\.stage-${root}\\.outputs\\.result`),
     );
     assert.match(
-      decide.env.APPLIES,
+      decide.env[`APPLY_${root.toUpperCase()}`],
       new RegExp(`needs\\.apply-${root}\\.result`),
     );
   }
   assert.match(decide.run, /tf-behavioural\.sh/);
   const dispatch = job.steps.find((s) => /gh workflow run/.test(s.run ?? ''));
   assert.equal(dispatch.if, "steps.decide.outputs.decision == 'dispatch'");
+});
+
+// The workflow's own decide step, run as Actions runs it: its `run` script under bash with the
+// step's env, a stage output that was never published simply absent (Codex review of #73,
+// round 2: a comma-joined list lost its trailing empty value and dispatched).
+const repo = fileURLToPath(new URL('../../..', import.meta.url));
+const decideStep = parse(
+  readFileSync(join(repo, '.github/workflows/tofu-apply.yml'), 'utf8'),
+).jobs.behavioural.steps.find((s) => s.id === 'decide');
+function runDecideStep(env) {
+  const dir = mkdtempSync(join(tmpdir(), 'tf-behavioural-'));
+  try {
+    const output = join(dir, 'output');
+    const result = spawnSync('bash', ['-e', '-c', decideStep.run], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: join(dir, 'summary'),
+        ...env,
+      },
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return /^decision=(.*)$/m.exec(readFileSync(output, 'utf8'))?.[1];
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('the decide step reads every value it needs from its own env', () => {
+  const names = Object.keys(decideStep.env);
+  for (const root of ['GCP', 'BUNNY', 'CLUSTER', 'IMAGES'])
+    for (const kind of ['STAGE', 'APPLY'])
+      assert.ok(names.includes(`${kind}_${root}`), `${kind}_${root}`);
+});
+
+test('the decide step: images stage never published (its job failed early) → no dispatch', () => {
+  const decision = runDecideStep({
+    STAGE_GCP: 'ok',
+    STAGE_BUNNY: 'ok',
+    STAGE_CLUSTER: 'ok',
+    // STAGE_IMAGES: absent, as when stage-images fails before writing its output
+    APPLY_GCP: 'success',
+    APPLY_BUNNY: 'skipped',
+    APPLY_CLUSTER: 'success',
+    APPLY_IMAGES: 'failure',
+  });
+  assert.equal(decision, 'skip: a stage is missing');
+});
+
+test('the decide step: every stage ok and an apply done → dispatch', () => {
+  assert.equal(
+    runDecideStep({
+      STAGE_GCP: 'ok',
+      STAGE_BUNNY: 'ok',
+      STAGE_CLUSTER: 'ok',
+      STAGE_IMAGES: 'ok',
+      APPLY_GCP: 'success',
+      APPLY_BUNNY: 'skipped',
+      APPLY_CLUSTER: 'success',
+      APPLY_IMAGES: 'skipped',
+    }),
+    'dispatch',
+  );
+});
+
+test('fewer or more than four values is a usage error, never a decision', () => {
+  for (const args of [
+    ['ok', 'ok', 'ok', '--', 'success', 'skipped', 'success', 'failure'],
+    [
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      '--',
+      'success',
+      'skipped',
+      'success',
+      'failure',
+    ],
+    ['ok', 'ok', 'ok', 'ok', '--', 'success', 'skipped', 'success'],
+  ]) {
+    const result = spawnSync(script('tf-behavioural.sh'), args, {
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 64, args.join(' '));
+  }
 });

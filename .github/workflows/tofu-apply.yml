@@ -646,17 +646,21 @@ jobs:
           ref: ${{ needs.target.outputs.sha }}
           sparse-checkout: tools/scripts
       - id: decide
+        # One variable per value, passed as separate quoted arguments: a stage job that never
+        # published its result gives an empty argument (not ok), never a shorter list.
         env:
-          STAGES: >-
-            ${{ needs.stage-gcp.outputs.result }},${{ needs.stage-bunny.outputs.result }},${{
-            needs.stage-cluster.outputs.result }},${{ needs.stage-images.outputs.result }}
-          APPLIES: >-
-            ${{ needs.apply-gcp.result }},${{ needs.apply-bunny.result }},${{
-            needs.apply-cluster.result }},${{ needs.apply-images.result }}
+          STAGE_GCP: ${{ needs.stage-gcp.outputs.result }}
+          STAGE_BUNNY: ${{ needs.stage-bunny.outputs.result }}
+          STAGE_CLUSTER: ${{ needs.stage-cluster.outputs.result }}
+          STAGE_IMAGES: ${{ needs.stage-images.outputs.result }}
+          APPLY_GCP: ${{ needs.apply-gcp.result }}
+          APPLY_BUNNY: ${{ needs.apply-bunny.result }}
+          APPLY_CLUSTER: ${{ needs.apply-cluster.result }}
+          APPLY_IMAGES: ${{ needs.apply-images.result }}
         run: |
-          IFS=, read -r -a stages <<< "$STAGES"
-          IFS=, read -r -a applies <<< "$APPLIES"
-          decision="$(tools/scripts/tf-behavioural.sh "${stages[@]}" -- "${applies[@]}")"
+          decision="$(tools/scripts/tf-behavioural.sh \
+            "${STAGE_GCP:-}" "${STAGE_BUNNY:-}" "${STAGE_CLUSTER:-}" "${STAGE_IMAGES:-}" -- \
+            "${APPLY_GCP:-}" "${APPLY_BUNNY:-}" "${APPLY_CLUSTER:-}" "${APPLY_IMAGES:-}")"
           echo "decision=$decision" >> "$GITHUB_OUTPUT"
           echo "Dev behavioural tests: $decision" | tee -a "$GITHUB_STEP_SUMMARY"
       - if: steps.decide.outputs.decision == 'dispatch'

@@ -2,10 +2,11 @@
 # Whether tofu-apply.yml dispatches "Dev behavioural tests" after a run
 # (tests: tests/tf-behavioural.test.mjs).
 #
-#   tools/scripts/tf-behavioural.sh <stage>... -- <apply_result>...
+#   tools/scripts/tf-behavioural.sh <gcp> <bunny> <cluster> <images> -- <gcp> <bunny> <cluster> <images>
 #
-#   stage         each root's tf-stage.sh result (gcp, bunny, cluster, images): `ok` or `blocked: …`
-#   apply_result  each apply job's result (success|failure|cancelled|skipped|empty)
+#   before --      each root's tf-stage.sh result: `ok` or `blocked: …` (empty = never published)
+#   after --       each apply job's result (success|failure|cancelled|skipped|empty)
+#   Exactly four of each: a missing value is an error, never a shorter list.
 #
 # Prints `dispatch` only after a complete deploy: every stage is ok (nothing failed, was
 # rejected, went stale or was superseded, so dev isn't half-deployed) and at least one apply
@@ -19,8 +20,8 @@ for arg in "$@"; do
   else stages+=("$arg")
   fi
 done
-if [ "$seen" != true ] || [ ${#stages[@]} -eq 0 ] || [ ${#applies[@]} -eq 0 ]; then
-  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' >&2
+if [ "$seen" != true ] || [ ${#stages[@]} -ne 4 ] || [ ${#applies[@]} -ne 4 ]; then
+  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 64
 fi
 
