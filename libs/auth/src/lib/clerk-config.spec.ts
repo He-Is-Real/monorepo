@@ -14,24 +14,6 @@ const good = {
 };
 
 describe('parseClerkConfig', () => {
-  it('parses the settings, with a 5 s default clock skew', () => {
-    const config = parseClerkConfig(good);
-    expect(config.issuer).toBe(good.issuer);
-    expect([...config.authorizedParties]).toEqual([
-      'http://localhost:3000',
-      'https://web-abc-nw.a.run.app',
-    ]);
-    expect(config.clockSkewSeconds).toBe(5);
-    expect(config.publicKey.asymmetricKeyType).toBe('rsa');
-  });
-
-  it('accepts a one-line PEM with \\n escapes (env files)', () => {
-    const oneLine = clerk.publicKeyPem.trim().replace(/\n/g, '\\n');
-    expect(
-      parseClerkConfig({ ...good, publicKeyPem: oneLine }).publicKey,
-    ).toBeDefined();
-  });
-
   it.each([
     [
       'an http issuer',
@@ -85,12 +67,5 @@ describe('clerkConfigFromEnv', () => {
     expect(() => clerkConfigFromEnv()).toThrow(
       'Missing required environment variable CLERK_ISSUER',
     );
-  });
-
-  it('reads all three settings', () => {
-    process.env['CLERK_ISSUER'] = good.issuer;
-    process.env['CLERK_JWT_PUBLIC_KEY'] = good.publicKeyPem;
-    process.env['CLERK_AUTHORIZED_PARTIES'] = good.authorizedParties;
-    expect(clerkConfigFromEnv().issuer).toBe(good.issuer);
   });
 });

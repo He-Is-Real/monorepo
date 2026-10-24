@@ -1,11 +1,8 @@
 import {
-  Global,
-  type INestApplication,
-  Module,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import { SURREAL } from '@heisreal/database';
+  IdempotencyKeyReusedError,
+  requestHash,
+  withPersonSession,
+} from '@heisreal/database';
 import {
   createPeople,
   publishDpa,
@@ -13,57 +10,58 @@ import {
   run,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
-import type { Request } from 'express';
-import type { Surreal } from 'surrealdb';
-import { AccountConsentsModule } from '../src/lib/account-consents.controller';
-import { ConsentModule } from '../src/lib/consent.module';
-import type {
-  AuthenticatedPerson,
-  PersonAuthenticator,
-} from '../src/lib/person';
+import { RecordId, type Surreal } from 'surrealdb';
+import { ConsentLedger } from '../src/lib/consent-ledger';
+import type { ConsentType } from '../src/lib/consent.types';
 
 /**
- * PR #41 review round 1, finding 1: `Idempotency-Key` must commit atomically with the command
- * (D29). These reproduce the reported failures through api-user's real endpoints:
- *   - a failure between the ledger write and the key write left the grant committed without its
- *     key, so retrying the original request after a withdrawal granted again;
- *   - concurrent requests sharing a key both executed.
+ * D29: an `Idempotency-Key` commits in the same transaction as the consent event, so a retry
+ * replays and a race applies once (PR #41 review round 1, finding 1). On the connection
+ * api-user uses, a session per person (D27), with the scope and request hash its consent
+ * endpoints pass (account-consents.controller.ts); no HTTP route, as no page uses one yet.
  */
-class BearerForTests implements PersonAuthenticator {
-  async authenticate(request: Request): Promise<AuthenticatedPerson> {
-    const token = request.headers.authorization?.replace(/^Bearer /, '');
-    if (!token) throw new UnauthorizedException();
-    return { clerkUserId: 'from-token', token };
-  }
-}
-
 describe('Idempotency-Key commits atomically with the consent command (D29)', () => {
   let t: TestDatabase;
-  let app: INestApplication;
-  let url: string;
+  let apiUser: Surreal;
   let migrator: Surreal;
+  const ledger = new ConsentLedger();
   let n = 0;
-  const key = () => `regression-key-${Date.now()}-${++n}`;
-  const grantBody = (type: string) => ({
-    type,
-    dpaVersion: 'v1',
-    mechanism: 'web_form_submission',
-  });
+  const key = () => `regression-key-${++n}`;
 
-  const post = (path: string, who: string, k: string, body?: unknown) =>
-    fetch(`${url}${path}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${t.token(who)}`,
-        'idempotency-key': k,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  const grant = (who: string, k: string, type: string) =>
-    post('/v1/account/consents', who, k, grantBody(type));
-  const withdraw = (who: string, k: string, type: string) =>
-    post(`/v1/account/consents/${type}/withdraw`, who, k);
+  /** One request: the person's own session, the key scoped to them and to api-user. */
+  const command = (
+    person: string,
+    k: string,
+    request: unknown,
+    execute: (
+      session: Parameters<ConsentLedger['grant']>[0],
+      idempotency: Parameters<ConsentLedger['grant']>[2],
+    ) => ReturnType<ConsentLedger['grant']>,
+  ) =>
+    withPersonSession(apiUser, t.token(`user_${person}`), (session) =>
+      execute(session, {
+        scope: {
+          service: 'api-user',
+          owner: new RecordId('user', person),
+          key: k,
+        },
+        requestHash: requestHash(request),
+      }),
+    );
+  const grant = (person: string, k: string, type: ConsentType) => {
+    const input = {
+      type,
+      dpaVersion: 'v1',
+      mechanism: 'web_form_submission' as const,
+    };
+    return command(person, k, ['POST', 'consents', input], (s, idem) =>
+      ledger.grant(s, input, idem),
+    );
+  };
+  const withdraw = (person: string, k: string, type: ConsentType) =>
+    command(person, k, ['POST', 'withdraw', type], (s, idem) =>
+      ledger.withdraw(s, type, idem),
+    );
 
   const events = (person: string, type: string) =>
     rows<{ event: string }>(
@@ -89,34 +87,12 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
     });
     await publishDpa(t, 'v1');
     migrator = await t.migrator();
-    const connection: Surreal = await t.service('api_user');
-
-    @Global()
-    @Module({
-      providers: [{ provide: SURREAL, useValue: connection }],
-      exports: [SURREAL],
-    })
-    class ApiUserDatabase {}
-
-    const moduleRef = await Test.createTestingModule({
-      imports: [
-        ApiUserDatabase,
-        ConsentModule.forRoot({ authenticator: BearerForTests }),
-        AccountConsentsModule,
-      ],
-    }).compile();
-    app = moduleRef.createNestApplication({ logger: false });
-    await app.listen(0, '127.0.0.1');
-    url = await app.getUrl();
+    apiUser = await t.service('api_user');
   });
-  afterAll(async () => {
-    await app?.close();
-    await t?.close();
-  });
+  afterAll(() => t?.close());
 
   it('a failure when storing the key leaves no ledger event either', async () => {
-    // Fault injection: the key write fails, whoever writes it (the person's session or a
-    // service login), after the ledger event in the same request.
+    // Fault injection: the key write fails after the ledger event, in the same transaction.
     await run(
       migrator,
       `DEFINE EVENT OVERWRITE inject_fault ON idempotencyKey WHEN $event = 'CREATE'
@@ -124,7 +100,9 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
     );
     const k = key();
     try {
-      expect((await grant('user_ann', k, 'publish')).status).toBe(500);
+      await expect(grant('ann', k, 'publish')).rejects.toThrow(
+        'injected fault',
+      );
     } finally {
       await run(migrator, 'REMOVE EVENT inject_fault ON idempotencyKey');
     }
@@ -132,23 +110,20 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
     expect(await keys('ann')).toEqual([]);
 
     // The retry is then the first real attempt: it applies once, and replays after that.
-    const first = await grant('user_ann', k, 'publish');
-    expect(first.status).toBe(201);
-    const again = await grant('user_ann', k, 'publish');
-    expect(again.status).toBe(201);
-    expect(await again.json()).toEqual(await first.json());
+    const first = await grant('ann', k, 'publish');
+    expect(first).toMatchObject({ status: 201, replayed: false });
+    const again = await grant('ann', k, 'publish');
+    expect(again).toEqual({ ...first, replayed: true });
     expect(await events('ann', 'publish')).toHaveLength(1);
   });
 
   it('a retried grant after a withdrawal replays; it never grants again', async () => {
     const grantKey = key();
-    const granted = await grant('user_bob', grantKey, 'publish'); // the client loses this answer
-    expect(granted.status).toBe(201);
-    expect((await withdraw('user_bob', key(), 'publish')).status).toBe(202);
+    const granted = await grant('bob', grantKey, 'publish'); // the client loses this answer
+    expect((await withdraw('bob', key(), 'publish')).status).toBe(202);
 
-    const retry = await grant('user_bob', grantKey, 'publish'); // the ORIGINAL request again
-    expect(retry.status).toBe(201);
-    expect(await retry.json()).toEqual(await granted.json());
+    const retry = await grant('bob', grantKey, 'publish'); // the ORIGINAL request again
+    expect(retry).toEqual({ ...granted, replayed: true });
     expect((await events('bob', 'publish')).map((e) => e.event)).toEqual([
       'granted',
       'withdrawn',
@@ -157,28 +132,36 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
 
   it('concurrent requests with one key apply once and all get the same answer', async () => {
     const k = key();
-    const responses = await Promise.all(
-      Array.from({ length: 6 }, () => grant('user_cat', k, 'age_18plus')),
+    const outcomes = await Promise.all(
+      Array.from({ length: 6 }, () => grant('cat', k, 'age_18plus')),
     );
-    expect(responses.map((r) => r.status)).toEqual(Array(6).fill(201));
-    const bodies = await Promise.all(responses.map((r) => r.json()));
-    expect(new Set(bodies.map((b) => JSON.stringify(b))).size).toBe(1);
+    expect(new Set(outcomes.map((o) => `${o.status} ${o.id}`)).size).toBe(1);
+    expect(outcomes.filter((o) => !o.replayed)).toHaveLength(1);
     expect(await events('cat', 'age_18plus')).toHaveLength(1);
     expect(await keys('cat')).toHaveLength(1);
   });
 
-  it('a key reused with a different body is refused (422), also when racing; one command applies', async () => {
+  it('a key reused with a different request is refused, also when racing; one command applies', async () => {
     const k = key();
-    const [a, b] = await Promise.all([
-      grant('user_dan', k, 'publish'),
-      grant('user_dan', k, 'share_socials'),
+    const settled = await Promise.allSettled([
+      grant('dan', k, 'publish'),
+      grant('dan', k, 'share_socials'),
     ]);
-    expect([a.status, b.status].sort()).toEqual([201, 422]);
+    expect(settled.map((s) => s.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const refused = settled.find((s) => s.status === 'rejected');
+    expect((refused as PromiseRejectedResult).reason).toBeInstanceOf(
+      IdempotencyKeyReusedError,
+    );
     const applied =
       (await events('dan', 'publish')).length +
       (await events('dan', 'share_socials')).length;
     expect(applied).toBe(1);
     // And sequentially, once the key is stored.
-    expect((await grant('user_dan', k, 'age_18plus')).status).toBe(422);
+    await expect(grant('dan', k, 'age_18plus')).rejects.toBeInstanceOf(
+      IdempotencyKeyReusedError,
+    );
   });
 });
