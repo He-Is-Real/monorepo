@@ -6,6 +6,7 @@ import {
   consentEvent,
   createPeople,
   grantAll,
+  MIGRATION_TIMEOUT_MS,
   outcome,
   publishDpa,
   rows,
@@ -595,10 +596,12 @@ describe('data/0004: rows written before D53', () => {
   const applied = () =>
     rows(migrator, 'SELECT VALUE record::id(id) FROM _migration ORDER BY id');
 
-  it('fails while an earlier story or read-model row doesn’t fit, and passes once fixed', async () => {
-    await run(
-      migrator,
-      `REMOVE EVENT story_shape ON story;
+  it(
+    'fails while an earlier story or read-model row doesn’t fit, and passes once fixed',
+    async () => {
+      await run(
+        migrator,
+        `REMOVE EVENT story_shape ON story;
        REMOVE EVENT publicStory_mirrors_story ON publicStory;
        CREATE story:old_written CONTENT { submitter: user:old, slug: 'old-written', title: 't',
          description: 'd', primaryFormat: 'written', body: 'x',
@@ -609,28 +612,30 @@ describe('data/0004: rows written before D53', () => {
        CREATE publicStory:old_video CONTENT { version: 1, slug: 'old-video', title: 't',
          description: 'd', primaryFormat: 'video', tagRefs: [], publishedAt: time::now(),
          media: [{ format: 'video', aspectRatio: '16:9' }] };`,
-    );
+      );
 
-    const first = await t.runMigration();
-    expect(first.exitCode).toBe(1);
-    expect(first.output).toContain('these stories don’t fit');
-    expect(first.output).toContain('story:old_written');
-    expect(first.output).not.toContain('story:old_video');
-    expect(await applied()).not.toContain('0004-check-story-shapes');
+      const first = await t.runMigration();
+      expect(first.exitCode).toBe(1);
+      expect(first.output).toContain('these stories don’t fit');
+      expect(first.output).toContain('story:old_written');
+      expect(first.output).not.toContain('story:old_video');
+      expect(await applied()).not.toContain('0004-check-story-shapes');
 
-    await run(migrator, 'DELETE story:old_written');
-    const second = await t.runMigration();
-    expect(second.exitCode).toBe(1);
-    expect(second.output).toContain(
-      'still carry aspectRatio: [publicStory:old_video]',
-    );
+      await run(migrator, 'DELETE story:old_written');
+      const second = await t.runMigration();
+      expect(second.exitCode).toBe(1);
+      expect(second.output).toContain(
+        'still carry aspectRatio: [publicStory:old_video]',
+      );
 
-    // The re-sync api-admin will do: the read model mirrors the story again.
-    await run(
-      await t.service('api_admin'),
-      `UPDATE publicStory:old_video SET media = [{ format: 'video', width: 1920, height: 1080 }]`,
-    );
-    await t.migrate();
-    expect(await applied()).toContain('0004-check-story-shapes');
-  });
+      // The re-sync api-admin will do: the read model mirrors the story again.
+      await run(
+        await t.service('api_admin'),
+        `UPDATE publicStory:old_video SET media = [{ format: 'video', width: 1920, height: 1080 }]`,
+      );
+      await t.migrate();
+      expect(await applied()).toContain('0004-check-story-shapes');
+    },
+    3 * MIGRATION_TIMEOUT_MS,
+  );
 });

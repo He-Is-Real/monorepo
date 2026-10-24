@@ -330,6 +330,21 @@ describe('approval waits for media processing (A2)', () => {
         'an audio file needs its duration',
       ],
       [
+        'a ready audio file with an empty thumbnail path',
+        audio,
+        `media[0].processing = 'ready', media[0].durationSeconds = 30,
+         media[0].thumbnailPath = '', media[0].width = 1280, media[0].height = 720`,
+        'an audio file needs its thumbnail and that picture’s width and height',
+      ],
+      [
+        'a ready audio file with a thumbnail outside its own video’s folder',
+        audio,
+        `media[0].processing = 'ready', media[0].durationSeconds = 30,
+         media[0].thumbnailPath = 'other/thumbnail_0a1b2c3d.jpg', media[0].width = 1280,
+         media[0].height = 720`,
+        'an audio file needs its thumbnail and that picture’s width and height',
+      ],
+      [
         'a ready audio file without its thumbnail’s size',
         audio,
         `media[0].processing = 'ready', media[0].durationSeconds = 30,

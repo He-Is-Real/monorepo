@@ -157,13 +157,22 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
       await clean.authenticate(t.token('user_bob', { expiresIn: 2 }));
       await clean.invalidate();
       await clean.closeSession();
-      await new Promise((r) => setTimeout(r, 3_000));
+      // Wait for the leaky session's timer (due after 2 s; later on a busy machine), not a fixed
+      // time. Both timers are due at the same moment, so once one has fired the other would have
+      // too: one more second is margin, not a guess at the machine's speed.
+      for (
+        let waited = 0;
+        errors.length === 0 && waited < 20_000;
+        waited += 100
+      )
+        await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 1_000));
       // One error, from the leaky session's timer; none from the invalidated one.
       expect(errors).toHaveLength(1);
     } finally {
       off();
     }
-  });
+  }, 40_000);
 
   it('HTTP alternative: a stateless request with the person’s token as a Bearer header', async () => {
     // What surrealdb.js 2.1's `.as(token)` does over HTTP. Nothing is held per person on the
@@ -205,7 +214,12 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     expect(expired.status).toBe(401);
   });
 
-  it('measures the per-request cost of each approach', async () => {
+  // A measurement, not a behaviour check: 800 sequential requests whose time depends on the
+  // machine (about 14 s idle, past jest's 30 s under load). Run it when re-measuring the numbers
+  // in docs/db-permissions.md: MEASURE_REQUEST_SESSIONS=1.
+  const measure =
+    process.env['MEASURE_REQUEST_SESSIONS'] === '1' ? it : it.skip;
+  measure('measures the per-request cost of each approach', async () => {
     const N = 200;
     // One token for every iteration: signing RS256 costs ~1 ms on the client, which Clerk pays.
     const token = t.token('user_ann', { expiresIn: 300 });
