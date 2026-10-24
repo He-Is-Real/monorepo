@@ -122,6 +122,10 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - if: steps.e2e.outputs.web == 'true'
         run: pnpm nx run web:e2e
+      # T9: the fit checks in WebKit (Safari's engine) on an iPhone and an iPad, inside
+      # Playwright's pinned Ubuntu image (tools/scripts/playwright-webkit.sh), as locally.
+      - if: steps.e2e.outputs.web == 'true'
+        run: pnpm nx run web:e2e-webkit
       # Screenshots (4 sizes, JPEG) on every web-affected run; traces and results only when
       # something failed. Kept 7 days, never committed (T8).
       - if: always() && steps.e2e.outputs.web == 'true'
@@ -137,6 +141,7 @@ jobs:
           path: |
             test-output/e2e/results
             test-output/e2e/results.json
+            test-output/e2e-webkit
           retention-days: 7
 
       # Proves the Dockerfiles still build; pushing happens in _images.yml.

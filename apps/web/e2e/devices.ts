@@ -59,3 +59,6 @@ export const SCREENSHOT_DEVICES = [
   'desktop-1280',
   'desktop-2560',
 ];
+
+/** T9: also run in WebKit (Safari's engine), light only: one iPhone and one iPad. */
+export const WEBKIT_DEVICES = ['iphone-se', 'ipad-mini-portrait'];

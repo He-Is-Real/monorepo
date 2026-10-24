@@ -96,6 +96,20 @@
           "command": "playwright test -c apps/web/e2e/playwright.config.ts",
           "cwd": "{workspaceRoot}"
         }
+      },
+      "e2e-webkit": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "prune"
+        ],
+        "cache": false,
+        "outputs": [
+          "{workspaceRoot}/test-output/e2e-webkit"
+        ],
+        "options": {
+          "command": "tools/scripts/playwright-webkit.sh",
+          "cwd": "{workspaceRoot}"
+        }
       }
     }
   },

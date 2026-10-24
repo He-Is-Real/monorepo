@@ -60,6 +60,7 @@ pnpm exec playwright install chromium && pnpm nx e2e web   # responsive device m
 # (stub API); if one is busy: E2E_WEB_PORT=4400 E2E_SIGNED_IN_PORT=4401 E2E_CLERK_PORT=4402
 # E2E_STUB_PORT=4410 pnpm nx e2e web
 pnpm nx run terraform:test                        # `tofu test` of every OpenTofu module (offline, mock providers)
+pnpm nx run web:e2e-webkit                       # the same fit checks in WebKit (Safari), in Playwright's Docker image
 ```
 
 ## Secrets

@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { defineConfig } from '@playwright/test';
-import { DEVICES } from './devices';
+import { DEVICES, WEBKIT_DEVICES } from './devices';
 
 // `pnpm nx e2e web`: the built standalone server (apps/web/dist, from `prune`) against a stub
 // api-public-read, across the device matrix in light and dark. Screenshots land in
@@ -17,35 +17,53 @@ export const CLERK_PORT = port('E2E_CLERK_PORT', 4302);
 /** 40 characters: long names must truncate before anything in the header wraps. */
 export const SIGNED_IN_NAME = 'Bartholomew Montgomery-Fitzwilliam Smith';
 const root = `${resolve(__dirname, '../../..')}/`;
+/** web:e2e-webkit (tools/scripts/playwright-webkit.sh) runs only the WebKit projects. */
+const WEBKIT = process.env['E2E_WEBKIT'] === '1';
+const out = `${root}test-output/${WEBKIT ? 'e2e-webkit' : 'e2e'}`;
 
 export default defineConfig({
   testDir: '.',
   testMatch: '*.e2e.ts',
-  outputDir: `${root}test-output/e2e/results`,
+  outputDir: `${out}/results`,
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
   // The same everywhere (T4): no retry to hide a flaky test, and as many workers locally as on
   // a 4-vCPU CI runner.
   retries: 0,
   workers: 4,
-  reporter: [
-    ['list'],
-    ['json', { outputFile: `${root}test-output/e2e/results.json` }],
-  ],
+  reporter: [['list'], ['json', { outputFile: `${out}/results.json` }]],
   use: {
     baseURL: `http://localhost:${WEB_PORT}`,
     browserName: 'chromium',
     trace: 'retain-on-failure',
   },
-  projects: DEVICES.map((d) => ({
-    name: d.name,
-    use: {
-      viewport: { width: d.width, height: d.height },
-      isMobile: d.mobile,
-      hasTouch: d.mobile,
-      deviceScaleFactor: d.scale,
-    },
-  })),
+  projects: [
+    ...(WEBKIT ? [] : DEVICES).map((d) => ({
+      name: d.name,
+      use: {
+        viewport: { width: d.width, height: d.height },
+        isMobile: d.mobile,
+        hasTouch: d.mobile,
+        deviceScaleFactor: d.scale,
+      },
+    })),
+    // T9: Safari's engine on an iPhone and an iPad, light only. Every browser on an iPhone is
+    // WebKit; the fit checks (svh heights, the player iframe, the share popup) run here too.
+    ...(WEBKIT ? WEBKIT_DEVICES : []).map((name) => {
+      const d = DEVICES.find((x) => x.name === name) as (typeof DEVICES)[0];
+      return {
+        name: `webkit-${d.name}`,
+        grepInvert: /dark scheme/,
+        use: {
+          browserName: 'webkit' as const,
+          viewport: { width: d.width, height: d.height },
+          isMobile: d.mobile,
+          hasTouch: d.mobile,
+          deviceScaleFactor: d.scale,
+        },
+      };
+    }),
+  ],
   webServer: [
     {
       command: `node ${root}apps/web/e2e/stub-api.mjs`,
