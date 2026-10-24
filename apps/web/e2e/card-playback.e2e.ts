@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { expectNoHorizontalOverflow, expectTarget } from './helpers';
-import { STUB_PORT } from './playwright.config';
+import { STUB_PORT } from './servers';
 
 // Playing a story from its card (Joel, 2026-10-24): a video or audio card's media area plays the
 // story in place, in Bunny's player (the stub's here), with a player link signed on demand by
