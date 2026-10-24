@@ -137,7 +137,7 @@ export function StoryView({
       className="mx-auto grid w-full max-w-measure gap-x-12 [overflow-wrap:anywhere] lg:max-w-[calc(var(--container-measure)+3rem+17.5rem)] lg:grid-cols-[minmax(0,1fr)_17.5rem]"
       aria-labelledby={`story-${story.id}`}
     >
-      <div data-story-column="" className="min-w-0">
+      <div data-story-hero="" className="min-w-0">
         <Breadcrumb story={story} />
         {written ? (
           <header className="pb-8 text-center">

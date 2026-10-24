@@ -56,6 +56,7 @@ export function StoryMedia({ story }: { story: PublicStory }) {
     return (
       <div
         data-player=""
+        data-story-media=""
         className={`relative mx-auto mt-6 overflow-hidden rounded-lg bg-black ${
           isVideo ? (shaped ? '' : 'aspect-video w-full') : 'w-full'
         }`}
@@ -76,6 +77,7 @@ export function StoryMedia({ story }: { story: PublicStory }) {
   if (image?.url) {
     return (
       <Image
+        data-story-media=""
         src={image.url}
         alt={imageAlt(image)}
         width={image.width}
