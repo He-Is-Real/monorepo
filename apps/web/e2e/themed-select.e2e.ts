@@ -88,6 +88,7 @@ const optionContrast = async (select: Locator, option: Locator) =>
         outline: {
           style: s.outlineStyle,
           width: parseFloat(s.outlineWidth),
+          offset: parseFloat(s.outlineOffset),
           ratio: ratio(paint(pickerBg, s.outlineColor), paint(pickerBg)),
         },
       };
@@ -190,6 +191,11 @@ for (const scheme of ['light', 'dark'] as const) {
         expect(c.focusVisible).toBe(true);
         expect(c.outline.style).toBe('solid');
         expect(c.outline.width).toBeGreaterThanOrEqual(2);
+        // Inside the option (the site-wide ring sits 2 px outside, under the next option).
+        expect(
+          c.outline.offset + c.outline.width,
+          'ring inside the option',
+        ).toBeLessThanOrEqual(0);
         expect(
           c.outline.ratio,
           'focus ring on the picker',
