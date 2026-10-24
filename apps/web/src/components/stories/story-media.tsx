@@ -7,10 +7,22 @@ import type { PublicStory } from '@/lib/public-stories';
 // Pages render per request (`no-store`), so a page never holds a link older than the API's.
 // No autoplay (design principle): the player is told so, and `allow` grants no autoplay.
 
-const PLAYER_ALLOW = 'encrypted-media; picture-in-picture; fullscreen';
+export const PLAYER_ALLOW = 'encrypted-media; picture-in-picture; fullscreen';
+/**
+ * The shortest box Bunny's player fits its controls in (AGENTS.md: 44 px targets). Below about
+ * 176 px its button row is squeezed and the 44 px buttons spill out of the frame, whatever the
+ * width (measured on dev's real player, #77 review). A few pixels to spare.
+ */
+export const PLAYER_MIN_HEIGHT = 184;
 
-/** The signed player URL with autoplay and preload off, or `null` if it isn't http(s). */
-export function playerSrc(playbackUrl: string): string | null {
+/**
+ * The signed player URL with autoplay and preload off, or `null` if it isn't http(s). A card's
+ * player (card-player.tsx) asks for `autoplay`: it opens only when someone presses play.
+ */
+export function playerSrc(
+  playbackUrl: string,
+  { autoplay = false }: { autoplay?: boolean } = {},
+): string | null {
   let url: URL;
   try {
     url = new URL(playbackUrl);
@@ -19,8 +31,8 @@ export function playerSrc(playbackUrl: string): string | null {
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
   // The token covers only the video and expiry, so player options can be added.
-  url.searchParams.set('autoplay', 'false');
-  url.searchParams.set('preload', 'false');
+  url.searchParams.set('autoplay', String(autoplay));
+  url.searchParams.set('preload', String(autoplay));
   return url.toString();
 }
 
@@ -30,18 +42,22 @@ export function StoryMedia({ story }: { story: PublicStory }) {
   const src = media?.playbackUrl ? playerSrc(media.playbackUrl) : null;
   if (media && src) {
     const isVideo = media.format === 'video';
-    // Video keeps its real shape, no taller than most of the screen; audio gets a short bar.
-    const style: CSSProperties | undefined =
-      isVideo && media.width && media.height
-        ? {
-            aspectRatio: `${media.width} / ${media.height}`,
-            width: `min(100%, calc(75svh * ${media.width} / ${media.height}))`,
-          }
-        : undefined;
+    // Video keeps its real shape, no taller than most of the screen; audio gets a bar.
+    const shaped = isVideo && media.width && media.height;
+    // Never shorter than the player's controls need (a very wide video on a phone).
+    const style: CSSProperties = shaped
+      ? {
+          aspectRatio: `${media.width} / ${media.height}`,
+          width: `min(100%, calc(75svh * ${media.width} / ${media.height}))`,
+          minHeight: PLAYER_MIN_HEIGHT,
+          minWidth: 0, // or aspect-ratio turns the min-height into a wider minimum width
+        }
+      : { minHeight: PLAYER_MIN_HEIGHT };
     return (
       <div
-        className={`mx-auto mt-6 overflow-hidden rounded-lg bg-black ${
-          isVideo ? (style ? '' : 'aspect-video w-full') : 'h-40 w-full'
+        data-player=""
+        className={`relative mx-auto mt-6 overflow-hidden rounded-lg bg-black ${
+          isVideo ? (shaped ? '' : 'aspect-video w-full') : 'w-full'
         }`}
         style={style}
       >
@@ -51,7 +67,7 @@ export function StoryMedia({ story }: { story: PublicStory }) {
           allow={PLAYER_ALLOW}
           allowFullScreen
           loading="lazy"
-          className="block h-full w-full border-0"
+          className="absolute inset-0 block h-full w-full border-0"
         />
       </div>
     );

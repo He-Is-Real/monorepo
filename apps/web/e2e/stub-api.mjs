@@ -2,7 +2,8 @@
 // unbroken words (overflow check), a long written story (the "Continue reading" preview),
 // video, audio and image stories with stub media, 48 generated browse stories (every kind and
 // shape, D53/D55), the list, related and tags endpoints (step 6a's contract, cursors bound to
-// the filters), a 503 for "down" and 404 problems for anything else.
+// the filters), test-only stories for the hide, withdrawal and card playback tests, a 503 for
+// "down" and 404 problems for anything else.
 //
 // One process, three ports, for the three web servers in playwright.config.ts:
 // - STUB_PORT: dev as it is today (D48's relaxed consent checks on);
@@ -258,7 +259,92 @@ for (const name of ['phone-320', 'desktop-1280', 'spare']) {
     publishedAt: '2026-10-22T20:00:00Z',
   };
 }
-const onlyUnderHideTest = (s) => s.tags.some((t) => t.slug === HIDE_TEST);
+
+// Card playback (card-playback.e2e.ts): stories listed only under `tag=play-test`. Each card
+// plays from its media area; "gone" answers 404 and "down" 503 when the player is asked for.
+const PLAY_TEST = 'play-test';
+const playTag = {
+  slug: PLAY_TEST,
+  name: 'Play test',
+  category: 'theme',
+  version: 1,
+};
+const playStory = (slug, over) => {
+  stories[slug] = {
+    ...base,
+    id: slug.replaceAll('-', '_'),
+    slug,
+    description: 'Placeholder story for the card playback tests.',
+    body: null,
+    tags: [playTag],
+    publishedAt: '2026-10-22T19:00:00Z',
+    ...over,
+  };
+};
+const clip = (format, id, w, h) => [
+  mediaItem({
+    format,
+    playbackUrl: playback(id),
+    thumbnailUrl: format === 'video' ? sized(w, h) : null,
+    width: w ?? null,
+    height: h ?? null,
+  }),
+];
+playStory('play-test-video', {
+  primaryFormat: 'video',
+  title: 'Play test: a wide video',
+  media: clip('video', '11111111-1111-4111-8111-111111111111', 1920, 1080),
+});
+playStory('play-test-audio', {
+  primaryFormat: 'audio',
+  title: 'Play test: audio',
+  media: clip('audio', '22222222-2222-4222-8222-222222222222'),
+});
+playStory('play-test-written', {
+  title: 'Play test: written',
+  body: 'Placeholder text for a written story in the playback tests.',
+});
+playStory('play-test-gone', {
+  primaryFormat: 'video',
+  title: 'Play test: a story that has gone',
+  media: clip('video', '33333333-3333-4333-8333-333333333333', 1080, 1080),
+});
+playStory('play-test-down', {
+  primaryFormat: 'video',
+  title: 'Play test: the API is down',
+  media: clip('video', '44444444-4444-4444-8444-444444444444', 1080, 1350),
+});
+// Prefetch check (card-playback.e2e.ts): one video story per device project that runs it, listed
+// only under `tag=prefetch-test`. GET /__test/reads?slug= says how often its story was read.
+const PREFETCH_TEST = 'prefetch-test';
+for (const name of ['phone-320', 'desktop-1280']) {
+  playStory(`prefetch-test-${name}`, {
+    primaryFormat: 'video',
+    title: `Prefetch test (${name})`,
+    tags: [
+      {
+        slug: PREFETCH_TEST,
+        name: 'Prefetch test',
+        category: 'theme',
+        version: 1,
+      },
+    ],
+    media: clip(
+      'video',
+      `55555555-5555-4555-8555-${name === 'phone-320' ? '000000000320' : '000000001280'}`,
+      1920,
+      1080,
+    ),
+  });
+}
+const reads = new Map();
+
+/** Listed (as cards) but not readable: the story was hidden, or the API is failing. */
+const UNREADABLE = { 'play-test-gone': 404, 'play-test-down': 503 };
+
+const TEST_TAGS = [HIDE_TEST, PLAY_TEST, PREFETCH_TEST];
+const testTagOf = (s) =>
+  s.tags.find((t) => TEST_TAGS.includes(t.slug))?.slug ?? null;
 
 // A story whose related list can't load (503): its page still shows (pages.e2e.ts). Listed
 // nowhere, so the browse counts stay as they are.
@@ -271,7 +357,7 @@ stories[RELATED_DOWN] = {
   description: 'Dummy story whose related list fails.',
   body: 'Placeholder text.',
 };
-const unlisted = (s) => onlyUnderHideTest(s) || s.slug === RELATED_DOWN;
+const unlisted = (s) => testTagOf(s) !== null || s.slug === RELATED_DOWN;
 
 // The live server's withdrawal test (freshness.e2e.ts): the newest story, so it's on home, in
 // the sitemap and in other stories' related lists. Only the live port has it, so the dev
@@ -361,7 +447,7 @@ function listStories(mode, url, res) {
   let list = published(mode).filter(
     (s) =>
       s.slug !== RELATED_DOWN &&
-      (tags.includes(HIDE_TEST) || !onlyUnderHideTest(s)) &&
+      (testTagOf(s) === null || tags.includes(testTagOf(s))) &&
       tags.every((t) => s.tags.some((x) => x.slug === t)) &&
       (!format || s.primaryFormat === format) &&
       (!q ||
@@ -432,6 +518,10 @@ const handler = (mode) => (req, res) => {
     res.writeHead(204);
     return res.end();
   }
+  if (url.pathname === '/__test/reads')
+    return json(res, 200, {
+      reads: reads.get(url.searchParams.get('slug')) ?? 0,
+    });
   if (url.pathname === '/v1/stories') return listStories(mode, url, res);
   if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);
@@ -468,7 +558,19 @@ const handler = (mode) => (req, res) => {
     res.writeHead(301, { location: `/v1/stories/${alias}` });
     return res.end();
   }
-  const story = match && stories[match[1]];
+  if (match) reads.set(match[1], (reads.get(match[1]) ?? 0) + 1);
+  const unreadable = match && UNREADABLE[match[1]];
+  if (unreadable === 503) {
+    res.writeHead(503, { 'content-type': 'application/problem+json' });
+    return res.end(
+      JSON.stringify({
+        type: 'about:blank',
+        title: 'Unavailable',
+        status: 503,
+      }),
+    );
+  }
+  const story = !unreadable && match && stories[match[1]];
   if (story && onPort(mode, story)) {
     res.writeHead(200, { 'content-type': 'application/json', etag: '"1"' });
     return res.end(JSON.stringify(story));

@@ -24,6 +24,8 @@ export function RelatedStories({ stories }: { stories: StorySummary[] }) {
             <li key={s.id}>
               <Link
                 href={`/stories/${s.slug}`}
+                // No prefetch: a story's page signs its media links (D52) only when opened.
+                prefetch={false}
                 className="-mx-2 flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 text-foreground transition-colors hover:bg-surface hover:text-foreground"
               >
                 <span
