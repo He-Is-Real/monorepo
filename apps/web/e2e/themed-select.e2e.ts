@@ -49,7 +49,8 @@ const optionContrast = async (select: Locator, option: Locator) =>
     (el, sel) => {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('no 2D canvas');
       const paint = (...colours: string[]) => {
         ctx.clearRect(0, 0, 1, 1);
         for (const c of colours) {
@@ -225,8 +226,42 @@ test.describe('behaviour', () => {
     await page.goto('/stories');
     const sort = page.getByLabel('Sort', { exact: true });
     await sort.click();
-    await sort.getByRole('option', { name: 'Oldest first' }).click();
+    await settled(page);
+    // Click where the open option is, as a person would: Playwright's own scrolling to an
+    // option in the picker's top layer can lose it on a 320 px phone (Codex, #78).
+    const box = await sort
+      .getByRole('option', { name: 'Oldest first' })
+      .boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(
+      (box?.x ?? 0) + (box?.width ?? 0) / 2,
+      (box?.y ?? 0) + (box?.height ?? 0) / 2,
+    );
     await expect(page).toHaveURL(/sort=oldest/);
+  });
+});
+
+test.describe('with reduced motion', () => {
+  test.use({ reducedMotion: 'reduce' });
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !['phone-320', 'desktop-1280'].includes(info.project.name),
+      'checked on one phone and one desktop',
+    );
+  });
+
+  test('the open list appears without its fade', async ({ page }) => {
+    await page.goto('/stories');
+    const select = page.getByLabel('Format', { exact: true });
+    await select.click();
+    expect((await pickerStyle(select)).open).toBe(true);
+    const durations = await select.evaluate((el) =>
+      getComputedStyle(el, '::picker(select)')
+        .transitionDuration.split(',')
+        .map((d) => parseFloat(d)),
+    );
+    expect(durations.every((d) => d === 0)).toBe(true);
   });
 });
 
