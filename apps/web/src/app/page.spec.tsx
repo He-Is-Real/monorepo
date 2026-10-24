@@ -91,13 +91,6 @@ describe('Home page (plan 1.1)', () => {
     expect(html).toMatch(/href="\/donate"[^>]*>Give monthly</);
   });
 
-  it('publishes no photograph: the hero is a brand background (licence unconfirmed)', async () => {
-    const html = renderToStaticMarkup(await Page());
-    const hero = html.slice(0, html.indexOf('</section>'));
-    expect(hero).not.toContain('<img');
-    expect(html).not.toMatch(/hero-backdrop|backdrop\.(jpg|webp)/);
-  });
-
   it('keeps the page when the API is down', async () => {
     browse.mockRejectedValue(new StoriesUnavailableError('x'));
     tags.mockRejectedValue(new StoriesUnavailableError('x'));

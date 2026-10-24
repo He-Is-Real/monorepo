@@ -34,11 +34,16 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(
         page.getByRole('link', { name: 'Healing', exact: true }),
       ).toBeVisible();
-      // No made-up figures and no photograph until they're confirmed (2026-10-24, pending Joel).
+      // No made-up figures until they're confirmed (2026-10-24, pending Joel).
       await expect(page.getByText('Countries reached')).toHaveCount(0);
-      await expect(
-        page.locator('main > section').first().locator('img'),
-      ).toHaveCount(0);
+      // The backdrop photo loads and is decorative (empty alt).
+      const backdrop = page.locator('main > section').first().locator('img');
+      await expect(backdrop).toHaveAttribute('alt', '');
+      await expect
+        .poll(() =>
+          backdrop.evaluate((img: HTMLImageElement) => img.naturalWidth),
+        )
+        .toBeGreaterThan(0);
       await expect(
         page.getByRole('heading', { name: 'Support this work' }),
       ).toBeVisible();
