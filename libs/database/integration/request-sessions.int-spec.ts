@@ -144,27 +144,6 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     }
   });
 
-  it('surrealdb.js 2.0.8 quirk: a closed session’s renewal timer still fires unless invalidated first (fixed in 2.1.0)', async () => {
-    const errors: Error[] = [];
-    const off = connection.subscribe('error', (e) => errors.push(e));
-    try {
-      const leaky = await connection.newSession();
-      await leaky.use(scope);
-      await leaky.authenticate(t.token('user_ann', { expiresIn: 2 }));
-      await leaky.closeSession(); // no invalidate()
-      const clean = await connection.newSession();
-      await clean.use(scope);
-      await clean.authenticate(t.token('user_bob', { expiresIn: 2 }));
-      await clean.invalidate();
-      await clean.closeSession();
-      await new Promise((r) => setTimeout(r, 3_000));
-      // One error, from the leaky session's timer; none from the invalidated one.
-      expect(errors).toHaveLength(1);
-    } finally {
-      off();
-    }
-  });
-
   it('HTTP alternative: a stateless request with the person’s token as a Bearer header', async () => {
     // What surrealdb.js 2.1's `.as(token)` does over HTTP. Nothing is held per person on the
     // server; Node's fetch keeps the TCP connection alive between requests.
@@ -205,7 +184,12 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     expect(expired.status).toBe(401);
   });
 
-  it('measures the per-request cost of each approach', async () => {
+  // A measurement, not a behaviour check: 800 sequential requests whose time depends on the
+  // machine (about 14 s idle, past jest's 30 s under load). Run it when re-measuring the numbers
+  // in docs/db-permissions.md: MEASURE_REQUEST_SESSIONS=1.
+  const measure =
+    process.env['MEASURE_REQUEST_SESSIONS'] === '1' ? it : it.skip;
+  measure('measures the per-request cost of each approach', async () => {
     const N = 200;
     // One token for every iteration: signing RS256 costs ~1 ms on the client, which Clerk pays.
     const token = t.token('user_ann', { expiresIn: 300 });

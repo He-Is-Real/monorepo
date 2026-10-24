@@ -52,14 +52,23 @@
     },
     "clip-08": {
       "videoId": "5f801563-6d21-40cf-b76e-48712e3eeda6",
+      "thumbnailPath": "5f801563-6d21-40cf-b76e-48712e3eeda6/thumbnail_0e562125.jpg",
+      "width": 1280,
+      "height": 720,
       "durationSeconds": 12
     },
     "clip-09": {
       "videoId": "36cb54b8-ce30-439b-a990-b9af9ffedfb1",
+      "thumbnailPath": "36cb54b8-ce30-439b-a990-b9af9ffedfb1/thumbnail_da49c4cb.jpg",
+      "width": 1280,
+      "height": 720,
       "durationSeconds": 15
     },
     "clip-10": {
       "videoId": "4bbf70b4-01d4-4b0a-94e7-54908494a4e1",
+      "thumbnailPath": "4bbf70b4-01d4-4b0a-94e7-54908494a4e1/thumbnail_0c4abd83.jpg",
+      "width": 1280,
+      "height": 720,
       "durationSeconds": 20
     }
   },

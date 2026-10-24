@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import type { CSSProperties } from 'react';
-import { imageAlt } from '@/lib/shape';
+import { audioSize, imageAlt } from '@/lib/shape';
 import type { PublicStory } from '@/lib/public-stories';
 
 // D52: api-public-read signs every media link (Bunny token auth); web shows them as given.
@@ -42,13 +42,18 @@ export function StoryMedia({ story }: { story: PublicStory }) {
   const src = media?.playbackUrl ? playerSrc(media.playbackUrl) : null;
   if (media && src) {
     const isVideo = media.format === 'video';
-    // Video keeps its real shape, no taller than most of the screen; audio gets a bar.
-    const shaped = isVideo && media.width && media.height;
-    // Never shorter than the player's controls need (a very wide video on a phone).
-    const style: CSSProperties = shaped
+    // The player keeps the real shape, no taller than most of the screen: a video's, or an audio
+    // file's thumbnail's (Joel, 2026-10-24), so the picture before playing has no bands. Never
+    // shorter than the player's controls need (a very wide box on a phone).
+    const size = isVideo
+      ? media.width && media.height
+        ? { width: media.width, height: media.height }
+        : null
+      : audioSize(media.width, media.height);
+    const style: CSSProperties = size
       ? {
-          aspectRatio: `${media.width} / ${media.height}`,
-          width: `min(100%, calc(75svh * ${media.width} / ${media.height}))`,
+          aspectRatio: `${size.width} / ${size.height}`,
+          width: `min(100%, calc(75svh * ${size.width} / ${size.height}))`,
           minHeight: PLAYER_MIN_HEIGHT,
           minWidth: 0, // or aspect-ratio turns the min-height into a wider minimum width
         }
@@ -58,7 +63,7 @@ export function StoryMedia({ story }: { story: PublicStory }) {
         data-player=""
         data-story-media=""
         className={`relative mx-auto mt-6 overflow-hidden first:mt-0 rounded-lg bg-black ${
-          isVideo ? (shaped ? '' : 'aspect-video w-full') : 'w-full'
+          size ? '' : 'aspect-video w-full'
         }`}
         style={style}
       >

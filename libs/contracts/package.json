@@ -16,6 +16,11 @@
       "import": "./src/testing.ts",
       "default": "./src/testing.ts"
     },
+    "./media-paths": {
+      "types": "./src/media-paths.ts",
+      "import": "./src/media-paths.ts",
+      "default": "./src/media-paths.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

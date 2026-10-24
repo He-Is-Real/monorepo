@@ -1,3 +1,4 @@
+import { THUMBNAIL_PATH_CASES } from '@heisreal/contracts/media-paths';
 import { createMediaUrls, MediaUrls, mediaConfigFromEnv } from './media-urls';
 
 const ENV = {
@@ -175,6 +176,15 @@ describe('MediaUrls', () => {
       `/${VIDEO}/thumbnail_2.jpg?`,
     );
   });
+
+  // The same table the database's approval rule is tested against (fn::media::own_thumbnail):
+  // every thumbnail path is either signed here and approvable there, or neither.
+  it.each(THUMBNAIL_PATH_CASES.map((c) => [c.why, c] as const))(
+    'thumbnail path rule, shared with the database: %s',
+    (_why, c) => {
+      expect(urls.thumbnailUrl(c.videoId, c.path) !== null).toBe(c.ok);
+    },
+  );
 
   it('gives null for an unsafe path instead of signing it', () => {
     expect(urls.imageUrl('../other-zone/file.webp')).toBeNull();

@@ -127,8 +127,9 @@ run "player_controls_are_touch_sized_without_script" {
       !strcontains(lower(bunnynet_stream_library.media.player_custom_head), "<script") &&
       !strcontains(lower(bunnynet_stream_library.media.player_custom_head), "javascript:") &&
       !strcontains(lower(bunnynet_stream_library.media.player_custom_head), "@import") &&
-      !strcontains(lower(bunnynet_stream_library.media.player_custom_head), "url(")
+      !strcontains(lower(bunnynet_stream_library.media.player_custom_head), "url(") &&
+      strcontains(bunnynet_stream_library.media.player_custom_head, "background: #000")
     )
-    error_message = "The player's custom head sizes controls to 44 px and is plain CSS: no script, imports or external URLs."
+    error_message = "The player's custom head sizes controls to 44 px, makes the player opaque and is plain CSS: no script, imports or external URLs."
   }
 }

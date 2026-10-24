@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DPA_V1_SHA256,
+  MIGRATION_TIMEOUT_MS,
   rows,
   sha256,
   SCHEMA_DIR,
@@ -122,18 +123,22 @@ describe('seed 0003: the dev-only walking-skeleton story', () => {
       expect(dpa).toEqual({ kind: 'legacy', status: 'published' });
     });
 
-    it('stays a single story across later migrations, and the DPA sync accepts its file', async () => {
-      // With a publicStory row, 3.2.4 + RocksDB sometimes refuses the schema step's COMMIT with a
-      // retryable conflict (re-defining the full-text index); the runner retries it. Several
-      // runs in a row make that likely to happen here.
-      for (let run = 0; run < 5; run++) {
-        expect((await t.migrate(params())).applied).toEqual([]);
-      }
-      const migrator = await t.migrator();
-      expect(
-        await rows(migrator, 'SELECT VALUE slug FROM publicStory'),
-      ).toEqual([SLUG]);
-    });
+    it(
+      'stays a single story across later migrations, and the DPA sync accepts its file',
+      async () => {
+        // With a publicStory row, 3.2.4 + RocksDB sometimes refuses the schema step's COMMIT with a
+        // retryable conflict (re-defining the full-text index); the runner retries it. Several
+        // runs in a row make that likely to happen here.
+        for (let run = 0; run < 5; run++) {
+          expect((await t.migrate(params())).applied).toEqual([]);
+        }
+        const migrator = await t.migrator();
+        expect(
+          await rows(migrator, 'SELECT VALUE slug FROM publicStory'),
+        ).toEqual([SLUG]);
+      },
+      5 * MIGRATION_TIMEOUT_MS,
+    );
 
     it('refuses to migrate if the fixture DPA file disappears (as for any DPA)', async () => {
       const run = await t.runMigration(t.params({ seed_dev_story: true }));

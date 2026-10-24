@@ -93,8 +93,8 @@ export interface SummaryRow {
 
 /** A card; thumbnail and image links are signed by the same `MediaUrls` as the story page (D52). */
 export function toSummary(row: SummaryRow, urls: MediaUrls): StorySummary {
+  // A video's size, or an audio file's thumbnail's size (Joel, 2026-10-24): the picture shown.
   const clip = row.media?.[0];
-  const picture = clip?.format === 'video' ? clip : undefined;
   return {
     id: row.id,
     slug: row.slug,
@@ -106,8 +106,8 @@ export function toSummary(row: SummaryRow, urls: MediaUrls): StorySummary {
     thumbnailUrl: clip
       ? urls.thumbnailUrl(clip.bunnyVideoId, clip.thumbnailPath)
       : null,
-    thumbnailWidth: picture?.width ?? null,
-    thumbnailHeight: picture?.height ?? null,
+    thumbnailWidth: clip?.width ?? null,
+    thumbnailHeight: clip?.height ?? null,
     image: row.image
       ? {
           url: urls.imageUrl(row.image.path),

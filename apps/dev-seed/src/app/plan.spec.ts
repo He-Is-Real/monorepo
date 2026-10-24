@@ -4,6 +4,7 @@ import {
   type BunnyMedia,
   CLIPS,
   type ClipId,
+  DEFAULT_AUDIO_THUMBNAIL,
   IMAGES,
   type ImageId,
 } from './media';
@@ -195,7 +196,12 @@ describe('the committed media record (bunny-media.json)', () => {
           clip.height,
         ]);
       } else {
-        expect(uploaded?.width).toBeUndefined();
+        // Audio: the site's default audio thumbnail and its size (Joel, 2026-10-24).
+        expect(uploaded?.thumbnailPath).toMatch(/\/thumbnail_[0-9a-f]+\.jpg$/);
+        expect([uploaded?.width, uploaded?.height]).toEqual([
+          DEFAULT_AUDIO_THUMBNAIL.width,
+          DEFAULT_AUDIO_THUMBNAIL.height,
+        ]);
       }
     }
     for (const [id, image] of Object.entries(IMAGES)) {
@@ -235,8 +241,13 @@ describe('buildVars', () => {
     ]);
     expect(v01?.publishedAt).toEqual(new Date('2026-10-21T12:00:00Z'));
     const a01 = vars.stories.find((s) => s.id === 'seed_a01');
+    // An audio story's size is its thumbnail's: the site's default (Joel, 2026-10-24).
     expect(a01?.draft['media']).toEqual([
-      expect.not.objectContaining({ width: expect.anything() }),
+      expect.objectContaining({
+        thumbnailPath: 'test-video-clip-08/thumbnail_0a1b2c3d.jpg',
+        width: 1280,
+        height: 720,
+      }),
     ]);
     const w05 = vars.stories.find((s) => s.id === 'seed_w05');
     expect(w05?.draft['image']).toEqual({

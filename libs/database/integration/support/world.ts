@@ -41,8 +41,9 @@ export function submit(person: SurrealQueryable, id: string): Promise<Row[]> {
 
 /**
  * M7 processing as workflow will record it (A2): every media item and the image `ready`, with
- * the facts processing found (a video's size and duration, an audio file's duration). Approval
- * and publishing are refused until then.
+ * the facts processing found (a video's size and duration; an audio file's duration and its
+ * thumbnail, by default the site's 1280 x 720 default audio thumbnail, with that picture's size).
+ * Approval and publishing are refused until then.
  */
 export function processed(
   workflow: SurrealQueryable,
@@ -56,7 +57,9 @@ export function processed(
          { processing: 'ready', durationSeconds: $m.durationSeconds ?? $durationSeconds,
            width: $m.width ?? 1080, height: $m.height ?? 1920 }
        } ELSE {
-         { processing: 'ready', durationSeconds: $m.durationSeconds ?? $durationSeconds }
+         { processing: 'ready', durationSeconds: $m.durationSeconds ?? $durationSeconds,
+           thumbnailPath: $m.thumbnailPath ?? ($m.bunnyVideoId + '/thumbnail_0a1b2c3d.jpg'),
+           width: $m.width ?? 1280, height: $m.height ?? 720 }
        })),
        image = IF image != NONE { object::extend(image, { processing: 'ready' }) }`,
     { id, durationSeconds },
