@@ -15,6 +15,18 @@ export function cardAspect(
   return Math.min(CARD_ASPECT.max, Math.max(CARD_ASPECT.min, width / height));
 }
 
+/**
+ * The site's default audio thumbnail's size (apps/dev-seed/media; processing sets it on audio
+ * without the person's own image). An audio story's width and height are its thumbnail's (Joel,
+ * 2026-10-24); a published one always has them, this is only the fallback.
+ */
+export const DEFAULT_AUDIO_THUMBNAIL = { width: 1280, height: 720 } as const;
+
+/** An audio story's picture size: its thumbnail's, or the default thumbnail's. */
+export function audioSize(width: number | null, height: number | null) {
+  return width && height ? { width, height } : DEFAULT_AUDIO_THUMBNAIL;
+}
+
 /** Shown when the person gave no description of their image (D53). */
 export const DEFAULT_IMAGE_ALT = 'A photo shared with this story';
 

@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
-import { cardAspect } from '@/lib/shape';
+import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
 
 // A story's card (browse, home, related). Its parts and sizes mirror lib/masonry.ts, which
@@ -54,7 +54,19 @@ function mediaOf(story: StorySummary, uniform: boolean) {
       width: story.thumbnailWidth,
       height: story.thumbnailHeight,
     };
-  if (format === 'audio') return { aspect: 2, src: null };
+  if (format === 'audio') {
+    // Its thumbnail (the person's image or the site's default), at that picture's shape.
+    const { width, height } = audioSize(
+      story.thumbnailWidth,
+      story.thumbnailHeight,
+    );
+    return {
+      aspect: cardAspect(width, height),
+      src: story.thumbnailUrl,
+      width,
+      height,
+    };
+  }
   if (image)
     return {
       aspect: cardAspect(image.width, image.height),

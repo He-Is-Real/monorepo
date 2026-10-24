@@ -17,7 +17,8 @@ import { approve, processed, submit } from './support/world';
  * person's value is ignored, api-admin's is dropped. Changing an item or the image in any way
  * (another upload, another size, another alt text) sets it back to NONE. The database refuses
  * `status → approved`, and any publicStory write, unless every item is 'ready' with its facts:
- * a video its width, height and duration, an audio file its duration, the image 'ready'.
+ * a video its width, height and duration, an audio file its duration and its thumbnail with
+ * that picture's width and height (Joel, 2026-10-24), the image 'ready'.
  */
 describe('approval waits for media processing (A2)', () => {
   let t: TestDatabase;
@@ -327,6 +328,13 @@ describe('approval waits for media processing (A2)', () => {
         audio,
         `media[0].processing = 'ready'`,
         'an audio file needs its duration',
+      ],
+      [
+        'a ready audio file without its thumbnail’s size',
+        audio,
+        `media[0].processing = 'ready', media[0].durationSeconds = 30,
+         media[0].thumbnailPath = 'aud/thumbnail_0a1b2c3d.jpg'`,
+        'an audio file needs its thumbnail and that picture’s width and height',
       ],
       [
         'an unchecked image',

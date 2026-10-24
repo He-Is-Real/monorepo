@@ -78,9 +78,15 @@ describe('predictHeight (D55: fixed parts + clamped media + text)', () => {
     expect(h(card({ tags }))).toBeGreaterThan(h(card()));
   });
 
-  it('gives audio a 2:1 band and grows narrower cards’ text', () => {
+  it('gives audio its thumbnail’s shape (the default’s 16:9 without one) and grows narrower cards’ text', () => {
     const audio = card({ primaryFormat: 'audio', durationSeconds: 30 });
-    expect(h(audio)).toBe(h(video(2000, 1000)));
+    expect(h(audio)).toBe(h(video(1280, 720)));
+    const own = card({
+      primaryFormat: 'audio',
+      thumbnailWidth: 1080,
+      thumbnailHeight: 1350,
+    });
+    expect(h(own)).toBe(h(video(1080, 1350)));
     // A written story without an image has no media: only its text grows when narrow.
     const long = card({ title: 'A longer title that wraps on a narrow card' });
     expect(h(long, 200)).toBeGreaterThan(h(long, 400));

@@ -60,7 +60,18 @@ git add apps/dev-seed/src/app/bunny-media.json  # commit it in a PR
 **Uploaded on 2026-10-23** to the dev library (786537) and storage zone: 7 video clips, 3 audio
 clips and 5 images, all encoded with the spec's sizes and lengths. Bunny Stream accepts audio-only
 MP3s: it encodes them as a blank 1280x720 video at 360p, 480p and 720p (about 1 MB each), so
-`bunny-media.json` keeps only their length (audio has no width or height in the schema).
+`bunny-media.json` keeps their length; their width and height are their thumbnail's (below).
+
+**Audio clips use the site's default audio thumbnail** (since 2026-10-24), not Bunny's speaker
+poster: `upload-media` sets `media/default-audio-thumbnail.jpg` on each audio clip that still has
+Bunny's `thumbnail.jpg` (Stream API "Set Thumbnail"; Bunny stores it as `thumbnail_<hash>.jpg`)
+and records that `thumbnailPath` with the picture's size (1280x720, `DEFAULT_AUDIO_THUMBNAIL`):
+an audio story's width and height are its thumbnail's (Joel, 2026-10-24). A new thumbnail is changed media for a story already approved
+(D59/D60), so run "Reset dev data" after committing the new `bunny-media.json`: the stories are
+seeded again with it. The image's source is `media/default-audio-thumbnail.svg`; render it with
+`magick -density 96 default-audio-thumbnail.svg -quality 82 -sampling-factor 4:2:0 -strip
+default-audio-thumbnail.jpg` (1280x720, about 26 KB). The waveform stays inside rows 260-460, so
+it survives the player's cover crop into a wide audio bar.
 
 `upload-media` finds each clip by its title (`dev-seed/<id>`) and each image by its path
 (`dev-seed/<id>.webp`) and uploads only what's missing, so a second run uploads nothing. It waits

@@ -340,10 +340,16 @@ describe('story types and shapes (D53)', () => {
       );
     });
 
-    it('refuses a width and height on audio (no picture)', async () => {
+    it('keeps an audio file’s thumbnail size, within 1:3 to 3:1 (Joel, 2026-10-24)', async () => {
+      expect(
+        await created(
+          `primaryFormat: 'audio', media: [{ format: 'audio', bunnyVideoId: 'a',
+             thumbnailPath: 'a/thumbnail_0a1b2c3d.jpg', width: 1280, height: 720 }]`,
+        ),
+      ).toBeTruthy();
       await refused(
-        `primaryFormat: 'audio', media: [{ format: 'audio', width: 100, height: 100 }]`,
-        'audio has no width or height',
+        `primaryFormat: 'audio', media: [{ format: 'audio', width: 100, height: 400 }]`,
+        'shape is beyond 1:3 or 3:1',
       );
     });
 

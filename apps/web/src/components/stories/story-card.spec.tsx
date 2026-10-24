@@ -97,14 +97,14 @@ describe('StoryCard', () => {
     expect(media.style.aspectRatio).toBe(String(1920 / 1080));
   });
 
-  it('gives audio a 2:1 band with the teller’s initial', () => {
+  it('gives audio its thumbnail’s shape, with the teller’s initial until there is a picture', () => {
     const { container } = render(
       <StoryCard
         story={{ ...base, primaryFormat: 'audio', durationSeconds: 30 }}
       />,
     );
     const media = container.querySelector('[data-card-media]') as HTMLElement;
-    expect(media.style.aspectRatio).toBe('2');
+    expect(Number(media.style.aspectRatio)).toBeCloseTo(1280 / 720);
     expect(media.textContent).toContain('T');
     expect(screen.getByText('Audio · 0:30')).toBeTruthy();
   });

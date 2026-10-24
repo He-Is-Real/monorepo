@@ -70,18 +70,18 @@ describe('StoryMedia', () => {
     expect(html).toContain('loading="lazy"');
   });
 
-  it('gives audio a short player', () => {
+  it('gives audio its thumbnail’s shape', () => {
     const html = renderToStaticMarkup(
       <StoryMedia
         story={{
           ...base,
           primaryFormat: 'audio',
-          media: [video({ format: 'audio', width: null, height: null })],
+          media: [video({ format: 'audio', width: 1080, height: 1350 })],
         }}
       />,
     );
     expect(html).toContain('title="Audio: A story"');
-    expect(html).not.toContain('aspect-ratio');
+    expect(html).toContain('aspect-ratio:1080 / 1350');
   });
 
   it('shows a written story’s signed image with its alt text, or the neutral default', () => {

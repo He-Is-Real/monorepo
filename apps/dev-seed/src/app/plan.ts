@@ -8,6 +8,7 @@ import {
   type BunnyMedia,
   CLIPS,
   type ClipId,
+  DEFAULT_AUDIO_THUMBNAIL,
   IMAGES,
   type ImageId,
   imagePath,
@@ -276,8 +277,8 @@ function mediaItem(clip: ClipId, media: BunnyMedia, processing?: string) {
     format: CLIPS[clip].kind,
     bunnyVideoId: uploaded.videoId,
     thumbnailPath: uploaded.thumbnailPath,
-    width: CLIPS[clip].kind === 'video' ? uploaded.width : undefined,
-    height: CLIPS[clip].kind === 'video' ? uploaded.height : undefined,
+    width: uploaded.width,
+    height: uploaded.height,
     durationSeconds: uploaded.durationSeconds,
     processing,
   });
@@ -312,10 +313,13 @@ export function fakeUploads(): BunnyMedia {
         id,
         compact({
           videoId: `test-video-${id}`,
+          // Audio: the site's default thumbnail, a custom upload (upload.ts).
           thumbnailPath:
-            c.kind === 'video' ? `test-video-${id}/thumbnail.jpg` : undefined,
-          width: 'width' in c ? c.width : undefined,
-          height: 'height' in c ? c.height : undefined,
+            c.kind === 'video'
+              ? `test-video-${id}/thumbnail.jpg`
+              : `test-video-${id}/thumbnail_0a1b2c3d.jpg`,
+          width: 'width' in c ? c.width : DEFAULT_AUDIO_THUMBNAIL.width,
+          height: 'height' in c ? c.height : DEFAULT_AUDIO_THUMBNAIL.height,
           durationSeconds: c.durationSeconds,
         }),
       ]),
