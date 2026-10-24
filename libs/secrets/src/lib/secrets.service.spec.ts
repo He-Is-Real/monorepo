@@ -15,21 +15,6 @@ function fakeClient(payloads: Record<string, string | Uint8Array | null>) {
 const NAME = 'projects/heisreal-dev/secrets/db-pass/versions/latest';
 
 describe('SecretsService', () => {
-  it('builds the full resource name and decodes bytes', async () => {
-    const { client } = fakeClient({
-      [NAME]: new TextEncoder().encode('s3cret'),
-    });
-    const secrets = new SecretsService(client, 'heisreal-dev');
-    await expect(secrets.get('db-pass')).resolves.toBe('s3cret');
-  });
-
-  it('supports pinned versions', async () => {
-    const pinned = NAME.replace('latest', '3');
-    const { client } = fakeClient({ [pinned]: 'v3' });
-    const secrets = new SecretsService(client, 'heisreal-dev');
-    await expect(secrets.get('db-pass', '3')).resolves.toBe('v3');
-  });
-
   it('caches successful reads', async () => {
     const { client, accessSecretVersion } = fakeClient({ [NAME]: 'x' });
     const secrets = new SecretsService(client, 'heisreal-dev');

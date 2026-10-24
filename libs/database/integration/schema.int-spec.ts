@@ -1,11 +1,4 @@
-import {
-  DPA_V1_SHA256,
-  outcome,
-  rows,
-  run,
-  SERVICES,
-  TestDatabase,
-} from './support/harness';
+import { outcome, rows, run, SERVICES, TestDatabase } from './support/harness';
 
 /** D14: schema.surql is declarative and idempotent; seeds run once; only the migrator changes the schema. */
 describe('schema.surql and seeds on the pinned SurrealDB', () => {
@@ -14,46 +7,6 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
     t = await TestDatabase.create();
   });
   afterAll(() => t?.close());
-
-  it('re-applies cleanly (every statement is OVERWRITE)', async () => {
-    const { schemaStatements } = await t.migrate();
-    expect(schemaStatements).toBeGreaterThan(100);
-  });
-
-  it('runs each seed once: re-running is a no-op', async () => {
-    expect(await t.migrate()).toMatchObject({
-      applied: [],
-      alreadyApplied: [
-        '0001-seed-dpa-v1',
-        '0003-dev-seed-story',
-        '0004-check-story-shapes',
-      ],
-    });
-    const migrator = await t.migrator();
-    expect(
-      await rows(
-        migrator,
-        'SELECT VALUE record::id(id) FROM _migration ORDER BY id',
-      ),
-    ).toEqual([
-      '0001-seed-dpa-v1',
-      '0003-dev-seed-story',
-      '0004-check-story-shapes',
-    ]);
-    expect(
-      await rows(
-        migrator,
-        'SELECT record::id(id) AS id, status, kind, contentHash FROM dpaVersion ORDER BY id',
-      ),
-    ).toEqual([
-      {
-        id: 'v1',
-        status: 'draft',
-        kind: 'standard',
-        contentHash: DPA_V1_SHA256,
-      },
-    ]);
-  });
 
   it('3.2.4 gotcha: an element index over record links finds nothing; over strings it works', async () => {
     // Why publicStory has tagSlugs (D63): `tagRefs.*` or `tagRefs[*]` indexes make

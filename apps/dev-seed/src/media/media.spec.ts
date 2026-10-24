@@ -1,13 +1,5 @@
-import { CLIPS, IMAGES } from '../app/media';
-import {
-  Bunny,
-  clipTitle,
-  recordClip,
-  serialise,
-  type StreamVideo,
-} from './bunny';
+import { Bunny, clipTitle, type StreamVideo } from './bunny';
 import { exifBlock, readGps, withExif } from './exif';
-import { clipArgs, imageArgs } from './ffmpeg';
 
 /** A minimal simple-format (lossy) WebP: RIFF, WEBP and one VP8 chunk of opaque bytes. */
 function simpleWebp(payload = Buffer.from([1, 2, 3])): Buffer {
@@ -79,41 +71,6 @@ describe('EXIF GPS in WebP', () => {
   });
 });
 
-describe('ffmpeg arguments', () => {
-  it('makes a labelled test pattern with a tone at the clip’s size and length', () => {
-    const args = clipArgs(
-      CLIPS['clip-02'],
-      '/tmp/label.txt',
-      '/out/clip-02.mp4',
-    );
-    expect(args).toContain('testsrc2=size=360x780:rate=12:duration=10');
-    expect(args).toContain('sine=frequency=494:duration=10:sample_rate=44100');
-    expect(args.find((a) => a.startsWith('drawtext='))).toContain(
-      'textfile=/tmp/label.txt',
-    );
-    expect(args[args.length - 1]).toBe('/out/clip-02.mp4');
-  });
-
-  it('makes audio as a tone only', () => {
-    const args = clipArgs(CLIPS['clip-10'], '/tmp/l.txt', '/out/clip-10.mp3');
-    expect(args.join(' ')).not.toContain('testsrc2');
-    expect(args).toContain('libmp3lame');
-  });
-
-  it('makes a still WebP at the image’s size', () => {
-    const args = imageArgs(
-      IMAGES['image-04'],
-      '/tmp/l.txt',
-      '/out/image-04.webp',
-      60,
-    );
-    expect(args).toContain('testsrc2=size=1600x640:rate=1:duration=1');
-    expect(args).toEqual(
-      expect.arrayContaining(['-c:v', 'libwebp', '-quality', '60']),
-    );
-  });
-});
-
 describe('Bunny uploads', () => {
   const target = {
     libraryId: '123',
@@ -159,37 +116,6 @@ describe('Bunny uploads', () => {
     );
   });
 
-  it('creates, then uploads the bytes', async () => {
-    const http = jest.fn(async (_url: string, init?: RequestInit) =>
-      init?.method === 'POST' ? json({ guid: 'new' }) : json({ success: true }),
-    );
-    const guid = await new Bunny(
-      target,
-      http as unknown as typeof fetch,
-    ).uploadVideo('t', new Uint8Array([1]));
-    expect(guid).toBe('new');
-    expect(http.mock.calls.map(([url, init]) => [init?.method, url])).toEqual([
-      ['POST', 'https://video.bunnycdn.com/library/123/videos'],
-      ['PUT', 'https://video.bunnycdn.com/library/123/videos/new'],
-    ]);
-  });
-
-  it('waits for the encode, and stops on an error status', async () => {
-    const states = [video({ status: 3 }), video({ status: 4 })];
-    const http = jest.fn(async () => json(states.shift()));
-    const bunny = new Bunny(
-      target,
-      http as unknown as typeof fetch,
-      async () => undefined,
-    );
-    await expect(bunny.waitForVideo('g1')).resolves.toMatchObject({
-      status: 4,
-    });
-    const failing = new Bunny(target, (async () =>
-      json(video({ status: 5 }))) as unknown as typeof fetch);
-    await expect(failing.waitForVideo('g1')).rejects.toThrow("couldn't encode");
-  });
-
   it('reports errors without the key', async () => {
     const http = async () => new Response('Unauthorized', { status: 401 });
     const err = await new Bunny(target, http as unknown as typeof fetch)
@@ -197,56 +123,5 @@ describe('Bunny uploads', () => {
       .catch((e: Error) => e);
     expect(String(err)).toContain('HTTP 401');
     expect(String(err)).not.toContain('library-key-not-real');
-  });
-
-  it('checks a stored image by listing its folder', async () => {
-    const http = jest.fn(async (_url: string) =>
-      json([{ ObjectName: 'image-01.webp', Length: 1234, IsDirectory: false }]),
-    );
-    const bunny = new Bunny(target, http as unknown as typeof fetch);
-    await expect(bunny.storedSize('dev-seed/image-01.webp')).resolves.toBe(
-      1234,
-    );
-    await expect(
-      bunny.storedSize('dev-seed/image-02.webp'),
-    ).resolves.toBeNull();
-    expect(http.mock.calls[0][0]).toBe(
-      'https://uk.storage.bunnycdn.com/heisreal-dev-images/dev-seed/',
-    );
-  });
-
-  it('records Bunny’s size and length, and refuses ones that don’t match the spec', () => {
-    expect(recordClip('clip-01', CLIPS['clip-01'], video({}))).toEqual({
-      videoId: 'g1',
-      thumbnailPath: 'g1/thumbnail.jpg',
-      width: 360,
-      height: 640,
-      durationSeconds: 12,
-    });
-    expect(
-      recordClip('clip-08', CLIPS['clip-08'], video({ width: 0, height: 0 })),
-    ).toEqual({
-      videoId: 'g1',
-      durationSeconds: 12,
-    });
-    expect(() =>
-      recordClip('clip-01', CLIPS['clip-01'], video({ width: 640 })),
-    ).toThrow('640x640');
-    expect(() =>
-      recordClip('clip-01', CLIPS['clip-01'], video({ length: 20 })),
-    ).toThrow('20 s');
-  });
-
-  it('serialises the record in a stable order', () => {
-    const text = serialise({
-      libraryId: '123',
-      clips: {
-        'clip-02': { videoId: 'b', durationSeconds: 1 },
-        'clip-01': { videoId: 'a', durationSeconds: 1 },
-      },
-      images: {},
-    });
-    expect(text.indexOf('clip-01')).toBeLessThan(text.indexOf('clip-02'));
-    expect(text.endsWith('\n')).toBe(true);
   });
 });

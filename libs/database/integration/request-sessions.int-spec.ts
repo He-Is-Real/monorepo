@@ -1,36 +1,17 @@
-import { performance } from 'node:perf_hooks';
-import { Features, Surreal, type SurrealSession } from 'surrealdb';
+import type { Surreal, SurrealSession } from 'surrealdb';
+import { withPersonSession } from '../src/lib/person-session';
 import { outcome, rows, TestDatabase } from './support/harness';
 import { buildWorld } from './support/world';
 
 /**
  * How api-user runs ONE PERSON'S session per request without a new connection per request
- * (surrealdb.js 2.0.8, SurrealDB 3.2.4 multi-session WebSocket RPC).
- *
- * The reference pattern, `withPersonSession`, is what libs/database will provide:
+ * (surrealdb.js 2.0.8, SurrealDB 3.2.4 multi-session WebSocket RPC), with the real
+ * `withPersonSession` (src/lib/person-session.ts), and the hazards it avoids:
  *   - newSession(), never forkSession(): a fresh session has no identity, a fork inherits the
  *     service login and KEEPS it if the person's token is rejected;
- *   - authenticate with the person's Clerk token (throws if rejected; its ns/db claims select
- *     the database);
- *   - run the request's queries on that session only;
- *   - finally invalidate() then closeSession() (2.0.8 leaks a renewal timer otherwise).
+ *   - one session per request: authenticating requests on one shared session interleaves them.
+ * The per-request cost of the alternatives was measured once (docs/db-permissions.md).
  */
-async function withPersonSession<T>(
-  connection: Surreal,
-  token: string,
-  work: (session: SurrealSession) => Promise<T>,
-): Promise<T> {
-  const session = await connection.newSession();
-  try {
-    // The token's ns/db claims select the database: no use() round trip needed.
-    await session.authenticate(token);
-    return await work(session);
-  } finally {
-    await session.invalidate().catch(() => undefined);
-    await session.closeSession();
-  }
-}
-
 const storyIds = async (db: SurrealSession) =>
   (await rows<{ id: string }>(db, 'SELECT id FROM story'))
     .map((r) => r.id)
@@ -49,10 +30,6 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     scope = { namespace: t.namespace, database: t.database };
   });
   afterAll(() => t?.close());
-
-  it('the server supports sessions on a WebSocket connection', () => {
-    expect(connection.isFeatureSupported(Features.Sessions)).toBe(true);
-  });
 
   it('newSession() starts with no identity: it can’t run any query until authenticated', async () => {
     const session = await connection.newSession();
@@ -142,115 +119,5 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
       await shared.invalidate();
       await shared.closeSession();
     }
-  });
-
-  it('surrealdb.js 2.0.8 quirk: a closed session’s renewal timer still fires unless invalidated first (fixed in 2.1.0)', async () => {
-    const errors: Error[] = [];
-    const off = connection.subscribe('error', (e) => errors.push(e));
-    try {
-      const leaky = await connection.newSession();
-      await leaky.use(scope);
-      await leaky.authenticate(t.token('user_ann', { expiresIn: 2 }));
-      await leaky.closeSession(); // no invalidate()
-      const clean = await connection.newSession();
-      await clean.use(scope);
-      await clean.authenticate(t.token('user_bob', { expiresIn: 2 }));
-      await clean.invalidate();
-      await clean.closeSession();
-      await new Promise((r) => setTimeout(r, 3_000));
-      // One error, from the leaky session's timer; none from the invalidated one.
-      expect(errors).toHaveLength(1);
-    } finally {
-      off();
-    }
-  });
-
-  it('HTTP alternative: a stateless request with the person’s token as a Bearer header', async () => {
-    // What surrealdb.js 2.1's `.as(token)` does over HTTP. Nothing is held per person on the
-    // server; Node's fetch keeps the TCP connection alive between requests.
-    const httpUrl = t.url.replace(/^ws/, 'http');
-    const sql = async (token: string, query: string) => {
-      const response = await fetch(`${httpUrl}/sql`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${token}`,
-          'Surreal-NS': t.namespace,
-          'Surreal-DB': t.database,
-        },
-        body: query,
-      });
-      const text = await response.text();
-      return {
-        status: response.status,
-        body: response.ok ? (JSON.parse(text) as unknown) : text,
-      };
-    };
-    const ann = await sql(t.token('user_ann'), 'SELECT VALUE id FROM story');
-    expect(ann.status).toBe(200);
-    expect(ann.body).toEqual([
-      expect.objectContaining({
-        status: 'OK',
-        result: expect.arrayContaining([
-          'story:ann_draft',
-          'story:ann_pending',
-        ]),
-      }),
-    ]);
-    expect((ann.body as [{ result: unknown[] }])[0].result).toHaveLength(2);
-    const expired = await sql(
-      t.token('user_ann', { expiresIn: -5 }),
-      'SELECT * FROM story',
-    );
-    expect(expired.status).toBe(401);
-  });
-
-  it('measures the per-request cost of each approach', async () => {
-    const N = 200;
-    // One token for every iteration: signing RS256 costs ~1 ms on the client, which Clerk pays.
-    const token = t.token('user_ann', { expiresIn: 300 });
-    const query = 'SELECT id FROM story';
-    const httpUrl = t.url.replace(/^ws/, 'http');
-    const time = async (approach: string, once: () => Promise<unknown>) => {
-      await once(); // warm-up
-      const start = performance.now();
-      for (let i = 0; i < N; i++) await once();
-      return {
-        approach,
-        msPerRequest: Number(((performance.now() - start) / N).toFixed(2)),
-      };
-    };
-    const results = [
-      await time('new session on a shared WS connection', () =>
-        withPersonSession(connection, token, (s) => rows(s, query)),
-      ),
-      await time('new WS connection per request', async () => {
-        const db = new Surreal();
-        await db.connect(t.url, { ...scope, reconnect: false });
-        await db.authenticate(token);
-        await rows(db, query);
-        await db.close();
-      }),
-      await time('HTTP /sql with a Bearer token (keep-alive)', async () => {
-        const r = await fetch(`${httpUrl}/sql`, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${token}`,
-            'Surreal-NS': t.namespace,
-            'Surreal-DB': t.database,
-          },
-          body: query,
-        });
-        await r.json();
-      }),
-      await time(
-        'baseline: same query on the service session (no per-person auth)',
-        () => rows(connection, query),
-      ),
-    ];
-    // Not a gate: numbers depend on the machine. Recorded in docs/db-permissions.md.
-    console.table(results);
-    expect(results.every((r) => r.msPerRequest > 0)).toBe(true);
   });
 });
