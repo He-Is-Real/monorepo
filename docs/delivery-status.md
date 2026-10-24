@@ -359,18 +359,18 @@ From `project/context/research/test-inventory.html` (every test file judged agai
 "Tests measure behaviour"). Built in separate PRs: A deletions, trims and MOVE-UP rebuilds; B CI
 wiring; C responsive and the device matrix; D WebKit; E local equals CI.
 
-| #   | Decision                                                                                                                                                                  | State                     |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| T1  | **Delete or trim small tests that a browser or real-database test already covers**, per the inventory's per-file verdicts. MOVE-UP checks are rebuilt higher up first.    | Built in PR A             |
-| T2  | **No api-user/api-admin route tests until a page uses the route.** Each app's start-up check stays (D21, D1), and the D29 retry-key test is rebuilt below the HTTP route. | Built in PR A             |
-| T3  | **The web e2e stub and api-public-read are checked against one OpenAPI contract; the dev behavioural suite runs after each dev deploy.**                                  | Built in #73              |
-| T4  | **Same result locally and in CI:** 0 retries, the same explicit worker counts, ports from config, fake Clerk outside the real-Clerk tests, no timing-dependent tests.     | Built in #75              |
-| T5  | **OpenTofu tests block merges** (the required CI job, offline: mock providers and plan-only).                                                                             | Built in #73              |
-| T6  | **Device matrix 16 → 14:** drop 5 look-alikes, add 2 phones in landscape and one device between 480 and 767 px.                                                           | Built in #74              |
-| T7  | **Responsive additions:** signed-in header with a long name, 200% text, the footer in the 44 px check, line length, menus and popups open at every width.                 | Built in #74              |
-| T8  | **No screenshot comparison.** Screenshots stay images to look at, on 4 sizes (320, 768, 1280, 2560), uploaded as a 7-day CI artifact, never committed.                    | Built in #74              |
-| T9  | **WebKit on 2 devices**, kept only if it proves reliable and fast enough on Linux (Safari is a lower priority).                                                           | PR D (#76), Joel deciding |
-| T10 | **Depth: the inventory's plan (about −47% of quick-test cases)**, open to further low-value deletions.                                                                    | Built in PR A             |
+| #   | Decision                                                                                                                                                                                         | State                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
+| T1  | **Delete or trim small tests that a browser or real-database test already covers**, per the inventory's per-file verdicts. MOVE-UP checks are rebuilt higher up first.                           | Built in PR A             |
+| T2  | **No api-user/api-admin route tests until a page uses the route.** Each app's start-up check stays (D21, D1), and the D29 retry-key test is rebuilt below the HTTP route.                        | Built in PR A             |
+| T3  | **The web e2e stub and api-public-read are checked against one OpenAPI contract; the dev behavioural suite runs after each dev deploy.**                                                         | Built in #73              |
+| T4  | **Same result locally and in CI:** 0 retries, the same explicit worker counts, ports from config, a stand-in for Clerk (the real one is checked on dev), no internet, no timing-dependent tests. | Built in #75              |
+| T5  | **OpenTofu tests block merges** (the required CI job, offline: mock providers and plan-only).                                                                                                    | Built in #73              |
+| T6  | **Device matrix 16 → 14:** drop 5 look-alikes, add 2 phones in landscape and one device between 480 and 767 px.                                                                                  | Built in #74              |
+| T7  | **Responsive additions:** signed-in header with a long name, 200% text, the footer in the 44 px check, line length, menus and popups open at every width.                                        | Built in #74              |
+| T8  | **No screenshot comparison.** Screenshots stay images to look at, on 4 sizes (320, 768, 1280, 2560), uploaded as a 7-day CI artifact, never committed.                                           | Built in #74              |
+| T9  | **WebKit on 2 devices**, kept only if it proves reliable and fast enough on Linux (Safari is a lower priority).                                                                                  | PR D (#76), Joel deciding |
+| T10 | **Depth: the inventory's plan (about −47% of quick-test cases)**, open to further low-value deletions.                                                                                           | Built in PR A             |
 
 Notes from PR A:
 
@@ -386,9 +386,30 @@ Notes from PR A:
   signed player and thumbnail and hourly ETag (D52) in api-public-read's integration tests; D29's
   retry-key test on the consent ledger with a person session, no HTTP route.
 - **The e2e stub plays three roles** (`apps/web/e2e/servers.ts`): dev as today, Go live (indexing
-  on, D48 off) and api-public-read down, each behind its own copy of the built site (two more are
-  #71's signed-in fixture and #75's real-Clerk server). Every port moves with `E2E_PORT_BASE`
-  (replacing #71's and #75's `E2E_*_PORT` variables), so two checkouts can run the suite at once.
+  on, D48 off) and api-public-read down, each behind its own copy of the built site (one more is
+  #71's signed-in fixture). Every port moves with `E2E_PORT_BASE` (replacing #71's and #75's
+  `E2E_*_PORT` variables), so two checkouts can run the suite at once.
+- **The e2e suite needs no internet (Codex review of #72, round 3):** #75's real-Clerk server
+  loaded Clerk's script over the network and failed under load, so its two tests (Clerk's Sign in
+  fits and opens; no optional telemetry) moved to the dev behavioural suite
+  (`apps/dev-seed/behavioural/clerk.behaviour.ts`), which runs on the deployed site with the real
+  Clerk after each deploy. CI keeps the stand-in checks (header, targets, signed in and out).
+- **A withdrawn story is gone on the next request (D51, Art 9; Codex review of #72, round 3):**
+  `freshness.e2e.ts` withdraws a story in the stub on the Go-live server and checks the story page
+  (404, no text, title or share preview), another story's related list, home's newest stories and
+  the sitemap. It replaces the unit test of the story fetch's options, and fails if the story,
+  related or browse fetch is cached or the sitemap keeps its last walk.
+- **Wait ceilings (Codex review of #72, round 3):** e2e waits are for conditions; their ceilings
+  are now 15 s per expectation and 60 s per test (from 5 s and 30 s). The error page and the
+  account panel appear only after hydration, which took 6–9 s under a 20× CPU throttle and
+  failed with no retries.
+- **The masonry's first paint never overlaps (D55; found by the same loaded runs):** the server
+  predicted spans at one card width per column count (about 337 px for 3 columns), but cards
+  are 357 px wide from 1280 px, so 9:16 videos came out up to 35 px short and overlapped the
+  next card until the browser measured them (and for good without JavaScript). Predictions now
+  use the widest card for media and the narrowest for text, so they err tall (a gap until
+  measured, never an overlap). `pages.e2e.ts` checks the unmeasured layout, without
+  JavaScript, on every multi-column device.
 - **`account-control.spec.tsx` keeps 2 of 4 cases:** the signed-in e2e (#71, `header.e2e.ts`)
   covers the name, the panel and Sign out on every device, but its fixture bypasses Clerk, so
   the email fallback and the loading state stay as unit cases.

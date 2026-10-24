@@ -235,12 +235,14 @@ for (let i = 0; i < 48; i++) {
   };
 }
 
-// Test hooks for "a hidden story disappears on the next server render" (pages.e2e.ts): stories
-// listed only under `tag=hide-test`, one per device project, each hidden or shown again by
-// POST /__test/hide?slug= and /__test/show?slug= (projects run in parallel, so each hides its
-// own). Nothing else lists them.
+// Test hooks for "a hidden story disappears on the next server render": POST /__test/hide?slug=
+// and /__test/show?slug= withdraw a story from that port's API (every route: the list, related
+// lists and the story itself, which then answers 404) or bring it back. Each port keeps its own
+// set, so the live server's withdrawal test (freshness.e2e.ts) never touches the dev server's.
+// On dev (pages.e2e.ts): stories listed only under `tag=hide-test`, one per device project
+// (projects run in parallel, so each hides its own). Nothing else lists them.
 const HIDE_TEST = 'hide-test';
-const hidden = new Set();
+const hiddenOn = { dev: new Set(), live: new Set(), down: new Set() };
 for (const name of ['phone-320', 'desktop-1280', 'spare']) {
   const slug = `hide-test-${name.replace('.', '-')}`;
   stories[slug] = {
@@ -271,6 +273,20 @@ stories[RELATED_DOWN] = {
 };
 const unlisted = (s) => onlyUnderHideTest(s) || s.slug === RELATED_DOWN;
 
+// The live server's withdrawal test (freshness.e2e.ts): the newest story, so it's on home, in
+// the sitemap and in other stories' related lists. Only the live port has it, so the dev
+// server's counts and newest stories stay as they are.
+const WITHDRAWN = 'withdrawal-test';
+stories[WITHDRAWN] = {
+  ...base,
+  id: 'withdrawal_test',
+  slug: WITHDRAWN,
+  title: 'Withdrawal test story',
+  description: 'Dummy story that its teller withdraws during the test.',
+  body: 'Withdrawal test testimony text: this sentence must vanish once the story is withdrawn.',
+  publishedAt: '2026-10-23T20:00:00Z',
+};
+
 // D30: an old slug answers 301 to the story's current one, as api-public-read does.
 const ALIASES = { 'old-video-story': 'video-story' };
 
@@ -297,11 +313,13 @@ function summaryOf(s) {
     publishedAt: s.publishedAt,
   };
 }
-const published = () =>
-  Object.values(stories).sort(
-    (a, b) =>
-      b.publishedAt.localeCompare(a.publishedAt) || a.id.localeCompare(b.id),
-  );
+const published = (mode) =>
+  Object.values(stories)
+    .filter((s) => onPort(mode, s))
+    .sort(
+      (a, b) =>
+        b.publishedAt.localeCompare(a.publishedAt) || a.id.localeCompare(b.id),
+    );
 
 function json(res, status, body, type = 'application/json') {
   res.writeHead(status, { 'content-type': type });
@@ -315,8 +333,12 @@ const problem = (res, status, code) =>
     'application/problem+json',
   );
 
+/** Whether the API on this port has the story at all (withdrawn ones answer 404). */
+const onPort = (mode, s) =>
+  (s.slug !== WITHDRAWN || mode === 'live') && !hiddenOn[mode].has(s.slug);
+
 /** GET /v1/stories: tag (all of), format, q, sort, limit, cursor (bound to the filters). */
-function listStories(url, res) {
+function listStories(mode, url, res) {
   const p = url.searchParams;
   const q = p.get('q')?.toLowerCase() ?? '';
   const tags = p.getAll('tag');
@@ -336,9 +358,8 @@ function listStories(url, res) {
       return problem(res, 400, 'invalid_cursor');
     }
   }
-  let list = published().filter(
+  let list = published(mode).filter(
     (s) =>
-      !hidden.has(s.slug) &&
       s.slug !== RELATED_DOWN &&
       (tags.includes(HIDE_TEST) || !onlyUnderHideTest(s)) &&
       tags.every((t) => s.tags.some((x) => x.slug === t)) &&
@@ -362,13 +383,12 @@ function listStories(url, res) {
 }
 
 /** GET /v1/stories/{slug}/related: 3 cards sharing a tag, then the newest. */
-function related(slug, res) {
+function related(mode, slug, res) {
   const story = stories[slug];
-  if (!story) return problem(res, 404, 'story_not_found');
+  if (!story || !onPort(mode, story))
+    return problem(res, 404, 'story_not_found');
   if (slug === RELATED_DOWN) return problem(res, 503, 'unavailable');
-  const others = published().filter(
-    (s) => s.slug !== slug && !unlisted(s) && !hidden.has(s.slug),
-  );
+  const others = published(mode).filter((s) => s.slug !== slug && !unlisted(s));
   const shared = others.filter((s) =>
     s.tags.some((t) => story.tags.some((x) => x.slug === t.slug)),
   );
@@ -407,15 +427,15 @@ const handler = (mode) => (req, res) => {
   const hook = /^\/__test\/(hide|show)$/.exec(url.pathname);
   if (hook && req.method === 'POST') {
     const slug = url.searchParams.get('slug') ?? '';
-    if (hook[1] === 'hide') hidden.add(slug);
-    else hidden.delete(slug);
+    if (hook[1] === 'hide') hiddenOn[mode].add(slug);
+    else hiddenOn[mode].delete(slug);
     res.writeHead(204);
     return res.end();
   }
-  if (url.pathname === '/v1/stories') return listStories(url, res);
+  if (url.pathname === '/v1/stories') return listStories(mode, url, res);
   if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);
-  if (rel) return related(rel[1], res);
+  if (rel) return related(mode, rel[1], res);
   if (req.url?.startsWith('/images/wide.svg')) {
     res.writeHead(200, { 'content-type': 'image/svg+xml' });
     return res.end(WIDE_SVG);
@@ -449,7 +469,7 @@ const handler = (mode) => (req, res) => {
     return res.end();
   }
   const story = match && stories[match[1]];
-  if (story) {
+  if (story && onPort(mode, story)) {
     res.writeHead(200, { 'content-type': 'application/json', etag: '"1"' });
     return res.end(JSON.stringify(story));
   }

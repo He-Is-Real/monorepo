@@ -78,9 +78,16 @@ function tagRows(tagChars: number[], width: number): number {
   return rows;
 }
 
-/** The card's predicted height in px at `cardWidth`. */
-export function predictHeight(shape: CardShape, cardWidth: number): number {
-  const text = cardWidth - 2 * CARD.padX;
+/**
+ * The card's predicted height in px: its media at `cardWidth`, its text wrapped at `textWidth`
+ * (the server passes the widest and narrowest card of a column count, so it errs tall).
+ */
+export function predictHeight(
+  shape: CardShape,
+  cardWidth: number,
+  textWidth = cardWidth,
+): number {
+  const text = textWidth - 2 * CARD.padX;
   const media = shape.aspect ? cardWidth / shape.aspect : 0;
   const t = CARD.title;
   const title =
@@ -100,14 +107,24 @@ export function predictHeight(shape: CardShape, cardWidth: number): number {
 }
 
 /**
- * A representative card width per column count, for the server's prediction (it can't know the
- * screen). Mirrors the grid in global.css: 1 column up to 480 px wide; 2 columns from 640 px
- * (container ≈ 750 px); 3 from 1024 px (container ≈ 1060 px of the 1200 px site width).
+ * The narrowest and widest card per column count, for the server's prediction: it can't know
+ * the screen, and a span too short overlaps the next card on first paint (and for good without
+ * JavaScript), so media is predicted at the widest card and text at the narrowest. Mirrors the
+ * grid in global.css and the page's padding (16 px a side below 640 px, 40 px from 640 px):
+ * 1 column from 320 px, at most 480 px wide; 2 columns from 640 to 1023 px; 3 from 1024 px up
+ * to the 1200 px site width. (Codex review of #72, round 3: one width of about 337 px for
+ * 3 columns made 9:16 videos 35 px short at 1280 px, where cards are 357 px.)
  */
-export function columnWidth(columns: number): number {
-  if (columns <= 1) return 440;
-  if (columns === 2) return (750 - GAP) / 2;
-  return (1060 - 2 * GAP) / 3;
+export function columnWidths(columns: number): {
+  narrowest: number;
+  widest: number;
+} {
+  const card = (viewport: number, pad: number) =>
+    (viewport - 2 * pad - (columns - 1) * GAP) / columns;
+  if (columns <= 1) return { narrowest: card(320, 16), widest: 480 };
+  if (columns === 2)
+    return { narrowest: card(640, 40), widest: card(1023, 40) };
+  return { narrowest: card(1024, 40), widest: card(1200, 40) };
 }
 
 /** Each height into the shortest column (ties: leftmost), continuing from `start`. */
@@ -147,7 +164,8 @@ export function layoutFor(
   );
   const heights = {} as ColumnHeights;
   for (const n of COLUMN_COUNTS) {
-    const predicted = shapes.map((s) => predictHeight(s, columnWidth(n)));
+    const { narrowest, widest } = columnWidths(n);
+    const predicted = shapes.map((s) => predictHeight(s, widest, narrowest));
     const placed = place(
       predicted.map((p) => spanFor(p) * ROW_UNIT - GAP),
       n,

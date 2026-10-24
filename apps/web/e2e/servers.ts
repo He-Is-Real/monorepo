@@ -1,4 +1,4 @@
-// The e2e servers (playwright.config.ts starts them): the built site five times over, each
+// The e2e servers (playwright.config.ts starts them): the built site four times over, each
 // against a port of the stub api-public-read (stub-api.mjs). E2E_PORT_BASE moves them all, so
 // two checkouts can run the suite at once (default 4300).
 const base = Number(process.env['E2E_PORT_BASE'] ?? 4300);
@@ -19,8 +19,5 @@ export const WEB_DOWN_URL = `http://localhost:${WEB_DOWN_PORT}`;
 /** Signed in (header.e2e.ts): E2E_FIXTURES shows this name instead of Clerk's control. */
 export const WEB_SIGNED_IN_PORT = base + 3;
 export const WEB_SIGNED_IN_URL = `http://localhost:${WEB_SIGNED_IN_PORT}`;
-/** The real Clerk dev instance, for the few tests about Clerk itself (static-pages.e2e.ts). */
-export const WEB_CLERK_PORT = base + 4;
-export const WEB_CLERK_URL = `http://localhost:${WEB_CLERK_PORT}`;
 /** 40 characters: long names must truncate before anything in the header wraps. */
 export const SIGNED_IN_NAME = 'Bartholomew Montgomery-Fitzwilliam Smith';

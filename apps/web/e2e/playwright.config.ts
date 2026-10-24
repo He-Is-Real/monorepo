@@ -6,7 +6,6 @@ import {
   STUB_DOWN_PORT,
   STUB_LIVE_PORT,
   STUB_PORT,
-  WEB_CLERK_PORT,
   WEB_DOWN_PORT,
   WEB_LIVE_PORT,
   WEB_PORT,
@@ -16,8 +15,8 @@ import {
 // `pnpm nx e2e web`: the built standalone server (apps/web/dist, from `prune`) against a stub
 // api-public-read, across the device matrix in light and dark. Screenshots land in
 // test-output/e2e/screenshots (CI uploads them). More copies of the server cover Go live
-// (indexing on, D48 off), api-public-read down, a signed-in visitor and the real Clerk
-// (servers.ts).
+// (indexing on, D48 off), api-public-read down and a signed-in visitor (servers.ts). Nothing
+// is loaded over the internet: the real Clerk is checked on dev (apps/dev-seed/behavioural).
 const root = `${resolve(__dirname, '../../..')}/`;
 
 export default defineConfig({
@@ -30,6 +29,12 @@ export default defineConfig({
   // a 4-vCPU CI runner.
   retries: 0,
   workers: 4,
+  // Waits are for a condition, never a fixed time; these are only the ceilings. Some of what
+  // the tests wait for appears only once the page's JavaScript has run (the error page, the
+  // account panel): 6 to 9 s under a 20x CPU throttle, past Playwright's 5 s default (Codex
+  // review of #72, round 3). A passing test takes no longer for them.
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
   reporter: [
     ['list'],
     ['json', { outputFile: `${root}test-output/e2e/results.json` }],
@@ -59,8 +64,8 @@ export default defineConfig({
       },
       reuseExistingServer: false,
     },
-    // A stand-in for Clerk's "Sign in" everywhere but the real-Clerk server (T4): no test
-    // waits for Clerk over the network.
+    // A stand-in for Clerk's "Sign in" on every server (T4): no test waits for Clerk over the
+    // network.
     web(WEB_PORT, STUB_PORT, { E2E_FIXTURES: 'true' }),
     web(WEB_LIVE_PORT, STUB_LIVE_PORT, {
       INDEXING: 'allow',
@@ -72,11 +77,6 @@ export default defineConfig({
     web(WEB_SIGNED_IN_PORT, STUB_PORT, {
       E2E_FIXTURES: 'true',
       E2E_SIGNED_IN_NAME: SIGNED_IN_NAME,
-    }),
-    // The real Clerk dev instance (public key), for the tests about Clerk.
-    web(WEB_CLERK_PORT, STUB_PORT, {
-      CLERK_PUBLISHABLE_KEY:
-        'pk_test_c3VwZXJiLW1pbmstODk2Ny5jbGVyay5hY2NvdW50cy5kZXYk',
     }),
   ],
 });

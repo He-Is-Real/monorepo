@@ -56,8 +56,9 @@ pnpm nx run consent:test-integration             # consent ledger + endpoints on
 pnpm nx run auth:test-integration                # Clerk sign-in → person session on SurrealDB (needs Docker)
 pnpm nx run api-public-read:test-integration     # the public read API over the dev dataset on SurrealDB (needs Docker)
 pnpm exec playwright install chromium && pnpm nx e2e web   # responsive device matrix, light + dark
-# Ports 4300–4304 (web: dev, Go live, API down, signed in, real Clerk) and 4310–4312 (stub
-# API); if one is busy, move them all: E2E_PORT_BASE=4400 pnpm nx e2e web
+# Ports 4300–4303 (web: dev, Go live, API down, signed in) and 4310–4312 (stub API); if one
+# is busy, move them all: E2E_PORT_BASE=4400 pnpm nx e2e web. No internet needed: the real
+# Clerk is checked on dev (dev-seed:behavioural).
 pnpm nx run terraform:test                        # `tofu test` of every OpenTofu module (offline, mock providers)
 ```
 
