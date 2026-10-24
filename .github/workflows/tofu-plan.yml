@@ -4,8 +4,9 @@ name: OpenTofu plan
 # planned again on main by tofu-apply.yml, which plans every root and asks before each apply.
 #
 # Every PR first gets offline checks that fail loudly: fmt, validate of every root, the
-# encryption key names, the Bunny keys' sensitivity, `tofu test` of the pure modules, and every
-# Kustomize overlay rendered and schema-checked (ci.yml runs the database integration suite).
+# encryption key names, the Bunny keys' sensitivity, and every Kustomize overlay rendered and
+# schema-checked. ci.yml's required job runs the modules' `tofu test` (terraform:test) and the
+# database integration suite.
 # Then the roots the PR touches (tools/scripts/tf-roots.sh) are planned without a refresh or
 # lock as tf-planner (gcp, images). bunny is never planned here: tf-bunny is only available on
 # main. bootstrap is planned and applied locally.
@@ -109,20 +110,6 @@ jobs:
                  .bunnynet_storage_zone.block.attributes.password_readonly,
                  .bunnynet_pullzone.block.attributes.token_auth_key]
               | map(.sensitive == true) | length == 5 and all'
-      # The migrate Job's and the identity config's names change iff their content does (D14,
-      # D13 B). No providers, no cloud access.
-      # bunny-state-guard: nothing Bunny is public (the bunny root's pre-plan check).
-      # cluster (mock providers, no cluster access): D48's relaxed consent and D49's dev-seed login
-      # are refused outside dev.
-      # bunny (mock providers, no Bunny or Google access): D52's token auth is on and only the
-      # named service accounts may read the two token auth keys. gcp (mock providers): api-public-read
-      # gets the BUNNY_* settings only when api_public_read_media is set, and web_site_url is an https origin.
-      - name: Test the pure modules
-        run: |
-          for module in db-migration db-identity bunny-state-guard cluster bunny gcp; do
-            tofu -chdir="infra/terraform/modules/$module" init -backend=false -input=false
-            tofu -chdir="infra/terraform/modules/$module" test
-          done
       # What the cluster root would apply, rendered and schema-checked (instead of a plan).
       - name: Install kubeconform
         run: |

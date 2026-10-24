@@ -34,6 +34,9 @@
       "path": "../../libs/health/tsconfig.lib.json"
     },
     {
+      "path": "../../libs/contracts/tsconfig.lib.json"
+    },
+    {
       "path": "../dev-seed/tsconfig.app.json"
     },
     {

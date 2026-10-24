@@ -216,6 +216,14 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/CommandResult'
+    ServerError:
+      description: |
+        The service couldn't answer (e.g. the database is unreachable). The body never says why:
+        details stay in the service's logs. Clients show a friendly error and may retry later.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     Health:
       description: Service and database are up.
       content:

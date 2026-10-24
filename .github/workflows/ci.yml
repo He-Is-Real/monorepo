@@ -21,6 +21,8 @@ env:
   # Keep in step with mise.toml. Checksum from the release's CHECKSUMS file.
   KUBECONFORM_VERSION: v0.8.0
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+  # Keep in step with mise.toml (tf.sh refuses any other OpenTofu version).
+  TOFU_VERSION: 1.13.2
   # Keep in step with mise.toml. From gitleaks_8.30.1_checksums.txt (read 2026-10-22).
   GITLEAKS_VERSION: 8.30.1
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
@@ -93,6 +95,13 @@ jobs:
       # tf.sh (identities, refusals, Bunny redaction) against stub binaries; the gitleaks Bunny
       # rule; workflow permissions.
       - run: node --test tools/scripts/tests/*.test.mjs
+      # For terraform:test: `tofu test` of every module with tests (D42, D48, D49, D52 and the
+      # migration and identity hashes), offline with mock providers or plan-only runs, so it
+      # blocks merges here rather than in tofu-plan.yml (not a required check). No sign-in.
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
       - run: pnpm nx affected -t lint test build typecheck validate
 
       # Schema and permission tests against a real SurrealDB (libs/database). The target starts

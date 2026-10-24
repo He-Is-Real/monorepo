@@ -127,6 +127,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotModified'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/stories/{slug}:
     get:
@@ -160,6 +162,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotModified'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/stories/{slug}/related:
     get:
@@ -202,6 +206,8 @@ paths:
           $ref: './components.yaml#/components/responses/BadRequest'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/tags:
     get:
@@ -239,6 +245,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotModified'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/legal/dpa:
     get:
@@ -278,3 +286,5 @@ paths:
           $ref: './components.yaml#/components/responses/NotModified'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'

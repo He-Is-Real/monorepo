@@ -112,10 +112,10 @@ The repository is public, so **Actions logs, summaries and artifacts are world-r
 
 **`tofu-plan.yml` (PRs, advice only).** Offline checks first, failing the run on any error:
 `tofu fmt`, `validate` of every root, the encryption key names and enforcement, the Bunny key
-attributes being sensitive, `tofu test` of `modules/db-migration`, `modules/db-identity` and
-`modules/bunny-state-guard`, every Kustomize overlay rendered and checked with kubeconform, and the
-planner's dry-run-only policy on kind (`ci.yml` runs the database integration suite). Locally:
-`tofu -chdir=infra/terraform/modules/<module> init -backend=false && … test`. Then the roots the PR
+attributes being sensitive, every Kustomize overlay rendered and checked with kubeconform, and the
+planner's dry-run-only policy on kind. `ci.yml`'s required job runs the modules' `tofu test`
+(`terraform:test`, `infra/terraform/test-modules.sh`; locally `pnpm nx run terraform:test`) and the
+database integration suite, so those block merges. Then the roots the PR
 touches (`tools/scripts/tf-roots.sh`) are planned with `-refresh=false -lock=false` (the planners
 can't take the lock or read secret values). **bunny is never planned on a PR** (tf-bunny is
 available only on `main`); bootstrap is planned and applied locally.
