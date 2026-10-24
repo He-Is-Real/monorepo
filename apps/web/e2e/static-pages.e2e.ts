@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { expectNoHorizontalOverflow, expectTarget, shots } from './helpers';
+import { BEHAVIOUR_DEVICES } from './devices';
+import {
+  expectAllTargets,
+  expectNoHorizontalOverflow,
+  expectTarget,
+  shots,
+} from './helpers';
 
 // M1 step 6b-2: the static pages on every device in the matrix and in both colour schemes,
 // the site footer, keyboard use of the FAQ accordion, and robots.txt and the sitemap while
@@ -53,6 +59,7 @@ for (const scheme of ['light', 'dark'] as const) {
             page.getByRole('main').getByRole('link', { name: p.cta }).first(),
           );
         }
+        await expectAllTargets(page);
         const footer = page.getByRole('contentinfo');
         await expectTarget(
           page,
@@ -86,164 +93,179 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
-test('FAQ accordion works from the keyboard', async ({ page }) => {
-  await page.goto('/faqs');
-  const first = page.getByRole('button', {
-    name: 'What kind of stories can I submit?',
-  });
-  const answer = page.getByText(/It doesn’t have to be dramatic/);
-  await expect(first).toHaveAttribute('aria-expanded', 'false');
-  await expect(answer).toBeHidden();
-
-  await first.focus();
-  await page.keyboard.press('Enter');
-  await expect(first).toHaveAttribute('aria-expanded', 'true');
-  await expect(answer).toBeVisible();
-  await page.keyboard.press('Space');
-  await expect(first).toHaveAttribute('aria-expanded', 'false');
-
-  // Tab skips the collapsed answer and lands on the next question.
-  await page.keyboard.press('Tab');
-  await expect(
-    page.getByRole('button', { name: 'Can I submit anonymously?' }),
-  ).toBeFocused();
-});
-
-test('About loads no video or third-party frame; Contact collects nothing', async ({
-  page,
-}) => {
-  await page.goto('/about');
-  await expect(page.locator('main iframe, main video')).toHaveCount(0);
-  await page.goto('/contact');
-  await expect(
-    page.locator('main form, main input, main textarea, main select'),
-  ).toHaveCount(0);
-});
-
-test('structured data: the organisation and website on every page, the FAQs as an FAQPage', async ({
-  page,
-}) => {
-  await page.goto('/faqs');
-  const data = await page
-    .locator('script[type="application/ld+json"]')
-    .evaluateAll((els) => els.map((e) => JSON.parse(e.textContent ?? '{}')));
-  const types = data.flatMap((d) =>
-    d['@graph']
-      ? d['@graph'].map((g: { '@type': string }) => g['@type'])
-      : [d['@type']],
-  );
-  expect(types).toEqual(
-    expect.arrayContaining(['Organization', 'WebSite', 'FAQPage']),
-  );
-  const faq = data.find((d) => d['@type'] === 'FAQPage');
-  const questions = faq.mainEntity.map((q: { name: string }) => q.name);
-  expect(questions).toContain('What proof is there that God exists?');
-  // The page and its structured data say what the consent model says: socials are a choice.
-  const where = faq.mainEntity.find(
-    (q: { name: string }) => q.name === 'Where will my story appear?',
-  );
-  expect(where.acceptedAnswer.text).toMatch(/only if you say yes/);
-  expect(questions).toHaveLength(
-    await page.getByRole('main').getByRole('button').count(),
-  );
-});
-
-test('the footer’s cookie notice leads to the cookie list', async ({
-  page,
-}) => {
-  await page.goto('/about');
-  await page
-    .getByRole('contentinfo')
-    .getByRole('link', { name: 'How we use cookies' })
-    .click();
-  await expect(page).toHaveURL(/\/privacy#cookies$/);
-  const section = page.locator('#cookies');
-  await expect(
-    section.getByRole('heading', { name: 'Cookies and storage' }),
-  ).toBeInViewport();
-  await expect(section.getByRole('rowheader')).toContainText([
-    'theme',
-    '__client_uat',
-    '__session',
-    '__clerk_environment',
-    '__cf_bm, _cfuvid',
-    'bunny_stream_settings_…',
-    '__clerk_db_jwt',
-  ]);
-});
-
-test('Contact’s email button writes to the right address', async ({ page }) => {
-  await page.goto('/contact');
-  await expect(
-    page.getByRole('main').getByRole('link', {
-      name: 'Email info@heisreal.today',
-    }),
-  ).toHaveAttribute('href', 'mailto:info@heisreal.today');
-});
-
-test('the footer links the site’s pages', async ({ page }) => {
-  await page.goto('/about');
-  const nav = page.getByRole('navigation', { name: 'Footer' });
-  await nav.getByRole('link', { name: 'FAQs' }).click();
-  await expect(page).toHaveURL(/\/faqs$/);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Frequently asked questions',
-  );
-});
-
-test('dev isn’t indexed: robots.txt turns crawlers away and there is no sitemap', async ({
-  request,
-}) => {
-  const robots = await request.get('/robots.txt');
-  expect(robots.status()).toBe(200);
-  const text = await robots.text();
-  expect(text).toMatch(/User-Agent: \*\s+Disallow: \//i);
-  expect(text).not.toMatch(/sitemap/i);
-
-  const sitemap = await request.get('/sitemap.xml');
-  expect(sitemap.status()).toBe(404);
-  expect(sitemap.headers()['x-robots-tag']).toBe('noindex, nofollow');
-});
-
-test.describe('as a real visitor’s browser', () => {
-  // Clerk turns its telemetry off for automated browsers (navigator.webdriver) and robot user
-  // agents, so look like an ordinary Chrome, or this test would pass whatever the setting.
-  test.use({
-    userAgent:
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+// What doesn't depend on the screen: one phone and one desktop (T6).
+test.describe('behaviour', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'checked on one phone and one desktop',
+    );
   });
 
-  test('no optional Clerk telemetry: collector off, no request to clerk-telemetry.com, nothing stored', async ({
+  test('FAQ accordion works from the keyboard', async ({ page }) => {
+    await page.goto('/faqs');
+    const first = page.getByRole('button', {
+      name: 'What kind of stories can I submit?',
+    });
+    const answer = page.getByText(/It doesn’t have to be dramatic/);
+    await expect(first).toHaveAttribute('aria-expanded', 'false');
+    await expect(answer).toBeHidden();
+
+    await first.focus();
+    await page.keyboard.press('Enter');
+    await expect(first).toHaveAttribute('aria-expanded', 'true');
+    await expect(answer).toBeVisible();
+    await page.keyboard.press('Space');
+    await expect(first).toHaveAttribute('aria-expanded', 'false');
+
+    // Tab skips the collapsed answer and lands on the next question.
+    await page.keyboard.press('Tab');
+    await expect(
+      page.getByRole('button', { name: 'Can I submit anonymously?' }),
+    ).toBeFocused();
+  });
+
+  test('About loads no video or third-party frame; Contact collects nothing', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
-      Object.defineProperty(Navigator.prototype, 'webdriver', {
-        get: () => false,
-      });
-    });
-    const telemetry: string[] = [];
-    page.on('request', (r) => {
-      if (new URL(r.url()).hostname.endsWith('clerk-telemetry.com'))
-        telemetry.push(r.url());
-    });
     await page.goto('/about');
-    // Deterministic, no waiting for a flush: once Clerk has loaded, its telemetry collector is
-    // either absent (telemetry={false}) or would report itself enabled (it did before the fix).
-    await page.waitForFunction(
-      () => (window as { Clerk?: { loaded?: boolean } }).Clerk?.loaded === true,
+    await expect(page.locator('main iframe, main video')).toHaveCount(0);
+    await page.goto('/contact');
+    await expect(
+      page.locator('main form, main input, main textarea, main select'),
+    ).toHaveCount(0);
+  });
+
+  test('structured data: the organisation and website on every page, the FAQs as an FAQPage', async ({
+    page,
+  }) => {
+    await page.goto('/faqs');
+    const data = await page
+      .locator('script[type="application/ld+json"]')
+      .evaluateAll((els) => els.map((e) => JSON.parse(e.textContent ?? '{}')));
+    const types = data.flatMap((d) =>
+      d['@graph']
+        ? d['@graph'].map((g: { '@type': string }) => g['@type'])
+        : [d['@type']],
     );
-    const collector = await page.evaluate(() => {
-      const t = (window as { Clerk?: { telemetry?: { isEnabled?: boolean } } })
-        .Clerk?.telemetry;
-      return t ? { enabled: t.isEnabled === true } : null;
-    });
-    expect(collector?.enabled ?? false).toBe(false);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    const keys = await page.evaluate(() => [
-      ...Object.keys(localStorage),
-      ...Object.keys(sessionStorage),
+    expect(types).toEqual(
+      expect.arrayContaining(['Organization', 'WebSite', 'FAQPage']),
+    );
+    const faq = data.find((d) => d['@type'] === 'FAQPage');
+    const questions = faq.mainEntity.map((q: { name: string }) => q.name);
+    expect(questions).toContain('What proof is there that God exists?');
+    // The page and its structured data say what the consent model says: socials are a choice.
+    const where = faq.mainEntity.find(
+      (q: { name: string }) => q.name === 'Where will my story appear?',
+    );
+    expect(where.acceptedAnswer.text).toMatch(/only if you say yes/);
+    expect(questions).toHaveLength(
+      await page.getByRole('main').getByRole('button').count(),
+    );
+  });
+
+  test('the footer’s cookie notice leads to the cookie list', async ({
+    page,
+  }) => {
+    await page.goto('/about');
+    await page
+      .getByRole('contentinfo')
+      .getByRole('link', { name: 'How we use cookies' })
+      .click();
+    await expect(page).toHaveURL(/\/privacy#cookies$/);
+    const section = page.locator('#cookies');
+    await expect(
+      section.getByRole('heading', { name: 'Cookies and storage' }),
+    ).toBeInViewport();
+    await expect(section.getByRole('rowheader')).toContainText([
+      'theme',
+      '__client_uat',
+      '__session',
+      '__clerk_environment',
+      '__cf_bm, _cfuvid',
+      'bunny_stream_settings_…',
+      '__clerk_db_jwt',
     ]);
-    expect(keys.filter((k) => k.startsWith('clerk_telemetry'))).toEqual([]);
-    expect(telemetry).toEqual([]);
+  });
+
+  test('Contact’s email button writes to the right address', async ({
+    page,
+  }) => {
+    await page.goto('/contact');
+    await expect(
+      page.getByRole('main').getByRole('link', {
+        name: 'Email info@heisreal.today',
+      }),
+    ).toHaveAttribute('href', 'mailto:info@heisreal.today');
+  });
+
+  test('the footer links the site’s pages', async ({ page }) => {
+    await page.goto('/about');
+    const nav = page.getByRole('navigation', { name: 'Footer' });
+    await nav.getByRole('link', { name: 'FAQs' }).click();
+    await expect(page).toHaveURL(/\/faqs$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'Frequently asked questions',
+    );
+  });
+
+  test('dev isn’t indexed: robots.txt turns crawlers away and there is no sitemap', async ({
+    request,
+  }) => {
+    const robots = await request.get('/robots.txt');
+    expect(robots.status()).toBe(200);
+    const text = await robots.text();
+    expect(text).toMatch(/User-Agent: \*\s+Disallow: \//i);
+    expect(text).not.toMatch(/sitemap/i);
+
+    const sitemap = await request.get('/sitemap.xml');
+    expect(sitemap.status()).toBe(404);
+    expect(sitemap.headers()['x-robots-tag']).toBe('noindex, nofollow');
+  });
+
+  test.describe('as a real visitor’s browser', () => {
+    // Clerk turns its telemetry off for automated browsers (navigator.webdriver) and robot user
+    // agents, so look like an ordinary Chrome, or this test would pass whatever the setting.
+    test.use({
+      userAgent:
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+    });
+
+    test('no optional Clerk telemetry: collector off, no request to clerk-telemetry.com, nothing stored', async ({
+      page,
+    }) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(Navigator.prototype, 'webdriver', {
+          get: () => false,
+        });
+      });
+      const telemetry: string[] = [];
+      page.on('request', (r) => {
+        if (new URL(r.url()).hostname.endsWith('clerk-telemetry.com'))
+          telemetry.push(r.url());
+      });
+      await page.goto('/about');
+      // Deterministic, no waiting for a flush: once Clerk has loaded, its telemetry collector is
+      // either absent (telemetry={false}) or would report itself enabled (it did before the fix).
+      await page.waitForFunction(
+        () =>
+          (window as { Clerk?: { loaded?: boolean } }).Clerk?.loaded === true,
+      );
+      const collector = await page.evaluate(() => {
+        const t = (
+          window as { Clerk?: { telemetry?: { isEnabled?: boolean } } }
+        ).Clerk?.telemetry;
+        return t ? { enabled: t.isEnabled === true } : null;
+      });
+      expect(collector?.enabled ?? false).toBe(false);
+      await page.getByRole('button', { name: 'Sign in' }).click();
+      const keys = await page.evaluate(() => [
+        ...Object.keys(localStorage),
+        ...Object.keys(sessionStorage),
+      ]);
+      expect(keys.filter((k) => k.startsWith('clerk_telemetry'))).toEqual([]);
+      expect(telemetry).toEqual([]);
+    });
   });
 });

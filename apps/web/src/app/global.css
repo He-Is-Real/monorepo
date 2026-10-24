@@ -156,6 +156,10 @@
   /* Layout widths (design: --max-width 1200px, .container-narrow 800px) */
   --container-site: 1200px;
   --container-narrow: 800px;
+  /* max-w-measure, for running text. Not Tailwind's max-w-prose: its 65ch measures the "0"
+     glyph, wider than this font's average character, so lines ran to about 100 characters.
+     48ch keeps them at most about 80 (AGENTS.md; checked in e2e/open-states.e2e.ts). */
+  --container-measure: 48ch;
 }
 
 @layer base {
@@ -173,6 +177,10 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     line-height: 1.6;
+    /* A word wider than its box (a long URL, or any word with text enlarged to 200% on a small
+       phone, WCAG 1.4.4) wraps inside it instead of pushing the page sideways. `anywhere`, not
+       `break-word`, so flex and grid items can shrink below their longest word too. */
+    overflow-wrap: anywhere;
   }
 
   a {
@@ -214,6 +222,7 @@
 @layer components {
   .masonry {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 24px;
     max-width: 30rem;
     margin-inline: auto;

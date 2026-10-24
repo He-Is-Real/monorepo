@@ -62,7 +62,7 @@ export default function AboutPage() {
           <h2 id="mission" className="sr-only">
             Why we exist
           </h2>
-          <div className="max-w-prose space-y-7 text-lg leading-loose text-secondary-text sm:text-xl">
+          <div className="max-w-measure space-y-7 text-lg leading-loose text-secondary-text sm:text-xl">
             <p>
               Churches are full of extraordinary testimonies. Week after week,
               people share what God has done in their lives, and those stories

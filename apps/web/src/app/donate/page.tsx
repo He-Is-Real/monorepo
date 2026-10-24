@@ -17,7 +17,7 @@ export default function DonatePage() {
   return (
     <main
       id="main"
-      className="mx-auto w-full max-w-prose flex-1 px-4 py-16 sm:py-24"
+      className="mx-auto w-full max-w-measure flex-1 px-4 py-16 sm:py-24"
     >
       <h1 className="text-3xl leading-tight font-normal sm:text-4xl">
         Giving isn’t open yet

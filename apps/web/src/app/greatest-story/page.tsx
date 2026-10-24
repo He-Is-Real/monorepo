@@ -195,7 +195,7 @@ export default function GreatestStoryPage() {
           >
             A simple prayer
           </h2>
-          <p className="mb-8 max-w-prose text-[17px] text-secondary-text">
+          <p className="mb-8 max-w-measure text-[17px] text-secondary-text">
             If you’d like to take this step, there are no magic words. But if it
             helps, you could pray something like this:
           </p>
@@ -218,11 +218,11 @@ export default function GreatestStoryPage() {
           >
             What now?
           </h2>
-          <p className="mx-auto max-w-prose text-[17px] text-secondary-text">
+          <p className="mx-auto max-w-measure text-[17px] text-secondary-text">
             If you prayed that prayer, or even if you’re still thinking about
             it, you’re not alone.
           </p>
-          <p className="mx-auto mb-8 max-w-prose text-[17px] text-secondary-text">
+          <p className="mx-auto mb-8 max-w-measure text-[17px] text-secondary-text">
             Here are some ways to keep going.
           </p>
           <div className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
@@ -236,7 +236,7 @@ export default function GreatestStoryPage() {
               Talk to someone
             </ButtonLink>
           </div>
-          <p className="mx-auto mt-12 max-w-prose text-xs leading-relaxed text-muted-foreground">
+          <p className="mx-auto mt-12 max-w-measure text-xs leading-relaxed text-muted-foreground">
             Scripture quotations taken from The Holy Bible, New International
             Version (Anglicised edition). Copyright © 1979, 1984, 2011 by
             Biblica. Used by permission of Hodder &amp; Stoughton Publishers, an
