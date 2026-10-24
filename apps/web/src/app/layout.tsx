@@ -70,9 +70,7 @@ export default function RootLayout({
         >
           Skip to content
         </a>
-        <Suspense fallback={null}>
-          <SiteHeader />
-        </Suspense>
+        <SiteHeader />
         {children}
         {origin && <JsonLd data={siteJsonLd(origin)} />}
         {/* D48: says when consent checks are relaxed (dev only); nothing otherwise. */}

@@ -463,6 +463,28 @@ test.describe('without JavaScript', () => {
     test.skip(info.project.name !== 'desktop-1280', 'one device');
   });
 
+  // The header is in the page as it arrives, not swapped in by a script once its stream
+  // lands: without that, no-JS visitors had no navigation and slow first paints showed the
+  // page without its header, which then pushed everything down (an ipad-air-landscape flake).
+  test('the header and its navigation are there, above the content', async ({
+    page,
+  }) => {
+    for (const path of ['/', '/stories', '/stories/video-story', '/about']) {
+      await page.goto(path);
+      const header = page.getByRole('banner');
+      await expect(header).toBeVisible();
+      await expect(
+        header.getByRole('link', { name: 'He Is Real Today, home' }),
+      ).toBeVisible();
+      await expect(
+        header.getByRole('link', { name: 'Stories', exact: true }),
+      ).toBeVisible();
+      const top = async (role: 'banner' | 'main') =>
+        (await page.getByRole(role).boundingBox())?.y ?? -1;
+      expect(await top('banner')).toBeLessThan(await top('main'));
+    }
+  });
+
   test('“Show more stories” links to the next page while there is one', async ({
     page,
   }) => {
