@@ -357,7 +357,7 @@ they are also in the table below.
 
 From `project/context/research/test-inventory.html` (every test file judged against AGENTS.md,
 "Tests measure behaviour"). Built in separate PRs: A deletions, trims and MOVE-UP rebuilds; B CI
-wiring; C responsive and the device matrix; E local equals CI.
+wiring; C responsive and the device matrix; D WebKit; E local equals CI.
 
 | #   | Decision                                                                                                                                                                  | State         |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
@@ -369,7 +369,7 @@ wiring; C responsive and the device matrix; E local equals CI.
 | T6  | **Device matrix 16 → 14:** drop 5 look-alikes, add 2 phones in landscape and one device between 480 and 767 px.                                                           | PR C          |
 | T7  | **Responsive additions:** signed-in header with a long name, 200% text, the footer in the 44 px check, line length, menus and popups open at every width.                 | PR C          |
 | T8  | **No screenshot comparison.** Screenshots stay images to look at, on 4 sizes (320, 768, 1280, 2560), uploaded as a 7-day CI artifact, never committed.                    | PR C          |
-| T9  | **No Safari/WebKit or macOS testing (Joel, 2026-10-24: a project opinion).** The tests run in Chromium only.                                                              | Dropped       |
+| T9  | **WebKit on 2 devices**, kept only if it proves reliable and fast enough on Linux (Safari is a lower priority).                                                           | PR D          |
 | T10 | **Depth: the inventory's plan (about −47% of quick-test cases)**, open to further low-value deletions.                                                                    | Built in PR A |
 
 Notes from PR A:
