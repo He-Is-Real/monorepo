@@ -71,7 +71,7 @@ export default function GetReadyPage() {
                   <h3 className="mb-2 text-xl font-normal sm:text-[1.375rem]">
                     {r.title}
                   </h3>
-                  <p className="mb-4 text-[15px] text-secondary-text">
+                  <p className="mb-4 max-w-measure text-[15px] text-secondary-text">
                     {r.text}
                   </p>
                   <p className={comingSoon}>PDF and audio coming soon</p>
@@ -127,7 +127,7 @@ export default function GetReadyPage() {
           >
             Ready?
           </h2>
-          <p className="mx-auto mb-6 max-w-prose text-secondary-text">
+          <p className="mx-auto mb-6 max-w-measure text-secondary-text">
             Story sharing opens soon. Until then, these tips are a good place to
             start, and the FAQs explain how it will work.
           </p>

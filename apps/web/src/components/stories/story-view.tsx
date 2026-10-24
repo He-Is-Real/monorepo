@@ -172,7 +172,7 @@ export function StoryView({
       {written && share}
 
       <div className="mt-10 grid gap-12 lg:grid-cols-[minmax(0,1fr)_17.5rem]">
-        <div className="max-w-prose">
+        <div className="max-w-measure">
           {written ? (
             <blockquote className="border-l-[3px] border-teal pl-6 text-[1.375rem] leading-relaxed text-foreground italic">
               {story.description}

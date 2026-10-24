@@ -106,7 +106,7 @@ export default async function BrowsePage({ searchParams }: Props) {
       id="main"
       className="mx-auto w-full max-w-site flex-1 px-4 py-10 sm:px-10 sm:py-14"
     >
-      <header className="mb-8 max-w-prose">
+      <header className="mb-8 max-w-measure">
         <p className="mb-3 text-sm font-semibold tracking-[0.2em] text-link uppercase">
           Explore
         </p>
@@ -131,12 +131,12 @@ export default async function BrowsePage({ searchParams }: Props) {
         {result === null ? (
           <p
             role="status"
-            className="mx-auto max-w-prose rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
+            className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
           >
             Stories can’t be loaded right now. Please try again in a moment.
           </p>
         ) : result.cards.length === 0 ? (
-          <div className="mx-auto max-w-prose rounded-xl bg-raised px-4 py-10 text-center">
+          <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
             <p className="text-lg">
               {filtered
                 ? 'No stories match these filters yet.'
