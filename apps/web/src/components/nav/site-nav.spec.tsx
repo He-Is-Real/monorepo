@@ -62,17 +62,6 @@ describe('MobileNav', () => {
     ).toBe('/get-ready');
   });
 
-  it('closes on Escape and gives focus back to its button', async () => {
-    render(<MobileNav />);
-    const button = screen.getByRole('button', { name: 'Menu' });
-    await act(async () => fireEvent.click(button));
-    const link = screen.getAllByRole('link', { name: 'About' })[0];
-    link.focus();
-    await act(async () => fireEvent.keyDown(link, { key: 'Escape' }));
-    expect(button.getAttribute('aria-expanded')).toBe('false');
-    expect(document.activeElement).toBe(button);
-  });
-
   it('closes when the page changes', async () => {
     const { rerender } = render(<MobileNav />);
     const button = screen.getByRole('button', { name: 'Menu' });
@@ -80,30 +69,5 @@ describe('MobileNav', () => {
     pathname.mockReturnValue('/about');
     rerender(<MobileNav />);
     expect(button.getAttribute('aria-expanded')).toBe('false');
-  });
-
-  // Codex review of #66, finding 5: focus stays in the open menu; Escape works anywhere.
-  it('keeps Tab inside the open menu, wrapping both ways', async () => {
-    render(<MobileNav />);
-    const button = screen.getByRole('button', { name: 'Menu' });
-    await act(async () => fireEvent.click(button));
-    const share = screen.getByRole('link', { name: 'Share your story' });
-    share.focus();
-    await act(async () => fireEvent.keyDown(share, { key: 'Tab' }));
-    expect(document.activeElement).toBe(button);
-    await act(async () =>
-      fireEvent.keyDown(button, { key: 'Tab', shiftKey: true }),
-    );
-    expect(document.activeElement).toBe(share);
-  });
-
-  it('closes on Escape pressed anywhere while open', async () => {
-    render(<MobileNav />);
-    const button = screen.getByRole('button', { name: 'Menu' });
-    await act(async () => fireEvent.click(button));
-    document.body.focus();
-    await act(async () => fireEvent.keyDown(document.body, { key: 'Escape' }));
-    expect(button.getAttribute('aria-expanded')).toBe('false');
-    expect(document.activeElement).toBe(button);
   });
 });

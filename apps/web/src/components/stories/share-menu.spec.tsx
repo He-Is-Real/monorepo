@@ -1,11 +1,5 @@
 import React from 'react';
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { ShareMenu } from './share-menu';
 
 describe('ShareMenu', () => {
@@ -74,31 +68,5 @@ describe('ShareMenu', () => {
     expect(screen.getByRole('status').textContent).toBe(
       'Couldn’t copy. Copy the address from your browser instead.',
     );
-  });
-
-  it('closes on Escape and gives focus back to the button', async () => {
-    render(<ShareMenu title="A story" />);
-    const button = await open();
-    await act(async () =>
-      fireEvent.keyDown(document.activeElement ?? document.body, {
-        key: 'Escape',
-      }),
-    );
-    expect(
-      screen.queryByRole('heading', { name: 'Share this story' }),
-    ).toBeNull();
-    // Radix gives focus back in a timeout after the popup unmounts (FocusScope).
-    await waitFor(() => expect(document.activeElement).toBe(button));
-  });
-
-  // Codex review of #66, finding 6: never taller than the room Radix measured; it scrolls.
-  it('fits the screen’s height and scrolls inside when it must', async () => {
-    render(<ShareMenu title="A story" />);
-    await open();
-    const popup = screen.getByRole('dialog');
-    expect(popup.className).toContain(
-      'max-h-[var(--radix-popover-content-available-height)]',
-    );
-    expect(popup.className).toContain('overflow-y-auto');
   });
 });

@@ -147,10 +147,8 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
       };
       setLoaded(current.current);
       setStatus('idle');
-      const n = result.page.data.length;
-      setAnnouncement(
-        n === 1 ? '1 more story loaded.' : `${n} more stories loaded.`,
-      );
+      // That more loaded, never how many (D62: no story counts anywhere).
+      setAnnouncement('More stories loaded.');
       window.history.replaceState(null, '', browseHref(filters, { pages }));
       return true;
     },

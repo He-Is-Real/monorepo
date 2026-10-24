@@ -58,6 +58,13 @@ export function MobileNav() {
 
   const wrapper = useRef<HTMLDivElement>(null);
 
+  // Any link in the menu closes it, also one to the page already open (same pathname, so the
+  // pathname check above can't), and focus goes back to the menu button.
+  const closeAfterLink = () => {
+    setOpen(false);
+    button.current?.focus();
+  };
+
   // While open, Escape closes the menu wherever focus is, and gives focus back to the button.
   useEffect(() => {
     if (!open) return;
@@ -129,6 +136,7 @@ export function MobileNav() {
               <li key={l.href} className="border-b border-border">
                 <Link
                   href={l.href}
+                  onClick={closeAfterLink}
                   aria-current={
                     isCurrent(pathname, l.href) ? 'page' : undefined
                   }
@@ -142,6 +150,7 @@ export function MobileNav() {
         </nav>
         <Link
           href={SHARE_HREF}
+          onClick={closeAfterLink}
           className="mt-6 flex min-h-11 items-center justify-center rounded-md bg-primary px-6 font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
         >
           Share your story

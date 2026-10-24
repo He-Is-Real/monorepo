@@ -134,8 +134,58 @@ for (const scheme of ['light', 'dark'] as const) {
         ).toBeGreaterThanOrEqual(44 - 0.01);
       await shots(page, info.project.name, scheme, 'story-share');
     });
+
+    test('the giving placeholder fits: no payment, a way back to the stories', async ({
+      page,
+    }, info) => {
+      await page.goto('/donate');
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Giving isn’t open yet' }),
+      ).toBeVisible();
+      await expect(page.locator('main form, main input')).toHaveCount(0);
+      const back = page.getByRole('link', { name: 'Read the stories' });
+      await expectTarget(page, back);
+      await expect(back).toHaveAttribute('href', '/stories');
+      await expectNoHorizontalOverflow(page);
+      await expectAllTargets(page);
+      await shots(page, info.project.name, scheme, 'donate');
+    });
   });
 }
+
+// Codex round 2, finding 1: the phone menu closes whenever one of its links is used, also
+// when the link leads to the section already open (same pathname). Every phone-width device.
+test.describe('phone menu', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    const width = info.project.use.viewport?.width ?? 0;
+    test.skip(width >= 640, 'the menu button shows below 640 px only');
+  });
+
+  for (const [from, link, to] of [
+    ['/stories?tag=loss', 'Stories', /\/stories$/],
+    ['/get-ready', 'Share your story', /\/get-ready$/],
+  ] as const) {
+    test(`tapping “${link}” on ${from} closes the menu`, async ({ page }) => {
+      await page.goto(from);
+      const menu = page.getByRole('button', { name: 'Menu' });
+      await menu.click();
+      const panel = page.locator('[data-mobile-nav]');
+      await panel.getByRole('link', { name: link, exact: true }).click();
+      await expect(page).toHaveURL(to);
+      await expect(menu).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.getByRole('navigation', { name: 'Menu' })).toBeHidden();
+      // Focus is free again: Tab leaves the menu.
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Tab');
+      expect(
+        await page.evaluate(
+          () => !!document.activeElement?.closest('[data-mobile-nav]'),
+        ),
+      ).toBe(false);
+    });
+  }
+});
 
 test.describe('behaviour', () => {
   // Playwright needs the fixtures argument as an object pattern, even when none are used.
@@ -154,6 +204,11 @@ test.describe('behaviour', () => {
     await expect(cards(page)).toHaveCount(15);
     await scrollToEnd(page);
     await expect(cards(page)).toHaveCount(30);
+    // Screen readers hear that more loaded, never how many (D62: no story counts anywhere).
+    const announcement = page.locator('main [role="status"]', {
+      hasText: 'loaded',
+    });
+    await expect(announcement).toHaveText('More stories loaded.');
     await scrollToEnd(page);
     await expect(cards(page)).toHaveCount(45);
     const more = page.getByRole('button', { name: 'Show more stories' });

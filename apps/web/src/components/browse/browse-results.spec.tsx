@@ -121,15 +121,6 @@ describe('BrowseResults (D55: 2 automatic pages, then a button)', () => {
     expect(document.activeElement?.textContent).toBe('Story 45');
   });
 
-  it('announces new stories to screen readers', async () => {
-    loadMore.mockResolvedValueOnce(page(15, 'c2'));
-    renderResults();
-    await scrollToEnd();
-    expect(screen.getByRole('status').textContent).toBe(
-      '15 more stories loaded.',
-    );
-  });
-
   it('shows the button straight away when the URL already had 3 pages', () => {
     renderResults(3, 'c3');
     expect(
