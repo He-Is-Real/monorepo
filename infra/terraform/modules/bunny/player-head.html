@@ -20,4 +20,12 @@
   bunny-media-time-range {
     min-height: 44px !important;
   }
+
+  /* The player is opaque. Its page is transparent by default, and on a dark site page Chrome
+   paints a transparent frame's empty areas white (the frame's own colour scheme): white bands
+   beside a letterboxed picture, e.g. Bunny's audio placeholder while audio plays. */
+  html,
+  body {
+    background: #000;
+  }
 </style>

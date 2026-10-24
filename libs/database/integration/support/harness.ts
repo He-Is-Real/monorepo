@@ -12,6 +12,13 @@ import {
   type SigningKeys,
 } from './jwt';
 
+/**
+ * A test that runs migrations gets this much time for each one (a jest test timeout, not an
+ * assertion): each run starts the Python runner and re-applies the whole schema, so how long it
+ * takes depends on the machine and what else runs on it, not on the behaviour checked.
+ */
+export const MIGRATION_TIMEOUT_MS = 60_000;
+
 export const SCHEMA_DIR = join(__dirname, '../../schema');
 /** The migrate Job's runner (D14): the tests apply the schema with it, exactly as the Job does. */
 export const RUNNER = join(SCHEMA_DIR, 'migrate.py');

@@ -150,8 +150,9 @@ export const imagePath = (id: ImageId) => `dev-seed/${id}.webp`;
 export interface UploadedClip {
   /** Bunny's video id (GUID), stored as the story's media[*].bunnyVideoId. */
   videoId: string;
-  /** `<videoId>/<thumbnail file>` on the Stream CDN; video only. */
+  /** `<videoId>/<thumbnail file>` on the Stream CDN. Audio: the site's default audio thumbnail. */
   thumbnailPath?: string;
+  /** A video's encoded size; an audio clip's thumbnail's size (Joel, 2026-10-24). */
   width?: number;
   height?: number;
   durationSeconds: number;
@@ -171,3 +172,9 @@ export interface BunnyMedia {
   clips: Partial<Record<ClipId, UploadedClip>>;
   images: Partial<Record<ImageId, UploadedImage>>;
 }
+
+/**
+ * The site's default audio thumbnail (apps/dev-seed/media/default-audio-thumbnail.jpg): its real
+ * pixel size is an audio story's width and height when the person has no picture of their own.
+ */
+export const DEFAULT_AUDIO_THUMBNAIL = { width: 1280, height: 720 } as const;

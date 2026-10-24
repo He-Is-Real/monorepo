@@ -7,6 +7,9 @@ import {
   type Page,
   test,
 } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DATASET } from '../src/app/dataset';
 import { imagePath } from '../src/app/media';
 import { API_URL, WEB_URL } from './playwright.config';
@@ -100,6 +103,49 @@ test('a published audio story’s player link is signed', async ({ request }) =>
   expect(player.searchParams.get('token')).toMatch(/^[0-9a-f]{64}$/);
   await expectStatus(request, player.toString(), 200);
   await expectStatus(request, unsigned(player), 403);
+});
+
+// Audio stories without a personal picture show the site's default audio thumbnail
+// (apps/dev-seed/media), set on Bunny by upload.ts; Bunny serves it unchanged.
+const DEFAULT_AUDIO_THUMBNAIL = createHash('sha256')
+  .update(readFileSync(join(__dirname, '../media/default-audio-thumbnail.jpg')))
+  .digest('hex');
+
+test('a published audio story’s thumbnail is the site’s default, signed, and its size is the story’s', async ({
+  request,
+  page,
+}) => {
+  const body = await publicStory(request, AUDIO.slug);
+  const videoId = new URL(body.media[0].playbackUrl).pathname.split('/').pop();
+  const thumb = new URL(body.media[0].thumbnailUrl);
+  expect(thumb.pathname).toMatch(
+    new RegExp(`^/${videoId}/thumbnail_[0-9a-f]+\\.jpg$`),
+  );
+  expect(thumb.searchParams.get('token')).toMatch(/^HS256-/);
+  expectFreshExpiry(thumb);
+  const res = await request.get(thumb.toString(), { headers });
+  expect(res.status()).toBe(200);
+  expect(res.headers()['content-type']).toMatch(/^image\//);
+  expect(
+    createHash('sha256')
+      .update(await res.body())
+      .digest('hex'),
+  ).toBe(DEFAULT_AUDIO_THUMBNAIL);
+  await expectStatus(request, unsigned(thumb), 403);
+
+  // Joel, 2026-10-24: an audio story's width and height are its thumbnail's real pixel size.
+  await page.goto(thumb.toString(), { referer: headers.referer });
+  const real = await page.evaluate(() => {
+    const img = document.images[0];
+    return [img?.naturalWidth, img?.naturalHeight];
+  });
+  expect([body.media[0].width, body.media[0].height]).toEqual(real);
+  const card = (
+    await (
+      await request.get(`${API_URL}/v1/stories?format=audio&limit=50`)
+    ).json()
+  ).data.find((c: { slug: string }) => c.slug === AUDIO.slug);
+  expect([card.thumbnailWidth, card.thumbnailHeight]).toEqual(real);
 });
 
 test('a published image link is signed; unsigned, tampered and unpublished images are refused', async ({

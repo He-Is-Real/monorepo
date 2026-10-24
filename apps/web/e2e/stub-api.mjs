@@ -108,9 +108,13 @@ stories['audio-story'] = {
   description: 'Placeholder audio story.',
   body: null,
   media: [
+    // The person's own picture as its thumbnail: its size is the story's (Joel, 2026-10-24).
     mediaItem({
       format: 'audio',
       playbackUrl: playback('5f801563-6d21-40cf-b76e-48712e3eeda6'),
+      thumbnailUrl: `${stub}/media/1080x1350.svg?token=HS256-stub&expires=4102444800`,
+      width: 1080,
+      height: 1350,
     }),
   ],
 };
@@ -218,10 +222,10 @@ for (let i = 0; i < 48; i++) {
             mediaItem({
               format: kind.format,
               playbackUrl: playback(`00000000-0000-4000-8000-0000000000${n}`),
-              thumbnailUrl:
-                kind.format === 'video' ? sized(kind.w, kind.h) : null,
-              width: kind.w ?? null,
-              height: kind.h ?? null,
+              // Audio: the site's default audio thumbnail, 1280 x 720.
+              thumbnailUrl: sized(kind.w ?? 1280, kind.h ?? 720),
+              width: kind.w ?? 1280,
+              height: kind.h ?? 720,
               durationSeconds: 15 + i * 7,
             }),
           ],
@@ -281,13 +285,14 @@ const playStory = (slug, over) => {
     ...over,
   };
 };
-const clip = (format, id, w, h) => [
+// Audio: the site's default audio thumbnail and its size, 1280 x 720.
+const clip = (format, id, w = 1280, h = 720) => [
   mediaItem({
     format,
     playbackUrl: playback(id),
-    thumbnailUrl: format === 'video' ? sized(w, h) : null,
-    width: w ?? null,
-    height: h ?? null,
+    thumbnailUrl: sized(w, h),
+    width: w,
+    height: h,
   }),
 ];
 playStory('play-test-video', {
@@ -379,7 +384,6 @@ const ALIASES = { 'old-video-story': 'video-story' };
 /** `StorySummary` (libs/contracts): a card, never a player link. */
 function summaryOf(s) {
   const media = s.media?.[0];
-  const video = media?.format === 'video';
   return {
     id: s.id,
     slug: s.slug,
@@ -388,9 +392,9 @@ function summaryOf(s) {
     bylineName: s.bylineName,
     primaryFormat: s.primaryFormat,
     durationSeconds: media?.durationSeconds ?? null,
-    thumbnailUrl: video ? media.thumbnailUrl : null,
-    thumbnailWidth: video ? media.width : null,
-    thumbnailHeight: video ? media.height : null,
+    thumbnailUrl: media?.thumbnailUrl ?? null,
+    thumbnailWidth: media?.width ?? null,
+    thumbnailHeight: media?.height ?? null,
     image: s.image,
     textLength: (s.body ?? '').length,
     tags: s.tags.map(

@@ -1,5 +1,5 @@
 import type { StorySummary } from './browse';
-import { cardAspect } from './shape';
+import { audioSize, cardAspect } from './shape';
 
 // D55: balanced masonry from predicted heights. A card's height is its fixed parts plus its
 // media (card width ÷ the clamped shape, D53) plus its text lines. Each card goes into the
@@ -44,11 +44,12 @@ export interface CardShape {
 }
 
 export function cardShape(s: StorySummary): CardShape {
+  const audio = audioSize(s.thumbnailWidth, s.thumbnailHeight);
   const aspect =
     s.primaryFormat === 'video'
       ? cardAspect(s.thumbnailWidth, s.thumbnailHeight)
       : s.primaryFormat === 'audio'
-        ? 2 // the audio band
+        ? cardAspect(audio.width, audio.height) // its thumbnail's shape
         : s.image
           ? cardAspect(s.image.width, s.image.height)
           : null;

@@ -276,7 +276,9 @@ DEFINE FIELD OVERWRITE media[*].bunnyVideoId    ON story TYPE option<string>
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE media[*].thumbnailPath   ON story TYPE option<string>
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
--- D53: the real pixel size (Bunny's encode result), replacing the aspectRatio label. Video only.
+-- D53: the real pixel size, replacing the aspectRatio label. A video's is Bunny's encode result.
+-- An audio file's is its thumbnail's, the picture shown for it (Joel, 2026-10-24): the person's
+-- own image, or the site's default audio thumbnail; never Bunny's audio placeholder.
 REMOVE FIELD IF EXISTS media[*].aspectRatio ON story;
 DEFINE FIELD OVERWRITE media[*].width           ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
@@ -354,11 +356,8 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
   IF $media.any(|$m| ($m.width = NONE) != ($m.height = NONE)) {
     RETURN 'a media item needs both width and height, or neither';
   };
-  IF $media.any(|$m| $m.format = 'audio' AND $m.width != NONE) {
-    RETURN 'audio has no width or height';
-  };
   IF $media.any(|$m| $m.width != NONE AND !fn::shape::allowed($m.width, $m.height)) {
-    RETURN 'a video’s shape is beyond 1:3 or 3:1';
+    RETURN 'a video’s or audio thumbnail’s shape is beyond 1:3 or 3:1';
   };
   IF $s.image != NONE AND !fn::shape::allowed($s.image.width, $s.image.height) {
     RETURN 'an image’s shape is beyond 1:3 or 3:1';
@@ -382,10 +381,28 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
   };
   RETURN NONE;
 };
+-- An audio file's thumbnail (Joel, 2026-10-24): exactly the paths api-public-read signs
+-- (MediaUrls.thumbnailUrl, bunny-tokens.ts safePath), so a published audio story always has a
+-- picture: `<bunnyVideoId>/<file>`, at most 500 characters, each segment only A-Z a-z 0-9 . _ -,
+-- no `.` or `..` segment. Both are tested against one table of cases
+-- (libs/contracts/src/media-paths.ts; Codex, #79).
+DEFINE FUNCTION OVERWRITE fn::media::safe_segment($s: any) {
+  RETURN type::is_string($s) AND string::matches($s, '^[A-Za-z0-9._-]+$')
+    AND $s NOT IN ['.', '..'];
+};
+DEFINE FUNCTION OVERWRITE fn::media::own_thumbnail($m: any) {
+  IF !type::is_string($m.thumbnailPath) OR !type::is_string($m.bunnyVideoId)
+    OR string::len($m.thumbnailPath) > 500 { RETURN false };
+  LET $parts = string::split($m.thumbnailPath, '/');
+  RETURN array::len($parts) = 2 AND $parts[0] = $m.bunnyVideoId
+    AND fn::media::safe_segment($parts[0]) AND fn::media::safe_segment($parts[1]);
+};
 -- A2 (Joel, 2026-10-23): what keeps a story from being approved or published, or NONE. Every
 -- upload must be processed by workflow (M7: size, duration, the malware and content checks) and
 -- carry the facts processing found: a video its width, height and duration, an audio file its
--- duration, an image (already sized by the person's browser) processing = 'ready'. So nothing
+-- duration and its thumbnail with that picture's width and height (the person's image or the
+-- site's default, set by processing; Joel, 2026-10-24), an image (already sized by the person's
+-- browser) processing = 'ready'. So nothing
 -- unprocessed, or possibly malicious, reaches the public view. Messages start with
 -- 'media_not_ready:' so api-admin answers 409 (libs/database isMediaNotReadyError).
 DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
@@ -399,6 +416,10 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
   };
   IF $media.any(|$m| $m.format = 'audio' AND !(type::is_int($m.durationSeconds) AND $m.durationSeconds > 0)) {
     RETURN 'media_not_ready: an audio file needs its duration';
+  };
+  IF $media.any(|$m| $m.format = 'audio' AND !(fn::media::own_thumbnail($m)
+       AND type::is_int($m.width) AND type::is_int($m.height))) {
+    RETURN 'media_not_ready: an audio file needs its thumbnail and that picture’s width and height';
   };
   IF $s.image != NONE AND $s.image.processing != 'ready' {
     RETURN 'media_not_ready: the story’s image hasn’t finished processing';

@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
-import { cardAspect } from '@/lib/shape';
+import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
 
 // A story's card (browse, home, related). Its parts and sizes mirror lib/masonry.ts, which
@@ -21,7 +21,8 @@ export const formatDuration = (seconds: number) =>
 export const readingMinutes = (chars: number) =>
   Math.max(1, Math.ceil(chars / CHARS_PER_MINUTE));
 
-// Quiet placeholders from the mockups, for media without a signed picture (audio, or signing off).
+// Quiet placeholders from the mockups, for a card without a signed picture: home's written stories
+// without an image, or any card while signing is off. Audio cards show their thumbnail (U2).
 const PLACEHOLDERS = [
   ['#1a3a3d', '#0d1f21', '#4e9ba0'],
   ['#1e2e28', '#0f1a14', '#5a7a6a'],
@@ -54,7 +55,19 @@ function mediaOf(story: StorySummary, uniform: boolean) {
       width: story.thumbnailWidth,
       height: story.thumbnailHeight,
     };
-  if (format === 'audio') return { aspect: 2, src: null };
+  if (format === 'audio') {
+    // Its thumbnail (the person's image or the site's default), at that picture's shape.
+    const { width, height } = audioSize(
+      story.thumbnailWidth,
+      story.thumbnailHeight,
+    );
+    return {
+      aspect: cardAspect(width, height),
+      src: story.thumbnailUrl,
+      width,
+      height,
+    };
+  }
   if (image)
     return {
       aspect: cardAspect(image.width, image.height),

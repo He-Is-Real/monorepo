@@ -1,3 +1,4 @@
+import { THUMBNAIL_PATH_CASES } from '@heisreal/contracts/media-paths';
 import type { Surreal, SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
@@ -17,7 +18,8 @@ import { approve, processed, submit } from './support/world';
  * person's value is ignored, api-admin's is dropped. Changing an item or the image in any way
  * (another upload, another size, another alt text) sets it back to NONE. The database refuses
  * `status → approved`, and any publicStory write, unless every item is 'ready' with its facts:
- * a video its width, height and duration, an audio file its duration, the image 'ready'.
+ * a video its width, height and duration, an audio file its duration and its thumbnail with
+ * that picture's width and height (Joel, 2026-10-24), the image 'ready'.
  */
 describe('approval waits for media processing (A2)', () => {
   let t: TestDatabase;
@@ -329,6 +331,28 @@ describe('approval waits for media processing (A2)', () => {
         'an audio file needs its duration',
       ],
       [
+        'a ready audio file with an empty thumbnail path',
+        audio,
+        `media[0].processing = 'ready', media[0].durationSeconds = 30,
+         media[0].thumbnailPath = '', media[0].width = 1280, media[0].height = 720`,
+        'an audio file needs its thumbnail and that picture’s width and height',
+      ],
+      [
+        'a ready audio file with a thumbnail outside its own video’s folder',
+        audio,
+        `media[0].processing = 'ready', media[0].durationSeconds = 30,
+         media[0].thumbnailPath = 'other/thumbnail_0a1b2c3d.jpg', media[0].width = 1280,
+         media[0].height = 720`,
+        'an audio file needs its thumbnail and that picture’s width and height',
+      ],
+      [
+        'a ready audio file without its thumbnail’s size',
+        audio,
+        `media[0].processing = 'ready', media[0].durationSeconds = 30,
+         media[0].thumbnailPath = 'aud/thumbnail_0a1b2c3d.jpg'`,
+        'an audio file needs its thumbnail and that picture’s width and height',
+      ],
+      [
         'an unchecked image',
         written,
         undefined,
@@ -359,6 +383,33 @@ describe('approval waits for media processing (A2)', () => {
       expect((await story(id)).status).toBe('approved');
       expect(await published(id)).toEqual([`publicStory:${id}`]);
     });
+
+    // An audio file's thumbnail: the same table api-public-read's signer is tested against
+    // (libs/contracts media-paths), so every path the database lets through can be signed.
+    it.each(THUMBNAIL_PATH_CASES.map((c) => [c.why, c] as const))(
+      'audio thumbnail path rule, shared with the signer: %s',
+      async (_why, c) => {
+        const id = await pending(
+          () =>
+            create(
+              `primaryFormat: 'audio',
+               media: [{ format: 'audio', bunnyVideoId: ${JSON.stringify(c.videoId)} }]`,
+            ),
+          `media[0].processing = 'ready', media[0].durationSeconds = 30,
+           media[0].thumbnailPath = ${JSON.stringify(c.path)},
+           media[0].width = 1280, media[0].height = 720`,
+        );
+        if (c.ok) {
+          await approve(admin, id);
+          expect(await published(id)).toEqual([`publicStory:${id}`]);
+        } else {
+          await refusedApproval(
+            id,
+            'an audio file needs its thumbnail and that picture’s width and height',
+          );
+        }
+      },
+    );
 
     it('is refused for system users too (the migrator)', async () => {
       const id = await pending(video);

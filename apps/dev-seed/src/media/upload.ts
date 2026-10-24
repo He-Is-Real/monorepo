@@ -13,6 +13,12 @@
  *
  * The library id: `tools/scripts/tf.sh bunny output bunny` (stream_library_id). Prints ids,
  * sizes and statuses, never a key.
+ *
+ * Audio clips get the site's default thumbnail (media/default-audio-thumbnail.jpg) in place of
+ * Bunny's speaker poster, once. Changing a clip's thumbnail counts as changed media for a story
+ * that is already approved (D59/D60: only Bunny's generated frames don't), so after a run that
+ * sets one, "Reset dev data" re-seeds the stories with the new `thumbnailPath`. In production
+ * the processing workflow sets it before approval (docs/delivery-status.md, card playback).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,6 +37,7 @@ import {
 import {
   Bunny,
   clipTitle,
+  customThumbnail,
   recordClip,
   recordImage,
   serialise,
@@ -40,6 +47,10 @@ import { clipFile, imageFile } from './ffmpeg';
 import { MEDIA_DIR } from './generate';
 
 const RECORD = join(__dirname, '../app/bunny-media.json');
+const DEFAULT_AUDIO_THUMBNAIL = join(
+  __dirname,
+  '../../media/default-audio-thumbnail.jpg',
+);
 const STORAGE_ZONE = 'heisreal-dev-images';
 const STORAGE_HOST = 'uk.storage.bunnycdn.com'; // the zone's region: London
 
@@ -110,7 +121,17 @@ async function main(): Promise<void> {
       );
     }
     if (dryRun && found[0]?.status !== VIDEO_STATUS.finished) continue;
-    media.clips[id] = recordClip(id, spec, await bunny.waitForVideo(guid));
+    let video = await bunny.waitForVideo(guid);
+    if (spec.kind === 'audio' && !customThumbnail(video)) {
+      if (dryRun) {
+        console.log(`${title}: would set the default audio thumbnail`);
+      } else {
+        await bunny.setThumbnail(guid, readFileSync(DEFAULT_AUDIO_THUMBNAIL));
+        video = await bunny.getVideo(guid);
+        console.log(`${title}: default audio thumbnail set`);
+      }
+    }
+    media.clips[id] = recordClip(id, spec, video);
     console.log(`${title}: ${JSON.stringify(media.clips[id])}`);
   }
 

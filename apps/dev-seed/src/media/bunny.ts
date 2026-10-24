@@ -1,5 +1,6 @@
 import {
   type BunnyMedia,
+  DEFAULT_AUDIO_THUMBNAIL,
   type ClipSpec,
   type ImageSpec,
   type UploadedClip,
@@ -35,6 +36,21 @@ export interface StreamVideo {
 }
 
 export type Fetch = typeof fetch;
+
+/**
+ * Bunny's file for a video's selected thumbnail until a custom one is set. For an audio upload
+ * it's Bunny's own speaker poster, which the site never shows: audio clips get the site's
+ * default thumbnail instead (media/default-audio-thumbnail.jpg, set by upload.ts).
+ */
+export const BUNNY_DEFAULT_THUMBNAIL = 'thumbnail.jpg';
+
+/** The clip's custom thumbnail (`<videoId>/<file>`), or `undefined` while it has Bunny's default. */
+export function customThumbnail(video: StreamVideo): string | undefined {
+  const file = video.thumbnailFileName;
+  return file && file !== BUNNY_DEFAULT_THUMBNAIL
+    ? `${video.guid}/${file}`
+    : undefined;
+}
 
 /** The title a clip is uploaded under, and found again by. */
 export const clipTitle = (id: string) => `dev-seed/${id}`;
@@ -113,6 +129,19 @@ export class Bunny {
     return guid;
   }
 
+  /** Sets a custom thumbnail (Stream API "Set Thumbnail"): a JPEG, stored in the video's folder. */
+  async setThumbnail(guid: string, jpeg: Uint8Array): Promise<void> {
+    await this.call(
+      this.stream(`/videos/${guid}/thumbnail`),
+      this.target.libraryKey,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: jpeg,
+      },
+    );
+  }
+
   /** Waits until Bunny has encoded the video (status finished); fails on an error status. */
   async waitForVideo(
     guid: string,
@@ -183,7 +212,15 @@ export function recordClip(
     );
   }
   if (spec.kind === 'audio') {
-    return { videoId: video.guid, durationSeconds: video.length };
+    // Its size is its thumbnail's: the site's default (upload.ts sets it), never Bunny's
+    // 1280x720 placeholder video. Without the thumbnail yet, no size.
+    const thumbnailPath = customThumbnail(video);
+    return {
+      videoId: video.guid,
+      thumbnailPath,
+      ...(thumbnailPath ? DEFAULT_AUDIO_THUMBNAIL : {}),
+      durationSeconds: video.length,
+    };
   }
   if (video.width !== spec.width || video.height !== spec.height) {
     throw new Error(

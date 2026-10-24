@@ -654,7 +654,10 @@ describe('browse API over the dev dataset', () => {
         expect(w01.image?.url).toMatch(
           /^https:\/\/images-test\.b-cdn\.net\/dev-seed\/image-01\.webp\?token=HS256-/,
         );
-        expect(all.find((c) => c.id === 'seed_a01')?.thumbnailUrl).toBeNull();
+        // Audio: the site's default audio thumbnail, a custom upload in the clip's folder.
+        expect(all.find((c) => c.id === 'seed_a01')?.thumbnailUrl).toMatch(
+          /^https:\/\/vz-test\.b-cdn\.net\/test-video-clip-08\/thumbnail_[0-9a-f]+\.jpg\?token=HS256-/,
+        );
         const related = await cards(
           '/v1/stories/test-video-vertical-phone/related',
         );

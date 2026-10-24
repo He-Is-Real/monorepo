@@ -4,6 +4,7 @@ import {
   type BunnyMedia,
   CLIPS,
   type ClipId,
+  DEFAULT_AUDIO_THUMBNAIL,
   IMAGES,
   type ImageId,
 } from './media';
@@ -26,7 +27,12 @@ describe('the committed media record (bunny-media.json)', () => {
           clip.height,
         ]);
       } else {
-        expect(uploaded?.width).toBeUndefined();
+        // Audio: the site's default audio thumbnail and its size (Joel, 2026-10-24).
+        expect(uploaded?.thumbnailPath).toMatch(/\/thumbnail_[0-9a-f]+\.jpg$/);
+        expect([uploaded?.width, uploaded?.height]).toEqual([
+          DEFAULT_AUDIO_THUMBNAIL.width,
+          DEFAULT_AUDIO_THUMBNAIL.height,
+        ]);
       }
     }
     for (const [id, image] of Object.entries(IMAGES)) {
