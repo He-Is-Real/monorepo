@@ -152,6 +152,39 @@ test('structured data: the organisation and website on every page, the FAQs as a
   );
 });
 
+test('the footer’s cookie notice leads to the cookie list', async ({
+  page,
+}) => {
+  await page.goto('/about');
+  await page
+    .getByRole('contentinfo')
+    .getByRole('link', { name: 'How we use cookies' })
+    .click();
+  await expect(page).toHaveURL(/\/privacy#cookies$/);
+  const section = page.locator('#cookies');
+  await expect(
+    section.getByRole('heading', { name: 'Cookies and storage' }),
+  ).toBeInViewport();
+  await expect(section.getByRole('rowheader')).toContainText([
+    'theme',
+    '__client_uat',
+    '__session',
+    '__clerk_environment',
+    '__cf_bm, _cfuvid',
+    'bunny_stream_settings_…',
+    '__clerk_db_jwt',
+  ]);
+});
+
+test('Contact’s email button writes to the right address', async ({ page }) => {
+  await page.goto('/contact');
+  await expect(
+    page.getByRole('main').getByRole('link', {
+      name: 'Email info@heisreal.today',
+    }),
+  ).toHaveAttribute('href', 'mailto:info@heisreal.today');
+});
+
 test('the footer links the site’s pages', async ({ page }) => {
   await page.goto('/about');
   const nav = page.getByRole('navigation', { name: 'Footer' });

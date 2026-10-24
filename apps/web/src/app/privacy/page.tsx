@@ -15,6 +15,7 @@ export function generateMetadata() {
 // What the site stores on a visitor's device, checked in a real (non-automated) browser on
 // 2026-10-23 (M1 step 6b-2, #65 review): the theme the visitor picks, and Clerk's sign-in (it
 // runs in the header on every page, D32), with Clerk's optional telemetry off.
+// Bunny's player keeps the visitor's own playback settings once they change one (Codex, #65).
 // All strictly necessary (PECR reg. 6(4)), so no consent banner. Clerk may add a short suffix
 // to its cookie names.
 const STORAGE = [
@@ -54,6 +55,14 @@ const STORAGE = [
     by: 'Cloudflare, for Clerk (on Clerk’s domain)',
     purpose: 'Protect sign-in from bots.',
     lasts: '30 minutes, or until you close the browser',
+  },
+  {
+    name: 'bunny_stream_settings_…',
+    kind: 'Local storage, in the video player (player.mediadelivery.net)',
+    by: 'Bunny.net, our video player',
+    purpose:
+      'Remembers the playback speed, volume or mute you chose. Only saved if you change one of them.',
+    lasts: 'Until you clear it',
   },
   {
     name: '__clerk_db_jwt',
@@ -100,9 +109,10 @@ export default function PrivacyPage() {
           </h2>
           <div className="mb-6 max-w-prose space-y-4 text-secondary-text">
             <p>
-              We only use the cookies and storage the site needs to work. We
-              don’t use advertising or tracking cookies, and we don’t run
-              analytics.
+              We only use the cookies and storage the site needs to work, or to
+              remember a choice you made, like the theme or a video’s playback
+              speed. We don’t use advertising or tracking cookies, and we don’t
+              run analytics.
             </p>
             <p>
               That’s why there’s no cookie banner: nothing here needs your
@@ -172,9 +182,10 @@ export default function PrivacyPage() {
             </p>
             <p>
               Story videos and audio play in Bunny.net’s player. It stores
-              nothing on your device, before or during playback. While a story
-              plays, it sends Bunny playback statistics (which video, and how
-              long it played) so we can tell that videos work.
+              nothing on your device unless you change a player setting (listed
+              above). While a story plays, it sends Bunny playback statistics
+              (which video, and how long it played) so we can tell that videos
+              work.
             </p>
           </div>
         </section>

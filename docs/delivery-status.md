@@ -252,10 +252,14 @@ Coordinator's calls in this step (not yet numbered as decisions; Joel can overru
   (bot protection). **Clerk's product telemetry is off** (`telemetry={false}`): it was sending
   events to clerk-telemetry.com and storing `clerk_telemetry_throttler` (optional, so not
   strictly necessary). Clerk skips telemetry for automated browsers (`navigator.webdriver`), so
-  the e2e check poses as an ordinary Chrome. Bunny's player (signed playback started) stores
-  nothing in its frame and sets no cookies; while playing it POSTs playback statistics (video,
-  seconds watched, a per-load session id) to `video.bunnycdn.com`: no device storage, so not a
-  PECR matter, but listed on the privacy page. The rest is strictly necessary (reg. 6(4)), so
+  the e2e check poses as an ordinary Chrome. Bunny's player (signed playback started) sets no
+  cookies and stores nothing during default playback; once the visitor changes the playback
+  speed, volume or mute, it keeps them in `bunny_stream_settings_<library id>` in its frame's
+  localStorage (player.mediadelivery.net) until cleared: a preference the visitor sets, so
+  strictly necessary like `theme` (Codex round 2; checked by the dev behavioural suite,
+  `media.behaviour.ts`). While playing it POSTs playback statistics (video, seconds watched, a
+  per-load session id) to `video.bunnycdn.com`: no device storage, so not a PECR matter, but
+  listed on the privacy page. Everything is strictly necessary (reg. 6(4)), so
   the footer says "We only use essential cookies and storage" and links to `/privacy#cookies`;
   no consent wall, no consent SDK. Anything non-essential later (analytics, Sentry replay,
   embeds) needs opt-in first.
