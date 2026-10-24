@@ -190,6 +190,70 @@ test('Bunny’s player stores nothing until the visitor changes a setting, then 
     .toEqual([['bunny_stream_settings_<library>', { speed: 1.5 }]]);
 });
 
+// Card playback: a browse card's play button asks web's server for the player link (a server
+// action reading the story from api-public-read, D32), signed only then, and plays it in place.
+test('a video card plays in place with a freshly signed Bunny embed link', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/stories?format=video');
+  const card = page.locator('main article').first();
+  const slug = (await card.getByRole('link').getAttribute('href'))?.replace(
+    '/stories/',
+    '',
+  );
+  await card.getByRole('button', { name: /^Play / }).click();
+  const frame = card.locator('iframe');
+  await expect(frame).toBeVisible({ timeout: 30_000 });
+
+  // It really plays, from that one click (Codex, #77): the media loads and its time advances.
+  // Checked first, while the 12 s clip is still playing; the link checks below don't need it.
+  const bunny = await playerFrame(page);
+  const t1 = await expectPlaying(bunny);
+  await expect
+    .poll(() => mediaState(bunny).then((m) => m.time))
+    .toBeGreaterThan(t1);
+  await expect(page).toHaveURL(/\/stories\?format=video$/);
+
+  const player = new URL((await frame.getAttribute('src')) ?? '');
+  expect(player.origin).toBe('https://player.mediadelivery.net');
+  expect(player.pathname).toMatch(/^\/embed\/\d+\/[0-9a-f-]{36}$/);
+  expect(player.searchParams.get('token')).toMatch(/^[0-9a-f]{64}$/);
+  expect(player.searchParams.get('autoplay')).toBe('true');
+  expectFreshExpiry(player);
+  // The same video as the story's own page, and Bunny accepts the link.
+  const body = await publicStory(request, slug ?? '');
+  expect(player.pathname).toBe(new URL(body.media[0].playbackUrl).pathname);
+  await expectStatus(request, player.toString(), 200);
+});
+
+/** The player's media element (inside Bunny's <bunny-stream-video>): loaded, playing, time. */
+function mediaState(frame: Frame) {
+  return frame.evaluate(() => {
+    const host = document.querySelector('bunny-stream-video');
+    const v = (host?.shadowRoot?.querySelector('video') ??
+      document.querySelector('video')) as HTMLVideoElement | null;
+    return {
+      ready: v?.readyState ?? 0,
+      paused: v?.paused ?? true,
+      time: v?.currentTime ?? 0,
+    };
+  });
+}
+
+/** Waits until the media has loaded and played past half a second; returns its time. */
+async function expectPlaying(frame: Frame) {
+  await expect
+    .poll(() => mediaState(frame), { timeout: 30_000 })
+    .toMatchObject({ ready: expect.any(Number), paused: false });
+  await expect
+    .poll(() => mediaState(frame).then((m) => m.time), { timeout: 30_000 })
+    .toBeGreaterThan(0.5);
+  const m = await mediaState(frame);
+  expect(m.ready).toBeGreaterThanOrEqual(2); // HAVE_CURRENT_DATA
+  return m.time;
+}
+
 /**
  * Every visible control in the Bunny Player's bars (its media-chrome buttons and the seek bar):
  * size and whether it lies inside the player. The web e2e stub can't prove this: only the real
@@ -229,9 +293,11 @@ async function playerControls(frame: Frame) {
 }
 
 async function playerFrame(page: Page) {
+  // Bunny's embed can take several seconds to load (a 7 s load was seen; no retries on main).
   await expect
-    .poll(() =>
-      page.frames().some((f) => f.url().includes('mediadelivery.net')),
+    .poll(
+      () => page.frames().some((f) => f.url().includes('mediadelivery.net')),
+      { timeout: 30_000 },
     )
     .toBe(true);
   return page.frames().find((f) => f.url().includes('mediadelivery.net'))!;
@@ -242,6 +308,31 @@ test.describe('on a 320 px phone', () => {
     viewport: { width: 320, height: 568 },
     isMobile: true,
     hasTouch: true,
+  });
+
+  // Codex, #77: an audio card's 2:1 box is 144 px tall here; Bunny's controls need about 176 px,
+  // so the playing card's player is at least 184 px tall (web's PLAYER_MIN_HEIGHT).
+  test('an audio card plays in place with every control at least 44 × 44 px inside it', async ({
+    page,
+  }) => {
+    await page.goto('/stories?format=audio');
+    const card = page.locator('main article').first();
+    await card.getByRole('button', { name: /^Play / }).tap();
+    await expect(card.locator('iframe')).toBeVisible({ timeout: 30_000 });
+    const frame = await playerFrame(page);
+    await expectPlaying(frame);
+    await expect
+      .poll(async () => (await playerControls(frame)).length, {
+        timeout: 15_000,
+      })
+      .toBeGreaterThanOrEqual(4);
+    for (const c of await playerControls(frame)) {
+      expect(c.inside, `${c.name} lies inside the player`).toBe(true);
+      expect(c.height, `${c.name} height`).toBeGreaterThanOrEqual(44);
+      if (c.name.endsWith('-button')) {
+        expect(c.width, `${c.name} width`).toBeGreaterThanOrEqual(44);
+      }
+    }
   });
 
   test('the real player’s controls are at least 44 × 44 px and fit inside it (AGENTS.md)', async ({

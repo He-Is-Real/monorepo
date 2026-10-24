@@ -220,6 +220,38 @@ changed two settings: passwords became optional with an 8-character minimum (was
 - **Tags on browse and home** are the ones published stories use (D63, step 6c). Story share
   previews keep the brand card (no per-story images; D52's links expire).
 
+#### Card playback, links signed on demand (Joel, 2026-10-24)
+
+- **Video and audio cards play in place** (home's "Recently shared" and browse; the story page's
+  related list is a separate small list and still links). Pressing a card's media area swaps the
+  thumbnail for Bunny's player in the same box, so D55's measured spans stay right; the text below
+  still opens the story's page (the title link stretches over that part only). Written cards are
+  unchanged. Playback starts from that press (`autoplay=true` and `allow="autoplay"` on that
+  player only), never on its own: the design principle is about media starting by itself, and the
+  story page's player keeps `autoplay=false`. One card plays at a time on the whole page; Escape
+  (focus in the card) or "Close player" stops it, and focus goes into the player and back to the
+  play button. Without JavaScript the media area is a plain link to the story.
+- **Player links are signed only when someone presses play.** Cards still never carry a player
+  link (step 6a): the list response doesn't sign one per card. The press calls a server action
+  (`cardPlayer`, `app/stories/actions.ts`): web's server reads `GET /v1/stories/{slug}` from
+  api-public-read (D32) and returns that story's signed player link, the same one its page shows
+  (6–7 h, D52). No contract change: the story endpoint already returns it. A story hidden or
+  withdrawn since the list loaded answers 404 ("This story isn't available any more."), and an API
+  that is down, or a failed request, says "The player couldn't load. Try again in a moment."; the
+  card's link keeps working either way.
+- **Nothing prefetches a story's page** (Codex, #77): Next's link prefetch would read the story,
+  and so sign its links, for every card in view. Card and related-story links have
+  `prefetch={false}`, so links are signed only for stories someone plays or opens (e2e counts the
+  story reads).
+- **Rate limiting:** `cardPlayer` isn't rate-limited, like the anonymous `GET /v1/stories/{slug}`
+  it calls, which already allows the same. Revisit both with the Go live front door (D56).
+- **The player's controls fit** (Codex, #77): below about 176 px tall, Bunny's player squeezes its
+  button row and the 44 px buttons spill out of the frame, at any width (measured on dev). So a
+  playing card's box and the story page's player are at least 184 px tall (`PLAYER_MIN_HEIGHT`);
+  a card whose box is shorter (a 2:1 audio card on a phone is 144 px) grows once when the player
+  opens, and browse's masonry re-measures it. The dev behavioural suite checks the real player's
+  controls inside an audio card at 320 px, and that a card's media really plays from the click.
+
 #### Notes from step 5 (media token auth, D52)
 
 - **Expiry: 6–7 hours.** Links outlive any cached response (60 s + 300 s today, D52) and a page
@@ -444,3 +476,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-24:** Test clean-up PR B (T3, T5): the OpenTofu modules' `tofu test` runs in ci.yml's required job (`terraform:test`); api-public-read's integration tests and web's e2e stub are checked against `api-public-read.yaml` (which now lists `5XX`, `ServerError`); `tofu-apply.yml` dispatches "Dev behavioural tests" only after a complete deploy: every root's stage ok and at least one apply done (`tools/scripts/tf-behavioural.sh`), never after a failed, rejected or superseded run.
 - **2026-10-24:** Test clean-up PR C (T6, T7, T8): device matrix 16 → 14 (5 look-alikes out; 2 phones in landscape and a 600 px small tablet in); screen-independent tests on one phone and one desktop; the footer in the 44 px check, also on the static, 404 and error pages; 200% text on every page at 320 px (overflow fixed with `overflow-wrap: anywhere` and the privacy table's header cells; prose sizes moved from px to rem so a reader's text size really scales them); menus, More tags, Show more and Try again checked open at every width; screenshots on 4 sizes as JPEG (about 14 MB), traces only on failure, kept 7 days. **Joel's R1 (reading width): option A, the reading column.** Pages narrow their whole content column to `max-w-measure` (32rem), so body text runs to at most 80 characters a line at every band and headings, dividers, tables and text share their edges; the story sidebar sits one gap (3rem) from the text and the composition is centred; the privacy table breaks out symmetrically from 1024 px. **About stays as it was** (Joel: wider for the video and title; its text is under 80). Phones are unchanged. e2e: `alignment.e2e.ts`, per-band line length (visible text of 15 px and up; small print exempt). The header is no longer streamed in late: it was inside a Suspense boundary, so without JavaScript there was no header at all and on slow servers it popped in and pushed the page down (an ipad-air-landscape flake); now only the account control streams in, behind a placeholder of its size. The signed-in header is #71's.
 - **2026-10-24:** Test clean-up PR E (T4, local equals CI): Playwright 0 retries and 4 workers everywhere; the e2e header uses an `E2E_FIXTURES` stand-in for Clerk's Sign in except on the real-Clerk server (two tests, one phone and one desktop); integration suites at 3 Jest workers everywhere; the behavioural suite wakes both Cloud Run services first, then runs with 0 retries; the migration runner's "paused mid-step" test uses an explicit pause (`MIGRATE_TEST_PAUSE_BEFORE`) instead of about 9 s of bcrypt. The 3 s sleep and the benchmark went in PR A.
+- **2026-10-24:** Card playback (Joel): video and audio cards on home and browse play in place; player links are signed on demand through a server action (notes under M1). The dev behavioural suite checks a card's link on dev.
