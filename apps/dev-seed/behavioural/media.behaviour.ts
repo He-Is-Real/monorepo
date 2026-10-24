@@ -190,6 +190,35 @@ test('Bunny’s player stores nothing until the visitor changes a setting, then 
     .toEqual([['bunny_stream_settings_<library>', { speed: 1.5 }]]);
 });
 
+// Card playback: a browse card's play button asks web's server for the player link (a server
+// action reading the story from api-public-read, D32), signed only then, and plays it in place.
+test('a video card plays in place with a freshly signed Bunny embed link', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/stories?format=video');
+  const card = page.locator('main article').first();
+  const slug = (await card.getByRole('link').getAttribute('href'))?.replace(
+    '/stories/',
+    '',
+  );
+  await card.getByRole('button', { name: /^Play / }).click();
+  const frame = card.locator('iframe');
+  await expect(frame).toBeVisible({ timeout: 30_000 });
+  await expect(page).toHaveURL(/\/stories\?format=video$/);
+
+  const player = new URL((await frame.getAttribute('src')) ?? '');
+  expect(player.origin).toBe('https://player.mediadelivery.net');
+  expect(player.pathname).toMatch(/^\/embed\/\d+\/[0-9a-f-]{36}$/);
+  expect(player.searchParams.get('token')).toMatch(/^[0-9a-f]{64}$/);
+  expect(player.searchParams.get('autoplay')).toBe('true');
+  expectFreshExpiry(player);
+  // The same video as the story's own page, and Bunny accepts the link.
+  const body = await publicStory(request, slug ?? '');
+  expect(player.pathname).toBe(new URL(body.media[0].playbackUrl).pathname);
+  await expectStatus(request, player.toString(), 200);
+});
+
 /**
  * Every visible control in the Bunny Player's bars (its media-chrome buttons and the seek bar):
  * size and whether it lies inside the player. The web e2e stub can't prove this: only the real

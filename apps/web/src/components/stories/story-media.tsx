@@ -7,10 +7,16 @@ import type { PublicStory } from '@/lib/public-stories';
 // Pages render per request (`no-store`), so a page never holds a link older than the API's.
 // No autoplay (design principle): the player is told so, and `allow` grants no autoplay.
 
-const PLAYER_ALLOW = 'encrypted-media; picture-in-picture; fullscreen';
+export const PLAYER_ALLOW = 'encrypted-media; picture-in-picture; fullscreen';
 
-/** The signed player URL with autoplay and preload off, or `null` if it isn't http(s). */
-export function playerSrc(playbackUrl: string): string | null {
+/**
+ * The signed player URL with autoplay and preload off, or `null` if it isn't http(s). A card's
+ * player (card-player.tsx) asks for `autoplay`: it opens only when someone presses play.
+ */
+export function playerSrc(
+  playbackUrl: string,
+  { autoplay = false }: { autoplay?: boolean } = {},
+): string | null {
   let url: URL;
   try {
     url = new URL(playbackUrl);
@@ -19,8 +25,8 @@ export function playerSrc(playbackUrl: string): string | null {
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
   // The token covers only the video and expiry, so player options can be added.
-  url.searchParams.set('autoplay', 'false');
-  url.searchParams.set('preload', 'false');
+  url.searchParams.set('autoplay', String(autoplay));
+  url.searchParams.set('preload', String(autoplay));
   return url.toString();
 }
 
