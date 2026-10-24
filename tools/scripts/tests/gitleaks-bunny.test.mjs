@@ -35,19 +35,23 @@ const alnum = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const ghp =
   'ghp_' + Array.from(randomBytes(36), (b) => alnum[b % alnum.length]).join('');
 
-// Scans one fixture file; returns gitleaks' exit code and the rule IDs it reported.
-const scan = (path, content) => {
+// Scans fixture files (path → content) in one gitleaks run; returns gitleaks' exit code and
+// the rule IDs it reported per file.
+const scanMany = (files) => {
   const dir = mkdtempSync(join(tmpdir(), 'gitleaks-test-'));
   try {
-    const file = join(dir, 'src', path);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, content);
+    const src = join(dir, 'src');
+    for (const [path, content] of Object.entries(files)) {
+      const file = join(src, path);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, content);
+    }
     const report = join(dir, 'report.json');
     const result = spawnSync(
       'gitleaks',
       [
         'dir',
-        join(dir, 'src'),
+        src,
         '--config',
         config,
         '--no-banner',
@@ -65,14 +69,20 @@ const scan = (path, content) => {
       result.status === 0 || result.status === 1,
       `gitleaks failed: ${result.error ?? result.stderr}`,
     );
-    const rules =
-      result.status === 1
-        ? JSON.parse(readFileSync(report, 'utf8')).map((f) => f.RuleID)
-        : [];
+    const rules = {};
+    if (result.status === 1)
+      for (const f of JSON.parse(readFileSync(report, 'utf8'))) {
+        const path = f.File.slice(src.length + 1);
+        (rules[path] ??= []).push(f.RuleID);
+      }
     return { status: result.status, rules };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+};
+const scan = (path, content) => {
+  const { status, rules } = scanMany({ [path]: content });
+  return { status, rules: rules[path] ?? [] };
 };
 
 const flagged = [
@@ -87,14 +97,28 @@ const flagged = [
   ['b.json', (k) => `{ "bunny": "${k}" }\n`],
 ];
 
-for (const [shape, key] of [
+// Every flagged fixture in one gitleaks run (one run costs about a second).
+const shapes = [
   ['8-4-4-4-12', U],
   ['8-4-4-12-4-4', L],
-]) {
-  for (const [path, line] of flagged) {
+];
+let flaggedScan;
+const flaggedRules = (path) => {
+  flaggedScan ??= scanMany(
+    Object.fromEntries(
+      shapes.flatMap(([shape, key]) =>
+        flagged.map(([file, line]) => [`${shape}/${file}`, line(key)]),
+      ),
+    ),
+  );
+  assert.equal(flaggedScan.status, 1);
+  return flaggedScan.rules[path] ?? [];
+};
+
+for (const [shape] of shapes) {
+  for (const [path] of flagged) {
     test(`flags a ${shape} Bunny key in ${path}`, () => {
-      const { status, rules } = scan(path, line(key));
-      assert.equal(status, 1);
+      const rules = flaggedRules(`${shape}/${path}`);
       assert.ok(rules.includes('bunny-key'), `rules: ${rules}`);
     });
   }

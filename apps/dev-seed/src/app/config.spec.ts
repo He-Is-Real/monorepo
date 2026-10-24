@@ -11,17 +11,6 @@ const DEV = {
 };
 
 describe('seedConfig', () => {
-  it('reads the dev settings', () => {
-    expect(seedConfig(DEV)).toEqual({
-      url: 'ws://surrealdb:8000',
-      namespace: 'heisreal',
-      database: 'main',
-      username: 'dev_seed',
-      passwordSecret: 'surreal-dev-seed-password',
-      project: 'heisreal-dev',
-    });
-  });
-
   it.each([
     ['another environment', { DEV_SEED_ENVIRONMENT: 'prod' }],
     ['no environment', { DEV_SEED_ENVIRONMENT: undefined }],

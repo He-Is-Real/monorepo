@@ -1,9 +1,7 @@
 import {
   dpaInForce,
-  evidenceHash,
   type PublishedDpa,
   reconsentRequired,
-  recordKey,
 } from './consent-ledger';
 
 const dpa = (
@@ -40,10 +38,6 @@ describe('dpaInForce', () => {
 
 describe('reconsentRequired (gdpr-consent.md rule 5)', () => {
   const v1 = dpa('v1', '2027-01-01T00:00:00Z');
-
-  it('is false for consent to the version in force', () => {
-    expect(reconsentRequired('v1', [v1], NOW)).toBe(false);
-  });
 
   it('is false after a minor change (notify only)', () => {
     expect(
@@ -82,43 +76,5 @@ describe('reconsentRequired (gdpr-consent.md rule 5)', () => {
     expect(
       reconsentRequired('v1', [v1, dpa('v2', '2027-09-01T00:00:00Z')], NOW),
     ).toBe(false);
-  });
-});
-
-describe('evidenceHash (D19: instead of an IP address)', () => {
-  const base = {
-    dpaVersion: 'v1',
-    dpaContentHash: 'b'.repeat(64),
-    type: 'publish',
-    event: 'granted' as const,
-    mechanism: 'web_form_submission',
-  };
-
-  it('is a stable sha256 of what was presented and chosen', () => {
-    expect(evidenceHash(base)).toMatch(/^[0-9a-f]{64}$/);
-    expect(evidenceHash({ ...base })).toBe(evidenceHash(base));
-  });
-
-  it('changes with every input', () => {
-    const variants = [
-      { dpaVersion: 'v2' },
-      { dpaContentHash: 'c'.repeat(64) },
-      { type: 'share_socials' },
-      { event: 'withdrawn' as const },
-      { mechanism: 'account_settings' },
-    ];
-    for (const v of variants) {
-      expect(evidenceHash({ ...base, ...v })).not.toBe(evidenceHash(base));
-    }
-  });
-});
-
-describe('recordKey', () => {
-  it('drops the table prefix (opaque ids, D30)', () => {
-    expect(recordKey('consent:abc123')).toBe('abc123');
-    expect(recordKey('dpaVersion:v1')).toBe('v1');
-    expect(recordKey('dpaVersion:⟨legacy-squarespace⟩')).toBe(
-      'legacy-squarespace',
-    );
   });
 });

@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, test } from '@playwright/test';
 import { Contract } from '@heisreal/contracts/testing';
-import { STUB_PORT } from './playwright.config';
+import { STUB_URL } from './servers';
 
 // T3: the stub api-public-read (stub-api.mjs) answers as libs/contracts/openapi/
 // api-public-read.yaml says, like the real service does in its integration tests
@@ -8,7 +8,7 @@ import { STUB_PORT } from './playwright.config';
 // checked: lists with filters, search and cursors, every story, related, tags, health, the
 // old-slug redirect and the errors. One device: none of this depends on the screen.
 
-const STUB = `http://127.0.0.1:${STUB_PORT}`;
+const STUB = STUB_URL;
 const contract = new Contract('api-public-read.yaml');
 
 // eslint-disable-next-line no-empty-pattern

@@ -1,39 +1,36 @@
-import { Global, type INestApplication, Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { SURREAL } from '@heisreal/database';
 import type { TestDatabase } from '@heisreal/database/integration-testing';
-import { ProblemFilter } from '@heisreal/http';
+import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
+import { AppModule } from '../src/app/app.module';
 import { MediaUrls } from '../src/app/media/media-urls';
-import { StoriesModule } from '../src/app/stories/stories.controller';
-import { TagsModule } from '../src/app/tags/tags.controller';
 import { checkResponsesAgainstContract } from './contract';
 
 /**
- * api-public-read's real controllers on its own read-only login (D13), listening locally. Media
- * signing is off unless a `MediaUrls` is given.
+ * api-public-read's real AppModule (every controller, the health check and the error format)
+ * on its own read-only login (D13), listening locally. Only what reaches outside is swapped:
+ * the database connection is the test database's, Secret Manager is never called, and media
+ * signing is off unless a `MediaUrls` is given. `connection` replaces the login, e.g. with a
+ * closed one to stand for a database that's down.
  */
 export async function startPublicRead(
   t: TestDatabase,
   media: MediaUrls = new MediaUrls(null),
+  connection?: Surreal,
 ): Promise<{ app: INestApplication; url: string }> {
-  const connection: Surreal = await t.service('api_public_read');
-
-  @Global()
-  @Module({
-    providers: [
-      { provide: SURREAL, useValue: connection },
-      { provide: MediaUrls, useValue: media },
-    ],
-    exports: [SURREAL, MediaUrls],
-  })
-  class ReadOnlyDatabase {}
-
-  const moduleRef = await Test.createTestingModule({
-    imports: [ReadOnlyDatabase, StoriesModule, TagsModule],
-    providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
-  }).compile();
+  const db = connection ?? (await t.service('api_public_read'));
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    .overrideProvider(SURREAL)
+    .useValue(db)
+    .overrideProvider(MediaUrls)
+    .useValue(media)
+    .overrideProvider(SECRET_MANAGER_CLIENT)
+    .useValue({})
+    .overrideProvider(SECRETS_PROJECT)
+    .useValue('test-project')
+    .compile();
   const app = moduleRef.createNestApplication({ logger: false });
   checkResponsesAgainstContract(app);
   await app.listen(0, '127.0.0.1');

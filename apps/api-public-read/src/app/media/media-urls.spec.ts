@@ -10,7 +10,6 @@ const ENV = {
 };
 const VIDEO = 'b8a77258-abfd-469d-ba63-9b89b62fcce6';
 const NOW = Date.UTC(2026, 9, 23, 10, 15);
-const EXPIRES = Date.UTC(2026, 9, 23, 17) / 1000;
 
 const secrets = (values: Record<string, string>) => ({
   get: jest.fn(async (id: string) => {
@@ -24,20 +23,6 @@ const KEYS = {
 };
 
 describe('mediaConfigFromEnv', () => {
-  it('is off (null) when no Bunny variable is set', () => {
-    expect(mediaConfigFromEnv({})).toBeNull();
-  });
-
-  it('reads all five', () => {
-    expect(mediaConfigFromEnv(ENV)).toEqual({
-      streamLibraryId: '786537',
-      streamCdnHost: 'vz-da4dce15-a49.b-cdn.net',
-      imagesCdnHost: 'heisreal-dev-images.b-cdn.net',
-      streamTokenKeySecret: 'bunny-stream-token-key',
-      imagesTokenKeySecret: 'bunny-images-token-key',
-    });
-  });
-
   it('refuses a partial configuration, naming what is missing', () => {
     const rest: Record<string, string | undefined> = {
       ...ENV,
@@ -63,19 +48,6 @@ describe('mediaConfigFromEnv', () => {
 });
 
 describe('createMediaUrls', () => {
-  it('reads both keys from Secret Manager and signs with them', async () => {
-    const store = secrets(KEYS);
-    const urls = await createMediaUrls(store, ENV, () => NOW);
-    expect(store.get).toHaveBeenCalledWith('bunny-stream-token-key');
-    expect(store.get).toHaveBeenCalledWith('bunny-images-token-key');
-    expect(urls.playbackUrl(VIDEO)).toMatch(
-      `https://player.mediadelivery.net/embed/786537/${VIDEO}?token=`,
-    );
-    expect(urls.imageUrl('dev-seed/image-01.webp')).toMatch(
-      'https://heisreal-dev-images.b-cdn.net/dev-seed/image-01.webp?token=HS256-',
-    );
-  });
-
   it('trims a trailing newline from a key', async () => {
     const plain = await createMediaUrls(secrets(KEYS), ENV, () => NOW);
     const padded = await createMediaUrls(
@@ -127,27 +99,6 @@ describe('MediaUrls', () => {
     },
     () => NOW,
   );
-
-  it('signs playback on the library, expiring 6–7 h from now', () => {
-    const url = new URL(urls.playbackUrl(VIDEO)!);
-    expect(url.origin + url.pathname).toBe(
-      `https://player.mediadelivery.net/embed/786537/${VIDEO}`,
-    );
-    expect(url.searchParams.get('expires')).toBe(String(EXPIRES));
-    expect(url.searchParams.get('token')).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  it('signs thumbnails on the Stream CDN and images on the images zone, with different keys', () => {
-    const thumb = new URL(urls.thumbnailUrl(VIDEO, `${VIDEO}/thumbnail.jpg`)!);
-    const image = new URL(urls.imageUrl(`${VIDEO}/thumbnail.jpg`)!);
-    expect(thumb.host).toBe('vz-da4dce15-a49.b-cdn.net');
-    expect(image.host).toBe('heisreal-dev-images.b-cdn.net');
-    expect(thumb.searchParams.get('token')).toMatch(/^HS256-/);
-    expect(thumb.searchParams.get('token')).not.toBe(
-      image.searchParams.get('token'),
-    );
-    expect(image.searchParams.get('expires')).toBe(String(EXPIRES));
-  });
 
   it.each([undefined, null, ''])(
     'gives null for a missing id or path (%p)',

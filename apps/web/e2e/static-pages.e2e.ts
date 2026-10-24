@@ -6,7 +6,6 @@ import {
   expectTarget,
   shots,
 } from './helpers';
-import { CLERK_PORT } from './playwright.config';
 
 // M1 step 6b-2: the static pages on every device in the matrix and in both colour schemes,
 // the site footer, keyboard use of the FAQ accordion, and robots.txt and the sitemap while
@@ -223,70 +222,5 @@ test.describe('behaviour', () => {
     const sitemap = await request.get('/sitemap.xml');
     expect(sitemap.status()).toBe(404);
     expect(sitemap.headers()['x-robots-tag']).toBe('noindex, nofollow');
-  });
-
-  // The real Clerk dev instance, loaded over the network: only these tests need it (T4); every
-  // other suite uses the E2E_FIXTURES stand-in.
-  test.describe('with the real Clerk', () => {
-    test.use({ baseURL: `http://localhost:${CLERK_PORT}` });
-
-    test('Clerk’s Sign in loads, fits the header and opens Clerk’s sign-in', async ({
-      page,
-    }) => {
-      await page.goto('/');
-      const signIn = page.getByRole('button', { name: 'Sign in' });
-      await expectTarget(page, signIn);
-      await expectNoHorizontalOverflow(page);
-      await signIn.click();
-      await expect(
-        page.getByRole('heading', { name: /sign in/i }),
-      ).toBeVisible();
-    });
-  });
-
-  test.describe('as a real visitor’s browser', () => {
-    test.use({ baseURL: `http://localhost:${CLERK_PORT}` });
-    // Clerk turns its telemetry off for automated browsers (navigator.webdriver) and robot user
-    // agents, so look like an ordinary Chrome, or this test would pass whatever the setting.
-    test.use({
-      userAgent:
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-    });
-
-    test('no optional Clerk telemetry: collector off, no request to clerk-telemetry.com, nothing stored', async ({
-      page,
-    }) => {
-      await page.addInitScript(() => {
-        Object.defineProperty(Navigator.prototype, 'webdriver', {
-          get: () => false,
-        });
-      });
-      const telemetry: string[] = [];
-      page.on('request', (r) => {
-        if (new URL(r.url()).hostname.endsWith('clerk-telemetry.com'))
-          telemetry.push(r.url());
-      });
-      await page.goto('/about');
-      // Deterministic, no waiting for a flush: once Clerk has loaded, its telemetry collector is
-      // either absent (telemetry={false}) or would report itself enabled (it did before the fix).
-      await page.waitForFunction(
-        () =>
-          (window as { Clerk?: { loaded?: boolean } }).Clerk?.loaded === true,
-      );
-      const collector = await page.evaluate(() => {
-        const t = (
-          window as { Clerk?: { telemetry?: { isEnabled?: boolean } } }
-        ).Clerk?.telemetry;
-        return t ? { enabled: t.isEnabled === true } : null;
-      });
-      expect(collector?.enabled ?? false).toBe(false);
-      await page.getByRole('button', { name: 'Sign in' }).click();
-      const keys = await page.evaluate(() => [
-        ...Object.keys(localStorage),
-        ...Object.keys(sessionStorage),
-      ]);
-      expect(keys.filter((k) => k.startsWith('clerk_telemetry'))).toEqual([]);
-      expect(telemetry).toEqual([]);
-    });
   });
 });

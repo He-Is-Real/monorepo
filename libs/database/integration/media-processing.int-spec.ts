@@ -663,31 +663,34 @@ describe('approval waits for media processing (A2)', () => {
       expect(row['hiddenSince']).toBeDefined();
     });
 
-    it('lists hidden stories for api-admin, oldest first, and nothing live', async () => {
+    // D13: hide markers are written only by the guard events and system users. No service
+    // and no person may create or delete one directly (Codex review of #72).
+    it('nobody marks a story hidden or unhidden by hand', async () => {
       const first = await live(video);
-      const second = await live(written);
       const ok = await live(audio);
       await update(first, `media[0].processing = 'failed'`, workflow);
-      await update(second, `image.processing = 'failed'`, workflow);
-      const ids = await hiddenIds();
-      expect(ids.indexOf(`story:${first}`)).toBeLessThan(
-        ids.indexOf(`story:${second}`),
-      );
-      expect(ids).not.toContain(`story:${ok}`);
-      // Nobody can mark a story hidden or unhidden by hand.
-      for (const db of [admin, workflow, pat]) {
+      // A denied write is a silent no-op (D13), so the state is what counts, after each one.
+      for (const [name, db] of Object.entries({ admin, workflow, pat })) {
         await outcome(
           db,
+          // A valid row (identity is 64 characters), so only the permission can refuse it.
           `CREATE type::record('hiddenStory', $id) CONTENT {
-             publishedAt: time::now(), slugHistory: [], identity: 'x' }`,
-          { id: ok },
+             publishedAt: time::now(), slugHistory: [], identity: $identity }`,
+          { id: ok, identity: 'a'.repeat(64) },
         );
         await outcome(db, `DELETE type::record('hiddenStory', $id)`, {
           id: first,
         });
+        const ids = await hiddenIds();
+        expect({ name, kept: ids.includes(`story:${first}`) }).toEqual({
+          name,
+          kept: true,
+        });
+        expect({ name, added: ids.includes(`story:${ok}`) }).toEqual({
+          name,
+          added: false,
+        });
       }
-      expect(await hiddenIds()).toContain(`story:${first}`);
-      expect(await hiddenIds()).not.toContain(`story:${ok}`);
       await expectLive(ok);
     });
 
@@ -909,7 +912,10 @@ describe('approval waits for media processing (A2)', () => {
       ).toEqual([]);
     });
 
-    /** D29: one command, one version. The hide and restore add no story write of their own. */
+    /**
+     * D29: one command, one version. The hide and restore add no story write of their own, so
+     * the version a command returns is the one it committed (Codex review of #72).
+     */
     describe('versions (D29)', () => {
       const version = async (id: string) =>
         (

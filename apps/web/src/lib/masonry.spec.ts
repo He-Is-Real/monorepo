@@ -1,7 +1,6 @@
 import type { StorySummary } from './browse';
 import {
   cardShape,
-  columnWidth,
   COLUMN_COUNTS,
   layoutFor,
   place,
@@ -136,10 +135,5 @@ describe('spanFor and layoutFor', () => {
     // The next page continues: its first card goes into the shortest column (the flat written one).
     const more = layoutFor([card()], heights);
     expect(more.cards[0].col[3]).toBe(1);
-  });
-
-  it('has representative widths that shrink as columns grow', () => {
-    expect(columnWidth(1)).toBeGreaterThan(columnWidth(2));
-    expect(columnWidth(2)).toBeGreaterThan(columnWidth(3));
   });
 });

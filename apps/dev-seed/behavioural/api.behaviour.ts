@@ -18,19 +18,22 @@ test('reports the database up and consent checks relaxed (D48)', async ({
   });
 });
 
-for (const story of approved) {
-  test(`serves approved ${story.id} (${story.format})`, async ({ request }) => {
+test('serves every approved story, with its media', async ({ request }) => {
+  for (const story of approved) {
     const res = await request.get(`${API_URL}/v1/stories/${story.slug}`);
-    expect(res.status()).toBe(200);
+    expect(res.status(), story.id).toBe(200);
     const body = await res.json();
-    expect(body).toMatchObject({ slug: story.slug, title: story.title });
-    expect(body.media ?? []).toHaveLength(story.media ? 1 : 0);
-  });
-}
+    expect(body, story.id).toMatchObject({
+      slug: story.slug,
+      title: story.title,
+    });
+    expect(body.media ?? [], story.id).toHaveLength(story.media ? 1 : 0);
+  }
+});
 
-for (const story of unpublished) {
-  test(`hides ${story.status} ${story.id}`, async ({ request }) => {
+test('hides every story that isn’t approved', async ({ request }) => {
+  for (const story of unpublished) {
     const res = await request.get(`${API_URL}/v1/stories/${story.slug}`);
-    expect(res.status()).toBe(404);
-  });
-}
+    expect(res.status(), `${story.status} ${story.id}`).toBe(404);
+  }
+});

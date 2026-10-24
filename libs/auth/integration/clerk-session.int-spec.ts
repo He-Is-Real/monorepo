@@ -98,6 +98,9 @@ describe('Clerk sign-in → person session', () => {
       expect(await usersFor('user_racer')).toHaveLength(1);
     });
 
+    // The authenticator's own verification (Codex review of #72): SurrealDB checks the
+    // signature and ns/db, but not the expiry, audience (azp), issuer or role claim, so these
+    // are refused here or nowhere. Nothing reaches the database.
     it('refuses bad tokens with 401 and creates no row', async () => {
       const auth = new ApiUserAuthenticator(config, apiUser);
       for (const token of [

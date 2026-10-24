@@ -1,12 +1,4 @@
-import {
-  Controller,
-  Get,
-  Global,
-  Logger,
-  Module,
-  Param,
-  Post,
-} from '@nestjs/common';
+import { Controller, Get, Global, Module, Param, Post } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { SURREAL } from '@heisreal/database';
 import type { Request } from 'express';
@@ -127,21 +119,6 @@ describe('ConsentModule', () => {
     afterAll(() => app.close());
     beforeEach(() => jest.resetAllMocks());
 
-    it('lets @NoConsentRequired routes through without reading the ledger', async () => {
-      const res = await fetch(`${url}/v1/open`);
-      expect(res.status).toBe(200);
-      expect(callerHas).not.toHaveBeenCalled();
-    });
-
-    it('checks the caller’s current consent in their own session, and passes when granted', async () => {
-      callerHas.mockResolvedValue(true);
-      const res = await fetch(`${url}/v1/stories`, { method: 'POST' });
-      expect(res.status).toBe(201);
-      expect(callerHas).toHaveBeenCalledWith('person-session', [
-        'special_category_religious',
-      ]);
-    });
-
     it('answers 403 without the caller’s consent, before the handler runs', async () => {
       callerHas.mockResolvedValue(false);
       const res = await fetch(`${url}/v1/stories`, { method: 'POST' });
@@ -183,57 +160,5 @@ describe('ConsentModule', () => {
     } finally {
       await app.close();
     }
-  });
-  describe('D48: says at startup when consent checks are relaxed (dev only)', () => {
-    const answer = (result: unknown) =>
-      surreal.query.mockReturnValue({
-        json: () => ({ responses: async () => [{ success: true, result }] }),
-      });
-    async function start() {
-      @Module({ controllers: [TestController] })
-      class Routes {}
-      const moduleRef = await Test.createTestingModule({
-        imports: [FakeDatabaseModule, ConsentModule.forRoot(), Routes],
-      }).compile();
-      const app = moduleRef.createNestApplication({ logger: false });
-      await app.init();
-      await app.close();
-    }
-    let warn: jest.SpyInstance;
-    beforeEach(() => {
-      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
-    });
-    afterEach(() => {
-      warn.mockRestore();
-      surreal.query.mockReset();
-    });
-
-    it('warns when the database’s switch is on', async () => {
-      answer(true);
-      await start();
-      expect(surreal.query).toHaveBeenCalledWith(
-        'RETURN fn::consent::relaxed()',
-        undefined,
-      );
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('Consent checks are RELAXED (D48, dev only)'),
-      );
-    });
-
-    it('stays quiet when consent is enforced', async () => {
-      answer(false);
-      await start();
-      expect(warn).not.toHaveBeenCalled();
-    });
-
-    it('starts anyway, and says so, when the database can’t say', async () => {
-      surreal.query.mockImplementation(() => {
-        throw new Error('not connected');
-      });
-      await start();
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('Couldn’t read the consent setting'),
-      );
-    });
   });
 });

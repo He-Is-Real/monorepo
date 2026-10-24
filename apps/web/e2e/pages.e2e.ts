@@ -5,7 +5,7 @@ import {
   expectTarget,
   shots,
 } from './helpers';
-import { STUB_PORT } from './playwright.config';
+import { STUB_URL, WEB_DOWN_URL } from './servers';
 
 // M1 step 6b-1: home, browse and the story pages on every device in the matrix, light and dark
 // (no sideways scroll, 44 px targets, screenshots), then the behaviour that needs a real browser:
@@ -390,7 +390,7 @@ test.describe('behaviour', () => {
     request,
   }, info) => {
     const mine = `hide-test-${info.project.name}`;
-    const stub = `http://127.0.0.1:${STUB_PORT}`;
+    const stub = STUB_URL;
     await request.post(`${stub}/__test/show?slug=${mine}`);
     await page.goto('/stories?tag=hide-test');
     const card = page.getByRole('link', {
@@ -458,6 +458,150 @@ test.describe('behaviour', () => {
   });
 });
 
+test.describe('story pages and failures the stub can stage', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !['phone-320', 'desktop-1280'].includes(info.project.name),
+      'behaviour is checked on one phone and one desktop',
+    );
+  });
+
+  test('home and browse keep their page when api-public-read is down', async ({
+    page,
+  }) => {
+    await page.goto(`${WEB_DOWN_URL}/`);
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Is God Real\?/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Stories can’t be loaded right now.'),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.goto(`${WEB_DOWN_URL}/stories`);
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'God Stories' }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Stories can’t be loaded right now.'),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('“More tags” is open when one of its tags is selected', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    const more = page.locator('main details', { hasText: 'More tags' });
+    await expect(more).not.toHaveAttribute('open');
+    await page.goto('/stories?tag=hope');
+    await expect(more).toHaveAttribute('open');
+    await expect(
+      more.getByRole('link', { name: /Hope/ }).first(),
+    ).toBeVisible();
+  });
+
+  test('an old slug redirects to the story’s current address (D30)', async ({
+    page,
+  }) => {
+    const response = await page.goto('/stories/old-video-story');
+    await expect(page).toHaveURL(/\/stories\/video-story$/);
+    expect(response?.status()).toBe(200);
+    expect(response?.request().redirectedFrom()?.url()).toMatch(
+      /\/stories\/old-video-story$/,
+    );
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Test story: a tall video' }),
+    ).toBeVisible();
+  });
+
+  test('a story still shows when its related stories can’t load', async ({
+    page,
+  }) => {
+    const response = await page.goto('/stories/related-down');
+    expect(response?.status()).toBe(200);
+    await expect(
+      page.getByRole('heading', {
+        level: 1,
+        name: 'Test story: related stories can’t load',
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Related stories', exact: true }),
+    ).toHaveCount(0);
+  });
+
+  test('a story describes itself for search and share previews; no name shows as Anonymous', async ({
+    page,
+  }) => {
+    await page.goto('/stories/browse-test-03'); // no byline name
+    await expect(page).toHaveTitle(
+      /^Browse test story 03: .* \| He Is Real Today$/,
+    );
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      /\/stories\/browse-test-03$/,
+    );
+    await expect(page.locator('meta[property="og:type"]')).toHaveAttribute(
+      'content',
+      'article',
+    );
+    const article = await page
+      .locator('main script[type="application/ld+json"]')
+      .evaluate((el) => JSON.parse(el.textContent ?? '{}'));
+    expect(article).toMatchObject({
+      '@type': 'Article',
+      headline: expect.stringMatching(/^Browse test story 03: /),
+    });
+    expect(article.author).toBeUndefined();
+    await expect(page.getByRole('main').getByText('Anonymous')).toBeVisible();
+  });
+
+  test('Copy link copies the page’s address without its query; Instagram says to paste', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/stories/video-story?utm_source=x');
+    const share = page.getByRole('button', { name: 'Share' });
+    const status = page.getByRole('dialog').getByRole('status');
+
+    await share.click();
+    await page.getByRole('button', { name: /Copy link/ }).click();
+    await expect(status).toHaveText('Link copied.');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      `${baseURL}/stories/video-story`,
+    );
+
+    await page.evaluate(() => navigator.clipboard.writeText(''));
+    await page.getByRole('button', { name: /Instagram/ }).click();
+    await expect(status).toHaveText('Link copied. Paste it in Instagram.');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      `${baseURL}/stories/video-story`,
+    );
+  });
+
+  test('Copy link says so when the browser refuses the clipboard', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(Navigator.prototype, 'clipboard', {
+        get: () => ({
+          writeText: () => Promise.reject(new DOMException('denied')),
+        }),
+      });
+    });
+    await page.goto('/stories/video-story');
+    await page.getByRole('button', { name: 'Share' }).click();
+    await page.getByRole('button', { name: /Copy link/ }).click();
+    await expect(page.getByRole('dialog').getByRole('status')).toHaveText(
+      'Couldn’t copy. Copy the address from your browser instead.',
+    );
+  });
+});
+
 test.describe('without JavaScript', () => {
   test.use({ javaScriptEnabled: false });
   // eslint-disable-next-line no-empty-pattern
@@ -496,5 +640,40 @@ test.describe('without JavaScript', () => {
     await expect(page).toHaveURL(/pages=4/);
     await expect(cards(page)).toHaveCount(54);
     await expect(page.getByText('You’ve seen every story here.')).toBeVisible();
+  });
+});
+
+// The masonry's first paint is the server's prediction (D55): the browser measures the cards
+// only once its JavaScript runs, and never without it. A prediction may leave a gap but must
+// never overlap the next card (Codex review of #72, round 3: 9:16 videos were 35 px short at
+// 1280 px, which a loaded machine caught before the measurement landed). Every multi-column
+// device, every story.
+test.describe('first paint, before any measuring', () => {
+  test.use({ javaScriptEnabled: false });
+
+  test('no card overlaps the next one in its column', async ({
+    page,
+  }, info) => {
+    test.skip(
+      (info.project.use.viewport?.width ?? 0) < 640,
+      'one column below 640 px',
+    );
+    await page.goto('/stories?pages=4');
+    await expect(cards(page)).toHaveCount(54);
+    const overlaps = await cards(page).evaluateAll((lis) => {
+      const boxes = lis.map((li, i) => {
+        const r = (li.firstElementChild as HTMLElement).getBoundingClientRect();
+        return { i, x: Math.round(r.x), top: r.top, bottom: r.bottom };
+      });
+      const out: string[] = [];
+      for (const a of boxes)
+        for (const b of boxes)
+          if (a.x === b.x && b.top > a.top && b.top < a.bottom - 0.5)
+            out.push(
+              `card ${a.i} ends at ${a.bottom.toFixed(1)}, card ${b.i} starts at ${b.top.toFixed(1)}`,
+            );
+      return out;
+    });
+    expect(overlaps).toEqual([]);
   });
 });
