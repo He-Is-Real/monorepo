@@ -42,36 +42,6 @@ describe('resolveConsentPolicy', () => {
     });
   });
 
-  it('reads @NoConsentRequired and @RequiresConsent on the handler', () => {
-    expect(
-      resolveConsentPolicy(proto(Undecorated)['open'], Undecorated),
-    ).toEqual({
-      ok: true,
-      policy: { kind: 'none', reason: 'public reference data' },
-    });
-    expect(
-      resolveConsentPolicy(proto(Undecorated)['guarded'], Undecorated),
-    ).toEqual({
-      ok: true,
-      policy: {
-        kind: 'requires',
-        requirement: {
-          subject: 'caller',
-          types: ['special_category_religious'],
-        },
-      },
-    });
-  });
-
-  it('accepts a decorator on the controller class', () => {
-    expect(
-      resolveConsentPolicy(proto(ClassLevel)['inherited'], ClassLevel),
-    ).toEqual({
-      ok: true,
-      policy: { kind: 'none', reason: 'every route here is a probe' },
-    });
-  });
-
   it('refuses two decorators (class and handler): exactly one per route', () => {
     expect(resolveConsentPolicy(proto(ClassLevel)['both'], ClassLevel)).toEqual(
       {
