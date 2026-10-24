@@ -13,44 +13,6 @@ const published = (iso: string) =>
     timeZone: 'Europe/London',
   }).format(new Date(iso));
 
-function Breadcrumb({ story }: { story: PublicStory }) {
-  const tag = story.tags[0];
-  const sep = (
-    <span aria-hidden="true" className="mx-2 text-faint">
-      ›
-    </span>
-  );
-  return (
-    <nav aria-label="Breadcrumb" className="mb-6 text-sm">
-      <ol className="flex flex-wrap items-center text-muted-foreground">
-        <li>
-          <Link
-            href="/stories"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center text-muted-foreground hover:text-foreground"
-          >
-            Stories
-          </Link>
-          {sep}
-        </li>
-        {tag && (
-          <li>
-            <Link
-              href={`/stories?tag=${tag.slug}`}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center text-muted-foreground hover:text-foreground"
-            >
-              {tag.name}
-            </Link>
-            {sep}
-          </li>
-        )}
-        <li className="min-w-0 truncate text-secondary-text">
-          <span aria-current="page">{story.title}</span>
-        </li>
-      </ol>
-    </nav>
-  );
-}
-
 function Meta({
   story,
   center = false,
@@ -108,6 +70,8 @@ function Sidebar({ related }: { related: StorySummary[] }) {
  * the player first, then the title, then the person's own text. Written: a centred header, the
  * description as a pull quote, then the text. Both: share, tags that lead to browse, and a
  * sidebar with related stories (beside the text from 1024 px, under it below).
+ * No breadcrumb (Joel, 2026-10-24; design principles): it could show only one of a story's
+ * tags; the header's Stories link and the tag chips are the ways back.
  * Favourite, "This helped me" and "Concern" from the mockups need accounts (M2+).
  */
 export function StoryView({
@@ -129,16 +93,17 @@ export function StoryView({
   );
 
   return (
-    // The reading column (max-w-measure, Joel's R1) holds the breadcrumb, header, media, share
-    // row and text, so their edges line up; from 1024 px the sidebar sits beside the text, one
-    // design gap (3rem) away, and the whole composition is centred. overflow-wrap: anywhere:
-    // long words and pasted links wrap instead of widening the page.
+    // The reading column (max-w-measure, Joel's R1) holds the text; from 1024 px the sidebar
+    // sits beside it, one design gap (3rem) away, and the whole composition is centred. The
+    // hero (header, media, share row) spans the composition, so it and its media
+    // are centred on the page (Joel, 2026-10-24) and its edges line up with the text's left
+    // and the sidebar's right. overflow-wrap: anywhere: long words and pasted links wrap
+    // instead of widening the page.
     <article
       className="mx-auto grid w-full max-w-measure gap-x-12 [overflow-wrap:anywhere] lg:max-w-[calc(var(--container-measure)+3rem+17.5rem)] lg:grid-cols-[minmax(0,1fr)_17.5rem]"
       aria-labelledby={`story-${story.id}`}
     >
-      <div data-story-column="" className="min-w-0">
-        <Breadcrumb story={story} />
+      <div data-story-hero="" className="min-w-0 lg:col-span-2">
         {written ? (
           <header className="pb-8 text-center">
             {!story.image?.url && (

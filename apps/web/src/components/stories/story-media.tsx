@@ -56,7 +56,8 @@ export function StoryMedia({ story }: { story: PublicStory }) {
     return (
       <div
         data-player=""
-        className={`relative mx-auto mt-6 overflow-hidden rounded-lg bg-black ${
+        data-story-media=""
+        className={`relative mx-auto mt-6 overflow-hidden first:mt-0 rounded-lg bg-black ${
           isVideo ? (shaped ? '' : 'aspect-video w-full') : 'w-full'
         }`}
         style={style}
@@ -76,12 +77,13 @@ export function StoryMedia({ story }: { story: PublicStory }) {
   if (image?.url) {
     return (
       <Image
+        data-story-media=""
         src={image.url}
         alt={imageAlt(image)}
         width={image.width}
         height={image.height}
         unoptimized
-        className="mx-auto mt-6 h-auto max-h-[75svh] w-auto max-w-full rounded-lg object-contain"
+        className="mx-auto mt-6 h-auto max-h-[75svh] first:mt-0 w-auto max-w-full rounded-lg object-contain"
       />
     );
   }
