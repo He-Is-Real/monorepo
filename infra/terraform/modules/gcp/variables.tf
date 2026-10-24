@@ -171,12 +171,6 @@ variable "web_origins" {
   }
 }
 
-variable "web_featured_story_slug" {
-  description = "The story web's home page shows (0.9: the dev seed's). Empty: none."
-  type        = string
-  default     = ""
-}
-
 variable "web_indexing" {
   description = "Invite search engines in (web's INDEXING=allow: no noindex, robots.txt allows crawling, /sitemap.xml exists). An explicit opt-in for Go live; off = noindex everywhere. Refused in dev."
   type        = bool

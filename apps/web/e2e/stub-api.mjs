@@ -1,7 +1,8 @@
 // A stand-in api-public-read for the e2e tests: the dev seed's story, a story with long
 // unbroken words (overflow check), a long written story (the "Continue reading" preview),
-// video, audio and image stories with stub media, a 503 for "down" and 404 problems for
-// anything else.
+// video, audio and image stories with stub media, 48 generated browse stories (every kind and
+// shape, D53/D55), the list, related and tags endpoints (step 6a's contract, cursors bound to
+// the filters), a 503 for "down" and 404 problems for anything else.
 import { createServer } from 'node:http';
 
 const port = Number(process.env.STUB_PORT ?? 4310);
@@ -120,6 +121,239 @@ stories['image-story'] = {
   },
 };
 
+// The browse tags (apps/dev-seed's list) and 48 generated published stories, newest first:
+// every kind (video, audio, written with and without an image) and shape, from 1:3 (beyond the
+// card clamp) to 2.5:1, with short and long titles and excerpts.
+const TAGS = [
+  ['healing', 'Healing', 'theme'],
+  ['addiction', 'Addiction', 'theme'],
+  ['loss', 'Loss', 'theme'],
+  ['depression', 'Depression', 'theme'],
+  ['relationships', 'Relationships', 'theme'],
+  ['loneliness', 'Loneliness', 'theme'],
+  ['illness', 'Illness', 'theme'],
+  ['parenting', 'Parenting', 'theme'],
+  ['faith', 'Faith', 'journey'],
+  ['answered-prayers', 'Answered Prayers', 'journey'],
+  ['forgiveness', 'Forgiveness', 'journey'],
+  ['salvation', 'Salvation', 'journey'],
+  ['doubt', 'Doubt', 'journey'],
+  ['hope', 'Hope', 'emotion'],
+  ['peace', 'Peace', 'emotion'],
+  ['grief', 'Grief', 'emotion'],
+  ['joy', 'Joy', 'emotion'],
+].map(([slug, name, category]) => ({ slug, name, category, version: 1 }));
+const tag = (slug) => TAGS.find((t) => t.slug === slug);
+const KINDS = [
+  { format: 'video', w: 360, h: 640 },
+  { format: 'written' },
+  { format: 'video', w: 1920, h: 1080 },
+  { format: 'audio' },
+  { format: 'written', image: [1200, 800] },
+  { format: 'video', w: 1080, h: 1080 },
+  { format: 'written' },
+  { format: 'video', w: 1080, h: 1350 },
+  { format: 'written', image: [1600, 640] },
+  { format: 'video', w: 300, h: 900 },
+  { format: 'audio' },
+  { format: 'written', image: [900, 1200] },
+];
+const NAMES = [
+  'Test Person',
+  'Dummy Teller',
+  null,
+  'Sample Name',
+  'Placeholder Friend',
+];
+const EXCERPTS = [
+  'Dummy text for a browse card.',
+  'Placeholder words that run a little longer, to give this card a second line of excerpt at most widths.',
+  'This excerpt is long on purpose. It is placeholder text that fills most of the 240 characters a card excerpt may have, so the card is clamped to three lines and the masonry has to predict a tall text block correctly.',
+];
+const sized = (w, h) =>
+  `${stub}/media/${w}x${h}.svg?token=HS256-stub&expires=4102444800`;
+for (let i = 0; i < 48; i++) {
+  const kind = KINDS[i % KINDS.length];
+  const n = String(i + 1).padStart(2, '0');
+  const tagSlugs = [
+    TAGS[i % 8].slug,
+    ...(i % 3 === 0 ? [TAGS[8 + (i % 5)].slug] : []),
+    ...(i % 4 === 0 ? [TAGS[13 + (i % 4)].slug] : []),
+  ];
+  const day = new Date(Date.UTC(2026, 9, 20) - i * 86_400_000);
+  const slug = `browse-test-${n}`;
+  stories[slug] = {
+    ...base,
+    id: `browse_${n}`,
+    slug,
+    bylineName: NAMES[i % NAMES.length],
+    primaryFormat: kind.format,
+    title:
+      i % 5 === 2
+        ? `Browse test story ${n}: a much longer title that wraps over more than one line`
+        : `Browse test story ${n}`,
+    description: EXCERPTS[i % 3],
+    body:
+      kind.format === 'written'
+        ? 'Placeholder text for a generated written story. '
+            .repeat(10 + (i % 5) * 12)
+            .trim()
+        : i % 2
+          ? 'Placeholder words under a generated clip.'
+          : null,
+    tags: tagSlugs.map(tag),
+    publishedAt: day.toISOString().replace('.000', ''),
+    media:
+      kind.format === 'written'
+        ? []
+        : [
+            mediaItem({
+              format: kind.format,
+              playbackUrl: playback(`00000000-0000-4000-8000-0000000000${n}`),
+              thumbnailUrl:
+                kind.format === 'video' ? sized(kind.w, kind.h) : null,
+              width: kind.w ?? null,
+              height: kind.h ?? null,
+              durationSeconds: 15 + i * 7,
+            }),
+          ],
+    image: kind.image
+      ? {
+          url: sized(...kind.image),
+          width: kind.image[0],
+          height: kind.image[1],
+          alt: `A dummy picture, ${kind.image[0]} by ${kind.image[1]}`,
+        }
+      : null,
+  };
+}
+
+// Test hooks for "a hidden story disappears on the next server render" (pages.e2e.ts): stories
+// listed only under `tag=hide-test`, one per device project, each hidden or shown again by
+// POST /__test/hide?slug= and /__test/show?slug= (projects run in parallel, so each hides its
+// own). Nothing else lists them.
+const HIDE_TEST = 'hide-test';
+const hidden = new Set();
+for (const name of ['phone-320', 'desktop-1280', 'spare']) {
+  const slug = `hide-test-${name.replace('.', '-')}`;
+  stories[slug] = {
+    ...base,
+    id: `hide_${name}`,
+    slug,
+    title: `Hide test story (${name})`,
+    description: 'Dummy story for the hide test.',
+    body: 'Placeholder text.',
+    tags: [
+      { slug: HIDE_TEST, name: 'Hide test', category: 'theme', version: 1 },
+    ],
+    publishedAt: '2026-10-22T20:00:00Z',
+  };
+}
+const onlyUnderHideTest = (s) => s.tags.some((t) => t.slug === HIDE_TEST);
+
+/** `StorySummary` (libs/contracts): a card, never a player link. */
+function summaryOf(s) {
+  const media = s.media?.[0];
+  const video = media?.format === 'video';
+  return {
+    id: s.id,
+    slug: s.slug,
+    title: s.title,
+    excerpt: (s.description || s.body || '').slice(0, 240),
+    bylineName: s.bylineName,
+    primaryFormat: s.primaryFormat,
+    durationSeconds: media?.durationSeconds ?? null,
+    thumbnailUrl: video ? media.thumbnailUrl : null,
+    thumbnailWidth: video ? media.width : null,
+    thumbnailHeight: video ? media.height : null,
+    image: s.image,
+    textLength: (s.body ?? '').length,
+    tags: s.tags.map(
+      (t) => tag(t.slug) ?? { ...t, category: 'theme', version: 1 },
+    ),
+    publishedAt: s.publishedAt,
+  };
+}
+const published = () =>
+  Object.values(stories).sort(
+    (a, b) =>
+      b.publishedAt.localeCompare(a.publishedAt) || a.id.localeCompare(b.id),
+  );
+
+function json(res, status, body, type = 'application/json') {
+  res.writeHead(status, { 'content-type': type });
+  res.end(JSON.stringify(body));
+}
+const problem = (res, status, code) =>
+  json(
+    res,
+    status,
+    { type: 'about:blank', title: code, status, code },
+    'application/problem+json',
+  );
+
+/** GET /v1/stories: tag (all of), format, q, sort, limit, cursor (bound to the filters). */
+function listStories(url, res) {
+  const p = url.searchParams;
+  const q = p.get('q')?.toLowerCase() ?? '';
+  const tags = p.getAll('tag');
+  const format = p.get('format');
+  const sort = p.get('sort') ?? (q ? 'relevance' : 'latest');
+  const limit = Number(p.get('limit') ?? 20);
+  const key = JSON.stringify([q, [...tags].sort(), format, sort]);
+  let offset = 0;
+  if (p.get('cursor')) {
+    try {
+      const c = JSON.parse(
+        Buffer.from(p.get('cursor'), 'base64url').toString(),
+      );
+      if (c.k !== key) return problem(res, 400, 'invalid_cursor');
+      offset = c.o;
+    } catch {
+      return problem(res, 400, 'invalid_cursor');
+    }
+  }
+  let list = published().filter(
+    (s) =>
+      !hidden.has(s.slug) &&
+      (tags.includes(HIDE_TEST) || !onlyUnderHideTest(s)) &&
+      tags.every((t) => s.tags.some((x) => x.slug === t)) &&
+      (!format || s.primaryFormat === format) &&
+      (!q ||
+        `${s.title} ${s.description} ${s.body ?? ''}`
+          .toLowerCase()
+          .includes(q)),
+  );
+  if (sort === 'oldest') list = list.reverse();
+  const data = list.slice(offset, offset + limit).map(summaryOf);
+  const next = offset + limit < list.length;
+  json(res, 200, {
+    data,
+    nextCursor: next
+      ? Buffer.from(JSON.stringify({ k: key, o: offset + limit })).toString(
+          'base64url',
+        )
+      : null,
+  });
+}
+
+/** GET /v1/stories/{slug}/related: 3 cards sharing a tag, then the newest. */
+function related(slug, res) {
+  const story = stories[slug];
+  if (!story) return problem(res, 404, 'story_not_found');
+  const others = published().filter(
+    (s) => s.slug !== slug && !onlyUnderHideTest(s) && !hidden.has(s.slug),
+  );
+  const shared = others.filter((s) =>
+    s.tags.some((t) => story.tags.some((x) => x.slug === t.slug)),
+  );
+  const picked = [
+    ...shared,
+    ...others.filter((s) => !shared.includes(s)),
+  ].slice(0, 3);
+  json(res, 200, { data: picked.map(summaryOf) });
+}
+
 const WIDE_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="640" viewBox="0 0 1600 640">' +
   '<rect width="1600" height="640" fill="#336"/><text x="40" y="340" font-size="64" fill="#fff">DEV TEST 2.5:1</text></svg>';
@@ -134,6 +368,28 @@ createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(PLAYER_HTML);
   }
+  const sizedMedia = /^\/media\/(\d+)x(\d+)\.svg/.exec(req.url ?? '');
+  if (sizedMedia) {
+    const [, w, h] = sizedMedia;
+    res.writeHead(200, { 'content-type': 'image/svg+xml' });
+    return res.end(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+        `<rect width="${w}" height="${h}" fill="#2a3d3f"/><text x="20" y="${Math.round(h / 2)}" font-size="${Math.round(w / 10)}" fill="#cfe">DEV ${w}×${h}</text></svg>`,
+    );
+  }
+  const url = new URL(req.url ?? '/', 'http://stub');
+  const hook = /^\/__test\/(hide|show)$/.exec(url.pathname);
+  if (hook && req.method === 'POST') {
+    const slug = url.searchParams.get('slug') ?? '';
+    if (hook[1] === 'hide') hidden.add(slug);
+    else hidden.delete(slug);
+    res.writeHead(204);
+    return res.end();
+  }
+  if (url.pathname === '/v1/stories') return listStories(url, res);
+  if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
+  const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);
+  if (rel) return related(rel[1], res);
   if (req.url?.startsWith('/images/wide.svg')) {
     res.writeHead(200, { 'content-type': 'image/svg+xml' });
     return res.end(WIDE_SVG);

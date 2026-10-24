@@ -31,15 +31,6 @@ export function clerkPublishableKey(): string | undefined {
 }
 
 /**
- * The story the home page shows (0.9: the dev seed's test story), or undefined. Set by
- * Terraform per environment; browse arrives in M1.
- */
-export function featuredStorySlug(): string | undefined {
-  const slug = process.env['FEATURED_STORY_SLUG']?.trim();
-  return slug ? slug : undefined;
-}
-
-/**
  * Whether search engines are told not to index this deployment (`X-Robots-Tag` and a robots
  * meta tag). Fails closed: it's noindex unless indexing is explicitly allowed (see
  * `indexingAllowed`). The old `ROBOTS_NOINDEX` variable is no longer read.

@@ -24,6 +24,7 @@ jest.mock('@/components/theme/theme-toggle', () => ({
   ThemeToggle: () => <button>theme</button>,
 }));
 jest.mock('@/components/logo', () => ({ Logo: () => <span>logo</span> }));
+jest.mock('next/navigation', () => ({ usePathname: () => '/' }));
 
 describe('SiteHeader', () => {
   const saved = process.env['CLERK_PUBLISHABLE_KEY'];
@@ -38,6 +39,16 @@ describe('SiteHeader', () => {
       /<a[^>]*aria-label="He Is Real Today, home"[^>]*href="\/"/,
     );
     expect(html).toContain('<button>theme</button>');
+  });
+
+  it('has the main navigation, a phone menu and Share your story', async () => {
+    const html = renderToStaticMarkup(await SiteHeader());
+    expect(html).toContain('aria-label="Main navigation"');
+    expect(html).toMatch(/<a[^>]*href="\/stories"[^>]*>Stories<\/a>/);
+    expect(html).toContain('<span class="sr-only">Menu</span>');
+    expect(html).toMatch(
+      /<a[^>]*href="\/get-ready"[^>]*>Share your story<\/a>/,
+    );
   });
 
   it('hands the publishable key, read at request time, to Clerk in the browser', async () => {

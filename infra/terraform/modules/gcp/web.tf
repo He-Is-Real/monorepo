@@ -55,12 +55,6 @@ resource "google_cloud_run_v2_service" "web" {
         value = var.clerk_publishable_key
       }
 
-      # The home page's story (0.9: the dev seed's test story). Browse arrives in M1.
-      env {
-        name  = "FEATURED_STORY_SLUG"
-        value = var.web_featured_story_slug
-      }
-
       # Indexing is an explicit opt-in (web_indexing; refused in dev): anything but "allow"
       # means X-Robots-Tag and a robots meta tag say noindex, robots.txt disallows everything
       # and there's no sitemap.

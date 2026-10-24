@@ -4,6 +4,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { notFound, permanentRedirect } from 'next/navigation';
 import StoryPage, { generateMetadata } from './page';
+import { getRelatedStories } from '@/lib/browse';
 import { getPublicStory, StoriesUnavailableError } from '@/lib/public-stories';
 
 jest.mock('next/navigation', () => ({
@@ -19,6 +20,27 @@ jest.mock('@/lib/public-stories', () => {
   return { ...actual, getPublicStory: jest.fn() };
 });
 const mockGet = getPublicStory as jest.Mock;
+jest.mock('@/lib/browse', () => ({
+  ...jest.requireActual('@/lib/browse'),
+  getRelatedStories: jest.fn(),
+}));
+const mockRelated = getRelatedStories as jest.Mock;
+const relatedCard = {
+  id: 'r1',
+  slug: 'related-one',
+  title: 'A related story',
+  excerpt: 'Dummy.',
+  bylineName: null,
+  primaryFormat: 'audio',
+  durationSeconds: 65,
+  thumbnailUrl: null,
+  thumbnailWidth: null,
+  thumbnailHeight: null,
+  image: null,
+  textLength: 0,
+  tags: [{ slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 }],
+  publishedAt: '2026-10-20T20:00:00Z',
+};
 
 const story = {
   id: 'dev_seed',
@@ -35,6 +57,9 @@ const story = {
 const params = (slug: string) => ({ params: Promise.resolve({ slug }) });
 
 describe('/stories/[slug]', () => {
+  beforeEach(() =>
+    mockRelated.mockResolvedValue({ kind: 'stories', stories: [relatedCard] }),
+  );
   afterEach(() => jest.clearAllMocks());
 
   it('renders the story server-side, anonymous byline and tags included', async () => {
@@ -43,9 +68,72 @@ describe('/stories/[slug]', () => {
     expect(html).toContain('Test story</h1>');
     expect(html).toContain('Anonymous');
     expect(html).toContain('aria-label="Tags"');
-    expect(await generateMetadata(params('test-story'))).toEqual({
+    expect(html).toMatch(/href="\/stories\?tag=doubt"[^>]*>Doubt</);
+    expect(html).toContain(
+      '<time dateTime="2026-10-21T20:00:00Z">21 October 2026</time>',
+    );
+  });
+
+  it('has a breadcrumb, the share button and a pull quote for written stories', async () => {
+    mockGet.mockResolvedValue({ kind: 'story', story });
+    const html = renderToStaticMarkup(await StoryPage(params('test-story')));
+    expect(html).toMatch(/<nav aria-label="Breadcrumb"/);
+    expect(html).toMatch(/href="\/stories"[^>]*>Stories</);
+    expect(html).toMatch(/aria-current="page"[^>]*>Test story</);
+    expect(html).toContain('>Share</button>');
+    expect(html).toMatch(/<blockquote[^>]*>.*Placeholder.*<\/blockquote>/s);
+  });
+
+  it('shows related stories and the next-steps invitation', async () => {
+    mockGet.mockResolvedValue({ kind: 'story', story });
+    const html = renderToStaticMarkup(await StoryPage(params('test-story')));
+    expect(mockRelated).toHaveBeenCalledWith('test-story');
+    expect(html).toContain('Related stories');
+    expect(html).toMatch(
+      /href="\/stories\/related-one"[^>]*>.*A related story/s,
+    );
+    expect(html).toContain('Audio · 1:05');
+    expect(html).toMatch(/href="\/next-steps"/);
+  });
+
+  it('still renders when related stories can’t load', async () => {
+    mockGet.mockResolvedValue({ kind: 'story', story });
+    mockRelated.mockRejectedValue(new StoriesUnavailableError('status 503'));
+    const html = renderToStaticMarkup(await StoryPage(params('test-story')));
+    expect(html).toContain('Test story</h1>');
+    expect(html).not.toContain('Related stories');
+  });
+
+  it('describes the story for search and share previews (Open Graph, schema.org)', async () => {
+    mockGet.mockResolvedValue({ kind: 'story', story });
+    // pageMetadata (lib/seo.ts) builds absolute URLs from SITE_URL, read per request.
+    process.env['SITE_URL'] = 'https://example.org';
+    const meta = await generateMetadata(params('test-story'));
+    delete process.env['SITE_URL'];
+    expect(meta.title).toBe('Test story');
+    expect(meta.description).toBe('Placeholder');
+    expect(meta.alternates?.canonical).toBe(
+      'https://example.org/stories/test-story',
+    );
+    expect(meta.openGraph).toMatchObject({
+      type: 'article',
       title: 'Test story',
-      description: 'Placeholder',
+      url: 'https://example.org/stories/test-story',
+      publishedTime: '2026-10-21T20:00:00Z',
+      tags: ['Doubt'],
+      images: [
+        expect.objectContaining({ url: 'https://example.org/og-default.png' }),
+      ],
+    });
+    expect(meta.twitter).toMatchObject({ card: 'summary_large_image' });
+    const html = renderToStaticMarkup(await StoryPage(params('test-story')));
+    const ld = /<script type="application\/ld\+json">(.*?)<\/script>/.exec(
+      html,
+    );
+    expect(JSON.parse(ld?.[1] ?? 'null')).toMatchObject({
+      '@type': 'Article',
+      headline: 'Test story',
+      datePublished: '2026-10-21T20:00:00Z',
     });
   });
 

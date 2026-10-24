@@ -51,8 +51,8 @@ thumbnailUrl, thumbnailWidth, thumbnailHeight, image, textLength, tags, publishe
   answers `301` to the current one's `/related`. The `limit` parameter leaves the contract.
 - `GET /v1/tags`: all tags, sorted by category (theme, journey, emotion) then name. No counts
   (`docs/api-conventions.md`: no totals). Grouping is the client's (each tag has `category`).
-- No featured endpoint: the featured list is M5 (`/admin/stories/featured`). Home can use the
-  newest stories or `FEATURED_STORY_SLUG` until then.
+- No featured endpoint. Home shows the newest stories. (Joel, 2026-10-23: there are no featured
+  or pinned stories at all; the M5 featured list is dropped.)
 - web `lib`: `browseStories`, `getRelatedStories`, `listTags`. They revalidate every 60 s
   (ISR); search results (`q`) are fetched `no-store` so arbitrary text doesn't fill the cache.
 

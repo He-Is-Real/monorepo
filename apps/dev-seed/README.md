@@ -33,7 +33,7 @@ the real schema on every PR.
 2 in review, 2 sent back with feedback, 1 rejected, 1 withdrawn, 2 drafts. Edge cases: anonymous
 byline, a 140-character title, 0 and 5 tags, non-Latin text, a long description, written text at
 exactly 200 and 10,000 characters, and a short draft. `dataset.spec.ts` keeps it covering D47 as it
-grows. web's featured story keeps the slug `test-story-walking-skeleton`.
+grows. The walking skeleton's old slug, `test-story-walking-skeleton`, stays published.
 
 ## Media (uploaded once)
 

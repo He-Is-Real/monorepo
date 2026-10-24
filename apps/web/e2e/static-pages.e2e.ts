@@ -1,9 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  expectNoHorizontalOverflow,
-  expectTarget,
-  screenshot,
-} from './page-checks';
+import { expectNoHorizontalOverflow, expectTarget, shots } from './helpers';
 
 // M1 step 6b-2: the static pages on every device in the matrix and in both colour schemes,
 // the site footer, keyboard use of the FAQ accordion, and robots.txt and the sitemap while
@@ -68,7 +64,7 @@ for (const scheme of ['light', 'dark'] as const) {
           footer.getByRole('link', { name: 'How we use cookies' }),
         );
         await page.evaluate(() => window.scrollTo(0, 0));
-        await screenshot(page, info.project.name, scheme, p.path.slice(1));
+        await shots(page, info.project.name, scheme, p.path.slice(1));
       });
     }
 
@@ -85,7 +81,7 @@ for (const scheme of ['light', 'dark'] as const) {
       ).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await page.evaluate(() => window.scrollTo(0, 0));
-      await screenshot(page, info.project.name, scheme, 'faqs-open');
+      await shots(page, info.project.name, scheme, 'faqs-open');
     });
   });
 }
