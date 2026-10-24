@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 // Shared by the e2e suites: screenshots, the no-sideways-scroll check and 44 px targets.
 
@@ -33,10 +33,8 @@ export async function expectNoHorizontalOverflow(page: Page) {
   );
 }
 
-export async function expectTarget(
-  page: Page,
-  locator: ReturnType<Page['locator']>,
-) {
+export async function expectTarget(page: Page, locator: Locator) {
+  await locator.scrollIntoViewIfNeeded();
   await expect(locator).toBeVisible();
   const box = await locator.boundingBox();
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
