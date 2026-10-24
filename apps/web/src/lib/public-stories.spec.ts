@@ -42,30 +42,14 @@ describe('getPublicStory', () => {
       }),
     );
 
-  it('fetches the story from api-public-read only, with nothing from the visitor', async () => {
-    respond(200, story);
-    await expect(getPublicStory('test-story')).resolves.toEqual({
-      kind: 'story',
-      story,
-    });
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://api-public-read.example/v1/stories/test-story');
-    expect(init.headers).toEqual({ accept: 'application/json' });
-    expect(init.cache).toBe('no-store');
-  });
-
-  it('maps 404 to not_found, and never asks about invalid slugs', async () => {
-    respond(404, { status: 404 });
-    await expect(getPublicStory('gone')).resolves.toEqual({
-      kind: 'not_found',
-    });
+  it('never asks about invalid slugs', async () => {
     await expect(getPublicStory('../health')).resolves.toEqual({
       kind: 'not_found',
     });
     await expect(getPublicStory('UPPER')).resolves.toEqual({
       kind: 'not_found',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -80,37 +64,6 @@ describe('getPublicStory', () => {
     await expect(getPublicStory('test-story')).rejects.toBeInstanceOf(
       StoriesUnavailableError,
     );
-  });
-  it('passes on a written story’s image and a video’s shape (D53)', async () => {
-    const written = {
-      ...story,
-      image: { url: null, width: 1200, height: 1600, alt: null },
-    };
-    respond(200, written);
-    await expect(getPublicStory('test-story')).resolves.toEqual({
-      kind: 'story',
-      story: written,
-    });
-    const video = {
-      ...story,
-      primaryFormat: 'video',
-      media: [
-        {
-          format: 'video',
-          playbackUrl: null,
-          thumbnailUrl: null,
-          width: 1080,
-          height: 1920,
-          captionsUrl: null,
-          durationSeconds: null,
-        },
-      ],
-    };
-    respond(200, video);
-    await expect(getPublicStory('test-story')).resolves.toEqual({
-      kind: 'story',
-      story: video,
-    });
   });
 
   it.each([

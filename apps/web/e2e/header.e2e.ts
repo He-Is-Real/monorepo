@@ -5,7 +5,7 @@ import {
   expectTarget,
 } from './helpers';
 import { SCREENSHOT_DEVICES } from './devices';
-import { SIGNED_IN_NAME, SIGNED_IN_PORT } from './playwright.config';
+import { SIGNED_IN_NAME, WEB_SIGNED_IN_URL } from './servers';
 
 // The header with its account controls, signed out (the E2E_FIXTURES stand-in for Clerk's Sign
 // in button, the same Button; the real one is in static-pages.e2e.ts) and signed in (a
@@ -58,7 +58,7 @@ for (const scheme of ['light', 'dark'] as const) {
     test('signed in with a long name: the actions stay on the first row, right-aligned', async ({
       page,
     }, info) => {
-      await page.goto(`http://localhost:${SIGNED_IN_PORT}/`);
+      await page.goto(`${WEB_SIGNED_IN_URL}/`);
       // The design's compact control: avatar initial and first name; the full name is its
       // accessible name and in the panel it opens.
       const account = page.getByRole('button', {
