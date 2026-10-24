@@ -5,6 +5,7 @@ import {
   expectTarget,
   shots,
 } from './helpers';
+import { STUB_PORT } from './playwright.config';
 
 // M1 step 6b-1: home, browse and the story pages on every device in the matrix, light and dark
 // (no sideways scroll, 44 px targets, screenshots), then the behaviour that needs a real browser:
@@ -361,7 +362,7 @@ test.describe('behaviour', () => {
     request,
   }, info) => {
     const mine = `hide-test-${info.project.name}`;
-    const stub = 'http://127.0.0.1:4310';
+    const stub = `http://127.0.0.1:${STUB_PORT}`;
     await request.post(`${stub}/__test/show?slug=${mine}`);
     await page.goto('/stories?tag=hide-test');
     const card = page.getByRole('link', {

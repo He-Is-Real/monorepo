@@ -56,6 +56,8 @@ pnpm nx run consent:test-integration             # consent ledger + endpoints on
 pnpm nx run auth:test-integration                # Clerk sign-in → person session on SurrealDB (needs Docker)
 pnpm nx run api-public-read:test-integration     # the public read API over the dev dataset on SurrealDB (needs Docker)
 pnpm exec playwright install chromium && pnpm nx e2e web   # responsive device matrix, light + dark
+# Ports 4300 (web), 4301 (web signed in, E2E_FIXTURES) and 4310 (stub API); if one is busy:
+# E2E_WEB_PORT=4400 E2E_SIGNED_IN_PORT=4401 E2E_STUB_PORT=4410 pnpm nx e2e web
 ```
 
 ## Secrets
