@@ -46,6 +46,23 @@ interface Page {
   nextCursor: string | null;
 }
 
+/** D52 signing with test keys, on the given clock. */
+const signing = (now: () => number) =>
+  new MediaUrls(
+    {
+      config: mediaConfigFromEnv({
+        BUNNY_STREAM_LIBRARY_ID: '786537',
+        BUNNY_STREAM_CDN_HOST: 'vz-test.b-cdn.net',
+        BUNNY_IMAGES_CDN_HOST: 'images-test.b-cdn.net',
+        BUNNY_STREAM_TOKEN_KEY_SECRET: 'bunny-stream-token-key',
+        BUNNY_IMAGES_TOKEN_KEY_SECRET: 'bunny-images-token-key',
+      }) as NonNullable<ReturnType<typeof mediaConfigFromEnv>>,
+      streamKey: 'stream-key',
+      imagesKey: 'images-key',
+    },
+    now,
+  );
+
 const approved = DATASET.stories.filter((s) => s.status === 'approved');
 const unpublished = DATASET.stories.filter((s) => s.status !== 'approved');
 // The test makes seed_v02 share seed_v01's publishedAt: ties are broken by id, newest id first.
@@ -251,22 +268,11 @@ describe('browse API over the dev dataset', () => {
       ).toBe(200);
     });
 
+    // A sample: the parsing rules are browse.query.spec.ts's; this is the HTTP answer.
     it.each([
       ['limit=0', '/limit'],
-      ['limit=51', '/limit'],
-      ['limit=abc', '/limit'],
-      ['limit=1.5', '/limit'],
-      ['sort=popular', '/sort'],
-      ['sort=relevance', '/sort'],
-      ['format=photo', '/format'],
       ['tag=Not%20A%20Slug', '/tag'],
-      ['tag=a&tag=b&tag=c&tag=d&tag=e&tag=f', '/tag'],
       [`q=${'a'.repeat(201)}`, '/q'],
-      ['q=a&q=b', '/q'],
-      ['limit=1&limit=2', '/limit'],
-      ['views=desc', '/views'],
-      ['cursor=not-a-cursor', '/cursor'],
-      [`cursor=${'A'.repeat(301)}`, '/cursor'],
     ])('refuses %s with a 400 problem', async (query, pointer) => {
       const res = await get(`/v1/stories?${query}`);
       expect(res.status).toBe(400);
@@ -629,20 +635,7 @@ describe('browse API over the dev dataset', () => {
 
   describe('signed media on cards (D52)', () => {
     it('signs thumbnails and images with the story page’s MediaUrls, and gives cards no player', async () => {
-      const media = new MediaUrls(
-        {
-          config: mediaConfigFromEnv({
-            BUNNY_STREAM_LIBRARY_ID: '786537',
-            BUNNY_STREAM_CDN_HOST: 'vz-test.b-cdn.net',
-            BUNNY_IMAGES_CDN_HOST: 'images-test.b-cdn.net',
-            BUNNY_STREAM_TOKEN_KEY_SECRET: 'bunny-stream-token-key',
-            BUNNY_IMAGES_TOKEN_KEY_SECRET: 'bunny-images-token-key',
-          }) as NonNullable<ReturnType<typeof mediaConfigFromEnv>>,
-          streamKey: 'stream-key',
-          imagesKey: 'images-key',
-        },
-        () => Date.UTC(2026, 9, 23, 10, 15),
-      );
+      const media = signing(() => Date.UTC(2026, 9, 23, 10, 15));
       const signed = await startPublicRead(t, media);
       try {
         const cards = async (path: string) =>
@@ -675,6 +668,88 @@ describe('browse API over the dev dataset', () => {
       } finally {
         await signed.app.close();
       }
+    });
+  });
+
+  describe('signed media on the story page (D52)', () => {
+    /** 2026-10-23 10:15 UTC: links expire at 17:00 (6 h, rounded up to the hour). */
+    const NOW = Date.UTC(2026, 9, 23, 10, 15);
+    let now = NOW;
+    // The dummy clips' ids aren't Bunny GUIDs, so nothing would sign their player: give one
+    // story a GUID, in the write model and the read model, as an upload does.
+    const GUID = '2c3a0a8e-7d39-4f8e-9a51-0d6c1b4a9e11';
+    const v03 = approved.find((s) => s.id === 'seed_v03') as StoryFixture;
+    let signed: { app: INestApplication; url: string };
+    beforeAll(async () => {
+      await run(
+        await t.migrator(),
+        `BEGIN TRANSACTION;
+         LET $media = [object::extend(
+           (SELECT VALUE media FROM ONLY publicStory:seed_v03)[0],
+           { bunnyVideoId: $guid, thumbnailPath: $guid + '/thumbnail.jpg' })];
+         LET $row = (SELECT * FROM ONLY publicStory:seed_v03);
+         DELETE publicStory:seed_v03;
+         UPDATE story:seed_v03 SET media[0].bunnyVideoId = $guid,
+           media[0].thumbnailPath = $guid + '/thumbnail.jpg';
+         CREATE publicStory:seed_v03 CONTENT object::extend($row, { media: $media });
+         COMMIT TRANSACTION;`,
+        { guid: GUID },
+      );
+      signed = await startPublicRead(
+        t,
+        signing(() => now),
+      );
+    });
+    afterAll(() => signed?.app.close());
+    beforeEach(() => {
+      now = NOW;
+    });
+    const story = (slug: string, headers: Record<string, string> = {}) =>
+      fetch(`${signed.url}/v1/stories/${slug}`, { headers });
+
+    it('signs a video’s player and thumbnail, and a written story’s image', async () => {
+      const video = (await (await story(v03.slug)).json()) as {
+        media: {
+          playbackUrl: string;
+          thumbnailUrl: string;
+          captionsUrl: null;
+        }[];
+      };
+      const [media] = video.media;
+      const playback = new URL(media.playbackUrl);
+      expect(playback.origin + playback.pathname).toBe(
+        `https://player.mediadelivery.net/embed/786537/${GUID}`,
+      );
+      expect(playback.searchParams.get('token')).toMatch(/^[0-9a-f]{64}$/);
+      expect(playback.searchParams.get('expires')).toBe(
+        String(Date.UTC(2026, 9, 23, 17) / 1000),
+      );
+      const thumbnail = new URL(media.thumbnailUrl);
+      expect(thumbnail.origin + thumbnail.pathname).toBe(
+        `https://vz-test.b-cdn.net/${GUID}/thumbnail.jpg`,
+      );
+      expect(thumbnail.searchParams.get('token')).toMatch(/^HS256-/);
+      expect(media.captionsUrl).toBeNull();
+
+      const w01 = approved.find((s) => s.id === 'seed_w01') as StoryFixture;
+      const written = (await (await story(w01.slug)).json()) as {
+        image: { url: string };
+      };
+      expect(written.image.url).toMatch(
+        /^https:\/\/images-test\.b-cdn\.net\/dev-seed\/image-01\.webp\?token=HS256-/,
+      );
+    });
+
+    it('keeps the ETag within the hour and changes it when the links do', async () => {
+      const etag = (await story(v03.slug)).headers.get('etag') as string;
+      now = NOW + 30 * 60 * 1000; // 10:45, the same links
+      expect((await story(v03.slug, { 'if-none-match': etag })).status).toBe(
+        304,
+      );
+      now = NOW + 60 * 60 * 1000; // 11:15, new links
+      const next = await story(v03.slug, { 'if-none-match': etag });
+      expect(next.status).toBe(200);
+      expect(next.headers.get('etag')).not.toBe(etag);
     });
   });
 
