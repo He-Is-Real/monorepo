@@ -11,7 +11,7 @@ waiting to be made are in `project/context/research/required-decisions.html`.
 Keep this file current: update it in the same PR that finishes a task or changes a decision
 recorded here.
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-24
 
 ## Milestones
 
@@ -441,3 +441,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-23:** Joel decided there are no featured or pinned stories (unfair to everyone else): home shows the newest stories. 6b-1 removes `FEATURED_STORY_SLUG` from web and OpenTofu and the M5 featured list from the api-admin contract and the schema (`SetFeaturedStories`); the schema change needs a migration run after merge.
 - **2026-10-24:** M1 steps 6a, 6c and 6b-2 merged (#62, #67, #65); 6b-1 (#66) rebased onto them.
 - **2026-10-24:** M1 done (dev only, dummy data): #66 merged (`f4d9d92`) after Codex's second round and applied to dev (web's `FEATURED_STORY_SLUG` removed, migration run, web, api-public-read and dev-seed images updated). "Reset dev data" then "Dev behavioural tests": 44 passed.
+- **2026-10-24:** Test clean-up PR E (T4, local equals CI): Playwright 0 retries and 4 workers everywhere; the e2e header uses an `E2E_FIXTURES` stand-in for Clerk's Sign in except on the real-Clerk server (two tests, one phone and one desktop); integration suites at 3 Jest workers everywhere; the behavioural suite wakes both Cloud Run services first, then runs with 0 retries; the migration runner's "paused mid-step" test uses an explicit pause (`MIGRATE_TEST_PAUSE_BEFORE`) instead of about 9 s of bcrypt. The 3 s sleep and the benchmark went in PR A.

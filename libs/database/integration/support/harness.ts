@@ -73,6 +73,8 @@ export interface MigrationOptions {
   env?: Record<string, string>;
   /** Called with the runner's output as it arrives (to act at a given step). */
   onOutput?: (chunk: string) => void;
+  /** With MIGRATE_TEST_PAUSE_BEFORE=<step> in `env`: lets the paused runner go on. */
+  resume?: Promise<void>;
   /**
    * Defence-in-depth tests only: run the real runner with its grammar check switched off (the
    * statement count stays), to see what happens when a dangerous script gets past it.
@@ -216,6 +218,7 @@ export class TestDatabase {
       bundleDir = SCHEMA_DIR,
       env = {},
       onOutput,
+      resume,
       bypassGrammar = false,
     }: MigrationOptions = {},
   ): Promise<MigrationRun> {
@@ -264,6 +267,9 @@ export class TestDatabase {
           },
         );
         if (onOutput) child.stdout?.on('data', (d) => onOutput(String(d)));
+        // MIGRATE_TEST_PAUSE_BEFORE: the runner waits for a line on stdin.
+        if (resume) void resume.then(() => child.stdin?.end('\n'));
+        else child.stdin?.end();
       });
     } finally {
       await rm(dir, { recursive: true, force: true });

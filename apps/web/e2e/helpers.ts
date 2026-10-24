@@ -9,7 +9,7 @@ export async function shots(
   scheme: string,
   name: string,
 ) {
-  // The full header in every screenshot: Clerk's sign-in button loads in the browser.
+  // The full header in every screenshot (the E2E_FIXTURES stand-in for Clerk's Sign in).
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   await page.screenshot({
     path: `test-output/e2e/screenshots/${project}/${scheme}-${name}.png`,

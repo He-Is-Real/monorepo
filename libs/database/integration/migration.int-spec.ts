@@ -1272,30 +1272,41 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
   });
 
   it('a run paused mid-step loses to a run that started after it, keeping nothing of that step', async () => {
-    const slowA = await bundleWith({
-      // About 9 s of work inside the step's transaction (SLEEP needs root, which the migrator
-      // isn't; tested: 'IAM error: Not enough permissions').
-      'data/0010-slow.surql': `FOR $i IN 1..50 { LET $h = crypto::bcrypt::generate('slow'); };\n${tag('slow')}`,
+    const withStep = await bundleWith({
+      'data/0010-paused.surql': tag('paused'),
     });
-    let inSlowStep: () => void = () => undefined;
-    const aInStep = new Promise<void>((r) => (inSlowStep = r));
+    // A writes 0010's pending row, then holds (an explicit pause, no timing): B starts, takes
+    // the lock and waits for A's pending row; then A sends 0010's transaction.
+    let inStep: () => void = () => undefined;
+    const aInStep = new Promise<void>((r) => (inStep = r));
+    let release: () => void = () => undefined;
+    const resume = new Promise<void>((r) => (release = r));
     const a = t.runMigration(t.params(), {
-      bundleDir: slowA,
+      bundleDir: withStep,
+      env: { MIGRATE_TEST_PAUSE_BEFORE: '0010-paused' },
       onOutput: (chunk) => {
-        if (chunk.includes('schema.surql:')) inSlowStep(); // next: 0010's transaction
+        if (chunk.includes('0010-paused: paused before its transaction'))
+          inStep();
       },
+      resume,
     });
     await aInStep;
-    const b = await t.runMigration(t.params()); // the newer bundle, without 0010
-    const resultA = await a;
-    expect(b.exitCode).toBe(0);
+    const b = t.runMigration(t.params(), {
+      // The newer bundle, without 0010.
+      onOutput: (chunk) => {
+        if (chunk.includes('waiting for an overtaken run to clean up'))
+          release();
+      },
+    });
+    const [resultA, resultB] = await Promise.all([a, b]);
+    expect(resultB.exitCode).toBe(0);
     expect(resultA.exitCode).toBe(1);
-    expect(resultA.output).toMatch(/superseded|conflict/i);
-    expect(await appliedIds(t)).not.toContain('0010-slow');
-    expect(await tagIds(t, 'slow')).toEqual([]);
+    expect(resultA.output).toMatch(/superseded/i);
+    expect(await appliedIds(t)).not.toContain('0010-paused');
+    expect(await tagIds(t, 'paused')).toEqual([]);
     expect(await pendingSteps(t)).toEqual([]);
-    expect(await lockToken()).toBe(b.summary?.token);
-  }, 60_000);
+    expect(await lockToken()).toBe(resultB.summary?.token);
+  });
 
   it('a rollback to an older bundle is simply a newer run, and succeeds', async () => {
     const newer = await bundleWith({ 'data/0011-newer.surql': tag('newer') });

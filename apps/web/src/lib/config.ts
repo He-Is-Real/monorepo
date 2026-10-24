@@ -90,10 +90,15 @@ export function indexingAllowed(): boolean {
 }
 
 /**
- * e2e only: the signed-in name the header shows instead of Clerk's control, so the device
- * matrix can check the signed-in header without a Clerk session or secret. Needs
- * `E2E_FIXTURES=true` as well; OpenTofu never sets either, so deployed sites always use Clerk.
+ * e2e only (`E2E_FIXTURES=true`; OpenTofu never sets it, so deployed sites always use Clerk):
+ * the header shows a stand-in for Clerk's control, signed out ("Sign in") or signed in as
+ * `E2E_SIGNED_IN_NAME`, so the device matrix never waits for Clerk over the network (T4).
  */
+export function e2eFixtures(): boolean {
+  return process.env['E2E_FIXTURES'] === 'true';
+}
+
+/** e2e only: the signed-in name the header fixture shows (`e2eFixtures()` must be on). */
 export function e2eSignedInName(): string | undefined {
   if (process.env['E2E_FIXTURES'] !== 'true') return undefined;
   const name = process.env['E2E_SIGNED_IN_NAME']?.trim();

@@ -19,8 +19,9 @@ export default defineConfig({
   outputDir: `${root}test-output/behavioural/results`,
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
-  // Cloud Run scales to zero: the first requests may wait for a cold start.
-  retries: 1,
+  // Cloud Run scales to zero: warm-up.ts wakes both services first, so no test retries (T4).
+  globalSetup: './warm-up.ts',
+  retries: 0,
   timeout: 60_000,
   workers: 4,
   reporter: [['list']],

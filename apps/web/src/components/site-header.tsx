@@ -3,12 +3,17 @@ import { connection } from 'next/server';
 import {
   AccountControl,
   FixtureSignedInAccount,
+  FixtureSignedOutAccount,
 } from '@/components/auth/account-control';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { Logo } from '@/components/logo';
 import { MobileNav, NavLinks, SHARE_HREF } from '@/components/nav/site-nav';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
-import { clerkPublishableKey, e2eSignedInName } from '@/lib/config';
+import {
+  clerkPublishableKey,
+  e2eFixtures,
+  e2eSignedInName,
+} from '@/lib/config';
 
 /**
  * The site header: home link, the main navigation, "Share your story", the theme toggle and the
@@ -25,6 +30,7 @@ import { clerkPublishableKey, e2eSignedInName } from '@/lib/config';
 export async function SiteHeader() {
   await connection();
   const publishableKey = clerkPublishableKey();
+  const fixtures = e2eFixtures();
   const fixtureName = e2eSignedInName();
   return (
     <header className="relative border-b border-border">
@@ -51,8 +57,12 @@ export async function SiteHeader() {
             Share your story
           </Link>
           <ThemeToggle />
-          {fixtureName ? (
-            <FixtureSignedInAccount name={fixtureName} />
+          {fixtures ? (
+            fixtureName ? (
+              <FixtureSignedInAccount name={fixtureName} />
+            ) : (
+              <FixtureSignedOutAccount />
+            )
           ) : publishableKey ? (
             <ClerkBrowser publishableKey={publishableKey}>
               <AccountControl />
