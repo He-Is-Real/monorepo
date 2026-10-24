@@ -170,6 +170,9 @@ export function StoryCard({
         <Heading className="mb-1.5 line-clamp-3 text-[1.0625rem] leading-6 font-semibold">
           <Link
             href={`/stories/${story.slug}`}
+            // No prefetch: a story's page reads the story, which signs its player link (D52);
+            // links are signed only for stories someone opens or plays.
+            prefetch={false}
             className="text-foreground outline-none after:absolute after:inset-0 after:content-[''] hover:text-foreground"
           >
             {story.title}

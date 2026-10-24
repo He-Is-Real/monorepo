@@ -10,6 +10,8 @@ import { STUB_PORT } from './playwright.config';
 const LIST = '/stories?tag=play-test';
 const VIDEO = 'Play test: a wide video';
 const AUDIO = 'Play test: audio';
+/** components/stories/story-media.tsx: the shortest box Bunny's controls fit in. */
+const PLAYER_MIN_HEIGHT = 184;
 const embed = (id: string) => `http://127.0.0.1:${STUB_PORT}/embed/1/${id}?`;
 const VIDEO_ID = '11111111-1111-4111-8111-111111111111';
 const AUDIO_ID = '22222222-2222-4222-8222-222222222222';
@@ -52,9 +54,14 @@ test('the media area plays the story in place; the text below opens the story', 
   await expect(
     page.frameLocator(`iframe[title="Video: ${VIDEO}"]`).getByRole('button'),
   ).toBeVisible();
-  // Same page, same box: the masonry doesn't move.
+  // Same page and width; the same height unless that is shorter than the player's controls
+  // need (184 px, PLAYER_MIN_HEIGHT): then the box grows to it once.
   await expect(page).toHaveURL(LIST);
-  expect(await size(media(video))).toEqual(before);
+  expect(await size(media(video))).toEqual({
+    width: before.width,
+    height: Math.max(before.height, PLAYER_MIN_HEIGHT),
+  });
+  expect(await size(frame)).toEqual(await size(media(video)));
   await expectNoHorizontalOverflow(page);
   await expectTarget(page, video.getByRole('button', { name: 'Close player' }));
 
@@ -81,6 +88,27 @@ test('starting another card stops the one playing', async ({ page }) => {
   );
   await expect(page.locator('iframe')).toHaveCount(1);
   await expect(playButton(page, VIDEO)).toBeVisible();
+  // An audio card's 2:1 box is 144 px tall on a 320 px phone: the player gets its 184 px.
+  expect((await size(audio)).height).toBeGreaterThanOrEqual(PLAYER_MIN_HEIGHT);
+});
+
+test('the story page’s players are tall enough for Bunny’s controls', async ({
+  page,
+}) => {
+  for (const [slug, title] of [
+    ['audio-story', 'Audio: Test story: audio'],
+    [
+      'browse-test-03',
+      'Video: Browse test story 03: a much longer title that wraps over more than one line',
+    ], // 16:9
+  ]) {
+    await page.goto(`/stories/${slug}`);
+    const frame = page.locator(`iframe[title="${title}"]`);
+    await expect(frame).toBeVisible();
+    expect((await size(frame)).height).toBeGreaterThanOrEqual(
+      PLAYER_MIN_HEIGHT,
+    );
+  }
 });
 
 test('written cards open the story from anywhere on the card', async ({
@@ -188,6 +216,45 @@ test.describe('keyboard and home', () => {
     ).toBeVisible();
     await expect(page).toHaveURL(/\/$/);
     await expectNoHorizontalOverflow(page);
+  });
+});
+
+// Codex, #77: player links are signed only for stories someone plays or opens, so nothing
+// prefetches a story's page (which reads the story, and so signs its links). The stub counts
+// each story's reads; one story per device project that runs this.
+test.describe('signing on demand', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !['phone-320', 'desktop-1280'].includes(info.project.name),
+      'checked on one phone and one desktop',
+    );
+  });
+
+  test('a story is read only when its card is played, never ahead of it', async ({
+    page,
+    request,
+  }, info) => {
+    const slug = `prefetch-test-${info.project.name}`;
+    const title = `Prefetch test (${info.project.name})`;
+    const reads = async () =>
+      (
+        await (
+          await request.get(
+            `http://127.0.0.1:${STUB_PORT}/__test/reads?slug=${slug}`,
+          )
+        ).json()
+      ).reads as number;
+    await page.goto('/stories?tag=prefetch-test');
+    const link = page.getByRole('link', { name: title });
+    await link.scrollIntoViewIfNeeded();
+    await link.hover(); // Next prefetches links in view and on hover
+    await page.waitForLoadState('networkidle');
+    expect(await reads()).toBe(0);
+
+    await playButton(page, title).click();
+    await expect(page.locator(`iframe[title="Video: ${title}"]`)).toBeVisible();
+    expect(await reads()).toBe(1);
   });
 });
 

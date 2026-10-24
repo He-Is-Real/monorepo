@@ -175,7 +175,7 @@ export default async function Page() {
             Stories can’t be loaded right now. Please try again in a moment.
           </p>
         ) : (
-          <ul className="mx-auto grid max-w-[30rem] gap-7 md:max-w-none md:grid-cols-3">
+          <ul className="mx-auto grid max-w-[30rem] grid-cols-[minmax(0,1fr)] gap-7 md:max-w-none md:grid-cols-3">
             {stories.map((s) => (
               <li key={s.id}>
                 <StoryCard story={s} uniform eager />

@@ -239,6 +239,18 @@ changed two settings: passwords became optional with an 8-character minimum (was
   withdrawn since the list loaded answers 404 ("This story isn't available any more."), and an API
   that is down, or a failed request, says "The player couldn't load. Try again in a moment."; the
   card's link keeps working either way.
+- **Nothing prefetches a story's page** (Codex, #77): Next's link prefetch would read the story,
+  and so sign its links, for every card in view. Card and related-story links have
+  `prefetch={false}`, so links are signed only for stories someone plays or opens (e2e counts the
+  story reads).
+- **Rate limiting:** `cardPlayer` isn't rate-limited, like the anonymous `GET /v1/stories/{slug}`
+  it calls, which already allows the same. Revisit both with the Go live front door (D56).
+- **The player's controls fit** (Codex, #77): below about 176 px tall, Bunny's player squeezes its
+  button row and the 44 px buttons spill out of the frame, at any width (measured on dev). So a
+  playing card's box and the story page's player are at least 184 px tall (`PLAYER_MIN_HEIGHT`);
+  a card whose box is shorter (a 2:1 audio card on a phone is 144 px) grows once when the player
+  opens, and browse's masonry re-measures it. The dev behavioural suite checks the real player's
+  controls inside an audio card at 320 px, and that a card's media really plays from the click.
 
 #### Notes from step 5 (media token auth, D52)
 

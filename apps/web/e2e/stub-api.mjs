@@ -305,10 +305,35 @@ playStory('play-test-down', {
   title: 'Play test: the API is down',
   media: clip('video', '44444444-4444-4444-8444-444444444444', 1080, 1350),
 });
+// Prefetch check (card-playback.e2e.ts): one video story per device project that runs it, listed
+// only under `tag=prefetch-test`. GET /__test/reads?slug= says how often its story was read.
+const PREFETCH_TEST = 'prefetch-test';
+for (const name of ['phone-320', 'desktop-1280']) {
+  playStory(`prefetch-test-${name}`, {
+    primaryFormat: 'video',
+    title: `Prefetch test (${name})`,
+    tags: [
+      {
+        slug: PREFETCH_TEST,
+        name: 'Prefetch test',
+        category: 'theme',
+        version: 1,
+      },
+    ],
+    media: clip(
+      'video',
+      `55555555-5555-4555-8555-${name === 'phone-320' ? '000000000320' : '000000001280'}`,
+      1920,
+      1080,
+    ),
+  });
+}
+const reads = new Map();
+
 /** Listed (as cards) but not readable: the story was hidden, or the API is failing. */
 const UNREADABLE = { 'play-test-gone': 404, 'play-test-down': 503 };
 
-const TEST_TAGS = [HIDE_TEST, PLAY_TEST];
+const TEST_TAGS = [HIDE_TEST, PLAY_TEST, PREFETCH_TEST];
 const testTagOf = (s) =>
   s.tags.find((t) => TEST_TAGS.includes(t.slug))?.slug ?? null;
 
@@ -447,6 +472,10 @@ createServer((req, res) => {
     res.writeHead(204);
     return res.end();
   }
+  if (url.pathname === '/__test/reads')
+    return json(res, 200, {
+      reads: reads.get(url.searchParams.get('slug')) ?? 0,
+    });
   if (url.pathname === '/v1/stories') return listStories(url, res);
   if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);
@@ -478,6 +507,7 @@ createServer((req, res) => {
       }),
     );
   }
+  if (match) reads.set(match[1], (reads.get(match[1]) ?? 0) + 1);
   const unreadable = match && UNREADABLE[match[1]];
   if (unreadable === 503) {
     res.writeHead(503, { 'content-type': 'application/problem+json' });

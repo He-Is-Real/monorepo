@@ -10,7 +10,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { cardPlayer } from '@/app/stories/actions';
-import { PLAYER_ALLOW } from './story-media';
+import { PLAYER_ALLOW, PLAYER_MIN_HEIGHT } from './story-media';
 
 // A video or audio card's media area (story-card.tsx): pressing it plays the story in place, in
 // Bunny's player, in the same box (D55's measured spans stay right). The player link is signed
@@ -129,11 +129,15 @@ export function CardPlayer({
 
   const kind = format === 'video' ? 'Video' : 'Audio';
   const style: CSSProperties = { aspectRatio: String(aspect) };
-  const boxClass = 'relative w-full shrink-0 overflow-hidden bg-surface';
+  const boxClass = 'relative w-full shrink-0 overflow-hidden';
 
   if (!hydrated)
     return (
-      <div data-card-media="" className={boxClass} style={style}>
+      <div
+        data-card-media=""
+        className={`${boxClass} bg-surface`}
+        style={style}
+      >
         <a
           href={`/stories/${slug}`}
           tabIndex={-1}
@@ -145,13 +149,15 @@ export function CardPlayer({
       </div>
     );
 
+  // Playing: never shorter than the player's controls need (a 2:1 box on a phone is 144 px).
+  // The box grows once, when the player opens; browse's masonry re-measures the card.
   if (shown)
     return (
       <div
         ref={box}
         data-card-media=""
         className={`${boxClass} bg-black`}
-        style={style}
+        style={{ ...style, minHeight: PLAYER_MIN_HEIGHT, minWidth: 0 }}
       >
         <button
           type="button"
@@ -175,7 +181,7 @@ export function CardPlayer({
           title={`${kind}: ${title}`}
           allow={`autoplay; ${PLAYER_ALLOW}`}
           allowFullScreen
-          className="block h-full w-full border-0"
+          className="absolute inset-0 block h-full w-full border-0"
         />
       </div>
     );
@@ -184,7 +190,12 @@ export function CardPlayer({
   const error =
     active && state.status === 'error' ? MESSAGES[state.reason] : null;
   return (
-    <div ref={box} data-card-media="" className={boxClass} style={style}>
+    <div
+      ref={box}
+      data-card-media=""
+      className={`${boxClass} bg-surface`}
+      style={style}
+    >
       <button
         ref={button}
         type="button"
