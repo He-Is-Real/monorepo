@@ -205,6 +205,14 @@ test('a video card plays in place with a freshly signed Bunny embed link', async
   await card.getByRole('button', { name: /^Play / }).click();
   const frame = card.locator('iframe');
   await expect(frame).toBeVisible({ timeout: 30_000 });
+
+  // It really plays, from that one click (Codex, #77): the media loads and its time advances.
+  // Checked first, while the 12 s clip is still playing; the link checks below don't need it.
+  const bunny = await playerFrame(page);
+  const t1 = await expectPlaying(bunny);
+  await expect
+    .poll(() => mediaState(bunny).then((m) => m.time))
+    .toBeGreaterThan(t1);
   await expect(page).toHaveURL(/\/stories\?format=video$/);
 
   const player = new URL((await frame.getAttribute('src')) ?? '');
@@ -217,13 +225,6 @@ test('a video card plays in place with a freshly signed Bunny embed link', async
   const body = await publicStory(request, slug ?? '');
   expect(player.pathname).toBe(new URL(body.media[0].playbackUrl).pathname);
   await expectStatus(request, player.toString(), 200);
-
-  // It really plays, from that one click (Codex, #77): the media loads and its time advances.
-  const bunny = await playerFrame(page);
-  const t1 = await expectPlaying(bunny);
-  await expect
-    .poll(() => mediaState(bunny).then((m) => m.time))
-    .toBeGreaterThan(t1);
 });
 
 /** The player's media element (inside Bunny's <bunny-stream-video>): loaded, playing, time. */
@@ -292,9 +293,11 @@ async function playerControls(frame: Frame) {
 }
 
 async function playerFrame(page: Page) {
+  // Bunny's embed can take several seconds to load (a 7 s load was seen; no retries on main).
   await expect
-    .poll(() =>
-      page.frames().some((f) => f.url().includes('mediadelivery.net')),
+    .poll(
+      () => page.frames().some((f) => f.url().includes('mediadelivery.net')),
+      { timeout: 30_000 },
     )
     .toBe(true);
   return page.frames().find((f) => f.url().includes('mediadelivery.net'))!;
