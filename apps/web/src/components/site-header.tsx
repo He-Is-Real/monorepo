@@ -4,12 +4,17 @@ import { Suspense } from 'react';
 import {
   AccountControl,
   FixtureSignedInAccount,
+  FixtureSignedOutAccount,
 } from '@/components/auth/account-control';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { Logo } from '@/components/logo';
 import { MobileNav, NavLinks, SHARE_HREF } from '@/components/nav/site-nav';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
-import { clerkPublishableKey, e2eSignedInName } from '@/lib/config';
+import {
+  clerkPublishableKey,
+  e2eFixtures,
+  e2eSignedInName,
+} from '@/lib/config';
 
 /**
  * The site header: home link, the main navigation, "Share your story", the theme toggle and the
@@ -69,7 +74,13 @@ async function HeaderAccount() {
   await connection();
   const publishableKey = clerkPublishableKey();
   const fixtureName = e2eSignedInName();
-  if (fixtureName) return <FixtureSignedInAccount name={fixtureName} />;
+  // e2e: a stand-in for Clerk's control, signed out or signed in (T4; never in deployments).
+  if (e2eFixtures())
+    return fixtureName ? (
+      <FixtureSignedInAccount name={fixtureName} />
+    ) : (
+      <FixtureSignedOutAccount />
+    );
   if (!publishableKey) return null;
   return (
     <ClerkBrowser publishableKey={publishableKey}>

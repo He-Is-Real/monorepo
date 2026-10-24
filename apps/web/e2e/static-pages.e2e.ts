@@ -6,6 +6,7 @@ import {
   expectTarget,
   shots,
 } from './helpers';
+import { CLERK_PORT } from './playwright.config';
 
 // M1 step 6b-2: the static pages on every device in the matrix and in both colour schemes,
 // the site footer, keyboard use of the FAQ accordion, and robots.txt and the sitemap while
@@ -224,7 +225,27 @@ test.describe('behaviour', () => {
     expect(sitemap.headers()['x-robots-tag']).toBe('noindex, nofollow');
   });
 
+  // The real Clerk dev instance, loaded over the network: only these tests need it (T4); every
+  // other suite uses the E2E_FIXTURES stand-in.
+  test.describe('with the real Clerk', () => {
+    test.use({ baseURL: `http://localhost:${CLERK_PORT}` });
+
+    test('Clerk’s Sign in loads, fits the header and opens Clerk’s sign-in', async ({
+      page,
+    }) => {
+      await page.goto('/');
+      const signIn = page.getByRole('button', { name: 'Sign in' });
+      await expectTarget(page, signIn);
+      await expectNoHorizontalOverflow(page);
+      await signIn.click();
+      await expect(
+        page.getByRole('heading', { name: /sign in/i }),
+      ).toBeVisible();
+    });
+  });
+
   test.describe('as a real visitor’s browser', () => {
+    test.use({ baseURL: `http://localhost:${CLERK_PORT}` });
     // Clerk turns its telemetry off for automated browsers (navigator.webdriver) and robot user
     // agents, so look like an ordinary Chrome, or this test would pass whatever the setting.
     test.use({

@@ -482,6 +482,11 @@ class Runner:
             FENCE,
             "CREATE type::record('_migrationPending', $migration_step) SET token = $migration_token, startedAt = time::now()",
         ), variables)
+        if os.environ.get("MIGRATE_TEST_PAUSE_BEFORE") == name:
+            # Tests only (migration.int-spec): hold the step here, its pending row written, until
+            # a line arrives on stdin, so a newer run can start in between without any timing.
+            log(f"{name}: paused before its transaction (MIGRATE_TEST_PAUSE_BEFORE)")
+            sys.stdin.readline()
         nonce = secrets.token_hex(16)
         sql = in_transaction(FENCE, *parts, f"RETURN '{nonce}'")
         expected, _ = scan(sql, "runner")

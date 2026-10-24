@@ -1,4 +1,5 @@
 import {
+  e2eFixtures,
   e2eSignedInName,
   apiPublicReadUrl,
   clerkPublishableKey,
@@ -151,6 +152,14 @@ describe('e2eSignedInName (the e2e signed-in fixture)', () => {
   afterEach(() => {
     delete process.env['E2E_FIXTURES'];
     delete process.env['E2E_SIGNED_IN_NAME'];
+  });
+
+  it('the fixtures are off unless E2E_FIXTURES=true exactly', () => {
+    expect(e2eFixtures()).toBe(false);
+    process.env['E2E_FIXTURES'] = 'TRUE';
+    expect(e2eFixtures()).toBe(false);
+    process.env['E2E_FIXTURES'] = 'true';
+    expect(e2eFixtures()).toBe(true);
   });
 
   it('is ignored unless E2E_FIXTURES=true, so a deployed site always uses Clerk', () => {
