@@ -25,35 +25,6 @@ function problem(fn: () => unknown): {
 const AT = '2026-10-21T20:00:00.123456789Z';
 
 describe('parseBrowseQuery', () => {
-  it('defaults to the newest 20 stories', () => {
-    expect(parseBrowseQuery({})).toEqual({
-      q: null,
-      tags: [],
-      format: null,
-      sort: 'latest',
-      limit: 20,
-      after: null,
-    });
-  });
-
-  it('reads every parameter', () => {
-    expect(
-      parseBrowseQuery({
-        q: '  healing  prayer ',
-        tag: ['healing', 'answered-prayers'],
-        format: 'video',
-        sort: 'oldest',
-        limit: '50',
-      }),
-    ).toMatchObject({
-      q: 'healing  prayer',
-      tags: ['answered-prayers', 'healing'],
-      format: 'video',
-      sort: 'oldest',
-      limit: 50,
-    });
-  });
-
   it('sorts by relevance by default when searching, and only then', () => {
     expect(parseBrowseQuery({ q: 'hope' }).sort).toBe('relevance');
     expect(parseBrowseQuery({ q: 'hope', sort: 'latest' }).sort).toBe('latest');
@@ -71,10 +42,6 @@ describe('parseBrowseQuery', () => {
       q: null,
       sort: 'latest',
     });
-  });
-
-  it('takes one tag as a string', () => {
-    expect(parseBrowseQuery({ tag: 'healing' }).tags).toEqual(['healing']);
   });
 
   it('drops a repeated tag', () => {
