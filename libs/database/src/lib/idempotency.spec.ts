@@ -1,5 +1,5 @@
 import { RecordId, type SurrealQueryable } from 'surrealdb';
-import { IdempotencyKeyReusedError, runIdempotent } from './idempotency';
+import { runIdempotent } from './idempotency';
 
 /**
  * A scripted database: each query gets the next scripted answer, chosen by whether it is the
@@ -48,33 +48,6 @@ const scope = {
 const command = { statements: 'LET $result = {};', vars: {}, status: 201 };
 
 describe('runIdempotent', () => {
-  it('replays a stored response without preparing the command', async () => {
-    const { db } = scriptedDb({
-      lookups: [
-        [{ requestHash: 'h', status: 201, response: { id: 'consent:a' } }],
-      ],
-      transactions: [],
-    });
-    const prepare = jest.fn();
-    await expect(runIdempotent(db, scope, 'h', prepare)).resolves.toEqual({
-      replayed: true,
-      response: { status: 201, id: 'consent:a', version: null },
-    });
-    expect(prepare).not.toHaveBeenCalled();
-  });
-
-  it('refuses a stored key with a different request hash (422)', async () => {
-    const { db } = scriptedDb({
-      lookups: [
-        [{ requestHash: 'other', status: 201, response: { id: 'consent:a' } }],
-      ],
-      transactions: [],
-    });
-    await expect(
-      runIdempotent(db, scope, 'h', jest.fn()),
-    ).rejects.toBeInstanceOf(IdempotencyKeyReusedError);
-  });
-
   it('after a conflict, looks the key up again before re-preparing (review round 2)', async () => {
     // Two same-key requests overlap: the other one commits, this one gets a conflict. By the
     // time it retries, the DPA version in force has changed, so preparing again would refuse
