@@ -3,9 +3,16 @@
 // video, audio and image stories with stub media, 48 generated browse stories (every kind and
 // shape, D53/D55), the list, related and tags endpoints (step 6a's contract, cursors bound to
 // the filters), a 503 for "down" and 404 problems for anything else.
+//
+// One process, three ports, for the three web servers in playwright.config.ts:
+// - STUB_PORT: dev as it is today (D48's relaxed consent checks on);
+// - STUB_LIVE_PORT: the same stories with D48 off, as at Go live (indexing.e2e.ts);
+// - STUB_DOWN_PORT: api-public-read down, every request answers 503.
 import { createServer } from 'node:http';
 
 const port = Number(process.env.STUB_PORT ?? 4310);
+const livePort = Number(process.env.STUB_LIVE_PORT ?? 4311);
+const downPort = Number(process.env.STUB_DOWN_PORT ?? 4312);
 const base = {
   bylineName: 'Test Person',
   primaryFormat: 'written',
@@ -251,6 +258,22 @@ for (const name of ['phone-320', 'desktop-1280', 'spare']) {
 }
 const onlyUnderHideTest = (s) => s.tags.some((t) => t.slug === HIDE_TEST);
 
+// A story whose related list can't load (503): its page still shows (pages.e2e.ts). Listed
+// nowhere, so the browse counts stay as they are.
+const RELATED_DOWN = 'related-down';
+stories[RELATED_DOWN] = {
+  ...base,
+  id: 'related_down',
+  slug: RELATED_DOWN,
+  title: 'Test story: related stories can’t load',
+  description: 'Dummy story whose related list fails.',
+  body: 'Placeholder text.',
+};
+const unlisted = (s) => onlyUnderHideTest(s) || s.slug === RELATED_DOWN;
+
+// D30: an old slug answers 301 to the story's current one, as api-public-read does.
+const ALIASES = { 'old-video-story': 'video-story' };
+
 /** `StorySummary` (libs/contracts): a card, never a player link. */
 function summaryOf(s) {
   const media = s.media?.[0];
@@ -316,6 +339,7 @@ function listStories(url, res) {
   let list = published().filter(
     (s) =>
       !hidden.has(s.slug) &&
+      s.slug !== RELATED_DOWN &&
       (tags.includes(HIDE_TEST) || !onlyUnderHideTest(s)) &&
       tags.every((t) => s.tags.some((x) => x.slug === t)) &&
       (!format || s.primaryFormat === format) &&
@@ -341,8 +365,9 @@ function listStories(url, res) {
 function related(slug, res) {
   const story = stories[slug];
   if (!story) return problem(res, 404, 'story_not_found');
+  if (slug === RELATED_DOWN) return problem(res, 503, 'unavailable');
   const others = published().filter(
-    (s) => s.slug !== slug && !onlyUnderHideTest(s) && !hidden.has(s.slug),
+    (s) => s.slug !== slug && !unlisted(s) && !hidden.has(s.slug),
   );
   const shared = others.filter((s) =>
     s.tags.some((t) => story.tags.some((x) => x.slug === t.slug)),
@@ -363,7 +388,8 @@ const PLAYER_HTML =
   '<!doctype html><title>Stub player</title><body style="margin:0;background:#000;color:#fff;font:16px sans-serif">' +
   '<button style="min-width:44px;min-height:44px">Play</button></body>';
 
-createServer((req, res) => {
+const handler = (mode) => (req, res) => {
+  if (mode === 'down') return problem(res, 503, 'unavailable');
   if (req.url?.startsWith('/embed/')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(PLAYER_HTML);
@@ -398,12 +424,12 @@ createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(
-      // D48 on, so every page's footer note is checked on every device.
+      // D48 on in dev, so every page's footer note is checked on every device; off when live.
       JSON.stringify({
         status: 'ok',
         service: 'api-public-read',
         db: 'up',
-        consentChecksRelaxed: true,
+        consentChecksRelaxed: mode !== 'live',
       }),
     );
   }
@@ -416,6 +442,11 @@ createServer((req, res) => {
         status: 503,
       }),
     );
+  }
+  const alias = match && ALIASES[match[1]];
+  if (alias) {
+    res.writeHead(301, { location: `/v1/stories/${alias}` });
+    return res.end();
   }
   const story = match && stories[match[1]];
   if (story) {
@@ -431,4 +462,8 @@ createServer((req, res) => {
       code: 'story_not_found',
     }),
   );
-}).listen(port, '127.0.0.1');
+};
+
+createServer(handler('dev')).listen(port, '127.0.0.1');
+createServer(handler('live')).listen(livePort, '127.0.0.1');
+createServer(handler('down')).listen(downPort, '127.0.0.1');

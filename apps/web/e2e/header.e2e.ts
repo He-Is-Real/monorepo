@@ -4,7 +4,7 @@ import {
   expectNoHorizontalOverflow,
   expectTarget,
 } from './helpers';
-import { SIGNED_IN_NAME, SIGNED_IN_PORT } from './playwright.config';
+import { SIGNED_IN_NAME, WEB_SIGNED_IN_URL } from './servers';
 
 // The header with its account controls, signed out (Clerk's Sign in button) and signed in (a
 // 40-character name from the E2E_FIXTURES server: no Clerk session needed). On every device and
@@ -56,7 +56,7 @@ for (const scheme of ['light', 'dark'] as const) {
     test('signed in with a long name: the actions stay on the first row, right-aligned', async ({
       page,
     }, info) => {
-      await page.goto(`http://localhost:${SIGNED_IN_PORT}/`);
+      await page.goto(`${WEB_SIGNED_IN_URL}/`);
       // The design's compact control: avatar initial and first name; the full name is its
       // accessible name and in the panel it opens.
       const account = page.getByRole('button', {

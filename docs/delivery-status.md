@@ -11,7 +11,7 @@ waiting to be made are in `project/context/research/required-decisions.html`.
 Keep this file current: update it in the same PR that finishes a task or changes a decision
 recorded here.
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-24
 
 ## Milestones
 
@@ -353,6 +353,49 @@ they are also in the table below.
 | A3      | **Browse cursors are checked strictly, not signed.**                                                                                                                                                                                                                                  | Kept; built in #62                                             |
 | A4      | **No featured or pinned stories.** Featuring some is unfair to everyone else. Home shows the newest stories. This replaces the featured list planned for M5 and `FEATURED_STORY_SLUG`.                                                                                                | Standing decision; code removed in step 6b-1 (`feat/m1-pages`) |
 
+### Test clean-up (Joel's decisions of 2026-10-24, T1–T10)
+
+From `project/context/research/test-inventory.html` (every test file judged against AGENTS.md,
+"Tests measure behaviour"). Built in separate PRs: A deletions, trims and MOVE-UP rebuilds; B CI
+wiring; C responsive and the device matrix; D WebKit; E local equals CI.
+
+| #   | Decision                                                                                                                                                                  | State         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| T1  | **Delete or trim small tests that a browser or real-database test already covers**, per the inventory's per-file verdicts. MOVE-UP checks are rebuilt higher up first.    | Built in PR A |
+| T2  | **No api-user/api-admin route tests until a page uses the route.** Each app's start-up check stays (D21, D1), and the D29 retry-key test is rebuilt below the HTTP route. | Built in PR A |
+| T3  | **The web e2e stub and api-public-read are checked against one OpenAPI contract; the dev behavioural suite runs after each dev deploy.**                                  | PR B          |
+| T4  | **Same result locally and in CI:** 0 retries, the same explicit worker counts, ports from config, fake Clerk outside the real-Clerk tests, no timing-dependent tests.     | PR E          |
+| T5  | **OpenTofu tests block merges** (the required CI job, offline: mock providers and plan-only).                                                                             | PR B          |
+| T6  | **Device matrix 16 → 14:** drop 5 look-alikes, add 2 phones in landscape and one device between 480 and 767 px.                                                           | PR C          |
+| T7  | **Responsive additions:** signed-in header with a long name, 200% text, the footer in the 44 px check, line length, menus and popups open at every width.                 | PR C          |
+| T8  | **No screenshot comparison.** Screenshots stay images to look at, on 4 sizes (320, 768, 1280, 2560), uploaded as a 7-day CI artifact, never committed.                    | PR C          |
+| T9  | **WebKit on 2 devices**, kept only if it proves reliable and fast enough on Linux (Safari is a lower priority).                                                           | PR D          |
+| T10 | **Depth: the inventory's plan (about −47% of quick-test cases)**, open to further low-value deletions.                                                                    | Built in PR A |
+
+Notes from PR A:
+
+- **Quick tests:** 71 files, 653 cases → 43 files, 360 cases. **Real-database tests:** the
+  api-user consent route suites and the Viewer-403 suite are gone; api-public-read's 400 table is
+  cut to a sample (parsing is the unit table's).
+- **Rebuilt higher up first, each shown failing with the behaviour broken:** home and browse with
+  api-public-read down, "More tags" open for a selected tag, the old-slug redirect (D30), a story
+  whose related list fails, story metadata and the Anonymous byline, Copy link (Chromium's real
+  clipboard) and its failure (`pages.e2e.ts`); Go live's robots.txt, sitemap, no noindex and the
+  production footer (new `indexing.e2e.ts`); the real `AppModule` booted on the real database
+  (health, a 500 that leaks nothing, health 503 when the database is down) and the story page's
+  signed player and thumbnail and hourly ETag (D52) in api-public-read's integration tests; D29's
+  retry-key test on the consent ledger with a person session, no HTTP route.
+- **The e2e stub plays three roles** (`apps/web/e2e/servers.ts`): dev as today, Go live (indexing
+  on, D48 off) and api-public-read down, each behind its own copy of the built site (a fourth is
+  #71's signed-in fixture). Every port moves with `E2E_PORT_BASE` (replacing #71's three
+  `E2E_*_PORT` variables), so two checkouts can run the suite at once.
+- **`account-control.spec.tsx` keeps 2 of 4 cases:** the signed-in e2e (#71, `header.e2e.ts`)
+  covers the name, the panel and Sign out on every device, but its fixture bypasses Clerk, so
+  the email fallback and the loading state stay as unit cases.
+- `request-sessions.int-spec` now checks the real `withPersonSession`; its 3 s sleep (a
+  surrealdb.js 2.0.8 quirk) and its unchecked benchmark are gone (T4). The gitleaks test scans all
+  its flagged fixtures in one run (about 10 s → 2 s).
+
 ### Decisions made, not yet implemented (2026-10-17, 2026-10-18, 2026-10-22)
 
 These override the plan. D1–D12 were decided from `project/context/research/required-decisions.html`,
@@ -441,3 +484,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-23:** Joel decided there are no featured or pinned stories (unfair to everyone else): home shows the newest stories. 6b-1 removes `FEATURED_STORY_SLUG` from web and OpenTofu and the M5 featured list from the api-admin contract and the schema (`SetFeaturedStories`); the schema change needs a migration run after merge.
 - **2026-10-24:** M1 steps 6a, 6c and 6b-2 merged (#62, #67, #65); 6b-1 (#66) rebased onto them.
 - **2026-10-24:** M1 done (dev only, dummy data): #66 merged (`f4d9d92`) after Codex's second round and applied to dev (web's `FEATURED_STORY_SLUG` removed, migration run, web, api-public-read and dev-seed images updated). "Reset dev data" then "Dev behavioural tests": 44 passed.
+- **2026-10-24:** Joel decided the test clean-up (T1–T10, `test-inventory.html`), recorded above. PR A: deletions, trims and MOVE-UP rebuilds (T1, T2, T10).

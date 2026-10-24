@@ -1,5 +1,5 @@
 import { NoRoleRequired, RequiresRole, resolveRolePolicy } from './role-policy';
-import { DEFAULT_ROLE, hasRole, isRole, ROLES } from './roles';
+import { DEFAULT_ROLE, hasRole, ROLES } from './roles';
 
 describe('roles', () => {
   it('are ordered from least to most privileged, User by default', () => {
@@ -15,13 +15,6 @@ describe('roles', () => {
     expect(hasRole('Moderator', 'Moderator')).toBe(true);
     expect(hasRole('User', 'Moderator')).toBe(false);
     expect(hasRole('Viewer', 'User')).toBe(false);
-  });
-
-  it('recognise only the exact role names', () => {
-    expect(isRole('Admin')).toBe(true);
-    for (const v of ['admin', '', null, undefined, 3, ['Admin']]) {
-      expect(isRole(v)).toBe(false);
-    }
   });
 });
 

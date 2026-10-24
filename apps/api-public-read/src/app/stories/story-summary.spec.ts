@@ -1,12 +1,4 @@
-import { MediaUrls } from '../media/media-urls';
-import {
-  EXCERPT_CHARS,
-  excerpt,
-  type SummaryRow,
-  toSummary,
-} from './story-summary';
-
-const SIGNING_OFF = new MediaUrls(null);
+import { EXCERPT_CHARS, excerpt } from './story-summary';
 
 describe('excerpt', () => {
   it('keeps short text whole, on one line', () => {
@@ -43,86 +35,5 @@ describe('excerpt', () => {
 
   it('is empty for no text', () => {
     expect(excerpt('')).toBe('');
-  });
-});
-
-const row = (over: Partial<SummaryRow> = {}): SummaryRow => ({
-  id: 'seed_v01',
-  slug: 'a-story',
-  title: 'A story',
-  description: 'What happened.',
-  bodyStart: 'The text.',
-  textLength: 9,
-  primaryFormat: 'video',
-  media: [
-    {
-      format: 'video',
-      width: 1080,
-      height: 1920,
-      bunnyVideoId: 'internal',
-      thumbnailPath: 'internal/thumb.jpg',
-    },
-  ],
-  tags: [{ slug: 'hope', name: 'Hope', category: 'emotion', version: 2 }],
-  publishedAt: '2026-10-21T20:00:00Z',
-  cursorAt: '2026-10-21T20:00:00.123456789Z',
-  durationSeconds: 75,
-  ...over,
-});
-
-describe('toSummary', () => {
-  it('builds a video card from the read model, with no internal media fields', () => {
-    expect(toSummary(row(), SIGNING_OFF)).toEqual({
-      id: 'seed_v01',
-      slug: 'a-story',
-      title: 'A story',
-      excerpt: 'What happened.',
-      bylineName: null,
-      primaryFormat: 'video',
-      durationSeconds: 75,
-      thumbnailUrl: null,
-      thumbnailWidth: 1080,
-      thumbnailHeight: 1920,
-      image: null,
-      textLength: 9,
-      tags: [{ slug: 'hope', name: 'Hope', category: 'emotion', version: 2 }],
-      publishedAt: '2026-10-21T20:00:00Z',
-    });
-  });
-
-  it('uses the text when there is no description', () => {
-    expect(toSummary(row({ description: ' ' }), SIGNING_OFF).excerpt).toBe(
-      'The text.',
-    );
-  });
-
-  it('builds a written card with its image shape, never its path', () => {
-    const card = toSummary(
-      row({
-        primaryFormat: 'written',
-        media: [],
-        durationSeconds: undefined,
-        bylineName: 'Ruth',
-        image: { path: 'images/x.webp', width: 1200, height: 1600 },
-      }),
-      SIGNING_OFF,
-    );
-    expect(card).toMatchObject({
-      bylineName: 'Ruth',
-      durationSeconds: null,
-      thumbnailWidth: null,
-      thumbnailHeight: null,
-      image: { url: null, width: 1200, height: 1600, alt: null },
-    });
-    expect(JSON.stringify(card)).not.toContain('x.webp');
-  });
-
-  it('gives an audio card no picture size', () => {
-    expect(
-      toSummary(
-        row({ primaryFormat: 'audio', media: [{ format: 'audio' }] }),
-        SIGNING_OFF,
-      ),
-    ).toMatchObject({ thumbnailWidth: null, thumbnailHeight: null });
   });
 });

@@ -1,9 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Global, type INestApplication, Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
-import { Test } from '@nestjs/testing';
-import { SURREAL } from '@heisreal/database';
+import type { INestApplication } from '@nestjs/common';
 import {
   DPA_V1_SHA256,
   run,
@@ -11,15 +8,12 @@ import {
   SCHEMA_DIR,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
-import { ProblemFilter } from '@heisreal/http';
-import type { Surreal } from 'surrealdb';
-import { MediaUrls } from '../src/app/media/media-urls';
-import { StoriesModule } from '../src/app/stories/stories.controller';
+import { startPublicRead } from './app';
 
 /**
  * M0 task 0.9 end to end: the dev seed (0003) migrated into SurrealDB 3.2.4, read by
- * api-public-read's real controller on its own read-only login (D13), as the contract says
- * (api-public-read.yaml, getStoryBySlug).
+ * api-public-read's real app on its own read-only login (D13), as the contract says
+ * (api-public-read.yaml, getStoryBySlug), and what it answers when the database is down.
  */
 const SLUG = 'test-story-walking-skeleton';
 
@@ -45,26 +39,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       }),
     );
     await t.createServices();
-    const connection: Surreal = await t.service('api_public_read');
-
-    @Global()
-    @Module({
-      // Media signing is covered by the unit tests; the seeded story has no media.
-      providers: [
-        { provide: SURREAL, useValue: connection },
-        { provide: MediaUrls, useValue: new MediaUrls(null) },
-      ],
-      exports: [SURREAL, MediaUrls],
-    })
-    class ReadOnlyDatabase {}
-
-    const moduleRef = await Test.createTestingModule({
-      imports: [ReadOnlyDatabase, StoriesModule],
-      providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
-    }).compile();
-    app = moduleRef.createNestApplication({ logger: false });
-    await app.listen(0, '127.0.0.1');
-    url = await app.getUrl();
+    ({ app, url } = await startPublicRead(t));
   });
   afterAll(async () => {
     await app?.close();
@@ -106,10 +81,55 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     ]);
   });
 
-  it('answers 404 problems for unknown slugs', async () => {
-    const res = await fetch(`${url}/v1/stories/no-such-story`);
-    expect(res.status).toBe(404);
-    expect(await res.json()).toMatchObject({ code: 'story_not_found' });
+  it('answers its health check from the database, with D48’s switch', async () => {
+    const res = await fetch(`${url}/health`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: 'ok',
+      service: 'api-public-read',
+      db: 'up',
+      consentChecksRelaxed: false,
+    });
+  });
+
+  it.each(['no-such-story', 'Not_A_Slug', 'a--b', 'a'.repeat(201)])(
+    'answers a 404 problem for %p',
+    async (slug) => {
+      const res = await fetch(`${url}/v1/stories/${slug}`);
+      expect(res.status).toBe(404);
+      expect(res.headers.get('content-type')).toMatch(
+        /^application\/problem\+json/,
+      );
+      expect(await res.json()).toMatchObject({
+        status: 404,
+        code: 'story_not_found',
+      });
+    },
+  );
+
+  it('answers a bare 500 problem and a failing health check when the database is down', async () => {
+    const closed = await t.service('api_public_read');
+    await closed.close();
+    const down = await startPublicRead(t, undefined, closed);
+    try {
+      const res = await fetch(`${down.url}/v1/stories/${SLUG}`);
+      expect(res.status).toBe(500);
+      // Nothing about the failure reaches the visitor.
+      expect(await res.json()).toEqual({
+        type: 'about:blank',
+        title: 'Internal server error',
+        status: 500,
+      });
+      const health = await fetch(`${down.url}/health`);
+      expect(health.status).toBe(503);
+      expect(await health.json()).toEqual({
+        status: 'degraded',
+        service: 'api-public-read',
+        db: 'down',
+      });
+    } finally {
+      await down.app.close();
+    }
   });
 
   it('resolves tags and answers 301 for a previous slug', async () => {
