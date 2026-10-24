@@ -1308,6 +1308,33 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     expect(await lockToken()).toBe(resultB.summary?.token);
   });
 
+  // Codex review of #75: the case above stops before the step's transaction. This one is
+  // inside it: run T0's step transaction has passed the runner's own fence (read from
+  // migrate.py) and written, then run B takes over and finishes, then T0 commits. The fence's
+  // lock-row write is what makes that commit conflict; without it the stale step would commit.
+  it('a step transaction already past the fence can’t commit after a newer run took over', async () => {
+    const runner = await readFile(join(SCHEMA_DIR, 'migrate.py'), 'utf8');
+    const fence = /^FENCE = """\n([\s\S]*?)"""/m.exec(runner)?.[1];
+    if (!fence) throw new Error('FENCE not found in migrate.py');
+    expect((await t.runMigration(t.params())).exitCode).toBe(0);
+    const t0 = await lockToken();
+
+    const migrator = await t.migrator();
+    const step = await migrator.beginTransaction();
+    try {
+      await step
+        .query(`${fence};\n${tag('stale')}`, { migration_token: t0 })
+        .collect();
+      const b = await t.runMigration(t.params()); // takes the lock and finishes
+      expect(b.exitCode).toBe(0);
+      expect(await lockToken()).not.toBe(t0);
+      await expect(step.commit()).rejects.toThrow();
+    } finally {
+      await step.cancel().catch(() => undefined);
+    }
+    expect(await tagIds(t, 'stale')).toEqual([]);
+  });
+
   it('a rollback to an older bundle is simply a newer run, and succeeds', async () => {
     const newer = await bundleWith({ 'data/0011-newer.surql': tag('newer') });
     expect(await t.migrate(t.params(), { bundleDir: newer })).toMatchObject({
