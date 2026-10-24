@@ -15,7 +15,7 @@ export async function shots(
   if (!SCREENSHOT_DEVICES.includes(project)) return;
   if (scheme === 'dark' && !['phone-320', 'desktop-1280'].includes(project))
     return;
-  // The full header in every screenshot: Clerk's sign-in button loads in the browser.
+  // The full header in every screenshot (the E2E_FIXTURES stand-in for Clerk's Sign in).
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   // JPEG: a fraction of PNG's size, plenty to look at (the CI artifact stays small).
   await page.screenshot({

@@ -115,3 +115,8 @@ export function FixtureSignedInAccount({ name }: { name: string }) {
     />
   );
 }
+
+/** e2e fixture (E2E_FIXTURES): Clerk's signed-out control without Clerk; it opens nothing. */
+export function FixtureSignedOutAccount() {
+  return <Button className="h-11 px-4">Sign in</Button>;
+}
