@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 import { connection } from 'next/server';
 import { IMPACT_FIGURES, ImpactStrip } from '@/components/home/impact-strip';
@@ -107,14 +108,22 @@ export default async function Page() {
   return (
     <main id="main" className="flex-1">
       {/*
-        Always dark, in both themes: the page's one bold moment. A brand background, not a
-        photograph: the design's backdrop photo waits until its licence is confirmed (it can
-        come back as a next/image under this layer).
+        Always dark, in both themes: the page's one bold moment. The design's backdrop photo:
+        Keagan Henman's "black metal framed padded folding chair" (Unsplash, iFBIdX54BOk; free
+        under the Unsplash License), greyscale and darkened to 72% in the file itself.
       */}
       <section className="relative isolate flex min-h-[min(88svh,52rem)] items-center justify-center overflow-hidden bg-[#111113] px-4 pt-20 pb-32 text-center text-white">
+        <Image
+          src="/hero-backdrop.webp"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="-z-10 object-cover"
+        />
         <div
           aria-hidden="true"
-          className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_60%_45%_at_50%_28%,rgb(78_155_160/0.24),transparent_70%),radial-gradient(ellipse_45%_40%_at_12%_85%,rgb(61_122_126/0.16),transparent_70%),radial-gradient(ellipse_40%_35%_at_90%_70%,rgb(110_196_201/0.08),transparent_70%),linear-gradient(180deg,#151517_0%,#111113_100%)]"
+          className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_30%,rgb(78_155_160/0.06)_0%,transparent_60%),linear-gradient(180deg,rgb(17_17_19/0.05)_0%,rgb(17_17_19/0.28)_60%,rgb(17_17_19/0.6)_100%)]"
         />
         {/* The fade into the page stays below the content (pb-32), so text keeps its contrast. */}
         <div
