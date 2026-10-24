@@ -103,7 +103,8 @@ jobs:
 
       # Responsive and walking-skeleton checks (apps/web/e2e): the built site against a stub
       # api-public-read on Chromium, across the device matrix in light and dark. Only when web
-      # is affected; the screenshots are uploaded for review.
+      # is affected. The screenshots (4 sizes, T8) and failure traces are uploaded for review,
+      # kept 7 days, never committed.
       - id: e2e
         run: |
           if pnpm nx show projects --affected --withTarget=e2e | grep -qx web; then
@@ -118,7 +119,7 @@ jobs:
         with:
           name: web-e2e
           path: test-output/e2e
-          retention-days: 14
+          retention-days: 7
 
       # Proves the Dockerfiles still build; pushing happens in _images.yml.
       - run: pnpm nx affected -t container
