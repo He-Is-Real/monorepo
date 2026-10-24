@@ -2,8 +2,14 @@
  * @jest-environment node
  */
 import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { prerender } from 'react-dom/static';
 import { SiteHeader } from './site-header';
+
+/** The header with its streamed account area resolved (renderToStaticMarkup can't wait). */
+async function renderHeader(): Promise<string> {
+  const { prelude } = await prerender(<SiteHeader />);
+  return new Response(prelude).text();
+}
 
 jest.mock('next/server', () => ({
   connection: jest.fn(async () => undefined),
@@ -34,7 +40,7 @@ describe('SiteHeader', () => {
   });
 
   it('links home and offers the theme toggle', async () => {
-    const html = renderToStaticMarkup(await SiteHeader());
+    const html = await renderHeader();
     expect(html).toMatch(
       /<a[^>]*aria-label="He Is Real Today, home"[^>]*href="\/"/,
     );
@@ -42,7 +48,7 @@ describe('SiteHeader', () => {
   });
 
   it('has the main navigation, a phone menu and Share your story', async () => {
-    const html = renderToStaticMarkup(await SiteHeader());
+    const html = await renderHeader();
     expect(html).toContain('aria-label="Main navigation"');
     expect(html).toMatch(/<a[^>]*href="\/stories"[^>]*>Stories<\/a>/);
     expect(html).toContain('<span class="sr-only">Menu</span>');
@@ -53,7 +59,7 @@ describe('SiteHeader', () => {
 
   it('hands the publishable key, read at request time, to Clerk in the browser', async () => {
     process.env['CLERK_PUBLISHABLE_KEY'] = 'pk_test_abc123';
-    const html = renderToStaticMarkup(await SiteHeader());
+    const html = await renderHeader();
     expect(html).toContain(
       '<div data-clerk="pk_test_abc123"><span>account</span></div>',
     );
@@ -61,7 +67,7 @@ describe('SiteHeader', () => {
 
   it('shows no sign-in control without a key', async () => {
     delete process.env['CLERK_PUBLISHABLE_KEY'];
-    const html = renderToStaticMarkup(await SiteHeader());
+    const html = await renderHeader();
     expect(html).not.toContain('account');
     expect(html).toContain('<button>theme</button>');
   });

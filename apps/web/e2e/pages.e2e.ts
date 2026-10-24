@@ -27,11 +27,33 @@ for (const scheme of ['light', 'dark'] as const) {
     test('home fits: hero, newest stories, themes, giving', async ({
       page,
     }, info) => {
-      await page.goto('/');
+      const response = await page.goto('/');
+      // Noindex in dev: header and meta tag.
+      expect(response?.headers()['x-robots-tag']).toBe('noindex, nofollow');
+      await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+        'content',
+        'noindex, nofollow',
+      );
+      // The theme follows the device by default.
+      await expect(page.locator('html')).toHaveClass(
+        scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/,
+      );
       await expect(
         page.getByRole('heading', { level: 1, name: /Is God Real\?/ }),
       ).toBeVisible();
+      // The newest stories, never a chosen one (Joel, 2026-10-23: no featured stories).
       await expect(page.locator('main article')).toHaveCount(3);
+      await expect(
+        page
+          .getByRole('heading', { level: 3 })
+          .first()
+          .getByRole('link', { name: 'Test story: audio' }),
+      ).toBeVisible();
+      // D48: the stub reports relaxed consent checks, as dev does while it holds dummy data.
+      await expect(
+        page.getByRole('contentinfo').getByText('Consent checks relaxed (dev)'),
+      ).toBeVisible();
+      await expectTarget(page, page.getByRole('button', { name: 'Sign in' }));
       await expect(
         page.getByRole('link', { name: 'Healing', exact: true }),
       ).toBeVisible();
@@ -114,9 +136,13 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(
         popup.getByRole('heading', { name: 'Share this story' }),
       ).toBeVisible();
-      // Measure after its opening animation (it scales up from 95%).
+      // Measure after its opening animation (it scales up from 95%) and the web font (text
+      // set in the fallback font first can reflow the popup's height).
       await popup.evaluate((el) =>
-        Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+        Promise.all([
+          ...el.getAnimations({ subtree: true }).map((a) => a.finished),
+          document.fonts.ready,
+        ]),
       );
       const box = await popup.boundingBox();
       const { width, height } = page.viewportSize() ?? { width: 0, height: 0 };
@@ -435,6 +461,28 @@ test.describe('without JavaScript', () => {
   // eslint-disable-next-line no-empty-pattern
   test.beforeEach(({}, info) => {
     test.skip(info.project.name !== 'desktop-1280', 'one device');
+  });
+
+  // The header is in the page as it arrives, not swapped in by a script once its stream
+  // lands: without that, no-JS visitors had no navigation and slow first paints showed the
+  // page without its header, which then pushed everything down (an ipad-air-landscape flake).
+  test('the header and its navigation are there, above the content', async ({
+    page,
+  }) => {
+    for (const path of ['/', '/stories', '/stories/video-story', '/about']) {
+      await page.goto(path);
+      const header = page.getByRole('banner');
+      await expect(header).toBeVisible();
+      await expect(
+        header.getByRole('link', { name: 'He Is Real Today, home' }),
+      ).toBeVisible();
+      await expect(
+        header.getByRole('link', { name: 'Stories', exact: true }),
+      ).toBeVisible();
+      const top = async (role: 'banner' | 'main') =>
+        (await page.getByRole(role).boundingBox())?.y ?? -1;
+      expect(await top('banner')).toBeLessThan(await top('main'));
+    }
   });
 
   test('“Show more stories” links to the next page while there is one', async ({

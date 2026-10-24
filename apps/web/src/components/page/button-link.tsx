@@ -25,7 +25,7 @@ export function ButtonLink({
   children: React.ReactNode;
 }) {
   const classes = `inline-flex min-h-11 items-center justify-center gap-2 rounded-md text-center font-semibold transition-colors ${
-    size === 'lg' ? 'px-7 py-3 text-[15px]' : 'px-5 py-2.5 text-sm'
+    size === 'lg' ? 'px-7 py-3 text-[0.9375rem]' : 'px-5 py-2.5 text-sm'
   } ${VARIANTS[variant]} ${className}`;
   if (href.startsWith('/')) {
     return (

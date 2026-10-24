@@ -21,7 +21,7 @@ export default function TermsPage() {
         <h1 className="mb-6 text-[2rem] leading-tight font-normal sm:text-[2.75rem]">
           Terms of use
         </h1>
-        <div className="max-w-prose space-y-4 text-secondary-text">
+        <div className="space-y-4 text-secondary-text">
           <p>
             This is the development version of He Is Real Today. Everything on
             it is test content: the stories are made up, and nobody shared them.

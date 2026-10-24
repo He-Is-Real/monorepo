@@ -156,6 +156,11 @@
   /* Layout widths (design: --max-width 1200px, .container-narrow 800px) */
   --container-site: 1200px;
   --container-narrow: 800px;
+  /* max-w-measure: the reading column (Joel, R1 option A, 2026-10-24). Pages narrow their
+     whole content column to it, never the text inside, so headings, dividers, tables and text
+     share their edges. 32rem keeps every line at most 80 characters (AGENTS.md), small print
+     included; in rem, so it grows with a reader's text size (e2e/open-states.e2e.ts). */
+  --container-measure: 32rem;
 }
 
 @layer base {
@@ -173,6 +178,10 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     line-height: 1.6;
+    /* A word wider than its box (a long URL, or any word with text enlarged to 200% on a small
+       phone, WCAG 1.4.4) wraps inside it instead of pushing the page sideways. `anywhere`, not
+       `break-word`, so flex and grid items can shrink below their longest word too. */
+    overflow-wrap: anywhere;
   }
 
   a {
@@ -214,6 +223,7 @@
 @layer components {
   .masonry {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 24px;
     max-width: 30rem;
     margin-inline: auto;

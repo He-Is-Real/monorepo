@@ -62,7 +62,7 @@ export default function NextStepsPage() {
                   <h2 className="mb-2 text-lg font-normal sm:text-[1.375rem]">
                     {step.title}
                   </h2>
-                  <p className="mb-4 text-[15px] leading-relaxed text-secondary-text">
+                  <p className="mb-4 text-[0.9375rem] leading-relaxed text-secondary-text">
                     {step.text}
                   </p>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { connection } from 'next/server';
+import { Suspense } from 'react';
 import {
   AccountControl,
   FixtureSignedInAccount,
@@ -12,9 +13,11 @@ import { clerkPublishableKey, e2eSignedInName } from '@/lib/config';
 
 /**
  * The site header: home link, the main navigation, "Share your story", the theme toggle and the
- * account area. The publishable key is read at request time (OpenTofu sets it on the Cloud Run
- * service; images are built once for every environment), so this renders per request. Without
- * a key (e.g. local dev without one) there's no sign-in control.
+ * account area. The header itself is static, in the HTML as it arrives (no JavaScript needed for
+ * the navigation, no layout shift when a stream lands late). Only the account area renders per
+ * request (HeaderAccount: OpenTofu sets the publishable key on the Cloud Run service; images
+ * are built once for every environment), behind a placeholder of the same size. Without a key
+ * (e.g. local dev without one) there's no sign-in control.
  *
  * Layout (mobile first, 44 px targets): a three-column grid, so the logo and the actions always
  * share the first row and the actions stay right-aligned, signed in or out, whatever the name.
@@ -22,10 +25,7 @@ import { clerkPublishableKey, e2eSignedInName } from '@/lib/config';
  * middle column of the first row. The header is wider than the page (up to 1440 px, like the
  * mockup's full-width nav), so that row has room.
  */
-export async function SiteHeader() {
-  await connection();
-  const publishableKey = clerkPublishableKey();
-  const fixtureName = e2eSignedInName();
+export function SiteHeader() {
   return (
     <header className="relative border-b border-border">
       <div className="mx-auto grid max-w-[90rem] grid-cols-[max-content_minmax(0,1fr)_auto] items-center gap-x-4 px-4 py-2 sm:px-10">
@@ -51,16 +51,29 @@ export async function SiteHeader() {
             Share your story
           </Link>
           <ThemeToggle />
-          {fixtureName ? (
-            <FixtureSignedInAccount name={fixtureName} />
-          ) : publishableKey ? (
-            <ClerkBrowser publishableKey={publishableKey}>
-              <AccountControl />
-            </ClerkBrowser>
-          ) : null}
+          <Suspense fallback={ACCOUNT_PLACEHOLDER}>
+            <HeaderAccount />
+          </Suspense>
           <MobileNav />
         </div>
       </div>
     </header>
+  );
+}
+
+/** The account control's size while it streams in or Clerk loads (AccountControl's own). */
+const ACCOUNT_PLACEHOLDER = <div className="h-11 w-20" aria-hidden="true" />;
+
+/** The account area: per request, so it reads the deployment's Clerk key (and e2e fixtures). */
+async function HeaderAccount() {
+  await connection();
+  const publishableKey = clerkPublishableKey();
+  const fixtureName = e2eSignedInName();
+  if (fixtureName) return <FixtureSignedInAccount name={fixtureName} />;
+  if (!publishableKey) return null;
+  return (
+    <ClerkBrowser publishableKey={publishableKey}>
+      <AccountControl />
+    </ClerkBrowser>
   );
 }

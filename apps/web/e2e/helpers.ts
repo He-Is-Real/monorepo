@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { SCREENSHOT_DEVICES } from './devices';
 
 // Shared by the e2e suites: screenshots, the no-sideways-scroll check and 44 px targets.
 
@@ -9,11 +10,20 @@ export async function shots(
   scheme: string,
   name: string,
 ) {
+  // T8: images to look at, on 4 sizes only (dark on the smallest and 1280), nothing compares
+  // them, and the CI artifact stays small.
+  if (!SCREENSHOT_DEVICES.includes(project)) return;
+  if (scheme === 'dark' && !['phone-320', 'desktop-1280'].includes(project))
+    return;
   // The full header in every screenshot: Clerk's sign-in button loads in the browser.
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  // JPEG: a fraction of PNG's size, plenty to look at (the CI artifact stays small).
   await page.screenshot({
-    path: `test-output/e2e/screenshots/${project}/${scheme}-${name}.png`,
+    path: `test-output/e2e/screenshots/${project}/${scheme}-${name}.jpg`,
     fullPage: true,
+    type: 'jpeg',
+    scale: 'css',
+    quality: 50,
   });
 }
 
@@ -47,15 +57,15 @@ export async function expectTarget(page: Page, locator: Locator) {
 }
 
 /**
- * Every visible link, button and form control in the header and main content is at least
- * 44 × 44 px (AGENTS.md). A card's title link is stretched over the whole card, so cards are
+ * Every visible link, button and form control in the header, main content and footer is at
+ * least 44 × 44 px (AGENTS.md). A card's title link is stretched over the whole card, so cards are
  * measured instead. Elements hidden at this width (display: none) are skipped.
  */
 export async function expectAllTargets(page: Page) {
   const small = await page.evaluate((min) => {
     const out: string[] = [];
     const scope = document.querySelectorAll(
-      'header a, header button, header select, header input, main a, main button, main select, main input:not([type=hidden]), main summary, main article',
+      'header a, header button, header select, header input, main a, main button, main select, main input:not([type=hidden]), main summary, main article, footer a, footer button',
     );
     for (const el of Array.from(scope)) {
       if (el.tagName !== 'ARTICLE' && el.closest('article')) continue;

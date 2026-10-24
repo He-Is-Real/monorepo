@@ -1,6 +1,6 @@
 import { ButtonLink } from '@/components/page/button-link';
 import { RaisedBand } from '@/components/page/card';
-import { NarrowColumn, PageHeader } from '@/components/page/page-header';
+import { WideColumn, PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -35,7 +35,7 @@ export default function AboutPage() {
   return (
     <main id="main" className="flex-1">
       <section className="py-12 sm:py-20">
-        <NarrowColumn>
+        <WideColumn>
           <PageHeader
             eyebrow="About"
             title="The heart behind He Is Real"
@@ -54,11 +54,11 @@ export default function AboutPage() {
             <p className="text-sm">Founder’s introduction</p>
             <p className="text-xs text-white/60">Video coming soon</p>
           </div>
-        </NarrowColumn>
+        </WideColumn>
       </section>
 
       <RaisedBand aria-labelledby="mission">
-        <NarrowColumn>
+        <WideColumn>
           <h2 id="mission" className="sr-only">
             Why we exist
           </h2>
@@ -90,7 +90,7 @@ export default function AboutPage() {
               who shows up in real life.
             </p>
           </div>
-        </NarrowColumn>
+        </WideColumn>
       </RaisedBand>
 
       <section aria-labelledby="values" className="py-14 sm:py-20">
@@ -105,7 +105,7 @@ export default function AboutPage() {
                   {v.icon}
                 </div>
                 <h3 className="mb-3 text-2xl font-normal">{v.title}</h3>
-                <p className="mx-auto max-w-xs text-[15px] leading-relaxed text-muted-foreground">
+                <p className="mx-auto max-w-xs text-[0.9375rem] leading-relaxed text-muted-foreground">
                   {v.text}
                 </p>
               </li>
@@ -115,14 +115,14 @@ export default function AboutPage() {
       </section>
 
       <RaisedBand aria-labelledby="share" className="text-center">
-        <NarrowColumn>
+        <WideColumn>
           <h2
             id="share"
             className="mb-4 text-[1.75rem] font-normal sm:text-[2.375rem]"
           >
             Have a story to share?
           </h2>
-          <p className="mb-7 text-[17px] text-secondary-text">
+          <p className="mb-7 text-[1.0625rem] text-secondary-text">
             Your testimony could be exactly what someone needs to hear today.
           </p>
           <div className="flex flex-col justify-center gap-4 sm:flex-row">
@@ -133,7 +133,7 @@ export default function AboutPage() {
               Get in touch
             </ButtonLink>
           </div>
-        </NarrowColumn>
+        </WideColumn>
       </RaisedBand>
     </main>
   );

@@ -23,7 +23,7 @@ export function PageHeader({
         {title}
       </h1>
       {lead && (
-        <p className="mx-auto mt-3 max-w-[34rem] text-[17px] text-secondary-text">
+        <p className="mx-auto mt-3 max-w-[34rem] text-[1.0625rem] text-secondary-text">
           {lead}
         </p>
       )}
@@ -31,8 +31,31 @@ export function PageHeader({
   );
 }
 
-/** The narrow column most pages use (the mockups' `.container-narrow`, 800 px). */
+/**
+ * The reading column most pages use: the measure (`max-w-measure`, Joel's R1), centred. Its
+ * content (headings, text, cards, accordions, tables) shares the column's edges.
+ */
 export function NarrowColumn({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`px-4 sm:px-10 ${className}`}>
+      <div data-reading-column="" className="mx-auto w-full max-w-measure">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The wider column (the mockups' `.container-narrow`, 800 px) for pages Joel kept wide: About,
+ * for its video and title (R1, 2026-10-24). Its text keeps its own max-w-prose.
+ */
+export function WideColumn({
   children,
   className = '',
 }: {

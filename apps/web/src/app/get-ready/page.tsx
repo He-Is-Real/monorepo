@@ -71,7 +71,7 @@ export default function GetReadyPage() {
                   <h3 className="mb-2 text-xl font-normal sm:text-[1.375rem]">
                     {r.title}
                   </h3>
-                  <p className="mb-4 text-[15px] text-secondary-text">
+                  <p className="mb-4 text-[0.9375rem] text-secondary-text">
                     {r.text}
                   </p>
                   <p className={comingSoon}>PDF and audio coming soon</p>
@@ -95,7 +95,7 @@ export default function GetReadyPage() {
             <h2 className="mb-2 text-xl font-normal sm:text-[1.375rem]">
               Watch: how to share your story
             </h2>
-            <p className="text-[15px] text-secondary-text">
+            <p className="text-[0.9375rem] text-secondary-text">
               A short video walking you through the whole process.
             </p>
           </div>
@@ -110,7 +110,7 @@ export default function GetReadyPage() {
               <li key={t.title}>
                 <Card className="h-full p-6">
                   <h3 className="mb-2 font-semibold">{t.title}</h3>
-                  <p className="text-[15px] leading-relaxed text-secondary-text">
+                  <p className="text-[0.9375rem] leading-relaxed text-secondary-text">
                     {t.text}
                   </p>
                 </Card>
@@ -127,7 +127,7 @@ export default function GetReadyPage() {
           >
             Ready?
           </h2>
-          <p className="mx-auto mb-6 max-w-prose text-secondary-text">
+          <p className="mb-6 text-secondary-text">
             Story sharing opens soon. Until then, these tips are a good place to
             start, and the FAQs explain how it will work.
           </p>

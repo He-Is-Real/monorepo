@@ -170,7 +170,7 @@ export default async function Page() {
         {stories === null ? (
           <p
             role="status"
-            className="mx-auto max-w-prose rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
+            className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
           >
             Stories can’t be loaded right now. Please try again in a moment.
           </p>
@@ -240,7 +240,7 @@ export default async function Page() {
         aria-labelledby="support"
         className="bg-[radial-gradient(ellipse_at_50%_0%,rgb(78_155_160/0.15),transparent_70%)] px-4 py-16 text-center sm:py-24"
       >
-        <div className="mx-auto max-w-xl">
+        <div className="mx-auto max-w-measure">
           <h2
             id="support"
             className="mb-3 text-[clamp(1.75rem,3.5vw,2.5rem)] font-normal"

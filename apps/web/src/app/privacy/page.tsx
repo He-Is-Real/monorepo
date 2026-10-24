@@ -91,7 +91,7 @@ export default function PrivacyPage() {
         <h1 className="mb-6 text-[2rem] leading-tight font-normal sm:text-[2.75rem]">
           Privacy policy
         </h1>
-        <p className="mb-12 max-w-prose text-secondary-text">
+        <p className="mb-12 text-secondary-text">
           He Is Real Today is a UK-based not-for-profit. We follow UK data
           protection law, and we only collect what we need to run the site.
         </p>
@@ -107,7 +107,7 @@ export default function PrivacyPage() {
           >
             Cookies and storage
           </h2>
-          <div className="mb-6 max-w-prose space-y-4 text-secondary-text">
+          <div className="mb-6 space-y-4 text-secondary-text">
             <p>
               We only use the cookies and storage the site needs to work, or to
               remember a choice you made, like the theme or a video’s playback
@@ -122,22 +122,29 @@ export default function PrivacyPage() {
           </div>
           {/* Below sm each row stacks as a block with its column names, so nothing scrolls
               sideways; explicit roles keep it a table for screen readers despite the CSS. */}
-          <div className="rounded-xl border border-border">
-            <table role="table" className="w-full text-left text-sm">
+          {/* From 1024 px the table needs more room than the reading column: it breaks out
+              by the same amount on both sides, so it stays centred on the text. */}
+          <div className="rounded-xl border border-border lg:-mx-16">
+            {/* From sm, break-word, not the site's `anywhere`: a table sizes its columns from
+                their narrowest content, which `anywhere` would shrink to single letters. Below
+                sm the rows stack as blocks, where `anywhere` is harmless. */}
+            <table
+              role="table"
+              className="w-full text-left text-sm sm:[overflow-wrap:break-word]"
+            >
               <caption className="sr-only">
                 Cookies and storage this site uses
               </caption>
-              <thead
-                role="rowgroup"
-                className="bg-raised text-foreground max-sm:sr-only"
-              >
+              <thead role="rowgroup" className="bg-raised text-foreground">
                 <tr role="row">
                   {COLUMNS.map((c) => (
                     <th
                       key={c}
                       role="columnheader"
                       scope="col"
-                      className="px-4 py-3 font-semibold"
+                      // On each cell, not the thead: `overflow` doesn't apply to table rows
+                      // and row groups, so a hidden thead's cells still widened the page.
+                      className="px-4 py-3 font-semibold max-sm:sr-only"
                     >
                       {c}
                     </th>
@@ -175,7 +182,7 @@ export default function PrivacyPage() {
               </tbody>
             </table>
           </div>
-          <div className="mt-6 max-w-prose space-y-3 text-sm text-secondary-text">
+          <div className="mt-6 space-y-3 text-sm text-secondary-text">
             <p>
               Clerk’s optional product telemetry is turned off, so it neither
               stores anything nor sends usage data.
@@ -197,7 +204,7 @@ export default function PrivacyPage() {
           >
             Questions
           </h2>
-          <p className="max-w-prose text-secondary-text">
+          <p className="text-secondary-text">
             Email us at{' '}
             <a
               href="mailto:info@heisreal.today"
