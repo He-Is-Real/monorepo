@@ -256,16 +256,21 @@ changed two settings: passwords became optional with an 8-character minimum (was
 
 - **Selects stay native and are styled** (`components/ui/native-select.tsx`, `.native-select` in
   `global.css`). Browse's form must work without JavaScript, browsers keep their keyboard
-  handling, and phones without customizable select keep their native picker. A Radix or shadcn
+  handling, and phones keep their native picker. A Radix or shadcn
   Select would need JavaScript for the list and a hidden native select for the form, and it adds
   nothing here. Closed, every browser shows the theme's field and chevron (`appearance: none`).
-  Open, Chromium shows a themed list through customizable select (`appearance: base-select`,
+  Open, on computers, Chromium shows a themed list through customizable select (`appearance: base-select`,
   `::picker(select)`): a rounded panel on the popover surface, 44 px options, teal for the
   hovered option and for the chosen one (with a check mark). Keyboard focus in the list shows
   the site's focus ring inside the option; the chosen option turns the stronger link colour when
   hovered or focused (text 4.5:1 on the tint; Codex, #78); the list's short fade is off with
   reduced motion. Firefox and Safari show their own
   list until they support it.
+- **Joel decided U3 = A (2026-10-24, `project/context/research/ui-choices-2026-10-24.html`):
+  phones and tablets keep their own picker.** The themed open list applies only with a mouse or
+  trackpad (`@media (hover: hover) and (pointer: fine)`); on touch screens the select stays a
+  plain styled field (`appearance: none`), so the system picker opens. The closed field is themed
+  everywhere. e2e checks both, on every device in the matrix.
 
 #### Notes from step 5 (media token auth, D52)
 

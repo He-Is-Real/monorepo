@@ -8,8 +8,13 @@ import {
 // Themed dropdowns (Joel, 2026-10-24: "the drop down menus look dated, bring them in line with
 // the site theme"). They stay native <select>s, so the browse form works without JavaScript and
 // keeps the keyboard behaviour browsers give them. The closed select has the theme's field and
-// chevron everywhere; in Chromium the open list is styled too (customizable select:
-// `appearance: base-select`, `::picker(select)`), in the theme's colours, light and dark.
+// chevron everywhere. On computers (a mouse or trackpad) the open list is styled too, in
+// Chromium (customizable select: `appearance: base-select`, `::picker(select)`), in the theme's
+// colours, light and dark. Phones and tablets keep their own picker (Joel, U3 = A).
+
+/** The device matrix's touch devices (phones, tablets): their own picker, not the themed list. */
+const touch = (info: { project: { use: { hasTouch?: boolean } } }) =>
+  !!info.project.use.hasTouch;
 
 /** A colour as the browser computes it, from any CSS colour (custom properties included). */
 const colour = (page: Page, css: string) =>
@@ -96,7 +101,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
     test('the closed selects use the theme’s field and chevron', async ({
       page,
-    }) => {
+    }, info) => {
       await page.goto('/stories');
       for (const name of ['Sort', 'Format']) {
         const select = page.getByLabel(name, { exact: true });
@@ -109,7 +114,8 @@ for (const scheme of ['light', 'dark'] as const) {
             color: s.color,
           };
         });
-        expect(['none', 'base-select']).toContain(style.appearance);
+        // Touch screens: a plain styled select, so the system picker opens (U3).
+        expect(style.appearance).toBe(touch(info) ? 'none' : 'base-select');
         expect(style.background).toBe(
           await colour(page, 'var(--input-background)'),
         );
@@ -123,7 +129,8 @@ for (const scheme of ['light', 'dark'] as const) {
 
     test('the open list uses the theme’s colours, with 44 px options', async ({
       page,
-    }) => {
+    }, info) => {
+      test.skip(touch(info), 'touch screens keep their own picker (U3)');
       await page.goto('/stories');
       const select = page.getByLabel('Format', { exact: true });
       await select.click();
@@ -163,7 +170,8 @@ for (const scheme of ['light', 'dark'] as const) {
 
     test('keyboard focus in the open list shows the site’s focus ring, and text stays readable', async ({
       page,
-    }) => {
+    }, info) => {
+      test.skip(touch(info), 'touch screens keep their own picker (U3)');
       await page.goto('/stories');
       const select = page.getByLabel('Format', { exact: true });
       await select.focus();
@@ -193,14 +201,42 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
+test.describe('on phones and tablets (U3)', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(!touch(info), 'touch screens only');
+  });
+
+  test('the select opens the system picker, and choosing applies the filter', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    // The emulated device really is a touch screen without hover.
+    expect(
+      await page.evaluate(
+        () => matchMedia('(hover: hover) and (pointer: fine)').matches,
+      ),
+    ).toBe(false);
+    const format = page.getByLabel('Format', { exact: true });
+    const appearance = await format.evaluate((el) => ({
+      select: getComputedStyle(el).appearance,
+      picker: getComputedStyle(el, '::picker(select)').appearance,
+    }));
+    expect(appearance.select).toBe('none');
+    expect(appearance.picker).not.toBe('base-select');
+    // What the system picker does: set the value, which applies the filter.
+    await format.selectOption('video');
+    await expect(page).toHaveURL(/\/stories\?.*format=video/);
+    await expect(page.getByText('Video stories')).toBeVisible();
+  });
+});
+
 test.describe('behaviour', () => {
   // eslint-disable-next-line no-empty-pattern
   test.beforeEach(({}, info) => {
     test.skip(
-      !['phone-320', 'ipad-mini-portrait', 'desktop-1280'].includes(
-        info.project.name,
-      ),
-      'checked on a phone, a tablet and a desktop',
+      info.project.name !== 'desktop-1280',
+      'the themed list: computers only (U3)',
     );
   });
 
@@ -227,7 +263,7 @@ test.describe('behaviour', () => {
     await sort.click();
     await settled(page);
     // Click where the open option is, as a person would: Playwright's own scrolling to an
-    // option in the picker's top layer can lose it on a 320 px phone (Codex, #78).
+    // option in the picker's top layer can lose it (Codex, #78).
     const box = await sort
       .getByRole('option', { name: 'Oldest first' })
       .boundingBox();
@@ -245,8 +281,8 @@ test.describe('with reduced motion', () => {
   // eslint-disable-next-line no-empty-pattern
   test.beforeEach(({}, info) => {
     test.skip(
-      !['phone-320', 'desktop-1280'].includes(info.project.name),
-      'checked on one phone and one desktop',
+      info.project.name !== 'desktop-1280',
+      'the themed list: computers only (U3)',
     );
   });
 

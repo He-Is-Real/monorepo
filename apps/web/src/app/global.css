@@ -259,10 +259,10 @@
 
 /*
  * Themed selects (components/ui/native-select.tsx; Joel, 2026-10-24). Closed: no native arrow
- * (the component draws the theme's chevron). Open, in browsers with customizable select
- * (Chromium): the list is a rounded panel on the theme's popover surface, 44 px options, teal
- * for the hovered and the chosen option. Elsewhere the browser's own list opens, and phones
- * without it keep their native picker.
+ * (the component draws the theme's chevron), everywhere. Open, on computers (a mouse or
+ * trackpad) in browsers with customizable select (Chromium): the list is a rounded panel on the
+ * theme's popover surface, 44 px options, teal for the hovered and the chosen option. Phones and
+ * tablets keep their own picker (Joel, U3 = A), and other browsers their own list.
  */
 @layer components {
   .native-select {
@@ -270,88 +270,91 @@
   }
 
   @supports (appearance: base-select) {
-    .native-select,
-    .native-select::picker(select) {
-      appearance: base-select;
-    }
-
-    .native-select {
-      display: flex;
-      align-items: center;
-    }
-
-    /* The component's chevron stands in for it in every browser. */
-    .native-select::picker-icon {
-      display: none;
-    }
-
-    .native-select::picker(select) {
-      min-width: anchor-size(width);
-      margin-block: 6px;
-      padding: 4px;
-      border: 1px solid var(--border-hover);
-      border-radius: var(--radius);
-      background: var(--popover);
-      color: var(--popover-foreground);
-      box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.35);
-      opacity: 1;
-      translate: 0 0;
-      transition:
-        opacity 0.12s ease-out,
-        translate 0.12s ease-out,
-        overlay 0.12s allow-discrete,
-        display 0.12s allow-discrete;
-    }
-
-    @starting-style {
-      .native-select:open::picker(select) {
-        opacity: 0;
-        translate: 0 -4px;
-      }
-    }
-
-    .native-select option {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-height: 44px;
-      padding: 0 12px;
-      border-radius: calc(var(--radius) - 4px);
-      font-size: 0.875rem;
-      cursor: pointer;
-    }
-
-    .native-select option::checkmark {
-      order: 1;
-      margin-left: auto;
-      color: var(--link);
-    }
-
-    .native-select option:hover,
-    .native-select option:focus-visible {
-      background: color-mix(in srgb, var(--teal) 16%, transparent);
-    }
-
-    /* Keyboard focus: the site's focus ring, inside the option (the tint alone is too faint). */
-    .native-select option:focus-visible {
-      outline: 2px solid var(--ring);
-      outline-offset: -2px;
-    }
-
-    .native-select option:checked {
-      color: var(--link);
-      font-weight: 600;
-    }
-
-    /* On the tint, the chosen option's teal needs the stronger link colour (4.5:1 for 14 px). */
-    .native-select option:checked:is(:hover, :focus-visible),
-    .native-select option:checked:is(:hover, :focus-visible)::checkmark {
-      color: var(--link-hover);
-    }
-
-    @media (prefers-reduced-motion: reduce) {
+    /* Touch screens keep their own picker (U3). */
+    @media (hover: hover) and (pointer: fine) {
+      .native-select,
       .native-select::picker(select) {
-        transition: none;
+        appearance: base-select;
+      }
+
+      .native-select {
+        display: flex;
+        align-items: center;
+      }
+
+      /* The component's chevron stands in for it in every browser. */
+      .native-select::picker-icon {
+        display: none;
+      }
+
+      .native-select::picker(select) {
+        min-width: anchor-size(width);
+        margin-block: 6px;
+        padding: 4px;
+        border: 1px solid var(--border-hover);
+        border-radius: var(--radius);
+        background: var(--popover);
+        color: var(--popover-foreground);
+        box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.35);
+        opacity: 1;
+        translate: 0 0;
+        transition:
+          opacity 0.12s ease-out,
+          translate 0.12s ease-out,
+          overlay 0.12s allow-discrete,
+          display 0.12s allow-discrete;
+      }
+
+      @starting-style {
+        .native-select:open::picker(select) {
+          opacity: 0;
+          translate: 0 -4px;
+        }
+      }
+
+      .native-select option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        padding: 0 12px;
+        border-radius: calc(var(--radius) - 4px);
+        font-size: 0.875rem;
+        cursor: pointer;
+      }
+
+      .native-select option::checkmark {
+        order: 1;
+        margin-left: auto;
+        color: var(--link);
+      }
+
+      .native-select option:hover,
+      .native-select option:focus-visible {
+        background: color-mix(in srgb, var(--teal) 16%, transparent);
+      }
+
+      /* Keyboard focus: the site's focus ring, inside the option (the tint alone is too faint). */
+      .native-select option:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -2px;
+      }
+
+      .native-select option:checked {
+        color: var(--link);
+        font-weight: 600;
+      }
+
+      /* On the tint, the chosen option's teal needs the stronger link colour (4.5:1 for 14 px). */
+      .native-select option:checked:is(:hover, :focus-visible),
+      .native-select option:checked:is(:hover, :focus-visible)::checkmark {
+        color: var(--link-hover);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .native-select::picker(select) {
+          transition: none;
+        }
       }
     }
   }
