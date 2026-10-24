@@ -21,7 +21,8 @@ export const formatDuration = (seconds: number) =>
 export const readingMinutes = (chars: number) =>
   Math.max(1, Math.ceil(chars / CHARS_PER_MINUTE));
 
-// Quiet placeholders from the mockups, for media without a signed picture (audio, or signing off).
+// Quiet placeholders from the mockups, for a card without a signed picture: home's written stories
+// without an image, or any card while signing is off. Audio cards show their thumbnail (U2).
 const PLACEHOLDERS = [
   ['#1a3a3d', '#0d1f21', '#4e9ba0'],
   ['#1e2e28', '#0f1a14', '#5a7a6a'],

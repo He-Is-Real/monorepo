@@ -286,8 +286,12 @@ changed two settings: passwords became optional with an 8-character minimum (was
 - **The site's default audio thumbnail** (`apps/dev-seed/media/default-audio-thumbnail.svg`,
   rendered to a 1280 x 720 JPEG of about 26 KB) is brand teal on the cards' dark teal, a
   waveform, no text. On dev it is every audio clip's Bunny thumbnail, set by `upload-media`, with
-  its size recorded in `bunny-media.json` (dev-seed README); Bunny serves it unchanged. Audio
-  cards show the thumbnail like video cards do.
+  its size recorded in `bunny-media.json` (dev-seed README); Bunny serves it unchanged.
+- **Joel decided U2 = A (2026-10-24, `project/context/research/ui-choices-2026-10-24.html`):
+  audio cards show the story's thumbnail** (the person's own picture, else the site's waveform
+  picture), like video cards, so the card matches the story page and the player and its shape
+  follows the picture. The initial circle stays only as the fallback for a card without a signed
+  picture (home's written stories without an image, or signing off).
 - **D59/D60 are unchanged.** A custom thumbnail (`thumbnail_<hash>.jpg`) isn't one of Bunny's
   generated frames, so setting it on an approved story's clip counts as changed media and hides
   the story. So it is set before approval: on dev by re-seeding ("Reset dev data"), in production
