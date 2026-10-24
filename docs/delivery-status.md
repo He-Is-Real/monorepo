@@ -11,7 +11,7 @@ waiting to be made are in `project/context/research/required-decisions.html`.
 Keep this file current: update it in the same PR that finishes a task or changes a decision
 recorded here.
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-24
 
 ## Milestones
 
@@ -441,3 +441,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-23:** Joel decided there are no featured or pinned stories (unfair to everyone else): home shows the newest stories. 6b-1 removes `FEATURED_STORY_SLUG` from web and OpenTofu and the M5 featured list from the api-admin contract and the schema (`SetFeaturedStories`); the schema change needs a migration run after merge.
 - **2026-10-24:** M1 steps 6a, 6c and 6b-2 merged (#62, #67, #65); 6b-1 (#66) rebased onto them.
 - **2026-10-24:** M1 done (dev only, dummy data): #66 merged (`f4d9d92`) after Codex's second round and applied to dev (web's `FEATURED_STORY_SLUG` removed, migration run, web, api-public-read and dev-seed images updated). "Reset dev data" then "Dev behavioural tests": 44 passed.
+- **2026-10-24:** Test clean-up PR D (T9): the e2e fit checks also run in WebKit (Safari's engine) on iphone-se and ipad-mini-portrait, light only (`web:e2e-webkit`, 64 runs). Playwright's WebKit needs Ubuntu's libraries, so the target runs in Playwright's own image (pinned by digest), locally and in CI alike. 3 local runs: all green, about 35 s each.

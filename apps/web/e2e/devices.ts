@@ -59,3 +59,6 @@ export const DEVICES: Device[] = [
   desktop(1920, 1080),
   desktop(2560, 1440),
 ];
+
+/** T9: also run in WebKit (Safari's engine), light only: one iPhone and one iPad. */
+export const WEBKIT_DEVICES = ['iphone-se', 'ipad-mini-portrait'];
