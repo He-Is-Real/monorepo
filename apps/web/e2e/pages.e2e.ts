@@ -118,9 +118,11 @@ for (const scheme of ['light', 'dark'] as const) {
       ]) {
         await page.goto(`/stories/${slug}`);
         await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+        // No breadcrumb (Joel, 2026-10-24): it could show only one of a story's tags; the
+        // header's Stories link and the tag chips are the ways back.
         await expect(
           page.getByRole('navigation', { name: 'Breadcrumb' }),
-        ).toBeVisible();
+        ).toHaveCount(0);
         await expect(
           page.getByRole('heading', { name: 'Related stories' }),
         ).toBeVisible();
