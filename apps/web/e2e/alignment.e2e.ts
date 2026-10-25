@@ -2,17 +2,19 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 
 // The reading column (Joel, R1 option A, 2026-10-24): pages narrow their whole content column,
 // never the text inside it, so the heading, the divider and share row, the text and the
-// boxes in the column share its left and right edges (within 1 px), and from 1024 px the story
-// sidebar sits one design gap (3rem) from the text. Every device, light only (the colour scheme
-// doesn't change sizes).
-
-const DESIGN_GAP = 48; // gap-x-12
+// boxes in the column share its left and right edges (within 1 px). Every device, light only
+// (the colour scheme doesn't change sizes).
 
 async function edges(locator: Locator) {
   await expect(locator).toBeVisible();
   const box = await locator.boundingBox();
   if (!box) throw new Error('not rendered');
-  return { left: box.x, right: box.x + box.width };
+  return {
+    left: box.x,
+    right: box.x + box.width,
+    top: box.y,
+    bottom: box.y + box.height,
+  };
 }
 
 async function expectAligned(
@@ -34,12 +36,12 @@ async function expectAligned(
   }
 }
 
-// Story pages (Joel, 2026-10-24: "not off centre to the left"): the hero (title block, media,
-// share row) spans the whole composition, the text column plus the gap and the
-// sidebar from 1024 px, so the hero and its media are centred on the page. Below it the text
-// starts at the composition's left edge and the sidebar ends at its right edge. Every kind of
-// story: written with and without a picture (portrait, panorama), video (landscape, tall),
-// audio, and long titles.
+// Story pages are one centred column at every width (Joel, 2026-10-25: Related beside the text
+// "feels too intrusive, almost like an ad placement"; design principles): the hero (title
+// block, media, share row), then the reading text, then, after the story ends, Related stories
+// and "Does this resonate?", as on phones. Nothing sits beside the text. Every kind of story:
+// written with and without a picture (portrait, panorama), video (landscape, tall), audio, and
+// long titles.
 const STORIES: Record<string, { media: boolean }> = {
   'browse-test-02': { media: false }, // written, no picture
   'long-words': { media: false }, // written, a long title of unbreakable words
@@ -51,76 +53,70 @@ const STORIES: Record<string, { media: boolean }> = {
 };
 
 for (const [slug, { media: hasMedia }] of Object.entries(STORIES)) {
-  test(`story ${slug}: the hero is centred on the page, the text and sidebar under it`, async ({
+  test(`story ${slug}: one centred column, Related and "Does this resonate?" below the story`, async ({
     page,
   }, info) => {
     await page.goto(`/stories/${slug}`);
     const hero = page.locator('[data-story-hero]');
     const text = page.locator('[data-story-text]');
-    const media = page.locator('[data-story-media]');
-    // The hero, and the picture or player in it, are centred on the page.
     const centre =
       (await page.evaluate(() => document.documentElement.clientWidth)) / 2;
-    const middle = (e: { left: number; right: number }) =>
-      (e.left + e.right) / 2;
-    const h = await edges(hero);
-    expect(Math.abs(middle(h) - centre), 'hero: centred').toBeLessThanOrEqual(
-      1,
-    );
-    if (hasMedia) {
-      const m = await edges(media);
+    const expectCentred = async (name: string, locator: Locator) => {
+      const e = await edges(locator);
       expect(
-        Math.abs(middle(m) - centre),
-        'media: centred',
+        Math.abs((e.left + e.right) / 2 - centre),
+        `${name}: centred on the page`,
       ).toBeLessThanOrEqual(1);
+      return e;
+    };
+    const h = await expectCentred('hero', hero);
+    if (hasMedia) {
+      const m = await expectCentred(
+        'media',
+        page.locator('[data-story-media]'),
+      );
       expect(m.left, 'media: inside the hero').toBeGreaterThanOrEqual(
         h.left - 1,
       );
+      // Below 1024 px the media keeps the reading column's width, as before Related moved
+      // below the story (Codex, #82: a tablet's player grew 512 → 688 px and pushed the text
+      // down); from 1024 px it may break out to the narrow container.
+      if ((info.project.use.viewport?.width ?? 0) < 1024)
+        expect(
+          m.right - m.left,
+          'media: no wider than the text',
+        ).toBeLessThanOrEqual(
+          (await edges(text)).right - (await edges(text)).left + 1,
+        );
       expect(m.right, 'media: inside the hero').toBeLessThanOrEqual(
         h.right + 1,
       );
     }
-    await expectAligned(page, hero, {
-      'header (title block)': page.locator('article header'),
+    // Nothing beside the text: Related starts after the story ends.
+    const relatedRegion = page.getByRole('region', { name: 'Related stories' });
+    expect(
+      (await edges(relatedRegion)).top,
+      'Related: below the end of the text',
+    ).toBeGreaterThan((await edges(text)).bottom);
+    // The title block, the share row and the text share the reading column, centred.
+    await expectCentred('text', text);
+    await expectAligned(page, text, {
+      'header (title block)': page.locator('article header h1').locator('..'),
       'share row and divider': page
         .getByRole('button', { name: 'Share' })
         .locator('..'),
-      'the composition (article)': page.locator('article'),
+      'first paragraph': text.locator('p').first(),
     });
-    const article = await edges(page.locator('article'));
-    const t = await edges(text);
-    const p = await edges(text.locator('p').first());
-    expect(
-      Math.abs(t.left - article.left),
-      'text: left edge',
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(p.left - t.left),
-      'first paragraph: left edge',
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(p.right - t.right),
-      'first paragraph: right edge',
-    ).toBeLessThanOrEqual(1);
-    const sidebar = await edges(
-      page.getByRole('complementary', { name: 'Keep exploring' }),
+    // Then Related stories and "Does this resonate?", in that order, centred.
+    const related = await expectCentred('Related stories', relatedRegion);
+    const resonate = await expectCentred(
+      '"Does this resonate?"',
+      page.getByRole('region', { name: 'Does this resonate?' }),
     );
-    const width = info.project.use.viewport?.width ?? 0;
-    if (width >= 1024) {
-      expect(
-        sidebar.left - t.right,
-        'gap between text and sidebar',
-      ).toBeCloseTo(DESIGN_GAP, 0);
-      expect(
-        Math.abs(sidebar.right - article.right),
-        'sidebar: right edge',
-      ).toBeLessThanOrEqual(1);
-    } else {
-      // Below the text, in the same column.
-      expect(Math.abs(sidebar.left - t.left)).toBeLessThanOrEqual(1);
-      expect(Math.abs(sidebar.right - t.right)).toBeLessThanOrEqual(1);
-      expect(Math.abs(t.right - article.right)).toBeLessThanOrEqual(1);
-    }
+    expect(
+      resonate.top,
+      '"Does this resonate?": below Related',
+    ).toBeGreaterThan(related.bottom);
   });
 }
 
