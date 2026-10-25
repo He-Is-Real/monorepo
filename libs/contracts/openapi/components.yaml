@@ -739,9 +739,10 @@ components:
       type: object
       description: |
         Creates a `draft` before any upload. The body carries no consent: consent stays in the person's
-        ledger (D17), granted through `POST /v1/account/consents`, and is checked, not carried. Creating,
-        editing or uploading to a draft needs current Art 9 consent; `/submit` also needs `publish` and
-        `age_18plus`.
+        ledger (D17), granted through `POST /v1/account/consents`, and is checked, not carried. Editing or
+        uploading to a draft needs Art 9 consent that counts. Creating one, and `/submit`, also need the
+        sign-up form in force accepted (its 18+ box, D93) and no newer testimony version requiring
+        acceptance for new submissions; `/submit` also needs `publish`.
       required: [title, primaryFormat]
       additionalProperties: false
       properties:
@@ -883,7 +884,26 @@ components:
 
     ConsentType:
       type: string
-      enum: [special_category_religious, publish, share_socials, age_18plus]
+      description: |
+        A consent type, which is also a statement (a box) on a consent form (D84, D93): the sign-up form has
+        `age_18plus` and `account_data` (D73: "store my account and favourites"); the testimony form has
+        `special_category_religious` and, if it covers publishing on heisreal.today, `publish`; the optional
+        social sharing form has `share_socials`.
+      enum:
+        [
+          special_category_religious,
+          publish,
+          share_socials,
+          age_18plus,
+          account_data,
+        ]
+
+    ConsentForm:
+      type: string
+      description: |
+        The three consent forms (D84, D93): `signup` (D73), `testimony` (D67: store my story and publish it on
+        heisreal.today) and the optional `social` (sharing it beyond heisreal.today).
+      enum: [signup, testimony, social]
 
     ConsentMechanism:
       type: string
@@ -893,7 +913,8 @@ components:
     ConsentRecord:
       type: object
       description: One immutable event from the append-only consent ledger.
-      required: [id, type, event, dpaVersion, mechanism, occurredAt]
+      required:
+        [id, type, event, form, formVersion, dpaVersion, mechanism, occurredAt]
       properties:
         id:
           type: string
@@ -902,6 +923,14 @@ components:
         event:
           type: string
           enum: [granted, withdrawn]
+        form:
+          description: The form the person saw (D84); `null` on events from before forms.
+          oneOf:
+            - $ref: '#/components/schemas/ConsentForm'
+            - type: 'null'
+        formVersion:
+          type: [string, 'null']
+          description: Its version; `null` on events from before forms.
         dpaVersion:
           type: string
         mechanism:
@@ -927,20 +956,65 @@ components:
           description: Latest state per consent type, one entry for every type (the one definition is `fn::consent::current`, D17).
           items:
             type: object
-            required: [type, granted, dpaVersion, occurredAt, reconsentRequired]
+            required:
+              [type, granted, form, formVersion, dpaVersion, occurredAt, counts]
             properties:
               type:
                 $ref: '#/components/schemas/ConsentType'
               granted:
                 type: boolean
+                description: The latest event is a grant.
+              form:
+                oneOf:
+                  - $ref: '#/components/schemas/ConsentForm'
+                  - type: 'null'
+              formVersion:
+                type: [string, 'null']
               dpaVersion:
                 type: [string, 'null']
               occurredAt:
                 type: [string, 'null']
                 format: date-time
-              reconsentRequired:
+              counts:
                 type: boolean
-                description: Granted, but a material DPA version newer than the one consented to is now in force.
+                description: |
+                  Granted, and it counts (`fn::consent::valid`): on a form version that is published or retired
+                  and has this statement (D93: a newer version never stops an older grant counting). False for a
+                  withdrawal, or e.g. an 18+ or share tick given on a testimony version before D93 moved them.
+        signup:
+          type: object
+          description: |
+            D73. Sign-in asks for it, and a new draft or submission needs it; a new sign-up version makes it false
+            again until accepted (nothing already public changes, D93).
+          required: [accepted, latestVersion]
+          properties:
+            accepted:
+              type: boolean
+              description: Both boxes ticked on the sign-up version in force.
+            latestVersion:
+              type: [string, 'null']
+              description: The sign-up version in force; `null` while none is published.
+        testimony:
+          type: object
+          description: |
+            D85: testimony consent is per account. `version` is the form version of the person's current Art 9
+            grant; accepting a newer version moves the account, covering all their stories. For the signed-in
+            banner. Their stories stay public whatever this says (D93).
+          required:
+            [version, latestVersion, updateAvailable, acceptanceRequired]
+          properties:
+            version:
+              type: [string, 'null']
+            latestVersion:
+              type: [string, 'null']
+            updateAvailable:
+              type: boolean
+              description: A newer testimony version is published that the person hasn't accepted.
+            acceptanceRequired:
+              type: boolean
+              description: |
+                A version requiring acceptance for new submissions came after theirs: they must accept the one in
+                force before starting a new draft or submitting.
         history:
           type: array
           items:
@@ -949,17 +1023,21 @@ components:
     GrantConsent:
       type: object
       description: |
-        One ledger event. The DPA version must be the one in force (the database refuses a draft, D20).
-        The server sets `occurredAt` and computes the evidence hash: sha256 of the DPA version, the
-        sha256 of its text (`contentHash`), the consent type, the event and the mechanism. No IP address
-        (D19).
-      required: [type, dpaVersion, mechanism]
+        One ledger event: one statement ticked on the form version shown (D84). The version must be the one
+        in force (`GET /v1/legal/forms/{form}` on api-public-read); the database refuses anything but a
+        published version. The privacy document is the one the form version links. The server sets
+        `occurredAt` and computes the evidence hash (`heisreal-consent-evidence/v2`): sha256 of the form,
+        its version and its text's sha256, the DPA version and its text's sha256, the statement, the event
+        and the mechanism. No IP address (D19).
+      required: [form, formVersion, statement, mechanism]
       properties:
-        type:
-          $ref: '#/components/schemas/ConsentType'
-        dpaVersion:
+        form:
+          $ref: '#/components/schemas/ConsentForm'
+        formVersion:
           type: string
-          description: The DPA version consented to (the current published one).
+          description: The form version shown (the one in force), e.g. `v1`.
+        statement:
+          $ref: '#/components/schemas/ConsentType'
         mechanism:
           $ref: '#/components/schemas/ConsentMechanism'
 
@@ -999,6 +1077,132 @@ components:
           format: date-time
         version:
           $ref: '#/components/schemas/Version'
+
+    DpaDocument:
+      description: A published DPA version with its words (the text of `libs/legal/dpa/<id>.md`, D84).
+      allOf:
+        - $ref: '#/components/schemas/DpaVersion'
+        - type: object
+          required: [text]
+          properties:
+            text:
+              type: string
+              description: Markdown.
+
+    ConsentFormVersion:
+      type: object
+      description: |
+        A published version of a consent form (D84), frozen once published: its words, the statements (boxes)
+        it has, the privacy document it links and, for the testimony and social sharing forms, its features.
+        "18+" is on the sign-up form only (D77, D93).
+      required:
+        [
+          form,
+          id,
+          status,
+          publishedAt,
+          dpaVersion,
+          textHash,
+          text,
+          statements,
+          version,
+        ]
+      properties:
+        form:
+          $ref: '#/components/schemas/ConsentForm'
+        id:
+          type: string
+          example: v1
+        status:
+          type: string
+          enum: [published]
+        publishedAt:
+          type: string
+          format: date-time
+        dpaVersion:
+          type: string
+          description: The privacy document this version links.
+        textHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: SHA-256 of `libs/legal/forms/<form>/<id>.md`.
+        text:
+          type: string
+          description: Markdown.
+        statements:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsentType'
+        version:
+          $ref: '#/components/schemas/Version'
+        features:
+          description: The testimony form's or the social sharing form's features; absent for `signup`.
+          oneOf:
+            - $ref: '#/components/schemas/TestimonyFormFeatures'
+            - $ref: '#/components/schemas/SocialSharingFormFeatures'
+
+    TestimonyFormFeatures:
+      type: object
+      required:
+        [
+          requiresAcceptanceForNewSubmissions,
+          coversPublicPublishing,
+          draftRetentionMonths,
+        ]
+      additionalProperties: false
+      properties:
+        requiresAcceptanceForNewSubmissions:
+          type: boolean
+          description: |
+            People on an older version must accept this one before starting a new draft or submitting (D93).
+            Their existing stories stay public, and their older grants keep counting.
+        coversPublicPublishing:
+          type: boolean
+          description: Asks to publish on heisreal.today (the `publish` statement).
+        draftRetentionMonths:
+          type: integer
+          description: Untouched drafts are deleted after this many months (D71).
+
+    SocialSharingFormFeatures:
+      type: object
+      description: |
+        What the media team may do with a story beyond heisreal.today under this version (D93), with the
+        person's `share_socials` tick on it. Anything not listed, or `false`, is not allowed; a platform or use
+        added later is `false` for older versions (people opt into a new version).
+      required:
+        [
+          shareYouTube,
+          shareInstagram,
+          shareTikTok,
+          shareFacebook,
+          allowEditingAndClipping,
+          allowChurchAndPartnerMedia,
+          allowPrintAndEvents,
+          allowPaidPromotion,
+        ]
+      additionalProperties: false
+      properties:
+        shareYouTube:
+          type: boolean
+        shareInstagram:
+          type: boolean
+        shareTikTok:
+          type: boolean
+        shareFacebook:
+          type: boolean
+        allowEditingAndClipping:
+          type: boolean
+          description: Shorter clips, still images, captions, subtitles and translations.
+        allowChurchAndPartnerMedia:
+          type: boolean
+          description: Given to partner churches and ministries for their own media.
+        allowPrintAndEvents:
+          type: boolean
+          description: Shown at events and services, and in printed material.
+        allowPaidPromotion:
+          type: boolean
+          description: Used in paid adverts promoting He Is Real Today.
 
     CreateDpaDraft:
       type: object

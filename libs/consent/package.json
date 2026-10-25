@@ -15,6 +15,11 @@
       "import": "./src/testing.ts",
       "default": "./src/testing.ts"
     },
+    "./evidence": {
+      "types": "./src/evidence.ts",
+      "import": "./src/evidence.ts",
+      "default": "./src/evidence.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {
@@ -30,6 +35,8 @@
           "default",
           "^production",
           "{workspaceRoot}/libs/database/integration/support/**/*",
+          "{workspaceRoot}/libs/legal/dpa/**/*",
+          "{workspaceRoot}/libs/legal/forms/**/*",
           "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
           {
             "externalDependencies": [

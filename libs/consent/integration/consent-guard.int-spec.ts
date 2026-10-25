@@ -18,7 +18,11 @@ import type { Surreal } from 'surrealdb';
 import { ConsentLedger } from '../src/lib/consent-ledger';
 import { RequiresConsent } from '../src/lib/consent.decorators';
 import { ConsentModule } from '../src/lib/consent.module';
-import { CONSENT_REQUIRED } from '../src/lib/consent.types';
+import {
+  CONSENT_REQUIRED,
+  type ConsentType,
+  STATEMENT_FORM,
+} from '../src/lib/consent.types';
 import type {
   AuthenticatedPerson,
   PersonAuthenticator,
@@ -72,13 +76,19 @@ describe('the consent guard on SurrealDB (D21, Art 9)', () => {
       withPersonSession(connection, t.token(person), async (s) => {
         for (const type of types)
           await ledger.grant(s, {
-            type: type as never,
-            dpaVersion: 'v1',
+            form: STATEMENT_FORM[type as ConsentType],
+            formVersion: 'v1',
+            statement: type as never,
             mechanism: 'web_form_submission',
           });
       });
-    // Ann: everything a draft needs. Bob: none of it. Cat: all but the Art 9 consent.
-    await grant('user_ann', CONSENT_REQUIRED.createDraft.types);
+    // Ann: everything a draft needs (the sign-up form too, D93). Bob: none of it. Cat: all but
+    // the Art 9 consent.
+    await grant('user_ann', [
+      ...CONSENT_REQUIRED.createDraft.types,
+      'account_data',
+      'age_18plus',
+    ]);
     await grant(
       'user_cat',
       CONSENT_REQUIRED.submitStory.types.filter(

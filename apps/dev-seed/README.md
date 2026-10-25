@@ -4,19 +4,26 @@ Resets the **dev** database to the D47 dummy dataset (D49). A Cloud Run Job, dev
 `infra/terraform/modules/gcp/dev_seed.tf`. Started by the "Reset dev data" Action (D50) or by a
 developer. It never runs anywhere else: OpenTofu refuses it outside `heisreal-dev`, the program
 refuses unless its settings say dev, and the reset itself refuses unless the database says dev
-with consent checks relaxed (D48).
+and has its consent forms published (dev's placeholders, D75).
 
 ## What it does
 
 One transaction, all or nothing (`src/app/seed.ts`):
 
-1. Checks `_setting:consent`: environment `dev`, consent checks relaxed.
+1. Checks `_setting:consent`: environment `dev`, and a sign-up and a testimony form in force.
 2. Wipes the content: `story` (and with it `publicStory` and `moderationReview`), `auditLog`,
    `idempotencyKey`, `tag`, and fixture people (`user:seed_*`) no longer in the dataset.
 3. Loads the dataset (`src/app/dataset`): 8 fixture people without Clerk accounts, the browse
    tags, and 26 stories. Each story is created as a draft and walked to its final state the way
    the services will (submit, pick up, decide), so versions, `submittedAt`, locks, feedback and
    reviews look real. Approved stories get their `publicStory` row.
+4. Gives every fixture person real consent (D75; D48's relaxed checks are off in dev): grants
+   in the append-only ledger for the sign-up form (18+, account) and the testimony form (Art 9,
+   publish) in force, with the evidence hash the API records (`@heisreal/consent/evidence`). A
+   grant is added only when the person's current one isn't on the version in force, so resets
+   don't grow the ledger; a new form version gets new grants at the next reset.
+   18+ is ticked on the sign-up form only (D93). Nobody ticks the optional social sharing form,
+   so no dummy story may be shared beyond the dev site.
 
 Kept: people who signed in with Clerk, the consent ledger, DPA versions, settings and the
 migration ledger.

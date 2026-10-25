@@ -7,10 +7,12 @@
  *   - every *.surql in libs/database/schema and libs/database/schema/data (flattened), and the
  *     runner, libs/database/schema/migrate.py;
  *   - params.json: dpa_sha256 = { <id>: sha256 of libs/legal/dpa/<id>.md } for every file there,
+ *     dpa_text = their words, form_sha256 / form_text = the same for every consent form version
+ *     in libs/legal/forms/<signup|testimony|social>/<id>.md (D84),
  *     clerk_jwt_public_key = the PEM file given, or null. No identity_hash: locally, restart
  *     SurrealDB yourself after changing the init Secret (the identity-check sidecar still gates
  *     readiness on the credentials). environment = 'local', so consent checks are never relaxed
- *     (D48 is dev only).
+ *     (D48 is dev only) and dev's placeholder privacy document and forms are never seeded (D75).
  *
  * It then deletes a finished surrealdb-migrate Job so that re-applying the overlay runs it again:
  *
@@ -60,15 +62,29 @@ const surql = (dir) =>
   readdirSync(dir)
     .filter((f) => f.endsWith('.surql'))
     .map((f) => [f, readFileSync(join(dir, f), 'utf8')]);
-const dpaSha256 = Object.fromEntries(
-  readdirSync(dpaDir)
-    .filter((f) => f.endsWith('.md'))
-    .map((f) => [
-      f.slice(0, -'.md'.length),
-      createHash('sha256')
-        .update(readFileSync(join(dpaDir, f)))
-        .digest('hex'),
+/** { <id>: words } of the version files in a libs/legal directory. */
+const texts = (dir) =>
+  Object.fromEntries(
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.md') && f !== 'README.md')
+      .map((f) => [
+        f.slice(0, -'.md'.length),
+        readFileSync(join(dir, f), 'utf8'),
+      ]),
+  );
+const sha256 = (byId) =>
+  Object.fromEntries(
+    Object.entries(byId).map(([id, text]) => [
+      id,
+      createHash('sha256').update(text, 'utf8').digest('hex'),
     ]),
+  );
+const dpaText = texts(dpaDir);
+const formText = Object.fromEntries(
+  ['signup', 'testimony', 'social'].map((k) => [
+    k,
+    texts(join(root, 'libs/legal/forms', k)),
+  ]),
 );
 const clerkKeyFile = args['clerk-public-key-file'];
 const params = {
@@ -76,7 +92,13 @@ const params = {
     ? readFileSync(clerkKeyFile, 'utf8')
     : null,
   dev_consent_relaxed: false,
-  dpa_sha256: dpaSha256,
+  dev_legal_placeholders: false,
+  dpa_sha256: sha256(dpaText),
+  dpa_text: dpaText,
+  form_sha256: Object.fromEntries(
+    Object.entries(formText).map(([k, byId]) => [k, sha256(byId)]),
+  ),
+  form_text: formText,
   environment: 'local',
   identity_hash: null,
   seed_dev_story: args['seed-dev-story'],

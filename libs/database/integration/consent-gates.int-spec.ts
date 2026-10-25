@@ -14,8 +14,10 @@ import { approve, draft, processed, storyText, submit } from './support/world';
  * Consent at every step that processes testimony, enforced by the database (review round 1,
  * finding 1). The consent types per command come from the API plan (decision doc, "Updated API
  * plan (v1)", ⚑ routes) and libs/contracts (`x-requires-consent`, PR #28):
- *   create draft, edit, upload-url  → special_category_religious
- *   submit; approve (for the submitter) → special_category_religious, publish, age_18plus
+ *   edit, upload-url  → special_category_religious
+ *   create draft → that, and the sign-up form in force accepted (18+ is there, D93)
+ *   submit → those, and publish; approve (for the submitter) → special_category_religious,
+ *     publish, age_18plus, on any version that counts
  * Withdrawing a story and erasure need none.
  */
 describe('consent gates on edit, submit, approve and publish', () => {
@@ -25,6 +27,8 @@ describe('consent gates on edit, submit, approve and publish', () => {
   const truth = <T = unknown>(sql: string, vars?: Record<string, unknown>) =>
     rows<T>(migrator, sql, vars);
   const ALL = ['special_category_religious', 'publish', 'age_18plus'] as const;
+  /** Everything a person ticks: the testimony boxes, and the sign-up form's (D93). */
+  const GRANTS = [...ALL, 'account_data'] as const;
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -47,6 +51,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
     await consentEvent(p, 'special_category_religious', 'granted');
     await consentEvent(p, 'publish', 'granted');
     await consentEvent(p, 'age_18plus', 'granted');
+    await consentEvent(p, 'account_data', 'granted');
     expect(await draft(p, 'codex_story')).toHaveLength(1);
     await consentEvent(p, 'special_category_religious', 'withdrawn');
 
@@ -88,9 +93,13 @@ describe('consent gates on edit, submit, approve and publish', () => {
     expect(await truth('SELECT * FROM moderationReview')).toEqual([]);
   });
 
-  it('Art 9 alone lets a person write a draft, but not submit it', async () => {
+  it('Art 9 and the sign-up form let a person write a draft, but not submit it', async () => {
     const p = await t.person('user_art9only');
     await consentEvent(p, 'special_category_religious', 'granted');
+    // 18+ is on the sign-up form only (D93): no draft before it's accepted.
+    expect(await draft(p, 'art9_story')).toEqual([]);
+    await consentEvent(p, 'account_data', 'granted');
+    await consentEvent(p, 'age_18plus', 'granted');
     expect(await draft(p, 'art9_story')).toHaveLength(1);
     await run(
       p,
@@ -100,13 +109,9 @@ describe('consent gates on edit, submit, approve and publish', () => {
       await outcome(p, `UPDATE story:art9_story SET status = 'pending'`),
     ).toEqual({
       ok: false,
-      error: expect.stringContaining('current Art 9, publish and age consent'),
+      error: expect.stringContaining('submitting a story needs'),
     });
     await consentEvent(p, 'publish', 'granted');
-    expect(
-      (await outcome(p, `UPDATE story:art9_story SET status = 'pending'`)).ok,
-    ).toBe(false);
-    await consentEvent(p, 'age_18plus', 'granted');
     expect(await submit(p, 'art9_story')).toHaveLength(1);
     expect(await truth('SELECT title, status FROM story:art9_story')).toEqual([
       { title: 'Edited with Art 9 consent', status: 'pending' },
@@ -117,7 +122,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
     'approval re-checks the ledger: refused once %s is withdrawn',
     async (type) => {
       const p = await t.person('user_eve');
-      for (const c of ALL) await consentEvent(p, c, 'granted');
+      for (const c of GRANTS) await consentEvent(p, c, 'granted');
       const id = `eve_${type}`;
       await draft(p, id);
       await submit(p, id);
@@ -141,7 +146,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
 
   it('the read model refuses a row for a story that isn’t approved, or without consent', async () => {
     const p = await t.person('user_eve');
-    for (const c of ALL) await consentEvent(p, c, 'granted');
+    for (const c of GRANTS) await consentEvent(p, c, 'granted');
     await draft(p, 'eve_rm');
     await submit(p, 'eve_rm');
     const publish = () =>
@@ -176,7 +181,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
 
   it('withdrawing a story still works with no consent left', async () => {
     const p = await t.person('user_wd');
-    for (const c of ALL) await consentEvent(p, c, 'granted');
+    for (const c of GRANTS) await consentEvent(p, c, 'granted');
     await draft(p, 'wd_story');
     await submit(p, 'wd_story');
     for (const c of ALL) await consentEvent(p, c, 'withdrawn');
@@ -197,7 +202,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
     beforeAll(async () => {
       workflow = await t.service('workflow');
       p = await t.person('user_wf');
-      for (const c of ALL) await consentEvent(p, c, 'granted');
+      for (const c of GRANTS) await consentEvent(p, c, 'granted');
       // Video stories: D53 allows media only on video and audio stories.
       await draft(p, 'wf_draft', { primaryFormat: 'video' });
       await draft(p, 'wf_live', { primaryFormat: 'video' });

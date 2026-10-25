@@ -15,17 +15,36 @@ import type { ConsentType } from './consent.types';
 export class ConsentChecker {
   constructor(@Inject(SURREAL) private readonly service: Surreal) {}
 
-  /** The signed-in person's own consent, in their own session (D27). */
+  /**
+   * The signed-in person's own consent, in their own session (D27). `formsInForce`: also on the
+   * forms in force, for something new (a draft, a submission; D93, `fn::consent::may_draft`).
+   */
   async callerHas(
     personSession: SurrealQueryable,
     types: readonly ConsentType[],
+    formsInForce = false,
   ): Promise<boolean> {
     const [granted] = await runQuery(
       personSession,
-      'RETURN fn::consent::granted($auth, $types)',
-      { types: [...types] },
+      'RETURN fn::consent::granted($auth, $types) AND (!$forms OR fn::consent::may_draft($auth))',
+      { types: [...types], forms: formsInForce },
     );
     return granted === true;
+  }
+
+  /**
+   * D73: whether the signed-in person has accepted the sign-up form in force (both boxes, on
+   * its latest version), in their own session. Sign-in (api-user's account bootstrap) asks for
+   * it; a newer sign-up version makes it false again (nothing already public changes, D93).
+   */
+  async callerAcceptedSignup(
+    personSession: SurrealQueryable,
+  ): Promise<boolean> {
+    const [accepted] = await runQuery(
+      personSession,
+      'RETURN fn::consent::signup_accepted($auth)',
+    );
+    return accepted === true;
   }
 
   /**

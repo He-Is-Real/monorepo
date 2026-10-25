@@ -4,6 +4,7 @@ import {
   run,
   type TestDatabase,
 } from '@heisreal/database/integration-testing';
+import { createHash } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { DATASET } from '../src/app/dataset';
 import bunnyMedia from '../src/app/bunny-media.json';
@@ -22,12 +23,15 @@ import { devDatabase } from '../testing';
 const vars = () => buildVars(DATASET, fakeUploads());
 const approved = DATASET.stories.filter((s) => s.status === 'approved');
 
-describe('dev-seed reset on SurrealDB (dev, consent relaxed)', () => {
+describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)', () => {
   let t: TestDatabase;
   let seeder: Surreal;
 
   beforeAll(async () => {
-    ({ t, seeder } = await devDatabase({ relaxed: true, environment: 'dev' }));
+    ({ t, seeder } = await devDatabase({
+      legalPlaceholders: true,
+      environment: 'dev',
+    }));
   });
   afterAll(() => t.close());
 
@@ -55,6 +59,68 @@ describe('dev-seed reset on SurrealDB (dev, consent relaxed)', () => {
     );
     expect(summary.publicStories).toBe(approved.length);
     await reset(seeder, vars()); // back to the stand-ins for the tests below
+  });
+
+  it('gives every fixture person real consent on the forms in force, so the published stories pass the real checks (D75)', async () => {
+    const migrator = await t.migrator();
+    expect(await rows(migrator, 'RETURN fn::consent::relaxed()')).toEqual([
+      false,
+    ]);
+    const people = [...DATASET.people, DATASET.moderator];
+    for (const id of people) {
+      expect([
+        id,
+        await rows(
+          migrator,
+          `LET $u = type::record('user', $id);
+           RETURN [fn::consent::signup_accepted($u),
+             fn::consent::granted($u, ['special_category_religious', 'publish', 'age_18plus'])]`,
+          { id },
+        ),
+      ]).toEqual([id, [true, true]]);
+    }
+    // Every grant's evidence is the API's v2 hash of what it names, computed independently.
+    const ledger = await rows<Record<string, string>>(
+      migrator,
+      `SELECT type, event, mechanism, evidenceHash, record::tb(form) AS table,
+         record::id(form) AS version, form.textHash AS textHash,
+         record::id(dpaVersion) AS dpa, dpaVersion.contentHash AS dpaHash
+       FROM consent`,
+    );
+    expect(ledger).toHaveLength(people.length * 4);
+    // D109: 18+ is ticked on the sign-up form only, and nobody ticks sharing.
+    expect(
+      [...new Set(ledger.map((r) => `${r['type']} ${r['table']}`))].sort(),
+    ).toEqual([
+      'account_data signupFormVersion',
+      'age_18plus signupFormVersion',
+      'publish testimonyFormVersion',
+      'special_category_religious testimonyFormVersion',
+    ]);
+    for (const r of ledger) {
+      expect(r['evidenceHash']).toBe(
+        createHash('sha256')
+          .update(
+            JSON.stringify([
+              'heisreal-consent-evidence/v2',
+              r['table'] === 'signupFormVersion' ? 'signup' : 'testimony',
+              r['version'],
+              r['textHash'],
+              r['dpa'],
+              r['dpaHash'],
+              r['type'],
+              r['event'],
+              r['mechanism'],
+            ]),
+          )
+          .digest('hex'),
+      );
+    }
+    // A reset doesn't grant again while the grants are on the versions in force.
+    await reset(seeder, vars());
+    expect(
+      await rows(migrator, 'SELECT count() AS n FROM consent GROUP ALL'),
+    ).toEqual([{ n: people.length * 4 }]);
   });
 
   it('is idempotent: a second reset gives the same data', async () => {
@@ -196,13 +262,13 @@ describe('dev-seed refuses anything but dev', () => {
   it.each([
     [
       'a database that isn’t dev',
-      { relaxed: false, environment: null },
+      { legalPlaceholders: false, environment: null },
       /not dev/,
     ],
     [
-      'dev with consent checks on',
-      { relaxed: false, environment: 'dev' },
-      /not relaxed/,
+      'dev without published consent forms',
+      { legalPlaceholders: false, environment: 'dev' },
+      /no consent forms are published/,
     ],
   ])('refuses %s and changes nothing', async (_, params, error) => {
     const { t, seeder } = await devDatabase(params);

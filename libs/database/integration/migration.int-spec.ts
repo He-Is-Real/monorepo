@@ -41,11 +41,13 @@ const JOB_ENV = {
   MIGRATE_EXPECT_USERS: 'backup,migrator',
   MIGRATE_EXPECT_SERVICES: SERVICES.join(','),
 };
-// Every data script in libs/database/schema/data (0003 writes nothing unless seed_dev_story).
+// Every data script in libs/database/schema/data (0003 writes nothing unless seed_dev_story,
+// 0005 nothing unless dev_legal_placeholders).
 const SEEDS = [
   '0001-seed-dpa-v1',
   '0003-dev-seed-story',
   '0004-check-story-shapes',
+  '0005-dev-legal-placeholders',
 ];
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
@@ -1070,6 +1072,70 @@ describe('allow-list: the guard matches 3.2.4', () => {
 
 // ---------------------------------------------------------------- data scripts
 
+/**
+ * The release before the consent forms: main after #99. Its libs/database/schema is the schema
+ * every existing database (dev) was migrated with. A main commit, so it stays reachable.
+ */
+const PREVIOUS_RELEASE = 'facc15e6f6d2adc34778aa7885cd1a7efa9a08c3';
+
+describe('upgrading a database migrated by the previous release (Codex, #101)', () => {
+  let t: TestDatabase;
+  let previous: string;
+  beforeAll(async () => {
+    // That release's bundle and runner, straight from git.
+    const dir = await mkdtemp(join(tmpdir(), 'previous-release-'));
+    const repo = join(__dirname, '../../..');
+    const archive = execFileSync(
+      'git',
+      ['archive', '--format=tar', PREVIOUS_RELEASE, 'libs/database/schema'],
+      { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
+    );
+    execFileSync('tar', ['-x', '-C', dir], { input: archive });
+    previous = join(dir, 'libs/database/schema');
+    t = await TestDatabase.create({ migrate: false });
+    await t.migrate(t.params(), {
+      bundleDir: previous,
+      runner: join(previous, 'migrate.py'),
+    });
+  });
+  afterAll(async () => {
+    await t?.close();
+    if (previous) await rm(join(previous, '../../..'), { recursive: true });
+  });
+
+  it('starts from that schema: a draft DPA v1 and no consent forms', async () => {
+    const defined = Object.keys(await tables(t));
+    expect(defined).toContain('dpaVersion');
+    expect(defined).not.toContain('signupFormVersion');
+    expect(
+      await rows(await t.migrator(), 'SELECT VALUE status FROM dpaVersion:v1'),
+    ).toEqual(['draft']);
+  });
+
+  it('migrates to this release: the checks write nothing to the old schema, the drafts get their text after', async () => {
+    const summary = await t.migrate(t.params());
+    expect(summary.applied).toEqual(['0005-dev-legal-placeholders']);
+    const migrator = await t.migrator();
+    expect(
+      await rows(migrator, 'SELECT VALUE text FROM dpaVersion:v1'),
+    ).toEqual([t.params().dpa_text['v1']]);
+    for (const table of [
+      'signupFormVersion',
+      'testimonyFormVersion',
+      'socialSharingFormVersion',
+    ]) {
+      expect(Object.keys(await tables(t))).toContain(table);
+    }
+  });
+
+  it('a second run changes nothing', async () => {
+    expect(await t.migrate(t.params())).toMatchObject({
+      applied: [],
+      alreadyApplied: SEEDS,
+    });
+  });
+});
+
 describe('data scripts on an already-migrated database', () => {
   let t: TestDatabase;
   beforeAll(async () => {
@@ -1176,30 +1242,49 @@ describe('parameters (OpenTofu values)', () => {
     }
   });
 
-  it('D20: a draft DPA’s contentHash follows its file; a published one is frozen', async () => {
+  it('D20, D84: a draft DPA’s contentHash and text follow its file; a published one is frozen', async () => {
     const t = await TestDatabase.create();
+    /** OpenTofu's parameters for a DPA v1 file with these words. */
+    const v1File = (text: string) =>
+      t.params({
+        dpa_sha256: { ...t.params().dpa_sha256, v1: sha256(text) },
+        dpa_text: { ...t.params().dpa_text, v1: text },
+      });
     try {
       const migrator = await t.migrator();
-      const hash = () =>
-        rows(migrator, 'SELECT VALUE contentHash FROM dpaVersion:v1');
-      const edited = sha256('dpa v1, edited by the lawyer');
-      await t.migrate(t.params({ dpa_sha256: { v1: edited } }));
-      expect(await hash()).toEqual([edited]);
+      const stored = () =>
+        rows(migrator, 'SELECT contentHash, text FROM ONLY dpaVersion:v1');
+      const edited = 'dpa v1, edited by the lawyer';
+      await t.migrate(v1File(edited));
+      expect(await stored()).toEqual([
+        { contentHash: sha256(edited), text: edited },
+      ]);
 
       await run(
         await t.service('api_admin'),
         `UPDATE dpaVersion:v1 SET status = 'published', effectiveFrom = time::now()`,
       );
-      const changed = await t.runMigration(
-        t.params({ dpa_sha256: { v1: sha256('changed after publishing') } }),
-        { bundleDir: await withScratchTable() },
-      );
+      const changed = await t.runMigration(v1File('changed after publishing'), {
+        bundleDir: await withScratchTable(),
+      });
       expect(changed.exitCode).toBe(1);
       expect(changed.output).toContain(
         'dpaVersion:v1 is published, but its file in libs/legal/dpa has changed',
       );
-      expect(await hash()).toEqual([edited]);
+      expect(await stored()).toEqual([
+        { contentHash: sha256(edited), text: edited },
+      ]);
       expect(await scratchTableExists(t)).toBe(false); // checked before the schema step
+
+      const mismatched = await t.runMigration(
+        t.params({
+          dpa_sha256: { ...t.params().dpa_sha256, v1: sha256(edited) },
+          dpa_text: { ...t.params().dpa_text, v1: `${edited} (other bytes)` },
+        }),
+        { bundleDir: await withScratchTable() },
+      );
+      expect(mismatched.exitCode).toBe(1);
+      expect(mismatched.output).toContain('doesn’t match its sha256');
 
       const missing = await t.runMigration(t.params({ dpa_sha256: {} }), {
         bundleDir: await withScratchTable(),

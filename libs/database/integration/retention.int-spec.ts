@@ -43,7 +43,8 @@ describe('retention pruning (D38)', () => {
          CREATE $u;
          FOR $t IN ['special_category_religious', 'publish'] {
            CREATE consent CONTENT { subject: $u, type: $t, event: 'granted',
-             dpaVersion: dpaVersion:v1, mechanism: 'web_form_submission', evidenceHash: $h };
+             dpaVersion: dpaVersion:v1, form: testimonyFormVersion:v1,
+             mechanism: 'web_form_submission', evidenceHash: $h };
          };
        };
        -- Only a system user (the migrator) may supply a historical erasure date.

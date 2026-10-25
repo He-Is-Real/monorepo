@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { runQuery } from '@heisreal/database';
 import type { PersonContext } from './person';
 
 /**
@@ -6,10 +7,6 @@ import type { PersonContext } from './person';
  * D84: a simple, versioned form; every newly published version must be accepted before the
  * site can be used signed in). api-user's account bootstrap (`GET /v1/account`) reports it as
  * `signupConsent.accepted`, so web can show the one-time sign-up step.
- *
- * **Seam for the consent-forms PR (M2, "consent forms"):** it adds the `signupFormVersion`
- * table and the person's acceptance of a version, and replaces {@link NoSignupFormPublished}
- * below with the real check, read in the person's own session (D27). Nothing else changes.
  */
 export interface SignupConsentStatus {
   /** True only if the person has accepted the newest published sign-up form version. */
@@ -19,13 +16,18 @@ export interface SignupConsentStatus {
 export const SIGNUP_CONSENT_STATUS = Symbol('SIGNUP_CONSENT_STATUS');
 
 /**
- * Until the consent-forms PR: the schema has no sign-up form, so none is published and nobody
- * can have accepted the latest one. That is the true answer today, not a stand-in: `false`
- * for everyone (fail closed), and nothing acts on it until the sign-up step is built.
+ * The database's answer, `fn::consent::signup_accepted`, read in the person's own session
+ * (D27): both of the sign-up form's boxes (18+ and `account_data`) granted on the version in
+ * force. `false` while no sign-up form is published (fail closed). A new sign-up version makes
+ * it `false` again until it's accepted; nothing already public changes (D93).
  */
 @Injectable()
-export class NoSignupFormPublished implements SignupConsentStatus {
-  async acceptedLatest(): Promise<boolean> {
-    return false;
+export class LedgerSignupConsentStatus implements SignupConsentStatus {
+  async acceptedLatest({ session }: PersonContext): Promise<boolean> {
+    const [accepted] = await runQuery(
+      session,
+      'RETURN fn::consent::signup_accepted($auth)',
+    );
+    return accepted === true;
   }
 }

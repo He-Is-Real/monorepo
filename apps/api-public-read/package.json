@@ -105,6 +105,7 @@
           "{workspaceRoot}/libs/database/integration/support/**/*",
           "{workspaceRoot}/libs/database/schema/**/*",
           "{workspaceRoot}/libs/legal/dpa/**/*",
+          "{workspaceRoot}/libs/legal/forms/**/*",
           "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
           {
             "externalDependencies": [

@@ -287,7 +287,7 @@ describe('service identities (D13 B)', () => {
         'story:bob_live',
         'story:bob_pending',
       ]);
-      expect((await rows(db, 'SELECT * FROM consent')).length).toBe(8);
+      expect((await rows(db, 'SELECT * FROM consent')).length).toBe(10);
       expect(await rows(db, 'SELECT * FROM moderationReview')).toHaveLength(1);
       expect((await rows(db, 'SELECT * FROM auditLog')).length).toBeGreaterThan(
         0,
@@ -401,7 +401,7 @@ describe('service identities (D13 B)', () => {
 
     it('reads consent (fresh ledger check before processing, D21) but cannot write it', async () => {
       const db = svc.workflow;
-      expect((await rows(db, 'SELECT * FROM consent')).length).toBe(8);
+      expect((await rows(db, 'SELECT * FROM consent')).length).toBe(10);
       expect(
         await rows(
           db,

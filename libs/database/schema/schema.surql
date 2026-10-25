@@ -74,10 +74,36 @@ DEFINE TABLE OVERWRITE _setting SCHEMAFULL PERMISSIONS
   FOR select FULL,
   FOR create, update, delete NONE;
 DEFINE FIELD OVERWRITE devConsentRelaxed ON _setting TYPE bool DEFAULT false;
+-- D75: the dev-only placeholder privacy document and consent forms count (fn::legal::counts).
+-- Same rules as devConsentRelaxed: OpenTofu's dev_legal_placeholders, dev only.
+DEFINE FIELD OVERWRITE devLegalPlaceholders ON _setting TYPE bool DEFAULT ALWAYS false;
 DEFINE FIELD OVERWRITE environment       ON _setting TYPE option<string>;  -- e.g. 'dev'
 DEFINE EVENT OVERWRITE _setting_dev_only ON _setting
   WHEN $event IN ['CREATE', 'UPDATE'] AND $after.devConsentRelaxed = true AND $after.environment != 'dev'
   THEN { THROW 'consent checks can be relaxed in dev only (D48)' };
+DEFINE EVENT OVERWRITE _setting_dev_legal_only ON _setting
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.devLegalPlaceholders = true AND $after.environment != 'dev'
+  THEN { THROW 'the placeholder privacy document and forms are for dev only (D75)' };
+-- Turning D48 or D75 off takes away the basis dev's consent stood on (no new form version does
+-- that: D93), and so does leaving dev: both switches only count in dev (a dev backup restored
+-- elsewhere). So whenever the database is or was dev, every settings write (each migration)
+-- hides the public stories whose uploader's consent no longer counts and brings back hidden ones
+-- it covers again (fn::consent::reconcile). When a switch or the environment changes, every
+-- person's fence and legalFence are bumped too: any consent-dependent write (a draft, a
+-- submission, an approval) overlapping the change fails at commit and retries under it.
+DEFINE EVENT OVERWRITE _setting_reconcile ON _setting
+  WHEN $event IN ['CREATE', 'UPDATE']
+   AND ($after.environment = 'dev' OR $before.environment = 'dev')
+  THEN {
+    IF $before.devConsentRelaxed != $after.devConsentRelaxed
+       OR $before.devLegalPlaceholders != $after.devLegalPlaceholders
+       OR $before.environment != $after.environment {
+      fn::fence::legal();
+      LET $people = (SELECT VALUE id FROM user);
+      FOR $u IN $people { fn::fence::bump($u) };
+    };
+    fn::consent::reconcile();
+  };
 
 -- ---------------------------------------------------------------- identities (D13 B, D27 B)
 -- Services sign in as `service` records: service:api_public_read, :api_user, :api_admin,
@@ -167,6 +193,21 @@ DEFINE FUNCTION OVERWRITE fn::person::live($user: option<record<user>>) {
 };
 DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, binding changes
   WHEN $event IN ['CREATE', 'UPDATE'] THEN { fn::fence::bump($after.id) };
+-- Some consent checks also read state no person owns: which consent form versions are published
+-- (D84). A grant must be on the version in force, and a new draft or a submission needs the
+-- sign-up version in force accepted and no newer testimony version requiring acceptance for new
+-- submissions (fn::consent::may_draft). Either can pass its check on a snapshot from before a
+-- publication. So every form-version write, every consent event, every new story and every
+-- submission also write legalFence:forms: of two overlapping transactions the second to commit
+-- fails with a retryable conflict, as with personFence. One record for everyone, so unrelated
+-- people's grants, new drafts and submissions can conflict too and retry (fine at our volume).
+-- Edits, approvals and publication don't write it: what they check (consent on any version that
+-- counts) no form-version write can change (D93).
+DEFINE TABLE OVERWRITE legalFence SCHEMAFULL PERMISSIONS NONE;    -- id = legalFence:forms
+DEFINE FIELD OVERWRITE n ON legalFence TYPE int DEFAULT 0;
+DEFINE FUNCTION OVERWRITE fn::fence::legal() {
+  UPSERT legalFence:forms SET n += 1 RETURN NONE;
+};
 
 -- ---------------------------------------------------------------- tag
 DEFINE TABLE OVERWRITE tag SCHEMAFULL PERMISSIONS               -- id = tag:<slug>, e.g. tag:doubt
@@ -188,7 +229,7 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
   FOR select WHERE submitter = $auth.id OR $auth.id IN [service:api_admin, service:workflow],
   FOR create WHERE submitter = $auth.id AND status = 'draft'                -- own draft only,
     AND $auth.gdprDeletedAt = NONE                                          -- not erased, and only
-    AND fn::consent::granted(submitter, ['special_category_religious']),    -- with current Art 9 consent
+    AND fn::consent::may_draft(submitter),         -- with Art 9 consent on the forms in force (D93)
   FOR update WHERE (submitter = $auth.id AND $auth.gdprDeletedAt = NONE)
     OR $auth.id IN [service:api_admin, service:workflow],
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
@@ -292,8 +333,10 @@ DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 -- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary, with the same
 -- rule (and adds them to $mediaFields in fn::story::shape_problem).
--- D17: consent is per person; a story derives it from its submitter's current ledger state.
--- Not stored, so it can't drift: withdrawing or re-consenting changes every story at once.
+-- D17, D86: consent is per person; a story derives it from its submitter's current ledger state.
+-- Not stored, so it can't drift: withdrawing or re-consenting changes every story at once. No
+-- story holds a consent or form version: the ledger's history and submittedAt show which version
+-- the person was on when they submitted.
 -- Uses the record's own `submitter`, never $parent (see the 3.2.4 gotchas at the top).
 DEFINE FIELD OVERWRITE consent ON story COMPUTED {
   religious: fn::consent::current(submitter, 'special_category_religious'),
@@ -447,8 +490,12 @@ DEFINE EVENT OVERWRITE story_owner_transitions ON story
          OR $after.status = 'withdrawn')
   THEN { THROW 'status change not allowed for the story owner' };
 -- Consent at every step that processes testimony (D17, D21; the API plan's flagged routes):
---   create, edit, upload, media processing -> current Art 9 consent (create: table permission);
---   submit (-> pending) and approve (-> approved) -> Art 9 + publish + age_18plus.
+--   edit, upload, media processing -> Art 9 consent that counts, on any version (D93);
+--   create (table permission) and submit (-> pending): something new, so the forms in force too:
+--     the sign-up version in force accepted (18+ is there only, D93) and no newer testimony
+--     version requiring acceptance for new submissions (fn::consent::may_draft, may_submit);
+--   approve (-> approved) and publishing -> Art 9 + publish + 18+ that count, on any version
+--     (fn::consent::publishable): no form version ever takes a story off the site (D93).
 -- Checked against the story's SUBMITTER whoever writes (person, workflow, api-admin), not $auth.
 -- Withdrawing (-> withdrawn, content unchanged) and erasure (DELETE) need none.
 DEFINE EVENT OVERWRITE story_consent ON story
@@ -459,8 +506,8 @@ DEFINE EVENT OVERWRITE story_consent ON story
       THROW 'changing a story’s content or media needs the submitter’s current Art 9 consent';
     };
     IF $after.submitter = $auth AND $after.status = 'pending' AND $before.status != 'pending'
-       AND !fn::consent::granted($after.submitter, ['special_category_religious', 'publish', 'age_18plus']) {
-      THROW 'submitting a story needs current Art 9, publish and age consent';
+       AND !fn::consent::may_submit($after.submitter) {
+      THROW 'submitting a story needs current Art 9 and publish consent on the testimony form in force, and the sign-up form in force (18+)';
     };
   };
 DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever approves (system users too)
@@ -517,13 +564,75 @@ DEFINE FUNCTION OVERWRITE fn::story::shows_reviewed_media($identity: string, $th
 DEFINE FUNCTION OVERWRITE fn::story::thumbnails($s: any) {
   RETURN ($s.media ?? []).map(|$m| $m.thumbnailPath);
 };
+-- Hides a public story (Joel, 2026-10-23): deletes its publicStory row and keeps what
+-- re-publishing needs in hiddenStory, in the caller's transaction, with a HideStory audit row.
+-- $reason: media_unavailable, media_changed or consent_required (dev's switches turned off,
+-- fn::consent::reconcile). Called by events only (they
+-- run elevated). Nothing to do if the story isn't public.
+DEFINE FUNCTION OVERWRITE fn::story::hide($story: record<story>, $reason: string) {
+  LET $public = type::record('publicStory', record::id($story));
+  LET $hidden = type::record('hiddenStory', record::id($story));
+  LET $row = (SELECT * FROM ONLY $public);
+  IF $row = NONE { RETURN NONE };
+  DELETE $public;
+  DELETE $hidden;
+  CREATE $hidden CONTENT {
+    publishedAt: $row.publishedAt, slugHistory: $row.slugHistory,
+    identity: fn::story::media_identity($row), thumbnails: fn::story::thumbnails($row)
+  } RETURN NONE;
+  CREATE auditLog CONTENT {
+    service: fn::audit::service(), action: 'HideStory', entity: $story,
+    storyVersion: (SELECT VALUE version FROM ONLY $story), fromStatus: 'approved',
+    toStatus: 'approved', reason: $reason
+  };
+};
+-- Brings a hidden story back once nothing keeps it hidden: still approved, its media ready and
+-- still what was reviewed, and its uploader's consent counts (D17, D86). The same write
+-- re-creates the publicStory row with its first publishedAt and its slugHistory, and deletes
+-- hiddenStory; no new approval. $reason: media_restored or consent_restored. Returns whether it
+-- did. Called by events only.
+DEFINE FUNCTION OVERWRITE fn::story::restore($story: record<story>, $reason: string) {
+  LET $public = type::record('publicStory', record::id($story));
+  LET $hidden = type::record('hiddenStory', record::id($story));
+  LET $h = (SELECT * FROM ONLY $hidden);
+  LET $s = (SELECT * FROM ONLY $story);
+  IF $h = NONE OR $s = NONE OR $s.status != 'approved' OR record::exists($public)
+    OR fn::story::approval_problem($s) != NONE
+    OR !fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s)
+    -- Consent rules publishing (D17): until it counts, the story stays hidden (in dev, the next
+    -- migration brings it back once it does: fn::consent::reconcile).
+    OR !fn::consent::publishable($s.submitter) {
+    RETURN false;
+  };
+  DELETE $hidden;
+  CREATE $public CONTENT {
+    version: $s.version, slug: $s.slug, slugHistory: $h.slugHistory,
+    title: $s.title, description: $s.description, body: $s.body,
+    bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
+    tagRefs: $s.tagRefs, publishedAt: $h.publishedAt,
+    image: IF $s.image != NONE { { path: $s.image.path, width: $s.image.width,
+      height: $s.image.height, alt: $s.image.alt } },
+    media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
+      thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height })
+  } RETURN NONE;
+  CREATE auditLog CONTENT {
+    service: fn::audit::service(), action: 'RepublishStory', entity: $story,
+    storyVersion: $s.version, fromStatus: 'approved', toStatus: 'approved', reason: $reason
+  };
+  RETURN true;
+};
+-- Which service a database-made audit row names: the writer's session.
+DEFINE FUNCTION OVERWRITE fn::audit::service() {
+  RETURN IF $auth = NONE { 'migrator' }
+    ELSE IF $auth = service:api_admin { 'api-admin' }
+    ELSE IF $auth = service:workflow { 'workflow' }
+    ELSE { 'api-user' };
+};
 DEFINE EVENT OVERWRITE story_media_availability ON story
   WHEN $event = 'UPDATE' AND $before.status = 'approved'
   THEN {
     LET $public = type::record('publicStory', record::id($after.id));
     LET $hidden = type::record('hiddenStory', record::id($after.id));
-    LET $service = IF $auth = NONE { 'migrator' }
-      ELSE IF $auth = service:api_admin { 'api-admin' } ELSE { 'workflow' };
     IF $after.status != 'approved' {
       -- Left approved (withdrawn): nothing is hidden any more.
       DELETE $hidden;
@@ -533,47 +642,15 @@ DEFINE EVENT OVERWRITE story_media_availability ON story
       -- Only what is public gets hidden (and so restored): a story that wasn't public (consent
       -- withdrawn) is never published by a media fix. A marker left from an earlier hide never
       -- stops this one (Codex, #61): it is replaced by what is public now.
-      LET $row = (SELECT * FROM ONLY $public);
-      LET $reason = IF fn::story::approval_problem($after) != NONE { 'media_unavailable' }
-        ELSE { 'media_changed' };
-      DELETE $public;
-      DELETE $hidden;
-      CREATE $hidden CONTENT {
-        publishedAt: $row.publishedAt, slugHistory: $row.slugHistory,
-        identity: fn::story::media_identity($row), thumbnails: fn::story::thumbnails($row)
-      } RETURN NONE;
-      CREATE auditLog CONTENT {
-        service: $service, action: 'HideStory', entity: $after.id, storyVersion: $after.version,
-        fromStatus: 'approved', toStatus: 'approved', reason: $reason
-      };
-    } ELSE IF record::exists($hidden) AND fn::story::approval_problem($after) = NONE
-      AND fn::story::shows_reviewed_media($hidden.identity, $hidden.thumbnails, $after) {
-      LET $h = (SELECT * FROM ONLY $hidden);
-      DELETE $hidden;
-      -- Consent rules publishing (D17): withdrawn meanwhile, the story stays off the read model.
-      IF fn::consent::granted($after.submitter, ['special_category_religious', 'publish', 'age_18plus'])
-         AND !record::exists($public) {
-        CREATE $public CONTENT {
-          version: $after.version, slug: $after.slug, slugHistory: $h.slugHistory,
-          title: $after.title, description: $after.description, body: $after.body,
-          bylineName: $after.bylineName, primaryFormat: $after.primaryFormat,
-          tagRefs: $after.tagRefs, publishedAt: $h.publishedAt,
-          image: IF $after.image != NONE { { path: $after.image.path, width: $after.image.width,
-            height: $after.image.height, alt: $after.image.alt } },
-          media: $after.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
-            thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height })
-        } RETURN NONE;
-        CREATE auditLog CONTENT {
-          service: $service, action: 'RepublishStory', entity: $after.id,
-          storyVersion: $after.version, fromStatus: 'approved', toStatus: 'approved',
-          reason: 'media_restored'
-        };
-      };
+      fn::story::hide($after.id, IF fn::story::approval_problem($after) != NONE
+        { 'media_unavailable' } ELSE { 'media_changed' });
+    } ELSE IF record::exists($hidden) {
+      fn::story::restore($after.id, 'media_restored');
     };
   };
 DEFINE EVENT OVERWRITE story_approval_consent ON story
   WHEN $event IN ['CREATE', 'UPDATE'] AND $after.status = 'approved' AND $before.status != 'approved'
-   AND !fn::consent::granted($after.submitter, ['special_category_religious', 'publish', 'age_18plus'])
+   AND !fn::consent::publishable($after.submitter)
   THEN { THROW 'approving a story needs the submitter’s current Art 9, publish and age consent' };
 -- Erasure: api-user's login may delete stories but can't read them, so it can't find their
 -- read-model rows or reviews (both are reached through story.submitter). Deleting a story
@@ -582,6 +659,10 @@ DEFINE EVENT OVERWRITE story_fence ON story                       -- create, edi
   WHEN true THEN {
     IF $event = 'DELETE' { fn::fence::bump($before.submitter) }   -- erasure: no live check
     ELSE { fn::person::live($after.submitter) };
+    -- A new draft and a submission check the forms in force (legalFence).
+    IF $event = 'CREATE' OR ($event = 'UPDATE' AND $after.status = 'pending' AND $before.status != 'pending') {
+      fn::fence::legal();
+    };
   };
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
   WHEN $event = 'DELETE'
@@ -673,7 +754,7 @@ DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
        != [$s.image.path, $s.image.width, $s.image.height, $s.image.alt] {
       THROW 'publicStory must mirror the approved story’s content';
     };
-    IF !fn::consent::granted($s.submitter, ['special_category_religious', 'publish', 'age_18plus']) {
+    IF !fn::consent::publishable($s.submitter) {
       THROW 'publishing needs the submitter’s current Art 9, publish and age consent';
     };
   };
@@ -715,9 +796,12 @@ DEFINE INDEX OVERWRITE publicStory_fts      ON publicStory FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
 
 -- ---------------------------------------------------------------- hiddenStory (Joel, 2026-10-23)
--- An approved story hidden because its media isn't ready (story_media_availability). Same id as
--- the story (hiddenStory:<ulid>). Keeps what re-publishing needs: the deleted row's publishedAt
--- and slugHistory, and the identity of its media. A table of its own, not a story field, so
+-- An approved story hidden because its media isn't ready (story_media_availability), or, in dev
+-- only, because D48's or D75's switch was turned off and its uploader's consent no longer counts
+-- (fn::consent::reconcile; never because of a form version, D93). It comes back on its own once
+-- its media is ready and their consent counts (fn::story::restore). Same id as the story
+-- (hiddenStory:<ulid>). Keeps what re-publishing needs: the deleted row's publishedAt and
+-- slugHistory, and the identity of its media. A table of its own, not a story field, so
 -- hiding and restoring add no story write (D29: one version step per command). Written by the
 -- event only (events run elevated); erasure deletes it with the story.
 DEFINE TABLE OVERWRITE hiddenStory SCHEMAFULL PERMISSIONS
@@ -740,9 +824,10 @@ DEFINE EVENT OVERWRITE hiddenStory_fence ON hiddenStory          -- hide, restor
     };
   };
 -- For api-admin (someone chases Bunny): approved stories hidden because of their media, oldest
--- first. problem = what's still not ready (NONE once ready); mediaChanged = the media differs from
--- what was public, so it needs a moderator rather than Bunny. Runs with the caller's permissions
--- (only api-admin and workflow read hiddenStory).
+-- first. problem = what's still not ready; mediaChanged = the media differs from what was
+-- public, so it needs a moderator rather than Bunny. A story whose media is fine is only waiting
+-- for its uploader's consent (dev's switches), so it isn't listed. Runs with the caller's permissions (only
+-- api-admin and workflow read hiddenStory).
 DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
   LET $hidden = (SELECT since, identity, thumbnails, type::record('story', record::id(id)) AS story
     FROM hiddenStory ORDER BY since ASC);
@@ -753,7 +838,7 @@ DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
         hiddenSince: $h.since, problem: fn::story::approval_problem($s),
         mediaChanged: !fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s) }
     };
-  }).filter(|$r| $r != NONE);
+  }).filter(|$r| $r != NONE AND ($r.problem != NONE OR $r.mediaChanged));
 };
 
 -- ---------------------------------------------------------------- dpaVersion (D20)
@@ -779,6 +864,229 @@ DEFINE FIELD OVERWRITE createdAt     ON dpaVersion TYPE datetime VALUE $before O
 DEFINE EVENT OVERWRITE dpa_immutable ON dpaVersion
   WHEN $event IN ['UPDATE', 'DELETE'] AND $before.status = 'published'
   THEN { THROW 'published DPA versions are immutable' };
+-- The document's words, copied from libs/legal/dpa/<id>.md by dpa-sync.surql (D84): what a
+-- person read is kept beside the ledger, and api-public-read serves it. NONE on a version
+-- published before the copy existed (published versions are frozen).
+DEFINE FIELD OVERWRITE text          ON dpaVersion TYPE option<string>;
+-- D75: the dev-only placeholder privacy document (libs/legal/dpa/dev_placeholder.md). Refused
+-- unless dev's placeholder setting is on, and it (with every form version linking it) counts only
+-- while that setting is on (fn::legal::counts): restored into another environment, it doesn't.
+DEFINE FIELD OVERWRITE devPlaceholder ON dpaVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE EVENT OVERWRITE dpa_dev_placeholder ON dpaVersion
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.devPlaceholder = true AND !fn::legal::dev_placeholders()
+  THEN { THROW 'the placeholder privacy document is for dev only (D75)' };
+-- D75: whether dev's placeholder privacy document and forms count. Read from the settings row
+-- (never a param: see the gotchas at the top), like fn::consent::relaxed.
+DEFINE FUNCTION OVERWRITE fn::legal::dev_placeholders() {
+  LET $s = (SELECT devLegalPlaceholders, environment FROM ONLY _setting:consent);
+  RETURN $s.devLegalPlaceholders = true AND $s.environment = 'dev';
+};
+-- Whether a privacy document version counts: published (D20), and not a dev placeholder outside
+-- dev (D75). Runs with the caller's permissions (everyone reads published versions).
+DEFINE FUNCTION OVERWRITE fn::legal::counts($dpa: option<record<dpaVersion>>) {
+  IF $dpa = NONE { RETURN false };
+  LET $d = (SELECT status, devPlaceholder FROM ONLY $dpa);
+  RETURN $d.status = 'published' AND ($d.devPlaceholder != true OR fn::legal::dev_placeholders());
+};
+-- The privacy document in force: the newest (by effectiveFrom, else createdAt, then createdAt,
+-- then id) published standard version that counts and is already in effect; NONE while there
+-- is none (D20). GET /v1/legal/dpa serves it.
+DEFINE FUNCTION OVERWRITE fn::legal::dpa_in_force() {
+  LET $rows = (SELECT id, effectiveFrom ?? createdAt AS since, createdAt FROM dpaVersion
+    WHERE status = 'published' AND kind = 'standard'
+      AND (effectiveFrom = NONE OR effectiveFrom <= time::now())
+    ORDER BY since ASC, createdAt ASC, id ASC);
+  RETURN array::last($rows.filter(|$d| fn::legal::counts($d.id))).id;
+};
+
+-- ---------------------------------------------------------------- consent forms (D73, D74, D84, D93)
+-- Every version of the three forms a person ticks. id = <table>:v1, the version.
+--   signupFormVersion: after Clerk's sign-up (D73): "I am 18 or over" and "store my account and
+--     favourites" (account_data). 18+ is asked here only (D93): testimony relies on it.
+--   testimonyFormVersion: Art 9 at the start of a draft (D67), and publishing on heisreal.today
+--     at submit (when the version covers it). Nothing about other sites.
+--   socialSharingFormVersion: optional, separate (D93): may the media team also share the story
+--     beyond heisreal.today, where, and how. One feature column per platform or use; a platform
+--     or use no column lists is not allowed, and one added later needs a new version people opt
+--     into (the early-adopter rule).
+-- Three tables, not one with a kind column: each has columns the others must not carry.
+-- An older published or retired version keeps counting for everything it covered (D93): a new
+-- version only gates what it adds, checked against the version the person agreed to (D85, D86).
+-- No form version ever takes a story off the site.
+-- Text: libs/legal/forms/<signup|testimony|social>/<id>.md. form-sync.surql copies its words
+-- (text) and OpenTofu's sha256 of the file (textHash) into the row on every migration, as
+-- dpa-sync does for the DPA. Lifecycle (fn::form::check_change): draft (follows its file) ->
+-- published (frozen; needs its text and a privacy document that counts) -> retired (no new
+-- grants; still counts for its grants). Never deleted once published: the ledger points at it.
+DEFINE TABLE OVERWRITE signupFormVersion SCHEMAFULL PERMISSIONS
+  FOR select WHERE status != 'draft' OR $auth.id = service:api_admin,
+  FOR create, update, delete WHERE $auth.id = service:api_admin;
+DEFINE FIELD OVERWRITE status      ON signupFormVersion TYPE string DEFAULT 'draft'
+  ASSERT $value IN ['draft', 'published', 'retired'];
+DEFINE FIELD OVERWRITE textRef     ON signupFormVersion TYPE string;   -- libs/legal/forms/signup/v1.md
+DEFINE FIELD OVERWRITE textHash    ON signupFormVersion TYPE string ASSERT string::len($value) = 64;
+DEFINE FIELD OVERWRITE text        ON signupFormVersion TYPE option<string>;
+DEFINE FIELD OVERWRITE dpaVersion  ON signupFormVersion TYPE record<dpaVersion>;
+DEFINE FIELD OVERWRITE publishedAt ON signupFormVersion TYPE option<datetime>   -- set by the server
+  VALUE IF $this.status != 'draft' { $before OR time::now() } ELSE { NONE };
+DEFINE FIELD OVERWRITE version     ON signupFormVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
+DEFINE FIELD OVERWRITE createdAt   ON signupFormVersion TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE EVENT OVERWRITE signupFormVersion_lifecycle ON signupFormVersion
+  WHEN true THEN { fn::form::check_change($event, $before, $after); fn::fence::legal() };
+
+DEFINE TABLE OVERWRITE testimonyFormVersion SCHEMAFULL PERMISSIONS
+  FOR select WHERE status != 'draft' OR $auth.id = service:api_admin,
+  FOR create, update, delete WHERE $auth.id = service:api_admin;
+DEFINE FIELD OVERWRITE status      ON testimonyFormVersion TYPE string DEFAULT 'draft'
+  ASSERT $value IN ['draft', 'published', 'retired'];
+DEFINE FIELD OVERWRITE textRef     ON testimonyFormVersion TYPE string;   -- libs/legal/forms/testimony/v1.md
+DEFINE FIELD OVERWRITE textHash    ON testimonyFormVersion TYPE string ASSERT string::len($value) = 64;
+DEFINE FIELD OVERWRITE text        ON testimonyFormVersion TYPE option<string>;
+DEFINE FIELD OVERWRITE dpaVersion  ON testimonyFormVersion TYPE record<dpaVersion>;
+DEFINE FIELD OVERWRITE publishedAt ON testimonyFormVersion TYPE option<datetime>
+  VALUE IF $this.status != 'draft' { $before OR time::now() } ELSE { NONE };
+DEFINE FIELD OVERWRITE version     ON testimonyFormVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
+DEFINE FIELD OVERWRITE createdAt   ON testimonyFormVersion TYPE datetime VALUE $before OR time::now() READONLY;
+-- D93: once this version is published, people whose testimony version is older must accept it
+-- before starting a new draft or submitting (fn::consent::may_draft). It changes nothing else:
+-- their existing stories stay public and their older grants keep counting. The D85 banner
+-- shows it (fn::consent::testimony_status). Named for exactly what it gates, so nobody reads it
+-- as "existing consent stops counting".
+DEFINE FIELD OVERWRITE requiresAcceptanceForNewSubmissions ON testimonyFormVersion TYPE bool DEFAULT false;
+-- The form asks to publish on heisreal.today: only then is `publish` one of its statements.
+DEFINE FIELD OVERWRITE coversPublicPublishing ON testimonyFormVersion TYPE bool DEFAULT false;
+-- D71: untouched drafts are deleted after this many months (the form says so).
+DEFINE FIELD OVERWRITE draftRetentionMonths   ON testimonyFormVersion TYPE int
+  ASSERT $value > 0 AND $value <= 120;
+DEFINE EVENT OVERWRITE testimonyFormVersion_lifecycle ON testimonyFormVersion
+  WHEN true THEN { fn::form::check_change($event, $before, $after); fn::fence::legal() };
+
+DEFINE TABLE OVERWRITE socialSharingFormVersion SCHEMAFULL PERMISSIONS
+  FOR select WHERE status != 'draft' OR $auth.id = service:api_admin,
+  FOR create, update, delete WHERE $auth.id = service:api_admin;
+DEFINE FIELD OVERWRITE status      ON socialSharingFormVersion TYPE string DEFAULT 'draft'
+  ASSERT $value IN ['draft', 'published', 'retired'];
+DEFINE FIELD OVERWRITE textRef     ON socialSharingFormVersion TYPE string;   -- libs/legal/forms/social/v1.md
+DEFINE FIELD OVERWRITE textHash    ON socialSharingFormVersion TYPE string ASSERT string::len($value) = 64;
+DEFINE FIELD OVERWRITE text        ON socialSharingFormVersion TYPE option<string>;
+DEFINE FIELD OVERWRITE dpaVersion  ON socialSharingFormVersion TYPE record<dpaVersion>;
+DEFINE FIELD OVERWRITE publishedAt ON socialSharingFormVersion TYPE option<datetime>
+  VALUE IF $this.status != 'draft' { $before OR time::now() } ELSE { NONE };
+DEFINE FIELD OVERWRITE version     ON socialSharingFormVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
+DEFINE FIELD OVERWRITE createdAt   ON socialSharingFormVersion TYPE datetime VALUE $before OR time::now() READONLY;
+-- The feature columns (D84, D93), read by fn::consent::may_share. Each must match what the
+-- version's words name. DEFAULT ALWAYS false: a column added later reads NONE on every older
+-- version (so "no"), and retiring such a version fills it with false instead of failing (3.2.4:
+-- a plain DEFAULT isn't applied when an older row is updated, and the update fails).
+--   share<Platform>: the media team may post the story on that platform's He Is Real Today
+--     accounts.
+DEFINE FIELD OVERWRITE shareYouTube   ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE FIELD OVERWRITE shareInstagram ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE FIELD OVERWRITE shareTikTok    ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE FIELD OVERWRITE shareFacebook  ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false;
+--   allow<Use>: what the media team may do with it, wherever it's shared:
+--     EditingAndClipping: shorter clips, still images, captions, subtitles and translations;
+--     ChurchAndPartnerMedia: give it to partner churches and ministries for their own media;
+--     PrintAndEvents: show it at events and services, and in printed material;
+--     PaidPromotion: use it in paid adverts promoting He Is Real Today.
+DEFINE FIELD OVERWRITE allowEditingAndClipping    ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE FIELD OVERWRITE allowChurchAndPartnerMedia ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE FIELD OVERWRITE allowPrintAndEvents        ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE FIELD OVERWRITE allowPaidPromotion         ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE EVENT OVERWRITE socialSharingFormVersion_lifecycle ON socialSharingFormVersion
+  WHEN true THEN { fn::form::check_change($event, $before, $after); fn::fence::legal() };
+
+-- The lifecycle of a form version, for the three tables. Events fire for every writer, system
+-- users included (who could still REMOVE EVENT; see D13). Every write also bumps legalFence
+-- (the events above), so a grant or a new draft can't commit on a snapshot from before it.
+DEFINE FUNCTION OVERWRITE fn::form::check_change($event: string, $before: any, $after: any) {
+  IF $event = 'DELETE' {
+    IF $before.status != 'draft' {
+      THROW 'a published form version is kept: the consent ledger points at it (retire it instead)';
+    };
+  } ELSE {
+    IF $event = 'CREATE' AND $after.status = 'retired' {
+      THROW 'only a published form version can be retired';
+    };
+    IF $event = 'UPDATE' AND $before.status != 'draft' {
+      IF $after.status != $before.status AND !($before.status = 'published' AND $after.status = 'retired') {
+        THROW 'a published form version can only be retired';
+      };
+      -- Frozen (D84): nothing but the status (and D29's counter) changes. A column added after
+      -- publishing goes from NONE to its default false, which isn't a change.
+      LET $keys = array::union(object::keys($before), object::keys($after))
+        .filter(|$k| $k NOT IN ['status', 'version']);
+      IF $keys.any(|$k| $after[$k] != $before[$k] AND !($before[$k] = NONE AND $after[$k] = false)) {
+        THROW 'published form versions are frozen: publish a new version instead';
+      };
+    };
+    IF $after.status != 'draft' AND ($event = 'CREATE' OR $before.status = 'draft') {
+      IF $after.text = NONE OR crypto::sha256($after.text) != $after.textHash {
+        THROW 'a form version is published with its text, matching its textHash';
+      };
+      IF !fn::legal::counts($after.dpaVersion) {
+        THROW 'a form version links a published privacy document (D20; a dev placeholder in dev only, D75)';
+      };
+    };
+  };
+};
+-- Whether a form version counts: published or retired, linking a privacy document that counts.
+DEFINE FUNCTION OVERWRITE fn::form::counts($form: any) {
+  IF $form = NONE { RETURN false };
+  LET $f = (SELECT status, dpaVersion FROM ONLY $form);
+  RETURN $f.status IN ['published', 'retired'] AND fn::legal::counts($f.dpaVersion);
+};
+-- The version in force of one form ('signup', 'testimony' or 'social'): the newest published
+-- version that counts, by publishedAt then id; NONE while there is none. The only one a grant
+-- may use.
+DEFINE FUNCTION OVERWRITE fn::form::latest($kind: string) {
+  LET $rows = IF $kind = 'signup' {
+    (SELECT * FROM signupFormVersion WHERE status = 'published' ORDER BY publishedAt ASC, id ASC)
+  } ELSE IF $kind = 'testimony' {
+    (SELECT * FROM testimonyFormVersion WHERE status = 'published' ORDER BY publishedAt ASC, id ASC)
+  } ELSE IF $kind = 'social' {
+    (SELECT * FROM socialSharingFormVersion WHERE status = 'published' ORDER BY publishedAt ASC, id ASC)
+  } ELSE { [] };
+  RETURN array::last($rows.filter(|$f| fn::legal::counts($f.dpaVersion)));
+};
+-- The statements a form can ever have, by its table (D93, D109): 18+ and account_data on the
+-- sign-up form only; Art 9 and publish on the testimony form; share_socials on the social
+-- sharing form. No ledger row, grant or withdrawal, may pair a statement with another form's
+-- version (consent_form): testimony is implicitly adult through the account's sign-up consent.
+DEFINE FUNCTION OVERWRITE fn::form::kind_statements($form: any) {
+  IF $form = NONE { RETURN [] };
+  IF record::tb($form) = 'signupFormVersion' { RETURN ['age_18plus', 'account_data'] };
+  IF record::tb($form) = 'testimonyFormVersion' { RETURN ['special_category_religious', 'publish'] };
+  IF record::tb($form) = 'socialSharingFormVersion' { RETURN ['share_socials'] };
+  RETURN [];
+};
+-- The statements (boxes) one form version has, each one consent type (D93): its form's
+-- (fn::form::kind_statements), except that a testimony version has `publish` only if it covers
+-- publishing on heisreal.today. A grant only counts for a statement its version has
+-- (fn::consent::valid).
+DEFINE FUNCTION OVERWRITE fn::form::statements($form: any) {
+  IF $form = NONE { RETURN [] };
+  IF record::tb($form) = 'signupFormVersion' { RETURN ['age_18plus', 'account_data'] };
+  IF record::tb($form) = 'testimonyFormVersion' {
+    RETURN array::concat(['special_category_religious'],
+      IF (SELECT VALUE coversPublicPublishing FROM ONLY $form) = true { ['publish'] } ELSE { [] });
+  };
+  IF record::tb($form) = 'socialSharingFormVersion' { RETURN ['share_socials'] };
+  RETURN [];
+};
+-- D93: whether a person whose testimony version is $form (NONE: a grant from before forms) must
+-- accept the version in force before a new draft or submission: theirs isn't the one in force,
+-- and a version requiring acceptance for new submissions, that counts, was published after
+-- theirs (published or since retired: it was in force, so everyone on an older version had to
+-- accept it or a later one; accepting the one in force always settles it).
+DEFINE FUNCTION OVERWRITE fn::form::requires_acceptance($form: any) {
+  IF $form != NONE AND $form = fn::form::latest('testimony').id { RETURN false };
+  LET $since = IF $form = NONE { NONE } ELSE { (SELECT VALUE publishedAt FROM ONLY $form) };
+  LET $later = (SELECT VALUE id FROM testimonyFormVersion
+    WHERE status IN ['published', 'retired'] AND requiresAcceptanceForNewSubmissions = true
+      AND ($since = NONE OR publishedAt > $since));
+  RETURN $later.any(|$t| fn::form::counts($t));
+};
 
 -- ---------------------------------------------------------------- consent ledger (append-only)
 -- Per person only (D17), no cache on user (D18), no IP address (D19).
@@ -787,9 +1095,12 @@ DEFINE TABLE OVERWRITE consent SCHEMAFULL PERMISSIONS
   FOR create WHERE subject = $auth.id AND $auth.gdprDeletedAt = NONE,  -- only in the person's own session
   FOR update, delete NONE;                                              -- plus the append-only event
 DEFINE FIELD OVERWRITE subject      ON consent TYPE record<user> REFERENCE;  -- user:x<~consent lists a person's events
-DEFINE FIELD OVERWRITE type         ON consent TYPE string
-  ASSERT $value IN ['special_category_religious', 'publish', 'share_socials', 'age_18plus'];
+DEFINE FIELD OVERWRITE type         ON consent TYPE string   -- the statement (box) ticked
+  ASSERT $value IN ['special_category_religious', 'publish', 'share_socials', 'age_18plus', 'account_data'];
 DEFINE FIELD OVERWRITE dpaVersion   ON consent TYPE record<dpaVersion>;
+-- D84: the form version the person saw (its statement is `type`). NONE only on rows from before
+-- forms (evidence v1), on legacy imports, and on a withdrawal of such a grant (consent_form).
+DEFINE FIELD OVERWRITE form         ON consent TYPE option<record<signupFormVersion | testimonyFormVersion | socialSharingFormVersion>>;
 DEFINE FIELD OVERWRITE event        ON consent TYPE string ASSERT $value IN ['granted', 'withdrawn'];
 DEFINE FIELD OVERWRITE mechanism    ON consent TYPE string
   ASSERT $value IN ['web_form_submission', 'account_settings', 'reconsent_prompt', 'legacy_import'];
@@ -801,22 +1112,126 @@ DEFINE INDEX OVERWRITE consent_latest ON consent FIELDS subject, type, occurredA
 -- events of one type (a handful of rows); array::last avoids the LIMIT bug above.
 DEFINE FUNCTION OVERWRITE fn::consent::current($user: option<record<user>>, $type: string) {
   IF $user = NONE { RETURN NONE };
-  RETURN array::last((SELECT event, dpaVersion, occurredAt FROM consent
+  RETURN array::last((SELECT type, event, dpaVersion, form, occurredAt FROM consent
     WHERE subject = $user AND type = $type ORDER BY occurredAt ASC));
 };
+-- D84, D93: whether a latest ledger event ($c, from fn::consent::current) is a grant that counts:
+-- on a form version that counts (published or retired, its privacy document counting) and that
+-- has this statement. A version never stops counting because a newer one is published: it still
+-- covers what it covered. No form: a v1 row from before forms, or a legacy import: counts.
+-- The statement check is defence in depth: consent_form refuses a row pairing a statement with
+-- another form's version (D109), so a grant of 18+ counts only from the sign-up form.
+DEFINE FUNCTION OVERWRITE fn::consent::valid($c: any) {
+  IF $c.event != 'granted' { RETURN false };
+  IF $c.form = NONE { RETURN true };
+  RETURN $c.type IN fn::form::statements($c.form) AND fn::form::counts($c.form);
+};
 -- D48: whether consent checks are relaxed (dev only; see _setting). The one switch: every
--- consent gate goes through fn::consent::granted below, and so does libs/consent's guard.
+-- consent gate goes through fn::consent::granted below (or checks it first), and so does
+-- libs/consent's guard.
 DEFINE FUNCTION OVERWRITE fn::consent::relaxed() {
   LET $s = (SELECT devConsentRelaxed, environment FROM ONLY _setting:consent);
   RETURN $s.devConsentRelaxed = true AND $s.environment = 'dev';
 };
--- Whether every listed consent type is currently granted. Runs with the caller's permissions:
--- whoever can't read the person's ledger gets false (fail closed). With D48's dev-only switch on,
--- true for any person (the ledger itself, fn::consent::current, is unchanged).
+-- Whether every listed consent type is currently granted, on a form version that counts
+-- (fn::consent::valid). Runs with the caller's permissions: whoever can't read the person's
+-- ledger gets false (fail closed). With D48's dev-only switch on, true for any person (the
+-- ledger itself, fn::consent::current, is unchanged).
 DEFINE FUNCTION OVERWRITE fn::consent::granted($user: option<record<user>>, $types: array<string>) {
   RETURN $user != NONE AND (fn::consent::relaxed()
-    OR array::len(array::filter($types, |$t| fn::consent::current($user, $t).event = 'granted'))
+    OR array::len(array::filter($types, |$t| fn::consent::valid(fn::consent::current($user, $t))))
       = array::len($types));
+};
+-- D73: whether the person has accepted the sign-up form in force: both of its boxes granted on
+-- the latest sign-up version. Sign-in (api-user's account bootstrap) asks for it, and a new
+-- draft or submission needs it (fn::consent::may_draft). Their earlier sign-up grants keep
+-- counting for everything else (D93: 18+ for publishing stays met).
+DEFINE FUNCTION OVERWRITE fn::consent::signup_accepted($user: option<record<user>>) {
+  IF $user = NONE { RETURN false };
+  IF fn::consent::relaxed() { RETURN true };
+  LET $latest = fn::form::latest('signup').id;
+  LET $data = fn::consent::current($user, 'account_data');
+  LET $age = fn::consent::current($user, 'age_18plus');
+  RETURN $latest != NONE AND $data.event = 'granted' AND $data.form = $latest
+    AND $age.event = 'granted' AND $age.form = $latest;
+};
+-- D85: testimony consent is per account. The person's testimony version is the form version of
+-- their current Art 9 grant (given at the start of a draft, D67): accepting a newer version moves
+-- the whole account. NONE without a current grant, or for a grant from before forms. No story
+-- stores a version (D86).
+DEFINE FUNCTION OVERWRITE fn::consent::testimony_version($user: option<record<user>>) {
+  LET $c = fn::consent::current($user, 'special_category_religious');
+  RETURN IF $c.event = 'granted' { $c.form } ELSE { NONE };
+};
+-- D85, D93: what the signed-in banner needs. version: the account's testimony version (above);
+-- latest: the testimony version in force; updateAvailable: a newer one is published that they
+-- haven't accepted; acceptanceRequired: a version requiring acceptance for new submissions came
+-- after theirs, so they must accept the one in force before a new draft or submission (their
+-- stories stay public either way).
+DEFINE FUNCTION OVERWRITE fn::consent::testimony_status($user: option<record<user>>) {
+  LET $mine = fn::consent::testimony_version($user);
+  LET $granted = fn::consent::current($user, 'special_category_religious').event = 'granted';
+  LET $latest = fn::form::latest('testimony').id;
+  RETURN {
+    version: $mine, latest: $latest,
+    updateAvailable: $granted AND $latest != NONE AND $mine != $latest,
+    acceptanceRequired: $granted AND fn::form::requires_acceptance($mine)
+  };
+};
+-- D67, D93: whether the person may start a new draft: Art 9 consent that counts, the sign-up
+-- form in force accepted (18+ lives there), and no newer testimony version requiring acceptance
+-- for new submissions. D48 relaxes it. Story creation writes legalFence (story_fence), so a
+-- form version published meanwhile can't be missed.
+DEFINE FUNCTION OVERWRITE fn::consent::may_draft($user: option<record<user>>) {
+  RETURN $user != NONE AND (fn::consent::relaxed()
+    OR (fn::consent::granted($user, ['special_category_religious'])
+      AND fn::consent::signup_accepted($user)
+      AND !fn::form::requires_acceptance(fn::consent::testimony_version($user))));
+};
+-- D93: submitting is new too: may_draft, and publish consent that counts.
+DEFINE FUNCTION OVERWRITE fn::consent::may_submit($user: option<record<user>>) {
+  RETURN fn::consent::may_draft($user) AND fn::consent::granted($user, ['publish']);
+};
+-- D17, D86, D93: whether a person's stories may be public: their Art 9, publish and 18+ consent
+-- counts, on whichever versions they agreed to. No newer form version changes it; withdrawing
+-- does (WithdrawConsent unpublishes in its own transaction), and so do dev's switches.
+DEFINE FUNCTION OVERWRITE fn::consent::publishable($user: option<record<user>>) {
+  RETURN fn::consent::granted($user, ['special_category_religious', 'publish', 'age_18plus']);
+};
+-- D93: may a person's stories go beyond heisreal.today in this way? $use names a feature
+-- column of the social sharing form: a platform ('shareTikTok', ...) or a use
+-- ('allowEditingAndClipping', ...). Answered from their latest share_socials event: a grant on a
+-- social sharing version that counts, whose column for $use is true. Missing, withdrawn, a
+-- column that version doesn't have (added later: NONE), an unknown or odd name: no. Their
+-- stories must also be publishable on consent that really counts: never relaxed by D48.
+DEFINE FUNCTION OVERWRITE fn::consent::may_share($user: option<record<user>>, $use: string) {
+  IF $user = NONE OR !string::matches($use, '^(share|allow)[A-Z][A-Za-z0-9]*$') { RETURN false };
+  LET $share = fn::consent::current($user, 'share_socials');
+  IF !fn::consent::valid($share) OR $share.form = NONE
+    OR record::tb($share.form) != 'socialSharingFormVersion'
+    OR !fn::consent::valid(fn::consent::current($user, 'special_category_religious'))
+    OR !fn::consent::valid(fn::consent::current($user, 'publish'))
+    OR !fn::consent::valid(fn::consent::current($user, 'age_18plus')) {
+    RETURN false;
+  };
+  RETURN (SELECT * FROM ONLY $share.form)[$use] = true;
+};
+-- A story is shared only while it's public on heisreal.today, and through its uploader (D86).
+DEFINE FUNCTION OVERWRITE fn::story::may_share($story: record<story>, $use: string) {
+  RETURN record::exists(type::record('publicStory', record::id($story)))
+    AND fn::consent::may_share((SELECT VALUE submitter FROM ONLY $story), $use);
+};
+-- Dev only (D48, D75): the switches can take away the basis dev's consent stood on. Run by the
+-- settings event (elevated; it reads every public and hidden story): hides every public story
+-- whose uploader's consent no longer counts, hidden not reverted (as for media, Joel
+-- 2026-10-23), and brings back hidden stories it covers (again). Never run for a form version.
+DEFINE FUNCTION OVERWRITE fn::consent::reconcile() {
+  LET $shown = (SELECT VALUE type::record('story', record::id(id)) FROM publicStory);
+  FOR $s IN $shown {
+    IF !fn::consent::publishable($s.submitter) { fn::story::hide($s, 'consent_required') };
+  };
+  LET $waiting = (SELECT VALUE type::record('story', record::id(id)) FROM hiddenStory);
+  FOR $s IN $waiting { fn::story::restore($s, 'consent_restored') };
 };
 -- Legacy consent (D22) may only be written by the in-cluster migrator (a system user: $auth = NONE).
 DEFINE EVENT OVERWRITE consent_legacy_only_migrator ON consent
@@ -839,6 +1254,11 @@ DEFINE EVENT OVERWRITE consent_withdrawal_unhides ON consent
       DELETE type::record('hiddenStory', record::id($s));
     };
   };
+-- Every consent event writes legalFence: a grant checked against the form version in force
+-- can't commit on a snapshot from before a publication or retirement (consent_form, and the
+-- API's in-transaction check). Nothing is restored on a grant (D93: no form version hides).
+DEFINE EVENT OVERWRITE consent_legal_fence ON consent
+  WHEN $event = 'CREATE' THEN { fn::fence::legal() };
 -- Append-only, with one exit (D38): the nightly retention job, running as the migrator (a
 -- system user, so no record $auth), may delete the rows of a subject erased more than 6 years
 -- ago. 2192d = 6 x 365 days + 2 leap days, so nothing goes early. Nothing else can delete.
@@ -847,6 +1267,36 @@ DEFINE EVENT OVERWRITE consent_append_only ON consent
     OR ($event = 'DELETE' AND !($auth = NONE AND $before.subject.gdprDeletedAt != NONE
                                 AND $before.subject.gdprDeletedAt < time::now() - 2192d))
   THEN { THROW 'consent ledger is append-only (retention pruning: erased > 6 years ago only)' };
+-- D84: a grant names the form version the person saw, which must be published (not a draft or
+-- retired) and count, have that statement, and link the same privacy document. Withdrawals bind
+-- to the form of the grant they withdraw (NONE for a v1 grant: withdrawing is always possible,
+-- Art 7(3)). D109: no row, grant or withdrawal, pairs a statement with another form's version
+-- (fn::form::kind_statements): 18+ is never tied to a testimony or social sharing version, so
+-- every grant it follows was on the sign-up form and withdrawing it always works. Which version
+-- is in force is the API's check (409), as for the DPA (D20).
+DEFINE EVENT OVERWRITE consent_form ON consent
+  WHEN $event = 'CREATE'
+  THEN {
+    IF $after.form = NONE {
+      IF $after.event = 'granted' AND $after.mechanism != 'legacy_import' {
+        THROW 'consent is given on a consent form version (D84)';
+      };
+    } ELSE {
+      IF $after.type NOT IN fn::form::kind_statements($after.form) {
+        THROW 'that statement belongs to another consent form (D93, D109: 18+ is on the sign-up form only)';
+      };
+      IF $after.event = 'granted' AND $after.type NOT IN fn::form::statements($after.form) {
+        THROW 'that statement isn’t on this form version';
+      };
+      IF $after.dpaVersion != (SELECT VALUE dpaVersion FROM ONLY $after.form) {
+        THROW 'consent names the privacy document its form version links';
+      };
+      IF $after.event = 'granted' AND !((SELECT VALUE status FROM ONLY $after.form) = 'published'
+           AND fn::form::counts($after.form)) {
+        THROW 'consent can only be given on a published form version (D84)';
+      };
+    };
+  };
 DEFINE EVENT OVERWRITE consent_published_dpa ON consent
   WHEN $event = 'CREATE' AND $after.dpaVersion.status != 'published'
   THEN { THROW 'consent can only be given against a published DPA version' };  -- D20
@@ -911,13 +1361,15 @@ DEFINE FIELD OVERWRITE fromStatus ON auditLog TYPE option<string>
 DEFINE FIELD OVERWRITE toStatus   ON auditLog TYPE option<string>
   ASSERT $value = NONE OR $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn'];
 DEFINE FIELD OVERWRITE consentType ON auditLog TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['special_category_religious', 'publish', 'share_socials', 'age_18plus'];
+  ASSERT $value = NONE OR $value IN ['special_category_religious', 'publish', 'share_socials', 'age_18plus',
+    'account_data'];
 DEFINE FIELD OVERWRITE dpaVersion ON auditLog TYPE option<record<dpaVersion>>;
 DEFINE FIELD OVERWRITE role       ON auditLog TYPE option<string>         -- AssignRole: the role given
   ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];
 DEFINE FIELD OVERWRITE reason     ON auditLog TYPE option<string>         -- a code, never free text
   ASSERT $value = NONE OR $value IN ['account_deleted', 'consent_withdrawn', 'clerk_user_deleted',  -- D39 erasure callers
-    'media_unavailable', 'media_changed', 'media_restored'];              -- Hide/RepublishStory
+    'media_unavailable', 'media_changed', 'media_restored',               -- Hide/RepublishStory
+    'consent_required', 'consent_restored'];
 DEFINE FIELD OVERWRITE createdAt  ON auditLog TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE INDEX OVERWRITE audit_entity ON auditLog FIELDS entity, createdAt;
 DEFINE EVENT OVERWRITE audit_append_only ON auditLog

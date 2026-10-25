@@ -141,7 +141,9 @@ describe('seed 0003: the dev-only walking-skeleton story', () => {
     );
 
     it('refuses to migrate if the fixture DPA file disappears (as for any DPA)', async () => {
-      const run = await t.runMigration(t.params({ seed_dev_story: true }));
+      const run = await t.runMigration(
+        t.params({ seed_dev_story: true, dpa_sha256: { v1: DPA_V1_SHA256 } }),
+      );
       expect(run.exitCode).not.toBe(0);
       expect(run.output).toContain(
         'dev_seed exists, but libs/legal/dpa/dev_seed.md does not',

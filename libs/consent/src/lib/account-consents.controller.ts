@@ -28,9 +28,11 @@ import type { PersonContext } from './person';
 import { RequiresRole } from '@heisreal/roles';
 import { NoConsentRequired } from './consent.decorators';
 import {
+  CONSENT_FORMS,
   CONSENT_MECHANISMS,
   CONSENT_TYPES,
   type ConsentType,
+  isConsentForm,
   isConsentMechanism,
   isConsentType,
 } from './consent.types';
@@ -42,21 +44,30 @@ export interface CommandResult {
   version: number | null;
 }
 
-const DPA_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const FORM_VERSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export function parseGrantConsent(body: unknown): GrantConsentInput {
   const b = (body ?? {}) as Record<string, unknown>;
   const errors: { pointer: string; message: string }[] = [];
-  if (!isConsentType(b['type'])) {
+  if (!isConsentForm(b['form'])) {
     errors.push({
-      pointer: '/type',
-      message: `one of ${CONSENT_TYPES.join(', ')}`,
+      pointer: '/form',
+      message: `one of ${CONSENT_FORMS.join(', ')}`,
     });
   }
-  if (typeof b['dpaVersion'] !== 'string' || !DPA_ID.test(b['dpaVersion'])) {
+  if (
+    typeof b['formVersion'] !== 'string' ||
+    !FORM_VERSION.test(b['formVersion'])
+  ) {
     errors.push({
-      pointer: '/dpaVersion',
-      message: 'a DPA version id, e.g. v1',
+      pointer: '/formVersion',
+      message: 'the form version shown, e.g. v1',
+    });
+  }
+  if (!isConsentType(b['statement'])) {
+    errors.push({
+      pointer: '/statement',
+      message: `one of ${CONSENT_TYPES.join(', ')}`,
     });
   }
   if (!isConsentMechanism(b['mechanism'])) {
@@ -69,8 +80,9 @@ export function parseGrantConsent(body: unknown): GrantConsentInput {
     throw new BadRequestException({ code: 'validation_failed', errors });
   }
   return {
-    type: b['type'] as ConsentType,
-    dpaVersion: b['dpaVersion'] as string,
+    form: b['form'] as GrantConsentInput['form'],
+    formVersion: b['formVersion'] as string,
+    statement: b['statement'] as ConsentType,
     mechanism: b['mechanism'] as GrantConsentInput['mechanism'],
   };
 }

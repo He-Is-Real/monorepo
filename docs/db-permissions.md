@@ -391,8 +391,9 @@ retried`, on both RocksDB and the in-memory engine.
   outside dev) and removes it otherwise; the identity check and the migrate Job expect it then.
   An EDITOR could `REMOVE EVENT`, the reason D13 removed the per-service system users; accepted
   here because it exists only in dev, which holds only dummy data, and every migration re-applies
-  the full schema. The reset itself refuses unless `_setting:consent` says dev with consent
-  relaxed, so it can't load dummy stories into a database with the real rules.
+  the full schema. The reset itself refuses unless `_setting:consent` says dev and consent forms
+  are published there (dev's placeholders, D75; until the consent forms it required D48's relaxed
+  consent), and it gives the fixture people real ledger consent (item 31).
 - **0003 retired.** Dev no longer sets `seed_dev_story`; the reset deletes 0003's story.
 
 ### M1 step 6a (browse read API)
@@ -418,22 +419,125 @@ retried`, on both RocksDB and the in-memory engine.
   reset the data.
 - No permission changed: api-public-read still reads only `publicStory` and `tag`.
 
+### M2 consent forms (D73, D75, D77, D84, D85, D86, D93)
+
+28. **Three versioned form tables (D84, D93).** `signupFormVersion` (D73: 18+, asked here only,
+    and `account_data`, "store my account and favourites"), `testimonyFormVersion` (D67: Art 9 at
+    the start of a draft; `publish` at submit when the version covers it) and the optional
+    `socialSharingFormVersion` (`share_socials`: sharing beyond heisreal.today), id = the
+    version (`v1`). All three: `status` draft/published/retired, `textRef` + `textHash` + `text`
+    (the words of `libs/legal/forms/<form>/<id>.md`, kept in step by `form-sync.surql` like
+    `dpa-sync.surql`), `dpaVersion`, `publishedAt` (server time). Testimony adds
+    `requiresAcceptanceForNewSubmissions`, `coversPublicPublishing` and `draftRetentionMonths`.
+    Social sharing adds one boolean per platform (`shareYouTube`, `shareInstagram`,
+    `shareTikTok`, `shareFacebook`) and per use (`allowEditingAndClipping`,
+    `allowChurchAndPartnerMedia`, `allowPrintAndEvents`, `allowPaidPromotion`), all
+    `DEFAULT ALWAYS false`: a column added later reads NONE, "no", on older versions, and retiring
+    one still works (a plain `DEFAULT` makes the update fail on 3.2.4). Separate tables: each has
+    columns the others must not carry. `fn::form::check_change` (the lifecycle events): published
+    versions are frozen (only `published → retired`), never deleted (the ledger points at them),
+    and publish only with their text matching `textHash` and a privacy document that counts.
+    Permissions: everyone reads non-drafts (api-public-read serves them; person sessions read them
+    in the gate functions); only api-admin writes (no admin routes yet: dev's versions come from
+    data script 0005).
+29. **The ledger names the form version and statement.** `consent.form` (option, so v1 rows stay
+    valid) and `type` = the statement ticked; new type `account_data`. Event `consent_form`: a
+    grant needs a form version (except the migrator's `legacy_import`) that is published and counts,
+    has that statement (`fn::form::statements`), and links the same `dpaVersion`. A withdrawal binds
+    to the form of the grant it follows (none for a v1 grant), and is never refused for its
+    statement: withdrawing is always possible (Art 7(3)). Which version is in force is the API's
+    `409`, as for the DPA (D20). The evidence hash is `heisreal-consent-evidence/v2` (form,
+    version, text hash, DPA and its hash, statement, event, mechanism), computed in
+    `libs/consent/src/lib/evidence.ts`; v1 rows keep verifying with v1.
+30. **Gate rules (D93: no form version ever hides a story).** `fn::consent::valid`, used by
+    `fn::consent::granted` (so the story permissions and events, the read-model mirror and
+    libs/consent's guard all follow): a grant counts on any published or retired version, whose
+    privacy document counts, that has its statement; a v1 row (no form) counts. A newer version
+    never stops an older grant counting. So publishing (`fn::consent::publishable`: Art 9,
+    publish and 18+) depends only on the person's own ledger and dev's switches, never on which
+    versions are published. Something **new** also needs the forms in force
+    (`fn::consent::may_draft`, `may_submit`; the `story` create permission and `story_consent`):
+    the sign-up version in force accepted (`fn::consent::signup_accepted`, both boxes on it) and no
+    testimony version with `requiresAcceptanceForNewSubmissions` published after the person's
+    (`fn::form::requires_acceptance`; accepting the version in force settles it, even if the
+    requiring version was retired since). Editing a draft, approval and publishing don't. Testimony
+    consent is per account (D85): `fn::consent::testimony_status` gives the account's version (its
+    current Art 9 grant's form) against the one in force, and `acceptanceRequired`, for the
+    signed-in banner. No story stores a consent version (D86). **Statements stay on their form
+    (D109):** `consent_form` refuses any ledger row, grant or withdrawal, that pairs a statement
+    with another form's version (`fn::form::kind_statements`): 18+ and `account_data` only on
+    sign-up versions, Art 9 and `publish` only on testimony versions, `share_socials` only on
+    social sharing versions. No environment holds an older such row: the form tables didn't exist
+    before this change, so nothing needed withdrawing. `fn::consent::valid` checks the statement
+    too, as defence in depth.
+    **Sharing (D93):** `fn::consent::may_share($user, $use)` / `fn::story::may_share($story, $use)`,
+    `$use` a feature column (`share…` or `allow…`): the person's latest `share_socials` event is a
+    grant on a social sharing version that counts and has that column true; Art 9, publish and 18+
+    count (never relaxed by D48); for a story, it is public. Anything else, including an unknown
+    or odd name, is "no". Withdrawing it stops new sharing at once; D107 (A): within 30 days the
+    media team removes the story from our own channels and stops paid promotion, while copies
+    others made can't be controlled (the form says so). Nothing posts yet, so nothing automates it.
+31. **D75: dev's placeholder privacy document and forms.** `dpaVersion.devPlaceholder`, refused by
+    `dpa_dev_placeholder` unless `_setting:consent` says `devLegalPlaceholders` in dev (written by
+    the runner from OpenTofu's `dev_legal_placeholders`, set only in `live/dev/cluster`; refused
+    elsewhere by OpenTofu and by `_setting_dev_legal_only`). `fn::legal::counts` counts a
+    placeholder, and every form linking it, only while the setting is on: a dev backup restored
+    elsewhere stops counting them. Data script 0005 creates `dpaVersion:dev_placeholder` and v1 of
+    the three forms, published, when the flag is on (elsewhere it records itself and writes
+    nothing); social v1 allows every platform and use its words name. The dev-seed reset gives
+    every fixture person real grants (sign-up 18+ and `account_data`, testimony Art 9 and
+    `publish`; no social sharing) with v2 evidence, so D48's switch is off in dev.
+32. **Legal texts in the database (D84).** `dpaVersion.text` and the forms' `text` hold the words
+    of their files: what a person read sits beside the ledger, and api-public-read serves it
+    (`GET /v1/legal/dpa`, `GET /v1/legal/forms/{signup|testimony|social}`, published only).
+    OpenTofu passes each file's words and sha256; the sync files refuse a mismatch.
+    `fn::legal::dpa_in_force()` is the one definition of the privacy document in force. **Upgrade
+    safety (Codex, #101):** the runner's pre-checks run `dpa-sync.surql` and `form-sync.surql`
+    against the previous schema with `$sync_check = true`, so they only validate and write
+    nothing (the previous schema may not define `text`); the drafts follow their files after the
+    schema step. `migration.int-spec.ts` migrates a database with the previous release's bundle and
+    runner (from git), then this one, twice.
+33. **What hides a story for consent, and the fences.** Only two things: the person withdrawing
+    `publish` or Art 9 (WithdrawConsent deletes their `publicStory` rows, as since 0.8; under D88
+    withdrawal will delete the account later in M2), and, in dev, D48's or D75's switch being
+    turned off, or the database leaving dev (a dev backup restored elsewhere: both switches only
+    count in dev), which takes away the basis the dummy consent stood on. For the latter,
+    `_setting_reconcile` runs `fn::consent::reconcile` on every settings write (each migration)
+    while the database is or was dev (tested: dev → `prod` hides the story, Codex, #101): a public story whose uploader's consent no longer counts is **hidden, not
+    reverted**, like a media hide (item 27; `HideStory`, reason `consent_required`), and hidden
+    stories it covers again come back (`RepublishStory`, reason `consent_restored`), so a
+    person's later grant brings theirs back at the next dev migration. `fn::story::hidden_by_media`
+    lists only stories with a media problem. **Fences:** a grant must be on the version in force,
+    and a new draft or a submission checks the forms in force, which no person owns. So
+    `legalFence:forms` (`PERMISSIONS NONE`) is written by every form-version write, every consent
+    event (`consent_legal_fence`), every new story and every submission (`story_fence`): of two
+    overlapping transactions the second to commit fails and its retry sees the new version (tested
+    in both orders). The grant's own transaction also checks the version in force
+    (`409 form_version_not_in_force`). Edits, approvals and publication don't write it: nothing
+    they check depends on form versions. A withdrawal racing a draft conflicts on `personFence`
+    (tested). When a dev switch or the environment changes, the settings write bumps `legalFence`
+    and every person's fence, so any consent-dependent write overlapping it retries under the new
+    setting. The runner
+    writes `_setting` in its own step after the schema: on 3.2.4 a `publicStory` row deleted in
+    the transaction that redefines its indexes leaves its slug in the unique index.
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
 
-| Table                                                                                                       | Holds or links                                 | Class      | On create/update                                                           | After erasure                                                     |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `user`                                                                                                      | the person (Clerk id until erasure)            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB | stub: id, `createdAt`, `gdprDeletedAt`                            |
-| `story`                                                                                                     | testimony; `submitter`                         | linked     | submitter live + fence (and owner/consent rules)                           | deleted                                                           |
-| `publicStory`                                                                                               | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
-| `hiddenStory`                                                                                               | hidden publish data; same id as story          | linked     | event only; submitter live + fence                                         | deleted (cascade)                                                 |
-| `consent`                                                                                                   | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
-| `moderationReview`                                                                                          | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
-| `idempotencyKey`                                                                                            | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt); people: own keys only             | deleted by erasure; others expire in 24 h                         |
-| `auditLog`                                                                                                  | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
-| `personFence`                                                                                               | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
-| `tag`, `dpaVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity`, `_setting` | no person data                                 | none       | —                                                                          | —                                                                 |
+| Table                                                                                                                                                                                | Holds or links                                 | Class      | On create/update                                                           | After erasure                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ---------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `user`                                                                                                                                                                               | the person (Clerk id until erasure)            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB | stub: id, `createdAt`, `gdprDeletedAt`                            |
+| `story`                                                                                                                                                                              | testimony; `submitter`                         | linked     | submitter live + fence (and owner/consent rules)                           | deleted                                                           |
+| `publicStory`                                                                                                                                                                        | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
+| `hiddenStory`                                                                                                                                                                        | hidden publish data; same id as story          | linked     | event only; submitter live + fence                                         | deleted (cascade)                                                 |
+| `consent`                                                                                                                                                                            | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
+| `moderationReview`                                                                                                                                                                   | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
+| `idempotencyKey`                                                                                                                                                                     | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt); people: own keys only             | deleted by erasure; others expire in 24 h                         |
+| `auditLog`                                                                                                                                                                           | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
+| `personFence`                                                                                                                                                                        | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
+| `legalFence`                                                                                                                                                                         | one counter (`legalFence:forms`)               | none       | written by events only; `PERMISSIONS NONE`                                 | —                                                                 |
+| `tag`, `dpaVersion`, `signupFormVersion`, `testimonyFormVersion`, `socialSharingFormVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity`, `_setting` | no person data                                 | none       | —                                                                          | —                                                                 |
 
 - **Audit writes that race erasure.** These are allowed to commit, because audit rows are kept
   anyway (D38). They can't carry testimony text: every field is typed or an enum, and unknown
@@ -457,7 +561,12 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
   concurrent write is retried and then erases that write too (tested). Re-running the sweep once
   after commit is a cheap extra safety net.
 - **Expect more conflicts per person, not across people.** Approving someone's story while they
-  edit, or two tabs of one person, now conflict. That's intended.
+  edit, or two tabs of one person, now conflict. That's intended. One exception crosses people:
+  every consent event, every new story and every submission writes `legalFence:forms`, as does
+  every write to a consent form version (item 33), so two people's grants, new drafts or
+  submissions at the same moment can conflict too, and one retries. The retries are optimistic
+  (3 attempts for a plain command, 4 with an `Idempotency-Key`): they can't deadlock, but
+  sustained contention could use them up.
 
 ## Gotchas (no schema change; for `libs/database` and every command handler)
 

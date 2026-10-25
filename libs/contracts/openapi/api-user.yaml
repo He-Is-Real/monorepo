@@ -20,8 +20,12 @@ info:
       (last write wins); non-idempotent POSTs need `Idempotency-Key` (`422` on reuse with a different
       body) (D29).
     - Queries return an `ETag` (weak for collections) and `Cache-Control: private, no-store`.
-    - Creating, editing or uploading to a draft needs the caller's current Art 9 consent; submitting
-      also needs `publish` and `age_18plus` (D21, plan task 2.3).
+    - Editing or uploading to a draft needs the caller's Art 9 consent; creating a draft and submitting
+      also need the sign-up form in force accepted (18+ is asked there only, D93) and no newer testimony
+      version requiring acceptance for new submissions; submitting also needs `publish` (D21, plan task
+      2.3). A grant counts on any published or retired version that has its statement: a new version
+      never stops it counting or takes a story off the site (D93). Per account, through each story's
+      submitter; no story stores a consent version (D85, D86).
     - `x-requires-consent` marks routes guarded by `@RequiresConsent` (D21); every other route carries
       `@NoConsentRequired(reason)` in code. `x-required-role` is the minimum Clerk role.
     - `x-milestone` on each operation is the delivery milestone that builds it.
@@ -234,8 +238,10 @@ paths:
       summary: My consent state and history
       description: |
         The current state per type and the append-only ledger, read in the person's own session (D27).
-        "Current" is the latest ledger event per type (D17, D18). Flags `reconsentRequired` when a material
-        DPA version newer than the one consented to is in force.
+        "Current" is the latest ledger event per type (D17, D18), with the form version it was given on
+        (D84); `counts` says whether a grant counts. `signup` says whether the sign-up
+        form in force is accepted (D73: sign-in waits for it); `testimony` is the account's testimony
+        version against the one in force, for the "update your consent" banner (D85).
       x-required-role: User
       x-milestone: M0
       parameters:
@@ -259,13 +265,15 @@ paths:
     post:
       tags: [Consent]
       operationId: grantConsent
-      summary: Grant (or re-affirm) one consent against a published DPA version
+      summary: Grant (or re-affirm) one statement of the consent form in force
       description: |
-        Command `GrantConsent`: appends one `granted` event to the ledger, in the person's own session.
-        `dpaVersion` must be the version in force: the newest published version already in effect. A
-        draft (the database refuses it too, D20), an unknown or a superseded version answers `409`, so
-        while DPA v1 is a draft no consent can be given. Used at first opt-in and for re-consent. No
-        `If-Match`: the ledger is append-only, so there is nothing to conflict with.
+        Command `GrantConsent`: appends one `granted` event to the ledger, in the person's own session: one
+        statement (box) ticked on the form version shown (D84). `formVersion` must be the version of that
+        form in force (`GET /v1/legal/forms/{form}` on api-public-read); a draft, retired, older or unknown
+        version answers `409 form_version_not_in_force` (the database refuses anything but a published
+        version too), and a statement the version doesn't have answers `409 statement_not_on_form`. While
+        no form is published no consent can be given. Used at sign-up, at the start of a draft, at submit
+        and for re-consent. No `If-Match`: the ledger is append-only, so there is nothing to conflict with.
       x-required-role: User
       x-milestone: M0
       parameters:
@@ -298,7 +306,8 @@ paths:
       operationId: withdrawConsent
       summary: Withdraw a consent (as easy as giving it, Art 7(3))
       description: |
-        Command `WithdrawConsent`: appends a `withdrawn` event, bound to the DPA version last granted. Applies
+        Command `WithdrawConsent`: appends a `withdrawn` event, bound to the form version and DPA of the event
+        it follows. Applies
         to all the person's stories (D17): withdrawing `publish` or `special_category_religious` deletes their
         `publicStory` rows in the same transaction, and from then on the database refuses every further
         processing step that needs that consent. Withdrawing again re-affirms it; a type that was never

@@ -92,6 +92,7 @@ describe('erasure on api_user’s service login', () => {
         'SELECT VALUE type FROM consent WHERE subject = user:ann ORDER BY type',
       ),
     ).toEqual([
+      'account_data',
       'age_18plus',
       'publish',
       'share_socials',
