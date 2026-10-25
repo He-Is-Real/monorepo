@@ -145,7 +145,7 @@ jobs:
       # Always web=true or web=false; an Nx error fails the job (and so `main`).
       - id: affected
         run: |
-          projects=$(pnpm nx show projects --affected --withTarget=e2e; exit 137) # THROWAWAY
+          projects=$(pnpm nx show projects --affected --withTarget=e2e)
           if grep -qx web <<<"$projects"; then web=true; else web=false; fi
           echo "web=$web" | tee -a "$GITHUB_OUTPUT"
       # Restore only: `checks` builds web too and saves the cache on main.
