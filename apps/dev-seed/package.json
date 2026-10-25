@@ -97,13 +97,13 @@
           {
             "externalDependencies": [
               "surrealdb",
-              "jest"
+              "vitest"
             ]
           }
         ],
         "outputs": [],
         "options": {
-          "command": "jest --config jest.integration.config.cts",
+          "command": "vitest run --config vitest.integration.config.mts",
           "cwd": "{projectRoot}"
         }
       },
@@ -138,7 +138,7 @@
   "dependencies": {
     "@google-cloud/secret-manager": "^7.2.0",
     "@heisreal/secrets": "workspace:*",
-    "@nestjs/common": "^11.0.0",
+    "@nestjs/common": "^12.2.0",
     "surrealdb": "^2.0.8",
     "tslib": "^2.3.0"
   },

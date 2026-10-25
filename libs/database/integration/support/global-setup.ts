@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { TestProject } from 'vitest/node';
+import type { SurrealTestLogin } from './login';
 
 /**
  * Starts a throwaway SurrealDB container for the integration tests, unless SURREAL_TEST_URL
@@ -44,10 +46,19 @@ async function waitForHealth(baseUrl: string, timeoutMs = 30_000) {
   }
 }
 
-export default async function globalSetup(): Promise<void> {
-  if (process.env['SURREAL_TEST_URL']) {
-    await waitForHealth(process.env['SURREAL_TEST_URL'].replace(/^ws/, 'http'));
-    return;
+/** Vitest global setup: hands the tests the login (`surrealTestLogin()`); returns the teardown. */
+export default async function globalSetup(
+  project: TestProject,
+): Promise<(() => void) | undefined> {
+  const given = process.env['SURREAL_TEST_URL'];
+  if (given) {
+    await waitForHealth(given.replace(/^ws/, 'http'));
+    project.provide('surrealTest', {
+      url: given,
+      user: process.env['SURREAL_TEST_USER'] ?? 'root',
+      pass: process.env['SURREAL_TEST_PASS'] ?? 'root',
+    } satisfies SurrealTestLogin);
+    return undefined;
   }
   const image = pinnedSurrealImage();
   const password = randomBytes(24).toString('hex');
@@ -69,7 +80,9 @@ export default async function globalSetup(): Promise<void> {
     ],
     { encoding: 'utf8' },
   ).trim();
-  (globalThis as Record<string, unknown>)['__SURREAL_CONTAINER__'] = id;
+  const teardown = () => {
+    execFileSync('docker', ['rm', '--force', id], { stdio: 'ignore' });
+  };
   const port = execFileSync('docker', ['port', id, '8000/tcp'], {
     encoding: 'utf8',
   })
@@ -77,9 +90,16 @@ export default async function globalSetup(): Promise<void> {
     .split('\n')[0]
     .split(':')
     .pop();
-  process.env['SURREAL_TEST_URL'] = `ws://127.0.0.1:${port}`;
-  process.env['SURREAL_TEST_USER'] = 'root';
-  process.env['SURREAL_TEST_PASS'] = password;
-  process.env['SURREAL_TEST_IMAGE'] = image;
-  await waitForHealth(`http://127.0.0.1:${port}`);
+  try {
+    await waitForHealth(`http://127.0.0.1:${port}`);
+  } catch (err) {
+    teardown();
+    throw err;
+  }
+  project.provide('surrealTest', {
+    url: `ws://127.0.0.1:${port}`,
+    user: 'root',
+    pass: password,
+  } satisfies SurrealTestLogin);
+  return teardown;
 }

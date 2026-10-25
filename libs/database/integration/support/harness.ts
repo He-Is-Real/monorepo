@@ -11,9 +11,10 @@ import {
   signRs256,
   type SigningKeys,
 } from './jwt';
+import { surrealTestLogin } from './login';
 
 /**
- * A test that runs migrations gets this much time for each one (a jest test timeout, not an
+ * A test that runs migrations gets this much time for each one (a Vitest test timeout, not an
  * assertion): each run starts the Python runner and re-applies the whole schema, so how long it
  * takes depends on the machine and what else runs on it, not on the behaviour checked.
  */
@@ -184,10 +185,8 @@ export class TestDatabase {
    * services), for tests of the migration itself.
    */
   static async create({ migrate = true } = {}): Promise<TestDatabase> {
-    const url = process.env['SURREAL_TEST_URL'];
-    if (!url) throw new Error('SURREAL_TEST_URL is not set (global setup)');
     const t = new TestDatabase(
-      url,
+      surrealTestLogin().url,
       `it_${randomBytes(6).toString('hex')}`,
       'main',
     );
@@ -392,8 +391,8 @@ export class TestDatabase {
 
   root(): Promise<Surreal> {
     return this.open({
-      username: process.env['SURREAL_TEST_USER'] ?? 'root',
-      password: process.env['SURREAL_TEST_PASS'] ?? 'root',
+      username: surrealTestLogin().user,
+      password: surrealTestLogin().pass,
     });
   }
 
@@ -461,8 +460,8 @@ export class TestDatabase {
     const root = new Surreal();
     await root.connect(this.url, {
       authentication: {
-        username: process.env['SURREAL_TEST_USER'] ?? 'root',
-        password: process.env['SURREAL_TEST_PASS'] ?? 'root',
+        username: surrealTestLogin().user,
+        password: surrealTestLogin().pass,
       },
       reconnect: false,
     });

@@ -7,14 +7,14 @@ automated tests. It also records what had to change in the draft and what is sti
 
 ## Where it lives and how to run it
 
-| Path                                        | What                                                                           |
-| ------------------------------------------- | ------------------------------------------------------------------------------ |
-| `libs/database/schema/schema.surql`         | Declarative schema (D14), applied in full in one transaction                   |
-| `libs/database/schema/access-clerk.surql`   | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set                |
-| `libs/database/schema/data/000N-*.surql`    | Run-once: 0001 draft DPA v1; 0002 dropped (D44); 0003 dev story (retired, D49) |
-| `libs/database/schema/migrate.py`           | The D14 runner: the migrate Job and these tests both use it                    |
-| `libs/database/integration/*.int-spec.ts`   | 514 integration tests against a real SurrealDB                                 |
-| `libs/database/jest.integration.config.cts` | Their Jest config, kept apart from the unit tests                              |
+| Path                                          | What                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------ |
+| `libs/database/schema/schema.surql`           | Declarative schema (D14), applied in full in one transaction                   |
+| `libs/database/schema/access-clerk.surql`     | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set                |
+| `libs/database/schema/data/000N-*.surql`      | Run-once: 0001 draft DPA v1; 0002 dropped (D44); 0003 dev story (retired, D49) |
+| `libs/database/schema/migrate.py`             | The D14 runner: the migrate Job and these tests both use it                    |
+| `libs/database/integration/*.int-spec.ts`     | 514 integration tests against a real SurrealDB                                 |
+| `libs/database/vitest.integration.config.mts` | Their Vitest config, kept apart from the unit tests                            |
 
 ```bash
 pnpm nx run database:test-integration    # needs Docker; about 20 s
@@ -24,7 +24,7 @@ pnpm nx run database:test-integration    # needs Docker; about 20 s
   project make it "affected", so any schema change runs `test-integration` in CI. Next to the
   client code, the schema and the code that queries it change in the same PR. The migration
   Job (D14) can still read these files from OpenTofu by relative path.
-- **The container.** Jest's global setup runs `docker run` with the image read from
+- **The container.** Vitest's global setup runs `docker run` with the image read from
   `infra/k8s/surrealdb/base/kustomization.yaml` (tag + digest). The tests therefore always use
   the version the cluster runs, and there's one pin to bump. The root password is random per
   run. Set `SURREAL_TEST_URL` / `SURREAL_TEST_USER` / `SURREAL_TEST_PASS` to use a running
@@ -740,7 +740,7 @@ wanted.
   everything, including consent) are trusted in-cluster system users.
 - **The two 3.2.4 bugs.** The pinned tests catch an upgrade that changes them; nothing catches
   new code using the buggy patterns except review.
-- **Jest-only quirk.** In Jest's VM, surrealdb.js can't encode a `Uuid`: its sandboxed
-  `Uint32Array` doesn't match the host `ArrayBuffer`, so `newSession()` hangs. Fixed for the
-  tests by `integration/support/host-typed-arrays.ts`. It doesn't affect production, but any
-  future Jest test using sessions or Uuid parameters needs the same setup file.
+- **No test-runner realm fix any more.** Under Jest, surrealdb.js couldn't encode a `Uuid` (its
+  sandboxed `Uint32Array` didn't match the host `ArrayBuffer`) without a setup file. The
+  integration tests run on Vitest since the NestJS 12 upgrade, in Node's own realm, so that file
+  is gone.

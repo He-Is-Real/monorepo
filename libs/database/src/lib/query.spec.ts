@@ -11,7 +11,7 @@ import { requestHash } from './idempotency';
 
 function db(responses: unknown[]) {
   return {
-    query: jest.fn().mockReturnValue({
+    query: vi.fn().mockReturnValue({
       json: () => ({ responses: async () => responses }),
     }),
   } as unknown as SurrealQueryable;
@@ -59,7 +59,7 @@ describe('retryOnConflict', () => {
   );
 
   it('re-runs the whole command on a retryable conflict', async () => {
-    const work = jest
+    const work = vi
       .fn()
       .mockRejectedValueOnce(conflict)
       .mockResolvedValue('ok');
@@ -68,12 +68,12 @@ describe('retryOnConflict', () => {
   });
 
   it('gives up after the bounded attempts, and never retries other errors', async () => {
-    const always = jest.fn().mockRejectedValue(conflict);
+    const always = vi.fn().mockRejectedValue(conflict);
     await expect(retryOnConflict(always, { backoffMs: 1 })).rejects.toBe(
       conflict,
     );
     expect(always).toHaveBeenCalledTimes(3);
-    const other = jest.fn().mockRejectedValue(new Error('refused'));
+    const other = vi.fn().mockRejectedValue(new Error('refused'));
     await expect(retryOnConflict(other)).rejects.toThrow('refused');
     expect(other).toHaveBeenCalledTimes(1);
     expect(isTransactionConflict(new Error('refused'))).toBe(false);

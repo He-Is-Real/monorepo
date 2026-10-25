@@ -96,7 +96,7 @@ describe('Bunny uploads', () => {
   });
 
   it('finds a clip by its exact title, with the library key in the header only', async () => {
-    const http = jest.fn(async () =>
+    const http = vi.fn(async () =>
       json({
         items: [video({}), video({ guid: 'g2', title: 'dev-seed/clip-010' })],
       }),

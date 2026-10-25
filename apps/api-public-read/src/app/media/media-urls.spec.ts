@@ -12,7 +12,7 @@ const VIDEO = 'b8a77258-abfd-469d-ba63-9b89b62fcce6';
 const NOW = Date.UTC(2026, 9, 23, 10, 15);
 
 const secrets = (values: Record<string, string>) => ({
-  get: jest.fn(async (id: string) => {
+  get: vi.fn(async (id: string) => {
     if (!(id in values)) throw new Error(`no secret ${id}`);
     return values[id];
   }),
