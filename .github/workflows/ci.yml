@@ -142,11 +142,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
+      # Always web=true or web=false; an Nx error fails the job (and so `main`).
       - id: affected
         run: |
-          if pnpm nx show projects --affected --withTarget=e2e | grep -qx web; then
-            echo "web=true" >> "$GITHUB_OUTPUT"
-          fi
+          projects=$(pnpm nx show projects --affected --withTarget=e2e)
+          if grep -qx web <<<"$projects"; then web=true; else web=false; fi
+          echo "web=$web" | tee -a "$GITHUB_OUTPUT"
       # Restore only: `checks` builds web too and saves the cache on main.
       - if: steps.affected.outputs.web == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -235,9 +236,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-  # The shards' results in one place. Screenshots (4 sizes, JPEG) on every web-affected run as
-  # one artifact; when a test failed, one HTML report of the whole suite with each failure's
-  # trace and screenshot. Kept 7 days, never committed (T8).
+  # The shards' results in one place. When a test failed, one HTML report of the whole suite with
+  # each failure's trace and screenshot. Screenshots (4 sizes, JPEG) on every web-affected run as
+  # one artifact. Both kept 7 days, never committed (T8). Every step runs unless cancelled, so a
+  # missing piece (say, no screenshots because the browser didn't start) doesn't skip the rest.
   e2e-report:
     needs: [e2e-build, e2e]
     if: always() && needs.e2e-build.outputs.web == 'true'
@@ -245,44 +247,55 @@ jobs:
     permissions:
       contents: read
     steps:
-      - if: needs.e2e.result == 'success' || needs.e2e.result == 'failure'
-        uses: actions/upload-artifact/merge@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: web-e2e-screenshots
-          pattern: web-e2e-screenshots-*
-          retention-days: 7
-          delete-merged: true
-      - if: needs.e2e.result == 'failure'
+      - if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - if: needs.e2e.result == 'failure'
+      - if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - if: needs.e2e.result == 'failure'
+      - if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - if: needs.e2e.result == 'failure'
+      - if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
         run: pnpm install --frozen-lockfile
-      - if: needs.e2e.result == 'failure'
+      - if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: web-e2e-blob-*
           merge-multiple: true
           path: test-output/e2e/blob
-      - if: needs.e2e.result == 'failure'
+      - if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
         env:
           PLAYWRIGHT_HTML_OUTPUT_DIR: test-output/e2e/report
           PLAYWRIGHT_HTML_OPEN: never
         run: pnpm exec playwright merge-reports -c apps/web/e2e/playwright.config.ts --reporter html test-output/e2e/blob
-      - if: needs.e2e.result == 'failure'
+      - if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: web-e2e-report
           path: test-output/e2e/report
           retention-days: 7
 
-  # The required check (protect-main requires `main`): passes when every job above passed or was
-  # skipped (the e2e jobs when web isn't affected).
+      # Download and upload rather than upload-artifact/merge, which fails when there's nothing to
+      # merge. The shard parts aren't deleted (they expire after a day), so after "Re-run failed
+      # jobs" this takes each shard's latest part and the set is complete.
+      - if: ${{ !cancelled() && (needs.e2e.result == 'success' || needs.e2e.result == 'failure') }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: web-e2e-screenshots-*
+          merge-multiple: true
+          path: test-output/e2e/screenshots
+      - if: ${{ !cancelled() && (needs.e2e.result == 'success' || needs.e2e.result == 'failure') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-e2e-screenshots
+          path: test-output/e2e/screenshots
+          if-no-files-found: warn
+          retention-days: 7
+
+  # The required check (protect-main requires `main`). Fails closed: `checks` and `e2e-build` must
+  # pass; the browser jobs must pass when web is affected and may be skipped only when e2e-build
+  # said web=false.
   main:
     needs: [checks, e2e-build, e2e, e2e-report]
     if: always()
@@ -290,8 +303,16 @@ jobs:
     permissions: {}
     steps:
       - env:
-          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          CHECKS: ${{ needs.checks.result }}
+          BUILD: ${{ needs.e2e-build.result }}
+          WEB: ${{ needs.e2e-build.outputs.web }}
+          E2E: ${{ needs.e2e.result }}
+          REPORT: ${{ needs.e2e-report.result }}
         run: |
-          echo "Needed jobs: $RESULTS"
-          [ "$FAILED" = false ]
+          echo "checks=$CHECKS e2e-build=$BUILD web=$WEB e2e=$E2E e2e-report=$REPORT"
+          [ "$CHECKS" = success ] && [ "$BUILD" = success ] || exit 1
+          case "$WEB" in
+            true) [ "$E2E" = success ] && [ "$REPORT" = success ] ;;
+            false) [ "$E2E" = skipped ] && [ "$REPORT" = skipped ] ;;
+            *) exit 1 ;;
+          esac
