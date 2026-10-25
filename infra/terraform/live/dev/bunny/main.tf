@@ -133,7 +133,15 @@ module "bunny" {
   }
   signing_key_readers = ["serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com"]
 
+  # Where the library's videos live (Bunny made it with library 789855).
+  stream_storage_zone = { id = 2014507, name = "vz-bd66cea0-80b" }
+
   depends_on = [terraform_data.never_public]
+}
+
+import {
+  to = module.bunny.bunnynet_storage_zone.stream[0]
+  id = "2014507"
 }
 
 output "bunny" {

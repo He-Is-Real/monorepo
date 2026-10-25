@@ -115,8 +115,8 @@ module "gcp" {
   # api-public-read's access to them (#63; infra/terraform/README.md, "Media token auth").
   # Values: `tf.sh bunny output bunny`.
   api_public_read_media = {
-    stream_library_id   = "786537"
-    stream_cdn_hostname = "vz-da4dce15-a49.b-cdn.net"
+    stream_library_id   = "789855"
+    stream_cdn_hostname = "vz-bd66cea0-80b.b-cdn.net"
     images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
   }
   # api-user and api-admin (M2): public at the Cloud Run layer like api-public-read, because the
