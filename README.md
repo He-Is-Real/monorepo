@@ -81,10 +81,13 @@ GKE Autopilot Spot Pods, about £3–5/month.
 - **`ci.yml`** (every PR, the required check): format check, then `lint test build typecheck validate`
   (`test` includes `terraform:test`, the OpenTofu modules' `tofu test`), `test-integration`
   (`libs/database`, `libs/consent`, `libs/auth` and `api-public-read` against a SurrealDB container, see
-  [docs/db-permissions.md](docs/db-permissions.md)), `web:e2e` when web is affected (Playwright device
-  matrix; screenshots in the `web-e2e` artifact) and container builds for affected projects (`validate`
-  includes kubeconform on the Kubernetes manifests). The Nx cache is kept between runs in the Actions
-  cache. Both api-public-read's integration tests and web's e2e stub are checked against
+  [docs/db-permissions.md](docs/db-permissions.md)) and container builds for affected projects (`validate`
+  includes kubeconform on the Kubernetes manifests). Beside those, when web is affected, the
+  Playwright device matrix runs in parallel shards from one build of the site (each shard runs like
+  a local `web:e2e`: 4 workers, no retries); screenshots land in one `web-e2e-screenshots` artifact,
+  and a failure adds one merged `web-e2e-report` (HTML, with traces). The required check is the
+  `main` job, which passes only when all of these do. The Nx cache, the pnpm store and Playwright's
+  browser are kept between runs in the Actions cache. Both api-public-read's integration tests and web's e2e stub are checked against
   `libs/contracts/openapi/api-public-read.yaml`, so the stub can't drift from the API.
 - **`images.yml`** ("Release Images", pushes to `main` that affect a service) and
   **`snapshot-images.yml`** (manual, any branch): build the services whose code changed and push
