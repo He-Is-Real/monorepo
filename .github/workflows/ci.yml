@@ -28,7 +28,8 @@ env:
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
 jobs:
-  main:
+  # Everything but the browser tests, which run beside it in shards (e2e-build, e2e).
+  checks:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -110,35 +111,6 @@ jobs:
       # Not a `services:` container: those can't pass SurrealDB its `start` arguments.
       - run: pnpm nx affected -t test-integration
 
-      # Responsive and walking-skeleton checks (apps/web/e2e): the built site against a stub
-      # api-public-read on Chromium, across the device matrix in light and dark. Only when web
-      # is affected.
-      - id: e2e
-        run: |
-          if pnpm nx show projects --affected --withTarget=e2e | grep -qx web; then
-            echo "web=true" >> "$GITHUB_OUTPUT"
-          fi
-      - if: steps.e2e.outputs.web == 'true'
-        run: pnpm exec playwright install --with-deps chromium
-      - if: steps.e2e.outputs.web == 'true'
-        run: pnpm nx run web:e2e
-      # Screenshots (4 sizes, JPEG) on every web-affected run; traces and results only when
-      # something failed. Kept 7 days, never committed (T8).
-      - if: always() && steps.e2e.outputs.web == 'true'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: web-e2e-screenshots
-          path: test-output/e2e/screenshots
-          retention-days: 7
-      - if: failure() && steps.e2e.outputs.web == 'true'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: web-e2e-failures
-          path: |
-            test-output/e2e/results
-            test-output/e2e/results.json
-          retention-days: 7
-
       # Proves the Dockerfiles still build; pushing happens in _images.yml.
       - run: pnpm nx affected -t container
 
@@ -147,3 +119,179 @@ jobs:
         with:
           path: ${{ env.NX_CACHE_PATHS }}
           key: nx-ci-${{ github.sha }}
+
+  # Responsive and walking-skeleton checks (apps/web/e2e): the built site against a stub
+  # api-public-read on Chromium, across the device matrix in light and dark. Only when web is
+  # affected. This job builds the site once (web:prune, through the Nx cache) and hands it to the
+  # shards below, so no shard builds.
+  e2e-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      web: ${{ steps.affected.outputs.web }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          filter: tree:0
+          fetch-depth: 0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
+      - id: affected
+        run: |
+          if pnpm nx show projects --affected --withTarget=e2e | grep -qx web; then
+            echo "web=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Restore only: `checks` builds web too and saves the cache on main.
+      - if: steps.affected.outputs.web == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.NX_CACHE_PATHS }}
+          key: nx-ci-${{ github.sha }}
+          restore-keys: nx-ci-
+      - if: steps.affected.outputs.web == 'true'
+        run: tools/scripts/nx-cache-adopt.sh
+      - if: steps.affected.outputs.web == 'true'
+        run: pnpm nx run web:prune
+      # One file: the standalone server is ~1,700 small files, and a tar keeps its symlinks.
+      - if: steps.affected.outputs.web == 'true'
+        run: tar -cf "$RUNNER_TEMP/web-dist.tar" -C apps/web dist
+      - if: steps.affected.outputs.web == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: ${{ runner.temp }}/web-dist.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  # The suite split across machines. Each shard runs its part exactly as a local run does (same
+  # config: 4 workers, no retries); only the reporters differ (a blob report to merge).
+  e2e:
+    needs: e2e-build
+    if: needs.e2e-build.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The browser, cached per Playwright version (the system libraries come from apt each
+      # time). Headless runs use Chromium's headless shell, so that's all we install.
+      - id: playwright
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - id: browsers
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-shell
+      - if: steps.browsers.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+      - if: steps.browsers.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+      # One shard saves, so the others don't race it for the same key.
+      - if: steps.browsers.outputs.cache-hit != 'true' && matrix.shard == 1
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.browsers.outputs.cache-primary-key }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-dist
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/web-dist.tar" -C apps/web
+
+      # Playwright directly, not `nx run web:e2e`, which would build the site again.
+      - run: pnpm exec playwright test -c apps/web/e2e/playwright.config.ts --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+      # Kept a day: e2e-report merges them into one artifact each.
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-e2e-screenshots-${{ matrix.shard }}
+          path: test-output/e2e/screenshots
+          if-no-files-found: ignore
+          retention-days: 1
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-e2e-blob-${{ matrix.shard }}
+          path: test-output/e2e/blob
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # The shards' results in one place. Screenshots (4 sizes, JPEG) on every web-affected run as
+  # one artifact; when a test failed, one HTML report of the whole suite with each failure's
+  # trace and screenshot. Kept 7 days, never committed (T8).
+  e2e-report:
+    needs: [e2e-build, e2e]
+    if: always() && needs.e2e-build.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - if: needs.e2e.result == 'success' || needs.e2e.result == 'failure'
+        uses: actions/upload-artifact/merge@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-e2e-screenshots
+          pattern: web-e2e-screenshots-*
+          retention-days: 7
+          delete-merged: true
+      - if: needs.e2e.result == 'failure'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.e2e.result == 'failure'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - if: needs.e2e.result == 'failure'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - if: needs.e2e.result == 'failure'
+        run: pnpm install --frozen-lockfile
+      - if: needs.e2e.result == 'failure'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: web-e2e-blob-*
+          merge-multiple: true
+          path: test-output/e2e/blob
+      - if: needs.e2e.result == 'failure'
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: test-output/e2e/report
+          PLAYWRIGHT_HTML_OPEN: never
+        run: pnpm exec playwright merge-reports -c apps/web/e2e/playwright.config.ts --reporter html test-output/e2e/blob
+      - if: needs.e2e.result == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-e2e-report
+          path: test-output/e2e/report
+          retention-days: 7
+
+  # The required check (protect-main requires `main`): passes when every job above passed or was
+  # skipped (the e2e jobs when web isn't affected).
+  main:
+    needs: [checks, e2e-build, e2e, e2e-report]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Needed jobs: $RESULTS"
+          [ "$FAILED" = false ]

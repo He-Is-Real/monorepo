@@ -38,6 +38,10 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['json', { outputFile: `${root}test-output/e2e/results.json` }],
+    // CI runs the suite in shards (ci.yml); their blob reports merge into one HTML report.
+    ...(process.env['CI']
+      ? ([['blob', { outputDir: `${root}test-output/e2e/blob` }]] as const)
+      : []),
   ],
   use: {
     baseURL: `http://localhost:${WEB_PORT}`,
