@@ -18,7 +18,7 @@
           "^default"
         ],
         "options": {
-          "command": "tsc --noEmit -p apps/web/tsconfig.json"
+          "command": "tsc --noEmit -p apps/web/tsconfig.json && tsc -p apps/web/e2e/tsconfig.json"
         }
       },
       "prune": {
