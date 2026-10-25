@@ -104,6 +104,7 @@ test('the bunny guard selects bunny', () => {
 
 test('bootstrap is listed last', () => {
   assert.equal(changed(`${tf}/modules/bootstrap/kms.tf`), 'bootstrap');
+  assert.equal(changed(`${tf}/modules/org/main.tf`), 'bootstrap');
   assert.equal(
     changed(`${tf}/live/dev/bootstrap/main.tf`, `${tf}/modules/gcp/x.tf`),
     'gcp\ncluster\nbootstrap',

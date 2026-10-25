@@ -31,7 +31,7 @@ while IFS= read -r file; do
     ;;
   "$tf"/live/dev/bunny/* | "$tf"/modules/bunny/* | "$tf"/modules/bunny-state-guard/*) selected[bunny]=1 ;;
   "$tf"/live/dev/images/* | tools/scripts/image-tag.sh) selected[images]=1 ;;
-  "$tf"/live/dev/bootstrap/* | "$tf"/modules/bootstrap/*) selected[bootstrap]=1 ;;
+  "$tf"/live/dev/bootstrap/* | "$tf"/modules/bootstrap/* | "$tf"/modules/org/*) selected[bootstrap]=1 ;;
   tools/scripts/tf*.sh | .github/actions/tofu/* | .github/workflows/tofu-*.yml | mise.toml)
     selected[gcp]=1 selected[cluster]=1 selected[bunny]=1
     ;;

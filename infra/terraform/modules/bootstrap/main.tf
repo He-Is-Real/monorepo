@@ -21,6 +21,7 @@ locals {
     "iamcredentials.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
+    "orgpolicy.googleapis.com",            # the organisation's policies, read by bootstrap's plans (modules/org)
     "policytroubleshooter.googleapis.com", # IAM checks (README, Bunny.net)
     "pubsub.googleapis.com",
     "run.googleapis.com",
