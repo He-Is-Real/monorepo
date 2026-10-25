@@ -7,6 +7,9 @@ import { ShareMenu } from './share-menu';
 import { StoryMedia } from './story-media';
 import { StoryText } from './story-text';
 
+/** The reading column (Joel's R1): at most 80 characters a line, centred. */
+const COLUMN = 'mx-auto w-full max-w-measure min-w-0';
+
 const published = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', {
     dateStyle: 'long',
@@ -45,12 +48,21 @@ function Meta({
   );
 }
 
-function Sidebar({ related }: { related: StorySummary[] }) {
+/** After the story: related stories, then a calm call to action. */
+function KeepExploring({ related }: { related: StorySummary[] }) {
   return (
-    <aside className="space-y-4" aria-label="Keep exploring">
+    <aside
+      className="mt-12 space-y-4 lg:mt-16 lg:space-y-12"
+      aria-label="Keep exploring"
+    >
       <RelatedStories stories={related} />
-      <section className="rounded-2xl border border-border bg-card p-5">
-        <h2 className="mb-2 font-semibold">Does this resonate?</h2>
+      <section
+        aria-labelledby="resonate"
+        className="mx-auto max-w-measure rounded-2xl border border-border bg-card p-5"
+      >
+        <h2 id="resonate" className="mb-2 font-semibold">
+          Does this resonate?
+        </h2>
         <p className="mb-4 text-sm text-muted-foreground">
           If this story has touched you, there are ways to keep exploring.
         </p>
@@ -68,8 +80,9 @@ function Sidebar({ related }: { related: StorySummary[] }) {
 /**
  * A published story, server-rendered (D32), from the mockups' story pages. Video and audio:
  * the player first, then the title, then the person's own text. Written: a centred header, the
- * description as a pull quote, then the text. Both: share, tags that lead to browse, and a
- * sidebar with related stories (beside the text from 1024 px, under it below).
+ * description as a pull quote, then the text. Both: share, tags that lead to browse, and, after
+ * the story ends, related stories and "Does this resonate?" (below it at every width, never
+ * beside it: Joel, 2026-10-25, a sidebar felt like an ad and took space from the story).
  * No breadcrumb (Joel, 2026-10-24; design principles): it could show only one of a story's
  * tags; the header's Stories link and the tag chips are the ways back.
  * Favourite, "This helped me" and "Concern" from the mockups need accounts (M2+).
@@ -87,47 +100,53 @@ export function StoryView({
     ...(story.bylineName?.trim() || story.title),
   ][0]?.toUpperCase();
   const share = (
-    <div className="flex items-center justify-end border-b border-border py-3">
+    <div
+      className={`${COLUMN} flex items-center justify-end border-b border-border py-3 ${written ? 'mt-8' : ''}`}
+    >
       <ShareMenu title={story.title} />
     </div>
   );
 
   return (
-    // The reading column (max-w-measure, Joel's R1) holds the text; from 1024 px the sidebar
-    // sits beside it, one design gap (3rem) away, and the whole composition is centred. The
-    // hero (header, media, share row) spans the composition, so it and its media
-    // are centred on the page (Joel, 2026-10-24) and its edges line up with the text's left
-    // and the sidebar's right. overflow-wrap: anywhere: long words and pasted links wrap
-    // instead of widening the page.
+    // One centred column at every width. The reading column (max-w-measure, Joel's R1) holds
+    // the title block, the share row and the text, so their edges line up. From 1024 px the
+    // media breaks out of it, centred, to the design's narrow container (50rem): wide enough
+    // that a video or picture keeps about the size it had beside the sidebar, never so wide
+    // that it dwarfs the text. Related stories use the same band. Below 1024 px everything
+    // keeps the reading column, as before. overflow-wrap: anywhere: long words and pasted
+    // links wrap instead of widening the page.
     <article
-      className="mx-auto grid w-full max-w-measure gap-x-12 [overflow-wrap:anywhere] lg:max-w-[calc(var(--container-measure)+3rem+17.5rem)] lg:grid-cols-[minmax(0,1fr)_17.5rem]"
+      className="mx-auto w-full max-w-measure [overflow-wrap:anywhere] lg:max-w-narrow"
       aria-labelledby={`story-${story.id}`}
     >
-      <div data-story-hero="" className="min-w-0 lg:col-span-2">
+      <div data-story-hero="">
         {written ? (
-          <header className="pb-8 text-center">
-            {!story.image?.url && (
-              <span
-                aria-hidden="true"
-                className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-teal-dark text-3xl font-bold text-white shadow-lg"
+          <>
+            <header className={`${COLUMN} text-center`}>
+              {!story.image?.url && (
+                <span
+                  aria-hidden="true"
+                  className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-teal-dark text-3xl font-bold text-white shadow-lg"
+                >
+                  {initial}
+                </span>
+              )}
+              <h1
+                id={`story-${story.id}`}
+                className="mx-auto max-w-[24ch] text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
               >
-                {initial}
-              </span>
-            )}
-            <h1
-              id={`story-${story.id}`}
-              className="mx-auto max-w-[24ch] text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
-            >
-              {story.title}
-            </h1>
-            <Meta story={story} center />
+                {story.title}
+              </h1>
+              <Meta story={story} center />
+            </header>
             <StoryMedia story={story} />
-          </header>
+            {share}
+          </>
         ) : (
           <>
             <StoryMedia story={story} />
             {share}
-            <header className="mt-8">
+            <header className={`${COLUMN} mt-8`}>
               <h1
                 id={`story-${story.id}`}
                 className="text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
@@ -138,10 +157,9 @@ export function StoryView({
             </header>
           </>
         )}
-        {written && share}
       </div>
 
-      <div data-story-text="" className="mt-10 min-w-0 lg:col-start-1">
+      <div data-story-text="" className={`${COLUMN} mt-10`}>
         {written ? (
           <blockquote className="border-l-[3px] border-teal pl-6 text-[1.375rem] leading-relaxed text-foreground italic">
             {story.description}
@@ -160,9 +178,7 @@ export function StoryView({
           </>
         )}
       </div>
-      <div className="mt-12 lg:col-start-2 lg:row-start-2 lg:mt-10">
-        <Sidebar related={related} />
-      </div>
+      <KeepExploring related={related} />
     </article>
   );
 }

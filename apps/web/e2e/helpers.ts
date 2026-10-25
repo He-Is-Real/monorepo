@@ -27,6 +27,19 @@ export async function shots(
   });
 }
 
+/**
+ * Text at 200% (WCAG 1.4.4): a reader's text-size setting scales rem, and so does a 200% root
+ * font size. Call before page.goto.
+ */
+export const enlargeText = (page: Page) =>
+  page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = 'html { font-size: 200% !important; }';
+      document.head.append(style);
+    });
+  });
+
 export async function expectNoHorizontalOverflow(page: Page) {
   // Compare with the device's width, not window.innerWidth: mobile browsers widen the layout
   // viewport (zoom out) to fit content that overflows, which would hide the problem.

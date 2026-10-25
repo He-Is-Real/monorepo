@@ -119,6 +119,21 @@ export function CardPlayer({
     return () => document.removeEventListener('keydown', onKey);
   });
 
+  // Hidden while playing (story-view's Related cards are display: none below 1024 px, so a
+  // tablet rotating would leave the player playing out of sight with no way to close it): stop
+  // it. A box that is no longer rendered has no client rects.
+  useEffect(() => {
+    const el = box.current;
+    if (!shown || !el) return;
+    const observer = new ResizeObserver(() => {
+      if (el.getClientRects().length > 0) return;
+      if (playing === id) setPlaying(null);
+      setState({ status: 'idle' });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [shown, id]);
+
   // Unmounting (a new list) stops it for good.
   useEffect(
     () => () => {

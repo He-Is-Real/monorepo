@@ -16,6 +16,7 @@ import {
   parseBrowseSearch,
   toBrowseParams,
 } from '@/lib/browse-query';
+import { logStoriesUnavailable, whenUnavailable } from '@/lib/log';
 import { StoriesUnavailableError } from '@/lib/public-stories';
 import { pageMetadata } from '@/lib/seo';
 
@@ -72,6 +73,7 @@ async function loadPages(filters: Filters, pages: number) {
       cursor = page.nextCursor;
     } catch (err) {
       if (!(err instanceof StoriesUnavailableError)) throw err;
+      logStoriesUnavailable('browse', err);
       if (loaded === 0) return null;
       break;
     }
@@ -92,10 +94,7 @@ export default async function BrowsePage({ searchParams }: Props) {
   await connection();
   const { filters, pages } = parseBrowseSearch(await searchParams);
   const [tags, result] = await Promise.all([
-    listTags().catch((err) => {
-      if (err instanceof StoriesUnavailableError) return [] as StoryTag[];
-      throw err;
-    }),
+    listTags().catch(whenUnavailable('browse', [] as StoryTag[])),
     loadPages(filters, pages),
   ]);
   const summary = summaryOf(filters, tags);

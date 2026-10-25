@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { apiPublicReadUrl } from './config';
 
 // D32: web reads stories from api-public-read only, server-side, with nothing from the
@@ -78,9 +79,13 @@ function isPublicStory(value: unknown): value is PublicStory {
 
 /**
  * `GET /v1/stories/{slug}`. An old slug's 301 is followed, so the story's `slug` may differ
- * from the one asked for: the page then redirects to the current one.
+ * from the one asked for: the page then redirects to the current one. Read once per request
+ * (React's `cache`), so the page and its metadata see the same answer; never kept between
+ * requests (`no-store`, D51).
  */
-export async function getPublicStory(slug: string): Promise<StoryResult> {
+export const getPublicStory = cache(readPublicStory);
+
+async function readPublicStory(slug: string): Promise<StoryResult> {
   if (!SLUG.test(slug) || slug.length > 200) return { kind: 'not_found' };
   let res: Response;
   try {
