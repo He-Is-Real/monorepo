@@ -11,6 +11,8 @@
 #   gcp: api-public-read gets the BUNNY_* settings only when api_public_read_media is set,
 #     web_site_url is an https origin, and api-user/api-admin get their own identity, database
 #     login, Clerk settings and web's origins.
+#   bootstrap: the _Default sink writes to the London log bucket with Google's filter (D101).
+#   org: only London locations are allowed, and new projects' logs start in London (D102, D104).
 set -euo pipefail
 cd "$(dirname "$0")/modules"
 for tests in */tests; do

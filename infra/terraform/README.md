@@ -14,7 +14,8 @@ Background and decisions (project docs, `context/research/`): `terraform-state-o
 
 ```
 modules/
-  bootstrap/   project, APIs, state bucket, KMS keys, CI identities (keyless), budget, Bunny account key secret
+  bootstrap/   project, APIs, state bucket, KMS keys, CI identities (keyless), budget, Bunny account key secret, log bucket (London)
+  org/         organisation-wide: UK-only resource locations, London default for new projects' logs
   gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run, dev-seed Job (dev)
   cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
   db-migration/ the D14 migration bundle and Job name (no providers; `tofu test` offline)
@@ -22,7 +23,7 @@ modules/
   bunny/       Bunny.net: Stream library, storage zone + pull zone, app keys in Secret Manager
   bunny-state-guard/ the bunny root's "never public" check (no providers; tested)
 live/dev/      one root per concern, applied in this order:
-  bootstrap/   developer only, locally (needs billing permissions)  state: dev/bootstrap
+  bootstrap/   developer only, locally (billing + org roles; calls org/) state: dev/bootstrap
   gcp/         tofu-apply.yml (approved) or a developer              state: dev/gcp
   images/      a developer (Docker), or tofu-apply.yml on request    state: dev/images
   cluster/     tofu-apply.yml (approved) or a developer              state: dev/cluster
@@ -192,16 +193,16 @@ kubectl -n database get secrets --as "$P"                                       
 
 ## Who can do what
 
-| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys                                                                |
-| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/`), `tofu-state`, bucket metadata. No secret values or backups                                            |
-| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/`), `tofu-state`                                                               |
-| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster and images roots manage; state (not `dev/bunny/`), `tofu-state`, saved plans in `plans/`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes |
-| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                               |
-| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                               |
-| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                       |
-| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                     |
+| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys; organisation policies and log settings (granted by hand)               |
+| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/`), `tofu-state`, bucket metadata; reads the organisation's policies and log settings. No secret values or backups |
+| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/`), `tofu-state`                                                                        |
+| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster and images roots manage; state (not `dev/bunny/`), `tofu-state`, saved plans in `plans/`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes          |
+| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                                        |
+| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                                        |
+| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                                |
+| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                              |
 
 The gates are CEL expressions over GitHub's OIDC claims (`modules/bootstrap/*.cel.tftpl`, tested
 with claim fixtures in `modules/bootstrap/tests/`): ref, workflow file and event. Environments
@@ -416,6 +417,65 @@ at once.
 
 **Cost:** Bunny bills at least $1 a month per account; dev usage (a few test files) stays under
 it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, free encoding.
+
+## Where data lives (D101–D104)
+
+Joel's rule: data stays in the UK wherever possible, written explicitly in OpenTofu, never left to
+a provider's default. Every Google Cloud resource we create names `europe-west2` (London).
+
+| Data                                                    | Where                                     | Declared in                              |
+| ------------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
+| SurrealDB (GKE disk), backups, OpenTofu state, KMS keys | London                                    | `gcp`, `bootstrap`                       |
+| Cloud Run services and jobs, Artifact Registry images   | London                                    | `gcp`                                    |
+| Secrets (Secret Manager)                                | London only (user-managed replication)    | `gcp`, `bootstrap`, `bunny`              |
+| Our services' logs (`_Default` sink, 30 days, D101)     | London (`default-europe-west2`)           | `modules/bootstrap/logging.tf`           |
+| Google's audit logs (`_Required`, 400 days, D104)       | dev: `global` (can't move); new: London   | `modules/org` (new projects only)        |
+| Images (Bunny storage)                                  | London                                    | `bunny`                                  |
+| Story videos and audio (Bunny Stream, D89)              | Frankfurt (Bunny's only choice)           | `bunny`                                  |
+| Bunny's CDN caches (D103)                               | EU + US edges (images), worldwide (video) | Bunny's defaults; revisit for production |
+
+**Logs (D101).** Google creates each project's `_Default` and `_Required` log buckets in `global`,
+and a bucket's location is fixed when it's created. So `bootstrap` adds a London bucket and points
+the existing `_Default` sink at it (imported, filter unchanged, deletion refused). The old global
+`_Default` bucket stays, empty after 30 days; Logs Explorer's project scope reads both.
+**Dev's `_Required` bucket stays `global`**: Google can't move, delete or redirect it, so only
+recreating the project would put it in London (D104).
+
+**Organisation settings (D102, D104; `modules/org`).** They cover every project in
+`heisreal.today`, so only `live/dev/bootstrap` calls the module; a prod bootstrap must not.
+
+- **Default log location `europe-west2`**: new projects get their `_Default` and `_Required` buckets
+  in London. Existing buckets keep theirs. The settings are imported, with the other two fields
+  declared as they are (`_Default` sink on, no CMEK), because the provider rewrites all three.
+- **`constraints/gcp.resourceLocations` = `in:gb-locations`** (the UK: today `europe-west2` and
+  its zones; Google adds new UK locations to the group): creating a location-bound resource
+  elsewhere fails. It checks new resources, including the VMs GKE creates when it scales, and
+  some services check updates too; nothing in dev conflicts. Global resources (service accounts,
+  Workload Identity, the VPC network, routes, firewalls, Cloud DNS, Pub/Sub topics, budgets)
+  aren't location-bound. Secret Manager's automatic replication is refused (it's `global`), so
+  secrets keep user-managed London replication. Topics created after the policy store messages
+  in the UK; still declare `message_storage_policy` on M2's topics. No exception is needed.
+
+**Before the first apply**, the organisation admin (`info@heisreal.today`) runs this once, in Cloud
+Shell or a terminal signed in as that account. Nobody who runs OpenTofu can change organisation
+access, and the org admin role can't create roles itself, hence the first line:
+
+```bash
+ORG=463617123121
+gcloud organizations add-iam-policy-binding $ORG --member=user:info@heisreal.today --role=roles/iam.organizationRoleAdmin --condition=None
+gcloud iam roles create logSettingsAdmin --organization=$ORG --title="Log settings admin" --permissions=logging.settings.get,logging.settings.update
+gcloud iam roles create orgSettingsReader --organization=$ORG --title="Org settings reader" --permissions=logging.settings.get,orgpolicy.policy.get
+gcloud organizations add-iam-policy-binding $ORG --member=user:joel@heisreal.today --role=organizations/$ORG/roles/logSettingsAdmin --condition=None
+gcloud organizations add-iam-policy-binding $ORG --member=user:joel@heisreal.today --role=roles/orgpolicy.policyAdmin --condition=None
+gcloud organizations add-iam-policy-binding $ORG --member=serviceAccount:tf-planner@heisreal-dev.iam.gserviceaccount.com --role=organizations/$ORG/roles/orgSettingsReader --condition=None
+```
+
+Developers apply bootstrap (`orgpolicy.policyAdmin`: custom roles can't set policies; the log
+settings role holds only the two settings permissions). The organisation grant gives `tf-planner`
+only those two reads and no log-entry access (any workflow in this repository, PRs included, can
+use it). Its existing project-level Viewer role in dev still lets it read dev's own logs. Until the grants
+exist, bootstrap's plan fails on importing the log settings (and so does `tofu-drift.yml`);
+`tf.sh bootstrap plan -exclude=module.org` plans the rest.
 
 ## Cost guardrails
 

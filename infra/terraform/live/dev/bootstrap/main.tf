@@ -1,5 +1,5 @@
 # Bootstrap for the dev environment: project, APIs, Terraform state bucket,
-# CI identities and the budget. Applied by a developer (needs billing-account
+# CI identities, the budget, log storage and the organisation's settings. Applied by a developer (needs billing-account
 # permissions for the budget); never by CI.
 #
 # First run ever: see infra/terraform/README.md "Bootstrapping a new environment"
@@ -57,6 +57,27 @@ module "bootstrap" {
   ]
 }
 
+# Organisation-wide (every project in heisreal.today, prod included): UK locations only (D102)
+# and London as new projects' default log location (D104). Only this root may call the module.
+# Needs organisation roles a developer gets once from the organisation admin (README,
+# "Where data lives").
+module "org" {
+  source = "../../../modules/org"
+
+  org_id               = "463617123121"
+  allowed_locations    = ["in:gb-locations"] # the UK: today London (europe-west2) and its zones
+  log_storage_location = "europe-west2"
+
+  # The Org Policy API is enabled in this project (module.bootstrap), which bills the calls.
+  depends_on = [module.bootstrap]
+}
+
+# The organisation's log settings always exist; adopt them before changing them.
+import {
+  to = module.org.google_logging_organization_settings.this
+  id = "organizations/463617123121/settings"
+}
+
 # --- Adopt resources created by hand on 2026-09-27 -------------------------
 import {
   to = module.bootstrap.google_project.this
@@ -74,6 +95,16 @@ import {
   id       = "heisreal-dev roles/owner ${each.value}"
 }
 
+# --- Adopt Google's _Default log sink (D101: it now writes to London) -------
+import {
+  to = module.bootstrap.google_logging_project_sink.default
+  id = "projects/heisreal-dev/sinks/_Default"
+}
+
 output "bootstrap" {
   value = module.bootstrap
+}
+
+output "org" {
+  value = module.org
 }
