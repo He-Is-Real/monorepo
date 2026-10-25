@@ -9,12 +9,12 @@ const config = {
   username: 'api_admin',
   passwordSecret: 'surreal-api-admin-password',
 };
-const secrets = { get: jest.fn() } as unknown as SecretsService;
+const secrets = { get: vi.fn() } as unknown as SecretsService;
 
 function client(connect: Promise<true>) {
   return {
-    connect: jest.fn().mockReturnValue(connect),
-    close: jest.fn().mockResolvedValue(true),
+    connect: vi.fn().mockReturnValue(connect),
+    close: vi.fn().mockResolvedValue(true),
   };
 }
 

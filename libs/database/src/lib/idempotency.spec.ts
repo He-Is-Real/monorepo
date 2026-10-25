@@ -10,7 +10,7 @@ function scriptedDb(script: {
   transactions: ('conflict' | 'taken' | { status: number; id: string })[];
 }) {
   const calls: string[] = [];
-  const query = jest.fn((sql: string) => {
+  const query = vi.fn((sql: string) => {
     const isLookup = sql.trimStart().startsWith('SELECT');
     calls.push(isLookup ? 'lookup' : 'transaction');
     let responses: unknown[];
@@ -59,7 +59,7 @@ describe('runIdempotent', () => {
       ],
       transactions: ['conflict'],
     });
-    const prepare = jest
+    const prepare = vi
       .fn()
       .mockResolvedValueOnce(command)
       .mockRejectedValue(new Error('dpa_version_not_in_force'));
@@ -89,7 +89,7 @@ describe('runIdempotent', () => {
       lookups: [[], []],
       transactions: ['conflict', { status: 201, id: 'consent:mine' }],
     });
-    const prepare = jest.fn().mockResolvedValue(command);
+    const prepare = vi.fn().mockResolvedValue(command);
     await expect(runIdempotent(db, scope, 'h', prepare)).resolves.toEqual({
       replayed: false,
       response: { status: 201, id: 'consent:mine', version: null },
@@ -111,7 +111,7 @@ describe('runIdempotent', () => {
 
   it('never retries other errors (e.g. the command refusing)', async () => {
     const { db } = scriptedDb({ lookups: [[]], transactions: [] });
-    const prepare = jest.fn().mockRejectedValue(new Error('refused'));
+    const prepare = vi.fn().mockRejectedValue(new Error('refused'));
     await expect(runIdempotent(db, scope, 'h', prepare)).rejects.toThrow(
       'refused',
     );

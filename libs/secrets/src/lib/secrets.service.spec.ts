@@ -1,7 +1,7 @@
 import { SecretAccessor, SecretsService } from './secrets.service';
 
 function fakeClient(payloads: Record<string, string | Uint8Array | null>) {
-  const accessSecretVersion = jest.fn(async ({ name }: { name: string }) => {
+  const accessSecretVersion = vi.fn(async ({ name }: { name: string }) => {
     if (!(name in payloads)) throw new Error(`NOT_FOUND: ${name}`);
     const data = payloads[name];
     return [{ payload: data === null ? {} : { data } }];
@@ -33,7 +33,7 @@ describe('SecretsService', () => {
 
   it('fails instead of hanging when Secret Manager does not answer', async () => {
     const client = {
-      accessSecretVersion: jest.fn(() => new Promise(() => undefined)),
+      accessSecretVersion: vi.fn(() => new Promise(() => undefined)),
     } as unknown as SecretAccessor;
     const secrets = new SecretsService(client, 'heisreal-dev', 20);
     await expect(secrets.get('db-pass')).rejects.toThrow(

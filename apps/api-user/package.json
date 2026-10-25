@@ -101,14 +101,11 @@
         "inputs": [
           "default",
           "^production",
-          "{workspaceRoot}/jest.preset.js",
           "{workspaceRoot}/libs/contracts/openapi/**/*",
           {
             "externalDependencies": [
-              "jest",
-              "@nx/jest",
-              "ts-jest",
-              "@swc/jest"
+              "vitest",
+              "@nx/vitest"
             ]
           }
         ]
@@ -130,14 +127,14 @@
     "@heisreal/http": "workspace:*",
     "@heisreal/roles": "workspace:*",
     "@heisreal/secrets": "workspace:*",
-    "@nestjs/common": "^11.0.0",
-    "@nestjs/core": "^11.0.0",
-    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/common": "^12.2.0",
+    "@nestjs/core": "^12.2.0",
+    "@nestjs/platform-express": "^12.2.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.2",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@nestjs/testing": "^11.0.0"
+    "@nestjs/testing": "^12.2.0"
   }
 }

@@ -19,8 +19,7 @@
   "exclude": [
     "out-tsc",
     "dist",
-    "jest.config.ts",
-    "jest.config.cts",
+    "vitest.config.mts",
     "src/**/*.spec.ts",
     "src/**/*.test.ts",
     "eslint.config.js",

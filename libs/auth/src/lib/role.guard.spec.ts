@@ -66,7 +66,7 @@ class HeaderAuthenticator implements PersonAuthenticator {
 @Global()
 @Module({
   providers: [
-    { provide: SURREAL, useValue: { query: jest.fn(), close: jest.fn() } },
+    { provide: SURREAL, useValue: { query: vi.fn(), close: vi.fn() } },
   ],
   exports: [SURREAL],
 })
@@ -137,7 +137,7 @@ describe('RoleGuard', () => {
   });
 
   it('refuses an undeclared route with 500 if it is ever reached (fail closed in every service)', async () => {
-    const guard = new RoleGuard({ authenticate: jest.fn() } as never);
+    const guard = new RoleGuard({ authenticate: vi.fn() } as never);
     const context = {
       getType: () => 'http',
       getHandler: () => UndeclaredController.prototype.plain,

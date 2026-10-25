@@ -24,7 +24,7 @@ type Json = Record<string, unknown>;
 const BASE = 'https://contracts.heisreal.invalid/';
 const METHODS = ['get', 'put', 'post', 'delete', 'patch', 'head', 'options'];
 
-/** The repository's libs/contracts/openapi, found from the working directory (Jest runs in a project). */
+/** The repository's libs/contracts/openapi, found from the working directory (tests run in a project). */
 function openapiDir(): string {
   for (let dir = process.cwd(); ; dir = dirname(dir)) {
     const candidate = join(dir, 'libs/contracts/openapi');

@@ -60,4 +60,12 @@ source of truth, so change them in the same PR as the code.
 
 ## Working in the workspace
 
+**Modules and tests (NestJS 12).** Nest 12 packages are ESM only; the services and their libs stay
+CommonJS TypeScript (no `"type": "module"`, extensionless relative imports, `__dirname`), bundled by
+webpack, and Node 24 loads Nest through `require(esm)`. So a dependency used by a service must not
+contain top-level `await` (`ERR_REQUIRE_ASYNC_MODULE`), and service code can't use `import.meta`.
+Tests in the Nest apps and libs use Vitest (`vitest.config.mts`; `vi.fn()`, globals on); the
+real-SurrealDB suites use `vitest.integration.config.mts` with libs/database's global setup.
+`apps/web` uses Jest.
+
 Run tasks through Nx with the package manager prefix (`pnpm nx run-many -t lint test build typecheck`, `pnpm nx affected -t ...`). Check `pnpm nx <target> --help` rather than guessing flags. Scaffold with the Nx generators (`pnpm nx g ...`).

@@ -7,6 +7,7 @@ import { Surreal } from 'surrealdb';
 import type { SecretsService } from '@heisreal/secrets';
 import { connectDatabase } from '../src/lib/database.module';
 import { pinnedSurrealImage } from './support/global-setup';
+import { surrealTestLogin } from './support/login';
 import {
   createPeople,
   DPA_V1_SHA256,
@@ -1409,7 +1410,7 @@ const hasDocker = (() => {
   'D13 B cutover: restart with the startup init',
   () => {
     const name = `surreal-cutover-${randomBytes(4).toString('hex')}`;
-    const rootPassword = process.env['SURREAL_TEST_PASS'] ?? 'root';
+    const rootPassword = surrealTestLogin().pass;
     let initDir: string;
     let t: TestDatabase;
     let oldEditor: Surreal;

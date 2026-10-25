@@ -47,7 +47,7 @@ class FixedAuthenticator implements PersonAuthenticator {
   }
 }
 
-const surreal = { query: jest.fn(), close: jest.fn() };
+const surreal = { query: vi.fn(), close: vi.fn() };
 
 /** Stands in for DatabaseModule (global, provides SURREAL). */
 @Global()
@@ -104,8 +104,8 @@ describe('ConsentModule', () => {
   });
 
   describe('the global guard', () => {
-    const callerHas = jest.fn();
-    const submitterHas = jest.fn();
+    const callerHas = vi.fn();
+    const submitterHas = vi.fn();
     let app: Awaited<ReturnType<typeof boot>>['app'];
     let url: string;
 
@@ -117,7 +117,7 @@ describe('ConsentModule', () => {
       ));
     });
     afterAll(() => app.close());
-    beforeEach(() => jest.resetAllMocks());
+    beforeEach(() => vi.resetAllMocks());
 
     it('answers 403 without the caller’s consent, before the handler runs', async () => {
       callerHas.mockResolvedValue(false);
@@ -151,7 +151,7 @@ describe('ConsentModule', () => {
   });
 
   it('answers 401 on consent-guarded routes without an authenticator (nobody can sign in)', async () => {
-    const callerHas = jest.fn();
+    const callerHas = vi.fn();
     const { app, url } = await boot([TestController], { callerHas });
     try {
       const res = await fetch(`${url}/v1/stories`, { method: 'POST' });
