@@ -1,5 +1,10 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
-import { expectAllTargets, expectNoHorizontalOverflow, shots } from './helpers';
+import {
+  enlargeText,
+  expectAllTargets,
+  expectNoHorizontalOverflow,
+  shots,
+} from './helpers';
 
 // D72: a story card says NEW while its story was published less than 7 days ago, decided by
 // web's server (nothing per person, nothing computed in the browser). The e2e servers' clock is
@@ -25,6 +30,21 @@ const overlaps = (a: Box, b: Box) =>
   b.x < a.x + a.width &&
   a.y < b.y + b.height &&
   b.y < a.y + a.height;
+
+/** `inner` lies wholly inside `outer`'s box (half a pixel for rounding). */
+async function expectInside(inner: Locator, outer: Locator, what: string) {
+  const a = await inner.boundingBox();
+  const b = await outer.boundingBox();
+  expect(a && b, what).toBeTruthy();
+  if (!a || !b) return;
+  expect(
+    {
+      left: a.x >= b.x - 0.5,
+      right: a.x + a.width <= b.x + b.width + 0.5,
+    },
+    `${what}: ${Math.round(a.x)}–${Math.round(a.x + a.width)} px in ${Math.round(b.x)}–${Math.round(b.x + b.width)} px`,
+  ).toEqual({ left: true, right: true });
+}
 
 /** The badge sits inside its card, clear of the media area (play button, player). */
 async function expectBadgePlaced(c: Locator) {
@@ -100,4 +120,48 @@ test('the badge is in the server-rendered HTML', async ({ request }, info) => {
   test.skip(info.project.name !== 'desktop-1280', 'one device');
   const html = await (await request.get(LIST)).text();
   expect(html.split(LABEL)).toHaveLength(NEW.length + 1);
+});
+
+// WCAG 1.4.4: at 200% text the card's label (the badge and "Video · 0:12") wraps inside the card
+// instead of being clipped, and the phones' related list puts its text under the thumbnail.
+// One scheme: colours don't change the layout. The boxes are checked on every device; the whole
+// page's width at 200% only on the 320 px phone, as in text-zoom.e2e.ts.
+test.describe('200% text', () => {
+  test.beforeEach(({ page }) => enlargeText(page));
+  const pageFits = async (page: Page, project: string) => {
+    if (project === 'phone-320') await expectNoHorizontalOverflow(page);
+  };
+
+  test('the badge and the whole label stay inside the card', async ({
+    page,
+  }, info) => {
+    await page.goto(LIST);
+    for (const title of [...NEW, ...NOT_NEW]) {
+      const c = card(page, title);
+      const label = c.locator('[data-card-label]');
+      await expectInside(label, c, `${title}: label`);
+      // Nothing inside the label is cut off (the duration included).
+      expect(
+        await label.evaluate((el) => el.scrollWidth <= el.clientWidth),
+      ).toBe(true);
+      if (NEW.includes(title))
+        await expectInside(badgeIn(c), c, `${title}: badge`);
+    }
+    await expect(
+      card(page, 'New test: 2 days old').getByText('Video · 0:12'),
+    ).toBeVisible();
+    await pageFits(page, info.project.name);
+  });
+
+  test('related stories keep the badge inside their box', async ({
+    page,
+  }, info) => {
+    await page.goto('/stories/long-words');
+    const related = page.getByRole('region', { name: 'Related stories' });
+    const badges = related.locator(`${BADGE}:visible`);
+    await expect(badges.first()).toBeVisible();
+    for (const badge of await badges.all())
+      await expectInside(badge, related, 'related badge');
+    await pageFits(page, info.project.name);
+  });
 });

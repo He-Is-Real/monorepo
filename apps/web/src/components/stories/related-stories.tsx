@@ -32,7 +32,7 @@ export function RelatedStories({ stories }: { stories: StorySummary[] }) {
                 href={`/stories/${s.slug}`}
                 // No prefetch: a story's page signs its media links (D52) only when opened.
                 prefetch={false}
-                className="-mx-2 flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 text-foreground transition-colors hover:bg-surface hover:text-foreground"
+                className="-mx-2 flex min-h-14 flex-wrap items-center gap-3 rounded-lg px-2 py-2 text-foreground transition-colors hover:bg-surface hover:text-foreground"
               >
                 <span
                   aria-hidden="true"
@@ -54,7 +54,9 @@ export function RelatedStories({ stories }: { stories: StorySummary[] }) {
                     '▶'
                   )}
                 </span>
-                <span className="min-w-0">
+                {/* Beside the thumbnail; under it once the column would be under 8rem (large
+                    text), so the title and badge always fit the box. */}
+                <span className="min-w-0 flex-1 basis-32">
                   <span className="line-clamp-2 text-sm font-semibold">
                     {s.title}
                   </span>

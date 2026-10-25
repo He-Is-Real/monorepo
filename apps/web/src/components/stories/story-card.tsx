@@ -198,14 +198,22 @@ export function StoryCard({
       <div
         className={`flex flex-1 flex-col p-5 ${playable && media ? 'relative' : ''}`}
       >
+        {/* One line at normal text sizes: the name shortens with "…" first. It moves to its own line
+            only when under 2.5rem would be left, and with large text the label wraps too, so
+            nothing is ever clipped by the card. */}
         <p
-          className={`mb-2 flex items-center justify-between gap-3 text-[0.8125rem] leading-5 text-muted-foreground ${media ? '' : 'pr-10'}`}
+          className={`mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[0.8125rem] leading-5 text-muted-foreground ${media ? '' : 'pr-10'}`}
         >
-          <span className="flex shrink-0 items-center gap-2">
+          <span
+            data-card-label=""
+            className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+          >
             {story.isNew && <NewBadge />}
             {cardLabel(story)}
           </span>
-          <span className="truncate">{story.bylineName ?? 'Anonymous'}</span>
+          <span className="min-w-0 flex-1 basis-10 truncate text-right">
+            {story.bylineName ?? 'Anonymous'}
+          </span>
         </p>
         <Heading className="mb-1.5 line-clamp-3 text-[1.0625rem] leading-6 font-semibold">
           <Link
