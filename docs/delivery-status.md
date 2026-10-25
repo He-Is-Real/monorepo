@@ -11,7 +11,7 @@ waiting to be made are in `project/context/research/required-decisions.html`.
 Keep this file current: update it in the same PR that finishes a task or changes a decision
 recorded here.
 
-**Last updated:** 2026-10-24
+**Last updated:** 2026-10-25
 
 ## Milestones
 
@@ -514,6 +514,25 @@ Notes from PR A:
   surrealdb.js 2.0.8 quirk) and its unchecked benchmark are gone (T4). The gitleaks test scans all
   its flagged fixtures in one run (about 10 s → 2 s).
 
+Notes from PR F (CI speed, 2026-10-25, #95):
+
+- **Web's e2e runs in 4 parallel shards from one build** (`ci.yml`): `e2e-build` builds the site
+  once (`web:prune`, through the Nx cache) and hands `apps/web/dist` to the shards, which run
+  Playwright directly. Each shard runs its part exactly as a local `web:e2e` does (T4: same config,
+  4 workers, no retries); only the reporters differ (a blob report). `e2e-report` merges the
+  screenshots into one 7-day `web-e2e-screenshots` artifact (T8) and, when a test fails, the blob
+  reports into one HTML report (`web-e2e-report`, with traces). The required check is still
+  `main`, now a job that passes only when `checks`, the e2e jobs and the report pass or are skipped.
+  About 4.2–5.2 min on a web-affected PR, from 8.5–13.5 min; 4 shards beat 3 by about 30 s.
+- **Cached:** the pnpm store and the Nx cache (as before; Nx's local cache in the Actions cache,
+  no Nx Cloud) and Playwright's Chromium headless shell, keyed by Playwright version. Not cached:
+  the build handed to the shards (built each run) and the system libraries (apt each time).
+- **`apps/web/e2e` is typechecked** (`web:typecheck`, its own `tsconfig.json`).
+  `apps/dev-seed/behavioural` already was (`dev-seed:typecheck`, through `tsconfig.spec.json`).
+- **Shards are uneven** (about 90–200 s of tests each): tests skipped per device at run time still
+  count towards a shard's share (995 of 2,058 cases in a full run), so the shard holding most of
+  `static-pages.e2e.ts` runs longest. Choosing devices per project instead would even them out.
+
 ### Decisions made, not yet implemented (2026-10-17, 2026-10-18, 2026-10-22)
 
 These override the plan. D1–D12 were decided from `project/context/research/required-decisions.html`,
@@ -611,3 +630,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-24:** Audio (Joel): an audio story's width and height are its thumbnail's (the person's image or the site's default audio thumbnail, required for approval); the default is every dev audio clip's Bunny thumbnail (re-seed with "Reset dev data"); M7 task 7.2 sets it in production before approval; the player is opaque (no white bands). Notes under M1.
 - **2026-10-25:** Header and no-JavaScript fixes. **The account area has a fixed width** (80 px on phones, 176 px from 640 px; the signed-in name truncates to fit), so Share and the theme toggle no longer move when the account control resolves (they moved 6 px signed out and 36–85 px signed in; e2e on every device, signed in with a long name and signed out, first paint against resolved). **The phone menu works without JavaScript:** in the server's HTML it's a `<details>` disclosure; once React runs the button takes over with its focus handling and Escape (e2e at 320 and 375 px with JavaScript off). **A story page says so when api-public-read can't be reached** (Joel, 2026-10-25): a calm server-rendered message with Try again and Browse stories, for visitors without JavaScript too, like browse's; it answers 200, as browse does, because Next.js can't send a page with a 5xx, and it isn't indexed (Joel rejected patching Next's server for a 503). Home, browse and the story page each log one structured ERROR line (`lib/log.ts`: the page and the failure, no request data or story content) that Cloud Logging and Error Reporting pick up; before, only the story page's 500 recorded an outage. Nothing alerts on it yet (a log-based metric and alert policy would, through OpenTofu). `getPublicStory` is read once per request (React `cache`), so a story page and its metadata see the same answer.
 - **2026-10-25:** T3 follow-up: `tofu-apply.yml` dispatches "Dev behavioural tests" once per deploy, from its final run: the first run that started after the target's Release Images succeeded, so it rolled out the target's images (a push run starts before them; on #79 its cluster apply changed the schema under the old dev-seed image and the tests failed). That run also dispatches when it applied nothing itself but an earlier run had since the tests last started (`tools/scripts/tf-behavioural.sh`). A real-database test now checks that `withPersonSession` invalidates the person's session before closing it: otherwise the long-lived connection keeps their token and its renewal timer.
+- **2026-10-25:** CI speed (PR F, #95): web's e2e in 4 parallel shards from one build, merged screenshots and failure report, Playwright's browser cached; the required `main` check aggregates the jobs; `apps/web/e2e` typechecked (notes under Test clean-up).
