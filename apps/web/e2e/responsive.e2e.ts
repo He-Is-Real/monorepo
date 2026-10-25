@@ -118,14 +118,16 @@ for (const scheme of ['light', 'dark'] as const) {
       await shots(page, info.project.name, scheme, '404');
     });
 
-    test('api-public-read down: the friendly error page', async ({
+    test('api-public-read down: the story page’s message', async ({
       page,
     }, info) => {
       await page.goto('/stories/down');
       await expect(
-        page.getByRole('heading', { name: 'Something went wrong on our side' }),
+        page.getByRole('heading', {
+          name: 'This story can’t be shown right now',
+        }),
       ).toBeVisible();
-      await expectTarget(page, page.getByRole('button', { name: 'Try again' }));
+      await expectTarget(page, page.getByRole('link', { name: 'Try again' }));
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
       await shots(page, info.project.name, scheme, 'error');

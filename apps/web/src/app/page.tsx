@@ -12,7 +12,7 @@ import {
   type StorySummary,
   type StoryTag,
 } from '@/lib/browse';
-import { StoriesUnavailableError } from '@/lib/public-stories';
+import { whenUnavailable } from '@/lib/log';
 import { pageMetadata } from '@/lib/seo';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -30,13 +30,6 @@ export async function generateMetadata(): Promise<Metadata> {
 /** How many of the newest stories home shows. */
 const NEWEST_COUNT = 3;
 
-const unavailable =
-  <T,>(fallback: T) =>
-  (err: unknown) => {
-    if (err instanceof StoriesUnavailableError) return fallback;
-    throw err;
-  };
-
 /**
  * The newest published stories. Never a chosen or pinned one (Joel, 2026-10-23: featuring one
  * person's story above the others is unfair to everyone else).
@@ -44,7 +37,7 @@ const unavailable =
 async function newestStories(): Promise<StorySummary[] | null> {
   return browseStories({ limit: NEWEST_COUNT })
     .then((p) => p.data)
-    .catch(unavailable(null));
+    .catch(whenUnavailable('home', null));
 }
 
 /** The mockups' section label, as the section's heading. */
@@ -100,7 +93,7 @@ export default async function Page() {
   await connection();
   const [stories, tags] = await Promise.all([
     newestStories(),
-    listTags().catch(unavailable([] as StoryTag[])),
+    listTags().catch(whenUnavailable('home', [] as StoryTag[])),
   ]);
   const themes = tags.filter((t) => t.category === 'theme');
   const journeys = tags.filter((t) => t.category === 'journey');

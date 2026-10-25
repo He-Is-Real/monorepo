@@ -38,8 +38,9 @@ export function AccountControl() {
 
 /**
  * What a signed-in person sees in the header, from the design (authenticated/home-signed-in:
- * avatar, first name, ▾): a compact button whose width is bounded, so it never pushes the header
- * onto a second row. The first name shows from 640 px and truncates; phones get the avatar only.
+ * avatar, first name, ▾): a compact button no wider than the header's account slot
+ * (site-header.tsx), so it never pushes the header onto a second row. The first name shows
+ * from 640 px and truncates to fit; phones get the avatar only.
  * It opens a panel with the full name and Sign out. Presentational, so the e2e suite can render
  * it without a Clerk session (site-header.tsx, E2E_FIXTURES). `signOut` wraps the Sign out
  * button (Clerk's SignOutButton in the app).
@@ -58,7 +59,7 @@ export function SignedInAccount({
     <Popover.Root>
       <Popover.Trigger
         aria-label={`Account: ${name}`}
-        className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-lg px-1 text-sm text-secondary-text transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent sm:pr-2"
+        className="inline-flex min-h-11 min-w-11 max-w-full items-center justify-center gap-2 rounded-lg px-1 text-sm text-secondary-text transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent sm:pr-2"
       >
         <span
           aria-hidden="true"
@@ -68,7 +69,7 @@ export function SignedInAccount({
         </span>
         <span
           aria-hidden="true"
-          className="hidden max-w-32 truncate font-medium text-foreground sm:inline"
+          className="hidden min-w-0 truncate font-medium text-foreground sm:inline"
         >
           {shortName}
         </span>
