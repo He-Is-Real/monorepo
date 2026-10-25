@@ -27,7 +27,10 @@ export function safeReturnPath(
   } catch {
     return '/';
   }
-  if (url.origin !== 'https://site.invalid') return '/';
+  // Checked after parsing too: dot segments normalise `/.//evil.example` to `//evil.example`,
+  // which a browser reads as another site.
+  if (url.origin !== 'https://site.invalid' || url.pathname.startsWith('//'))
+    return '/';
   if (
     url.pathname === SIGN_IN_PATH ||
     url.pathname.startsWith(`${SIGN_IN_PATH}/`)

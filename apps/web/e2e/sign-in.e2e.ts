@@ -61,7 +61,11 @@ test.describe('returning to the page', () => {
   });
 
   test('never returns to another site', async ({ page }) => {
-    for (const target of ['https://example.com/', '//example.com/x']) {
+    for (const target of [
+      'https://example.com/',
+      '//example.com/x',
+      '/.//example.com',
+    ]) {
       await page.goto(`/sign-in?redirect_url=${encodeURIComponent(target)}`);
       await expect(page.locator('[data-sign-in-fixture]')).toHaveAttribute(
         'data-return-to',
