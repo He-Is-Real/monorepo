@@ -75,7 +75,7 @@ describe('Bunny uploads', () => {
   const target = {
     libraryId: '123',
     libraryKey: 'library-key-not-real',
-    storageZone: 'heisreal-dev-images',
+    storageZone: 'heisreal-dev-image-store',
     storagePassword: 'storage-password-not-real',
     storageHost: 'uk.storage.bunnycdn.com',
   };

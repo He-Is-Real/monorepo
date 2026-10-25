@@ -57,7 +57,12 @@ pnpm nx run dev-seed:upload-media --args="--library-id <id>"
 git add apps/dev-seed/src/app/bunny-media.json  # commit it in a PR
 ```
 
-**Uploaded on 2026-10-23** to the dev library (786537) and storage zone: 7 video clips, 3 audio
+For a new library (a new Bunny account or a recreated library), first empty the record, since
+`upload-media` refuses a record for another library:
+`{ "libraryId": "", "clips": {}, "images": {} }`.
+
+**Uploaded on 2026-10-25** to the dev library (789855) and storage zone
+(`heisreal-dev-image-store`), after the first Bunny account was deleted: 7 video clips, 3 audio
 clips and 5 images, all encoded with the spec's sizes and lengths. Bunny Stream accepts audio-only
 MP3s: it encodes them as a blank 1280x720 video at 360p, 480p and 720p (about 1 MB each), so
 `bunny-media.json` keeps their length; their width and height are their thumbnail's (below).

@@ -57,7 +57,7 @@ still not ready, or none) and `mediaChanged`. Oldest first. The `auditLog` rows 
 5. When Bunny has encoded it, processing records it `ready` with its size and duration, and the
    story comes back by itself. Check that `fn::story::hidden_by_media()` no longer lists it.
 
-Images live in the images storage zone. If an image fails, check the file at its `path` there.
+Images live in the images storage zone (`heisreal-dev-image-store` in dev). If an image fails, check the file at its `path` there.
 When processing records it `ready` again, the story comes back.
 
 Until M7 is built nothing marks media as not ready, so nothing is hidden.

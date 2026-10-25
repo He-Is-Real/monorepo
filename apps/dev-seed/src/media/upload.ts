@@ -51,7 +51,7 @@ const DEFAULT_AUDIO_THUMBNAIL = join(
   __dirname,
   '../../media/default-audio-thumbnail.jpg',
 );
-const STORAGE_ZONE = 'heisreal-dev-images';
+const STORAGE_ZONE = 'heisreal-dev-image-store';
 const STORAGE_HOST = 'uk.storage.bunnycdn.com'; // the zone's region: London
 
 async function main(): Promise<void> {
