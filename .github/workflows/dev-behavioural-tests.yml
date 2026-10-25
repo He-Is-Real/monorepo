@@ -2,8 +2,8 @@ name: Dev behavioural tests
 
 # D50: reset dev to the D47 dummy dataset, then test the deployed dev site and api-public-read
 # against it (apps/dev-seed/behavioural). Runs after every dev deploy: tofu-apply.yml dispatches
-# it when an apply succeeded (T3). By hand: Actions → "Dev behavioural tests" → Run workflow on
-# main. One run at a time, shared with reset-dev-data.yml, so runs can't collide.
+# it once, after the deploy's final run (T3; job `behavioural` there). By hand: Actions →
+# "Dev behavioural tests" → Run workflow on main. One run at a time, shared with reset-dev-data.yml, so runs can't collide.
 # The tests upload nothing yet; when M2's upload tests arrive, they label their media as test
 # data and a final step (plus a weekly sweep) deletes it (D50).
 
