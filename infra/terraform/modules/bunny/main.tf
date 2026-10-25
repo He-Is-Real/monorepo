@@ -68,7 +68,9 @@ resource "bunnynet_stream_library" "media" {
 
 # The storage zone Bunny made for the library, where its videos live. Bunny sets
 # Stream storage's main region (Frankfurt, EU) and it can't be chosen: neither
-# Bunny's create-library API nor the provider can set it. We declare it anyway
+# Bunny's create-library API nor the provider can set it. D89 (Joel,
+# 2026-10-25): Frankfurt is accepted since London isn't possible; no
+# replication, so no copy in London or anywhere else. We declare it anyway
 # so where the videos live is written down and any change shows up as drift.
 # Adopted by the root's import block (it exists only once the library does).
 # Replication regions can never be removed again and cost extra per region.
