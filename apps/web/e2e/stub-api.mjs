@@ -353,6 +353,47 @@ for (const name of ['phone-320', 'desktop-1280']) {
     ),
   });
 }
+// The NEW badge (new-badge.e2e.ts, D72): stories listed only under `tag=new-test`, dated around
+// the e2e servers' pinned clock (E2E_NOW in servers.ts, 2026-10-25T12:00:00Z). New means less
+// than 7 days old, so exactly 7 days isn't, and one second less is.
+const NEW_TEST = 'new-test';
+for (const [slug, title, format, publishedAt] of [
+  ['new-test-2-days', 'New test: 2 days old', 'video', '2026-10-23T12:00:00Z'],
+  [
+    'new-test-under-7-days',
+    'New test: 1 second under 7 days old',
+    'written',
+    '2026-10-18T12:00:01Z',
+  ],
+  [
+    'new-test-7-days',
+    'New test: exactly 7 days old',
+    'audio',
+    '2026-10-18T12:00:00Z',
+  ],
+  [
+    'new-test-8-days',
+    'New test: 8 days old',
+    'written',
+    '2026-10-17T12:00:00Z',
+  ],
+]) {
+  playStory(slug, {
+    primaryFormat: format,
+    title,
+    description: 'Placeholder story for the NEW badge tests.',
+    tags: [{ slug: NEW_TEST, name: 'New test', category: 'theme', version: 1 }],
+    publishedAt,
+    ...(format === 'written'
+      ? { body: 'Placeholder text for the NEW badge tests.' }
+      : {
+          media: clip(
+            format,
+            `66666666-6666-4666-8666-${slug === 'new-test-2-days' ? '000000000002' : '000000000007'}`,
+          ),
+        }),
+  });
+}
 const reads = new Map();
 
 /** Listed (as cards) but not readable: the story was hidden, or the API is failing. */
@@ -379,7 +420,14 @@ for (const name of ['phone-320', 'desktop-1280']) {
   };
 }
 
-const TEST_TAGS = [HIDE_TEST, PLAY_TEST, PREFETCH_TEST, HEART_TEST, HEART_TMP];
+const TEST_TAGS = [
+  HIDE_TEST,
+  PLAY_TEST,
+  PREFETCH_TEST,
+  HEART_TEST,
+  HEART_TMP,
+  NEW_TEST,
+];
 const testTagOf = (s) =>
   s.tags.find((t) => TEST_TAGS.includes(t.slug))?.slug ?? null;
 

@@ -122,3 +122,16 @@ export function e2eSignedInName(): string | undefined {
   const name = process.env['E2E_SIGNED_IN_NAME']?.trim();
   return name ? name : undefined;
 }
+
+/**
+ * The time web's server judges "new" against (D72: a card says NEW for its story's first 7
+ * days): now, or in e2e only (`E2E_FIXTURES=true`) the fixed `E2E_NOW`, so the 7-day boundary
+ * is tested against a pinned clock, the same locally and in CI.
+ */
+export function serverNow(): number {
+  if (process.env['E2E_FIXTURES'] === 'true') {
+    const pinned = Date.parse(process.env['E2E_NOW'] ?? '');
+    if (Number.isFinite(pinned)) return pinned;
+  }
+  return Date.now();
+}

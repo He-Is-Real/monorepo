@@ -1,4 +1,4 @@
-import { apiPublicReadUrl } from './config';
+import { apiPublicReadUrl, serverNow } from './config';
 import { type StoryImage, StoriesUnavailableError } from './public-stories';
 
 // D32: web reads from api-public-read only, server-side, with nothing from the visitor's request
@@ -37,7 +37,34 @@ export interface StorySummary {
   textLength: number;
   tags: StoryTag[];
   publishedAt: string;
+  /**
+   * web's own, not the API's: whether the card says NEW (`isNewStory`), judged by web's server
+   * when it fetched the card.
+   */
+  isNew: boolean;
 }
+
+/** D72: a story is new for 7 days after it's published. */
+export const NEW_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * D72: "NEW" on a card while its story was published less than 7 days ago. Nothing is stored
+ * per person. Only web's server decides, against its own clock, when it fetches the cards (the
+ * browser never re-computes it, so hydration can't disagree and a visitor's wrong clock changes
+ * nothing). A page served from a cache shows the badge as it was when it was rendered.
+ */
+export function isNewStory(publishedAt: string, now: number): boolean {
+  const published = Date.parse(publishedAt);
+  return Number.isFinite(published) && now - published < NEW_FOR_MS;
+}
+
+/** A card as the API sends it. */
+type ApiSummary = Omit<StorySummary, 'isNew'>;
+
+const withNew = (cards: ApiSummary[]): StorySummary[] => {
+  const now = serverNow();
+  return cards.map((c) => ({ ...c, isNew: isNewStory(c.publishedAt, now) }));
+};
 
 export interface StoryPage {
   data: StorySummary[];
@@ -92,7 +119,7 @@ export async function browseStories(
   });
   const body = await json(res);
   if (!isPage(body)) throw new StoriesUnavailableError('unexpected response');
-  return body;
+  return { data: withNew(body.data), nextCursor: body.nextCursor };
 }
 
 /** A story id as the APIs give them out. */
@@ -130,7 +157,7 @@ export async function getRelatedStories(slug: string): Promise<RelatedResult> {
   const body = (await json(res)) as { data?: unknown } | undefined;
   if (!Array.isArray(body?.data) || !body.data.every(isSummary))
     throw new StoriesUnavailableError('unexpected response');
-  return { kind: 'stories', stories: body.data };
+  return { kind: 'stories', stories: withNew(body.data) };
 }
 
 /**
@@ -191,8 +218,8 @@ function isTag(value: unknown): value is StoryTag {
   );
 }
 
-function isSummary(value: unknown): value is StorySummary {
-  const s = value as Partial<StorySummary> | null;
+function isSummary(value: unknown): value is ApiSummary {
+  const s = value as Partial<ApiSummary> | null;
   return (
     !!s &&
     typeof s.slug === 'string' &&
@@ -212,7 +239,9 @@ function isSummary(value: unknown): value is StorySummary {
   );
 }
 
-function isPage(value: unknown): value is StoryPage {
+function isPage(
+  value: unknown,
+): value is { data: ApiSummary[]; nextCursor: string | null } {
   const p = value as Partial<StoryPage> | null;
   return (
     !!p &&

@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
-import { cardLabel, StoryCard } from './story-card';
+import { cardLabel, NewBadge, StoryCard } from './story-card';
 
 /**
  * The story page's related stories (GET /v1/stories/{slug}/related: 3 cards), below the story,
@@ -58,7 +58,8 @@ export function RelatedStories({ stories }: { stories: StorySummary[] }) {
                   <span className="line-clamp-2 text-sm font-semibold">
                     {s.title}
                   </span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                    {s.isNew && <NewBadge />}
                     {cardLabel(s)}
                   </span>
                 </span>

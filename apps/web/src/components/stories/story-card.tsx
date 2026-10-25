@@ -49,6 +49,25 @@ export function cardLabel(story: StorySummary): string {
     : kind;
 }
 
+/**
+ * D72: "NEW" while the story is less than 7 days old (`story.isNew`, decided on web's server).
+ * The mockup's teal pill on the site's tokens: the link-hover teal on a teal tint (about 6:1 in
+ * both themes). It sits in the card's top line, at its 20 px height, so it never covers the
+ * picture, the play button or the player, and the masonry's predicted heights stay right. Words,
+ * not colour alone: screen readers hear "New: published in the last week".
+ */
+export function NewBadge() {
+  return (
+    <span
+      data-new-badge=""
+      className="inline-flex h-5 shrink-0 items-center rounded-full bg-teal/15 px-2 text-[0.6875rem] leading-5 font-semibold tracking-wide text-link-hover dark:bg-teal/20"
+    >
+      <span aria-hidden="true">NEW</span>
+      <span className="sr-only">New: published in the last week</span>
+    </span>
+  );
+}
+
 function mediaOf(story: StorySummary, uniform: boolean) {
   const { primaryFormat: format, image } = story;
   if (format === 'video')
@@ -180,9 +199,12 @@ export function StoryCard({
         className={`flex flex-1 flex-col p-5 ${playable && media ? 'relative' : ''}`}
       >
         <p
-          className={`mb-2 flex items-baseline justify-between gap-3 text-[0.8125rem] leading-5 text-muted-foreground ${media ? '' : 'pr-10'}`}
+          className={`mb-2 flex items-center justify-between gap-3 text-[0.8125rem] leading-5 text-muted-foreground ${media ? '' : 'pr-10'}`}
         >
-          <span className="shrink-0">{cardLabel(story)}</span>
+          <span className="flex shrink-0 items-center gap-2">
+            {story.isNew && <NewBadge />}
+            {cardLabel(story)}
+          </span>
           <span className="truncate">{story.bylineName ?? 'Anonymous'}</span>
         </p>
         <Heading className="mb-1.5 line-clamp-3 text-[1.0625rem] leading-6 font-semibold">

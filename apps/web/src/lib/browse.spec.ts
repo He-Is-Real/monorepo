@@ -19,6 +19,7 @@ const card: StorySummary = {
   textLength: 0,
   tags: [{ slug: 'hope', name: 'Hope', category: 'emotion', version: 1 }],
   publishedAt: '2026-10-21T20:00:00Z',
+  isNew: false,
 };
 
 describe('browse client (api-public-read, server-side only)', () => {

@@ -28,6 +28,7 @@ const card = (slug: string): StorySummary => ({
   textLength: 300,
   tags: [],
   publishedAt: '2026-10-21T20:00:00Z',
+  isNew: false,
 });
 
 const pageOf = (slugs: string[], nextCursor: string | null): StoryPage => ({
