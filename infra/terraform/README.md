@@ -407,6 +407,8 @@ The player's controls are made 44 × 44 px (AGENTS.md touch targets) by CSS in t
 custom head (`player_custom_head`, `modules/bunny/player-head.html`; plain CSS, no script, checked
 by the module's tftest). It targets the player's media-chrome element names, so a Bunny player
 update could undo it: the behavioural media checks measure the real player on a 320 px phone.
+The player's other settings (key colour, font, captions, controls) match the site theme; what
+each is for: `docs/media-runbook.md`, "The Stream player".
 
 Rotating a token key: reset it at Bunny, apply bunny (new secret version), then start a new
 api-public-read revision (keys are read at startup). Links signed with the old key stop working
