@@ -1,6 +1,11 @@
-# Command-line tools the repo's Nx targets need beyond Node/pnpm.
-# `mise install` in this directory installs them. CI pins the same versions.
+# Command-line tools the repo needs beyond pnpm (Joel, 2026-10-25: pin them all, keep them updated).
+# `mise install` in this directory installs them. CI pins the same versions for the tools it uses.
 [tools]
+node = "24" # same major as .nvmrc; pnpm comes from package.json's packageManager (corepack)
 kubeconform = "0.8.0"
 opentofu = "1.13.2"
 gitleaks = "8.30.1"
+# Vendor CLIs used by hand (docs/tooling-and-accounts.md). CI doesn't need them.
+"npm:clerk" = "4.0.0"
+"npm:@bunny.net/cli" = "0.20.3"
+"npm:resend-cli" = "2.26.0"
