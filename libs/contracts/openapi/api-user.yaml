@@ -149,14 +149,20 @@ paths:
     get:
       tags: [Account]
       operationId: getAccount
-      summary: My account settings
+      summary: My account (the bootstrap after each sign-in)
+      description: |
+        Query `GetAccount`, the account bootstrap: web's header calls it once each time a page loads
+        signed in. Built from the verified token and the database only, never Clerk's Backend API.
+        The person's first call creates their `user` record (only `clerkUserId`, D16), which is also
+        what lets staff use api-admin. Needs no consent: it is how the site learns whether the
+        sign-up form still has to be accepted (`signupConsent`, D73).
       x-required-role: User
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: 'My account. `version` is `null` because the settings live in Clerk (D16).'
+          description: 'My account. `version` is `null`: the account has no database version.'
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -170,11 +176,18 @@ paths:
           $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
     patch:
       tags: [Account]
       operationId: updateAccount
       summary: Update my account settings
       description: |
+        **Not built in M2** (D81): there are no notification settings until emails arrive (D79), and
+        name and email are changed in Clerk's own account panel.
+
         CRUD with JSON Merge Patch. The settings live in Clerk `privateMetadata` (D16) and `api-user`
         writes them through Clerk's Backend API; nothing is stored in SurrealDB. Email, name and country
         are changed through Clerk's own components. **No `If-Match`** (a documented exception to D29):

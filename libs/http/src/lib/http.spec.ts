@@ -1,4 +1,11 @@
-import { Controller, Get, HttpStatus, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { corsOptions } from './cors';
 import { ProblemException, ProblemFilter } from './problem.filter';
@@ -62,6 +69,18 @@ class Probe {
   boom() {
     throw new Error('secret testimony text');
   }
+  @Get('coded')
+  coded() {
+    throw new ForbiddenException({
+      code: 'role_required',
+      message: 'This needs the Moderator role or higher',
+      requiredRole: 'Moderator',
+    });
+  }
+  @Get('uncoded')
+  uncoded() {
+    throw new BadRequestException('Unexpected token in "secret" at 3');
+  }
 }
 
 describe('ProblemFilter', () => {
@@ -88,6 +107,32 @@ describe('ProblemFilter', () => {
       type: 'about:blank',
       title: 'Internal server error',
       status: 500,
+    });
+  });
+
+  it('keeps our own codes and messages, as problems', async () => {
+    const res = await fetch(`${url}/coded`);
+    expect(res.status).toBe(403);
+    expect(res.headers.get('content-type')).toMatch(
+      /^application\/problem\+json/,
+    );
+    expect(await res.json()).toEqual({
+      type: 'about:blank',
+      title: 'Forbidden',
+      status: 403,
+      code: 'role_required',
+      detail: 'This needs the Moderator role or higher',
+      requiredRole: 'Moderator',
+    });
+  });
+
+  it('gives an uncoded error only its status title, never its message', async () => {
+    const res = await fetch(`${url}/uncoded`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      type: 'about:blank',
+      title: 'Bad request',
+      status: 400,
     });
   });
 });

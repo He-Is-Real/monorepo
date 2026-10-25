@@ -63,15 +63,16 @@ export class ProblemFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const body = exception.getResponse();
+      const title =
+        HttpStatus[status]?.replace(/_/g, ' ').toLowerCase() ?? 'error';
       problem =
         typeof body === 'object' && body && 'type' in body && 'title' in body
           ? (body as Problem)
-          : {
+          : (coded(body, status, title) ?? {
               type: 'about:blank',
-              title:
-                HttpStatus[status]?.replace(/_/g, ' ').toLowerCase() ?? 'error',
+              title,
               status,
-            };
+            });
       problem = { ...problem, title: titleCase(problem.title) };
     } else {
       this.logger.error(
@@ -92,3 +93,33 @@ export class ProblemFilter implements ExceptionFilter {
 }
 
 const titleCase = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+/**
+ * Our own Nest exceptions with a stable `code` (`new ForbiddenException({ code, message, … })`,
+ * as libs/auth and libs/consent throw them) as problems: `message` becomes `detail`, and `code`,
+ * `errors` and any other fields we set (e.g. `requiredRole`) are kept. Only bodies with a `code`:
+ * those are written by us, so they hold no request data. Anything else (Nest's own errors, a
+ * plain message) gets the bare status title.
+ */
+function coded(
+  body: unknown,
+  status: number,
+  title: string,
+): Problem | undefined {
+  if (typeof body !== 'object' || !body) return undefined;
+  const { code, message, statusCode, error, ...rest } = body as Record<
+    string,
+    unknown
+  >;
+  void statusCode;
+  void error;
+  if (typeof code !== 'string') return undefined;
+  return {
+    ...rest,
+    type: 'about:blank',
+    title,
+    status,
+    code,
+    ...(typeof message === 'string' ? { detail: message } : {}),
+  };
+}
