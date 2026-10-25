@@ -1,6 +1,7 @@
 // tools/scripts/tf-behavioural.sh: tofu-apply.yml dispatches "Dev behavioural tests" only after a
 // complete deploy (Codex review of #73: never after a partial one, which would reset dev data and
-// test a half-deployed system). Each scenario runs the real tf-stage.sh on the jobs' results,
+// test a half-deployed system), and only once, from the run that rolled out the target's images
+// (#79: a push run's cluster apply changed the schema under the old dev-seed image). Each scenario runs the real tf-stage.sh on the jobs' results,
 // wired as tofu-apply.yml wires them, then the decision.
 //
 //   node --test tools/scripts/tests/
@@ -23,10 +24,13 @@ const stage = (prev, selected, plan, changes, go, apply) =>
   sh('tf-stage.sh', [prev, selected, plan, changes, go, apply]);
 
 /**
- * One tofu-apply run: each root's plan result, changes output and apply result, and the two
+ * One tofu-apply run: the target's Release Images when it started, whether an earlier run left
+ * applies untested, each root's plan result, changes output and apply result, and the two
  * approvals' results and `go` outputs. Unset roots planned "no changes".
  */
 function decide({
+  release = 'success',
+  pending = false,
   approve1 = { result: 'skipped', go: '' },
   approve2 = { result: 'skipped', go: '' },
   images = false, // dispatched with `images`
@@ -81,6 +85,8 @@ function decide({
     imgs.apply,
   );
   return sh('tf-behavioural.sh', [
+    release,
+    String(pending),
     stageGcp,
     stageBunny,
     stageCluster,
@@ -114,6 +120,45 @@ test('only gcp changed and applied → dispatch', () => {
 
 test('no changes anywhere → no dispatch', () => {
   assert.equal(decide({}), 'skip: nothing was applied');
+});
+
+test('#79: a push run applies cluster before its Release Images finished → no dispatch', () => {
+  assert.match(
+    decide({
+      release: 'pending',
+      bunny: applied,
+      approve1: approved,
+      cluster: applied,
+      approve2: approved,
+    }),
+    /^skip: Release Images for the target was still running/,
+  );
+});
+
+test('#79: the run after Release Images applies the new images → dispatch', () => {
+  assert.equal(decide({ gcp: applied, approve1: approved }), 'dispatch');
+});
+
+test('the run after Release Images applies nothing, the push run before it did → dispatch', () => {
+  assert.equal(decide({ pending: true }), 'dispatch');
+});
+
+test('applies left untested, but this run is half-deployed → no dispatch', () => {
+  assert.match(
+    decide({
+      pending: true,
+      gcp: { plan: 'success', changes: 'true', apply: 'failure' },
+      approve1: approved,
+    }),
+    /^skip: a stage is blocked: apply failure/,
+  );
+});
+
+test('the target’s Release Images failed → no dispatch', () => {
+  assert.equal(
+    decide({ release: 'failure', gcp: applied, approve1: approved }),
+    'skip: Release Images for the target is failure',
+  );
 });
 
 test('gcp applied, then the cluster plan failed → no dispatch', () => {
@@ -187,6 +232,8 @@ test('a cancelled cluster apply → no dispatch', () => {
 test('a missing stage result (the stage job never ran) → no dispatch', () => {
   assert.equal(
     sh('tf-behavioural.sh', [
+      'success',
+      'false',
       'ok',
       '',
       'ok',
@@ -202,9 +249,13 @@ test('a missing stage result (the stage job never ran) → no dispatch', () => {
 });
 
 test('usage errors exit 64', () => {
-  const result = spawnSync(script('tf-behavioural.sh'), ['ok', '--', 'x'], {
-    encoding: 'utf8',
-  });
+  const result = spawnSync(
+    script('tf-behavioural.sh'),
+    ['success', 'false', 'ok', '--', 'x'],
+    {
+      encoding: 'utf8',
+    },
+  );
   assert.equal(result.status, 64);
 });
 
@@ -239,6 +290,17 @@ test('tofu-apply.yml feeds every stage and apply to it, and dispatches only on i
       new RegExp(`needs\\.apply-${root}\\.result`),
     );
   }
+  assert.match(decide.env.IMAGES, /needs\.target\.outputs\.images/);
+  assert.match(
+    workflow.jobs.target.outputs.images,
+    /steps\.images\.outputs\.images/,
+  );
+  assert.match(decide.env.PENDING, /steps\.pending\.outputs\.pending/);
+  assert.ok(
+    job.steps.findIndex((s) => s.id === 'pending') <
+      job.steps.findIndex((s) => s.id === 'decide'),
+    'pending runs before decide',
+  );
   assert.match(decide.run, /tf-behavioural\.sh/);
   const dispatch = job.steps.find((s) => /gh workflow run/.test(s.run ?? ''));
   assert.equal(dispatch.if, "steps.decide.outputs.decision == 'dispatch'");
@@ -274,6 +336,8 @@ function runDecideStep(env) {
 
 test('the decide step reads every value it needs from its own env', () => {
   const names = Object.keys(decideStep.env);
+  for (const name of ['IMAGES', 'PENDING'])
+    assert.ok(names.includes(name), name);
   for (const root of ['GCP', 'BUNNY', 'CLUSTER', 'IMAGES'])
     for (const kind of ['STAGE', 'APPLY'])
       assert.ok(names.includes(`${kind}_${root}`), `${kind}_${root}`);
@@ -281,6 +345,8 @@ test('the decide step reads every value it needs from its own env', () => {
 
 test('the decide step: images stage never published (its job failed early) → no dispatch', () => {
   const decision = runDecideStep({
+    IMAGES: 'success',
+    PENDING: 'false',
     STAGE_GCP: 'ok',
     STAGE_BUNNY: 'ok',
     STAGE_CLUSTER: 'ok',
@@ -296,6 +362,8 @@ test('the decide step: images stage never published (its job failed early) → n
 test('the decide step: every stage ok and an apply done → dispatch', () => {
   assert.equal(
     runDecideStep({
+      IMAGES: 'success',
+      PENDING: 'false',
       STAGE_GCP: 'ok',
       STAGE_BUNNY: 'ok',
       STAGE_CLUSTER: 'ok',
@@ -309,10 +377,23 @@ test('the decide step: every stage ok and an apply done → dispatch', () => {
   );
 });
 
-test('fewer or more than four values is a usage error, never a decision', () => {
+test('fewer or more than four values, or no pending, is a usage error, never a decision', () => {
   for (const args of [
-    ['ok', 'ok', 'ok', '--', 'success', 'skipped', 'success', 'failure'],
     [
+      'success',
+      'false',
+      'ok',
+      'ok',
+      'ok',
+      '--',
+      'success',
+      'skipped',
+      'success',
+      'failure',
+    ],
+    [
+      'success',
+      'false',
       'ok',
       'ok',
       'ok',
@@ -324,7 +405,32 @@ test('fewer or more than four values is a usage error, never a decision', () => 
       'success',
       'failure',
     ],
-    ['ok', 'ok', 'ok', 'ok', '--', 'success', 'skipped', 'success'],
+    [
+      'success',
+      'false',
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      '--',
+      'success',
+      'skipped',
+      'success',
+    ],
+    // pending must be true or false
+    [
+      'success',
+      '',
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      '--',
+      'success',
+      'skipped',
+      'success',
+      'failure',
+    ],
   ]) {
     const result = spawnSync(script('tf-behavioural.sh'), args, {
       encoding: 'utf8',

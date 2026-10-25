@@ -101,6 +101,34 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     ]);
   });
 
+  it('clears the person’s auth while the session is still attached, then detaches it', async () => {
+    // Invalidate, then close: in that order nothing of the person stays on the long-lived
+    // connection. Closed first, the invalidate fails ("Session not found") and, like skipping
+    // it, leaves the connection holding the person's token and its renewal timer.
+    const timers = () =>
+      process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+    const before = {
+      sessions: (await connection.sessions()).length,
+      timers: timers(),
+    };
+    let attachedWhenCleared: boolean | undefined;
+    let held!: SurrealSession;
+    await withPersonSession(connection, t.token('user_ann'), async (s) => {
+      held = s;
+      s.subscribe('auth', (auth) => {
+        if (auth === null) attachedWhenCleared = s.isValid;
+      });
+      expect(await rows(s, 'RETURN $auth')).toEqual(['user:ann']);
+    });
+    expect(attachedWhenCleared).toBe(true);
+    expect(held.isValid).toBe(false);
+    expect((await connection.sessions()).length).toBe(before.sessions);
+    expect(timers()).toBe(before.timers);
+    expect(await rows(connection, 'RETURN $auth')).toEqual([
+      'service:api_user',
+    ]);
+  });
+
   it('DANGER: authenticating requests on ONE shared session lets them interleave', async () => {
     // What happens if api-user called authenticate() on its connection (or one session) per
     // request: request A authenticates, request B authenticates before A queries, A then reads

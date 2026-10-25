@@ -23,6 +23,8 @@ name: OpenTofu apply
 #     "no changes" and "not selected" stop nothing.
 #   - Every Release Images completion, success or failure, triggers a full run: it may replace
 #     a pending push run in the queue, so it must plan everything too.
+#   - "Dev behavioural tests" is dispatched once per deploy, after its final wave, and only by a
+#     run that started after the target's Release Images succeeded (job `behavioural`).
 #
 # Recover from anything (a failed, rejected or superseded run): dispatch this workflow.
 #
@@ -73,9 +75,11 @@ env:
 jobs:
   target:
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      actions: read # Release Images' run for the target
     outputs:
       sha: ${{ steps.main.outputs.sha }}
+      images: ${{ steps.images.outputs.images }}
     steps:
       - id: main
         run: |
@@ -83,6 +87,21 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve main"; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Target: main at \`$sha\` (event: $GITHUB_EVENT_NAME)" >> "$GITHUB_STEP_SUMMARY"
+      # Whether the target's images exist before anything plans: gcp picks up the newest images,
+      # so only a run that starts after the target's Release Images succeeded deploys them all
+      # (`behavioural` below). Otherwise that completion triggers another run, which will.
+      # Never blocks a deploy: if the lookup fails, the output is empty and no test is dispatched.
+      - id: images
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.main.outputs.sha }}
+        run: |
+          images="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/images.yml/runs?head_sha=$SHA&per_page=10" \
+            --jq '[.workflow_runs[] | if .status == "completed" then .conclusion else "pending" end]
+                  | if index("success") then "success" else (.[0] // "pending") end')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "Release Images for the target: $images" >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Wave 1: gcp and bunny ----------------------------------------------------------------
 
@@ -617,13 +636,20 @@ jobs:
           echo "images: $result" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ---- After a deploy: the dev behavioural suite (T3) -----------------------------------------
-  # Only after a complete deploy: every root's stage is ok (nothing failed, was rejected, went
-  # stale or was superseded, so no half-deployed dev) and at least one apply changed something
-  # (tools/scripts/tf-behavioural.sh). Then dispatch "Dev behavioural tests": it resets dev to
-  # the dummy dataset and tests the real site, the real API and real Bunny together. A dispatch,
-  # not a call: only a dispatched run on main may sign in as ci-dev-seeder (dev_seed_gate in
-  # modules/bootstrap), so this needs no new identity or secret. It queues behind any reset
-  # (concurrency `dev-data`).
+  # Once per deploy, after its final run (tools/scripts/tf-behavioural.sh). This job needs every
+  # stage, so it starts only after the last wave; and it dispatches only when:
+  #   - the target's Release Images had succeeded when this run started (`target`), so this run
+  #     rolled out the target's images. A push run starts before them (#79: its cluster apply
+  #     changed the schema while the old dev-seed image still ran, and the tests failed); the
+  #     run their completion triggers is the final one;
+  #   - every root's stage is ok (nothing failed, was rejected, went stale or was superseded, so
+  #     no half-deployed dev);
+  #   - something was applied: in this run, or in an earlier run since "Dev behavioural tests"
+  #     last started (a push run's applies are tested by the run after Release Images).
+  # Then dispatch "Dev behavioural tests": it resets dev to the dummy dataset and tests the real
+  # site, the real API and real Bunny together. A dispatch, not a call: only a dispatched run on
+  # main may sign in as ci-dev-seeder (dev_seed_gate in modules/bootstrap), so this needs no new
+  # identity or secret. It queues behind any reset (concurrency `dev-data`).
   behavioural:
     needs:
       - target
@@ -639,16 +665,27 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: write # dispatch dev-behavioural-tests.yml
+      actions: write # list runs and jobs; dispatch dev-behavioural-tests.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.target.outputs.sha }}
           sparse-checkout: tools/scripts
+      # Did an earlier run apply anything after "Dev behavioural tests" last started? Unsure (the
+      # history can't be read back that far) counts as yes.
+      - id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pending="$(tools/scripts/tf-pending.sh)"
+          echo "pending=$pending" >> "$GITHUB_OUTPUT"
+          echo "Applied by an earlier run since the tests last started: $pending" >> "$GITHUB_STEP_SUMMARY"
       - id: decide
         # One variable per value, passed as separate quoted arguments: a stage job that never
         # published its result gives an empty argument (not ok), never a shorter list.
         env:
+          IMAGES: ${{ needs.target.outputs.images }}
+          PENDING: ${{ steps.pending.outputs.pending }}
           STAGE_GCP: ${{ needs.stage-gcp.outputs.result }}
           STAGE_BUNNY: ${{ needs.stage-bunny.outputs.result }}
           STAGE_CLUSTER: ${{ needs.stage-cluster.outputs.result }}
@@ -658,7 +695,7 @@ jobs:
           APPLY_CLUSTER: ${{ needs.apply-cluster.result }}
           APPLY_IMAGES: ${{ needs.apply-images.result }}
         run: |
-          decision="$(tools/scripts/tf-behavioural.sh \
+          decision="$(tools/scripts/tf-behavioural.sh "${IMAGES:-}" "${PENDING:-}" \
             "${STAGE_GCP:-}" "${STAGE_BUNNY:-}" "${STAGE_CLUSTER:-}" "${STAGE_IMAGES:-}" -- \
             "${APPLY_GCP:-}" "${APPLY_BUNNY:-}" "${APPLY_CLUSTER:-}" "${APPLY_IMAGES:-}")"
           echo "decision=$decision" >> "$GITHUB_OUTPUT"
