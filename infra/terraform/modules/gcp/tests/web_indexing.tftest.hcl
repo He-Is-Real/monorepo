@@ -182,7 +182,7 @@ run "api_user_url_passed_to_web" {
   command = plan
 
   override_resource {
-    target          = google_cloud_run_v2_service.signed_in_api["api-user"]
+    target = google_cloud_run_v2_service.signed_in_api["api-user"]
     values = {
       uri = "https://api-user-abc-nw.a.run.app"
     }
