@@ -217,10 +217,6 @@ jobs:
           path: ${{ runner.temp }}
       - run: tar -xf "$RUNNER_TEMP/web-dist.tar" -C apps/web
 
-      # THROWAWAY: no browser, so every test fails and no screenshots are written. Attempt 1: all
-      # shards; attempt 2: shard 4 only; attempt 3+: none.
-      - if: github.run_attempt == '1' || (github.run_attempt == '2' && matrix.shard == 4)
-        run: rm -rf ~/.cache/ms-playwright
       # Playwright directly, not `nx run web:e2e`, which would build the site again.
       - run: pnpm exec playwright test -c apps/web/e2e/playwright.config.ts --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
