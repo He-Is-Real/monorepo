@@ -72,7 +72,9 @@ resource "bunnynet_stream_library" "media" {
 # api-user can sign presigned uploads; type, tier and region are create-time
 # only. One region: replication regions can never be removed again.
 resource "bunnynet_storage_zone" "images" {
-  name                = "${local.name}-images"
+  # Not "-images": Bunny still reserves that name from the deleted first account
+  # (2026-10-25). The pull zone below keeps "-images", so the CDN host is unchanged.
+  name                = "${local.name}-image-store"
   region              = var.storage_region
   zone_tier           = "Standard"
   type                = "S3"
