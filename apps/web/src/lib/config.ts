@@ -2,8 +2,8 @@
 // Terraform sets on the Cloud Run service (never baked into the image).
 //
 // D32: web server-renders from api-public-read only. It never calls api-user
-// or api-admin, and holds no database access, secrets or tokens, so this is
-// the only API address it gets. The story page that uses it is task 0.9.
+// or api-admin, and holds no database access, secrets or tokens. api-user's
+// address (apiUserUrl) is only handed to the browser, which calls it itself.
 
 export function apiPublicReadUrl(): string {
   const url = process.env['API_PUBLIC_READ_URL'];
@@ -87,6 +87,24 @@ export function siteUrl(): string | undefined {
  */
 export function indexingAllowed(): boolean {
   return process.env['INDEXING'] === 'allow' && siteUrl() !== undefined;
+}
+
+/**
+ * api-user's origin (`API_USER_URL`, set by OpenTofu), for the browser's own calls with the
+ * person's Clerk token (D31, D83). web's server never calls it (D32): it only hands the address
+ * to client components. https, or http for localhost only (local and e2e), since the token
+ * travels with every call. Unset or malformed = undefined: the signed-in parts that need
+ * api-user stay empty, and nothing else changes.
+ */
+export function apiUserUrl(): string | undefined {
+  const raw = process.env['API_USER_URL']?.trim().replace(/\/+$/, '');
+  if (!raw) return undefined;
+  const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(raw);
+  if (validOrigin(raw) && (raw.startsWith('https://') || local)) return raw;
+  console.error(
+    'API_USER_URL is not an https origin without a path (http only for localhost); ignoring it',
+  );
+  return undefined;
 }
 
 /**

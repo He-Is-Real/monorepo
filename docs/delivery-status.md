@@ -19,7 +19,7 @@ recorded here.
 | ----------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | M0 Walking skeleton           | ✅ Done        | Every task done (0.6 deferred, D5); 0.9 applied to dev from #45                                                                         |
 | M1 Browse & view              | ✅ Done        | Dev only, on dummy data (D46), 2026-10-24. Task 1.9 (legacy import) moves to Real stories                                               |
-| M2 Accounts & submission      | ⚪ Not started | Needs D80 below (server-assigned media), the 0.8 and 0.5 lists. Emails (2.7) move out (D79); seen tracking (2.6) dropped (D72)          |
+| M2 Accounts & submission      | 🟡 In progress | PR 1 bootstrap and sign-in. Needs D80 (server-assigned media). Emails (2.7) move out (D79); seen tracking (2.6) dropped (D72)           |
 | M3 Moderation                 | ⚪ Not started |                                                                                                                                         |
 | M4 Donations                  | ⚪ Not started |                                                                                                                                         |
 | M5 Admin dashboard            | ⚪ Not started | A thin version can start after M1                                                                                                       |
@@ -147,9 +147,12 @@ changed two settings: passwords became optional with an 8-character minimum (was
   Clerk-side session revocation and user deletion, and deletion of the person's videos and images
   at Bunny, so no row can be recreated and no media is left. Until then the behaviour is pinned in
   `libs/auth/integration`.
-- **Staff rows come from an api-user account bootstrap on sign-in (M2)**, e.g. `GET /v1/account`.
-  api-admin answers `403 unknown_person` without one (D13), M3's moderation pages wait for the
-  bootstrap, and api-admin's database permissions aren't widened (agreed in #44's review).
+- ✅ **Staff rows come from an api-user account bootstrap on sign-in (M2):** `GET /v1/account`
+  (M2 PR 1). web's header calls it once each time a page loads signed in; the first call creates
+  the person's `user` row, so staff are then known to api-admin, which still answers
+  `403 unknown_person` without one (D13). api-admin's database permissions aren't widened
+  (agreed in #44's review). It reads only the token and the database (no Clerk Backend API) and
+  reports `signupConsent.accepted` (D73) through a seam the consent-forms PR fills.
 - ✅ **CORS:** api-user and api-admin allow web's two origins (`CORS_ALLOWED_ORIGINS`, the same
   `web_origins` list as `CLERK_AUTHORIZED_PARTIES`; done 2026-10-25).
 - ✅ **Deploying api-user/api-admin** (done 2026-10-25, `modules/gcp/signed_in_apis.tf`): on Cloud
@@ -186,8 +189,9 @@ changed two settings: passwords became optional with an 8-character minimum (was
   on unpublish (#45 review; coordinator's decision, Joel can overrule).
 - **Media URLs:** `GET /v1/stories/{slug}` returned media with `null` playback and thumbnail URLs
   until Bunny's token-authenticated delivery, built in M1 step 5 (D52).
-- **api-user and api-admin** still answer Nest's default error bodies; they adopt `libs/http`'s
-  RFC 9457 `ProblemFilter` with their first M1/M2 commands.
+- ✅ **api-user and api-admin answer RFC 9457 problems** (`libs/http`'s `ProblemFilter`, M2 PR 1).
+  Our own coded errors keep their `code`, message (as `detail`) and fields such as
+  `requiredRole`; anything else gets only its status title.
 
 ## M1: Browse & view (dev only, dummy data)
 
@@ -721,3 +725,4 @@ Items from `project/thingstoremember.txt` that the implementation has settled:
 - **2026-10-25:** New Bunny.net account: Joel deleted the first account (library 786537 and its media went with it) and opened one under a root email. The bunny root was applied to it: Stream library `heisreal-dev-media` is now 789855 (CDN host `vz-bd66cea0-80b.b-cdn.net`), new app secrets, AI features checked off. The storage zone is now `heisreal-dev-image-store`, because Bunny still reserves `heisreal-dev-images` from the deleted account; the pull zone keeps `heisreal-dev-images`, so the images CDN host is unchanged. The gcp root points api-public-read and web at the new library, and the dummy media was uploaded again (`bunny-media.json`); "Reset dev data" re-seeds dev with it. Joel: where data lives is declared in OpenTofu, never left to a default; so the library's Bunny-made storage zone (Frankfurt, unchoosable) is adopted and declared (`bunnynet_storage_zone.stream`, `prevent_destroy`). Joel accepted Frankfurt for story videos and audio, without replication (D89, above); the privacy document must list Bunny and Germany.
 - **2026-10-25:** Bunny's player matches the site theme: brand teal key colour (was Bunny's orange), Inter (closest to DM Sans of Bunny's fonts; was Rubik), the site's teal focus ring, every player setting explicit in OpenTofu, and the large play button round again (the 44 px rule had squashed it). Settings explained in `docs/media-runbook.md`.
 - **2026-10-25:** `docs/tooling-and-accounts.md`: every CLI and third-party account the project uses or plans (install, sign-in, which repo command needs it, Secret Manager names, costs) and a new-developer checklist; linked from README and AGENTS.md. Resend is set up (Joel's CLI login) for M2 email.
+- **2026-10-25:** M2 PR 1 (browser → api-user, account bootstrap, sign-in page): api-user's `GET /v1/account` (id, role, createdAt and `signupConsent`, from the token and the database only; the first call creates the `user` row, so the 0.5 "staff rows" prerequisite is done); api-user and api-admin answer RFC 9457 problems; web's browser-only client `apps/web/src/lib/api-user.ts` with D32's one reviewed lint carve-out (`apps/web/README.md`); the header calls the bootstrap once per signed-in page load, and its failure blocks nothing; `/sign-in` with Clerk's sign-in (sign-up included, Google and email, never Apple), returning to the page the person came from; the header's Sign in is a link to it. Tests: api-user's first integration suite (real SurrealDB, checked against `api-user.yaml`), the e2e stub's api-user half (contract-checked), the device matrix for `/sign-in`, and a dev behavioural sign-in with a Clerk test user. The sign-up consent step (D73) follows the consent-forms PR.

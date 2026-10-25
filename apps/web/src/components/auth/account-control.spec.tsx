@@ -5,6 +5,7 @@ import { AccountControl } from './account-control';
 
 jest.mock('@clerk/react', () => ({
   useUser: jest.fn(),
+  useAuth: () => ({ userId: null, getToken: async () => null }),
   SignInButton: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="clerk-sign-in">{children}</div>
   ),

@@ -174,3 +174,23 @@ run "indexing_allowed_outside_dev" {
     error_message = "ROBOTS_NOINDEX follows web_indexing for older images."
   }
 }
+
+# M2 PR 1: the browser's own calls to api-user (D31). web hands this origin to the browser;
+# its server never calls api-user (D32). The service's uri is only known after apply, so the
+# mock gives it a fixed value.
+run "api_user_url_passed_to_web" {
+  command = plan
+
+  override_resource {
+    target = google_cloud_run_v2_service.signed_in_api["api-user"]
+    values = {
+      uri = "https://api-user-abc-nw.a.run.app"
+    }
+  }
+
+  assert {
+    condition = one([for e in google_cloud_run_v2_service.web.template[0].containers[0].env :
+    e.value if e.name == "API_USER_URL"]) == "https://api-user-abc-nw.a.run.app"
+    error_message = "web gets API_USER_URL from the api-user Cloud Run service."
+  }
+}

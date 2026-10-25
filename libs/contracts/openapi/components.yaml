@@ -1023,27 +1023,40 @@ components:
     Account:
       type: object
       description: |
-        The signed-in person's account, assembled from Clerk: email, name and country are edited through
-        Clerk's components, `notificationPrefs` is Clerk `privateMetadata` (D16), and the role is the
-        Clerk claim (D1). Only `id` and `createdAt` come from the SurrealDB `user` record, which holds
-        no settings.
-      required: [id, role, createdAt]
+        The signed-in person's account bootstrap (M2), built from the verified Clerk token and the
+        SurrealDB `user` record only, with no call to Clerk's servers: `id` and `createdAt` come from
+        the record (created on the person's first call), `role` from the token's claim (D1). Email and
+        name stay in Clerk and are edited in Clerk's own account panel (D16, D81). There are no
+        notification settings in M2 (D81: no emails in M2, D79), so `notificationPrefs` is absent.
+      required: [id, role, createdAt, signupConsent]
       properties:
         id:
           type: string
         version:
           type: 'null'
-          description: Always `null`; Clerk holds no version, so account settings take no `If-Match`.
+          description: Always `null`; the account has no database version, so it takes no `If-Match`.
         role:
           $ref: '#/components/schemas/Role'
         notificationPrefs:
           type: object
-          description: Stored in Clerk `privateMetadata`, not in SurrealDB.
+          description: |
+            Not sent in M2 (D81). Reserved for notification settings, which would live in Clerk
+            `privateMetadata` (D16), never in SurrealDB.
           additionalProperties:
             type: boolean
         createdAt:
           type: string
           format: date-time
+        signupConsent:
+          type: object
+          description: |
+            The sign-up consent form (D73, D84): whether the person has accepted the latest published
+            version. Every new published version needs accepting again before the site can be used
+            signed in. `accepted` is `false` while no sign-up form is published.
+          required: [accepted]
+          properties:
+            accepted:
+              type: boolean
 
     AccountPatch:
       type: object

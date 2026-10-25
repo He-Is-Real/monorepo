@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, test } from '@playwright/test';
 import { Contract } from '@heisreal/contracts/testing';
-import { STUB_URL } from './servers';
+import { E2E_FIXTURE_TOKEN, STUB_URL, STUB_USER_URL } from './servers';
 
 // T3: the stub api-public-read (stub-api.mjs) answers as libs/contracts/openapi/
 // api-public-read.yaml says, like the real service does in its integration tests
@@ -86,4 +86,37 @@ test('the stub’s errors fit the contract', async ({ request }) => {
     (await check(request, '/v1/stories/no-such-story/related')).status,
   ).toBe(404);
   expect((await check(request, '/v1/stories/down')).status).toBe(503);
+});
+
+// T3: the stub api-user (stub-api-user.mjs) answers as api-user.yaml says, like the real
+// service in its integration tests (apps/api-user/integration).
+const userContract = new Contract('api-user.yaml');
+
+test('the stub api-user’s account bootstrap fits the contract', async ({
+  request,
+}) => {
+  const get = async (path: string, headers: Record<string, string> = {}) => {
+    const res = await request.get(`${STUB_USER_URL}${path}`, { headers });
+    const text = await res.text();
+    expect(
+      userContract.problems({
+        method: 'GET',
+        path,
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body: text === '' ? undefined : JSON.parse(text),
+      }),
+      path,
+    ).toEqual([]);
+    return res;
+  };
+  const signedIn = { authorization: `Bearer ${E2E_FIXTURE_TOKEN}` };
+  const account = await get('/v1/account', signedIn);
+  expect(account.status()).toBe(200);
+  const etag = account.headers()['etag'];
+  expect(
+    (await get('/v1/account', { ...signedIn, 'if-none-match': etag })).status(),
+  ).toBe(304);
+  expect((await get('/v1/account')).status()).toBe(401);
+  expect((await get('/health')).status()).toBe(200);
 });

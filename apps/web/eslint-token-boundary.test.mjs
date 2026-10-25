@@ -21,6 +21,10 @@ const ROUTE = 'src/app/probe/route.ts';
 const PROXY = 'src/proxy.ts';
 const MIDDLEWARE = 'src/middleware.ts';
 const PAGE = 'src/app/probe/page.tsx';
+// The one carve-out (M2): the browser-only api-user client may build request headers and read
+// response headers, and nothing else is relaxed there.
+const API_USER_CLIENT = 'src/lib/api-user.ts';
+const CLIENT_CALL = `const h = new Headers(); h.set('Authorization', 'Bearer t'); export const call = async () => { const r = await fetch('https://api-user.example/v1/account', { headers: h }); return r.headers.get('ETag'); };`;
 
 const forbidden = [
   [
@@ -94,6 +98,31 @@ const forbidden = [
     ROUTE,
     `export async function GET() { const h = {}; return fetch('https://api.example', { headers: { ...h, accept: 'x' } }); }`,
   ],
+  [
+    'the api-user client’s headers anywhere but its own file',
+    'src/lib/other-client.ts',
+    CLIENT_CALL,
+  ],
+  [
+    'the api-user client’s headers in a component',
+    'src/components/probe.tsx',
+    CLIENT_CALL,
+  ],
+  [
+    'next/headers in the api-user client',
+    API_USER_CLIENT,
+    `export const x = () => import('next/headers');`,
+  ],
+  [
+    'cookies in the api-user client',
+    API_USER_CLIENT,
+    `export const c = () => document.cookie;`,
+  ],
+  [
+    'reading a token by name in the api-user client',
+    API_USER_CLIENT,
+    `export const t = (h: Headers) => h.get('authorization');`,
+  ],
 ];
 
 const allowed = [
@@ -111,6 +140,11 @@ const allowed = [
     'response headers through an init object',
     PROXY,
     `import { NextResponse } from 'next/server';\nexport function proxy() { return NextResponse.next({ headers: { 'X-Robots-Tag': 'noindex, nofollow' } }); }`,
+  ],
+  [
+    'the api-user client building its headers and reading ETag (the carve-out)',
+    API_USER_CLIENT,
+    `'use client';\n${CLIENT_CALL}`,
   ],
   [
     'a fetch with only a URL',

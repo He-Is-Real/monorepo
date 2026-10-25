@@ -1,0 +1,67 @@
+import { expect, test } from '@playwright/test';
+import { expectClerkTargetsFullSize, expectFitsScreen } from './clerk-card';
+
+// Signing in on the deployed dev site with the real Clerk dev instance, then the browser's
+// real cross-origin call to api-user: the account bootstrap (M2), with the person's session
+// token (Clerk's RS256, `azp` = web's origin), allowed by api-user's CORS (D31).
+//
+// Needs (README, "Dev behavioural tests"):
+// - api-user on Cloud Run with web's origins in CORS_ALLOWED_ORIGINS and
+//   CLERK_AUTHORIZED_PARTIES, and web's API_USER_URL (OpenTofu);
+// - the Clerk test user below, created once on the dev instance. A `+clerk_test` address
+//   gets no email: Clerk's development instances accept the fixed code 424242 for it.
+const TEST_USER = 'behavioural+clerk_test@example.com';
+const TEST_CODE = '424242';
+
+for (const viewport of [
+  { width: 320, height: 568 },
+  { width: 1280, height: 800 },
+]) {
+  test(`${viewport.width} px: a Clerk test user signs in, returns to the page, and api-user knows them`, async ({
+    page,
+    baseURL,
+  }) => {
+    await page.setViewportSize(viewport);
+    const web = new URL(baseURL ?? '').origin;
+    await page.goto('/about');
+    await page.getByRole('link', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/\/sign-in\?redirect_url=%2Fabout/);
+
+    await page.getByLabel(/email address/i).fill(TEST_USER);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    // Email code (D2): the code boxes take the fixed test code.
+    await expect(page.getByText(/check your email for a code/i)).toBeVisible();
+    await expect(page.getByLabel(/verification code/i)).toBeVisible();
+    // The code step's controls (Edit, the code, Resend, another method) are full size too, and
+    // the page's "Welcome" stays its only h1.
+    await expectClerkTargetsFullSize(page);
+    await expectFitsScreen(page, viewport.width);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText([
+      'Welcome',
+    ]);
+    const bootstrap = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === '/v1/account' &&
+        r.request().method() === 'GET',
+      { timeout: 45_000 },
+    );
+    await page.keyboard.type(TEST_CODE);
+
+    // Back where they started, signed in.
+    await expect(page).toHaveURL(`${web}/about`);
+    await expect(
+      page.getByRole('button', { name: /^Account: / }),
+    ).toBeVisible();
+
+    const response = await bootstrap;
+    expect(new URL(response.url()).origin).not.toBe(web);
+    expect(response.request().headers()['authorization']).toMatch(/^Bearer ey/);
+    expect(response.status()).toBe(200);
+    expect(response.headers()['access-control-allow-origin']).toBe(web);
+    expect(await response.json()).toMatchObject({
+      role: 'User',
+      version: null,
+      signupConsent: { accepted: false },
+    });
+  });
+}

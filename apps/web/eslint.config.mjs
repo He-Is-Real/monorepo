@@ -12,6 +12,65 @@ const BANNED_MODULES =
 const tokenBoundary =
   'D32: web never reads, logs, stores or forwards cookies or tokens';
 
+// Everywhere, the carve-out below included: no next/headers or Clerk server SDK, however
+// loaded, and no reading cookies or tokens by name.
+const MODULE_SELECTORS = [
+  {
+    // import('next/headers'), import('@clerk/nextjs/server')…
+    selector: `ImportExpression[source.value=${BANNED_MODULES}]`,
+    message: `${tokenBoundary}: no dynamic import of next/headers or Clerk server SDKs.`,
+  },
+  {
+    selector: `CallExpression[callee.name="require"][arguments.0.value=${BANNED_MODULES}]`,
+    message: `${tokenBoundary}: no require of next/headers or Clerk server SDKs.`,
+  },
+  {
+    // headers.get('cookie'), cookies.get('__session'), searchParams.get('authorization')…
+    selector:
+      'CallExpression[callee.property.name=/^(get|getAll|has)$/][arguments.0.value=/^(cookie|authorization|__session|__clerk_db_jwt)$/i]',
+    message: `${tokenBoundary}: don't read cookies or tokens.`,
+  },
+];
+
+// Everywhere but the carve-out: no headers read, forwarded or built from variables.
+const TOKEN_SELECTORS = [
+  {
+    // x.headers, x.cookies, document.cookie, on any object: request headers can't be read,
+    // forwarded or logged. Response headers are set through init objects
+    // (`NextResponse.next({ headers: { ... } })`), which this allows.
+    selector: 'MemberExpression[property.name=/^(headers|cookies?)$/]',
+    message: `${tokenBoundary}: no .headers or .cookies access.`,
+  },
+  {
+    // fetch(url, options): the options must be an object literal, never a variable
+    selector:
+      'CallExpression[callee.name="fetch"][arguments.length>1]:not([arguments.1.type="ObjectExpression"])',
+    message: `${tokenBoundary}: pass fetch an object literal of options.`,
+  },
+  {
+    // fetch(url, { headers: something }): only literal headers, never forwarded ones
+    selector:
+      'CallExpression[callee.name="fetch"] > ObjectExpression > Property[key.name="headers"]:not([value.type="ObjectExpression"])',
+    message: `${tokenBoundary}: pass fetch an object literal of headers, never forwarded ones.`,
+  },
+  {
+    selector:
+      'CallExpression[callee.name="fetch"] > ObjectExpression > SpreadElement',
+    message: `${tokenBoundary}: no spread fetch options (they could carry request headers).`,
+  },
+  {
+    selector:
+      'CallExpression[callee.name="fetch"] > ObjectExpression > Property[key.name="headers"] > ObjectExpression > SpreadElement',
+    message: `${tokenBoundary}: no spread in fetch headers (they could be forwarded ones).`,
+  },
+];
+
+// The one reviewed carve-out (M2, apps/web/README.md): web's browser-only api-user client sends
+// the person's own Clerk token to api-user and reads api-user's response headers (ETag,
+// Location), so it builds request headers and reads `.headers`. It is 'use client' and refuses
+// to run on the server; cookies and every other rule above still apply to it.
+const API_USER_CLIENT = 'src/lib/api-user.ts';
+
 export default [
   { plugins: { '@next/next': nextEslintPluginNext } },
   ...nx.configs['flat/react-typescript'],
@@ -54,49 +113,20 @@ export default [
       ],
       'no-restricted-syntax': [
         'error',
+        ...MODULE_SELECTORS,
+        ...TOKEN_SELECTORS,
+      ],
+    },
+  },
+  {
+    files: [API_USER_CLIENT],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...MODULE_SELECTORS,
         {
-          // import('next/headers'), import('@clerk/nextjs/server')…
-          selector: `ImportExpression[source.value=${BANNED_MODULES}]`,
-          message: `${tokenBoundary}: no dynamic import of next/headers or Clerk server SDKs.`,
-        },
-        {
-          selector: `CallExpression[callee.name="require"][arguments.0.value=${BANNED_MODULES}]`,
-          message: `${tokenBoundary}: no require of next/headers or Clerk server SDKs.`,
-        },
-        {
-          // x.headers, x.cookies, document.cookie, on any object: request headers can't be read,
-          // forwarded or logged. Response headers are set through init objects
-          // (`NextResponse.next({ headers: { ... } })`), which this allows.
-          selector: 'MemberExpression[property.name=/^(headers|cookies?)$/]',
-          message: `${tokenBoundary}: no .headers or .cookies access.`,
-        },
-        {
-          // headers.get('cookie'), cookies.get('__session'), searchParams.get('authorization')…
-          selector:
-            'CallExpression[callee.property.name=/^(get|getAll|has)$/][arguments.0.value=/^(cookie|authorization|__session|__clerk_db_jwt)$/i]',
-          message: `${tokenBoundary}: don't read cookies or tokens.`,
-        },
-        {
-          // fetch(url, options): the options must be an object literal, never a variable
-          selector:
-            'CallExpression[callee.name="fetch"][arguments.length>1]:not([arguments.1.type="ObjectExpression"])',
-          message: `${tokenBoundary}: pass fetch an object literal of options.`,
-        },
-        {
-          // fetch(url, { headers: something }): only literal headers, never forwarded ones
-          selector:
-            'CallExpression[callee.name="fetch"] > ObjectExpression > Property[key.name="headers"]:not([value.type="ObjectExpression"])',
-          message: `${tokenBoundary}: pass fetch an object literal of headers, never forwarded ones.`,
-        },
-        {
-          selector:
-            'CallExpression[callee.name="fetch"] > ObjectExpression > SpreadElement',
-          message: `${tokenBoundary}: no spread fetch options (they could carry request headers).`,
-        },
-        {
-          selector:
-            'CallExpression[callee.name="fetch"] > ObjectExpression > Property[key.name="headers"] > ObjectExpression > SpreadElement',
-          message: `${tokenBoundary}: no spread in fetch headers (they could be forwarded ones).`,
+          selector: 'MemberExpression[property.name=/^cookies?$/]',
+          message: `${tokenBoundary}: no .cookies access.`,
         },
       ],
     },

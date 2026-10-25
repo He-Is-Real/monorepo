@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { APP_FILTER } from '@nestjs/core';
 import { ApiAdminAuthenticator, ClerkAuthModule } from '@heisreal/auth';
 import { ConsentModule } from '@heisreal/consent';
 import { DatabaseModule } from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
+import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 
 @Module({
@@ -17,5 +19,7 @@ import { SecretsModule } from '@heisreal/secrets';
     ConsentModule.forRoot({ authenticator: ApiAdminAuthenticator }),
     HealthModule.forService('api-admin'),
   ],
+  // D30: every error as an RFC 9457 problem; unknown errors never say why.
+  providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
 })
 export class AppModule {}

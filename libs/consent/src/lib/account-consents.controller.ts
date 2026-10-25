@@ -92,7 +92,11 @@ export function weakETag(body: unknown): string {
   return `W/"${hash.slice(0, 32)}"`;
 }
 
-function matches(ifNoneMatch: string | undefined, etag: string): boolean {
+/** Whether `If-None-Match` matches `etag` (weak comparison, RFC 9110 §13.1.2), so `304`. */
+export function ifNoneMatches(
+  ifNoneMatch: string | undefined,
+  etag: string,
+): boolean {
   if (!ifNoneMatch) return false;
   const bare = (t: string) => t.trim().replace(/^W\//, '');
   return ifNoneMatch
@@ -129,7 +133,7 @@ export class AccountConsentsController {
     const etag = weakETag(state);
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('ETag', etag);
-    if (matches(ifNoneMatch, etag)) {
+    if (ifNoneMatches(ifNoneMatch, etag)) {
       res.status(HttpStatus.NOT_MODIFIED);
       return undefined;
     }
