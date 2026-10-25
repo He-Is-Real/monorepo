@@ -64,7 +64,7 @@
     "@nestjs/core": "^12.2.0",
     "@nestjs/platform-express": "^12.2.0",
     "next": "~16.3.8",
-    "react": "^19.0.0",
+    "react": "^19.3.1",
     "react-dom": "^19.0.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.2"
