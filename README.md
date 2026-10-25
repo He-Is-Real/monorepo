@@ -77,8 +77,9 @@ and its Jobs) get secrets from External Secrets Operator, or `local-secrets.mjs`
 ## Cloud and CI
 
 All cloud changes go through OpenTofu (D54, run with `tools/scripts/tf.sh`); see [infra/terraform/README.md](infra/terraform/README.md).
-Dev runs in GCP project `heisreal-dev` (London): `api-public-read` and `web` on Cloud Run (public since
-0.9, scale to zero, max 2 instances; https://web-jbxp6odnsa-nw.a.run.app, not indexed) and SurrealDB on
+Dev runs in GCP project `heisreal-dev` (London): `api-public-read` and `web` (public since 0.9) and
+`api-user` and `api-admin` (since M2's start; a Clerk token on every route but `/health`) on Cloud
+Run (scale to zero, max 2 instances each; https://web-jbxp6odnsa-nw.a.run.app, not indexed) and SurrealDB on
 GKE Autopilot Spot Pods, about £3–5/month.
 
 - **`ci.yml`** (every PR, the required check): format check, then `lint test build typecheck validate`

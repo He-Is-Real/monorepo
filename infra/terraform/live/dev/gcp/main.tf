@@ -1,6 +1,6 @@
 # Dev GCP infrastructure: network, registry, GKE Autopilot, secrets, backups,
-# and Cloud Run (api-public-read and web, running the images chosen in
-# images.auto.tfvars).
+# and Cloud Run (api-public-read, api-user, api-admin and web, running the images
+# chosen in images.auto.tfvars).
 
 terraform {
   required_version = ">= 1.11"
@@ -68,6 +68,11 @@ variable "image_overrides" {
   }
 }
 
+variable "clerk_jwt_public_key" {
+  description = "Clerk's PEM public key for api-user and api-admin. Set by clerk.auto.tfvars, a link to the cluster root's file, so SurrealDB and the services always pin the same key."
+  type        = string
+}
+
 locals {
   wanted_images = merge(var.images, var.image_overrides)
   image_repo    = { main = "apps", snapshot = "apps-scratch" }
@@ -114,9 +119,15 @@ module "gcp" {
     stream_cdn_hostname = "vz-da4dce15-a49.b-cdn.net"
     images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
   }
-  web_public   = true
-  web_invokers = []
-  # web's two generated URLs (project number and hash forms); CORS on the APIs (D31).
+  # api-user and api-admin (M2): public at the Cloud Run layer like api-public-read, because the
+  # browser calls them directly (D31); every route but /health needs a Clerk session token, which
+  # the apps verify. Capped at 2 instances each and scale to zero.
+  signed_in_apis_public   = true
+  signed_in_apis_invokers = []
+  web_public              = true
+  web_invokers            = []
+  # web's two generated URLs (project number and hash forms); CORS on the APIs (D31) and the
+  # Clerk tokens' allowed azp on api-user and api-admin.
   web_origins = [
     "https://web-jbxp6odnsa-nw.a.run.app",
     "https://web-236063168938.europe-west2.run.app",
@@ -125,6 +136,8 @@ module "gcp" {
   web_site_url = "https://web-jbxp6odnsa-nw.a.run.app" # canonical URLs
   # The Clerk dev instance (D7: no production instance without our own domain). Public.
   clerk_publishable_key   = "pk_test_c3VwZXJiLW1pbmstODk2Ny5jbGVyay5hY2NvdW50cy5kZXYk"
+  clerk_issuer            = "https://superb-mink-8967.clerk.accounts.dev"
+  clerk_jwt_public_key    = var.clerk_jwt_public_key
   run_deletion_protection = var.run_deletion_protection
 
   # D49/D50: the dev-seed Job (dev only) and who may start it. try(): until bootstrap is applied

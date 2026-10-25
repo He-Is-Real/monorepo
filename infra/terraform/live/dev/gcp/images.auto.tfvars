@@ -7,6 +7,8 @@
 # Try a build for one apply only: -var 'image_overrides={"api-public-read"="snapshot"}'
 images = {
   "api-public-read" = "main"
+  "api-user"        = "main"
+  "api-admin"       = "main"
   "web"             = "main"
   "dev-seed"        = "main" # D49: the dev-seed Cloud Run Job (dev only)
 }
