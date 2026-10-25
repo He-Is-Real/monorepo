@@ -55,7 +55,7 @@ const STORIES: Record<string, { media: boolean }> = {
 for (const [slug, { media: hasMedia }] of Object.entries(STORIES)) {
   test(`story ${slug}: one centred column, Related and "Does this resonate?" below the story`, async ({
     page,
-  }) => {
+  }, info) => {
     await page.goto(`/stories/${slug}`);
     const hero = page.locator('[data-story-hero]');
     const text = page.locator('[data-story-text]');
@@ -78,6 +78,16 @@ for (const [slug, { media: hasMedia }] of Object.entries(STORIES)) {
       expect(m.left, 'media: inside the hero').toBeGreaterThanOrEqual(
         h.left - 1,
       );
+      // Below 1024 px the media keeps the reading column's width, as before Related moved
+      // below the story (Codex, #82: a tablet's player grew 512 → 688 px and pushed the text
+      // down); from 1024 px it may break out to the narrow container.
+      if ((info.project.use.viewport?.width ?? 0) < 1024)
+        expect(
+          m.right - m.left,
+          'media: no wider than the text',
+        ).toBeLessThanOrEqual(
+          (await edges(text)).right - (await edges(text)).left + 1,
+        );
       expect(m.right, 'media: inside the hero').toBeLessThanOrEqual(
         h.right + 1,
       );

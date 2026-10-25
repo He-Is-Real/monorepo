@@ -109,13 +109,14 @@ export function StoryView({
 
   return (
     // One centred column at every width. The reading column (max-w-measure, Joel's R1) holds
-    // the title block, the share row and the text, so their edges line up. The media breaks
-    // out of it, centred, to the design's narrow container (50rem): wide enough that a video
-    // or picture keeps about the size it had beside the sidebar, never so wide that it dwarfs
-    // the text. Related stories use the same band from 1024 px. overflow-wrap: anywhere: long
-    // words and pasted links wrap instead of widening the page.
+    // the title block, the share row and the text, so their edges line up. From 1024 px the
+    // media breaks out of it, centred, to the design's narrow container (50rem): wide enough
+    // that a video or picture keeps about the size it had beside the sidebar, never so wide
+    // that it dwarfs the text. Related stories use the same band. Below 1024 px everything
+    // keeps the reading column, as before. overflow-wrap: anywhere: long words and pasted
+    // links wrap instead of widening the page.
     <article
-      className="mx-auto w-full max-w-narrow [overflow-wrap:anywhere]"
+      className="mx-auto w-full max-w-measure [overflow-wrap:anywhere] lg:max-w-narrow"
       aria-labelledby={`story-${story.id}`}
     >
       <div data-story-hero="">

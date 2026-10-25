@@ -274,6 +274,29 @@ test("a story page's related cards play in place from 1024 px", async ({
   await expectNoHorizontalOverflow(page);
 });
 
+// Codex, #82: each Related layout is hidden at the other's widths, so a card playing in the
+// desktop row would keep playing, out of sight and with no "Close player", once the screen
+// rotates below 1024 px. Hiding it stops it.
+test('rotating a tablet so Related’s cards hide stops the one playing', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'ipad-air-landscape', 'one tablet');
+  await page.goto('/stories/browse-test-03');
+  const related = page.getByRole('region', { name: 'Related stories' });
+  const play = related.getByRole('button', { name: /^Play / }).first();
+  const title = ((await play.getAttribute('aria-label')) ?? '').slice(5);
+  await play.click();
+  const frame = related.locator(`iframe[title$=": ${title}"]`);
+  await expect(frame).toBeVisible();
+
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await expect(frame).toHaveCount(0);
+  // Rotating back shows the card ready to play again, not playing.
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await expect(play).toBeVisible();
+  await expect(frame).toHaveCount(0);
+});
+
 test.describe('without JavaScript', () => {
   test.use({ javaScriptEnabled: false });
   // eslint-disable-next-line no-empty-pattern
