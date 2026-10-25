@@ -1,8 +1,9 @@
 <style>
   /* AGENTS.md: touch targets are at least 44 x 44 px, on 320 px phones too. The Bunny Player
    (media-chrome) draws its controls at 34-38 px. Checked on dev by apps/dev-seed/behavioural
-   (media.behaviour.ts) on a 320 px phone. CSS only: no script runs from here. */
-  media-play-button,
+   (media.behaviour.ts) on a 320 px phone. CSS only: no script runs from here. The large play
+   button over the picture is already 56-80 px and round, so it keeps Bunny's size. */
+  media-play-button:not(.large-play),
   media-mute-button,
   media-fullscreen-button,
   media-pip-button,
@@ -27,5 +28,18 @@
   html,
   body {
     background: #000;
+  }
+
+  /* Site theme (apps/web global.css). The player stays dark in both site themes, like the design's
+   player, so one set of colours fits both. Keyboard focus: the site's 2 px teal ring, in place of
+   media-chrome's blue one. The large play button: dark icon on teal, as on the site's dark-theme
+   buttons (5.9:1; white on teal is 3.2:1). The key colour and font are library settings (main.tf). */
+  media-controller {
+    --media-focus-box-shadow: inset 0 0 0 2px #4e9ba0;
+  }
+  media-controller media-play-button.large-play {
+    color: #111113;
+    fill: #111113;
+    --media-icon-color: #111113;
   }
 </style>

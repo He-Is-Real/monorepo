@@ -61,3 +61,37 @@ Images live in the images storage zone (`heisreal-dev-image-store` in dev). If a
 When processing records it `ready` again, the story comes back.
 
 Until M7 is built nothing marks media as not ready, so nothing is hidden.
+
+## The Stream player
+
+Videos and audio play in Bunny's player, a frame from `player.mediadelivery.net`. Its look comes
+from the Stream library's settings in OpenTofu (`bunnynet_stream_library.media` in
+`infra/terraform/modules/bunny/main.tf`), matched to the site theme (`apps/web/src/app/global.css`).
+Change them there, never in Bunny's dashboard: a dashboard change shows up as drift in the next plan.
+
+| Setting                                                          | Value                  | Why                                                                                                                                                                     |
+| ---------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `player_version`                                                 | 2                      | Bunny's current player. `player-head.html` targets its element names.                                                                                                   |
+| `player_primary_color`                                           | `#4e9ba0`              | The brand teal: the progress bar, volume level and large play button. Bunny's default is orange.                                                                        |
+| `player_font_family`                                             | `inter`                | The time, menus and captions. The site's DM Sans isn't one of Bunny's eight fonts; Inter is the closest. Bunny serves it from fonts.bunny.net.                          |
+| `player_captions_font_color`, `player_captions_background_color` | `#ffffff` on `#000000` | Captions sit on the picture, not on the page, so they don't follow the site theme. White on opaque black is readable on any frame.                                      |
+| `player_captions_font_size`                                      | 20                     | Bunny's default size.                                                                                                                                                   |
+| `player_language`                                                | `en`                   | The player's own labels.                                                                                                                                                |
+| `player_controls`                                                | Bunny's set            | Bunny's defaults without AirPlay (no Apple-specific technology). Bunny draws them in its own order.                                                                     |
+| `player_watchtime_heatmap_enabled`                               | off                    | No viewing data on the progress bar (no public engagement signals).                                                                                                     |
+| `watermark_*`                                                    | 0                      | No watermark.                                                                                                                                                           |
+| `vast_tag_url`                                                   | empty                  | No adverts.                                                                                                                                                             |
+| `player_custom_head` (`player-head.html`)                        | CSS                    | 44 px touch targets (AGENTS.md), an opaque black background, the site's teal focus ring, and a dark icon on the teal large play button (5.9:1; white on teal is 3.2:1). |
+
+Rules for `player-head.html`, checked by the module's tftest: CSS only, with no script, imports or
+external URLs. It relies on the player's element names, so a Bunny player update could undo it;
+`apps/dev-seed/behavioural/media.behaviour.ts` measures the real player's controls on a 320 px phone.
+
+The player is dark in both site themes, like the design's player. It can't follow the site's
+light/dark switch: it's a frame from another domain, and Bunny's embed has no theme setting or URL
+parameter. No autoplay: web asks for `autoplay=false` on story pages, and a card's player starts
+only from the visitor's press (`apps/web/src/components/stories/story-media.tsx`).
+
+Not in the OpenTofu provider, so left at Bunny's values (checked 2026-10-25): playback speeds,
+compact controls (off), remember position (off: the player stores nothing until a visitor changes
+a setting, `/privacy`), and the video metadata exposure.

@@ -387,12 +387,17 @@ test.describe('on a 320 px phone', () => {
     await page.goto(`/stories/${VIDEO.slug}`);
     const title = `Video: ${VIDEO.title}`;
     await expect(page.locator(`iframe[title="${title}"]`)).toBeVisible();
-    // Start playback so the control bar shows (it hides before the first play).
-    await page
+    // The large play button over the picture is a round target of at least 44 px (the 44 px
+    // rule for the bar's buttons once squashed it into an oval).
+    const largePlay = page
       .frameLocator(`iframe[title="${title}"]`)
-      .getByRole('button', { name: /play/i })
-      .first()
-      .tap();
+      .locator('media-play-button.large-play');
+    await largePlay.waitFor();
+    const box = await largePlay.boundingBox();
+    expect(box?.width, 'large play width').toBeGreaterThanOrEqual(44);
+    expect(box?.height, 'large play is round').toBeCloseTo(box?.width ?? 0, 0);
+    // Start playback so the control bar shows (it hides before the first play).
+    await largePlay.tap();
     const frame = await playerFrame(page);
     await expect
       .poll(async () => (await playerControls(frame)).length, {

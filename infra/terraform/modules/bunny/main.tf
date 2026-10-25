@@ -53,16 +53,38 @@ resource "bunnynet_stream_library" "media" {
   cdn_token_authentication_required  = var.token_auth.stream_cdn
   drm_mediacage_basic_enabled        = false
 
-  # Player: Bunny's defaults without AirPlay (no Apple-specific technology).
-  player_language = "en"
+  # Player, matched to the site theme (apps/web/src/app/global.css). Every visual setting is
+  # explicit, so a dashboard change shows up as drift. The player is dark in both site themes,
+  # like the design's player: it's a frame from Bunny's domain, and Bunny has no theme option
+  # (no URL parameter), so it can't follow the site's light/dark switch. What each setting
+  # does: docs/media-runbook.md, "The Stream player".
+  player_version       = 2         # Bunny's current player (media-chrome), which player-head.html targets
+  player_primary_color = "#4e9ba0" # brand teal: progress bar, volume, large play button
+  # The site's font (DM Sans) isn't one of Bunny's eight; Inter is the closest. Bunny serves it
+  # from its own font CDN (fonts.bunny.net), which the player loads anyway.
+  player_font_family = "inter"
+  # Captions sit on the video, so they don't change with the site theme: white on opaque black
+  # is the most readable on any picture (21:1). 20 px is Bunny's default.
+  player_captions_font_color       = "#ffffff"
+  player_captions_background_color = "#000000"
+  player_captions_font_size        = 20
+  player_language                  = "en"
+  # Bunny's defaults without AirPlay (no Apple-specific technology). A set: Bunny draws them in
+  # its own fixed order. No Chromecast, no rewind/fast-forward (the progress bar seeks).
   player_controls = [
     "play-large", "play", "progress", "current-time", "duration", "mute",
     "volume", "captions", "settings", "pip", "fullscreen",
   ]
   player_watchtime_heatmap_enabled = false
-  vast_tag_url                     = "" # no adverts
-  # 44 px touch targets (AGENTS.md) and an opaque background: CSS in the
-  # player's <head> (Bunny's "Custom HTML" setting). CSS only, no script.
+  # No watermark: none is uploaded (only Bunny's API can), and these only place one.
+  watermark_position_left = 0
+  watermark_position_top  = 0
+  watermark_width         = 0
+  watermark_height        = 0
+  vast_tag_url            = "" # no adverts
+  # 44 px touch targets (AGENTS.md), an opaque background, the site's focus ring and the large
+  # play button's icon colour: CSS in the player's <head> (Bunny's "Custom HTML" setting).
+  # CSS only: no script, imports or external URLs.
   player_custom_head = trimspace(file("${path.module}/player-head.html"))
 }
 
