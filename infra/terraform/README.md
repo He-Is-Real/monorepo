@@ -302,7 +302,12 @@ again with an `import` block.
 London, S3-compatible, no replication) and pull zone `heisreal-dev-images`
 (`heisreal-dev-images.b-cdn.net`, EU + US routing) in front of it. The storage zone isn't called
 `-images` because Bunny still reserves that name from the first account, deleted on 2026-10-25;
-the pull zone kept it, so the images CDN host didn't change. No custom hostnames (D7).
+the pull zone kept it, so the images CDN host didn't change. The library's own storage zone, where
+its videos live (`vz-…`, made by Bunny with the library), is declared too and adopted with an
+`import` block in `live/dev/bunny`: Bunny puts Stream storage in Frankfurt (`DE`, EU) and neither
+its API nor the provider lets us choose, so it's written down to make where the videos live
+visible and any change drift. No replication regions (they can't be removed again and cost extra),
+and `prevent_destroy`, since destroying it deletes every video. No custom hostnames (D7).
 Transcription, smart titles/descriptions, content tagging, MP4 fallback, kept originals, premium
 encoding, Optimizer, Origin Shield, Perma-Cache and WebSockets are all set off explicitly, so
 turning one on in the dashboard shows up as drift. (Automatic chapters and moments aren't in the

@@ -20,6 +20,15 @@ variable "storage_region" {
   default     = "UK"
 }
 
+variable "stream_storage_zone" {
+  description = "The storage zone Bunny made for the Stream library (its id and name), adopted with an import block in the root. null before the library exists."
+  type = object({
+    id   = number
+    name = string
+  })
+  default = null
+}
+
 variable "stream_resolutions" {
   description = "Stream encoding resolutions. Each one adds stored output, so keep the set small."
   type        = set(string)

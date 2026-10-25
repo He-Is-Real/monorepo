@@ -66,6 +66,31 @@ resource "bunnynet_stream_library" "media" {
   player_custom_head = trimspace(file("${path.module}/player-head.html"))
 }
 
+# The storage zone Bunny made for the library, where its videos live. Bunny sets
+# Stream storage's main region (Frankfurt, EU) and it can't be chosen: neither
+# Bunny's create-library API nor the provider can set it. We declare it anyway
+# so where the videos live is written down and any change shows up as drift.
+# Adopted by the root's import block (it exists only once the library does).
+# Replication regions can never be removed again and cost extra per region.
+resource "bunnynet_storage_zone" "stream" {
+  count = var.stream_storage_zone == null ? 0 : 1
+
+  name                = var.stream_storage_zone.name
+  region              = "DE"
+  zone_tier           = "Standard"
+  type                = "Standard"
+  replication_regions = []
+
+  lifecycle {
+    # Destroying it deletes every video in the library.
+    prevent_destroy = true
+    precondition {
+      condition     = tostring(var.stream_storage_zone.id) == tostring(bunnynet_stream_library.media.storage_zone)
+      error_message = "stream_storage_zone must be the library's own storage zone (bunnynet_stream_library.media.storage_zone)."
+    }
+  }
+}
+
 # --- Storage + CDN: images ----------------------------------------------------
 # Standard (HDD) tier: the cheapest, and the only tier that can be primaried in
 # London (Edge/SSD zones are always primaried in Frankfurt). S3-compatible, so
