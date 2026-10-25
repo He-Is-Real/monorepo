@@ -1,0 +1,27 @@
+name: Renovate config
+
+# Checks .github/renovate.json5 with Renovate's own validator when it changes. Not a required
+# check: a broken config shows up here, and Renovate itself reports it on the Dependency Dashboard.
+on:
+  pull_request:
+    paths: [.github/renovate.json5]
+  push:
+    branches: [main]
+    paths: [.github/renovate.json5]
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # Renovate updates this pin with the npm group (.github/renovate.json5).
+      RENOVATE_VERSION: 44.181.6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator --strict

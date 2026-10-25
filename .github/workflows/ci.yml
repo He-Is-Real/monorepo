@@ -18,12 +18,14 @@ env:
   NX_CACHE_PATHS: |
     .nx/cache
     .nx/workspace-data/*.db
-  # Keep in step with mise.toml. Checksum from the release's CHECKSUMS file.
+  # Keep in step with mise.toml (Renovate bumps both; the checksum by hand, from the release's
+  # CHECKSUMS file).
   KUBECONFORM_VERSION: v0.8.0
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
   # Keep in step with mise.toml (tf.sh refuses any other OpenTofu version).
   TOFU_VERSION: 1.13.2
-  # Keep in step with mise.toml. From gitleaks_8.30.1_checksums.txt (read 2026-10-22).
+  # Keep in step with mise.toml (Renovate bumps both; the checksum by hand, from the release's
+  # gitleaks_<version>_checksums.txt).
   GITLEAKS_VERSION: 8.30.1
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 

@@ -1,0 +1,242 @@
+// Dependency updates (D106: Renovate replaces Dependabot's version updates). How updates arrive and
+// how to approve a major: CONTRIBUTING.md, "Dependency updates". Check a change with
+// `npx --yes --package renovate -- renovate-config-validator --strict` (CI runs it too).
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended', 'helpers:pinGitHubActionDigests'],
+  dependencyDashboard: true,
+  labels: ['dependencies'],
+
+  // One window a week. Security fixes ignore it (vulnerabilityAlerts below).
+  timezone: 'Europe/London',
+  schedule: ['* 0-5 * * 1'], // Monday, midnight to 6am
+  prConcurrentLimit: 5,
+  prHourlyLimit: 2,
+
+  // Every update waits until its release is three days old, so a bad or hijacked release has time
+  // to be pulled. Security fixes don't wait (vulnerabilityAlerts' own default, applied over every
+  // rule). Releases Renovate can't date (distroless digests on gcr.io) are held, not let through
+  // (Renovate's default since 42): they wait under "Pending Status Checks" on the dashboard.
+  minimumReleaseAge: '3 days',
+
+  // Minor, patch and digest updates merge themselves through GitHub's auto-merge once the required
+  // `main` check passes. Majors wait on the Dependency Dashboard until someone ticks them.
+  platformAutomerge: true,
+  automergeStrategy: 'squash',
+  // Commit through GitHub's API so GitHub signs the commits (protect-main requires signatures).
+  // `auto` already does this for an app; explicit so it can't change under us.
+  platformCommit: 'enabled',
+
+  vulnerabilityAlerts: {
+    enabled: true,
+    labels: ['dependencies', 'security'],
+  },
+
+  // CLIs pinned in more than one place, all moving in one PR with mise.toml (tf.sh refuses any
+  // OpenTofu but the mise.toml pin; CI installs gitleaks and kubeconform by version + checksum).
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'OpenTofu in the workflows and the tofu action (mise.toml is the pin)',
+      managerFilePatterns: [
+        '/^\\.github/workflows/[^/]+\\.ya?ml$/',
+        '/^\\.github/actions/tofu/action\\.ya?ml$/',
+      ],
+      matchStrings: [
+        'TOFU_VERSION: (?<currentValue>\\d[^\\s]*)',
+        'tofu_version: (?<currentValue>\\d[^\\s]*)',
+      ],
+      depNameTemplate: 'opentofu',
+      packageNameTemplate: 'opentofu/opentofu',
+      datasourceTemplate: 'github-releases',
+      extractVersionTemplate: '^v(?<version>.+)$',
+    },
+    {
+      customType: 'regex',
+      description: 'gitleaks in the workflows (checksum beside it)',
+      managerFilePatterns: ['/^\\.github/workflows/[^/]+\\.ya?ml$/'],
+      matchStrings: ['GITLEAKS_VERSION: (?<currentValue>\\d[^\\s]*)'],
+      depNameTemplate: 'gitleaks',
+      packageNameTemplate: 'gitleaks/gitleaks',
+      datasourceTemplate: 'github-releases',
+      extractVersionTemplate: '^v(?<version>.+)$',
+    },
+    {
+      customType: 'regex',
+      description: 'kubeconform in the workflows (checksum beside it)',
+      managerFilePatterns: ['/^\\.github/workflows/[^/]+\\.ya?ml$/'],
+      matchStrings: ['KUBECONFORM_VERSION: v(?<currentValue>\\d[^\\s]*)'],
+      depNameTemplate: 'kubeconform',
+      packageNameTemplate: 'yannh/kubeconform',
+      datasourceTemplate: 'github-releases',
+      extractVersionTemplate: '^v(?<version>.+)$',
+    },
+    {
+      customType: 'regex',
+      description: 'The Renovate version that checks this file in CI',
+      managerFilePatterns: ['/^\\.github/workflows/renovate-config\\.yml$/'],
+      matchStrings: ['RENOVATE_VERSION: (?<currentValue>\\d[^\\s]*)'],
+      depNameTemplate: 'renovate',
+      datasourceTemplate: 'npm',
+    },
+  ],
+
+  packageRules: [
+    // Everything non-major merges itself after CI unless a later rule says otherwise.
+    {
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
+      automerge: true,
+    },
+    // Majors are never automatic: they wait for approval on the Dependency Dashboard.
+    {
+      matchUpdateTypes: ['major'],
+      dependencyDashboardApproval: true,
+      automerge: false,
+    },
+
+    // npm: every non-major update in one PR. Majors stay apart, with nx and NestJS kept together.
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
+      groupName: 'npm non-major',
+      groupSlug: 'npm-non-major',
+    },
+    // The validator's pin rides along with the npm group.
+    {
+      matchDepNames: ['renovate'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'npm non-major',
+      groupSlug: 'npm-non-major',
+    },
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['major'],
+      matchPackageNames: ['nx', '@nx/**'],
+      groupName: 'nx major',
+      groupSlug: 'nx',
+    },
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['major'],
+      matchPackageNames: ['@nestjs/**'],
+      groupName: 'NestJS major',
+      groupSlug: 'nestjs',
+    },
+    // Matches the Node LTS runtime; bumped together with it by hand.
+    {
+      matchPackageNames: ['@types/node'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+    // Node majors are chosen by hand, LTS only (24 now), wherever Node is pinned: .nvmrc,
+    // package.json engines, mise.toml and the Docker base image. Patches and minors still flow.
+    {
+      matchDepNames: ['node', 'nodejs'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+
+    // OpenTofu providers in every root and module: one PR, from the OpenTofu registry (the lock
+    // files pin registry.opentofu.org). They may merge after CI; applying still needs its approval
+    // in tofu-apply.yml. `required_version` is a floor (">= 1.11"), not a pin: left alone.
+    {
+      matchManagers: ['terraform'],
+      matchDepTypes: ['required_version'],
+      enabled: false,
+    },
+    {
+      matchDatasources: ['terraform-provider', 'terraform-module'],
+      registryUrls: ['https://registry.opentofu.org'],
+    },
+    {
+      matchManagers: ['terraform'],
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
+      groupName: 'OpenTofu providers',
+      groupSlug: 'opentofu-providers',
+    },
+
+    // Docker base images (tools/docker), one PR.
+    {
+      matchManagers: ['dockerfile'],
+      matchFileNames: ['tools/docker/**'],
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
+      groupName: 'Docker base images',
+      groupSlug: 'docker-base-images',
+    },
+
+    // GitHub Actions, one PR. They stay pinned by SHA with the version as a comment: the
+    // repository only runs SHA-pinned actions from its allowlist, so a new action needs that
+    // setting changed first.
+    {
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
+      groupName: 'GitHub Actions',
+      groupSlug: 'github-actions',
+      // The three-day wait can't catch a re-pointed tag: a digest is aged by its version's release
+      // date, and Renovate can't see a tag being force-pushed (docs: "Minimum Release Age"). These
+      // actions run in workflows that sign in to Google, so none of their updates merge on their
+      // own; a person checks the PR.
+      automerge: false,
+    },
+
+    // Vendor CLIs used by hand (mise.toml), one PR.
+    {
+      matchManagers: ['mise'],
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
+      groupName: 'mise tools',
+      groupSlug: 'mise-tools',
+    },
+
+    // The CLIs pinned in several places: one PR each, never automatic.
+    // The github-actions manager also reads setup-opentofu's `tofu_version:`, but would write it
+    // with a "v"; the regex manager above handles it like the other copies.
+    {
+      matchManagers: ['github-actions'],
+      matchDepNames: ['opentofu'],
+      enabled: false,
+    },
+    {
+      matchDepNames: ['opentofu'],
+      groupName: 'OpenTofu CLI',
+      groupSlug: 'opentofu-cli',
+      automerge: false,
+      prBodyNotes: [
+        'OpenTofu moves in mise.toml, the workflows and `.github/actions/tofu` together (tf.sh refuses any other version). Read the release notes for state, encryption and lock-file changes before merging; the next apply still needs its approval.',
+      ],
+    },
+    {
+      matchDepNames: ['gitleaks'],
+      groupName: 'gitleaks',
+      groupSlug: 'gitleaks',
+      automerge: false,
+      prBodyNotes: [
+        "**Before merging:** set `GITLEAKS_SHA256` in `.github/workflows/ci.yml` to the `linux_x64.tar.gz` line of the release's `gitleaks_<version>_checksums.txt` and push to this branch. Renovate can't update checksums, so CI fails until then.",
+      ],
+    },
+    // mise looks kubeconform up by git tag; the workflows' regex managers use GitHub releases.
+    // Use releases everywhere, so a tag pushed before its release can't move mise.toml alone.
+    // (OpenTofu and gitleaks already use releases in both.)
+    {
+      matchManagers: ['mise'],
+      matchDepNames: ['kubeconform'],
+      overrideDatasource: 'github-releases',
+    },
+    {
+      matchDepNames: ['kubeconform'],
+      groupName: 'kubeconform',
+      groupSlug: 'kubeconform',
+      automerge: false,
+      prBodyNotes: [
+        "**Before merging:** set `KUBECONFORM_SHA256` in `.github/workflows/ci.yml` and `.github/workflows/tofu-plan.yml` to the `kubeconform-linux-amd64.tar.gz` line of the release's `CHECKSUMS` file and push to this branch. Renovate can't update checksums, so CI fails until then.",
+      ],
+    },
+
+    // SurrealDB and its sidecar images: upgrades are deliberate (read the release notes, back up,
+    // dev first: infra/k8s/surrealdb/README.md), so even patches wait for dashboard approval.
+    {
+      matchManagers: ['kustomize'],
+      dependencyDashboardApproval: true,
+      automerge: false,
+    },
+  ],
+}
