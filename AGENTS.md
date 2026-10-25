@@ -2,7 +2,7 @@
 
 Nx + pnpm workspace on Node 24 LTS: Next.js (`apps/web`), NestJS on Express (`apps/api-*`,
 `apps/workflow`), shared libs (`libs/*`), and SurrealDB Kubernetes manifests
-(`infra/k8s/surrealdb`). Read `README.md` first.
+(`infra/k8s/surrealdb`). Read `README.md` first; CLIs and accounts are in `docs/tooling-and-accounts.md`.
 
 `docs/delivery-status.md` tracks progress against the delivery plan (`project` repo) and the
 decisions that override it. Read it before starting a task, and update it in the same PR when a
