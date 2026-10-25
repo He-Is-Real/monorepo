@@ -69,6 +69,13 @@ test('a gcp root change selects gcp and cluster', () => {
   );
 });
 
+test('the Clerk key selects gcp and cluster (both roots pin it)', () => {
+  assert.equal(
+    changed(`${tf}/live/dev/cluster/clerk.auto.tfvars`),
+    'gcp\ncluster',
+  );
+});
+
 test('a DPA version selects cluster', () => {
   assert.equal(changed('libs/legal/dpa/v2.md'), 'cluster');
 });

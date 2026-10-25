@@ -48,12 +48,12 @@ with it. About 900 bytes. That token, now expired, is the fixture in
 
 ## Keys
 
-| Key                  | Public? | Where                                                                                                                |
-| -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------- |
-| Issuer (`iss`)       | yes     | `https://superb-mink-8967.clerk.accounts.dev`: the services' `CLERK_ISSUER`                                          |
-| JWT public key (PEM) | yes     | `infra/terraform/live/dev/cluster/clerk.auto.tfvars` (SurrealDB) and the services' `CLERK_JWT_PUBLIC_KEY`            |
-| Publishable key      | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_publishable_key`): `web`'s `CLERK_PUBLISHABLE_KEY`                    |
-| Secret key           | **no**  | Secret Manager `clerk-secret-key` (container from the `gcp` root). Nobody has access yet: no service uses it (M2/M3) |
+| Key                  | Public? | Where                                                                                                                  |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Issuer (`iss`)       | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_issuer`): api-user's and api-admin's `CLERK_ISSUER`                     |
+| JWT public key (PEM) | yes     | `infra/terraform/live/dev/cluster/clerk.auto.tfvars`: SurrealDB, and (linked into the gcp root) `CLERK_JWT_PUBLIC_KEY` |
+| Publishable key      | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_publishable_key`): `web`'s `CLERK_PUBLISHABLE_KEY`                      |
+| Secret key           | **no**  | Secret Manager `clerk-secret-key` (container from the `gcp` root). Nobody has access yet: no service uses it (M2/M3)   |
 
 - **PEM from the JWKS** (read-only):
   `clerk api /jwks | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(require('crypto').createPublicKey({key:JSON.parse(s).keys[0],format:'jwk'}).export({type:'spki',format:'pem'})))"`
@@ -70,8 +70,9 @@ with it. About 900 bytes. That token, now expired, is the fixture in
   Never `clerk env pull` it into a `.env` file (decision 13).
 
 - **Key rotation:** a rotated Clerk signing key breaks every person session until the new PEM is
-  pinned: update `clerk.auto.tfvars` and `CLERK_JWT_PUBLIC_KEY`, migrate (cluster root), then
-  redeploy api-user and api-admin. The secret key rotates with the Platform API
+  pinned: update `clerk.auto.tfvars` (one file: the gcp root links to it) and the local
+  `.env` files; the merge's `tofu-apply.yml` run redeploys api-user and api-admin (gcp) and
+  migrates (cluster). The secret key rotates with the Platform API
   (`rotate_secret_keys`), then gets a new secret version.
 
 The production instance needs a domain we own, so it waits for the domain cutover (D7). It gets

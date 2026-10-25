@@ -19,6 +19,9 @@ variables {
   cluster_dns_domain       = "cluster.heisreal-dev.internal"
   ci_image_pusher_email    = "ci-image-pusher@heisreal-dev.iam.gserviceaccount.com"
   ci_snapshot_pusher_email = "ci-snapshot-pusher@heisreal-dev.iam.gserviceaccount.com"
+  web_origins              = ["https://web-abc-nw.a.run.app"]
+  clerk_issuer             = "https://example.clerk.accounts.dev"
+  clerk_jwt_public_key     = "-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n"
 }
 
 run "signing_off_by_default" {

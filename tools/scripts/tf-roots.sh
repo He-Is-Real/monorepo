@@ -22,6 +22,9 @@ tf=infra/terraform
 while IFS= read -r file; do
   case "$file" in
   "$tf"/live/dev/gcp/* | "$tf"/modules/gcp/*) selected[gcp]=1 ;;
+  # Clerk's public key: SurrealDB (cluster) and, through a link, api-user/api-admin (gcp) pin it.
+  # gcp selects cluster below.
+  "$tf"/live/dev/cluster/clerk.auto.tfvars) selected[gcp]=1 ;;
   "$tf"/live/dev/cluster/* | "$tf"/modules/cluster/* | "$tf"/modules/db-migration/* | \
     "$tf"/modules/db-identity/* | infra/k8s/surrealdb/* | libs/database/schema/* | libs/legal/dpa/*)
     selected[cluster]=1

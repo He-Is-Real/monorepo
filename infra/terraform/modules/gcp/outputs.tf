@@ -50,6 +50,14 @@ output "api_public_read_url" {
   value = google_cloud_run_v2_service.api_public_read.uri
 }
 
+output "api_user_url" {
+  value = google_cloud_run_v2_service.signed_in_api["api-user"].uri
+}
+
+output "api_admin_url" {
+  value = google_cloud_run_v2_service.signed_in_api["api-admin"].uri
+}
+
 output "web_url" {
   value = google_cloud_run_v2_service.web.uri
 }

@@ -3,7 +3,8 @@
 # migration removes the clerk access, so no person sessions.
 # The dev instance ("He Is Real", ins_3JuNEu4vvFrDyToUWDi2LGgPbOZ, issuer
 # https://superb-mink-8967.clerk.accounts.dev), from `clerk api /jwks` converted to PEM
-# (infra/clerk/README.md). api-user and api-admin pin the same key (CLERK_JWT_PUBLIC_KEY).
+# (infra/clerk/README.md). api-user and api-admin pin the same key (CLERK_JWT_PUBLIC_KEY): the gcp
+# root reads this file through a link (live/dev/gcp/clerk.auto.tfvars), so a change plans both.
 # A rotated Clerk key breaks every person session until this is updated and migrated.
 clerk_jwt_public_key = <<-EOT
   -----BEGIN PUBLIC KEY-----

@@ -8,8 +8,9 @@
 #   cluster: D48's relaxed consent and D49's dev-seed login are refused outside dev.
 #   bunny: D52's token auth is on and only the named service accounts may read the two token
 #     auth keys.
-#   gcp: api-public-read gets the BUNNY_* settings only when api_public_read_media is set, and
-#     web_site_url is an https origin.
+#   gcp: api-public-read gets the BUNNY_* settings only when api_public_read_media is set,
+#     web_site_url is an https origin, and api-user/api-admin get their own identity, database
+#     login, Clerk settings and web's origins.
 set -euo pipefail
 cd "$(dirname "$0")/modules"
 for tests in */tests; do

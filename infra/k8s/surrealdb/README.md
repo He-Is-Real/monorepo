@@ -268,7 +268,8 @@ records it in `_migration` with a checksum. Add tests in `libs/database/integrat
 `infra/terraform/live/dev/cluster/clerk.auto.tfvars` (the dev instance's; how to get it:
 `infra/clerk/README.md`). Empty, the migration removes `DEFINE ACCESS clerk`, so no token can open
 a person session. Never a private key (the variable refuses one). After a Clerk key rotation,
-update it here and in the services' `CLERK_JWT_PUBLIC_KEY`, then migrate.
+update it here (api-user and api-admin read the same file, linked into the gcp root), then apply
+gcp and migrate.
 
 **Dev story** (task 0.9, retired in M1 step 4): `seed_dev_story` (`modules/db-migration`;
 `--seed-dev-story` for `local-migration.mjs`) makes data script 0003 publish one obviously fake story.

@@ -133,6 +133,46 @@ variable "api_public_read_invokers" {
   default     = []
 }
 
+variable "signed_in_apis_max_instances" {
+  description = "Scale-up cap for api-user and api-admin on Cloud Run (each)."
+  type        = number
+  default     = 2
+}
+
+variable "signed_in_apis_public" {
+  description = "Allow unauthenticated calls to api-user and api-admin at the Cloud Run layer (the invoker check is skipped; the apps still require a Clerk session token on every route but /health). The browser calls them directly (D31), so they need it to be reachable."
+  type        = bool
+  default     = false
+}
+
+variable "signed_in_apis_invokers" {
+  description = "Members allowed to call api-user and api-admin when they aren't public."
+  type        = list(string)
+  default     = []
+}
+
+variable "clerk_issuer" {
+  description = "The Clerk instance's Frontend API origin, its session tokens' iss (api-user and api-admin's CLERK_ISSUER)."
+  type        = string
+  validation {
+    condition     = can(regex("^https://[a-z0-9.-]+$", var.clerk_issuer))
+    error_message = "clerk_issuer is the Clerk instance's https origin, without a path."
+  }
+}
+
+variable "clerk_jwt_public_key" {
+  description = "Clerk's PEM public key, the same one SurrealDB pins (cluster root's clerk.auto.tfvars). api-user and api-admin verify session tokens with it (CLERK_JWT_PUBLIC_KEY)."
+  type        = string
+  validation {
+    condition = (
+      startswith(trimspace(var.clerk_jwt_public_key), "-----BEGIN PUBLIC KEY-----") &&
+      endswith(trimspace(var.clerk_jwt_public_key), "-----END PUBLIC KEY-----") &&
+      !strcontains(var.clerk_jwt_public_key, "PRIVATE")
+    )
+    error_message = "clerk_jwt_public_key must be a PEM public key (-----BEGIN PUBLIC KEY-----)."
+  }
+}
+
 variable "web_max_instances" {
   description = "Scale-up cap for web on Cloud Run."
   type        = number
@@ -162,7 +202,7 @@ variable "clerk_publishable_key" {
 }
 
 variable "web_origins" {
-  description = "web's origins (its Cloud Run URLs), allowed to call the APIs from the browser (CORS, D31). Passed in rather than read from the service, which would be a dependency cycle."
+  description = "web's origins (its Cloud Run URLs), allowed to call the APIs from the browser (CORS, D31) and, on api-user and api-admin, the allowed azp of Clerk session tokens. Passed in rather than read from the service, which would be a dependency cycle."
   type        = list(string)
   default     = []
   validation {
