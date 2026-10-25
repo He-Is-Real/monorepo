@@ -16,8 +16,8 @@ source of truth, so change them in the same PR as the code.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
   through External Secrets Operator on clusters. Never commit secret values or add key files.
 - Nothing on GKE is reachable from the internet: private nodes only, and no `LoadBalancer` or
-  `NodePort` Services and no Ingress/Gateway. Workers (Dapr workflow, inference workers) connect
-  outbound only, to Pub/Sub. Public entry points are Cloud Run services only.
+  `NodePort` Services and no Ingress/Gateway. Workers (Dapr workflow, inference workers) run
+  off Google Cloud (Joel's machine, later church hardware) and connect outbound only, to Pub/Sub. Public entry points are Cloud Run services only.
 - Testimonies are GDPR Article 9 data. New personal data must fit the consent and erasure model.
 - **Responsive everywhere (Joel):** every page and view is mobile-first and works from 320 px phones through foldables, tablets (both orientations) and 1920 px+ desktops: no horizontal scroll, 44 px touch targets, readable line lengths, safe-area insets. Cover each new page in `apps/web/e2e` (device matrix in `devices.ts`).
 - **Tests measure behaviour (Joel, 2026-10-24).**
