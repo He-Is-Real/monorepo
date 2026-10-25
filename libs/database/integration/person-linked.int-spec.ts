@@ -32,8 +32,12 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   idempotencyKey: 'linked', // id[1] = user record
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
+  legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
   tag: 'none',
   dpaVersion: 'none',
+  signupFormVersion: 'none', // consent form versions (D84): text and features only
+  testimonyFormVersion: 'none',
+  socialSharingFormVersion: 'none',
   service: 'none',
   _migration: 'none',
   _migrationRun: 'none', // the migration fencing token
@@ -109,7 +113,8 @@ const LINKED: Record<string, LinkedCase> = {
       run(
         db(c),
         `CREATE consent CONTENT { subject: $auth, type: 'share_socials', event: 'granted',
-           dpaVersion: dpaVersion:v1, mechanism: 'account_settings', evidenceHash: $h }`,
+           dpaVersion: dpaVersion:v1, form: socialSharingFormVersion:v1,
+           mechanism: 'account_settings', evidenceHash: $h }`,
         { h: 'd'.repeat(64) },
       ),
     landed: (c) =>

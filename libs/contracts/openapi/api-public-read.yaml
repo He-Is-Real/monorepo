@@ -5,8 +5,8 @@ info:
   description: |
     **Anonymous public queries only** (D33, D35). No authentication, no personal reads: anything that
     needs to know who you are is on `api-user`. Reads only read models and reference data
-    (`publicStory`, `tag`, published `dpaVersion`, D26), through a database login that sees nothing else
-    (D13). Scales on its own.
+    (`publicStory`, `tag`, published `dpaVersion` and consent form versions, D26, D84), through a database
+    login that sees nothing else (D13). Scales on its own.
 
     - Called by the browser, and server-side by `web` to prerender pages (D32).
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
@@ -252,22 +252,26 @@ paths:
     get:
       tags: [Legal]
       operationId: getDpa
-      summary: Current Data Processing Agreement and its published history
-      description: Published versions only; drafts are never visible here (D20).
+      summary: The privacy document in force, with its words, and its published history
+      description: |
+        The privacy document ("DPA") a person reads before consenting, with its text as published (the
+        database keeps a copy of `libs/legal/dpa/<id>.md`, kept in step by the migration, D84). Published
+        standard versions only (D20); drafts are never visible here. Dev's placeholder version is served in
+        dev only (D75). `history` lists every published version, newest first, without text.
       x-milestone: M2
       parameters:
         - name: version
           in: query
-          description: A specific version ID (e.g. `v1`); omit for the current one.
+          description: A specific version ID (e.g. `v1`); omit for the one in force.
           schema:
             type: string
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: The current (or requested) version and the published history.
+          description: The version in force (or the one asked for), and the published history.
           headers:
             ETag:
-              $ref: './components.yaml#/components/headers/CollectionETag'
+              $ref: './components.yaml#/components/headers/ETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPublic'
           content:
@@ -277,13 +281,56 @@ paths:
                 required: [current, history]
                 properties:
                   current:
-                    $ref: './components.yaml#/components/schemas/DpaVersion'
+                    $ref: './components.yaml#/components/schemas/DpaDocument'
                   history:
                     type: array
                     items:
                       $ref: './components.yaml#/components/schemas/DpaVersion'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/legal/forms/{form}:
+    get:
+      tags: [Legal]
+      operationId: getConsentForm
+      summary: The consent form in force, with its words and features
+      description: |
+        The version of a consent form a person ticks (D84): `signup` after Clerk's sign-up (D73), `testimony`
+        at the start of a draft and at submit (D67), and the optional `social` (sharing beyond
+        heisreal.today, D93) whenever the person chooses. Grants name this version (`POST /v1/account/consents`),
+        so a client shows exactly this text and these statements. Published versions only (D20); dev's
+        placeholder versions in dev only (D75).
+      x-milestone: M2
+      parameters:
+        - name: form
+          in: path
+          required: true
+          description: Which form.
+          schema:
+            $ref: './components.yaml#/components/schemas/ConsentForm'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The version in force.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/ConsentFormVersion'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
         '5XX':

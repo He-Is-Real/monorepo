@@ -21,7 +21,10 @@ import {
   SignInUnavailable,
 } from './person';
 import { describeRoutePolicy, listRoutePolicies } from './route-policies';
-import { NoSignupFormPublished, SIGNUP_CONSENT_STATUS } from './signup-consent';
+import {
+  LedgerSignupConsentStatus,
+  SIGNUP_CONSENT_STATUS,
+} from './signup-consent';
 
 export interface ConsentModuleOptions {
   /**
@@ -60,8 +63,7 @@ export class ConsentModule implements OnApplicationBootstrap {
         PersonSessions,
         ConsentChecker,
         ConsentLedger,
-        // The consent-forms PR replaces this with the real sign-up form check (signup-consent.ts).
-        { provide: SIGNUP_CONSENT_STATUS, useClass: NoSignupFormPublished },
+        { provide: SIGNUP_CONSENT_STATUS, useClass: LedgerSignupConsentStatus },
         { provide: APP_GUARD, useClass: ConsentGuard },
       ],
       exports: [

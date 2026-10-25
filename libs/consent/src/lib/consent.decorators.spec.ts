@@ -71,9 +71,8 @@ describe('decorator arguments', () => {
 });
 
 describe('CONSENT_REQUIRED (docs/api-conventions.md, "Consent on routes")', () => {
-  it('creating, editing and uploading to a draft need the caller’s current Art 9 consent', () => {
+  it('creating, editing and uploading to a draft need the caller’s current Art 9 consent; creating also the forms in force', () => {
     for (const r of [
-      CONSENT_REQUIRED.createDraft,
       CONSENT_REQUIRED.editDraft,
       CONSENT_REQUIRED.requestUpload,
     ]) {
@@ -82,6 +81,11 @@ describe('CONSENT_REQUIRED (docs/api-conventions.md, "Consent on routes")', () =
         types: ['special_category_religious'],
       });
     }
+    expect(CONSENT_REQUIRED.createDraft).toEqual({
+      subject: 'caller',
+      types: ['special_category_religious'],
+      formsInForce: true,
+    });
   });
 
   it('submit needs Art 9, publish and age; approve needs the same of the submitter', () => {
@@ -89,6 +93,7 @@ describe('CONSENT_REQUIRED (docs/api-conventions.md, "Consent on routes")', () =
     expect(CONSENT_REQUIRED.submitStory).toEqual({
       subject: 'caller',
       types: three,
+      formsInForce: true,
     });
     expect(CONSENT_REQUIRED.approveStory).toEqual({
       subject: 'submitter',

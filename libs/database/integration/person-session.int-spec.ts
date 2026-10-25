@@ -154,7 +154,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         (
           await rows<{ subject: string }>(ann, 'SELECT subject FROM consent')
         ).map((r) => r.subject),
-      ).toEqual(Array(4).fill('user:ann'));
+      ).toEqual(Array(5).fill('user:ann'));
       expect(await ids(ann, 'SELECT id FROM user')).toEqual(['user:ann']);
       expect(await ids(ann, 'SELECT id FROM dpaVersion')).not.toContain(
         'dpaVersion:v2_draft',
@@ -248,6 +248,9 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
 
     it('needs current Art 9 consent (special_category_religious)', async () => {
       const cara = await t.person('user_cara');
+      // The sign-up form first (D73; 18+ is there only, D93).
+      await consentEvent(cara, 'account_data', 'granted');
+      await consentEvent(cara, 'age_18plus', 'granted');
       expect(await draft(cara, 'cara_no_consent')).toEqual([]);
       expect(await truth('SELECT * FROM story:cara_no_consent')).toEqual([]);
 

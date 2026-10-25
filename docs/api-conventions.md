@@ -9,7 +9,7 @@ brackets).
 
 | Service           | Serves                                                                                                                                                | Auth                                | In the database                                  |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
-| `api-public-read` | Anonymous public queries: published stories, tags, published DPA versions                                                                             | None                                | Its own login; sees only public tables           |
+| `api-public-read` | Anonymous public queries: published stories, tags, the published DPA and consent forms                                                                | None                                | Its own login; sees only public tables           |
 | `api-user`        | **Everything that needs to know who you are**: own stories, account, consents, favourites, feed, and the person's commands; Clerk and Stripe webhooks | Clerk JWT (webhooks: signature)     | Runs as the person, with their Clerk token (D27) |
 | `api-admin`       | Moderation, roles, tags, DPA versions                                                                                                                 | Clerk JWT, role Moderator or higher | Its own login                                    |
 
@@ -59,7 +59,8 @@ brackets).
 - Approve creates it; editing an approved story updates it; withdrawal, erasure and withdrawing
   `publish` or Art 9 consent delete it, in the same transaction. Tag renames need nothing (tags are
   fetched by reference, D15).
-- **Anonymous queries read only read models** (and reference data: `tag`, published `dpaVersion`).
+- **Anonymous queries read only read models** (and reference data: `tag`, published `dpaVersion`
+  and consent form versions).
   Personal queries read the person's own rows in the write tables, as the person. Moderation reads
   the `story` write model on `api-admin`.
 - `publicStory` holds Art 9 data: it is on the erasure checklist.
@@ -189,7 +190,15 @@ short-lived upload credentials.
   | `POST /v1/moderation/stories/{id}/approve` (`api-admin`)    | The same three, for the story's submitter                          |
 
 - Request bodies never carry consent. It stays in the person's ledger, granted through
-  `POST /v1/account/consents`, and is checked, not carried.
+  `POST /v1/account/consents`, and is checked, not carried. A grant names the consent form version
+  shown and the statement ticked (D84); "current" consent is a grant on a published or retired form
+  version that has that statement (`fn::consent::valid`): a newer version never stops it counting
+  and never takes a story off the site (D93). Something new (creating a draft, submitting) also
+  needs the forms in force (`formsInForce` in `CONSENT_REQUIRED`, `fn::consent::may_draft`): the
+  sign-up version in force accepted (18+ is asked there only) and no newer testimony version
+  requiring acceptance for new submissions. Testimony consent is per account (D85) and stories
+  never store a consent version (D86): every check goes through the story's submitter. Sharing
+  beyond heisreal.today is the optional social sharing form (`fn::story::may_share`, D93).
 - Consent is per person and read from the ledger at that moment (D17, D18): no cached copy. A stored
   story is only processed (approved, transcribed) after a fresh ledger check, not just the one at
   submission. That includes the M7 workers.

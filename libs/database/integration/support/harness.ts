@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,6 +47,14 @@ export interface MigrationParams {
   clerk_jwt_public_key: string | null;
   /** { <dpaVersion id>: sha256 of libs/legal/dpa/<id>.md } for every file there */
   dpa_sha256: Record<string, string>;
+  /** { <dpaVersion id>: the words of libs/legal/dpa/<id>.md } (D84: copied into the row) */
+  dpa_text: Record<string, string>;
+  /** { signup|testimony|social: { <id>: sha256 of libs/legal/forms/<kind>/<id>.md } } (D84) */
+  form_sha256: Record<FormKind, Record<string, string>>;
+  /** The same files' words. */
+  form_text: Record<FormKind, Record<string, string>>;
+  /** D75: dev's placeholder privacy document and forms; OpenTofu allows true in dev only. */
+  dev_legal_placeholders: boolean;
   /** The identity config that must be verified first (GKE); null = don't check */
   identity_hash: string | null;
   /** Seed 0003's walking-skeleton story (dev only, M0 0.9); OpenTofu's default is false. */
@@ -77,6 +86,8 @@ export interface MigrationRun {
 export interface MigrationOptions {
   /** A bundle directory (default: libs/database/schema itself). */
   bundleDir?: string;
+  /** The runner (default: this bundle's migrate.py; an older release's for upgrade tests). */
+  runner?: string;
   /** Extra environment, e.g. MIGRATE_EXPECT_USERS as the Job sets it. */
   env?: Record<string, string>;
   /** Called with the runner's output as it arrives (to act at a given step). */
@@ -184,7 +195,13 @@ export class TestDatabase {
    * migrate: false leaves an empty database with only the migrator user (no schema, no
    * services), for tests of the migration itself.
    */
-  static async create({ migrate = true } = {}): Promise<TestDatabase> {
+  static async create({
+    migrate = true,
+    params,
+  }: {
+    migrate?: boolean;
+    params?: Partial<MigrationParams>;
+  } = {}): Promise<TestDatabase> {
     const t = new TestDatabase(
       surrealTestLogin().url,
       `it_${randomBytes(6).toString('hex')}`,
@@ -198,7 +215,7 @@ export class TestDatabase {
        DEFINE USER migrator ON DATABASE PASSWORD '${t.migratorPassword}' ROLES OWNER;`,
     ); // PASSWORD takes a literal only; the password is random hex
     if (migrate) {
-      await t.migrate();
+      await t.migrate(t.params(params));
       await t.createServices();
     }
     return t;
@@ -208,10 +225,11 @@ export class TestDatabase {
   params(overrides: Partial<MigrationParams> = {}): MigrationParams {
     return {
       clerk_jwt_public_key: this.keys.publicKeyPem,
-      dpa_sha256: { v1: DPA_V1_SHA256 },
+      ...legalParams(),
       identity_hash: null,
       seed_dev_story: false,
       dev_consent_relaxed: false,
+      dev_legal_placeholders: false,
       environment: null,
       ...overrides,
     };
@@ -222,6 +240,7 @@ export class TestDatabase {
     params: MigrationParams = this.params(),
     {
       bundleDir = SCHEMA_DIR,
+      runner = RUNNER,
       env = {},
       onOutput,
       resume,
@@ -237,7 +256,7 @@ export class TestDatabase {
           'python3',
           [
             ...(bypassGrammar ? ['-c', BYPASS_GRAMMAR] : []),
-            RUNNER,
+            runner,
             bundleDir,
             '--params',
             paramsFile,
@@ -490,13 +509,62 @@ export async function seedLegacyDpaFixture(t: TestDatabase): Promise<void> {
 }
 export const DPA_V1_SHA256 = sha256('dpa v1 placeholder');
 
+export const LEGAL_DIR = join(__dirname, '../../../legal');
+export type FormKind = 'signup' | 'testimony' | 'social';
+export const FORM_KINDS: readonly FormKind[] = [
+  'signup',
+  'testimony',
+  'social',
+];
+/** The schema table of each form. */
+export const FORM_TABLE: Record<FormKind, string> = {
+  signup: 'signupFormVersion',
+  testimony: 'testimonyFormVersion',
+  social: 'socialSharingFormVersion',
+};
+
+/** { <id>: words } of the .md files in a libs/legal directory. */
+function texts(dir: string): Record<string, string> {
+  return Object.fromEntries(
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.md') && f !== 'README.md')
+      .map((f) => [f.slice(0, -3), readFileSync(join(dir, f), 'utf8')]),
+  );
+}
+const hashes = (t: Record<string, string>) =>
+  Object.fromEntries(Object.entries(t).map(([id, text]) => [id, sha256(text)]));
+
+/**
+ * The legal texts' parameters as OpenTofu builds them (modules/db-migration), from the real
+ * files in libs/legal, except DPA v1: the tests keep a stand-in text (and its hash) for it.
+ */
+export function legalParams(): Pick<
+  MigrationParams,
+  'dpa_sha256' | 'dpa_text' | 'form_sha256' | 'form_text'
+> {
+  const dpa = { ...texts(join(LEGAL_DIR, 'dpa')), v1: 'dpa v1 placeholder' };
+  const forms = Object.fromEntries(
+    FORM_KINDS.map((k) => [k, texts(join(LEGAL_DIR, 'forms', k))]),
+  ) as Record<FormKind, Record<string, string>>;
+  return {
+    dpa_sha256: hashes(dpa),
+    dpa_text: dpa,
+    form_sha256: Object.fromEntries(
+      FORM_KINDS.map((k) => [k, hashes(forms[k])]),
+    ) as Record<FormKind, Record<string, string>>,
+    form_text: forms,
+  };
+}
+
 // ---------------------------------------------------------------- fixtures
 
+/** What grantAll grants: every statement of the three forms (D93). */
 export const CONSENT_TYPES = [
   'special_category_religious',
   'publish',
   'share_socials',
   'age_18plus',
+  'account_data',
 ] as const;
 export type ConsentType = (typeof CONSENT_TYPES)[number];
 
@@ -516,8 +584,17 @@ export async function createPeople(
   }
 }
 
-/** api-admin publishes a DPA version (D20), creating it first if needed. */
-export async function publishDpa(t: TestDatabase, id: string): Promise<void> {
+/**
+ * api-admin publishes a DPA version (D20), creating it first if needed, and with it version
+ * <id> of the three consent forms (D84, D93), linked to it: the ledger fixtures bind each grant to the
+ * form of the same id. A form's text is its file in libs/legal/forms when there is one (so a
+ * later migration's form-sync agrees), else a stand-in.
+ */
+export async function publishDpa(
+  t: TestDatabase,
+  id: string,
+  testimony: Row = {},
+): Promise<void> {
   const admin = await t.service('api_admin');
   await run(
     admin,
@@ -529,9 +606,53 @@ export async function publishDpa(t: TestDatabase, id: string): Promise<void> {
      UPDATE type::record('dpaVersion', $id) SET status = 'published', effectiveFrom = time::now();`,
     { id, hash: sha256(`dpa ${id}`) },
   );
+  await publishForm(t, 'signup', id, { dpa: id });
+  await publishForm(t, 'testimony', id, { dpa: id, ...testimony });
+  await publishForm(t, 'social', id, { dpa: id });
 }
 
-/** The person grants or withdraws one consent type in their own session. */
+/** api-admin creates and publishes version <id> of a consent form, linked to DPA `dpa`. */
+export async function publishForm(
+  t: TestDatabase,
+  kind: FormKind,
+  id: string,
+  { dpa = 'v1', ...fields }: Row & { dpa?: string } = {},
+): Promise<void> {
+  const text =
+    legalParams().form_text[kind][id] ?? `Stand-in ${kind} form ${id}.`;
+  const content = {
+    status: 'published',
+    textRef: `libs/legal/forms/${kind}/${id}.md`,
+    textHash: sha256(text),
+    text,
+    ...(kind === 'testimony'
+      ? { coversPublicPublishing: true, draftRetentionMonths: 6 }
+      : {}),
+    ...fields,
+  };
+  const created = await rows(
+    await t.service('api_admin'),
+    `CREATE type::record($table, $id) CONTENT object::extend($content, {
+       dpaVersion: type::record('dpaVersion', $dpa) })`,
+    { table: FORM_TABLE[kind], id, content, dpa },
+  );
+  if (created.length !== 1) throw new Error(`form ${kind} ${id} not published`);
+}
+
+/** The form a consent type is ticked on (D93): 18+ and account_data at sign-up, sharing on the social form. */
+export const formOf = (type: string, version: string) =>
+  `${
+    type === 'account_data' || type === 'age_18plus'
+      ? FORM_TABLE.signup
+      : type === 'share_socials'
+        ? FORM_TABLE.social
+        : FORM_TABLE.testimony
+  }:${version}`;
+
+/**
+ * The person grants or withdraws one consent type in their own session, on form version `dpa`
+ * of its form (publishDpa publishes both forms with the DPA's id).
+ */
 export function consentEvent(
   person: SurrealQueryable,
   type: ConsentType,
@@ -543,10 +664,17 @@ export function consentEvent(
     person,
     `CREATE consent CONTENT object::extend({
        subject: $auth, type: $type, event: $event,
-       dpaVersion: type::record('dpaVersion', $dpa),
+       dpaVersion: type::record('dpaVersion', $dpa), form: <record> $form,
        mechanism: 'web_form_submission', evidenceHash: $hash
      }, $extra)`,
-    { type, event, dpa, hash: sha256(`${type} ${event} ${dpa}`), extra },
+    {
+      type,
+      event,
+      dpa,
+      form: formOf(type, dpa),
+      hash: sha256(`${type} ${event} ${dpa}`),
+      extra,
+    },
   );
 }
 

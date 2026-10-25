@@ -12,7 +12,7 @@ import {
 } from '@heisreal/database/integration-testing';
 import { RecordId, type Surreal } from 'surrealdb';
 import { ConsentLedger } from '../src/lib/consent-ledger';
-import type { ConsentType } from '../src/lib/consent.types';
+import { type ConsentType, STATEMENT_FORM } from '../src/lib/consent.types';
 
 /**
  * D29: an `Idempotency-Key` commits in the same transaction as the consent event, so a retry
@@ -50,8 +50,9 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
     );
   const grant = (person: string, k: string, type: ConsentType) => {
     const input = {
-      type,
-      dpaVersion: 'v1',
+      form: STATEMENT_FORM[type],
+      formVersion: 'v1',
+      statement: type,
       mechanism: 'web_form_submission' as const,
     };
     return command(person, k, ['POST', 'consents', input], (s, idem) =>

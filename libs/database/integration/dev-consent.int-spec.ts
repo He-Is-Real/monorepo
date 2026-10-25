@@ -186,7 +186,7 @@ describe('relaxed consent in dev (D48)', () => {
       ).toEqual([]);
     });
 
-    it('keeps the ledger’s own rules: no consent against a draft DPA', async () => {
+    it('keeps the ledger’s own rules: no consent without a published form version', async () => {
       await run(
         admin,
         `CREATE dpaVersion:v2_draft CONTENT { materiality: 'material',
@@ -201,7 +201,7 @@ describe('relaxed consent in dev (D48)', () => {
       );
       expect(result).toEqual({
         ok: false,
-        error: expect.stringContaining('published DPA version'),
+        error: expect.stringContaining('form version'),
       });
     });
 

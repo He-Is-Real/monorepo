@@ -93,6 +93,7 @@
           "{workspaceRoot}/libs/database/integration/support/**/*",
           "{workspaceRoot}/libs/database/schema/**/*",
           "{workspaceRoot}/libs/legal/dpa/**/*",
+          "{workspaceRoot}/libs/legal/forms/**/*",
           "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
           {
             "externalDependencies": [
@@ -137,6 +138,7 @@
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^7.2.0",
+    "@heisreal/consent": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@nestjs/common": "^12.2.0",
     "surrealdb": "^2.0.8",

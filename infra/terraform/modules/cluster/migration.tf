@@ -22,6 +22,8 @@ module "migration" {
   identity_hash        = module.identity.hash
   environment          = local.environment
   dev_consent_relaxed  = var.dev_consent_relaxed
+  # D75: dev's placeholder privacy document and consent forms.
+  dev_legal_placeholders = var.dev_legal_placeholders
   # D49: the Job waits for exactly the system users the init creates.
   extra_system_users = var.dev_seed_login ? ["dev_seed"] : []
   job_template       = jsondecode(data.kustomization_overlay.surrealdb.manifests[local.migrate_template_id])

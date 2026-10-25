@@ -32,9 +32,17 @@ run "repo_bundle" {
     dpa_dir    = "../../../../libs/legal/dpa"
   }
   assert {
-    condition = alltrue([for f in ["schema.surql", "access-clerk.surql", "dpa-sync.surql", "0001-seed-dpa-v1.surql", "migrate.py", "params.json"] :
+    condition = alltrue([for f in ["schema.surql", "access-clerk.surql", "dpa-sync.surql", "form-sync.surql", "0001-seed-dpa-v1.surql", "0005-dev-legal-placeholders.surql", "migrate.py", "params.json"] :
     contains(keys(output.config_map.data), f)])
-    error_message = "The bundle must hold the schema, the clerk access, the DPA sync, the data scripts, the runner and params.json."
+    error_message = "The bundle must hold the schema, the clerk access, the DPA and form syncs, the data scripts, the runner and params.json."
+  }
+  assert {
+    condition = (output.params.form_sha256.signup["v1"] == filesha256("../../../../libs/legal/forms/signup/v1.md")
+      && output.params.form_text.testimony["v1"] == file("../../../../libs/legal/forms/testimony/v1.md")
+      && output.params.form_sha256.social["v1"] == filesha256("../../../../libs/legal/forms/social/v1.md")
+      && output.params.dpa_text["dev_placeholder"] == file("../../../../libs/legal/dpa/dev_placeholder.md")
+    && output.params.dev_legal_placeholders == false)
+    error_message = "D84: each legal text and its sha256 reach the runner; no dev placeholders (D75) by default."
   }
   assert {
     condition = (output.params.dpa_sha256["v1"] == filesha256("../../../../libs/legal/dpa/v1.md")
@@ -59,6 +67,10 @@ run "a" {
   assert {
     condition     = output.params.dpa_sha256 == { v1 = filesha256("tests/fixtures/a/dpa/v1.md") }
     error_message = "dpa_sha256 maps each DPA file to its sha256."
+  }
+  assert {
+    condition     = output.params.form_sha256 == { signup = {}, testimony = {}, social = {} }
+    error_message = "No forms directory: no form versions."
   }
 }
 
@@ -244,4 +256,35 @@ run "extra_system_users_refused" {
     extra_system_users = ["migrator"]
   }
   expect_failures = [var.extra_system_users]
+}
+
+# D75: dev's placeholder privacy document and forms, like D48's switch: dev only.
+run "legal_placeholders_in_dev" {
+  command = plan
+  variables {
+    base_job_name          = run.a.job_name
+    environment            = "dev"
+    dev_legal_placeholders = true
+  }
+  assert {
+    condition     = output.job_name != var.base_job_name && output.params.dev_legal_placeholders == true
+    error_message = "Turning the placeholders on in dev passes it to the runner and re-runs the Job."
+  }
+}
+
+run "legal_placeholders_refused_in_prod" {
+  command = plan
+  variables {
+    environment            = "prod"
+    dev_legal_placeholders = true
+  }
+  expect_failures = [var.dev_legal_placeholders]
+}
+
+run "legal_placeholders_refused_without_environment" {
+  command = plan
+  variables {
+    dev_legal_placeholders = true
+  }
+  expect_failures = [var.dev_legal_placeholders]
 }

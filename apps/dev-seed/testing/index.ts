@@ -9,17 +9,20 @@ export { DATASET } from '../src/app/dataset';
 export type { StoryFixture, TagFixture } from '../src/app/dataset';
 
 /**
- * A SurrealDB (3.2.4, the real schema) set up the way dev is: D48's relaxed consent and the
- * dev-only `dev_seed` login (D49). For integration tests: `@heisreal/dev-seed/testing`.
+ * A SurrealDB (3.2.4, the real schema) set up the way dev is: the placeholder privacy document
+ * and consent forms (D75), consent checks enforced (D48 off), and the dev-only `dev_seed` login
+ * (D49). For integration tests: `@heisreal/dev-seed/testing`.
  */
 export async function devDatabase(params: {
-  relaxed: boolean;
+  legalPlaceholders: boolean;
   environment: string | null;
+  relaxed?: boolean;
 }): Promise<{ t: TestDatabase; seeder: Surreal }> {
   const t = await TestDatabase.create({ migrate: false });
   await t.migrate(
     t.params({
-      dev_consent_relaxed: params.relaxed,
+      dev_legal_placeholders: params.legalPlaceholders,
+      dev_consent_relaxed: params.relaxed ?? false,
       environment: params.environment,
     }),
   );
@@ -41,7 +44,7 @@ export async function devDatabase(params: {
  */
 export async function devDatabaseWithDataset(): Promise<TestDatabase> {
   const { t, seeder } = await devDatabase({
-    relaxed: true,
+    legalPlaceholders: true,
     environment: 'dev',
   });
   await reset(seeder, buildVars(DATASET, fakeUploads()));

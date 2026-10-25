@@ -18,7 +18,7 @@ variable "schema_dir" {
 }
 
 variable "dpa_dir" {
-  description = "libs/legal/dpa: one <dpaVersion id>.md per DPA version (D20)."
+  description = "libs/legal/dpa: one <dpaVersion id>.md per DPA version (D20). The consent forms are beside it, in ../forms/<signup|testimony|social>/<id>.md (D84, D93)."
   type        = string
 }
 
@@ -59,6 +59,17 @@ variable "dev_consent_relaxed" {
   }
 }
 
+variable "dev_legal_placeholders" {
+  description = "D75: dev's placeholder privacy document and consent forms (data script 0005). The runner writes it to _setting:consent; the database counts the placeholders only while it's on. Dev only: refused here unless environment is \"dev\", and by the database too."
+  type        = bool
+  default     = false
+  nullable    = false
+  validation {
+    condition     = !var.dev_legal_placeholders || var.environment == "dev"
+    error_message = "dev_legal_placeholders (D75) can only be set in dev."
+  }
+}
+
 variable "extra_system_users" {
   description = "System users besides backup and migrator that SurrealDB's startup init creates (D49: dev_seed, in dev only). The Job waits for exactly these (MIGRATE_EXPECT_USERS)."
   type        = list(string)
@@ -85,16 +96,30 @@ locals {
   top_files  = fileset(var.schema_dir, "*.surql")
   data_files = fileset("${var.schema_dir}/data", "*.surql")
 
-  # Every DPA text, keyed by its dpaVersion id (0001 and dpa-sync.surql use it).
+  # Every DPA text, keyed by its dpaVersion id (0001, 0005 and dpa-sync.surql use it), with its
+  # words: the database keeps a copy beside the ledger (D84).
   dpa_sha256 = { for f in fileset(var.dpa_dir, "*.md") : trimsuffix(f, ".md") => filesha256("${var.dpa_dir}/${f}") }
+  dpa_text   = { for f in fileset(var.dpa_dir, "*.md") : trimsuffix(f, ".md") => file("${var.dpa_dir}/${f}") }
+
+  # D84: every consent form version's text and sha256, { signup|testimony|social: { <id>: ... } }
+  # (0005 and form-sync.surql). README.md files aren't versions.
+  forms_dir   = "${dirname(var.dpa_dir)}/forms"
+  form_kinds  = ["signup", "testimony", "social"]
+  form_files  = { for k in local.form_kinds : k => [for f in fileset("${local.forms_dir}/${k}", "*.md") : f if f != "README.md"] }
+  form_sha256 = { for k in local.form_kinds : k => { for f in local.form_files[k] : trimsuffix(f, ".md") => filesha256("${local.forms_dir}/${k}/${f}") } }
+  form_text   = { for k in local.form_kinds : k => { for f in local.form_files[k] : trimsuffix(f, ".md") => file("${local.forms_dir}/${k}/${f}") } }
 
   params = {
-    clerk_jwt_public_key = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
-    dev_consent_relaxed  = var.dev_consent_relaxed
-    dpa_sha256           = local.dpa_sha256
-    environment          = var.environment
-    identity_hash        = var.identity_hash
-    seed_dev_story       = var.seed_dev_story
+    clerk_jwt_public_key   = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
+    dev_consent_relaxed    = var.dev_consent_relaxed
+    dev_legal_placeholders = var.dev_legal_placeholders
+    dpa_sha256             = local.dpa_sha256
+    dpa_text               = local.dpa_text
+    form_sha256            = local.form_sha256
+    form_text              = local.form_text
+    environment            = var.environment
+    identity_hash          = var.identity_hash
+    seed_dev_story         = var.seed_dev_story
   }
 
   bundle = merge(
@@ -131,7 +156,7 @@ output "job_name" {
 }
 
 output "params" {
-  description = "What the runner gets (all public: hashes and a public key)."
+  description = "What the runner gets (all public: hashes, the legal texts and a public key)."
   value       = local.params
 }
 

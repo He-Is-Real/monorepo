@@ -1,11 +1,12 @@
 import {
   approve,
   createPeople,
-  DPA_V1_SHA256,
   draft,
   publishDpa,
+  publishForm,
   rows,
   run,
+  sha256,
   submit,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
@@ -19,25 +20,87 @@ import { ConsentChecker } from '../src/lib/consent-checker';
 import {
   ConsentConflictError,
   ConsentLedger,
-  evidenceHash,
+  type GrantConsentInput,
 } from '../src/lib/consent-ledger';
+import { evidenceHash } from '../src/lib/evidence';
 import {
   CONSENT_REQUIRED,
   CONSENT_TYPES,
-  type ConsentMechanism,
   type ConsentType,
+  STATEMENT_FORM,
 } from '../src/lib/consent.types';
 
-/** sha256 of ["heisreal-consent-evidence/v1","v1","bbb…","publish","granted","web_form_submission"]. */
-const FIXED_VECTOR =
+/**
+ * sha256 of ["heisreal-consent-evidence/v2","testimony","v1","aaa…","v1","bbb…","publish",
+ * "granted","web_form_submission"]: the format can't drift unnoticed.
+ */
+const FIXED_VECTOR_V2 =
+  '07c2cf2c8265cbe8de2d4536ff90c35b0a4fa2b0bd96053981ebeef7b64684a7';
+/** The v1 format's fixed vector (rows from before forms keep verifying against it). */
+const FIXED_VECTOR_V1 =
   '742fa2d7efa880025031ba5410d3e85f63e1179b49f8680fe126e34001db62e0';
+
+/** The evidence formats, computed here independently of the ledger's evidenceHash(). */
+const independentV2 = (r: {
+  form: string;
+  formVersion: string;
+  formHash: string;
+  dpa: string;
+  dpaHash: string;
+  type: string;
+  event: string;
+  mechanism: string;
+}) =>
+  createHash('sha256')
+    .update(
+      JSON.stringify([
+        'heisreal-consent-evidence/v2',
+        r.form,
+        r.formVersion,
+        r.formHash,
+        r.dpa,
+        r.dpaHash,
+        r.type,
+        r.event,
+        r.mechanism,
+      ]),
+    )
+    .digest('hex');
+const independentV1 = (r: {
+  dpa: string;
+  dpaHash: string;
+  type: string;
+  event: string;
+  mechanism: string;
+}) =>
+  createHash('sha256')
+    .update(
+      JSON.stringify([
+        'heisreal-consent-evidence/v1',
+        r.dpa,
+        r.dpaHash,
+        r.type,
+        r.event,
+        r.mechanism,
+      ]),
+    )
+    .digest('hex');
+
+/** Where each statement is ticked (D73, D67, D93). */
+const FORM_OF = STATEMENT_FORM;
+const FORM_TABLE: Record<GrantConsentInput['form'], string> = {
+  signup: 'signupFormVersion',
+  testimony: 'testimonyFormVersion',
+  social: 'socialSharingFormVersion',
+};
 
 /**
  * The ledger service, the consent checks and person sessions against SurrealDB 3.2.4, on the
  * connections production uses: api-user's one service connection with a session per person
- * (D27), and api-admin's own login for submitter checks.
+ * (D27), and api-admin's own login for submitter checks. Grants name the form version shown and
+ * the statement ticked (D84).
  */
-describe('consent ledger (D17–D20) on SurrealDB', () => {
+describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
   let t: TestDatabase;
   let apiUser: Surreal;
   let admin: Surreal;
@@ -50,6 +113,25 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
     clerkUserId: string,
     work: (s: SurrealSession) => Promise<T>,
   ) => withPersonSession(apiUser, t.token(clerkUserId), work);
+  const grant = (
+    who: string,
+    statement: ConsentType,
+    formVersion = 'v1',
+    mechanism: GrantConsentInput['mechanism'] = 'web_form_submission',
+  ) =>
+    as(who, (s) =>
+      ledger.grant(s, {
+        form: FORM_OF[statement],
+        formVersion,
+        statement,
+        mechanism,
+      }),
+    );
+  const conflict = async (p: Promise<unknown>) => {
+    const err = await p.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConsentConflictError);
+    return (err as ConsentConflictError).code;
+  };
 
   const ART9 = CONSENT_REQUIRED.createDraft.types;
   const PUBLISHABLE = CONSENT_REQUIRED.submitStory.types;
@@ -60,6 +142,7 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
       ann: 'user_ann',
       bob: 'user_bob',
       cat: 'user_cat',
+      vee: 'user_vee',
       moderator: 'user_mod',
     });
     apiUser = await t.service('api_user');
@@ -69,19 +152,11 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
   });
   afterAll(() => t?.close());
 
-  describe('while DPA v1 is a draft (D20)', () => {
+  describe('while no form is published (D20, D84)', () => {
     it('refuses every grant, and nothing reaches the ledger', async () => {
-      const err = await as('user_ann', (s) =>
-        ledger.grant(s, {
-          type: 'special_category_religious',
-          dpaVersion: 'v1',
-          mechanism: 'web_form_submission',
-        }),
-      ).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(ConsentConflictError);
-      expect((err as ConsentConflictError).code).toBe(
-        'dpa_version_not_in_force',
-      );
+      expect(
+        await conflict(grant('user_ann', 'special_category_religious')),
+      ).toBe('form_version_not_in_force');
       expect(await rows(await t.migrator(), 'SELECT * FROM consent')).toEqual(
         [],
       );
@@ -93,55 +168,53 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
       expect(state.current.map((c) => [c.type, c.granted])).toEqual(
         CONSENT_TYPES.map((type) => [type, false]),
       );
+      expect(state.signup).toEqual({ accepted: false, latestVersion: null });
       expect(await as('user_ann', (s) => asAdmin.callerHas(s, ART9))).toBe(
         false,
       );
     });
   });
 
-  describe('once v1 is published', () => {
+  describe('once v1 of the DPA and the three forms are published', () => {
     beforeAll(() => publishDpa(t, 'v1'));
 
-    it('grants each type in the person’s own session, with a reproducible evidence hash and no IP', async () => {
+    it('grants each statement on its form in the person’s own session, with evidence v2 and no IP', async () => {
       for (const type of CONSENT_TYPES) {
-        const outcome = await as('user_ann', (s) =>
-          ledger.grant(s, {
-            type,
-            dpaVersion: 'v1',
-            mechanism: 'web_form_submission',
-          }),
-        );
-        expect(outcome).toEqual({
+        expect(await grant('user_ann', type)).toEqual({
           id: expect.stringMatching(/^\w+$/),
           status: 201,
           replayed: false,
         });
       }
-      const [v1] = await rows<{ contentHash: string }>(
-        await t.migrator(),
-        'SELECT contentHash FROM dpaVersion:v1',
-      );
       const stored = await rows<Record<string, unknown>>(
         await t.migrator(),
-        `SELECT * FROM consent WHERE subject = user:ann ORDER BY occurredAt`,
+        `SELECT *, dpaVersion.contentHash AS dpaHash, form.textHash AS formHash
+           FROM consent WHERE subject = user:ann ORDER BY occurredAt`,
       );
-      expect(stored).toHaveLength(4);
+      expect(stored).toHaveLength(CONSENT_TYPES.length);
       for (const row of stored) {
-        expect(Object.keys(row).sort()).toEqual([
+        const { dpaHash, formHash, ...fields } = row;
+        expect(Object.keys(fields).sort()).toEqual([
           'dpaVersion',
           'event',
           'evidenceHash',
+          'form',
           'id',
           'mechanism',
           'occurredAt',
           'subject',
           'type',
         ]); // D19: no ipAddress, nothing else
+        const type = String(row['type']) as ConsentType;
+        expect(row['form']).toBe(`${FORM_TABLE[FORM_OF[type]]}:v1`);
         expect(row['evidenceHash']).toBe(
-          evidenceHash({
-            dpaVersion: 'v1',
-            dpaContentHash: v1.contentHash,
-            type: String(row['type']),
+          independentV2({
+            form: FORM_OF[type],
+            formVersion: 'v1',
+            formHash: String(formHash),
+            dpa: 'v1',
+            dpaHash: String(dpaHash),
+            type,
             event: 'granted',
             mechanism: 'web_form_submission',
           }),
@@ -149,26 +222,85 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
       }
     });
 
-    it('derives the current state from the latest event (D17, D18)', async () => {
+    it('evidence v2 matches a fixed vector, and binds the form and its text', () => {
+      const base = {
+        form: 'testimony',
+        formVersion: 'v1',
+        formHash: 'a'.repeat(64),
+        dpa: 'v1',
+        dpaHash: 'b'.repeat(64),
+        type: 'publish',
+        event: 'granted',
+        mechanism: 'web_form_submission',
+      };
+      expect(independentV2(base)).toBe(FIXED_VECTOR_V2);
+      // The ledger's own function, both formats.
+      expect(
+        evidenceHash({
+          form: { kind: 'testimony', version: 'v1', textHash: base.formHash },
+          dpaVersion: 'v1',
+          dpaContentHash: base.dpaHash,
+          type: 'publish',
+          event: 'granted',
+          mechanism: 'web_form_submission',
+        }),
+      ).toBe(FIXED_VECTOR_V2);
+      expect(
+        evidenceHash({
+          dpaVersion: 'v1',
+          dpaContentHash: base.dpaHash,
+          type: 'publish',
+          event: 'granted',
+          mechanism: 'web_form_submission',
+        }),
+      ).toBe(FIXED_VECTOR_V1);
+      for (const change of [
+        { form: 'signup' },
+        { formVersion: 'v2' },
+        { formHash: 'c'.repeat(64) },
+        { dpaHash: 'c'.repeat(64) },
+        { type: 'share_socials' },
+        { event: 'withdrawn' },
+        { mechanism: 'account_settings' },
+      ]) {
+        expect(independentV2({ ...base, ...change })).not.toBe(FIXED_VECTOR_V2);
+      }
+      expect(
+        independentV1({
+          dpa: 'v1',
+          dpaHash: 'b'.repeat(64),
+          type: 'publish',
+          event: 'granted',
+          mechanism: 'web_form_submission',
+        }),
+      ).toBe(FIXED_VECTOR_V1);
+    });
+
+    it('derives the current state, the sign-up and testimony status from the latest events (D17, D73, D85)', async () => {
       const state = await as('user_ann', (s) => ledger.state(s));
       expect(state.current).toEqual(
         CONSENT_TYPES.map((type) => ({
           type,
           granted: true,
+          form: FORM_OF[type],
+          formVersion: 'v1',
           dpaVersion: 'v1',
           occurredAt: expect.any(String),
-          reconsentRequired: false,
+          counts: true,
         })),
       );
-      expect(
-        state.history.map((e) => [e.type, e.event, e.dpaVersion, e.mechanism]),
-      ).toEqual(
-        CONSENT_TYPES.map((type) => [
-          type,
-          'granted',
-          'v1',
-          'web_form_submission',
-        ]),
+      expect(state.signup).toEqual({ accepted: true, latestVersion: 'v1' });
+      expect(state.testimony).toEqual({
+        version: 'v1',
+        latestVersion: 'v1',
+        updateAvailable: false,
+        acceptanceRequired: false,
+      });
+      expect(await as('user_ann', (s) => asAdmin.callerAcceptedSignup(s))).toBe(
+        true,
+      );
+      expect(await as('user_bob', (s) => asAdmin.callerAcceptedSignup(s))).toBe(
+        false,
       );
     });
 
@@ -187,23 +319,82 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
       );
     });
 
-    it('refuses a grant against a version that isn’t in force', async () => {
-      await run(
-        admin,
-        `CREATE dpaVersion:v9 CONTENT { materiality: 'material', documentPath: 'libs/legal/dpa/v9.md', contentHash: $h }`,
-        { h: 'f'.repeat(64) },
-      ); // a draft
-      for (const dpaVersion of ['v9', 'nope']) {
-        await expect(
-          as('user_bob', (s) =>
-            ledger.grant(s, {
-              type: 'publish',
-              dpaVersion,
-              mechanism: 'account_settings',
-            }),
+    it('refuses a statement the form version doesn’t have', async () => {
+      for (const [form, statement] of [
+        ['signup', 'publish'],
+        ['testimony', 'account_data'],
+        ['testimony', 'age_18plus'], // D93: 18+ is on the sign-up form only
+        ['testimony', 'share_socials'],
+        ['social', 'publish'],
+      ] as const) {
+        expect(
+          await conflict(
+            as('user_bob', (s) =>
+              ledger.grant(s, {
+                form,
+                formVersion: 'v1',
+                statement,
+                mechanism: 'web_form_submission',
+              }),
+            ),
           ),
-        ).rejects.toBeInstanceOf(ConsentConflictError);
+        ).toBe('statement_not_on_form');
       }
+    });
+  });
+
+  describe('a v1 ledger row from before forms', () => {
+    beforeAll(async () => {
+      // As 0.8's ledger wrote it: no form, evidence v1. Only the migrator can write one now.
+      const [dpaHash] = await rows<string>(
+        await t.migrator(),
+        'SELECT VALUE contentHash FROM dpaVersion:v1',
+      );
+      await run(
+        await t.migrator(),
+        `CREATE consent CONTENT { subject: user:vee, type: 'special_category_religious',
+           event: 'granted', dpaVersion: dpaVersion:v1, mechanism: 'legacy_import',
+           evidenceHash: $h }`,
+        {
+          h: independentV1({
+            dpa: 'v1',
+            dpaHash,
+            type: 'special_category_religious',
+            event: 'granted',
+            mechanism: 'legacy_import',
+          }),
+        },
+      );
+    });
+
+    it('still counts, can be withdrawn, and the whole history verifies (v1 and v2 rows)', async () => {
+      expect(await as('user_vee', (s) => asAdmin.callerHas(s, ART9))).toBe(
+        true,
+      );
+      await as('user_vee', (s) =>
+        ledger.withdraw(s, 'special_category_religious'),
+      );
+      await grant('user_vee', 'special_category_religious');
+      const checks = await as('user_vee', (s) => ledger.verifyEvidence(s));
+      expect(checks.map((c) => [c.format, c.verified])).toEqual([
+        ['v1', true],
+        ['v1', true], // the withdrawal binds to the v1 grant it follows
+        ['v2', true],
+      ]);
+      const ann = await as('user_ann', (s) => ledger.verifyEvidence(s));
+      expect(ann.every((c) => c.format === 'v2' && c.verified)).toBe(true);
+    });
+
+    it('a tampered hash doesn’t verify', async () => {
+      await run(
+        await t.migrator(),
+        `CREATE consent CONTENT { subject: user:vee, type: 'publish', event: 'granted',
+           dpaVersion: dpaVersion:v1, form: testimonyFormVersion:v1,
+           mechanism: 'web_form_submission', evidenceHash: $h }`,
+        { h: sha256('not the evidence') },
+      );
+      const checks = await as('user_vee', (s) => ledger.verifyEvidence(s));
+      expect(checks.at(-1)).toMatchObject({ format: 'v2', verified: false });
     });
   });
 
@@ -241,11 +432,16 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
         { status: 'approved' },
       ]);
       const state = await as('user_ann', (s) => ledger.state(s));
-      const publish = state.current.find((c) => c.type === 'publish');
-      expect(publish).toMatchObject({ granted: false, dpaVersion: 'v1' });
+      expect(state.current.find((c) => c.type === 'publish')).toMatchObject({
+        granted: false,
+        form: 'testimony',
+        formVersion: 'v1',
+      });
       expect(state.history.at(-1)).toMatchObject({
         type: 'publish',
         event: 'withdrawn',
+        form: 'testimony',
+        formVersion: 'v1',
         mechanism: 'account_settings',
       });
       expect(await asAdmin.submitterHas('ann_live', PUBLISHABLE)).toBe(false);
@@ -260,198 +456,137 @@ describe('consent ledger (D17–D20) on SurrealDB', () => {
       await expect(
         as('user_ann', (s) => ledger.withdraw(s, 'publish')),
       ).resolves.toMatchObject({ id: expect.stringMatching(/^\w+$/) });
-      const err = await as('user_bob', (s) =>
-        ledger.withdraw(s, 'share_socials'),
-      ).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(ConsentConflictError);
-      expect((err as ConsentConflictError).code).toBe('consent_not_granted');
+      expect(
+        await conflict(
+          as('user_bob', (s) => ledger.withdraw(s, 'share_socials')),
+        ),
+      ).toBe('consent_not_granted');
     });
 
     it('re-consent restores the grant (each story follows the person, D17)', async () => {
-      await as('user_ann', (s) =>
-        ledger.grant(s, {
-          type: 'publish',
-          dpaVersion: 'v1',
-          mechanism: 'reconsent_prompt',
-        }),
-      );
+      await grant('user_ann', 'publish', 'v1', 'reconsent_prompt');
       expect(await asAdmin.submitterHas('ann_live', PUBLISHABLE)).toBe(true);
     });
   });
 
-  describe('a material DPA change (gdpr-consent.md rule 5)', () => {
-    beforeAll(() => publishDpa(t, 'v2')); // material, in effect now
-
-    it('flags re-consent on every grant to the older version', async () => {
-      const state = await as('user_ann', (s) => ledger.state(s));
-      for (const c of state.current) {
-        expect(c).toMatchObject({
-          granted: true,
-          dpaVersion: 'v1',
-          reconsentRequired: true,
-        });
-      }
+  describe('newer form versions (D73, D84, D85, D93)', () => {
+    it('refuses a grant on a stale version once a newer one is published; accepts the new one', async () => {
+      await publishForm(t, 'testimony', 'v2', { dpa: 'v1' });
+      expect(await conflict(grant('user_cat', 'publish', 'v1'))).toBe(
+        'form_version_not_in_force',
+      );
+      // Ann's v1 grants still count, and the banner offers v2.
+      const before = await as('user_ann', (s) => ledger.state(s));
+      expect(before.current.every((c) => c.counts)).toBe(true);
+      expect(before.testimony).toMatchObject({
+        version: 'v1',
+        latestVersion: 'v2',
+        updateAvailable: true,
+        acceptanceRequired: false,
+      });
+      await grant('user_ann', 'special_category_religious', 'v2');
+      expect((await as('user_ann', (s) => ledger.state(s))).testimony).toEqual({
+        version: 'v2',
+        latestVersion: 'v2',
+        updateAvailable: false,
+        acceptanceRequired: false,
+      });
     });
 
-    it('refuses new grants against v1, accepts v2 and clears the flag', async () => {
-      await expect(
-        as('user_cat', (s) =>
-          ledger.grant(s, {
-            type: 'publish',
-            dpaVersion: 'v1',
-            mechanism: 'web_form_submission',
-          }),
-        ),
-      ).rejects.toBeInstanceOf(ConsentConflictError);
-      await as('user_ann', (s) =>
-        ledger.grant(s, {
-          type: 'publish',
-          dpaVersion: 'v2',
-          mechanism: 'reconsent_prompt',
-        }),
-      );
-      const state = await as('user_ann', (s) => ledger.state(s));
-      expect(state.current.find((c) => c.type === 'publish')).toMatchObject({
-        dpaVersion: 'v2',
-        reconsentRequired: false,
+    it('a testimony version requiring acceptance gates only new submissions: older grants keep counting', async () => {
+      await publishForm(t, 'testimony', 'v3', {
+        dpa: 'v1',
+        requiresAcceptanceForNewSubmissions: true,
       });
+      const state = await as('user_ann', (s) => ledger.state(s));
+      for (const type of ['special_category_religious', 'publish'] as const) {
+        expect(state.current.find((c) => c.type === type)).toMatchObject({
+          granted: true,
+          counts: true,
+        });
+      }
+      expect(state.testimony.acceptanceRequired).toBe(true);
+      // Approving and publishing her stories needs nothing new (D93)...
+      expect(await asAdmin.submitterHas('ann_live', PUBLISHABLE)).toBe(true);
+      // ...but a new draft or a submission does: the guard asks for the forms in force.
+      expect(
+        await as('user_ann', (s) => asAdmin.callerHas(s, ART9, true)),
+      ).toBe(false);
+      expect(await as('user_ann', (s) => asAdmin.callerHas(s, ART9))).toBe(
+        true,
+      );
+      await grant(
+        'user_ann',
+        'special_category_religious',
+        'v3',
+        'reconsent_prompt',
+      );
+      expect(
+        await as('user_ann', (s) => asAdmin.callerHas(s, ART9, true)),
+      ).toBe(true);
+    });
+
+    it('a newer sign-up version: not accepted until she ticks it, while her v1 grants still count', async () => {
+      await publishForm(t, 'signup', 'v2', { dpa: 'v1' });
+      const state = await as('user_ann', (s) => ledger.state(s));
+      expect(state.signup).toEqual({ accepted: false, latestVersion: 'v2' });
       expect(state.current.find((c) => c.type === 'age_18plus')).toMatchObject({
-        reconsentRequired: true,
+        formVersion: 'v1',
+        counts: true,
+      });
+      expect(
+        await as('user_ann', (s) => asAdmin.callerHas(s, ART9, true)),
+      ).toBe(false);
+      await grant('user_ann', 'account_data', 'v2', 'reconsent_prompt');
+      await grant('user_ann', 'age_18plus', 'v2', 'reconsent_prompt');
+      expect((await as('user_ann', (s) => ledger.state(s))).signup).toEqual({
+        accepted: true,
+        latestVersion: 'v2',
       });
     });
   });
 
-  // GDPR Art 9 evidence (D19): the recorded hash binds what was presented and chosen. The
-  // expected values are computed here, independently of the ledger's evidenceHash() (Codex
-  // review of #72: a constant hash passed every test).
-  describe('evidence binds the DPA text, type, event and mechanism (D19)', () => {
-    const independent = (r: {
-      dpa: string;
-      dpaText: string;
-      type: string;
-      event: string;
-      mechanism: string;
-    }) =>
-      createHash('sha256')
-        .update(
-          JSON.stringify([
-            'heisreal-consent-evidence/v1',
-            r.dpa,
-            r.dpaText,
-            r.type,
-            r.event,
-            r.mechanism,
-          ]),
-        )
-        .digest('hex');
-    type Evidence = {
-      who: string;
-      type: string;
-      event: string;
-      mechanism: string;
-      dpa: string;
-      dpaText: string;
-      evidenceHash: string;
-    };
-    let rowsByKey: Evidence[];
-    const find = (
-      who: string,
-      type: string,
-      event: string,
-      dpa: string,
-      mechanism: string,
-    ) => {
-      const row = rowsByKey.find(
-        (r) =>
-          r.who === who &&
-          r.type === type &&
-          r.event === event &&
-          r.dpa === dpa &&
-          r.mechanism === mechanism,
-      );
-      if (!row)
-        throw new Error(`no ${who} ${type} ${event} ${dpa} ${mechanism}`);
-      return row.evidenceHash;
-    };
-
-    beforeAll(async () => {
-      // Pairs that differ in one input only (v2 is in force now).
-      const grant = (
-        who: string,
-        type: ConsentType,
-        mechanism: ConsentMechanism,
-      ) =>
-        as(who, (s) => ledger.grant(s, { type, dpaVersion: 'v2', mechanism }));
-      await grant('user_bob', 'share_socials', 'web_form_submission');
-      await grant('user_cat', 'share_socials', 'account_settings');
-      await as('user_cat', (s) => ledger.withdraw(s, 'share_socials'));
-      rowsByKey = await rows<Evidence>(
-        await t.migrator(),
-        `SELECT record::id(subject) AS who, type, event, mechanism,
-           record::id(dpaVersion) AS dpa, dpaVersion.contentHash AS dpaText, evidenceHash
-         FROM consent`,
-      );
-    });
-
-    it('every recorded hash is the sha256 of exactly what was presented and chosen', () => {
-      expect(rowsByKey.length).toBeGreaterThan(5);
-      for (const r of rowsByKey) expect(r.evidenceHash).toBe(independent(r));
-    });
-
-    it('matches a fixed vector (the format can’t drift unnoticed)', () => {
-      expect(
-        find('ann', 'publish', 'granted', 'v1', 'web_form_submission'),
-      ).toBe(
-        independent({
-          dpa: 'v1',
-          dpaText: DPA_V1_SHA256,
-          type: 'publish',
-          event: 'granted',
-          mechanism: 'web_form_submission',
+  describe('a form version published while a grant is in flight (Codex, #101)', () => {
+    it('the grant’s own transaction refuses the stale version: 409, and nothing reaches the ledger', async () => {
+      // Deterministic: the session publishes v4 after the grant has checked the version in
+      // force and before its transaction runs.
+      let published = false;
+      const between = (s: SurrealSession) =>
+        new Proxy(s, {
+          get(target, prop, receiver) {
+            if (prop !== 'query') return Reflect.get(target, prop, receiver);
+            return (sql: string, vars?: Record<string, unknown>) =>
+              sql.includes('BEGIN TRANSACTION') && !published
+                ? {
+                    json: () => ({
+                      responses: async () => {
+                        published = true;
+                        await publishForm(t, 'testimony', 'v4', {
+                          dpa: 'v1',
+                          requiresAcceptanceForNewSubmissions: true,
+                        });
+                        return target.query(sql, vars).json().responses();
+                      },
+                    }),
+                  }
+                : target.query(sql, vars);
+          },
+        });
+      const err = await as('user_bob', (s) =>
+        ledger.grant(between(s), {
+          form: 'testimony',
+          formVersion: 'v3',
+          statement: 'publish',
+          mechanism: 'reconsent_prompt',
         }),
+      ).catch((e: unknown) => e);
+      expect(published).toBe(true);
+      expect(err).toBeInstanceOf(ConsentConflictError);
+      expect((err as ConsentConflictError).code).toBe(
+        'form_version_not_in_force',
       );
-      expect(
-        independent({
-          dpa: 'v1',
-          dpaText: 'b'.repeat(64),
-          type: 'publish',
-          event: 'granted',
-          mechanism: 'web_form_submission',
-        }),
-      ).toBe(FIXED_VECTOR);
-    });
-
-    it('changes with the DPA text, the type, the event and the mechanism', () => {
-      const base = find(
-        'bob',
-        'share_socials',
-        'granted',
-        'v2',
-        'web_form_submission',
-      );
-      // The DPA (version and text): the same grant under v1.
-      expect(
-        find('ann', 'share_socials', 'granted', 'v1', 'web_form_submission'),
-      ).not.toBe(base);
-      // The type.
-      expect(
-        find('ann', 'publish', 'granted', 'v1', 'web_form_submission'),
-      ).not.toBe(
-        find('ann', 'share_socials', 'granted', 'v1', 'web_form_submission'),
-      );
-      // The mechanism.
-      const viaSettings = find(
-        'cat',
-        'share_socials',
-        'granted',
-        'v2',
-        'account_settings',
-      );
-      expect(viaSettings).not.toBe(base);
-      // The event.
-      expect(
-        find('cat', 'share_socials', 'withdrawn', 'v2', 'account_settings'),
-      ).not.toBe(viaSettings);
+      const state = await as('user_bob', (s) => ledger.state(s));
+      expect(state.history.filter((e) => e.formVersion === 'v3')).toEqual([]);
     });
   });
 

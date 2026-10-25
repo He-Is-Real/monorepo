@@ -1,21 +1,50 @@
 /**
- * The consent types a person can grant and withdraw through the API. Mirrors the `consent.type`
- * enum in libs/database/schema/schema.surql and `ConsentType` in the OpenAPI contracts.
+ * The consent types a person can grant and withdraw through the API: each is one statement (a
+ * box) on a consent form (D84). Mirrors the `consent.type` enum in
+ * libs/database/schema/schema.surql and `ConsentType` in the OpenAPI contracts. Which form has
+ * which statement is the database's `fn::form::statements` (D93): the sign-up form (D73) has
+ * `age_18plus` and `account_data`; the testimony form has `special_category_religious` and, if
+ * it covers publishing on heisreal.today, `publish`; the optional social sharing form has
+ * `share_socials`.
  *
- * D44: the M1 legacy import (task 1.9) adds a one-off `legacy-migration` type, written only
+ * D44: the legacy import (Real stories) adds a one-off `legacy-migration` type, written only
  * by the migrator, never grantable again and never required by a route. It deliberately isn't
  * in this list. Routes require the types below, and the decision "is this requirement met?"
- * is always `fn::consent::granted` in the database (the one definition, D17), so when 1.9
- * teaches the database gates to accept legacy-migration for imported stories, these guards
- * follow without a code change. Ledger readers treat unknown types as opaque.
+ * is always `fn::consent::granted` in the database (the one definition, D17). Ledger readers
+ * treat unknown types as opaque.
  */
 export const CONSENT_TYPES = [
   'special_category_religious',
   'publish',
   'share_socials',
   'age_18plus',
+  'account_data',
 ] as const;
 export type ConsentType = (typeof CONSENT_TYPES)[number];
+
+/**
+ * The three consent forms (D84, D93): `signupFormVersion`, `testimonyFormVersion` and
+ * `socialSharingFormVersion` in the schema.
+ */
+export const CONSENT_FORMS = ['signup', 'testimony', 'social'] as const;
+export type ConsentForm = (typeof CONSENT_FORMS)[number];
+
+/**
+ * Which form asks each statement (D73, D67, D93). The database's `fn::form::statements` decides
+ * per version (`publish` only on testimony versions covering publishing); this is the form to
+ * show for a statement.
+ */
+export const STATEMENT_FORM: Record<ConsentType, ConsentForm> = {
+  special_category_religious: 'testimony',
+  publish: 'testimony',
+  share_socials: 'social',
+  age_18plus: 'signup',
+  account_data: 'signup',
+};
+
+export function isConsentForm(value: unknown): value is ConsentForm {
+  return (CONSENT_FORMS as readonly unknown[]).includes(value);
+}
 
 export function isConsentType(value: unknown): value is ConsentType {
   return (CONSENT_TYPES as readonly unknown[]).includes(value);
@@ -49,6 +78,12 @@ export interface ConsentRequirement {
   subject: ConsentSubject;
   /** Every listed type must be currently granted (D17: the latest ledger event). */
   types: readonly ConsentType[];
+  /**
+   * Something new starts (a draft, a submission): the caller must also be on the forms in force
+   * (D93: the sign-up version in force accepted, and no newer testimony version requiring
+   * acceptance for new submissions; `fn::consent::may_draft`). Caller only.
+   */
+  formsInForce?: boolean;
   /** For `submitter`: the route parameter holding the story id (default `id`). */
   storyParam?: string;
 }
@@ -69,13 +104,13 @@ const PUBLISHABLE: readonly ConsentType[] = [
  */
 export const CONSENT_REQUIRED = {
   /** POST /v1/stories (api-user): no testimony is stored without current Art 9 consent. */
-  createDraft: { subject: 'caller', types: ART9 },
+  createDraft: { subject: 'caller', types: ART9, formsInForce: true },
   /** PATCH /v1/stories/{id} (api-user). */
   editDraft: { subject: 'caller', types: ART9 },
   /** POST /v1/stories/{id}/upload-url (api-user). */
   requestUpload: { subject: 'caller', types: ART9 },
   /** POST /v1/stories/{id}/submit (api-user). */
-  submitStory: { subject: 'caller', types: PUBLISHABLE },
+  submitStory: { subject: 'caller', types: PUBLISHABLE, formsInForce: true },
   /** POST /v1/moderation/stories/{id}/approve (api-admin): a fresh check of the submitter. */
   approveStory: { subject: 'submitter', types: PUBLISHABLE, storyParam: 'id' },
 } as const satisfies Record<string, ConsentRequirement>;

@@ -1,3 +1,4 @@
+import { evidenceHash } from '@heisreal/consent/evidence';
 import type { SurrealQueryable } from 'surrealdb';
 import type { SeedVars } from './plan';
 
@@ -8,8 +9,12 @@ import type { SeedVars } from './plan';
  * It runs as `dev_seed`, a dev-only system user (EDITOR; created by SurrealDB's startup init only
  * when OpenTofu's dev_seed_login is on). A system user skips table permissions, but every event
  * still runs: the story types and shapes (D53), the approval gate (A2) and the read model's
- * mirror check all hold, exactly as for the services. Consent is satisfied by D48's dev-only
- * switch, never by fake consent records.
+ * mirror check all hold, exactly as for the services. Consent is real (D75): every fixture
+ * person has granted the sign-up form in force and the testimony form in force (dev's
+ * placeholder versions, data script 0005) in the ledger, with the evidence hash the API records,
+ * so the published stories pass the real consent checks with D48's switch off. A grant is
+ * appended only when the person's current one isn't on the version in force, so resets don't
+ * grow the ledger (append-only: it's never wiped).
  *
  * Wiped: story (and, through its erasure cascade, publicStory and moderationReview), whatever
  * read-model rows or reviews are left, auditLog, idempotencyKey and tag. Kept: people who aren't
@@ -25,8 +30,8 @@ LET $setting = (SELECT environment, devConsentRelaxed FROM ONLY _setting:consent
 IF $setting.environment != 'dev' {
   THROW 'dev-seed: this database is not dev (_setting:consent), so nothing was changed';
 };
-IF !fn::consent::relaxed() {
-  THROW 'dev-seed: consent checks are not relaxed in this database (D48: dev_consent_relaxed), so nothing was changed';
+IF fn::form::latest('signup') = NONE OR fn::form::latest('testimony') = NONE {
+  THROW 'dev-seed: no consent forms are published in this database (D75: dev_legal_placeholders), so nothing was changed';
 };
 
 DELETE story RETURN NONE;
@@ -40,6 +45,19 @@ DELETE user WHERE string::starts_with(<string> record::id(id), 'seed_')
   AND record::id(id) NOT IN $fixtures RETURN NONE;
 
 FOR $u IN $fixtures { UPSERT type::record('user', $u) RETURN NONE; };
+-- D75: real consent, on the versions in force ($consents: one grant per person and statement).
+FOR $c IN $consents {
+  LET $user = type::record('user', $c.user);
+  LET $form = <record> $c.form;
+  LET $now = fn::consent::current($user, $c.type);
+  IF $now.event != 'granted' OR $now.form != $form OR !fn::consent::valid($now) {
+    CREATE consent CONTENT {
+      subject: $user, type: $c.type, event: 'granted', form: $form,
+      dpaVersion: type::record('dpaVersion', $c.dpa),
+      mechanism: 'web_form_submission', evidenceHash: $c.evidenceHash
+    } RETURN NONE;
+  };
+};
 FOR $t IN $tags {
   CREATE type::record('tag', $t.id) CONTENT { name: $t.name, category: $t.category } RETURN NONE;
 };
@@ -126,12 +144,83 @@ async function runQuery(
   return responses.map((r) => (r.success ? r.result : undefined));
 }
 
+/**
+ * The statements each fixture person grants, per form (D73: sign-up, with 18+, which is asked
+ * there only, D93; D67: testimony). They don't tick the optional social sharing form, so no
+ * dummy story may be shared beyond the dev site.
+ */
+export const FIXTURE_STATEMENTS = {
+  signup: ['age_18plus', 'account_data'],
+  testimony: ['special_category_religious', 'publish'],
+} as const;
+
+const FORMS_IN_FORCE = /* surql */ `
+LET $s = fn::form::latest('signup');
+LET $t = fn::form::latest('testimony');
+RETURN [
+  { kind: 'signup', form: $s.id, textHash: $s.textHash, dpa: $s.dpaVersion,
+    dpaHash: $s.dpaVersion.contentHash },
+  { kind: 'testimony', form: $t.id, textHash: $t.textHash, dpa: $t.dpaVersion,
+    dpaHash: $t.dpaVersion.contentHash }
+];
+`;
+
+export interface FixtureConsent {
+  user: string;
+  type: string;
+  /** e.g. testimonyFormVersion:v1 */
+  form: string;
+  dpa: string;
+  evidenceHash: string;
+}
+
+/** Every fixture person's grants on the forms in force, as the API would record them. */
+export async function fixtureConsents(
+  db: SurrealQueryable,
+  people: string[],
+): Promise<FixtureConsent[]> {
+  const results = await runQuery(db, FORMS_IN_FORCE);
+  const forms = results[results.length - 1] as {
+    kind: 'signup' | 'testimony';
+    form?: string;
+    textHash?: string;
+    dpa?: string;
+    dpaHash?: string;
+  }[];
+  const key = (id: string) => id.slice(id.indexOf(':') + 1);
+  return forms.flatMap((f) => {
+    if (!f.form || !f.textHash || !f.dpa || !f.dpaHash) return []; // the reset refuses
+    const version = key(f.form);
+    const dpa = key(f.dpa);
+    return people.flatMap((user) =>
+      FIXTURE_STATEMENTS[f.kind].map((type) => ({
+        user,
+        type,
+        form: f.form as string,
+        dpa,
+        evidenceHash: evidenceHash({
+          form: { kind: f.kind, version, textHash: f.textHash as string },
+          dpaVersion: dpa,
+          dpaContentHash: f.dpaHash as string,
+          type,
+          event: 'granted',
+          mechanism: 'web_form_submission',
+        }),
+      })),
+    );
+  });
+}
+
 /** Resets the database to the dataset, then counts what's there. */
 export async function reset(
   db: SurrealQueryable,
   vars: SeedVars,
 ): Promise<SeedSummary> {
-  await runQuery(db, RESET_SQL, vars as unknown as Record<string, unknown>);
+  const consents = await fixtureConsents(db, [...vars.people, vars.moderator]);
+  await runQuery(db, RESET_SQL, {
+    ...(vars as unknown as Record<string, unknown>),
+    consents,
+  });
   const [byStatus, totals] = await runQuery(db, SUMMARY_SQL);
   return {
     byStatus: Object.fromEntries(

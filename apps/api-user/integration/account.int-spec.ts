@@ -4,7 +4,14 @@ import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
 import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
-import { rows, TestDatabase } from '@heisreal/database/integration-testing';
+import {
+  consentEvent,
+  createPeople,
+  publishDpa,
+  publishForm,
+  rows,
+  TestDatabase,
+} from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
@@ -80,13 +87,29 @@ describe('GET /v1/account, the account bootstrap', () => {
       version: null,
       role: 'User',
       createdAt: new Date(String(row['createdAt'])).toISOString(),
-      // No sign-up form is published yet (the consent-forms PR adds them).
+      // No sign-up form is published yet.
       signupConsent: { accepted: false },
     });
 
     const again = await get(as('user_firstvisit'));
     expect(await again.json()).toEqual(account);
     expect(await usersFor('user_firstvisit')).toHaveLength(1);
+  });
+
+  it('says whether the sign-up form in force is accepted: both boxes, on the latest version (D73)', async () => {
+    await createPeople(t, { signer: 'user_signer' });
+    await publishDpa(t, 'v1'); // and v1 of the three forms
+    const accepted = async () =>
+      (await (await get(as('user_signer'))).json()).signupConsent.accepted;
+    expect(await accepted()).toBe(false);
+    const signer = await t.person('user_signer');
+    await consentEvent(signer, 'account_data', 'granted', 'v1');
+    expect(await accepted()).toBe(false); // 18+ not ticked yet
+    await consentEvent(signer, 'age_18plus', 'granted', 'v1');
+    expect(await accepted()).toBe(true);
+    // A newer sign-up version needs accepting again.
+    await publishForm(t, 'signup', 'v2', { dpa: 'v1' });
+    expect(await accepted()).toBe(false);
   });
 
   it('gives staff their row too, with their role from the token', async () => {

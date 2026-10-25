@@ -52,7 +52,11 @@ export class ConsentGuard implements CanActivate {
     let granted: boolean;
     if (requirement.subject === 'caller') {
       granted = await this.people.run(request, ({ session }) =>
-        this.checker.callerHas(session, requirement.types),
+        this.checker.callerHas(
+          session,
+          requirement.types,
+          requirement.formsInForce === true,
+        ),
       );
     } else {
       const storyId = request.params?.[requirement.storyParam ?? 'id'];
@@ -64,7 +68,9 @@ export class ConsentGuard implements CanActivate {
     if (!granted) {
       throw new ForbiddenException({
         code: 'consent_required',
-        message: `This needs current consent: ${requirement.types.join(', ')}`,
+        message: requirement.formsInForce
+          ? `This needs current consent: ${requirement.types.join(', ')}, on the consent forms in force`
+          : `This needs current consent: ${requirement.types.join(', ')}`,
         consentTypes: requirement.types,
         subject: requirement.subject,
       });

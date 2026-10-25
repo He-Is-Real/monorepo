@@ -8,6 +8,7 @@ import {
   seedLegacyDpaFixture,
   outcome,
   publishDpa,
+  publishForm,
   rows,
   run,
   TestDatabase,
@@ -64,13 +65,13 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
       cara: 'user_cara',
     });
     await publishDpa(t, 'v1');
-    await publishDpa(t, 'v2');
     ann = await t.person('user_ann');
     bob = await t.person('user_bob');
     await grantAll(ann, 'v1');
     await grantAll(bob, 'v1');
     for (const id of ['a1', 'a2', 'a3']) await draft(ann, id);
     for (const id of ['b1', 'b2']) await draft(bob, id);
+    await publishDpa(t, 'v2');
   });
   afterAll(() => t?.close());
 
@@ -222,7 +223,7 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
       );
     });
 
-    it('refuses consent against a draft DPA; accepts it once published (D20)', async () => {
+    it('refuses a consent form linking a draft DPA, and so consent against it; accepts both once published (D20, D84)', async () => {
       const cara = await t.person('user_cara');
       // dpaVersion:v1 in the seed is a draft; here the published v1/v2 exist, so make a v3 draft.
       await run(
@@ -230,6 +231,9 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
         `CREATE dpaVersion:v3 CONTENT { materiality: 'material', documentPath: 'v3.md', contentHash: $h }`,
         { h: LEGACY_SHA256 },
       );
+      await expect(
+        publishForm(t, 'testimony', 'v3', { dpa: 'v3' }),
+      ).rejects.toThrow('published privacy document');
       expect(
         await outcome(
           cara,
@@ -237,38 +241,46 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
              dpaVersion: dpaVersion:v3, mechanism: 'web_form_submission', evidenceHash: $h }`,
           { h: LEGACY_SHA256 },
         ),
-      ).toEqual({
-        ok: false,
-        error: expect.stringContaining('published DPA version'),
-      });
+      ).toEqual({ ok: false, error: expect.stringContaining('form version') });
       await publishDpa(t, 'v3');
       expect(await consentEvent(cara, 'publish', 'granted', 'v3')).toHaveLength(
         1,
       );
     });
 
-    it.each<[string, string, Record<string, unknown>]>([
-      ['mechanism legacy_import', 'v2', { mechanism: 'legacy_import' }],
-      ['the legacy DPA', 'legacy-squarespace', {}],
+    it.each<[string, string, Record<string, unknown>, string]>([
+      [
+        'mechanism legacy_import',
+        'v2',
+        { mechanism: 'legacy_import', form: 'testimonyFormVersion:v2' },
+        'only be imported by the migrator',
+      ],
+      // The legacy DPA has no consent form, so a person can't even name one.
+      ['the legacy DPA', 'legacy-squarespace', {}, 'consent form version'],
       [
         'a legacyGivenAt date',
         'v2',
-        { legacyGivenAt: new Date('2023-05-01T00:00:00Z') },
+        {
+          legacyGivenAt: new Date('2023-05-01T00:00:00Z'),
+          form: 'testimonyFormVersion:v2',
+        },
+        'only be imported by the migrator',
       ],
     ])(
       'refuses a person recording legacy consent: %s (D22)',
-      async (_, dpa, rest) => {
+      async (_, dpa, rest, error) => {
         const result = await outcome(
           ann,
           `CREATE consent CONTENT object::extend({
            subject: $auth, type: 'publish', event: 'granted',
            dpaVersion: type::record('dpaVersion', $dpa),
-           mechanism: 'web_form_submission', evidenceHash: $h }, $rest)`,
+           mechanism: 'web_form_submission', evidenceHash: $h },
+           IF $rest.form != NONE { object::extend($rest, { form: <record> $rest.form }) } ELSE { $rest })`,
           { dpa, rest, h: LEGACY_SHA256 },
         );
         expect(result).toEqual({
           ok: false,
-          error: expect.stringContaining('only be imported by the migrator'),
+          error: expect.stringContaining(error),
         });
       },
     );

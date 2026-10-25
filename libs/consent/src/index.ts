@@ -5,6 +5,7 @@ export * from './lib/consent.decorators';
 export * from './lib/consent.guard';
 export * from './lib/consent.module';
 export * from './lib/consent.types';
+export * from './lib/evidence';
 export * from './lib/person';
 export * from './lib/route-policies';
 export * from './lib/signup-consent';

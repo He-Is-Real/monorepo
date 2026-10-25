@@ -83,6 +83,17 @@ variable "dev_consent_relaxed" {
   }
 }
 
+variable "dev_legal_placeholders" {
+  description = "D75: dev's placeholder privacy document and consent forms, so dummy people give real consent (modules/db-migration). Only for the heisreal-dev project, like dev_consent_relaxed."
+  type        = bool
+  default     = false
+  nullable    = false
+  validation {
+    condition     = !var.dev_legal_placeholders || lookup(var.surrealdb_expected_settings, "GCP_PROJECT", "") == "heisreal-dev"
+    error_message = "dev_legal_placeholders (D75) can only be set in dev (GCP project heisreal-dev)."
+  }
+}
+
 variable "clerk_jwt_public_key" {
   description = "Clerk's RS256 PEM public key (public, not a secret). Empty: the migration removes DEFINE ACCESS clerk, so no person sessions."
   type        = string
