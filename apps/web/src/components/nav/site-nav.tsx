@@ -6,9 +6,9 @@ import {
   type KeyboardEvent,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react';
 
 // The site's sections (mockups' nav). The static pages are M1 step 6b-2; Donate is a placeholder
@@ -49,18 +49,11 @@ export function NavLinks({ className = '' }: { className?: string }) {
   );
 }
 
-// Nothing to subscribe to: whether React has hydrated never changes after it has.
-const noSubscription = () => () => undefined;
-/** False in the server's HTML and during hydration, true once React runs in the browser. */
-const useHydrated = () =>
-  useSyncExternalStore(
-    noSubscription,
-    () => true,
-    () => false,
-  );
-
 const MENU_BUTTON =
   'inline-flex size-11 items-center justify-center rounded-md text-secondary-text hover:text-foreground';
+// The menu's focusable items, in order: the disclosure's and the button's are the same list.
+const DISCLOSURE_ITEMS = 'summary, a[href]';
+const MENU_ITEMS = 'button, a[href]';
 const PANEL =
   'absolute inset-x-0 top-full z-40 border-b border-border bg-background px-4 pb-6 shadow-lg';
 
@@ -123,10 +116,14 @@ function MenuLinks({
  * Phones (below 640 px): a menu button and the links in a panel under the header. In the
  * server's HTML (and so for visitors without JavaScript) it's a disclosure the browser opens
  * by itself; once React runs, the button below takes over, with its focus handling and Escape.
- * Both are the same size, so nothing moves when it swaps.
+ * Both are the same size, so nothing moves when it swaps, and the button's menu starts as the
+ * visitor left the disclosure: open if they opened it, focus on the item it was on.
  */
 export function MobileNav() {
-  const hydrated = useHydrated();
+  const [upgraded, setUpgraded] = useState(false);
+  const details = useRef<HTMLDetailsElement>(null);
+  // The item focused in the disclosure when it was swapped (its place in the list), if any.
+  const focusedItem = useRef(-1);
   const pathname = usePathname() ?? '/';
   const [open, setOpen] = useState(false);
   const [shownFor, setShownFor] = useState(pathname);
@@ -140,6 +137,26 @@ export function MobileNav() {
   }
 
   const wrapper = useRef<HTMLDivElement>(null);
+
+  // Once React runs: swap in the button's menu, open if the disclosure was open.
+  useEffect(() => {
+    const disclosure = details.current;
+    if (!disclosure) return;
+    focusedItem.current = Array.from(
+      disclosure.querySelectorAll(DISCLOSURE_ITEMS),
+    ).indexOf(document.activeElement as Element);
+    setOpen(disclosure.open);
+    setUpgraded(true);
+  }, []);
+
+  // Focus goes back to the item it was on (the swap removed it), before the next paint.
+  useLayoutEffect(() => {
+    if (!upgraded || focusedItem.current < 0) return;
+    wrapper.current
+      ?.querySelectorAll<HTMLElement>(MENU_ITEMS)
+      [focusedItem.current]?.focus();
+    focusedItem.current = -1;
+  }, [upgraded]);
 
   // Any link in the menu closes it, also one to the page already open (same pathname, so the
   // pathname check above can't), and focus goes back to the menu button.
@@ -165,7 +182,7 @@ export function MobileNav() {
   const keepFocusInside = (e: KeyboardEvent) => {
     if (e.key !== 'Tab' || !open || !wrapper.current) return;
     const items = Array.from(
-      wrapper.current.querySelectorAll<HTMLElement>('button, a[href]'),
+      wrapper.current.querySelectorAll<HTMLElement>(MENU_ITEMS),
     );
     const first = items[0];
     const last = items.at(-1);
@@ -178,9 +195,9 @@ export function MobileNav() {
     }
   };
 
-  if (!hydrated)
+  if (!upgraded)
     return (
-      <details data-mobile-nav="" className="sm:hidden">
+      <details ref={details} data-mobile-nav="" className="sm:hidden">
         <summary
           className={`${MENU_BUTTON} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}
         >

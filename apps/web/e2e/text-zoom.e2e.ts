@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { expectNoHorizontalOverflow } from './helpers';
+import { enlargeText as enlarge, expectNoHorizontalOverflow } from './helpers';
 
 // T7 (WCAG 1.4.4): with text at 200% on the smallest phone, every page still fits without
 // sideways scrolling and nothing is cut off. A reader's text-size setting scales rem, and so
@@ -31,14 +31,6 @@ test.beforeEach(({}, info) => {
   test.skip(info.project.name !== 'phone-320', 'the smallest phone');
 });
 
-const enlarge = (page: import('@playwright/test').Page) =>
-  page.addInitScript(() => {
-    document.addEventListener('DOMContentLoaded', () => {
-      const style = document.createElement('style');
-      style.textContent = 'html { font-size: 200% !important; }';
-      document.head.append(style);
-    });
-  });
 const fontSize = (locator: import('@playwright/test').Locator) =>
   locator.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
 

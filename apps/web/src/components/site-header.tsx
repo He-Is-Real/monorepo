@@ -24,16 +24,17 @@ import {
  * are built once for every environment), in a slot of fixed width. Without a key
  * (e.g. local dev without one) there's no sign-in control.
  *
- * Layout (mobile first, 44 px targets): a three-column grid, so the logo and the actions always
- * share the first row and the actions stay right-aligned, signed in or out, whatever the name.
- * Phones get a menu button; from 640 px the links are a second row; from 1280 px they sit in the
- * middle column of the first row. The header is wider than the page (up to 1440 px, like the
+ * Layout (mobile first, 44 px targets): the logo and the actions share the first row and the
+ * actions stay right-aligned, signed in or out, whatever the name. Phones get a menu button, in
+ * a row that wraps: with large text (200%) the actions move under the logo, and onto more lines
+ * if they need to, rather than off the screen. From 640 px it's a three-column grid: the links
+ * are a second row; from 1280 px they sit in the middle column of the first row. The header is wider than the page (up to 1440 px, like the
  * mockup's full-width nav), so that row has room.
  */
 export function SiteHeader() {
   return (
     <header className="relative border-b border-border">
-      <div className="mx-auto grid max-w-[90rem] grid-cols-[max-content_minmax(0,1fr)_auto] items-center gap-x-4 px-4 py-2 sm:px-10">
+      <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:grid sm:grid-cols-[max-content_minmax(0,1fr)_auto] sm:gap-y-0 sm:px-10">
         <Link
           href="/"
           className="col-start-1 row-start-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-2 justify-self-start rounded-md text-foreground hover:text-foreground"
@@ -47,7 +48,7 @@ export function SiteHeader() {
         <NavLinks className="col-span-3 row-start-2 hidden sm:block sm:border-t sm:border-border xl:col-span-1 xl:col-start-2 xl:row-start-1 xl:justify-self-end xl:border-0" />
         <div
           data-header-actions=""
-          className="col-start-3 row-start-1 flex min-w-0 items-center justify-end gap-1 sm:gap-2"
+          className="col-start-3 row-start-1 ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2"
         >
           <Link
             href={SHARE_HREF}
