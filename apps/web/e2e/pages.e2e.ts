@@ -53,7 +53,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(
         page.getByRole('contentinfo').getByText('Consent checks relaxed (dev)'),
       ).toBeVisible();
-      await expectTarget(page, page.getByRole('button', { name: 'Sign in' }));
+      await expectTarget(page, page.getByRole('link', { name: 'Sign in' }));
       await expect(
         page.getByRole('link', { name: 'Healing', exact: true }),
       ).toBeVisible();

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { expectClerkTargetsFullSize, expectFitsScreen } from './clerk-card';
 
 // web on dev with the real Clerk dev instance, whose script loads from Clerk over the internet.
 // Moved from the web e2e suite (Codex review of #72, round 3): that suite runs without the
@@ -6,7 +7,7 @@ import { expect, type Page, test } from '@playwright/test';
 // here, on the deployed site, after each deploy.
 
 async function expectFullSizeTarget(page: Page, name: string) {
-  const button = page.getByRole('button', { name });
+  const button = page.getByRole('link', { name });
   await expect(button).toBeVisible();
   const box = await button.boundingBox();
   expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
@@ -27,20 +28,41 @@ for (const viewport of [
   { width: 320, height: 568 },
   { width: 1280, height: 800 },
 ]) {
-  test.describe(`${viewport.width} px`, () => {
-    test.use({ viewport });
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test.describe(`${viewport.width} px, ${colorScheme}`, () => {
+      test.use({ viewport, colorScheme });
 
-    test('Clerk’s Sign in loads, fits the header and opens Clerk’s sign-in', async ({
-      page,
-    }) => {
-      await page.goto('/');
-      await expectFullSizeTarget(page, 'Sign in');
-      await page.getByRole('button', { name: 'Sign in' }).click();
-      await expect(
-        page.getByRole('heading', { name: /sign in/i }),
-      ).toBeVisible();
+      test('Sign in fits the header and opens the sign-in page, where Clerk’s sign-in fits', async ({
+        page,
+      }) => {
+        await page.goto('/');
+        await expectFullSizeTarget(page, 'Sign in');
+        await page.getByRole('link', { name: 'Sign in' }).click();
+        await expect(page).toHaveURL(/\/sign-in$/);
+        // The page's "Welcome" is its only h1: Clerk's step titles are hidden, and the page
+        // names the form instead.
+        const form = page.getByRole('region', {
+          name: 'Sign in or create an account',
+        });
+        await expect(form.getByLabel(/email address/i)).toBeVisible();
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText([
+          'Welcome',
+        ]);
+        // Google and email, never Apple (D2; Project Opinion).
+        await expect(
+          form.getByRole('button', { name: /google/i }),
+        ).toBeVisible();
+        await expect(page.getByRole('button', { name: /apple/i })).toHaveCount(
+          0,
+        );
+        await expect(
+          form.getByRole('button', { name: 'Continue', exact: true }),
+        ).toBeVisible();
+        await expectClerkTargetsFullSize(page);
+        await expectFitsScreen(page, viewport.width);
+      });
     });
-  });
+  }
 }
 
 test.describe('as a real visitor’s browser', () => {
@@ -76,7 +98,8 @@ test.describe('as a real visitor’s browser', () => {
       return t ? { enabled: t.isEnabled === true } : null;
     });
     expect(collector?.enabled ?? false).toBe(false);
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.goto('/sign-in');
+    await expect(page.getByLabel(/email address/i)).toBeVisible();
     const keys = await page.evaluate(() => [
       ...Object.keys(localStorage),
       ...Object.keys(sessionStorage),

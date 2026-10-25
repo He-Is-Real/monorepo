@@ -8,8 +8,8 @@ import {
 import { SCREENSHOT_DEVICES } from './devices';
 import { SIGNED_IN_NAME, WEB_SIGNED_IN_URL } from './servers';
 
-// The header with its account controls, signed out (the E2E_FIXTURES stand-in for Clerk's Sign
-// in button, the same Button; the real one is in static-pages.e2e.ts) and signed in (a
+// The header with its account controls, signed out (Sign in, a link to the sign-in page, the
+// same with or without Clerk) and signed in (a
 // 40-character name from the E2E_FIXTURES server: no Clerk session needed). On every device and
 // in both schemes the action group stays on the first row, beside the logo, right-aligned:
 // never wrapped under the navigation or pushed left, nothing wider than the screen, every
@@ -103,7 +103,7 @@ for (const scheme of ['light', 'dark'] as const) {
       page,
     }) => {
       await page.goto('/');
-      await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
       await expectActionsOnFirstRow(page);
       await expectNoHorizontalOverflow(page);
     });
@@ -115,8 +115,12 @@ for (const scheme of ['light', 'dark'] as const) {
 // resolves to "Sign in" or the signed-in control. Share and the theme toggle keep their places
 // on every device, signed out and signed in with a long name.
 for (const [state, baseURL, resolved] of [
-  ['signed out', undefined, 'Sign in'],
-  ['signed in', WEB_SIGNED_IN_URL, `Account: ${SIGNED_IN_NAME}`],
+  ['signed out', undefined, { role: 'link', name: 'Sign in' }],
+  [
+    'signed in',
+    WEB_SIGNED_IN_URL,
+    { role: 'button', name: `Account: ${SIGNED_IN_NAME}` },
+  ],
 ] as const) {
   test(`${state}: Share and the theme toggle don't move when the account control resolves`, async ({
     browser,
@@ -154,7 +158,9 @@ for (const [state, baseURL, resolved] of [
     await firstPaint.close();
 
     await page.goto(url);
-    await expect(page.getByRole('button', { name: resolved })).toBeVisible();
+    await expect(
+      page.getByRole(resolved.role, { name: resolved.name }),
+    ).toBeVisible();
     const after = await positions(page);
     expect(after.theme, 'the theme toggle is shown').not.toBeNull();
     for (const part of ['share', 'theme'] as const) {
@@ -197,8 +203,12 @@ test.describe('phone menu without JavaScript', () => {
 // control is on screen and none covers another: the account slot's fixed width must never push
 // the theme toggle or the menu off the screen (Codex review of #83).
 for (const [state, baseURL, resolved] of [
-  ['signed out', undefined, 'Sign in'],
-  ['signed in', WEB_SIGNED_IN_URL, `Account: ${SIGNED_IN_NAME}`],
+  ['signed out', undefined, { role: 'link', name: 'Sign in' }],
+  [
+    'signed in',
+    WEB_SIGNED_IN_URL,
+    { role: 'button', name: `Account: ${SIGNED_IN_NAME}` },
+  ],
 ] as const) {
   test(`200% text, ${state}: every header control is on screen`, async ({
     page,
@@ -209,12 +219,14 @@ for (const [state, baseURL, resolved] of [
     );
     await enlargeText(page);
     await page.goto(`${baseURL ?? ''}/`);
-    await expect(page.getByRole('button', { name: resolved })).toBeVisible();
+    await expect(
+      page.getByRole(resolved.role, { name: resolved.name }),
+    ).toBeVisible();
     const header = page.getByRole('banner');
     const controls = {
       home: header.getByRole('link', { name: 'He Is Real Today, home' }),
       theme: header.getByRole('button', { name: /theme/i }),
-      account: header.getByRole('button', { name: resolved }),
+      account: header.getByRole(resolved.role, { name: resolved.name }),
       menu: header.getByRole('button', { name: 'Menu' }),
     };
     const width = page.viewportSize()?.width ?? 0;

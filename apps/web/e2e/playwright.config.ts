@@ -6,6 +6,8 @@ import {
   STUB_DOWN_PORT,
   STUB_LIVE_PORT,
   STUB_PORT,
+  STUB_USER_PORT,
+  STUB_USER_URL,
   WEB_DOWN_PORT,
   WEB_LIVE_PORT,
   WEB_PORT,
@@ -13,7 +15,8 @@ import {
 } from './servers';
 
 // `pnpm nx e2e web`: the built standalone server (apps/web/dist, from `prune`) against a stub
-// api-public-read, across the device matrix in light and dark. Screenshots land in
+// api-public-read (and, for the signed-in server's browser, a stub api-user), across the device
+// matrix in light and dark. Screenshots land in
 // test-output/e2e/screenshots (CI uploads them). More copies of the server cover Go live
 // (indexing on, D48 off), api-public-read down and a signed-in visitor (servers.ts). Nothing
 // is loaded over the internet: the real Clerk is checked on dev (apps/dev-seed/behavioural).
@@ -68,6 +71,16 @@ export default defineConfig({
       },
       reuseExistingServer: false,
     },
+    {
+      command: `node ${root}apps/web/e2e/stub-api-user.mjs`,
+      url: `${STUB_USER_URL}/health`,
+      env: {
+        STUB_USER_PORT: String(STUB_USER_PORT),
+        // CORS: only the signed-in server's origin, as OpenTofu allows only web's (D31).
+        STUB_USER_ORIGINS: `http://localhost:${WEB_SIGNED_IN_PORT}`,
+      },
+      reuseExistingServer: false,
+    },
     // A stand-in for Clerk's "Sign in" on every server (T4): no test waits for Clerk over the
     // network.
     web(WEB_PORT, STUB_PORT, { E2E_FIXTURES: 'true' }),
@@ -77,10 +90,11 @@ export default defineConfig({
     }),
     web(WEB_DOWN_PORT, STUB_DOWN_PORT, { E2E_FIXTURES: 'true' }),
     // Signed in: E2E_FIXTURES makes the header show this name instead of Clerk's control, so no
-    // Clerk session or secret is needed.
+    // Clerk session or secret is needed. Its browser calls the stub api-user.
     web(WEB_SIGNED_IN_PORT, STUB_PORT, {
       E2E_FIXTURES: 'true',
       E2E_SIGNED_IN_NAME: SIGNED_IN_NAME,
+      API_USER_URL: STUB_USER_URL,
     }),
   ],
 });

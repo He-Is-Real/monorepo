@@ -1,26 +1,27 @@
 'use client';
 
-import { SignInButton, SignOutButton, useUser } from '@clerk/react';
+import { SignOutButton, useAuth, useUser } from '@clerk/react';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Popover } from 'radix-ui';
 import { Button } from '@/components/ui/button';
+import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
+import { signInHref } from '@/lib/return-path';
 
 /**
  * Sign in / sign out, and the signed-in person's name, all from Clerk in the browser (D32).
- * The name is shown, never stored: Clerk holds it (D16).
+ * The name is shown, never stored: Clerk holds it (D16). Once signed in, the browser calls
+ * api-user's account bootstrap (`apiUserUrl`; account-bootstrap.ts); its failure changes
+ * nothing here.
  */
-export function AccountControl() {
+export function AccountControl({ apiUserUrl }: { apiUserUrl?: string }) {
   const { isLoaded, isSignedIn, user } = useUser();
+  const { userId, getToken } = useAuth();
+  useAccountBootstrap(isSignedIn ? userId : null, apiUserUrl, () => getToken());
 
   // Same size while Clerk loads, so the header doesn't jump.
   if (!isLoaded) return <div className="h-11 w-20" aria-hidden="true" />;
 
-  if (!isSignedIn) {
-    return (
-      <SignInButton mode="modal">
-        <Button className="h-11 px-4">Sign in</Button>
-      </SignInButton>
-    );
-  }
+  if (!isSignedIn) return <SignInLink />;
 
   const name =
     user.fullName ||
@@ -106,8 +107,41 @@ export function SignedInAccount({
   );
 }
 
-/** e2e fixture (E2E_FIXTURES): the signed-in header without Clerk; Sign out does nothing. */
-export function FixtureSignedInAccount({ name }: { name: string }) {
+/**
+ * "Sign in": a link to the sign-in page, which returns the person to this page afterwards.
+ * A plain link (a full page load), so the sign-in page's Clerk starts afresh.
+ */
+export function SignInLink() {
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  return (
+    <Button asChild className="h-11 px-4">
+      <a href={signInHref(`${pathname}${search ? `?${search}` : ''}`)}>
+        Sign in
+      </a>
+    </Button>
+  );
+}
+
+/**
+ * e2e only: the session token the fixtures send to the stub api-user (apps/web/e2e), which
+ * accepts nothing else. Not a Clerk token; deployed sites never use the fixtures.
+ */
+export const E2E_FIXTURE_TOKEN = 'e2e-fixture-session-token';
+const fixtureToken = async () => E2E_FIXTURE_TOKEN;
+
+/**
+ * e2e fixture (E2E_FIXTURES): the signed-in header without Clerk; Sign out does nothing. It
+ * calls the account bootstrap like the real one, with the fixture token.
+ */
+export function FixtureSignedInAccount({
+  name,
+  apiUserUrl,
+}: {
+  name: string;
+  apiUserUrl?: string;
+}) {
+  useAccountBootstrap('user_e2efixture', apiUserUrl, fixtureToken);
   return (
     <SignedInAccount
       name={name}
@@ -117,7 +151,7 @@ export function FixtureSignedInAccount({ name }: { name: string }) {
   );
 }
 
-/** e2e fixture (E2E_FIXTURES): Clerk's signed-out control without Clerk; it opens nothing. */
+/** e2e fixture (E2E_FIXTURES): the signed-out control, without Clerk. */
 export function FixtureSignedOutAccount() {
-  return <Button className="h-11 px-4">Sign in</Button>;
+  return <SignInLink />;
 }

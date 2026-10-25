@@ -20,6 +20,22 @@ brackets).
   database access, secrets or user tokens.
 - **The browser calls `api-user` and `api-admin` directly** with the Clerk token (D31). Signed-in
   pages are browser-side components. Each API allows CORS from the `web` origin only.
+- **web's one client for api-user is `apps/web/src/lib/api-user.ts`, browser only** (D83). It asks
+  Clerk's `getToken()` on every call and sends the token in `Authorization` (no cookies), builds
+  `If-Match` from a resource's `version` and takes the caller's `Idempotency-Key` (keep the key
+  and reuse it when retrying the same command), and turns every non-2xx answer into an
+  `ApiUserProblem` carrying the RFC 9457 problem (`status`, `code`, `detail`, `errors`). A network
+  failure or timeout is `ApiUserUnavailable`; no session means no request (`NotSignedIn`). It is
+  the only file D32's lint guardrail lets build request headers and read response headers
+  (`apps/web/README.md`). web's server only hands it api-user's address (`API_USER_URL`).
+- **How `412` and `428` surface:** `412` is a `StaleVersion`: the resource changed since the page
+  read it. Re-read it, re-apply the change if nothing it touched has changed, and ask the person
+  only on a real clash (D70). `428` means our code forgot `If-Match`: a bug, logged in the
+  browser console, never shown to the person as their mistake.
+- **The account bootstrap:** web's header calls `GET /v1/account` once each time a page loads
+  signed in. The first call creates the person's `user` row (so staff can use `api-admin`), and
+  `signupConsent.accepted` says whether the sign-up form still needs accepting (D73). Its
+  failure blocks nothing.
 - Services never call each other. Async work goes out as CloudEvents on Pub/Sub to the worker
   tier (D34); the job payloads are in `worker.yaml`.
 - This phase every service is reached at its generated `*.run.app` URL; no subdomains.
@@ -90,9 +106,10 @@ short-lived upload credentials.
   moderator approves.
 - **Exceptions to `If-Match`**, each because there is no version to match, or nothing a stale
   client could overwrite:
-  - `PATCH /v1/account`: account settings (`notificationPrefs`) live in Clerk `privateMetadata`
-    (D16), written by `api-user` through Clerk's Backend API, and nothing is stored in SurrealDB.
-    They are single-owner settings, so the last write wins. `version` is `null`.
+  - `PATCH /v1/account` (not built in M2: no notification settings until emails, D79, D81):
+    account settings (`notificationPrefs`) would live in Clerk `privateMetadata` (D16), written by
+    `api-user` through Clerk's Backend API, and nothing is stored in SurrealDB. They are
+    single-owner settings, so the last write wins. `version` is `null`.
   - `POST /v1/admin/users/{id}/assign-role`: the role lives in Clerk (D1).
   - Appends to the consent ledger (grant, withdraw): nothing to conflict with.
   - `DELETE /v1/account` (`EraseAccount`): erasure must always succeed, whatever the person's

@@ -15,8 +15,8 @@ export async function shots(
   if (!SCREENSHOT_DEVICES.includes(project)) return;
   if (scheme === 'dark' && !['phone-320', 'desktop-1280'].includes(project))
     return;
-  // The full header in every screenshot (the E2E_FIXTURES stand-in for Clerk's Sign in).
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  // The full header in every screenshot (Sign in, a link to the sign-in page).
+  await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
   // JPEG: a fraction of PNG's size, plenty to look at (the CI artifact stays small).
   await page.screenshot({
     path: `test-output/e2e/screenshots/${project}/${scheme}-${name}.jpg`,

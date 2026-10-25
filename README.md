@@ -64,8 +64,9 @@ pnpm nx run database:test-integration            # schema + permission tests on 
 pnpm nx run consent:test-integration             # consent ledger + endpoints on SurrealDB (needs Docker)
 pnpm nx run auth:test-integration                # Clerk sign-in → person session on SurrealDB (needs Docker)
 pnpm nx run api-public-read:test-integration     # the public read API over the dev dataset on SurrealDB (needs Docker)
+pnpm nx run api-user:test-integration            # api-user's account bootstrap on SurrealDB (needs Docker)
 pnpm exec playwright install chromium && pnpm nx e2e web   # responsive device matrix, light + dark
-# Ports 4300–4303 (web: dev, Go live, API down, signed in) and 4310–4312 (stub API); if one
+# Ports 4300–4303 (web: dev, Go live, API down, signed in) and 4310–4313 (stub APIs); if one
 # is busy, move them all: E2E_PORT_BASE=4400 pnpm nx e2e web. No internet needed: the real
 # Clerk is checked on dev (dev-seed:behavioural).
 pnpm nx run terraform:test                        # `tofu test` of every OpenTofu module (offline, mock providers)
@@ -90,7 +91,7 @@ GKE Autopilot Spot Pods, about £3–5/month.
 
 - **`ci.yml`** (every PR, the required check): format check, then `lint test build typecheck validate`
   (`test` includes `terraform:test`, the OpenTofu modules' `tofu test`), `test-integration`
-  (`libs/database`, `libs/consent`, `libs/auth` and `api-public-read` against a SurrealDB container, see
+  (`libs/database`, `libs/consent`, `libs/auth`, `api-public-read` and `api-user` against a SurrealDB container, see
   [docs/db-permissions.md](docs/db-permissions.md)) and container builds for affected projects (`validate`
   includes kubeconform on the Kubernetes manifests). Beside those, when web is affected, the
   Playwright device matrix runs in parallel shards from one build of the site (each shard runs like
@@ -98,7 +99,8 @@ GKE Autopilot Spot Pods, about £3–5/month.
   and a failure adds one merged `web-e2e-report` (HTML, with traces). The required check is the
   `main` job, which passes only when all of these do. The Nx cache, the pnpm store and Playwright's
   browser are kept between runs in the Actions cache. Both api-public-read's integration tests and web's e2e stub are checked against
-  `libs/contracts/openapi/api-public-read.yaml`, so the stub can't drift from the API.
+  `libs/contracts/openapi/api-public-read.yaml`, and api-user's integration tests and the stub's api-user half against
+  `api-user.yaml`, so the stubs can't drift from the APIs.
 - **`images.yml`** ("Release Images", pushes to `main` that affect a service) and
   **`snapshot-images.yml`** (manual, any branch): build the services whose code changed and push
   them to `apps` / `apps-scratch`. Which build each

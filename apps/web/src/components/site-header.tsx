@@ -11,6 +11,7 @@ import { Logo } from '@/components/logo';
 import { MobileNav, NavLinks, SHARE_HREF } from '@/components/nav/site-nav';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import {
+  apiUserUrl,
   clerkPublishableKey,
   e2eFixtures,
   e2eSignedInName,
@@ -80,22 +81,26 @@ export function SiteHeader() {
  */
 const ACCOUNT_PLACEHOLDER = <div className="h-11 w-20" aria-hidden="true" />;
 
-/** The account area: per request, so it reads the deployment's Clerk key (and e2e fixtures). */
+/**
+ * The account area: per request, so it reads the deployment's Clerk key and api-user's address
+ * (and e2e fixtures). api-user's address is only handed to the browser (D32).
+ */
 async function HeaderAccount() {
   await connection();
   const publishableKey = clerkPublishableKey();
+  const apiUser = apiUserUrl();
   const fixtureName = e2eSignedInName();
   // e2e: a stand-in for Clerk's control, signed out or signed in (T4; never in deployments).
   if (e2eFixtures())
     return fixtureName ? (
-      <FixtureSignedInAccount name={fixtureName} />
+      <FixtureSignedInAccount name={fixtureName} apiUserUrl={apiUser} />
     ) : (
       <FixtureSignedOutAccount />
     );
   if (!publishableKey) return null;
   return (
     <ClerkBrowser publishableKey={publishableKey}>
-      <AccountControl />
+      <AccountControl apiUserUrl={apiUser} />
     </ClerkBrowser>
   );
 }
