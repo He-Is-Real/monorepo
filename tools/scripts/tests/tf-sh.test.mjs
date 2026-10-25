@@ -24,6 +24,10 @@ const repo = fileURLToPath(new URL('../../..', import.meta.url)).replace(
 const script = join(repo, 'tools/scripts/tf.sh');
 const deployer = 'tf-deployer@heisreal-dev.iam.gserviceaccount.com';
 const tfBunny = 'tf-bunny@heisreal-dev.iam.gserviceaccount.com';
+// The stub reports the pinned version, so a Renovate bump of mise.toml needs no edit here.
+const pinnedTofu = readFileSync(join(repo, 'mise.toml'), 'utf8').match(
+  /^opentofu = "(.*)"/m,
+)[1];
 
 const stubs = mkdtempSync(join(tmpdir(), 'tf-sh-test-'));
 after(() => rmSync(stubs, { recursive: true, force: true }));
@@ -44,7 +48,7 @@ const argv = process.argv.slice(2);
 const cmd = argv.filter((a) => !a.startsWith('-chdir='));
 const env = process.env;
 if (cmd[0] === 'version' && cmd.includes('-json')) {
-  console.log(JSON.stringify({ terraform_version: env.STUB_TOFU_VERSION ?? '1.13.2' }));
+  console.log(JSON.stringify({ terraform_version: env.STUB_TOFU_VERSION ?? ${JSON.stringify(pinnedTofu)} }));
   process.exit(0);
 }
 if (cmd[0] === 'show' && cmd.includes('-json') && (env.STUB_SHOW_JSON || env.STUB_SHOW_FAIL)) {
@@ -268,7 +272,7 @@ test('no arguments is a usage error', () => {
 test('version mismatch refused', () => {
   const result = run(['gcp', 'plan'], { STUB_TOFU_VERSION: '1.12.0' });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /expected 1\.13\.2/);
+  assert.ok(result.stderr.includes(`expected ${pinnedTofu}`), result.stderr);
 });
 
 test('no ADC refused locally', () => {

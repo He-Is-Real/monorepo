@@ -1,8 +1,8 @@
 name: OpenTofu
 description: >-
-  OpenTofu 1.13.2 (the mise.toml pin; tf.sh refuses any other version) and, when a service
-  account is given, keyless Google sign-in through the repository's Workload Identity provider.
-  A job using this with a service account needs `id-token: write`
+  OpenTofu at the mise.toml pin (tf.sh refuses any other version; Renovate moves both together)
+  and, when a service account is given, keyless Google sign-in through the repository's Workload
+  Identity provider. A job using this with a service account needs `id-token: write`
   (tools/scripts/tests/workflows.test.mjs).
 
 inputs:

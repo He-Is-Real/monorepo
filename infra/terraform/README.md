@@ -40,7 +40,7 @@ approved exception is `bunny` ([below](#bunnynet)): nothing reads its state thro
 ## Day to day
 
 Log in with `gcloud auth login --update-adc` (your Workspace forces re-authentication now and
-then) and `mise install` (OpenTofu 1.13.2; `tf.sh` refuses any other version). Then run every root
+then) and `mise install` (OpenTofu at the `mise.toml` pin; `tf.sh` refuses any other version). Then run every root
 through **`tools/scripts/tf.sh <root> <tofu args>`**:
 
 | Command                                | Does                                                                            |
