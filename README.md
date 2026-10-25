@@ -18,7 +18,7 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 | `apps/api-public-read` | Anonymous public read API (NestJS/Express)     | DB user `api_read` (until the schema PR), **VIEWER** (read-only)         |
 | `apps/api-user`        | The signed-in person's reads and commands      | DB user `api_write` (until the schema PR), EDITOR                        |
 | `apps/api-admin`       | Moderation/admin API (restricted hostname)     | DB user `api_admin`, EDITOR                                              |
-| `apps/workflow`        | Dapr Workflow orchestrator (M7, GKE)           | DB user `workflow`, EDITOR                                               |
+| `apps/workflow`        | Dapr worker, off Google Cloud (D78)            | Pulls from Pub/Sub, outbound only; no DB access (see below)              |
 | `apps/dev-seed`        | Dev-only Job: resets dev to dummy data (D49)   | System user `dev_seed` (dev only); [README](apps/dev-seed/README.md)     |
 | `libs/secrets`         | Reads GCP Secret Manager via the SDK           | Fetched once at startup; missing secret = clear failure                  |
 | `libs/database`        | SurrealDB client (surrealdb.js)                | Own user per service; startup fails after 15 s if DB is down             |
@@ -34,6 +34,12 @@ commands vs CRUD, errors, versioning, concurrency, consent guards) in
 | `tools/docker`         | Dockerfiles: NestJS services, Next.js site     | `pnpm nx run <service>:container` (also `web`)                           |
 
 Services never call each other; each API only talks to SurrealDB (and, later, queues).
+
+**Background work (D78: Dapr off Google Cloud).** The Dapr workers in `apps/workflow` run off
+Google Cloud, on Joel's machine and later on church hardware, never on GKE. They pull work from
+Pub/Sub and connect outbound only, so they can't reach the database. Their results go back through
+a results topic to a private Cloud Run result writer, which writes them to SurrealDB. The result
+writer is to be built in M2; whether it's its own app or part of `apps/workflow` is decided then.
 
 ## Getting started
 
