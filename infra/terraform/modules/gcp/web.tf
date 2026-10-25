@@ -48,6 +48,13 @@ resource "google_cloud_run_v2_service" "web" {
         value = google_cloud_run_v2_service.api_public_read.uri
       }
 
+      # api-user's origin for the browser's own calls (D31): handed to the browser, which
+      # sends the Clerk token itself. web's server never calls api-user (D32).
+      env {
+        name  = "API_USER_URL"
+        value = google_cloud_run_v2_service.signed_in_api["api-user"].uri
+      }
+
       # Public (D32): read at request time and handed to Clerk in the browser,
       # which is the only place Clerk runs. web's server holds no Clerk secret.
       env {
