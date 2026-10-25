@@ -37,6 +37,9 @@ Services never call each other; each API only talks to SurrealDB (and, later, qu
 
 ## Getting started
 
+Every CLI and account you need, and a new-developer checklist, are in
+[docs/tooling-and-accounts.md](docs/tooling-and-accounts.md).
+
 Needs **Node.js 24 LTS** (`.nvmrc`), **pnpm 11** (`packageManager`), and **gcloud** logged in with
 `gcloud auth application-default login` (plus `gcloud auth login`, same account, for the local
 `images` OpenTofu root). `kubectl` and kubeconform (`mise install`, pinned in
