@@ -144,7 +144,7 @@ export function formRef(id: string | null | undefined): FormRef | null {
 /** One ledger row checked against its recomputed evidence hash. */
 export interface EvidenceCheck {
   id: string;
-  format: 'v1' | 'v2';
+  format: 'v1' | 'v2' | 'v3';
   verified: boolean;
 }
 
@@ -254,8 +254,9 @@ export class ConsentLedger {
   async verifyEvidence(person: SurrealQueryable): Promise<EvidenceCheck[]> {
     const [found] = (await runQuery(
       person,
-      `SELECT id, type, event, mechanism, evidenceHash, dpaVersion, occurredAt,
-         dpaVersion.contentHash AS dpaHash, form, form.textHash AS formHash
+      `SELECT id, type, event, mechanism, evidenceHash, evidenceVersion, dpaVersion, occurredAt,
+         dpaVersion.contentHash AS dpaHash, form, form.textHash AS formHash,
+         form.statementsHash AS statementsHash
        FROM consent WHERE subject = $auth ORDER BY occurredAt ASC`,
     )) as [
       {
@@ -268,16 +269,21 @@ export class ConsentLedger {
         dpaHash: string;
         form?: string | null;
         formHash?: string | null;
+        evidenceVersion?: number | null;
+        statementsHash?: string | null;
       }[],
     ];
     return found.map((r) => {
       const ref = formRef(r.form);
+      const v3 = r.evidenceVersion === 3;
       const expected = evidenceHash({
         form: ref
           ? {
               kind: ref.form,
               version: ref.formVersion,
               textHash: r.formHash ?? '',
+              // v3 (D114): the statements data; a v3 row whose version has none can't verify.
+              ...(v3 ? { statementsHash: r.statementsHash ?? 'missing' } : {}),
             }
           : undefined,
         dpaVersion: recordKey(r.dpaVersion),
@@ -288,7 +294,7 @@ export class ConsentLedger {
       });
       return {
         id: recordKey(r.id),
-        format: ref ? 'v2' : 'v1',
+        format: v3 ? 'v3' : ref ? 'v2' : 'v1',
         verified: expected === r.evidenceHash,
       };
     });
@@ -350,7 +356,8 @@ export class ConsentLedger {
       person,
       `LET $f = fn::form::latest($form);
        RETURN IF $f = NONE { NONE } ELSE {
-         { id: $f.id, textHash: $f.textHash, dpaVersion: $f.dpaVersion,
+         { id: $f.id, textHash: $f.textHash, statementsHash: $f.statementsHash,
+           dpaVersion: $f.dpaVersion,
            dpaHash: $f.dpaVersion.contentHash, statements: fn::form::statements($f.id) }
        };`,
       { form: input.form },
@@ -358,6 +365,7 @@ export class ConsentLedger {
     const inForce = results[results.length - 1] as {
       id: string;
       textHash: string;
+      statementsHash?: string | null;
       dpaVersion: string;
       dpaHash: string;
       statements: string[];
@@ -374,6 +382,13 @@ export class ConsentLedger {
       throw new ConsentConflictError(
         'statement_not_on_form',
         `The ${input.form} form ${input.formVersion} has no ${input.statement} statement`,
+      );
+    }
+    if (!inForce.statementsHash) {
+      // D114: the migration gives every version its statements data, so this is a bug or a
+      // half-run migration: no consent without proof of the words beside the box.
+      throw new Error(
+        `${input.form} form ${input.formVersion} has no statements data (statementsHash)`,
       );
     }
     const dpa = recordKey(inForce.dpaVersion);
@@ -393,11 +408,13 @@ export class ConsentLedger {
         dpa,
         form: `${FORM_TABLES[input.form]}:${input.formVersion}`,
         mechanism: input.mechanism,
+        evidence_version: 3,
         hash: evidenceHash({
           form: {
             kind: input.form,
             version: input.formVersion,
             textHash: inForce.textHash,
+            statementsHash: inForce.statementsHash,
           },
           dpaVersion: dpa,
           dpaContentHash: inForce.dpaHash,
@@ -417,13 +434,16 @@ export class ConsentLedger {
       person,
       `LET $latest = fn::consent::current($auth, $type);
        RETURN { latest: $latest, contentHash: $latest.dpaVersion.contentHash,
-         textHash: $latest.form.textHash };`,
+         textHash: $latest.form.textHash, statementsHash: $latest.form.statementsHash };`,
       { type },
     );
-    const { latest, contentHash, textHash } = results[results.length - 1] as {
+    const { latest, contentHash, textHash, statementsHash } = results[
+      results.length - 1
+    ] as {
       latest: RawSnapshot | null;
       contentHash: string | null;
       textHash: string | null;
+      statementsHash?: string | null;
     };
     if (!latest || !contentHash) {
       throw new ConsentConflictError(
@@ -451,12 +471,15 @@ export class ConsentLedger {
         dpa,
         form: latest.form ?? null,
         mechanism,
+        // D114: v3 when the withdrawn grant's form version has statements data.
+        evidence_version: ref && statementsHash ? 3 : null,
         hash: evidenceHash({
           form: ref
             ? {
                 kind: ref.form,
                 version: ref.formVersion,
                 textHash: textHash ?? '',
+                ...(statementsHash ? { statementsHash } : {}),
               }
             : undefined,
           dpaVersion: dpa,
@@ -529,7 +552,8 @@ function appendEvent(event: 'granted' | 'withdrawn'): string {
       subject: $auth, type: $type, event: '${event}',
       dpaVersion: type::record('dpaVersion', $dpa),
       form: IF $form { <record> $form } ELSE { NONE },
-      mechanism: $mechanism, evidenceHash: $hash
+      mechanism: $mechanism, evidenceHash: $hash,
+      evidenceVersion: IF $evidence_version { $evidence_version } ELSE { NONE }
     } RETURN id);
     IF $event = NONE { THROW 'the consent event was not written' };`;
 }

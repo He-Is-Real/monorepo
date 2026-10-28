@@ -46,3 +46,18 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
   signed-in fixture calls the stub api-user (`e2e/stub-api-user.mjs`) with a fixture token. The
   real Clerk (including the size of its controls), and signing in with a Clerk test user, are
   checked on dev (`apps/dev-seed/behavioural`).
+
+## Consent after sign-in (D73, D85)
+
+- The header's bootstrap answer drives `src/components/consent/consent-prompts.tsx`, in the
+  browser only: anyone who hasn't accepted the sign-up form in force is sent to
+  `/consent/sign-up?redirect_url=<this page>` (sign-in, the step itself, `/privacy` and `/terms`
+  stay open); `testimonyConsent.acceptanceRequired` shows a banner under the header leading to
+  `/consent/testimony`. "Not now" lasts for the page load. A failed bootstrap blocks nothing.
+- The consent pages read the form in force and the privacy document it links from
+  api-public-read on the server (`src/lib/legal.ts`). The form's words are a document, shown as
+  published. The boxes are the page's own (D114): drawn from the version's `boxes` (its statements
+  data, each with the exact words beside it), outside the document, so nothing in its words can
+  add, remove or break a box. If a box the page asks for is missing, nothing can be ticked.
+- Ticking records one grant per box through api-user (`POST /v1/account/consents`, the version
+  shown, an `Idempotency-Key` per box kept for retries), only once every box is ticked.

@@ -80,6 +80,22 @@ test('every story, its related list and the tags fit the contract', async ({
   expect((await check(request, '/health')).status).toBe(200);
 });
 
+test('the legal routes fit the contract: dev’s forms and privacy document', async ({
+  request,
+}) => {
+  for (const form of ['signup', 'testimony', 'social']) {
+    const { status, body } = await check(request, `/v1/legal/forms/${form}`);
+    expect(status, form).toBe(200);
+    expect(body.form).toBe(form);
+  }
+  expect((await check(request, '/v1/legal/forms/other')).status).toBe(400);
+  expect((await check(request, '/v1/legal/dpa')).status).toBe(200);
+  expect(
+    (await check(request, '/v1/legal/dpa?version=dev_placeholder')).status,
+  ).toBe(200);
+  expect((await check(request, '/v1/legal/dpa?version=v9')).status).toBe(404);
+});
+
 test('the stub’s errors fit the contract', async ({ request }) => {
   expect((await check(request, '/v1/stories/no-such-story')).status).toBe(404);
   expect(
@@ -119,4 +135,65 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
   ).toBe(304);
   expect((await get('/v1/account')).status()).toBe(401);
   expect((await get('/health')).status()).toBe(200);
+});
+
+test('the stub api-user’s consent grants fit the contract', async ({
+  request,
+}) => {
+  const post = async (
+    body: unknown,
+    headers: Record<string, string> = {
+      authorization: `Bearer ${E2E_FIXTURE_TOKEN}`,
+    },
+  ) => {
+    const res = await request.post(`${STUB_USER_URL}/v1/account/consents`, {
+      headers: { 'content-type': 'application/json', ...headers },
+      data: JSON.stringify(body),
+    });
+    const text = await res.text();
+    expect(
+      userContract.problems({
+        method: 'POST',
+        path: '/v1/account/consents',
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body: text === '' ? undefined : JSON.parse(text),
+      }),
+    ).toEqual([]);
+    return { status: res.status(), body: text ? JSON.parse(text) : undefined };
+  };
+  const signedIn = (key: string) => ({
+    authorization: `Bearer ${E2E_FIXTURE_TOKEN}`,
+    'idempotency-key': `contract-check-${key}`,
+  });
+  const grant = {
+    form: 'signup',
+    formVersion: 'v1',
+    statement: 'age_18plus',
+    mechanism: 'web_form_submission',
+  };
+  const first = await post(grant, signedIn('first-grant'));
+  expect(first.status).toBe(201);
+  // The same key and body answer as before; another body with it is refused.
+  expect(await post(grant, signedIn('first-grant'))).toEqual(first);
+  expect(
+    (
+      await post(
+        { ...grant, statement: 'account_data' },
+        signedIn('first-grant'),
+      )
+    ).status,
+  ).toBe(422);
+  expect(
+    (await post({ ...grant, formVersion: 'v2' }, signedIn('old-version'))).body
+      .code,
+  ).toBe('form_version_not_in_force');
+  expect(
+    (await post({ ...grant, statement: 'publish' }, signedIn('other-form')))
+      .body.code,
+  ).toBe('statement_not_on_form');
+  expect((await post(grant)).status).toBe(400); // no Idempotency-Key
+  expect(
+    (await post(grant, { 'idempotency-key': 'contract-check-anon' })).status,
+  ).toBe(401);
 });

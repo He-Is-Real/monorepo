@@ -159,7 +159,8 @@ paths:
         signed in. Built from the verified token and the database only, never Clerk's Backend API.
         The person's first call creates their `user` record (only `clerkUserId`, D16), which is also
         what lets staff use api-admin. Needs no consent: it is how the site learns whether the
-        sign-up form still has to be accepted (`signupConsent`, D73).
+        sign-up form still has to be accepted (`signupConsent`, D73), and whether a newer testimony form
+        needs accepting before a new story (`testimonyConsent`, D85: the banner after sign-in).
       x-required-role: User
       x-milestone: M2
       parameters:

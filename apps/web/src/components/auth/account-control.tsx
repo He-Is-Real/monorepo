@@ -129,6 +129,8 @@ export function SignInLink() {
  */
 export const E2E_FIXTURE_TOKEN = 'e2e-fixture-session-token';
 const fixtureToken = async () => E2E_FIXTURE_TOKEN;
+/** e2e only: the fixtures' signed-in person, as Clerk's user id. */
+export const E2E_FIXTURE_USER_ID = 'user_e2efixture';
 
 /**
  * e2e fixture (E2E_FIXTURES): the signed-in header without Clerk; Sign out does nothing. It
@@ -141,7 +143,7 @@ export function FixtureSignedInAccount({
   name: string;
   apiUserUrl?: string;
 }) {
-  useAccountBootstrap('user_e2efixture', apiUserUrl, fixtureToken);
+  useAccountBootstrap(E2E_FIXTURE_USER_ID, apiUserUrl, fixtureToken);
   return (
     <SignedInAccount
       name={name}

@@ -497,7 +497,24 @@ retried`, on both RocksDB and the in-memory engine.
     nothing (the previous schema may not define `text`); the drafts follow their files after the
     schema step. `migration.int-spec.ts` migrates a database with the previous release's bundle and
     runner (from git), then this one, twice.
-33. **What hides a story for consent, and the fences.** Only two things: the person withdrawing
+33. **D114: the boxes are structured data, never read from a form's words.** Each form version
+    has `statements` (`[{ key, label }]`: the consent types it asks for and the exact words shown
+    beside each box) and `statementsHash` (sha256 of its file,
+    `libs/legal/forms/<kind>/<id>.statements.json`). OpenTofu passes every statements file decoded
+    (`form_statements`) and its sha256 (`form_statements_sha256`); `form-sync.surql` copies them
+    into the version (a draft follows its file) and **refuses the migration**, before the schema
+    step, when a version's file is missing or doesn't list exactly the statements the version
+    must have (`fn::form::required_statements`: the sign-up form's two, Art 9 and, if it covers
+    publishing, `publish` on the testimony form, `share_socials` on the social sharing form), each
+    once, each with words. `fn::form::check_statements` refuses the same on any write, whoever
+    writes it. Published versions are frozen, with one exit: a version published before D114 (dev's
+    v1 forms) gets its statements once, from its file (tested from the release before, from git).
+    `fn::form::statements` (what a grant may count for) is unchanged. **Evidence v3**
+    (`heisreal-consent-evidence/v3`): v2 plus the version's `statementsHash`, so the ledger proves
+    the words beside the box ticked; `consent.evidenceVersion = 3` marks those rows (set by the
+    API on every event since, and by dev-seed). Older rows have no marker and keep verifying as
+    v2 (with a form) or v1 (without); nothing in the ledger is rewritten (it is append-only).
+34. **What hides a story for consent, and the fences.** Only two things: the person withdrawing
     `publish` or Art 9 (WithdrawConsent deletes their `publicStory` rows, as since 0.8; under D88
     withdrawal will delete the account later in M2), and, in dev, D48's or D75's switch being
     turned off, or the database leaving dev (a dev backup restored elsewhere: both switches only

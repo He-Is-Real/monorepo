@@ -53,6 +53,10 @@ export interface MigrationParams {
   form_sha256: Record<FormKind, Record<string, string>>;
   /** The same files' words. */
   form_text: Record<FormKind, Record<string, string>>;
+  /** D114: each version's boxes, its <id>.statements.json decoded. */
+  form_statements: Record<FormKind, Record<string, FormStatements>>;
+  /** The same files' sha256. */
+  form_statements_sha256: Record<FormKind, Record<string, string>>;
   /** D75: dev's placeholder privacy document and forms; OpenTofu allows true in dev only. */
   dev_legal_placeholders: boolean;
   /** The identity config that must be verified first (GKE); null = don't check */
@@ -531,6 +535,22 @@ function texts(dir: string): Record<string, string> {
       .map((f) => [f.slice(0, -3), readFileSync(join(dir, f), 'utf8')]),
   );
 }
+/** D114: a form version's statements file, `<id>.statements.json`. */
+export interface FormStatements {
+  statements: { key: string; label: string }[];
+}
+
+/** { <id>: file text } of the .statements.json files in a libs/legal/forms directory. */
+function statementFiles(dir: string): Record<string, string> {
+  return Object.fromEntries(
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.statements.json'))
+      .map((f) => [
+        f.slice(0, -'.statements.json'.length),
+        readFileSync(join(dir, f), 'utf8'),
+      ]),
+  );
+}
 const hashes = (t: Record<string, string>) =>
   Object.fromEntries(Object.entries(t).map(([id, text]) => [id, sha256(text)]));
 
@@ -540,11 +560,19 @@ const hashes = (t: Record<string, string>) =>
  */
 export function legalParams(): Pick<
   MigrationParams,
-  'dpa_sha256' | 'dpa_text' | 'form_sha256' | 'form_text'
+  | 'dpa_sha256'
+  | 'dpa_text'
+  | 'form_sha256'
+  | 'form_text'
+  | 'form_statements'
+  | 'form_statements_sha256'
 > {
   const dpa = { ...texts(join(LEGAL_DIR, 'dpa')), v1: 'dpa v1 placeholder' };
   const forms = Object.fromEntries(
     FORM_KINDS.map((k) => [k, texts(join(LEGAL_DIR, 'forms', k))]),
+  ) as Record<FormKind, Record<string, string>>;
+  const statements = Object.fromEntries(
+    FORM_KINDS.map((k) => [k, statementFiles(join(LEGAL_DIR, 'forms', k))]),
   ) as Record<FormKind, Record<string, string>>;
   return {
     dpa_sha256: hashes(dpa),
@@ -553,6 +581,20 @@ export function legalParams(): Pick<
       FORM_KINDS.map((k) => [k, hashes(forms[k])]),
     ) as Record<FormKind, Record<string, string>>,
     form_text: forms,
+    form_statements: Object.fromEntries(
+      FORM_KINDS.map((k) => [
+        k,
+        Object.fromEntries(
+          Object.entries(statements[k]).map(([id, text]) => [
+            id,
+            JSON.parse(text) as FormStatements,
+          ]),
+        ),
+      ]),
+    ) as Record<FormKind, Record<string, FormStatements>>,
+    form_statements_sha256: Object.fromEntries(
+      FORM_KINDS.map((k) => [k, hashes(statements[k])]),
+    ) as Record<FormKind, Record<string, string>>,
   };
 }
 
@@ -611,6 +653,15 @@ export async function publishDpa(
   await publishForm(t, 'social', id, { dpa: id });
 }
 
+/** The statements a form version must have (fn::form::required_statements). */
+export function requiredStatements(kind: FormKind, fields: Row = {}): string[] {
+  if (kind === 'signup') return ['age_18plus', 'account_data'];
+  if (kind === 'social') return ['share_socials'];
+  return fields['coversPublicPublishing'] === true
+    ? ['special_category_religious', 'publish']
+    : ['special_category_religious'];
+}
+
 /** api-admin creates and publishes version <id> of a consent form, linked to DPA `dpa`. */
 export async function publishForm(
   t: TestDatabase,
@@ -618,16 +669,30 @@ export async function publishForm(
   id: string,
   { dpa = 'v1', ...fields }: Row & { dpa?: string } = {},
 ): Promise<void> {
-  const text =
-    legalParams().form_text[kind][id] ?? `Stand-in ${kind} form ${id}.`;
+  const legal = legalParams();
+  const text = legal.form_text[kind][id] ?? `Stand-in ${kind} form ${id}.`;
+  const features =
+    kind === 'testimony'
+      ? { coversPublicPublishing: true, draftRetentionMonths: 6 }
+      : {};
+  // D114: its boxes, from its statements file, or stand-in words for the ones it must have.
+  const file = legal.form_statements[kind][id];
+  const statements =
+    file?.statements ??
+    requiredStatements(kind, { ...features, ...fields }).map((key) => ({
+      key,
+      label: `Stand-in words for ${key} on ${kind} form ${id}.`,
+    }));
   const content = {
     status: 'published',
     textRef: `libs/legal/forms/${kind}/${id}.md`,
     textHash: sha256(text),
     text,
-    ...(kind === 'testimony'
-      ? { coversPublicPublishing: true, draftRetentionMonths: 6 }
-      : {}),
+    statements,
+    statementsHash:
+      legal.form_statements_sha256[kind][id] ??
+      sha256(JSON.stringify({ statements })),
+    ...features,
     ...fields,
   };
   const created = await rows(

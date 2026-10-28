@@ -9,7 +9,15 @@
 // - STUB_PORT: dev as it is today (D48's relaxed consent checks on);
 // - STUB_LIVE_PORT: the same stories with D48 off, as at Go live (indexing.e2e.ts);
 // - STUB_DOWN_PORT: api-public-read down, every request answers 503.
+//
+// The legal routes (`/v1/legal/forms/{form}`, `/v1/legal/dpa`) serve dev's placeholder forms (with
+// their boxes from the statements files, D114) and privacy document, read from libs/legal as the
+// database copies them (D75); on the Go live port
+// none is published (404), as anywhere but dev.
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { resolve } from 'node:path';
 
 const port = Number(process.env.STUB_PORT ?? 4310);
 const livePort = Number(process.env.STUB_LIVE_PORT ?? 4311);
@@ -423,6 +431,81 @@ const problem = (res, status, code) =>
     'application/problem+json',
   );
 
+// D75: dev's placeholder versions, the words as published (libs/legal), like the database's copies.
+const LEGAL = resolve(import.meta.dirname, '../../../libs/legal');
+const words = (file) => readFileSync(`${LEGAL}/${file}`, 'utf8');
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+const DPA_TEXT = words('dpa/dev_placeholder.md');
+const DPA = {
+  id: 'dev_placeholder',
+  kind: 'standard',
+  status: 'published',
+  materiality: 'material',
+  contentHash: sha256(DPA_TEXT),
+  changeSummary: null,
+  supersedes: null,
+  effectiveFrom: null,
+  version: 1,
+};
+const form = (name, statements, features) => {
+  const text = words(`forms/${name}/v1.md`);
+  // D114: the boxes, from the version's statements file, never from its words.
+  const statementsFile = words(`forms/${name}/v1.statements.json`);
+  return {
+    form: name,
+    id: 'v1',
+    status: 'published',
+    publishedAt: '2026-10-25T12:00:00.000Z',
+    dpaVersion: 'dev_placeholder',
+    textHash: sha256(text),
+    text,
+    statements,
+    boxes: JSON.parse(statementsFile).statements.map((b) => ({
+      statement: b.key,
+      label: b.label,
+    })),
+    statementsHash: sha256(statementsFile),
+    version: 1,
+    ...(features ? { features } : {}),
+  };
+};
+const FORMS = {
+  signup: form('signup', ['age_18plus', 'account_data']),
+  testimony: form('testimony', ['special_category_religious', 'publish'], {
+    requiresAcceptanceForNewSubmissions: false,
+    coversPublicPublishing: true,
+    draftRetentionMonths: 6,
+  }),
+  social: form('social', ['share_socials'], {
+    shareYouTube: false,
+    shareInstagram: false,
+    shareTikTok: false,
+    shareFacebook: false,
+    allowEditingAndClipping: false,
+    allowChurchAndPartnerMedia: false,
+    allowPrintAndEvents: false,
+    allowPaidPromotion: false,
+  }),
+};
+
+/** `GET /v1/legal/forms/{form}` and `GET /v1/legal/dpa`: dev's versions, none when live. */
+function legal(mode, url, res) {
+  const notPublished = () => problem(res, 404, 'not_found');
+  if (url.pathname === '/v1/legal/dpa') {
+    const version = url.searchParams.get('version');
+    if (mode === 'live' || (version !== null && version !== DPA.id))
+      return notPublished();
+    return json(res, 200, {
+      current: { ...DPA, text: DPA_TEXT },
+      history: [DPA],
+    });
+  }
+  const name = /^\/v1\/legal\/forms\/([^/]+)$/.exec(url.pathname)?.[1];
+  if (!name || !(name in FORMS)) return problem(res, 400, 'validation_failed');
+  if (mode === 'live') return notPublished();
+  return json(res, 200, FORMS[name]);
+}
+
 /** Whether the API on this port has the story at all (withdrawn ones answer 404). */
 const onPort = (mode, s) =>
   (s.slug !== WITHDRAWN || mode === 'live') && !hiddenOn[mode].has(s.slug);
@@ -526,6 +609,7 @@ const handler = (mode) => (req, res) => {
     return json(res, 200, {
       reads: reads.get(url.searchParams.get('slug')) ?? 0,
     });
+  if (url.pathname.startsWith('/v1/legal/')) return legal(mode, url, res);
   if (url.pathname === '/v1/stories') return listStories(mode, url, res);
   if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);

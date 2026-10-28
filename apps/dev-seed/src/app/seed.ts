@@ -54,7 +54,7 @@ FOR $c IN $consents {
     CREATE consent CONTENT {
       subject: $user, type: $c.type, event: 'granted', form: $form,
       dpaVersion: type::record('dpaVersion', $c.dpa),
-      mechanism: 'web_form_submission', evidenceHash: $c.evidenceHash
+      mechanism: 'web_form_submission', evidenceHash: $c.evidenceHash, evidenceVersion: 3
     } RETURN NONE;
   };
 };
@@ -158,10 +158,10 @@ const FORMS_IN_FORCE = /* surql */ `
 LET $s = fn::form::latest('signup');
 LET $t = fn::form::latest('testimony');
 RETURN [
-  { kind: 'signup', form: $s.id, textHash: $s.textHash, dpa: $s.dpaVersion,
-    dpaHash: $s.dpaVersion.contentHash },
-  { kind: 'testimony', form: $t.id, textHash: $t.textHash, dpa: $t.dpaVersion,
-    dpaHash: $t.dpaVersion.contentHash }
+  { kind: 'signup', form: $s.id, textHash: $s.textHash, statementsHash: $s.statementsHash,
+    dpa: $s.dpaVersion, dpaHash: $s.dpaVersion.contentHash },
+  { kind: 'testimony', form: $t.id, textHash: $t.textHash, statementsHash: $t.statementsHash,
+    dpa: $t.dpaVersion, dpaHash: $t.dpaVersion.contentHash }
 ];
 `;
 
@@ -184,12 +184,14 @@ export async function fixtureConsents(
     kind: 'signup' | 'testimony';
     form?: string;
     textHash?: string;
+    statementsHash?: string;
     dpa?: string;
     dpaHash?: string;
   }[];
   const key = (id: string) => id.slice(id.indexOf(':') + 1);
   return forms.flatMap((f) => {
-    if (!f.form || !f.textHash || !f.dpa || !f.dpaHash) return []; // the reset refuses
+    if (!f.form || !f.textHash || !f.statementsHash || !f.dpa || !f.dpaHash)
+      return []; // the reset refuses
     const version = key(f.form);
     const dpa = key(f.dpa);
     return people.flatMap((user) =>
@@ -199,7 +201,13 @@ export async function fixtureConsents(
         form: f.form as string,
         dpa,
         evidenceHash: evidenceHash({
-          form: { kind: f.kind, version, textHash: f.textHash as string },
+          // Evidence v3 (D114), as the API records it.
+          form: {
+            kind: f.kind,
+            version,
+            textHash: f.textHash as string,
+            statementsHash: f.statementsHash as string,
+          },
           dpaVersion: dpa,
           dpaContentHash: f.dpaHash as string,
           type,

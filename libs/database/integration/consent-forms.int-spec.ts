@@ -859,6 +859,9 @@ describe('dev placeholder privacy document and forms (D75)', () => {
           text: legal.form_text[kind]['v1'],
           textHash: legal.form_sha256[kind]['v1'],
           dpaVersion: 'dpaVersion:dev_placeholder',
+          // D114: its boxes, from its statements file.
+          statements: legal.form_statements[kind]['v1'].statements,
+          statementsHash: legal.form_statements_sha256[kind]['v1'],
         });
         expect(String(form['text']).toLowerCase()).not.toContain('parent');
         // D93: 18+ is asked on the sign-up form only.
@@ -871,7 +874,7 @@ describe('dev placeholder privacy document and forms (D75)', () => {
       const [social] = await rows<Record<string, unknown>>(
         svc,
         `SELECT * OMIT id, text, textHash, textRef, dpaVersion, status, publishedAt,
-           version, createdAt FROM ONLY socialSharingFormVersion:v1`,
+           version, createdAt, statements, statementsHash FROM ONLY socialSharingFormVersion:v1`,
       );
       expect(Object.values(social).every((v) => v === true)).toBe(true);
       expect(Object.keys(social)).toHaveLength(8);

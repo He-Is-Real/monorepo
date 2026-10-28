@@ -26,8 +26,37 @@ let state: { userId: string | null; bootstrap: AccountBootstrap } = {
 };
 const listeners = new Set<() => void>();
 
+/**
+ * Consent the person has given on this page load (consent-form.tsx), by Clerk user id. Folded
+ * into every account the bootstrap reports for them, so an answer that was already on its way
+ * when they accepted (and so still says "not accepted") can't send them back to the form.
+ */
+let confirmed: { userId: string; signup: boolean; testimony: boolean } | null =
+  null;
+
+function reconcile(
+  userId: string | null,
+  bootstrap: AccountBootstrap,
+): AccountBootstrap {
+  if (bootstrap.status !== 'ready' || !userId || confirmed?.userId !== userId)
+    return bootstrap;
+  const account = bootstrap.account;
+  return {
+    status: 'ready',
+    account: {
+      ...account,
+      signupConsent: confirmed.signup
+        ? { accepted: true }
+        : account.signupConsent,
+      testimonyConsent: confirmed.testimony
+        ? { acceptanceRequired: false }
+        : account.testimonyConsent,
+    },
+  };
+}
+
 function set(userId: string | null, bootstrap: AccountBootstrap) {
-  state = { userId, bootstrap };
+  state = { userId, bootstrap: reconcile(userId, bootstrap) };
   for (const listener of listeners) listener();
 }
 
@@ -74,4 +103,32 @@ export function useAccountBootstrap(
     () => (userId && state.userId === userId ? state.bootstrap : IDLE),
     () => IDLE,
   );
+}
+
+/**
+ * The bootstrap's state for the page's signed-in person, without starting it: for the parts of
+ * the page outside the header (the consent step and banner, consent-prompts.tsx), which read
+ * what the header's bootstrap found.
+ */
+export function useAccountState(): AccountBootstrap {
+  return useSyncExternalStore(
+    subscribe,
+    () => state.bootstrap,
+    () => IDLE,
+  );
+}
+
+/**
+ * The person (`userId`, Clerk's user id) has just accepted a consent form: the site treats it as
+ * accepted for the rest of this page load, whatever a bootstrap answer sent before it says. The
+ * next page load asks api-user afresh.
+ */
+export function confirmConsent(
+  userId: string,
+  form: 'signup' | 'testimony',
+): void {
+  if (confirmed?.userId !== userId)
+    confirmed = { userId, signup: false, testimony: false };
+  confirmed[form] = true;
+  set(state.userId, state.bootstrap);
 }

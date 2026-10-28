@@ -7,6 +7,7 @@ import {
   FixtureSignedOutAccount,
 } from '@/components/auth/account-control';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
+import { ConsentPrompts } from '@/components/consent/consent-prompts';
 import { Logo } from '@/components/logo';
 import { MobileNav, NavLinks, SHARE_HREF } from '@/components/nav/site-nav';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
@@ -34,42 +35,48 @@ import {
  */
 export function SiteHeader() {
   return (
-    <header className="relative border-b border-border">
-      <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:grid sm:grid-cols-[max-content_minmax(0,1fr)_auto] sm:gap-y-0 sm:px-10">
-        <Link
-          href="/"
-          className="col-start-1 row-start-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-2 justify-self-start rounded-md text-foreground hover:text-foreground"
-          aria-label="He Is Real Today, home"
-        >
-          <Logo size={36} />
-          <span className="hidden text-sm font-semibold tracking-wide sm:inline">
-            He Is Real Today
-          </span>
-        </Link>
-        <NavLinks className="col-span-3 row-start-2 hidden sm:block sm:border-t sm:border-border xl:col-span-1 xl:col-start-2 xl:row-start-1 xl:justify-self-end xl:border-0" />
-        <div
-          data-header-actions=""
-          className="col-start-3 row-start-1 ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2"
-        >
+    <>
+      <header className="relative border-b border-border">
+        <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:grid sm:grid-cols-[max-content_minmax(0,1fr)_auto] sm:gap-y-0 sm:px-10">
           <Link
-            href={SHARE_HREF}
-            className="hidden min-h-11 items-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground sm:inline-flex"
+            href="/"
+            className="col-start-1 row-start-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-2 justify-self-start rounded-md text-foreground hover:text-foreground"
+            aria-label="He Is Real Today, home"
           >
-            Share your story
+            <Logo size={36} />
+            <span className="hidden text-sm font-semibold tracking-wide sm:inline">
+              He Is Real Today
+            </span>
           </Link>
-          <ThemeToggle />
+          <NavLinks className="col-span-3 row-start-2 hidden sm:block sm:border-t sm:border-border xl:col-span-1 xl:col-start-2 xl:row-start-1 xl:justify-self-end xl:border-0" />
           <div
-            data-account-slot=""
-            className="flex w-20 shrink-0 justify-end sm:w-44"
+            data-header-actions=""
+            className="col-start-3 row-start-1 ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2"
           >
-            <Suspense fallback={ACCOUNT_PLACEHOLDER}>
-              <HeaderAccount />
-            </Suspense>
+            <Link
+              href={SHARE_HREF}
+              className="hidden min-h-11 items-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground sm:inline-flex"
+            >
+              Share your story
+            </Link>
+            <ThemeToggle />
+            <div
+              data-account-slot=""
+              className="flex w-20 shrink-0 justify-end sm:w-44"
+            >
+              <Suspense fallback={ACCOUNT_PLACEHOLDER}>
+                <HeaderAccount />
+              </Suspense>
+            </div>
+            <MobileNav />
           </div>
-          <MobileNav />
         </div>
-      </div>
-    </header>
+      </header>
+      {/* After sign-in, in the browser: the sign-up step (D73) and the testimony banner (D85). */}
+      <Suspense fallback={null}>
+        <ConsentPrompts />
+      </Suspense>
+    </>
   );
 }
 
