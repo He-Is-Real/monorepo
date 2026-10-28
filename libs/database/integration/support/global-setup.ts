@@ -20,13 +20,14 @@ const KUSTOMIZATION = join(
 
 export function pinnedSurrealImage(): string {
   const text = readFileSync(KUSTOMIZATION, 'utf8');
+  // newName is set while we run our patched build (issue #114).
   const match = text.match(
-    /- name: (surrealdb\/surrealdb)\s+newTag: (v[\w.-]+@sha256:[0-9a-f]{64})/,
+    /- name: (surrealdb\/surrealdb)\s+(?:newName: (\S+)\s+)?newTag: (v[\w.-]+@sha256:[0-9a-f]{64})/,
   );
   if (!match) {
     throw new Error(`No digest-pinned surrealdb image in ${KUSTOMIZATION}`);
   }
-  return `${match[1]}:${match[2]}`;
+  return `${match[2] ?? match[1]}:${match[3]}`;
 }
 
 async function waitForHealth(baseUrl: string, timeoutMs = 30_000) {
