@@ -364,6 +364,45 @@ Rotating adds a new Secret Manager version and leaves the previous one in place.
 Images are pinned by tag **and** digest in `base/kustomization.yaml`. In a PR: read the release
 notes, take a backup, update both tag and digest, apply to dev first.
 
+### Temporary patched image
+
+**For now we run our own build, `ghcr.io/he-is-real/surrealdb:v3.2.4-jwt11`** (D111 in
+`docs/delivery-status.md`). Every SurrealDB release so far refuses Clerk's session tokens: their
+header has a number field (`oiat`), and the JWT library inside SurrealDB, jsonwebtoken 10.x, only
+accepts text there
+([surrealdb/surrealdb#7630](https://github.com/surrealdb/surrealdb/issues/7630)). The build is
+the `v3.2.4` tag with **only** the upstream fix
+([surrealdb/surrealdb#7633](https://github.com/surrealdb/surrealdb/pull/7633)): jsonwebtoken
+10.4.0 → 11.1.0 in `Cargo.toml` and `Cargo.lock`, plus that PR's regression test. jsonwebtoken 11
+also needs one more match arm in `surrealdb/core/src/iam/jwks.rs` (the JWKS code, which that PR
+didn't compile): any key type the code doesn't know is refused with the same opaque
+`InvalidAuth`. The cluster pulls
+it through the Artifact Registry ghcr.io cache (`overlays/gke-dev`); the integration tests pull it
+from ghcr.io. Go back to the official image when a release has the fix: issue #114.
+
+How it was built (upstream's own Dockerfile and release flags, on Joel's machine; the whole
+change is [`patches/v3.2.4-jwt11.patch`](patches/v3.2.4-jwt11.patch)):
+
+```sh
+git checkout v3.2.4
+git apply <monorepo>/infra/k8s/surrealdb/patches/v3.2.4-jwt11.patch
+# The rustup installer's pinned checksum in docker/Dockerfile is stale; the toolchain stays 1.95.0.
+docker build -f docker/Dockerfile --target builder \
+  --build-arg RUSTUP_SHA256=9502b514362a21096210d498f143b8cdacda365d3dfcf45e8f5541e089ccafc0 \
+  -t surrealdb-builder:v3.2.4 .
+docker run --rm -v "$PWD":/surrealdb -e SURREAL_BUILD_METADATA=heisreal.jwt11 \
+  -e ORT_DOWNLOAD_URL=https://github.com/supertone-inc/onnxruntime-build/releases/download/v1.23.2/onnxruntime-linux-x64-static_lib-1.23.2.tgz \
+  surrealdb-builder:v3.2.4 --target x86_64-unknown-linux-gnu --no-default-features \
+  --features default --release --locked
+# .dockerignore excludes target/, so package the binary from its own context
+ctx=$(mktemp -d) && cp target/x86_64-unknown-linux-gnu/release/surreal "$ctx/"
+docker build -f docker/Dockerfile --target prod --build-arg SURREALDB_BINARY=surreal \
+  -t ghcr.io/he-is-real/surrealdb:v3.2.4-jwt11 "$ctx" && rm -rf "$ctx"
+docker push ghcr.io/he-is-real/surrealdb:v3.2.4-jwt11   # then pin the pushed digest
+```
+
+While we run it, **a SurrealDB security release means rebuilding this patch on top of it.**
+
 ## Not done yet
 
 - PVC snapshots (a GKE VolumeSnapshot schedule) as a second backup layer.

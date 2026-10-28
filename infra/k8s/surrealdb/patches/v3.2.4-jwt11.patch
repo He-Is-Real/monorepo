@@ -1,0 +1,98 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index c50a12c8..abb51175 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3613,9 +3613,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "jsonwebtoken"
+-version = "10.4.0"
++version = "11.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "eba32bfb4ffdeaca3e34431072faf01745c9b26d25504aa7a6cf5684334fc4fc"
++checksum = "e75fe14a82d81e5f5af639997db37d8b96045938a7ac6ab18cdbe1c7467e05e1"
+ dependencies = [
+  "aws-lc-rs",
+  "base64 0.22.1",
+diff --git a/Cargo.toml b/Cargo.toml
+index 8e7c6b1b..9d631a4e 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -145,7 +145,7 @@ humantime = "2.3.0"
+ indexmap = "2.14.0"
+ ipnet = "2.12.0"
+ jemallocator = { version = "0.6.1", package = "tikv-jemallocator" }
+-jsonwebtoken = { version = "10.3.0", default-features = false, features = ["use_pem"] }
++jsonwebtoken = { version = "11.0.0", default-features = false, features = ["use_pem"] }
+ logos = "0.16.1" # TODO: pin version
+ md-5 = "0.10.6"
+ memchr = "2.8.0"
+diff --git a/surrealdb/core/src/iam/jwks.rs b/surrealdb/core/src/iam/jwks.rs
+index b9cdd83b..abcae44f 100644
+--- a/surrealdb/core/src/iam/jwks.rs
++++ b/surrealdb/core/src/iam/jwks.rs
+@@ -172,6 +172,12 @@ pub(super) async fn config(
+ 					);
+ 					bail!(Error::InvalidAuth); // Return opaque error
+ 				}
++				// jsonwebtoken 11 marks AlgorithmParameters as non-exhaustive: refuse key types
++				// this code doesn't know.
++				_ => {
++					warn!("Unsupported JWK key type for token algorithm '{:?}'", token_alg);
++					bail!(Error::InvalidAuth); // Return opaque error
++				}
+ 			}
+ 		}
+ 	};
+diff --git a/surrealdb/core/src/iam/verify.rs b/surrealdb/core/src/iam/verify.rs
+index 8430c717..80af6099 100644
+--- a/surrealdb/core/src/iam/verify.rs
++++ b/surrealdb/core/src/iam/verify.rs
+@@ -986,7 +986,7 @@ fn verify_token(token: &str, key: &DecodingKey, validation: &Validation) -> Resu
+ mod tests {
+ 	use argon2::password_hash::{PasswordHasher, SaltString};
+ 	use chrono::Duration;
+-	use jsonwebtoken::{EncodingKey, encode};
++	use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+ 	use rand_core::OsRng;
+ 	use rstest::rstest;
+ 
+@@ -1004,6 +1004,38 @@ mod tests {
+ 
+ 	const AVAILABLE_ROLES: [Role; 3] = [Role::Viewer, Role::Editor, Role::Owner];
+ 
++	#[test]
++	fn test_token_accepts_non_string_header_extras() {
++		let secret = b"jwt_secret";
++		let encoding_key = EncodingKey::from_secret(secret);
++		let decoding_key = DecodingKey::from_secret(secret);
++		let validation = Validation::new(Algorithm::HS256);
++		let claims = Claims {
++			exp: Some((Utc::now() + Duration::hours(1)).timestamp()),
++			..Claims::default()
++		};
++
++		for extra in [
++			serde_json::json!(1_700_000_000),
++			serde_json::json!(true),
++			serde_json::json!(["value"]),
++			serde_json::json!({ "nested": "value" }),
++		] {
++			let mut header = Header::new(Algorithm::HS256);
++			header.extras.insert("oiat", extra.clone());
++			let token = encode(&header, &claims, &encoding_key).unwrap();
++
++			assert!(
++				decode_claims_unverified(&token).is_ok(),
++				"unverified claims decode rejected header extra {extra}"
++			);
++			assert!(
++				verify_token(&token, &decoding_key, &validation).is_ok(),
++				"signature verification rejected header extra {extra}"
++			);
++		}
++	}
++
+ 	#[rstest]
+ 	#[case::without_roles_or_expiration("pass", vec![Role::Viewer], None, true)]
+ 	#[case::with_roles_and_expiration("pass", vec![Role::Editor, Role::Owner], Some(Duration::days(1)), true)]

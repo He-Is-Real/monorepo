@@ -12,8 +12,10 @@ resources:
 images:
   # Pulled through Artifact Registry remote repositories (private nodes, no NAT).
   # Tags/digests stay pinned in base/kustomization.yaml.
-  - name: surrealdb/surrealdb
-    newName: europe-west2-docker.pkg.dev/heisreal-dev/dockerhub/surrealdb/surrealdb
+  # Our patched SurrealDB build (README, "Temporary patched image"; back to the Docker Hub
+  # cache when #114 is done).
+  - name: ghcr.io/he-is-real/surrealdb
+    newName: europe-west2-docker.pkg.dev/heisreal-dev/ghcr/he-is-real/surrealdb
   - name: google/cloud-sdk
     newName: europe-west2-docker.pkg.dev/heisreal-dev/dockerhub/google/cloud-sdk
 
