@@ -401,6 +401,12 @@ docker build -f docker/Dockerfile --target prod --build-arg SURREALDB_BINARY=sur
 docker push ghcr.io/he-is-real/surrealdb:v3.2.4-jwt11   # then pin the pushed digest
 ```
 
+The package must be **public** (GitHub org settings → Packages allows public packages; the
+package's settings → Change visibility → Public): the cluster's ghcr.io cache and CI pull it
+without credentials, so a private image fails CI and would leave the database pod in
+`ImagePullBackOff`. Check before pinning: `docker logout ghcr.io && docker manifest inspect
+ghcr.io/he-is-real/surrealdb:<tag>`.
+
 While we run it, **a SurrealDB security release means rebuilding this patch on top of it.**
 
 ## Not done yet
