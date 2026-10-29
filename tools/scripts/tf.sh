@@ -123,8 +123,11 @@ if [ "$target" = stripe-mask ]; then
     echo "stripe-mask: failed" >&2
     exit 1
   }
+  # Each line as stored and trimmed (the root trims it, so an error would quote the trimmed key).
   while IFS= read -r line || [ -n "$line" ]; do
+    trimmed="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<< "$line")"
     [ -z "$line" ] || printf '::add-mask::%s\n' "$line"
+    [ -z "$trimmed" ] || [ "$trimmed" = "$line" ] || printf '::add-mask::%s\n' "$trimmed"
   done <<< "$key"
   exit 0
 fi
