@@ -126,11 +126,7 @@ test.describe('behaviour', () => {
     ).toBeFocused();
   });
 
-  test('About loads no video or third-party frame; Contact collects nothing', async ({
-    page,
-  }) => {
-    await page.goto('/about');
-    await expect(page.locator('main iframe, main video')).toHaveCount(0);
+  test('Contact collects nothing', async ({ page }) => {
     await page.goto('/contact');
     await expect(
       page.locator('main form, main input, main textarea, main select'),

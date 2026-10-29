@@ -23,6 +23,10 @@ locals {
     BUNNY_STREAM_TOKEN_KEY_SECRET = var.api_public_read_media.stream_token_key_secret
     BUNNY_IMAGES_TOKEN_KEY_SECRET = var.api_public_read_media.images_token_key_secret
   }
+  # Site videos by key (founder-intro → SITE_VIDEO_FOUNDER_INTRO): GUIDs, not secrets.
+  site_video_env = {
+    for k, guid in var.site_videos : "SITE_VIDEO_${upper(replace(k, "-", "_"))}" => guid
+  }
 }
 
 resource "google_cloud_run_v2_service" "api_public_read" {
@@ -98,7 +102,7 @@ resource "google_cloud_run_v2_service" "api_public_read" {
       # D52: signs Bunny media links. Secret names, never values: the service reads
       # the keys from Secret Manager at startup (bunny root grants the access).
       dynamic "env" {
-        for_each = local.api_public_read_media_env
+        for_each = merge(local.api_public_read_media_env, local.site_video_env)
         content {
           name  = env.key
           value = env.value

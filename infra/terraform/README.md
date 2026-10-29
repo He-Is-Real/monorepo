@@ -418,6 +418,39 @@ Rotating a token key: reset it at Bunny, apply bunny (new secret version), then 
 api-public-read revision (keys are read at startup). Links signed with the old key stop working
 at once.
 
+### Site assets
+
+Files that are part of the site itself (not stories) have their own place at Bunny:
+
+- **Videos** go in the `site-assets` collection of the media library (`bunnynet_stream_collection.site_assets`
+  in `modules/bunny`). Same library, so the same player, encoding and signed links as stories. Story videos
+  never go in it.
+- **Other files** (images and the like) go under the `site-assets/` path in the images storage zone. Folders at
+  Bunny exist only as part of a file's path, so this is a naming rule, not a resource. They're served by the
+  same signed pull zone.
+
+**Add or replace a site video (dev):**
+
+1. Upload it, with your own gcloud login (it reads `bunny-stream-api-key` from Secret Manager and never prints it):
+
+   ```bash
+   node tools/scripts/site-asset-upload.mjs ~/Downloads/HeIsReal-site-assets/<file>.mp4 \
+     --title "The heart behind He Is Real" \
+     --description "Stephen Linnecar, our founder, introduces He Is Real for anyone asking “Is God real?”: honest, personal stories, Next Steps, and an invitation to share your own story."
+   ```
+
+   Running it again uploads nothing if the collection already has a video with that exact title; it prints the
+   video's GUID and whether Bunny has finished encoding it. It works on dev only (`--env`, `ENVIRONMENTS` in the
+   script); add prod there when prod exists.
+
+2. Put the GUID in `live/dev/gcp/main.tf`: `site_videos = { founder-intro = "<guid>" }`. Apply gcp: api-public-read
+   gets `SITE_VIDEO_FOUNDER_INTRO`, and the About page plays it (`GET /v1/site-videos/founder-intro`, a signed
+   6–7 hour link). Until then, or if api-public-read is down, About shows "Video coming soon".
+
+A new kind of site video (say, one for Next Steps) needs a key in three places: api-public-read's `SITE_VIDEO_KEYS`,
+the allowed keys of `site_videos` in `modules/gcp`, and `SiteVideoKey` in the contract. api-public-read signs only
+those keys, so nobody can ask it to sign any other video.
+
 **Cost:** Bunny bills at least $1 a month per account; dev usage (a few test files) stays under
 it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, free encoding.
 

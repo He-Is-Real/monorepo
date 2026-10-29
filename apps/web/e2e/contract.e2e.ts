@@ -109,6 +109,16 @@ test('the legal routes fit the contract: dev’s forms and privacy document', as
   expect((await check(request, '/v1/legal/dpa?version=v9')).status).toBe(404);
 });
 
+test('the founder’s video route fits the contract', async ({ request }) => {
+  const { status, body } = await check(
+    request,
+    '/v1/site-videos/founder-intro',
+  );
+  expect(status).toBe(200);
+  expect(body.key).toBe('founder-intro');
+  expect((await check(request, '/v1/site-videos/next-steps')).status).toBe(404);
+});
+
 test('the stub’s errors fit the contract', async ({ request }) => {
   expect((await check(request, '/v1/stories/no-such-story')).status).toBe(404);
   expect(

@@ -6,6 +6,11 @@ output "stream_library_id" {
   value = bunnynet_stream_library.media.id
 }
 
+output "site_assets_collection_id" {
+  description = "The Stream collection for site videos (tools/scripts/site-asset-upload.mjs finds it by name)."
+  value       = bunnynet_stream_collection.site_assets.id
+}
+
 output "stream_cdn_pullzone_id" {
   description = "The pull zone Bunny created for the library (embed and HLS delivery)."
   value       = bunnynet_stream_library.media.pullzone
