@@ -2,7 +2,7 @@
 // unbroken words (overflow check), a long written story (the "Continue reading" preview),
 // video, audio and image stories with stub media, 48 generated browse stories (every kind and
 // shape, D53/D55), the list, related and tags endpoints (step 6a's contract, cursors bound to
-// the filters), test-only stories for the hide, withdrawal and card playback tests, a 503 for
+// the filters), test-only stories for the hide, withdrawal, card playback and hearts tests, a 503 for
 // "down" and 404 problems for anything else.
 //
 // One process, three ports, for the three web servers in playwright.config.ts:
@@ -355,7 +355,28 @@ const reads = new Map();
 /** Listed (as cards) but not readable: the story was hidden, or the API is failing. */
 const UNREADABLE = { 'play-test-gone': 404, 'play-test-down': 503 };
 
-const TEST_TAGS = [HIDE_TEST, PLAY_TEST, PREFETCH_TEST];
+// Hearts (favourites.e2e.ts): a story per behaviour device to heart, listed only under
+// `tag=heart-test`. A test that hides a story makes its own first (POST /__test/story), listed
+// nowhere, so no two tests (or repeats) ever share one.
+const HEART_TEST = 'heart-test';
+const HEART_TMP = 'heart-tmp';
+for (const name of ['phone-320', 'desktop-1280']) {
+  const slug = `heart-test-${name}`;
+  stories[slug] = {
+    ...base,
+    id: slug.replaceAll('-', '_'),
+    slug,
+    title: `Heart test story (${name})`,
+    description: 'Dummy story for the hearts test.',
+    body: 'Placeholder text.',
+    tags: [
+      { slug: HEART_TEST, name: 'Heart test', category: 'theme', version: 1 },
+    ],
+    publishedAt: '2026-10-22T20:00:00Z',
+  };
+}
+
+const TEST_TAGS = [HIDE_TEST, PLAY_TEST, PREFETCH_TEST, HEART_TEST, HEART_TMP];
 const testTagOf = (s) =>
   s.tags.find((t) => TEST_TAGS.includes(t.slug))?.slug ?? null;
 
@@ -513,6 +534,24 @@ const onPort = (mode, s) =>
 /** GET /v1/stories: tag (all of), format, q, sort, limit, cursor (bound to the filters). */
 function listStories(mode, url, res) {
   const p = url.searchParams;
+  // Cards by id (hearts kept on a device, M2): the public stories among them, newest first,
+  // listed or not; on their own, 1 to 50.
+  const ids = p.getAll('id');
+  if (ids.length) {
+    if (
+      ids.length > 50 ||
+      !ids.every((id) => /^[A-Za-z0-9_]{1,64}$/.test(id)) ||
+      [...p.keys()].some((k) => k !== 'id')
+    )
+      return problem(res, 400, 'validation_failed');
+    const asked = new Set(ids);
+    return json(res, 200, {
+      data: published(mode)
+        .filter((s) => asked.has(s.id))
+        .map(summaryOf),
+      nextCursor: null,
+    });
+  }
   const q = p.get('q')?.toLowerCase() ?? '';
   const tags = p.getAll('tag');
   const format = p.get('format');
@@ -598,6 +637,26 @@ const handler = (mode) => (req, res) => {
   }
   const url = new URL(req.url ?? '/', 'http://stub');
   const hook = /^\/__test\/(hide|show)$/.exec(url.pathname);
+  // A test's own story (favourites.e2e.ts): `heart-tmp-…`, listed nowhere, public on every port.
+  if (url.pathname === '/__test/story' && req.method === 'POST') {
+    const slug = url.searchParams.get('slug') ?? '';
+    if (!/^heart-tmp-[a-z0-9-]{1,50}$/.test(slug))
+      return problem(res, 400, 'validation_failed');
+    stories[slug] = {
+      ...base,
+      id: slug.replaceAll('-', '_'),
+      slug,
+      title: `Heart temp story ${slug}`,
+      description: 'Dummy story a hearts test made for itself.',
+      body: 'Placeholder text.',
+      tags: [
+        { slug: HEART_TMP, name: 'Heart temp', category: 'theme', version: 1 },
+      ],
+      publishedAt: '2026-10-22T21:00:00Z',
+    };
+    res.writeHead(204);
+    return res.end();
+  }
   if (hook && req.method === 'POST') {
     const slug = url.searchParams.get('slug') ?? '';
     if (hook[1] === 'hide') hiddenOn[mode].add(slug);
@@ -605,6 +664,14 @@ const handler = (mode) => (req, res) => {
     res.writeHead(204);
     return res.end();
   }
+  // For the stub api-user (stub-api-user.mjs), as api-user reads publicStory: every story this
+  // port has public now, listed or not, as cards.
+  if (url.pathname === '/__test/cards')
+    return json(res, 200, {
+      data: Object.values(stories)
+        .filter((s) => onPort(mode, s))
+        .map(summaryOf),
+    });
   if (url.pathname === '/__test/reads')
     return json(res, 200, {
       reads: reads.get(url.searchParams.get('slug')) ?? 0,

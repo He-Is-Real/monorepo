@@ -5,18 +5,25 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { Popover } from 'radix-ui';
 import { Button } from '@/components/ui/button';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
+import { usePublishPersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
 
 /**
  * Sign in / sign out, and the signed-in person's name, all from Clerk in the browser (D32).
  * The name is shown, never stored: Clerk holds it (D16). Once signed in, the browser calls
  * api-user's account bootstrap (`apiUserUrl`; account-bootstrap.ts); its failure changes
- * nothing here.
+ * nothing here. It also tells the rest of the page who is signed in (personal-session.ts).
  */
 export function AccountControl({ apiUserUrl }: { apiUserUrl?: string }) {
   const { isLoaded, isSignedIn, user } = useUser();
   const { userId, getToken } = useAuth();
   useAccountBootstrap(isSignedIn ? userId : null, apiUserUrl, () => getToken());
+  // The rest of the page (hearts, My favourites) learns who is signed in from here (D83).
+  usePublishPersonalSession(
+    isLoaded ? (isSignedIn ? userId : null) : undefined,
+    apiUserUrl,
+    () => getToken(),
+  );
 
   // Same size while Clerk loads, so the header doesn't jump.
   if (!isLoaded) return <div className="h-11 w-20" aria-hidden="true" />;
@@ -42,7 +49,7 @@ export function AccountControl({ apiUserUrl }: { apiUserUrl?: string }) {
  * avatar, first name, ▾): a compact button no wider than the header's account slot
  * (site-header.tsx), so it never pushes the header onto a second row. The first name shows
  * from 640 px and truncates to fit; phones get the avatar only.
- * It opens a panel with the full name and Sign out. Presentational, so the e2e suite can render
+ * It opens a panel with the full name, My favourites and Sign out. Presentational, so the e2e suite can render
  * it without a Clerk session (site-header.tsx, E2E_FIXTURES). `signOut` wraps the Sign out
  * button (Clerk's SignOutButton in the app).
  */
@@ -96,6 +103,21 @@ export function SignedInAccount({
             Signed in as{' '}
             <span className="font-medium text-foreground">{name}</span>
           </p>
+          <a
+            href="/account/favourites"
+            className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="size-4 fill-none stroke-current"
+              strokeWidth="2"
+              strokeLinejoin="round"
+            >
+              <path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.7 3.8 4.5 7.2 4.5c2 0 3.6 1.1 4.8 2.8 1.2-1.7 2.8-2.8 4.8-2.8 3.4 0 5.6 3.2 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4z" />
+            </svg>
+            My favourites
+          </a>
           {signOut(
             <Button variant="outline" className="h-11 w-full">
               Sign out
@@ -127,10 +149,23 @@ export function SignInLink() {
  * e2e only: the session token the fixtures send to the stub api-user (apps/web/e2e), which
  * accepts nothing else. Not a Clerk token; deployed sites never use the fixtures.
  */
-export const E2E_FIXTURE_TOKEN = 'e2e-fixture-session-token';
-const fixtureToken = async () => E2E_FIXTURE_TOKEN;
 /** e2e only: the fixtures' signed-in person, as Clerk's user id. */
 export const E2E_FIXTURE_USER_ID = 'user_e2efixture';
+/**
+ * The fixture token: shaped like a session token (`header.payload.signature`, unsigned), whose
+ * payload names the fixture person (`sub`, which the hearts check before sending) and, when a
+ * test gives its browser one (localStorage `e2e-session`), its own session, so the stub keeps
+ * that test's hearts apart from every other test's (tests run in parallel).
+ */
+export const e2eFixtureToken = async (): Promise<string> => {
+  const stored = window.localStorage.getItem('e2e-session');
+  const session = stored && /^[a-z0-9-]{1,64}$/.test(stored) ? stored : '';
+  const payload = btoa(JSON.stringify({ sub: E2E_FIXTURE_USER_ID, session }))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  return `e2e.${payload}.fixture`;
+};
 
 /**
  * e2e fixture (E2E_FIXTURES): the signed-in header without Clerk; Sign out does nothing. It
@@ -143,7 +178,8 @@ export function FixtureSignedInAccount({
   name: string;
   apiUserUrl?: string;
 }) {
-  useAccountBootstrap(E2E_FIXTURE_USER_ID, apiUserUrl, fixtureToken);
+  useAccountBootstrap(E2E_FIXTURE_USER_ID, apiUserUrl, e2eFixtureToken);
+  usePublishPersonalSession(E2E_FIXTURE_USER_ID, apiUserUrl, e2eFixtureToken);
   return (
     <SignedInAccount
       name={name}
@@ -155,5 +191,6 @@ export function FixtureSignedInAccount({
 
 /** e2e fixture (E2E_FIXTURES): the signed-out control, without Clerk. */
 export function FixtureSignedOutAccount() {
+  usePublishPersonalSession(null, undefined, e2eFixtureToken);
   return <SignInLink />;
 }

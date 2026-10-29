@@ -111,6 +111,12 @@ export const CONSENT_REQUIRED = {
   requestUpload: { subject: 'caller', types: ART9 },
   /** POST /v1/stories/{id}/submit (api-user). */
   submitStory: { subject: 'caller', types: PUBLISHABLE, formsInForce: true },
+  /**
+   * PUT /v1/account/favourites/{storyId} (api-user): a heart is stored only with the sign-up
+   * form's consent, "store my account and favourites" and 18+ (D73), on any version that counts
+   * (D93: a newer sign-up version gates only new drafts and submissions).
+   */
+  addFavourite: { subject: 'caller', types: ['account_data', 'age_18plus'] },
   /** POST /v1/moderation/stories/{id}/approve (api-admin): a fresh check of the submitter. */
   approveStory: { subject: 'submitter', types: PUBLISHABLE, storyParam: 'id' },
 } as const satisfies Record<string, ConsentRequirement>;

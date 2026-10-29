@@ -235,6 +235,9 @@ importers:
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
+      '@heisreal/story-cards':
+        specifier: workspace:*
+        version: link:../../libs/story-cards
       '@nestjs/common':
         specifier: ^12.2.0
         version: 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -293,6 +296,9 @@ importers:
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
+      '@heisreal/story-cards':
+        specifier: workspace:*
+        version: link:../../libs/story-cards
       '@nestjs/common':
         specifier: ^12.2.0
         version: 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -547,6 +553,19 @@ importers:
       '@nestjs/common':
         specifier: ^12.2.0
         version: 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)
+
+  libs/story-cards:
+    dependencies:
+      '@heisreal/secrets':
+        specifier: workspace:*
+        version: link:../secrets
+      '@nestjs/common':
+        specifier: ^12.2.0
+        version: 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)
+    devDependencies:
+      '@heisreal/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
 packages:
 

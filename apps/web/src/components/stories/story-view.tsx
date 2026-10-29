@@ -3,6 +3,7 @@ import { TAG_CHIP } from '@/components/browse/tag-filter';
 import type { StorySummary } from '@/lib/browse';
 import type { PublicStory } from '@/lib/public-stories';
 import { RelatedStories } from './related-stories';
+import { StoryHeart } from './heart-button';
 import { ShareMenu } from './share-menu';
 import { StoryMedia } from './story-media';
 import { StoryText } from './story-text';
@@ -85,7 +86,8 @@ function KeepExploring({ related }: { related: StorySummary[] }) {
  * beside it: Joel, 2026-10-25, a sidebar felt like an ad and took space from the story).
  * No breadcrumb (Joel, 2026-10-24; design principles): it could show only one of a story's
  * tags; the header's Stories link and the tag chips are the ways back.
- * Favourite, "This helped me" and "Concern" from the mockups need accounts (M2+).
+ * The person's own heart sits beside Share (M2; filled in by the browser, D83). "This helped
+ * me" and "Concern" from the mockups come later (M6).
  */
 export function StoryView({
   story,
@@ -101,8 +103,9 @@ export function StoryView({
   ][0]?.toUpperCase();
   const share = (
     <div
-      className={`${COLUMN} flex items-center justify-end border-b border-border py-3 ${written ? 'mt-8' : ''}`}
+      className={`${COLUMN} flex flex-wrap items-center justify-between gap-2 border-b border-border py-3 ${written ? 'mt-8' : ''}`}
     >
+      <StoryHeart storyId={story.id} />
       <ShareMenu title={story.title} />
     </div>
   );

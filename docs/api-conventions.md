@@ -32,6 +32,12 @@ brackets).
   read it. Re-read it, re-apply the change if nothing it touched has changed, and ask the person
   only on a real clash (D70). `428` means our code forgot `If-Match`: a bug, logged in the
   browser console, never shown to the person as their mistake.
+- **Hearts (M2):** web's browser asks `GET /v1/account/favourites?storyId=…` once for a page of
+  cards ("which of these are mine?", up to 50 ids), so web's server never needs to know who is
+  looking (D83). Hearts are private: no route answers anyone's hearts but the caller's, and no
+  route gives counts. Signed out, hearts stay in the browser (Joel, 2026-10-28); their cards
+  come from api-public-read's anonymous `GET /v1/stories?id=…` (up to 50 ids), through web's
+  server like every other card.
 - **The account bootstrap:** web's header calls `GET /v1/account` once each time a page loads
   signed in. The first call creates the person's `user` row (so staff can use `api-admin`), and
   `signupConsent.accepted` says whether the sign-up form still needs accepting (D73). Its
@@ -172,7 +178,7 @@ short-lived upload credentials.
   (`ConsentModule.forRoot()`) answers `500` for a route with neither or both, the application refuses
   to start with one, and each app's `routes.spec.ts` lists every registered route with its policy.
 - Use the named requirements in `CONSENT_REQUIRED` (`createDraft`, `editDraft`, `requestUpload`,
-  `submitStory`, `approveStory`) rather than spelling types out. Missing consent is `403` with
+  `submitStory`, `addFavourite`, `approveStory`) rather than spelling types out. Missing consent is `403` with
   `code: consent_required`; no sign-in is `401`.
 - The check is the database's `fn::consent::granted`, read at that moment: `caller` in the person's
   own session, `submitter` (the story in the `id` route parameter) on the service's login, which only
@@ -188,6 +194,8 @@ short-lived upload credentials.
   | Create a draft, edit it, request an upload URL (`api-user`) | The caller's `special_category_religious`                          |
   | `POST /v1/stories/{id}/submit` (`api-user`)                 | The caller's `special_category_religious`, `publish`, `age_18plus` |
   | `POST /v1/moderation/stories/{id}/approve` (`api-admin`)    | The same three, for the story's submitter                          |
+
+| Heart a story, `PUT /v1/account/favourites/{storyId}` | The caller's `account_data` and `age_18plus` (sign-up form, D73) |
 
 - Request bodies never carry consent. It stays in the person's ledger, granted through
   `POST /v1/account/consents`, and is checked, not carried. A grant names the consent form version

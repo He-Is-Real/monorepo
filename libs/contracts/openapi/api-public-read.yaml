@@ -70,8 +70,27 @@ paths:
         in the sort are broken by ID, so pages never overlap.
         Unknown or repeated parameters are `400`. No totals (D30). Browse loads at most two more
         pages on its own, then shows a button (D55).
+
+        **Cards by id** (M2): with `id` (1 to 50, on its own), the cards of the stories among them
+        that are public now, newest first, with `nextCursor: null`. web uses it for the hearts a
+        signed-out person keeps on their device ("My favourites" without an account); it learns
+        nothing about who asks.
       x-milestone: M1
       parameters:
+        - name: id
+          in: query
+          description: Only these stories (`StorySummary.id`), on their own. Repeat it for each.
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 50
+            items:
+              type: string
+              minLength: 1
+              maxLength: 64
+              pattern: '^[A-Za-z0-9_]{1,64}$'
         - name: q
           in: query
           description: Full-text search, trimmed; blank = no search. At most 200 characters.

@@ -44,6 +44,9 @@
     },
     {
       "path": "./apps/dev-seed"
+    },
+    {
+      "path": "./libs/story-cards"
     }
   ],
   "compilerOptions": {}

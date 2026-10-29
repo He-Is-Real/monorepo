@@ -43,6 +43,9 @@
     },
     {
       "path": "../../libs/database/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/story-cards/tsconfig.lib.json"
     }
   ]
 }

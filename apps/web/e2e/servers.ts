@@ -11,8 +11,14 @@ export const STUB_URL = `http://127.0.0.1:${STUB_PORT}`;
 /** The stub api-user (stub-api-user.mjs), for the signed-in server's browser calls. */
 export const STUB_USER_PORT = base + 13;
 export const STUB_USER_URL = `http://127.0.0.1:${STUB_USER_PORT}`;
-/** The fixtures' session token, the only one the stub accepts (account-control.tsx). */
-export const E2E_FIXTURE_TOKEN = 'e2e-fixture-session-token';
+/** The fixtures' signed-in person (account-control.tsx, E2E_FIXTURE_USER_ID). */
+export const E2E_FIXTURE_USER_ID = 'user_e2efixture';
+/**
+ * A fixture token as the browser's fixture makes it (account-control.tsx): unsigned, its payload
+ * the person (`sub`) and an optional session, so each test's hearts stay its own at the stub.
+ */
+export const fixtureToken = (session = '', sub = E2E_FIXTURE_USER_ID) =>
+  `e2e.${Buffer.from(JSON.stringify({ sub, session })).toString('base64url')}.fixture`;
 
 /** Dev as it is: indexing off, D48 on, the E2E_FIXTURES stand-in for Clerk. Every suite's baseURL. */
 export const WEB_PORT = base;

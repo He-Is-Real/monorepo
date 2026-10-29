@@ -2,7 +2,8 @@
 # through libs/secrets. The values come from the Bunny resources and are sent
 # with write-only attributes, so these resources add nothing to state. Accessor
 # grants only for keys a deployed service uses: the two token auth keys, for
-# api-public-read (D52). The upload keys get theirs with M2 (api-user).
+# api-public-read (D52) and api-user (hearts' cards, M2). The upload keys get
+# theirs with M2's uploads (api-user).
 #
 # The version number is derived from the value, so a key rotated at Bunny
 # (refreshed into state by the next plan) becomes a new secret version on the

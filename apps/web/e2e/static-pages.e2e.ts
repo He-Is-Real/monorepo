@@ -183,6 +183,7 @@ test.describe('behaviour', () => {
       '__client_uat',
       '__session',
       '__clerk_environment',
+      'heisreal:device-hearts',
       '__cf_bm, _cfuvid',
       'bunny_stream_settings_…',
       '__clerk_db_jwt',

@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
+import { BEHAVIOUR_DEVICES } from './devices';
 import { expectNoHorizontalOverflow, expectTarget } from './helpers';
 import { STUB_PORT } from './servers';
 
@@ -75,6 +76,28 @@ test('the media area plays the story in place; the text below opens the story', 
   ).toBeVisible();
 });
 
+test('a playing card’s Close is a real target: the heart steps aside while it plays', async ({
+  page,
+}, info) => {
+  // Codex, #117 round 3: the card's heart sat on top of Close and took its clicks.
+  test.skip(
+    !BEHAVIOUR_DEVICES.includes(info.project.name),
+    'one phone and one desktop',
+  );
+  await page.goto(LIST);
+  const video = card(page, VIDEO);
+  const heart = video.locator('[data-heart]');
+  await expect(heart).toBeVisible();
+  await playButton(page, VIDEO).click();
+  const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
+  await expect(frame).toBeVisible();
+  await expect(heart).toBeHidden();
+  // A real click, where a person would tap: no `force`.
+  await video.getByRole('button', { name: 'Close player' }).click();
+  await expect(frame).toHaveCount(0);
+  await expect(heart).toBeVisible();
+});
+
 test('starting another card stops the one playing', async ({ page }) => {
   await page.goto(LIST);
   await playButton(page, VIDEO).click();
@@ -116,7 +139,8 @@ test('written cards open the story from anywhere on the card', async ({
 }) => {
   await page.goto(LIST);
   const written = card(page, 'Play test: written');
-  await expect(written.getByRole('button')).toHaveCount(0);
+  // No player: its only button is the heart (favourites.e2e.ts).
+  await expect(written.locator('button:not([data-heart])')).toHaveCount(0);
   await written
     .getByText('Placeholder story for the card playback tests.')
     .click({ force: true });

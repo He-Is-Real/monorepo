@@ -5,7 +5,7 @@ import type { TestDatabase } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
-import { MediaUrls } from '../src/app/media/media-urls';
+import { MediaUrls } from '@heisreal/story-cards';
 import { checkResponsesAgainstContract } from './contract';
 
 /**

@@ -6,7 +6,9 @@ import { DatabaseModule } from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
+import { MediaUrlsModule } from '@heisreal/story-cards';
 import { AccountModule } from './account/account.controller';
+import { FavouritesModule } from './favourites/favourites.controller';
 
 @Module({
   imports: [
@@ -21,6 +23,10 @@ import { AccountModule } from './account/account.controller';
     ConsentModule.forRoot({ authenticator: ApiUserAuthenticator }),
     AccountConsentsModule,
     AccountModule,
+    // Hearts (M2). Their cards carry signed thumbnail and image links, signed like
+    // api-public-read's (D52); without the BUNNY_* variables signing is off and links are null.
+    MediaUrlsModule,
+    FavouritesModule,
     HealthModule.forService('api-user'),
   ],
   // D30: every error as an RFC 9457 problem; unknown errors never say why.

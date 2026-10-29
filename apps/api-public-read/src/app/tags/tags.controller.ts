@@ -12,7 +12,7 @@ import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import { collectionETag, sendCached } from '../caching';
 import { refuseQueryParameters } from '../stories/browse.query';
-import type { TagRef } from '../stories/story-summary';
+import type { TagRef } from '@heisreal/story-cards';
 
 /** The order browse groups tags in. */
 export const CATEGORIES = ['theme', 'journey', 'emotion'] as const;

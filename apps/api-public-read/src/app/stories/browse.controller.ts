@@ -9,10 +9,16 @@ import {
   Res,
 } from '@nestjs/common';
 import { runQuery, SURREAL } from '@heisreal/database';
+import {
+  MediaUrls,
+  type StorySummary,
+  SUMMARY_FIELDS,
+  type SummaryRow,
+  toSummary,
+} from '@heisreal/story-cards';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import { collectionETag, publicCacheControl, sendCached } from '../caching';
-import { MediaUrls } from '../media/media-urls';
 import {
   type BrowseQuery,
   encodeCursor,
@@ -20,12 +26,6 @@ import {
   refuseQueryParameters,
 } from './browse.query';
 import { isSlug, notFound } from './slug';
-import {
-  type StorySummary,
-  SUMMARY_FIELDS,
-  type SummaryRow,
-  toSummary,
-} from './story-summary';
 
 // Only the read model (D26) and tags, on the read-only login. The query text is fixed: one
 // variant per sort, chosen here; every value arrives as a bound parameter.
@@ -56,6 +56,11 @@ const BY_RELEVANCE = `${PREAMBLE}
   )
   WHERE $after = NONE OR score < $after.key OR (score = $after.key AND id < $after.id)
   ORDER BY score DESC, id DESC LIMIT $take;`;
+
+/** Cards for these ids (`id=`), the public ones only, newest first; never more than asked. */
+const BY_IDS = `
+  LET $refs = $ids.map(|$i| type::record('publicStory', $i));
+  SELECT ${SUMMARY_FIELDS} FROM $refs ORDER BY publishedAt DESC, id DESC;`;
 
 const QUERIES = {
   latest: byDate('DESC', false),
@@ -100,6 +105,15 @@ export class BrowseController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StoryPage | undefined> {
     const browse = parseBrowseQuery(query);
+    if (browse.ids) {
+      const results = await runQuery(this.db, BY_IDS, { ids: browse.ids });
+      const rows = (results.at(-1) ?? []) as Row[];
+      const page: StoryPage = {
+        data: rows.map((row) => toSummary(row, this.urls)),
+        nextCursor: null,
+      };
+      return sendCached(res, ifNoneMatch, page, collectionETag(page));
+    }
     const results = await runQuery(this.db, queryFor(browse), {
       q: browse.q ?? undefined,
       tags: browse.tags,

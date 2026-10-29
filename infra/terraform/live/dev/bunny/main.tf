@@ -125,13 +125,17 @@ module "bunny" {
   region      = "europe-west2"
 
   # D52: signed, expiring links everywhere; api-public-read signs them for
-  # published stories (its service account is made by the gcp root).
+  # published stories, and api-user for the cards of a person's favourites
+  # (hearts, M2). Their service accounts are made by the gcp root.
   token_auth = {
     stream_embed = true
     stream_cdn   = true
     images       = true
   }
-  signing_key_readers = ["serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com"]
+  signing_key_readers = [
+    "serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com",
+    "serviceAccount:api-user@heisreal-dev.iam.gserviceaccount.com",
+  ]
 
   # Where the library's videos live (Bunny made it with library 789855).
   stream_storage_zone = { id = 2014507, name = "vz-bd66cea0-80b" }

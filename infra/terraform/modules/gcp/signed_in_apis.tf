@@ -123,6 +123,15 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
         name  = "CORS_ALLOWED_ORIGINS"
         value = join(",", var.web_origins)
       }
+      # Hearts (M2): api-user signs the media links on favourites' cards like api-public-read
+      # (D52). Secret names, never values; the bunny root grants the access.
+      dynamic "env" {
+        for_each = each.key == "api-user" && var.api_user_media_signing ? local.api_public_read_media_env : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
 
       # As for api-public-read: ready = the port is open, which happens only after the app has
       # connected to the database and passed its start-up checks (roles, consent policy).

@@ -12,7 +12,8 @@ name: OpenTofu apply
 #     skip their apply.
 #   - One target per run: `target` resolves main's HEAD once and every job checks out that SHA
 #     ($GITHUB_SHA and workflow_run.head_sha are never used).
-#   - Wave 1: gcp and bunny plan in parallel; one approval (approve-1) covers both applies.
+#   - Wave 1: gcp and bunny plan in parallel; one approval (approve-1) covers both applies, and
+#     gcp applies after bunny (bunny grants gcp's services access to keys they read).
 #     Wave 2: cluster (and images) plan after gcp's apply, against its fresh outputs; a second
 #     approval (approve-2) only if they change.
 #   - Superseded: if main moves while a run waits, its plan summaries say "reject this run",
@@ -235,11 +236,19 @@ jobs:
             echo go=false >> "$GITHUB_OUTPUT"
           fi
 
+  # After bunny (Codex, #117): gcp's services read keys the bunny root grants them access to
+  # (e.g. api-user's link-signing keys), so a revision that needs a new grant must not start
+  # before it exists. gcp applies once bunny applied, or had nothing to change; a failed or
+  # cancelled bunny plan or apply holds gcp back (stage-gcp then blocks wave 2; dispatch to
+  # recover).
   apply-gcp:
-    needs: [target, plan-gcp, approve-1]
+    needs: [target, plan-gcp, plan-bunny, approve-1, apply-bunny]
     if: >-
       always() && needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true' &&
-      needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'
+      needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true' &&
+      (needs.apply-bunny.result == 'success' ||
+      (needs.apply-bunny.result == 'skipped' && needs.plan-bunny.result == 'success' &&
+      needs.plan-bunny.outputs.changes == 'false'))
     runs-on: ubuntu-latest
     permissions:
       contents: read

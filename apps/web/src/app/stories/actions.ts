@@ -1,6 +1,13 @@
 'use server';
 
-import { browseStories, type StoryPage } from '@/lib/browse';
+import {
+  browseStories,
+  MAX_IDS,
+  STORY_ID,
+  storyCardsByIds,
+  type StoryPage,
+  type StorySummary,
+} from '@/lib/browse';
 import { sanitizeFilters, toBrowseParams } from '@/lib/browse-query';
 import { getPublicStory, StoriesUnavailableError } from '@/lib/public-stories';
 import { playerSrc } from '@/components/stories/story-media';
@@ -57,6 +64,29 @@ export async function cardPlayer(slug: unknown): Promise<CardPlayerResult> {
   } catch (err) {
     if (err instanceof StoriesUnavailableError)
       return { ok: false, reason: 'unavailable' };
+    throw err;
+  }
+}
+
+/**
+ * The cards for hearts kept on a device (M2, signed out): the public stories among `ids`, from
+ * api-public-read like every other card (D32). web's server sees a list of story ids and nothing
+ * else: no login, no person (D83). Anyone can call a server action, so the input is checked
+ * again here: at most 50 story ids.
+ */
+export async function deviceHeartCards(
+  ids: unknown,
+): Promise<{ ok: true; cards: StorySummary[] } | { ok: false }> {
+  if (
+    !Array.isArray(ids) ||
+    ids.length > MAX_IDS ||
+    !ids.every((id) => typeof id === 'string' && STORY_ID.test(id))
+  )
+    return { ok: false };
+  try {
+    return { ok: true, cards: await storyCardsByIds(ids as string[]) };
+  } catch (err) {
+    if (err instanceof StoriesUnavailableError) return { ok: false };
     throw err;
   }
 }

@@ -81,10 +81,15 @@ for (const scheme of ['light', 'dark'] as const) {
       await account.click();
       const panel = page.getByRole('dialog');
       await expect(panel).toContainText(`Signed in as ${SIGNED_IN_NAME}`);
-      const signOut = panel.getByRole('button', { name: 'Sign out' });
-      await expectTarget(page, signOut);
+      // Measured once the panel has finished opening: it zooms in from 95%, so mid-animation its
+      // controls are briefly under 44 px.
       await panel.evaluate((el) =>
         Promise.all(el.getAnimations({ subtree: true }).map((x) => x.finished)),
+      );
+      await expectTarget(page, panel.getByRole('button', { name: 'Sign out' }));
+      await expectTarget(
+        page,
+        panel.getByRole('link', { name: 'My favourites' }),
       );
       const box = await panel.boundingBox();
       const { width, height } = page.viewportSize() ?? { width: 0, height: 0 };
