@@ -1,6 +1,7 @@
 # web (Next.js, apps/web) on Cloud Run (D4): same image pattern and scaling as
 # the APIs. It server-renders from api-public-read only (D32), so it has no VPC
-# access, no database login and no secrets: its service account holds no roles.
+# access, no database login and no secrets: its service account holds no roles
+# (Stripe's publishable key and Buy Button IDs are public by design).
 # Public since the walking-skeleton page (0.9), together with api-public-read
 # (D31; was private, decision 8).
 
@@ -82,6 +83,25 @@ resource "google_cloud_run_v2_service" "web" {
       env {
         name  = "SITE_URL"
         value = var.web_site_url
+      }
+
+      # Donations through Stripe's Buy Buttons on /donate (Joel, 2026-10-29): public values the
+      # browser hands to Stripe's script. Empty = the page's placeholder.
+      env {
+        name  = "STRIPE_PUBLISHABLE_KEY"
+        value = var.web_donations.stripe_publishable_key
+      }
+      env {
+        name  = "STRIPE_DONATE_ONE_OFF_BUTTON_ID"
+        value = var.web_donations.one_off_button_id
+      }
+      env {
+        name  = "STRIPE_DONATE_MONTHLY_BUTTON_ID"
+        value = var.web_donations.monthly_button_id
+      }
+      env {
+        name  = "STRIPE_DONOR_PORTAL_URL"
+        value = var.web_donations.donor_portal_url
       }
 
       # As for the APIs: ready = the port is open. GET /health exists for

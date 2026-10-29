@@ -240,6 +240,40 @@ variable "clerk_publishable_key" {
   }
 }
 
+variable "web_donations" {
+  description = <<-EOT
+    Stripe's Buy Buttons on /donate (Joel, 2026-10-29): the publishable key, the two buttons' IDs
+    (made in the Stripe Dashboard from the stripe root's Payment Links) and the donor portal's
+    login page (`tf.sh stripe output stripe`). All public by design. web shows the buttons only
+    when the key and both IDs are set; otherwise its "giving isn't open yet" placeholder.
+  EOT
+  type = object({
+    stripe_publishable_key = optional(string, "")
+    one_off_button_id      = optional(string, "")
+    monthly_button_id      = optional(string, "")
+    donor_portal_url       = optional(string, "")
+  })
+  default  = {}
+  nullable = false
+  validation {
+    condition     = var.web_donations.stripe_publishable_key == "" || can(regex("^pk_(test|live)_[A-Za-z0-9]+$", var.web_donations.stripe_publishable_key))
+    error_message = "web_donations.stripe_publishable_key must be a Stripe publishable key (pk_test_… or pk_live_…), never a secret or restricted key."
+  }
+  validation {
+    condition     = !startswith(var.web_donations.stripe_publishable_key, "pk_live_") || var.project_id != "heisreal-dev"
+    error_message = "Dev takes no real money: web_donations needs Stripe's sandbox (pk_test_…) in heisreal-dev."
+  }
+  validation {
+    condition = alltrue([for id in [var.web_donations.one_off_button_id, var.web_donations.monthly_button_id] :
+    id == "" || can(regex("^buy_btn_[A-Za-z0-9]+$", id))])
+    error_message = "The button IDs are Stripe Buy Button IDs (buy_btn_…)."
+  }
+  validation {
+    condition     = var.web_donations.donor_portal_url == "" || can(regex("^https://billing\\.stripe\\.com/p/login/[A-Za-z0-9_]+$", var.web_donations.donor_portal_url))
+    error_message = "donor_portal_url is Stripe's portal login page (https://billing.stripe.com/p/login/…)."
+  }
+}
+
 variable "web_origins" {
   description = "web's origins (its Cloud Run URLs), allowed to call the APIs from the browser (CORS, D31) and, on api-user and api-admin, the allowed azp of Clerk session tokens. Passed in rather than read from the service, which would be a dependency cycle."
   type        = list(string)

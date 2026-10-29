@@ -87,7 +87,8 @@ const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/9
 
 /**
  * Home (plan 1.1), server-rendered from api-public-read (D32): the question, the newest stories,
- * ways in by theme, the invitation to share, and the giving placeholder (donations are M4).
+ * ways in by theme, the invitation to share, and giving (/donate, M4: Stripe's Buy Buttons; Give
+ * monthly opens its Monthly option).
  */
 export default async function Page() {
   await connection();
@@ -255,7 +256,7 @@ export default async function Page() {
             >
               Give once
             </Link>
-            <Link href="/donate" className={primary}>
+            <Link href="/donate?frequency=monthly" className={primary}>
               Give monthly
             </Link>
           </div>

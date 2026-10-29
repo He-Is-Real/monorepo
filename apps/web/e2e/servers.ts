@@ -22,7 +22,7 @@ export const fixtureToken = (session = '', sub = E2E_FIXTURE_USER_ID) =>
 
 /** Dev as it is: indexing off, D48 on, the E2E_FIXTURES stand-in for Clerk. Every suite's baseURL. */
 export const WEB_PORT = base;
-/** Go live: INDEXING=allow and D48 off (indexing.e2e.ts). */
+/** Go live: INDEXING=allow, D48 off (indexing.e2e.ts) and Stripe's Buy Buttons (donate.e2e.ts). */
 export const WEB_LIVE_PORT = base + 1;
 export const WEB_LIVE_URL = `http://localhost:${WEB_LIVE_PORT}`;
 /** api-public-read down: every API request answers 503. */
@@ -43,3 +43,14 @@ export const SIGNED_IN_NAME = 'Bartholomew Montgomery-Fitzwilliam Smith';
  * date. The stub's `tag=new-test` stories are dated around it.
  */
 export const E2E_NOW = '2026-10-25T12:00:00Z';
+
+/**
+ * Stripe's Buy Buttons on the Go live server (donate.e2e.ts). Made-up but well-formed values: the
+ * tests answer js.stripe.com themselves, so nothing reaches Stripe.
+ */
+export const STRIPE_E2E = {
+  publishableKey: 'pk_test_e2e0000000000000000',
+  oneOffButtonId: 'buy_btn_e2eOneOff',
+  monthlyButtonId: 'buy_btn_e2eMonthly',
+  donorPortalUrl: 'https://billing.stripe.com/p/login/test_e2ePortal',
+};

@@ -1,0 +1,149 @@
+# Donations through Stripe's own pages (Joel, 2026-10-29: Stripe's embeddable Buy Buttons,
+# option A). What Stripe's API can make is here; the two Buy Buttons themselves are made once
+# in the Stripe Dashboard from these Payment Links (no API), and only their public IDs reach the
+# site (live/dev/gcp). Stripe hosts every payment page: no card data, and no donor data, reaches
+# our services.
+#
+#   one-off  "customer chooses price" in GBP, from £1, starting at £10; the button says Donate.
+#   monthly  £1 a month, and the donor chooses how many (1–999): 10 = £10 a month. Stripe can't
+#            let donors type a monthly amount (pay-what-you-want has no recurring prices).
+#   portal   Stripe's donor portal (a login page by email): change the monthly amount, update
+#            the card, see receipts, or stop the gift at the end of the month already paid.
+#
+# Nothing here is secret: IDs and public URLs only, so the state holds no secrets.
+
+locals {
+  currency = "gbp"
+  pounds   = var.monthly.unit_amount / 100
+  metadata = { managed_by = "opentofu", environment = var.environment }
+}
+
+# Refuse to plan with the wrong kind of key: dev never touches live mode, and a live
+# environment never runs on a sandbox key. Only the key's mode is checked, never printed.
+resource "terraform_data" "key_mode" {
+  lifecycle {
+    precondition {
+      condition     = var.key_mode == (var.live ? "live" : "test")
+      error_message = var.live ? "This environment takes real money but the Stripe key isn't a live key (sk_live_/rk_live_)." : "This environment is sandbox-only but the Stripe key isn't a test key (sk_test_/rk_test_). Refusing to plan."
+    }
+  }
+}
+
+resource "stripe_product" "donation" {
+  name     = var.product_name
+  metadata = local.metadata
+
+  depends_on = [terraform_data.key_mode]
+}
+
+resource "stripe_price" "one_off" {
+  product  = stripe_product.donation.id
+  currency = local.currency
+  nickname = "One-off, donor chooses the amount"
+  metadata = local.metadata
+
+  custom_unit_amount {
+    enabled = true
+    minimum = var.one_off.minimum
+    preset  = var.one_off.preset
+  }
+}
+
+resource "stripe_price" "monthly" {
+  product     = stripe_product.donation.id
+  currency    = local.currency
+  unit_amount = var.monthly.unit_amount
+  nickname    = "Monthly, £${local.pounds} a unit"
+  metadata    = local.metadata
+
+  recurring {
+    interval = "month"
+  }
+}
+
+resource "stripe_payment_link" "one_off" {
+  line_items = [{
+    price    = stripe_price.one_off.id
+    quantity = 1
+  }]
+  submit_type                = "donate"
+  billing_address_collection = "auto"
+  metadata                   = local.metadata
+
+  after_completion = {
+    type = "hosted_confirmation"
+    hosted_confirmation = {
+      custom_message = "Thank you for your gift to He Is Real Today. Stripe will email your receipt."
+    }
+  }
+}
+
+resource "stripe_payment_link" "monthly" {
+  line_items = [{
+    price    = stripe_price.monthly.id
+    quantity = var.monthly.quantity
+    adjustable_quantity = {
+      enabled = true
+      minimum = 1
+      maximum = var.monthly.max_quantity
+    }
+  }]
+  billing_address_collection = "auto"
+  metadata                   = local.metadata
+
+  # Stripe shows a quantity, so say what it means beside the pay button.
+  custom_text = {
+    submit = {
+      message = "Each one is £${local.pounds} a month: choose how many £${local.pounds}s you'd like to give each month (10 = £${10 * local.pounds} a month). You can change or stop it at any time from the link on our donate page."
+    }
+  }
+
+  after_completion = {
+    type = "hosted_confirmation"
+    hosted_confirmation = {
+      custom_message = "Thank you for giving to He Is Real Today every month. Stripe will email your receipts."
+    }
+  }
+}
+
+resource "stripe_billing_portal_configuration" "donors" {
+  name               = "Donors"
+  default_return_url = "${var.site_url}/donate"
+  metadata           = local.metadata
+
+  business_profile = {
+    headline           = "He Is Real Today: your monthly gift"
+    privacy_policy_url = "${var.site_url}/privacy"
+  }
+
+  login_page = {
+    enabled = true
+  }
+
+  features = {
+    subscription_update = {
+      enabled                 = true
+      default_allowed_updates = ["quantity"]
+      proration_behavior      = "none"
+      products = [{
+        product = stripe_product.donation.id
+        prices  = [stripe_price.monthly.id]
+        adjustable_quantity = {
+          enabled = true
+          minimum = 1
+          maximum = var.monthly.max_quantity
+        }
+      }]
+    }
+    subscription_cancel = {
+      enabled = true
+      mode    = "at_period_end"
+    }
+    payment_method_update = {
+      enabled = true
+    }
+    invoice_history = {
+      enabled = true
+    }
+  }
+}

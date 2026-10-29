@@ -190,8 +190,9 @@ resource "google_service_account_iam_member" "ci_dev_seeder_wif" {
 }
 
 # --- deployer: manual applies ----------------------------------------------
-# Only what the gcp and cluster roots manage. It can't read secret values or
-# backups (custom roles below leave out versions.access and objects.*), and it
+# Only what the gcp, cluster and stripe roots manage. It can't read secret values
+# or backups (custom roles below leave out versions.access and objects.*), except
+# the one key the stripe root runs with (stripe.tf), and it
 # can only grant the one project role Terraform uses. GKE admin still lets it
 # read in-cluster Kubernetes Secrets, which ESO fills from Secret Manager.
 resource "google_service_account" "tf_deployer" {

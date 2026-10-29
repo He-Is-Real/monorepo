@@ -163,8 +163,8 @@ test('gcp defaults to tf-deployer locally', () => {
   assert.match(result.stderr, new RegExp(`tf.sh: gcp as ${deployer}`));
 });
 
-test('images and cluster default to tf-deployer locally', () => {
-  for (const root of ['images', 'cluster']) {
+test('images, cluster and stripe default to tf-deployer locally', () => {
+  for (const root of ['images', 'cluster', 'stripe']) {
     const call = tofuCall(run([root, 'plan']));
     assert.equal(
       call.argv[0],
@@ -501,6 +501,30 @@ test('bunny-mask errors stay quiet', () => {
 test('bunny-mask needs secrets or state', () => {
   assert.equal(
     run(['bunny-mask', 'other'], { GITHUB_ACTIONS: 'true' }).status,
+    64,
+  );
+});
+
+// stripe-mask
+
+test('stripe-mask refused outside CI', () => {
+  const result = run(['stripe-mask']);
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stdout, /add-mask/);
+});
+
+test('stripe-mask masks the Stripe key, read as the job', () => {
+  const result = run(['stripe-mask'], { GITHUB_ACTIONS: 'true' });
+  assert.equal(result.status, 0, result.all);
+  assert.equal(result.stdout, '::add-mask::stub-stripe-api-key\n');
+  assert.equal(result.stderr, '');
+  const access = result.gcloudCalls.find((c) => c[0] === 'secrets');
+  assert.ok(access.includes('--secret=stripe-api-key'), JSON.stringify(access));
+});
+
+test('stripe-mask takes no arguments', () => {
+  assert.equal(
+    run(['stripe-mask', 'x'], { GITHUB_ACTIONS: 'true' }).status,
     64,
   );
 });

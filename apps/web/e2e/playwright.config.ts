@@ -8,6 +8,7 @@ import {
   STUB_LIVE_PORT,
   STUB_PORT,
   STUB_USER_PORT,
+  STRIPE_E2E,
   STUB_USER_URL,
   WEB_DOWN_PORT,
   WEB_LIVE_PORT,
@@ -90,6 +91,11 @@ export default defineConfig({
     web(WEB_LIVE_PORT, STUB_LIVE_PORT, {
       INDEXING: 'allow',
       E2E_FIXTURES: 'true',
+      // Giving open (donate.e2e.ts); dev's server keeps the placeholder.
+      STRIPE_PUBLISHABLE_KEY: STRIPE_E2E.publishableKey,
+      STRIPE_DONATE_ONE_OFF_BUTTON_ID: STRIPE_E2E.oneOffButtonId,
+      STRIPE_DONATE_MONTHLY_BUTTON_ID: STRIPE_E2E.monthlyButtonId,
+      STRIPE_DONOR_PORTAL_URL: STRIPE_E2E.donorPortalUrl,
     }),
     web(WEB_DOWN_PORT, STUB_DOWN_PORT, { E2E_FIXTURES: 'true' }),
     // Signed in: E2E_FIXTURES makes the header show this name instead of Clerk's control, so no
@@ -98,6 +104,9 @@ export default defineConfig({
       E2E_FIXTURES: 'true',
       E2E_SIGNED_IN_NAME: SIGNED_IN_NAME,
       API_USER_URL: STUB_USER_URL,
+      // Only the monthly Buy Button (donate.e2e.ts): the One-off option is hidden.
+      STRIPE_PUBLISHABLE_KEY: STRIPE_E2E.publishableKey,
+      STRIPE_DONATE_MONTHLY_BUTTON_ID: STRIPE_E2E.monthlyButtonId,
     }),
   ],
 });
