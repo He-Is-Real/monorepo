@@ -540,7 +540,7 @@ retried`, on both RocksDB and the in-memory engine.
 
 ### M2 hearts (favourites; founder, 2026-10-25: hearts are private)
 
-34. **`favourite`: a person's private hearts.** `person`, `story`, `createdAt`, all `READONLY`; one
+35. **`favourite`: a person's private hearts.** `person`, `story`, `createdAt`, all `READONLY`; one
     per person and story (`favourite_unique`). Permissions: only the person reads, creates and
     deletes their own rows; nobody updates them; **no service login reads them**, and neither does
     the story's owner (tested: Bob sees no row and a count of 0 on his own story). Event
@@ -561,24 +561,83 @@ retried`, on both RocksDB and the in-memory engine.
     story's id, like `hiddenStory`, so hearts never bump the story's `version` (D29), readable only
     by the story's owner: a number, never who.
 
+### M2 submit flow (D94, W3, D112, D113: limits an admin adjusts)
+
+36. **The submission limits are settings, with per-person overrides (founder, 2026-10-25 and
+    2026-10-28).** `submissionSettings:current` (one record; data script 0006 writes today's
+    values, which are also the field defaults): `storyTextMin` 200, `storyTextMax` 10,000,
+    `tagsMin` 1, `tagsMax` 5, `openDraftsMax` 3, `submissionsPer7Days` 1,
+    `uploadRequestsPerHour` 10 (for the upload PR; not enforced yet). Everyone reads it; only
+    api-admin's login and system users write it, never delete it; min ≤ max is checked; every
+    change writes an `UpdateSubmissionSettings` audit row with `changedBy` as the actor
+    (required from api-admin; the record keeps the last admin's name, so api-admin sets it on
+    every change). `fn::settings::submission()` returns it with the defaults for anything
+    missing. **The limits are anti-spam and cost controls, not invariants** (coordinator,
+    Codex #118 round 2): a change applies to writes that start after it commits; a write already
+    in flight may finish under the old values. No fence ties a settings write to story writes
+    (one would touch every person on each change). The per-person fence still makes two
+    overlapping writes by the same person conflict, so the drafts and weekly counts hold for
+    each person. **Per person, `submitterLimits`** (id = `submitterLimits:<user id>`, `user` must
+    match): `trusted` (the whitelist: no open-drafts or weekly limit) and optional overrides of
+    `openDraftsMax`, `submissionsPer7Days` and `uploadRequestsPerHour` (NONE = the setting).
+    Written by api-admin's login (naming the admin) and system users; the person reads their own
+    row. An admin resets someone with an update (trusted false, overrides NONE), which is audited;
+    only api-user's login deletes the row, at erasure (Codex #118: a delete would change someone's
+    limits with no audit row). Every change writes `UpdateSubmitterLimits`.
+    `devSeed = true` marks dev-seed's rows for dev's test accounts and is refused unless
+    `_setting:consent` says dev. `fn::limits::effective($user)` is the one definition of what
+    applies to a person. **Enforced:** `story_limits`, only on the person's own writes (the
+    migrator and dev-seed load data as themselves): a new story when they already have their
+    maximum of drafts (`limit_open_drafts:`); a first submission when
+    `fn::story::next_submission_at` says it isn't yet time (`limit_weekly_submission:`).
+    **No grandfathering (Joel, 2026-10-30: "make people stick to new rules even if they had
+    progress under old rule"):** every later action meets the limits in force, drafts started
+    under older ones included. `story_text_limits` (by whoever writes) and api-user check:
+    - **a change of text or themes** (create, edit): refused only if it's over `storyTextMax` /
+      `tagsMax` **and** makes it worse (longer, more themes), so a draft over a newly lowered
+      maximum can still be trimmed (`story_text_too_long:`, `story_too_many_tags:`; api-user
+      `400` on `/body`, `/tagSlugs`);
+    - **submitting** (entering pending, in_review or approved from an editable status): the
+      minimum and maximum length and at most `tagsMax` themes, as they are now (the database
+      and api-user; api-user answers `400` `story_text_too_short`, `story_text_too_long` or
+      `too_many_tags`, with the `limit` and a message naming it), plus at least `tagsMin`
+      themes (api-user only: tests and data from before have none);
+    - **a new draft:** the open-drafts limit in force; a person over a lowered one keeps their
+      drafts and can edit them, but starts no new one until they're under it.
+      Other writes to stories (moderation, processing) aren't checked against these. The fields
+      keep hard ceilings (50,000 characters, 20 themes). `fn::story::shape_problem` no longer has
+      the 200 constant.
+      **`submissionLog` (D113):** one row per first submission (`person`, `at`), written and pruned
+      to 7 days by `story_limits` (events run elevated), with no story link, so deleting or
+      withdrawing a story doesn't free the week. Nobody writes it directly; the person reads their
+      own; erasure deletes it (api-user's login). Every write bumps the person's fence, so
+      overlapping creates or submissions conflict at commit. api-user maps the codes to `409`
+      (`submissionLimitOf`) and `400` (`storyLimitOf`, `isStoryTextTooShortError`). No admin route
+      yet (M3's admin screens). Tests: `submission-limits.int-spec.ts`; suites about other rules
+      that start more stories per person mark their people trusted (`trustSubmitters`), and
+      `buildWorld` makes Ann and Bob trusted.
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
 
-| Table                                                                                                                                                                                | Holds or links                                 | Class      | On create/update                                                           | After erasure                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ---------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `user`                                                                                                                                                                               | the person (Clerk id until erasure)            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB | stub: id, `createdAt`, `gdprDeletedAt`                            |
-| `story`                                                                                                                                                                              | testimony; `submitter`                         | linked     | submitter live + fence (and owner/consent rules)                           | deleted                                                           |
-| `publicStory`                                                                                                                                                                        | published testimony; same id as the story      | linked     | story approved + mirrored + consent; submitter live + fence                | deleted (cascade)                                                 |
-| `hiddenStory`                                                                                                                                                                        | hidden publish data; same id as story          | linked     | event only; submitter live + fence                                         | deleted (cascade)                                                 |
-| `consent`                                                                                                                                                                            | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
-| `moderationReview`                                                                                                                                                                   | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
-| `idempotencyKey`                                                                                                                                                                     | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt); people: own keys only             | deleted by erasure; others expire in 24 h                         |
-| `favourite`                                                                                                                                                                          | a heart; `person`, `story`                     | linked     | person + story owner live, fenced; sign-up consent; story public; own rows | deleted (erasure event; also with the story)                      |
-| `auditLog`                                                                                                                                                                           | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
-| `personFence`                                                                                                                                                                        | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
-| `legalFence`                                                                                                                                                                         | one counter (`legalFence:forms`)               | none       | written by events only; `PERMISSIONS NONE`                                 | —                                                                 |
-| `tag`, `dpaVersion`, `signupFormVersion`, `testimonyFormVersion`, `socialSharingFormVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity`, `_setting` | no person data                                 | none       | —                                                                          | —                                                                 |
+| Table                                                                                                                                                                                                      | Holds or links                                                 | Class      | On create/update                                                                                 | After erasure                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `user`                                                                                                                                                                                                     | the person (Clerk id until erasure)                            | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB                       | stub: id, `createdAt`, `gdprDeletedAt`                            |
+| `story`                                                                                                                                                                                                    | testimony; `submitter`                                         | linked     | submitter live + fence (and owner/consent rules)                                                 | deleted                                                           |
+| `publicStory`                                                                                                                                                                                              | published testimony; same id as the story                      | linked     | story approved + mirrored + consent; submitter live + fence                                      | deleted (cascade)                                                 |
+| `hiddenStory`                                                                                                                                                                                              | hidden publish data; same id as story                          | linked     | event only; submitter live + fence                                                               | deleted (cascade)                                                 |
+| `consent`                                                                                                                                                                                                  | the ledger; `subject`                                          | linked     | subject live + fence; append-only                                                                | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
+| `moderationReview`                                                                                                                                                                                         | feedback about a story; `story`, `moderator`                   | linked     | story exists, its submitter live + fence                                                         | deleted (cascade)                                                 |
+| `idempotencyKey`                                                                                                                                                                                           | `[service, user record, key]`; `{id, version}`                 | linked     | user live + fence (webhook keys exempt); people: own keys only                                   | deleted by erasure; others expire in 24 h                         |
+| `favourite`                                                                                                                                                                                                | a heart; `person`, `story`                                     | linked     | person + story owner live, fenced; sign-up consent; story public; own rows                       | deleted (erasure event; also with the story)                      |
+| `auditLog`                                                                                                                                                                                                 | `actor`, `entity` ids; typed codes                             | kept (D38) | none: no person-state dependency, and the fields can't hold text                                 | kept 6 years; ids point nowhere                                   |
+| `personFence`                                                                                                                                                                                              | a counter keyed by user id                                     | none       | written by events only; `PERMISSIONS NONE`                                                       | stays (no data); can go with the stub                             |
+| `legalFence`                                                                                                                                                                                               | one counter (`legalFence:forms`)                               | none       | written by events only; `PERMISSIONS NONE`                                                       | —                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `submitterLimits`                                                                                                                                                                                          | D112's per-person limits and trusted mark; `user`, `changedBy` | linked     | user live + fence; `changedBy` required from api-admin; `devSeed` dev only; audit row per change |
+| `submissionLog`                                                                                                                                                                                            | D113's recent submissions; `person`                            | linked     | written by `story_limits` only; person live + fence                                              |
+| `submissionSettings`, `tag`, `dpaVersion`, `signupFormVersion`, `testimonyFormVersion`, `socialSharingFormVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity`, `_setting` | no person data                                                 | none       | —                                                                                                | —                                                                 |
 
 - **Audit writes that race erasure.** These are allowed to commit, because audit rows are kept
   anyway (D38). They can't carry testimony text: every field is typed or an enum, and unknown
@@ -604,7 +663,7 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
 - **Expect more conflicts per person, not across people.** Approving someone's story while they
   edit, or two tabs of one person, now conflict. That's intended. One exception crosses people:
   every consent event, every new story and every submission writes `legalFence:forms`, as does
-  every write to a consent form version (item 33), so two people's grants, new drafts or
+  every write to a consent form version (item 34), so two people's grants, new drafts or
   submissions at the same moment can conflict too, and one retries. The retries are optimistic
   (3 attempts for a plain command, 4 with an `Idempotency-Key`): they can't deadlock, but
   sustained contention could use them up.
@@ -740,6 +799,7 @@ spec has the reference:
 2. `DELETE story WHERE submitter = $u`. This works without select permission, and the cascade
    removes `publicStory` and `moderationReview`.
 3. Delete their idempotency keys (`WHERE record::id(id)[1] = $u`).
+   Delete their `submitterLimits` row and `submissionLog` rows (D112, D113).
 4. Set `gdprDeletedAt` (the database stamps the time) and clear `clerkUserId` in one update
    (D37). From then on `AUTHENTICATE` can't find them. The same update deletes their hearts
    (`user_erasure_favourites`), and step 2 deleted the hearts others gave their stories.

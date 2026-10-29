@@ -2,6 +2,7 @@ import { THUMBNAIL_PATH_CASES } from '@heisreal/contracts/media-paths';
 import type { Surreal, SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
+  trustSubmitters,
   grantAll,
   outcome,
   publishDpa,
@@ -95,6 +96,7 @@ describe('approval waits for media processing (A2)', () => {
     admin = await t.service('api_admin');
     workflow = await t.service('workflow');
     await createPeople(t, { pat: 'user_pat', moderator: 'user_mod' });
+    await trustSubmitters(t, 'pat');
     await publishDpa(t, 'v1');
     pat = await t.person('user_pat');
     await grantAll(pat);
@@ -972,6 +974,7 @@ describe('approval waits for media processing (A2)', () => {
 
     it('stays off the read model if consent was withdrawn meanwhile', async () => {
       await createPeople(t, { cal: 'user_cal' });
+      await trustSubmitters(t, 'cal');
       const cal = await t.person('user_cal');
       await grantAll(cal);
       const id = 'proc_cal';
@@ -1074,6 +1077,7 @@ describe('approval waits for media processing (A2)', () => {
 
     it('withdrawing consent while hidden, then giving it again, publishes nothing', async () => {
       await createPeople(t, { dee: 'user_dee' });
+      await trustSubmitters(t, 'dee');
       const dee = await t.person('user_dee');
       await grantAll(dee);
       const id = 'proc_dee';
@@ -1171,6 +1175,7 @@ describe('approval waits for media processing (A2)', () => {
     it('another person can’t touch it', async () => {
       const id = await live(video);
       await createPeople(t, { eve: 'user_eve' });
+      await trustSubmitters(t, 'eve');
       const eve = await t.person('user_eve');
       expect(
         await outcome(

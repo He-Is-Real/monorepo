@@ -117,6 +117,12 @@ export async function buildWorld(t: TestDatabase) {
        materiality: 'material', documentPath: 'libs/legal/dpa/v2.md', contentHash: $h };`,
     { h: sha256('v2 draft') },
   );
+  // The world has more stories per person than D94's limits allow a person to start: trusted.
+  await run(
+    await t.migrator(),
+    `CREATE submitterLimits:ann SET user = user:ann, trusted = true;
+     CREATE submitterLimits:bob SET user = user:bob, trusted = true;`,
+  );
   const ann = await t.person('user_ann');
   const bob = await t.person('user_bob');
   await grantAll(ann);
@@ -149,6 +155,8 @@ export const ERASE = `
   IF $u = NONE { THROW 'unknown or already erased' };
   DELETE story WHERE submitter = $u;              -- cascades publicStory + moderationReview
   DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
+  DELETE submitterLimits WHERE user = $u;         -- D112: their limits and trusted mark
+  DELETE submissionLog WHERE person = $u;         -- D113: their recent submissions
   UPDATE $u SET gdprDeletedAt = time::now(), clerkUserId = NONE;   -- D37: a stub remains
   CREATE auditLog CONTENT { service: 'api-user', action: 'EraseAccount', entity: $u,
     reason: $reason };

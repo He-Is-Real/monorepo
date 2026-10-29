@@ -286,3 +286,170 @@ test('the stub api-user’s hearts fit the contract', async ({ request }) => {
   expect((await send('PUT', `${list}/browse_01`)).status()).toBe(401);
   expect((await send('DELETE', `${list}/browse_01`)).status()).toBe(401);
 });
+
+test('the stub api-user’s submit flow fits the contract, answers and errors', async ({
+  request,
+}) => {
+  const session = `contract${Date.now()}`;
+  await request.post(`${STUB_USER_URL}/__e2e/sessions/${session}`, {
+    data: { signupAccepted: true, granted: ['age_18plus', 'account_data'] },
+  });
+  const auth = { authorization: `Bearer ${fixtureToken(session)}` };
+  const call = async (
+    method: string,
+    path: string,
+    {
+      data,
+      headers = {},
+    }: { data?: unknown; headers?: Record<string, string> } = {},
+  ) => {
+    const res = await request.fetch(`${STUB_USER_URL}${path}`, {
+      method,
+      headers: { ...auth, ...headers },
+      data,
+    });
+    const text = await res.text();
+    const body = text === '' ? undefined : JSON.parse(text);
+    expect(
+      userContract.problems({
+        method,
+        path: path.split('?')[0],
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body,
+      }),
+      `${method} ${path} ${res.status()}`,
+    ).toEqual([]);
+    return { status: res.status(), body };
+  };
+  const key = () =>
+    `contract-key-${Math.random().toString(36).slice(2)}-xxxxxxxx`;
+  const text = 'A story long enough to submit. '.repeat(8);
+
+  expect((await call('GET', '/v1/tags')).status).toBe(200);
+  expect((await call('GET', '/v1/account/limits')).status).toBe(200);
+  expect((await call('GET', '/v1/account/consents')).status).toBe(200);
+  const draft = { title: 'T', primaryFormat: 'written', body: text };
+  // No testimony consent yet: refused.
+  expect(
+    (
+      await call('POST', '/v1/stories', {
+        data: draft,
+        headers: { 'idempotency-key': key() },
+      })
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await call('POST', '/v1/account/consents', {
+        data: {
+          form: 'testimony',
+          formVersion: 'v1',
+          statement: 'special_category_religious',
+          mechanism: 'web_form_submission',
+        },
+        headers: { 'idempotency-key': key() },
+      })
+    ).status,
+  ).toBe(201);
+  expect(
+    (
+      await call('POST', '/v1/account/consents', {
+        data: {
+          form: 'testimony',
+          formVersion: 'v0',
+          statement: 'publish',
+          mechanism: 'web_form_submission',
+        },
+        headers: { 'idempotency-key': key() },
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await call('POST', '/v1/stories', {
+        data: { title: ' ' },
+        headers: { 'idempotency-key': key() },
+      })
+    ).status,
+  ).toBe(400);
+  const created = await call('POST', '/v1/stories', {
+    data: draft,
+    headers: { 'idempotency-key': key() },
+  });
+  expect(created.status).toBe(201);
+  const id = created.body.id;
+  expect((await call('GET', '/v1/account/stories?status=draft')).status).toBe(
+    200,
+  );
+  expect((await call('GET', `/v1/account/stories/${id}`)).status).toBe(200);
+  expect((await call('GET', '/v1/account/stories/none')).status).toBe(404);
+  const patch = (version?: number, data: object = { tagSlugs: ['hope'] }) =>
+    call('PATCH', `/v1/stories/${id}`, {
+      data,
+      headers: {
+        'content-type': 'application/merge-patch+json',
+        ...(version ? { 'if-match': `"${version}"` } : {}),
+      },
+    });
+  expect((await patch()).status).toBe(428);
+  expect((await patch(1, { body: ' ' })).status).toBe(400);
+  expect((await patch(1)).status).toBe(200);
+  expect((await patch(1)).status).toBe(412);
+  const submit = (version: number) =>
+    call('POST', `/v1/stories/${id}/submit`, {
+      headers: { 'if-match': `"${version}"`, 'idempotency-key': key() },
+    });
+  expect((await submit(2)).status).toBe(403); // no publish consent yet
+  await call('POST', '/v1/account/consents', {
+    data: {
+      form: 'testimony',
+      formVersion: 'v1',
+      statement: 'publish',
+      mechanism: 'web_form_submission',
+    },
+    headers: { 'idempotency-key': key() },
+  });
+  expect((await submit(1)).status).toBe(412);
+  expect((await submit(2)).status).toBe(200);
+  expect((await patch(3)).status).toBe(409); // locked once submitted
+  const second = await call('POST', '/v1/stories', {
+    data: { ...draft, tagSlugs: ['hope'] },
+    headers: { 'idempotency-key': key() },
+  });
+  const weekly = await call('POST', `/v1/stories/${second.body.id}/submit`, {
+    headers: { 'if-match': '"1"', 'idempotency-key': key() },
+  });
+  expect(weekly).toMatchObject({
+    status: 409,
+    body: { code: 'weekly_submission_limit_reached' },
+  });
+  const short = await call('POST', '/v1/stories', {
+    data: { ...draft, body: 'Short', tagSlugs: ['hope'] },
+    headers: { 'idempotency-key': key() },
+  });
+  expect(
+    (
+      await call('POST', `/v1/stories/${short.body.id}/submit`, {
+        headers: { 'if-match': '"1"', 'idempotency-key': key() },
+      })
+    ).body.code,
+  ).toBe('story_text_too_short');
+  await call('POST', '/v1/stories', {
+    data: draft,
+    headers: { 'idempotency-key': key() },
+  }); // the third open draft
+  const limit = await call('POST', '/v1/stories', {
+    data: draft,
+    headers: { 'idempotency-key': key() },
+  });
+  expect(limit).toMatchObject({
+    status: 409,
+    body: { code: 'draft_limit_reached' },
+  });
+  // With 3 drafts and a submission this week, as the page reads it.
+  expect((await call('GET', '/v1/account/limits')).body).toMatchObject({
+    openDrafts: { max: 3, open: 3 },
+    submissions: { per7Days: 1, nextAvailableAt: expect.any(String) },
+  });
+});

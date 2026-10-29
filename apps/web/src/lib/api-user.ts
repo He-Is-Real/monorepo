@@ -12,7 +12,8 @@
  *   time; Clerk caches and renews it (it lives 60 s). No token, no request ({@link NotSignedIn}).
  * - **Errors are RFC 9457 problems** (docs/api-conventions.md, D30): any answer that isn't 2xx
  *   or 304 throws an {@link ApiUserProblem} with the problem's `status`, `code`, `detail` and
- *   field `errors`. A network failure or timeout throws {@link ApiUserUnavailable}.
+ *   field `errors`. A network failure or timeout throws {@link ApiUserUnavailable}, and so does a
+ *   success whose body can't be read or parsed: either way the outcome is unknown.
  * - **412 means the resource changed since it was read** ({@link StaleVersion}): re-read it,
  *   re-apply the change if nothing it touched has changed, and ask the person only on a real
  *   clash (D70). **428 means we forgot `If-Match`**, a bug in our code, never the person's.
@@ -151,10 +152,21 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
       );
     }
     if (!res.ok && res.status !== 304) throw await problemOf(res);
-    const text = res.status === 304 ? '' : await res.text();
+    // A success whose body is cut off or isn't JSON tells us nothing about what was done: the
+    // command may well have applied. It's an unknown outcome, like no answer at all, so callers
+    // keep their Idempotency-Key and try again (Codex #118).
+    let data: T | undefined;
+    try {
+      const text = res.status === 304 ? '' : await res.text();
+      data = text ? (JSON.parse(text) as T) : undefined;
+    } catch (err) {
+      throw new ApiUserUnavailable(
+        `api-user's answer could not be read: ${err instanceof Error ? err.name : 'error'}`,
+      );
+    }
     return {
       status: res.status,
-      data: text ? (JSON.parse(text) as T) : undefined,
+      data,
       etag: res.headers.get('ETag'),
       location: res.headers.get('Location'),
     };

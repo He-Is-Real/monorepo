@@ -42,6 +42,8 @@ export interface Step {
 /** The variables the seed script binds (seed.ts). No secrets, no SurrealQL text. */
 export interface SeedVars {
   people: string[];
+  /** D112: Clerk user ids of dev's test accounts, marked trusted submitters. */
+  testAccounts: string[];
   moderator: string;
   tags: { id: string; name: string; category: string }[];
   stories: {
@@ -237,6 +239,7 @@ export function buildVars(
   }
   return {
     people: data.people,
+    testAccounts: data.testAccounts,
     moderator: data.moderator,
     tags: data.tags.map(({ id, name, category }) => ({ id, name, category })),
     stories: data.stories.map((s) => ({

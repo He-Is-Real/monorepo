@@ -5,6 +5,7 @@ import type { Surreal, SurrealQueryable } from 'surrealdb';
 import {
   consentEvent,
   createPeople,
+  trustSubmitters,
   grantAll,
   MIGRATION_TIMEOUT_MS,
   outcome,
@@ -86,6 +87,7 @@ describe('story types and shapes (D53)', () => {
     admin = await t.service('api_admin');
     workflow = await t.service('workflow');
     await createPeople(t, { pat: 'user_pat', moderator: 'user_mod' });
+    await trustSubmitters(t, 'pat');
     await publishDpa(t, 'v1');
     pat = await t.person('user_pat');
     await grantAll(pat);
@@ -442,6 +444,7 @@ describe('story types and shapes (D53)', () => {
       expect(await image()).toMatchObject({ alt: 'Sunrise over the hills' });
 
       await createPeople(t, { quinn: 'user_quinn' });
+      await trustSubmitters(t, 'quinn');
       const quinn = await t.person('user_quinn');
       await grantAll(quinn);
       const { id: q } = await create(
@@ -584,6 +587,7 @@ describe('data/0004: rows written before D53', () => {
     await t.migrate(undefined, { bundleDir: bundle });
     await t.createServices();
     await createPeople(t, { old: 'user_old' });
+    await trustSubmitters(t, 'old');
     await publishDpa(t, 'v1');
     await grantAll(await t.person('user_old'));
     migrator = await t.migrator();

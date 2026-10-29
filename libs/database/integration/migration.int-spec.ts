@@ -48,6 +48,7 @@ const SEEDS = [
   '0003-dev-seed-story',
   '0004-check-story-shapes',
   '0005-dev-legal-placeholders',
+  '0006-submission-settings',
 ];
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
@@ -603,9 +604,9 @@ describe('P1: scripts can never commit partly', () => {
     ].join('\n');
     expect(
       await t.migrate(t.params(), {
-        bundleDir: await bundleWith({ 'data/0006-allowed.surql': text }),
+        bundleDir: await bundleWith({ 'data/0098-allowed.surql': text }),
       }),
-    ).toMatchObject({ applied: ['0006-allowed'] });
+    ).toMatchObject({ applied: ['0098-allowed'] });
     expect(await tagIds(t, 'last')).toEqual(['last']);
   });
 
@@ -1114,7 +1115,10 @@ describe('upgrading a database migrated by the previous release (Codex, #101)', 
 
   it('migrates to this release: the checks write nothing to the old schema, the drafts get their text after', async () => {
     const summary = await t.migrate(t.params());
-    expect(summary.applied).toEqual(['0005-dev-legal-placeholders']);
+    expect(summary.applied).toEqual([
+      '0005-dev-legal-placeholders',
+      '0006-submission-settings',
+    ]);
     const migrator = await t.migrator();
     expect(
       await rows(migrator, 'SELECT VALUE text FROM dpaVersion:v1'),

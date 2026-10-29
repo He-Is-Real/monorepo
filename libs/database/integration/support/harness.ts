@@ -627,6 +627,26 @@ export async function createPeople(
 }
 
 /**
+ * Marks people trusted submitters (D94, D112: submitterLimits.trusted), as the migrator: no
+ * open-drafts or weekly limit. For suites about other rules that start more stories per person
+ * than the limits allow.
+ */
+export async function trustSubmitters(
+  t: TestDatabase,
+  ...ids: string[]
+): Promise<void> {
+  const migrator = await t.migrator();
+  for (const id of ids) {
+    await run(
+      migrator,
+      `UPSERT type::record('submitterLimits', $id) SET user = type::record('user', $id),
+         trusted = true`,
+      { id },
+    );
+  }
+}
+
+/**
  * api-admin publishes a DPA version (D20), creating it first if needed, and with it version
  * <id> of the three consent forms (D84, D93), linked to it: the ledger fixtures bind each grant to the
  * form of the same id. A form's text is its file in libs/legal/forms when there is one (so a

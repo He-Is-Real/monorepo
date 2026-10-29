@@ -1,0 +1,939 @@
+import { randomUUID } from 'node:crypto';
+import {
+  type APIRequestContext,
+  expect,
+  type Page,
+  test,
+} from '@playwright/test';
+import { BEHAVIOUR_DEVICES } from './devices';
+import {
+  enlargeText,
+  expectAllTargets,
+  expectNoHorizontalOverflow,
+  shots,
+} from './helpers';
+import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
+
+// Share your story (M2 plan PR 4, written stories), on the signed-in server against the stub
+// api-user (stub-api-user.mjs, checked against api-user.yaml in contract.e2e.ts). Each test is
+// its own person: a session seeded in the stub and set in the page's localStorage, so tests
+// running at once share nothing (T4). The real api-user and database behaviour behind these
+// answers is apps/api-user/integration/stories.int-spec.ts.
+
+const SHARE = `${WEB_SIGNED_IN_URL}/share`;
+const TEXT =
+  'I was lost for years, and I did not think anyone could reach me. '.repeat(5);
+const ART9 = /storing and processing my story/;
+const PUBLISH = /Publish my story on heisreal\.today/;
+
+interface Seed {
+  settings?: Record<string, number>;
+  signupAccepted?: boolean;
+  granted?: string[];
+  trusted?: boolean;
+  stories?: Record<string, unknown>[];
+}
+
+/** A new person for this test: their session in the stub, and in the page's storage. */
+async function person(page: Page, request: APIRequestContext, seed: Seed) {
+  const id = randomUUID().replace(/-/g, '');
+  const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
+    data: seed,
+  });
+  expect(res.status()).toBe(204);
+  await page.addInitScript((session) => {
+    window.localStorage.setItem('e2e-session', session);
+  }, id);
+  const auth = { authorization: `Bearer ${fixtureToken(id)}` };
+  return {
+    /** The person's stories as api-user has them. */
+    stories: async () =>
+      (
+        await (
+          await request.get(`${STUB_USER_URL}/v1/account/stories`, {
+            headers: auth,
+          })
+        ).json()
+      ).data as {
+        id: string;
+        version: number;
+        status: string;
+        title: string;
+        description: string;
+        body: string;
+        bylineName: string | null;
+        tags: { slug: string }[];
+      }[],
+    consents: async () =>
+      (
+        await (
+          await request.get(`${STUB_USER_URL}/v1/account/consents`, {
+            headers: auth,
+          })
+        ).json()
+      ).current
+        .filter((c: { granted: boolean }) => c.granted)
+        .map((c: { type: string }) => c.type) as string[],
+    /** Another tab: a merge patch at the version it read. */
+    editElsewhere: async (id: string, version: number, patch: object) =>
+      request.patch(`${STUB_USER_URL}/v1/stories/${id}`, {
+        headers: {
+          ...auth,
+          'content-type': 'application/merge-patch+json',
+          'if-match': `"${version}"`,
+        },
+        data: patch,
+      }),
+  };
+}
+
+const SIGNED_UP: Seed = {
+  signupAccepted: true,
+  granted: ['age_18plus', 'account_data'],
+};
+const step = (page: Page, name: string | RegExp) =>
+  expect(
+    page.getByRole('heading', {
+      level: 2,
+      name,
+      exact: typeof name === 'string',
+    }),
+  ).toBeFocused();
+/** Ticks a consent box: the page's own box (D114), not the words in the document. */
+const tick = (page: Page, words: RegExp) =>
+  page.locator('label').filter({ hasText: words }).click();
+const saved = (page: Page) =>
+  expect(page.locator('[data-save-state]')).toHaveAttribute(
+    'data-save-state',
+    'saved',
+  );
+
+async function toWrite(page: Page) {
+  await page.goto(SHARE);
+  await page.getByRole('button', { name: 'Write my story' }).click();
+  await step(page, 'Your story and your data');
+  await tick(page, ART9);
+  await page.getByRole('button', { name: 'I agree, continue' }).click();
+  await step(page, 'Prepare your story');
+  await page.getByRole('button', { name: 'Start writing' }).click();
+  await step(page, 'Write your story');
+}
+
+for (const scheme of ['light', 'dark'] as const) {
+  test.describe(`${scheme} scheme`, () => {
+    test.use({ colorScheme: scheme });
+
+    test('the whole written flow fits every step, to “waiting for review”', async ({
+      page,
+      request,
+    }, info) => {
+      const me = await person(page, request, SIGNED_UP);
+      const fits = async (name: string) => {
+        await expectNoHorizontalOverflow(page);
+        await expectAllTargets(page);
+        await shots(page, info.project.name, scheme, `share-${name}`, {
+          signedIn: true,
+        });
+      };
+      await page.goto(SHARE);
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+        'Share your story',
+      );
+      await expect(
+        page.getByRole('heading', { name: 'How would you like to share?' }),
+      ).toBeVisible();
+      await fits('choose');
+      await page.getByRole('button', { name: 'Write my story' }).click();
+      await step(page, 'Your story and your data');
+      await fits('consent');
+      await tick(page, ART9);
+      await page.getByRole('button', { name: 'I agree, continue' }).click();
+      await step(page, 'Prepare your story');
+      await fits('prepare');
+      await page.getByRole('button', { name: 'Start writing' }).click();
+      await step(page, 'Write your story');
+      await page.getByLabel('Title').fill('How I found hope');
+      await page.getByLabel('Your story').fill(TEXT);
+      await fits('write');
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await step(page, 'Add some details');
+      await page.getByText('Healing', { exact: true }).click();
+      await fits('details');
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await step(page, 'Review and submit');
+      await expect(page.getByText('Anonymous')).toBeVisible();
+      await tick(page, PUBLISH);
+      await fits('review');
+      await page.getByRole('button', { name: 'Submit for review' }).click();
+      await step(page, 'Thank you for sharing your story');
+      await fits('done');
+      expect(await me.stories()).toMatchObject([
+        { status: 'pending', title: 'How I found hope', bylineName: null },
+      ]);
+    });
+  });
+}
+
+// WCAG 1.4.4 on the smallest phone: at 200% text the consent boxes' wording keeps a readable
+// column (round 3 review: it had ~44 px, two or three letters a line, which the overflow check
+// can't see because the words wrap anywhere). Measured, not just "fits".
+test('at 200% text on a 320 px phone, every consent box’s wording has room to read', async ({
+  page,
+  request,
+}, info) => {
+  test.skip(info.project.name !== 'phone-320', 'the smallest phone');
+  const MIN_LABEL = 160;
+  const labelWidths = () =>
+    page
+      .locator('[data-box-label]')
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().width));
+  await enlargeText(page);
+  await person(page, request, SIGNED_UP);
+  await page.goto(SHARE);
+  await page.getByRole('button', { name: 'Write my story' }).click();
+  await step(page, 'Your story and your data');
+  const consent = await labelWidths();
+  expect(consent).toHaveLength(1);
+  for (const w of consent) expect(w).toBeGreaterThanOrEqual(MIN_LABEL);
+  await expectNoHorizontalOverflow(page);
+
+  await tick(page, ART9);
+  await page.getByRole('button', { name: 'I agree, continue' }).click();
+  await page.getByRole('button', { name: 'Start writing' }).click();
+  await page.getByLabel('Title').fill('Wide enough');
+  await page.getByLabel('Your story').fill(TEXT);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByText('Hope', { exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await step(page, 'Review and submit');
+  // The publish box and the optional social sharing box.
+  const review = await labelWidths();
+  expect(review).toHaveLength(2);
+  for (const w of review) expect(w).toBeGreaterThanOrEqual(MIN_LABEL);
+  await expectNoHorizontalOverflow(page);
+});
+
+test.describe('behaviour', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'one phone and one desktop',
+    );
+  });
+
+  test('the story is saved as it’s written, with the first name and themes chosen', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    // Nothing is stored before it has a title and some text.
+    await page.getByLabel('Title').fill('Found');
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'unsaved',
+    );
+    expect(await me.stories()).toEqual([]);
+    await page.getByLabel('Your story').fill(TEXT);
+    await saved(page);
+    await expect(page).toHaveURL(/\/share\?draft=/);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByLabel(/Your first name/).fill('  Sam ');
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByText('Faith', { exact: true }).click();
+    await saved(page);
+    expect(await me.stories()).toMatchObject([
+      {
+        status: 'draft',
+        title: 'Found',
+        body: TEXT,
+        bylineName: 'Sam',
+        tags: [{ slug: 'hope' }, { slug: 'faith' }],
+      },
+    ]);
+    // The prompts were guidance only: nothing of them is stored.
+    expect(JSON.stringify(await me.stories())).not.toContain(
+      'life like before',
+    );
+  });
+
+  test('refusing the testimony consent stops before anything is stored', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await step(page, 'Your story and your data');
+    // The privacy document is there to read.
+    await page.getByText('Read the privacy document', { exact: true }).click();
+    await expect(
+      page.getByText(/What the real document will cover/),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'I agree, continue' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'Without it we don’t store anything you write',
+    );
+    await page.getByRole('button', { name: 'Back' }).click();
+    await step(page, 'How would you like to share?');
+    expect(await me.stories()).toEqual([]);
+    expect(await me.consents()).not.toContain('special_category_religious');
+  });
+
+  test('someone already on the testimony form skips the consent step', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {
+      ...SIGNED_UP,
+      granted: [...(SIGNED_UP.granted ?? []), 'special_category_religious'],
+    });
+    await page.goto(SHARE);
+    await expect(
+      page.getByRole('navigation', { name: 'Steps' }),
+    ).not.toContainText('Your data');
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await step(page, 'Prepare your story');
+  });
+
+  test('without the sign-up consent, the page sends people to finish setting up', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, { signupAccepted: false });
+    await page.goto(SHARE);
+    // The site's own prompt (consent-prompts.tsx) takes them to the sign-up consent step, set
+    // to come back here; the share page's "Finish setting up" link is only its fallback.
+    await expect(page).toHaveURL(/\/consent\/sign-up\?redirect_url=%2Fshare$/);
+  });
+
+  test('themes and the 200-character minimum are explained, not just refused', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Short');
+    await page.getByLabel('Your story').fill('Only a few words.');
+    await expect(page.getByText('17 / 10,000 characters')).toBeVisible();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toHaveText(
+      'Choose at least one theme.',
+    );
+    await page.getByText('Loss', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await tick(page, PUBLISH);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'needs at least 200 characters',
+    );
+    await page.getByRole('button', { name: 'Keep writing' }).click();
+    await step(page, 'Write your story');
+    expect((await me.stories())[0].status).toBe('draft');
+  });
+
+  test('the page shows and applies the admin’s limits, not numbers of its own (W3)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      granted: [...(SIGNED_UP.granted ?? []), 'publish'],
+      settings: { storyTextMin: 50, storyTextMax: 400, tagsMin: 2, tagsMax: 2 },
+    });
+    await toWrite(page);
+    await expect(page.getByLabel('Your story')).toHaveAttribute(
+      'maxlength',
+      '400',
+    );
+    await page.getByLabel('Title').fill('Short and allowed');
+    await page.getByLabel('Your story').fill('x'.repeat(60));
+    await expect(
+      page.getByText('60 / 400 characters. At least 50 to submit.'),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByText('Choose 2 to 2.')).toBeVisible();
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toHaveText(
+      'Choose at least 2 themes.',
+    );
+    await page.getByText('Loss', { exact: true }).click();
+    await expect(page.getByRole('checkbox', { name: 'Faith' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    expect((await me.stories())[0].status).toBe('pending');
+  });
+
+  test('a draft resumes after a reload, and the drafts list offers it', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Still writing');
+    await page.getByLabel('Your story').fill(TEXT);
+    await saved(page);
+    await page.reload();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Write your story' }),
+    ).toBeVisible();
+    await expect(page.getByLabel('Your story')).toHaveValue(TEXT);
+
+    await page.goto(SHARE);
+    await page
+      .getByRole('button', { name: 'Continue “Still writing”' })
+      .click();
+    await step(page, 'Write your story');
+    await expect(page.getByLabel('Title')).toHaveValue('Still writing');
+  });
+
+  test('an edit in another tab: a different field is kept silently, the same field is asked about', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Mine');
+    await page.getByLabel('Your story').fill(TEXT);
+    await saved(page);
+    let [story] = await me.stories();
+
+    // Another tab changes the title; this one changes the text: no question, both kept.
+    await me.editElsewhere(story.id, story.version, { title: 'Other tab' });
+    await page.getByLabel('Your story').fill(`${TEXT} More.`);
+    await saved(page);
+    [story] = await me.stories();
+    expect(story).toMatchObject({ title: 'Other tab', body: `${TEXT} More.` });
+
+    // Both change the text: the person chooses, and their text is never lost.
+    await me.editElsewhere(story.id, story.version, {
+      body: `${TEXT} Theirs.`,
+    });
+    await page.getByLabel('Your story').fill(`${TEXT} Mine.`);
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'This story was changed in another tab or window',
+    );
+    await expect(page.getByLabel('Your story')).toHaveValue(`${TEXT} Mine.`);
+    await page.getByRole('button', { name: 'Keep what’s here' }).click();
+    await saved(page);
+    // The choice settled the text only: the other tab's title, merged earlier, stays.
+    expect((await me.stories())[0]).toMatchObject({
+      body: `${TEXT} Mine.`,
+      title: 'Other tab',
+    });
+  });
+
+  for (const [choice, button, body] of [
+    ['the other version', 'Use the other version', 'Theirs.'],
+    ['what’s here', 'Keep what’s here', 'Mine.'],
+  ] as const) {
+    test(`settling a clash with “${choice}” changes only the clashing field: both tabs’ other changes are kept (Codex #118, 2)`, async ({
+      page,
+      request,
+    }) => {
+      const me = await person(page, request, SIGNED_UP);
+      await toWrite(page);
+      await page.getByLabel('Title').fill('Mine');
+      await page.getByLabel('Your story').fill(TEXT);
+      await saved(page);
+      const [story] = await me.stories();
+
+      // Another tab changes the text and the description.
+      await me.editElsewhere(story.id, story.version, {
+        body: `${TEXT} Theirs.`,
+        description: 'From the other tab',
+      });
+      // This tab changes the title and the text, held back so both go in one save.
+      const PATCH = `${STUB_USER_URL}/v1/stories/${story.id}`;
+      await page.route(PATCH, (route) => route.abort('connectionrefused'));
+      await page.getByLabel('Title').fill('Mine, renamed');
+      await page.getByLabel('Your story').fill(`${TEXT} Mine.`);
+      await expect(page.locator('[data-save-state]')).toHaveAttribute(
+        'data-save-state',
+        'offline',
+      );
+      await page.unroute(PATCH);
+      await page.getByRole('button', { name: 'Try saving again' }).click();
+      await expect(page.getByRole('main').getByRole('alert')).toContainText(
+        'This story was changed in another tab or window',
+      );
+      // While asked, what merged cleanly is already on screen; this tab's text is kept.
+      await expect(page.getByLabel('Title')).toHaveValue('Mine, renamed');
+      await expect(page.getByLabel('Your story')).toHaveValue(`${TEXT} Mine.`);
+
+      await page.getByRole('button', { name: button }).click();
+      await saved(page);
+      await expect(page.getByLabel('Your story')).toHaveValue(
+        `${TEXT} ${body}`,
+      );
+      expect((await me.stories())[0]).toMatchObject({
+        body: `${TEXT} ${body}`, // the clash, as chosen
+        title: 'Mine, renamed', // this tab's other change
+        description: 'From the other tab', // the other tab's other change
+      });
+    });
+  }
+
+  test('a create whose answer is lost is recovered, and later typing is saved to the same draft (Codex #118, 3)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    // The first create reaches api-user and is stored; its answer never arrives.
+    let dropped = false;
+    await page.route(`${STUB_USER_URL}/v1/stories`, async (route) => {
+      if (route.request().method() !== 'POST' || dropped)
+        return route.fallback();
+      dropped = true;
+      await route.fetch();
+      return route.abort('connectionreset');
+    });
+    await page.getByLabel('Title').fill('Lost answer');
+    await page.getByLabel('Your story').fill(TEXT);
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'offline',
+    );
+    expect(await me.stories()).toHaveLength(1);
+
+    // Typing on: the retry replays the same create (same key, same body), then saves the rest.
+    await page.getByLabel('Your story').fill(`${TEXT} More.`);
+    await saved(page);
+    const stories = await me.stories();
+    expect(stories).toHaveLength(1);
+    expect(stories[0]).toMatchObject({
+      title: 'Lost answer',
+      body: `${TEXT} More.`,
+    });
+    await expect(page).toHaveURL(new RegExp(`draft=${stories[0].id}`));
+  });
+
+  test('a submit whose answer is lost is confirmed by trying again (Codex #118, 5)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      granted: [
+        ...(SIGNED_UP.granted ?? []),
+        'special_category_religious',
+        'publish',
+      ],
+      stories: [
+        {
+          id: 'lost',
+          title: 'Almost there',
+          body: TEXT,
+          primaryFormat: 'written',
+          tagSlugs: ['hope'],
+        },
+      ],
+    });
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Continue “Almost there”' }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    // The submit reaches api-user and goes through; its answer never arrives.
+    let dropped = false;
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/lost/submit`,
+      async (route) => {
+        if (dropped) return route.fallback();
+        dropped = true;
+        await route.fetch();
+        return route.abort('connectionreset');
+      },
+    );
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'can’t reach our server',
+    );
+    expect((await me.stories())[0].status).toBe('pending');
+    // Trying again replays the same submission and confirms it, rather than a refusal.
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+  });
+
+  test('api-user down: a clear message, and the text is kept until it’s back', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.route(`${STUB_USER_URL}/v1/stories**`, (route) =>
+      route.abort('connectionrefused'),
+    );
+    await page.getByLabel('Title').fill('Offline');
+    await page.getByLabel('Your story').fill(TEXT);
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'offline',
+    );
+    await expect(page.locator('[data-save-state]')).toContainText(
+      'Your story is kept on this device',
+    );
+    // A reload while it's down keeps the text (this tab's storage).
+    await page.reload();
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await page.getByRole('button', { name: 'Start writing' }).click();
+    await expect(page.getByLabel('Your story')).toHaveValue(TEXT);
+    expect(await me.stories()).toEqual([]);
+
+    await page.unroute(`${STUB_USER_URL}/v1/stories**`);
+    await page.getByLabel('Your story').fill(`${TEXT}!`);
+    await saved(page);
+    expect((await me.stories())[0]).toMatchObject({ title: 'Offline' });
+  });
+
+  test('D94’s limits are said plainly: three open drafts, one submission a week', async ({
+    page,
+    request,
+  }) => {
+    const draft = (id: string, extra: object = {}) => ({
+      id,
+      title: `Draft ${id}`,
+      body: TEXT,
+      primaryFormat: 'written',
+      tagSlugs: ['hope'],
+      ...extra,
+    });
+    await person(page, request, {
+      ...SIGNED_UP,
+      granted: [
+        ...(SIGNED_UP.granted ?? []),
+        'special_category_religious',
+        'publish',
+      ],
+      stories: [
+        draft('a', {
+          status: 'pending',
+          submittedAt: new Date().toISOString(),
+        }),
+        draft('b'),
+        draft('c'),
+        draft('d'),
+      ],
+    });
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await page.getByRole('button', { name: 'Start writing' }).click();
+    await page.getByLabel('Title').fill('A fourth');
+    await page.getByLabel('Your story').fill(TEXT);
+    await expect(page.locator('[data-save-state]')).toContainText(
+      'as many drafts open as you can',
+    );
+
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Continue “Draft b”' }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      /one story for review in any 7 days.*you can submit it from \w+day \d+ \w+/,
+    );
+  });
+
+  test('text one person left in a shared tab is never shown to the next person', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    // Not saved to the server yet (no text): kept in this tab only.
+    await page.getByLabel('Title').fill('Something private');
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'unsaved',
+    );
+    // Someone else signs in in the same tab.
+    const other = randomUUID().replace(/-/g, '');
+    await request.post(`${STUB_USER_URL}/__e2e/sessions/${other}`, {
+      data: {
+        ...SIGNED_UP,
+        granted: [...(SIGNED_UP.granted ?? []), 'special_category_religious'],
+      },
+    });
+    await page.evaluate((s) => {
+      window.localStorage.setItem('e2e-session', s);
+    }, other);
+    await page.addInitScript((s) => {
+      window.localStorage.setItem('e2e-session', s);
+    }, other);
+    await page.reload();
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await page.getByRole('button', { name: 'Start writing' }).click();
+    await expect(page.getByLabel('Title')).toHaveValue('');
+    expect(
+      await page.evaluate(() => JSON.stringify(window.sessionStorage)),
+    ).not.toContain('Something private');
+  });
+
+  /** A person with one draft ready to submit, on its Review step. */
+  async function atReview(page: Page, request: APIRequestContext, id: string) {
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      granted: [
+        ...(SIGNED_UP.granted ?? []),
+        'special_category_religious',
+        'publish',
+      ],
+      stories: [
+        {
+          id,
+          title: 'Almost there',
+          body: TEXT,
+          primaryFormat: 'written',
+          tagSlugs: ['hope'],
+        },
+      ],
+    });
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Continue “Almost there”' }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    return me;
+  }
+  /** The submit reaches api-user and goes through; the browser gets `answer` instead. */
+  const loseSubmitAnswer = (
+    page: Page,
+    id: string,
+    answer: 'none' | 'truncated',
+  ) => {
+    let lost = false;
+    return page.route(
+      `${STUB_USER_URL}/v1/stories/${id}/submit`,
+      async (route) => {
+        if (lost) return route.fallback();
+        lost = true;
+        const response = await route.fetch();
+        if (answer === 'none') return route.abort('connectionreset');
+        // A 200 whose body is cut off: what was done can't be read from it.
+        return route.fulfill({ response, body: '{"id":"' });
+      },
+    );
+  };
+
+  test('after a lost submit answer, Back and Review again replays the same submission (Codex #118 round 2)', async ({
+    page,
+    request,
+  }) => {
+    const me = await atReview(page, request, 'back');
+    await loseSubmitAnswer(page, 'back', 'none');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'can’t reach our server',
+    );
+    expect((await me.stories())[0].status).toBe('pending');
+    // Leaving Review and coming back, changing nothing, keeps the unresolved submission.
+    await page.getByRole('button', { name: 'Back' }).click();
+    await step(page, 'Add some details');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+  });
+
+  test('after a lost submit answer, a reload shows the story was submitted (Codex #118 round 2)', async ({
+    page,
+    request,
+  }) => {
+    await atReview(page, request, 'reload');
+    await loseSubmitAnswer(page, 'reload', 'none');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'can’t reach our server',
+    );
+    await page.goto(`${SHARE}?draft=reload`);
+    await expect(
+      page.getByRole('heading', {
+        level: 2,
+        name: 'Thank you for sharing your story',
+      }),
+    ).toBeVisible();
+  });
+
+  test('a submit answer cut off after its 200 is an unknown outcome: trying again replays it (Codex #118 round 2)', async ({
+    page,
+    request,
+  }) => {
+    const me = await atReview(page, request, 'cutoff');
+    await loseSubmitAnswer(page, 'cutoff', 'truncated');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'can’t reach our server',
+    );
+    expect((await me.stories())[0].status).toBe('pending');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+  });
+
+  test('a draft over a newly lowered maximum is refused at submit, says the limit, and can be trimmed and submitted (Joel, 2026-10-30)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      granted: [
+        ...(SIGNED_UP.granted ?? []),
+        'special_category_religious',
+        'publish',
+      ],
+      settings: { storyTextMax: 300 },
+      stories: [
+        {
+          id: 'over',
+          title: 'Written before the change',
+          body: TEXT,
+          primaryFormat: 'written',
+          tagSlugs: ['hope'],
+        },
+      ],
+    });
+    expect(TEXT.length).toBeGreaterThan(300);
+    await page.goto(SHARE);
+    await page
+      .getByRole('button', { name: 'Continue “Written before the change”' })
+      .click();
+    await step(page, 'Write your story');
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'over the current limit of 300 characters',
+    );
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'longer than the current limit of 300 characters',
+    );
+    await page.getByRole('button', { name: 'Shorten it' }).click();
+    await step(page, 'Write your story');
+    // A first trim, still over: saved all the same, so it can be fixed bit by bit.
+    await page.getByLabel('Your story').fill(TEXT.slice(0, 310));
+    await saved(page);
+    await page.getByLabel('Your story').fill(TEXT.slice(0, 250));
+    await saved(page);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    expect((await me.stories())[0].status).toBe('pending');
+  });
+
+  test('after a lost submit answer, going Back and typing shows “Thank you”, not an error (round 3)', async ({
+    page,
+    request,
+  }) => {
+    await atReview(page, request, 'typed');
+    await loseSubmitAnswer(page, 'typed', 'none');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'can’t reach our server',
+    );
+    await page.getByRole('button', { name: 'Back' }).click();
+    await step(page, 'Add some details');
+    // The save is refused (the story was submitted): the page says so.
+    await page.getByLabel(/Brief description/).fill('One more thought');
+    await expect(
+      page.getByRole('heading', {
+        level: 2,
+        name: 'Thank you for sharing your story',
+      }),
+    ).toBeVisible();
+  });
+
+  test('after a lost submit answer whose key is gone, submitting again shows “Thank you” (round 3)', async ({
+    page,
+    request,
+  }) => {
+    await atReview(page, request, 'nokey');
+    await loseSubmitAnswer(page, 'nokey', 'none');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'can’t reach our server',
+    );
+    // The kept submission is lost too (e.g. storage cleared): a new key, refused.
+    await page.evaluate(() => {
+      for (const k of Object.keys(window.sessionStorage)) {
+        if (k.includes(':submit:')) window.sessionStorage.removeItem(k);
+      }
+    });
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+  });
+
+  test('a draft that isn’t theirs says so and offers a new story', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {
+      ...SIGNED_UP,
+      granted: [...(SIGNED_UP.granted ?? []), 'special_category_religious'],
+    });
+    await page.goto(`${SHARE}?draft=someone-elses`);
+    await expect(
+      page.getByRole('heading', {
+        level: 2,
+        name: 'This draft isn’t available',
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Start a new story' }),
+    ).toHaveAttribute('href', '/share');
+    await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(
+      0,
+    );
+  });
+
+  test('clearing the title to rewrite it shows a calm hint, not an error', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('First go');
+    await page.getByLabel('Your story').fill(TEXT);
+    await saved(page);
+    await page.getByLabel('Title').fill('');
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'unsaved',
+    );
+    await expect(page.getByText(/aren’t valid/)).toHaveCount(0);
+    await page.getByLabel('Title').fill('Second go');
+    await saved(page);
+  });
+
+  test('signed out, the page asks people to sign in and come back', async ({
+    page,
+  }) => {
+    await page.goto('/share');
+    await expect(
+      page.getByRole('link', { name: 'Sign in' }).last(),
+    ).toHaveAttribute('href', '/sign-in?redirect_url=%2Fshare');
+  });
+
+  // Chromium with JavaScript turned off by Playwright still parses <noscript> as script-on,
+  // so the message is checked in the page as the server sends it.
+  test('without JavaScript, the page says sharing needs it', async ({
+    request,
+  }) => {
+    const html = await (await request.get(SHARE)).text();
+    expect(html).toContain('Sharing needs JavaScript');
+  });
+
+  test('the header’s Share your story leads here', async ({ page }) => {
+    await page.goto(`${WEB_SIGNED_IN_URL}/get-ready`);
+    await page
+      .getByRole('main')
+      .getByRole('link', { name: 'Share your story' })
+      .click();
+    await expect(page).toHaveURL(SHARE);
+  });
+});
