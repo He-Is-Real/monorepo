@@ -174,12 +174,20 @@ export class LegalController {
       this.db,
       `LET $f = fn::form::latest($form);
        RETURN IF $f = NONE { NONE } ELSE {
-         object::extend($f, { statements: fn::form::statements($f.id) })
+         object::extend($f, { required: fn::form::statements($f.id) })
        };`,
       { form },
     )) as unknown[];
     const f = results[results.length - 1] as Record<string, unknown> | null;
-    if (!f || typeof f['text'] !== 'string') {
+    // D114: no version is shown without its boxes as structured data (the migration gives
+    // every version them); a page can't be left with words and no boxes.
+    const boxes = f?.['statements'];
+    if (
+      !f ||
+      typeof f['text'] !== 'string' ||
+      !Array.isArray(boxes) ||
+      typeof f['statementsHash'] !== 'string'
+    ) {
       throw notFound(`A ${form} consent form`);
     }
     const body = {
@@ -190,7 +198,14 @@ export class LegalController {
       dpaVersion: key(String(f['dpaVersion'])),
       textHash: f['textHash'],
       text: f['text'],
-      statements: f['statements'],
+      statements: f['required'],
+      // D114: the boxes, in order, with the exact words beside each (the version's
+      // statements file); the page draws them from here, never from `text`.
+      boxes: (boxes as { key: string; label: string }[]).map((b) => ({
+        statement: b.key,
+        label: b.label,
+      })),
+      statementsHash: f['statementsHash'],
       version: f['version'],
       ...(form === 'testimony'
         ? {

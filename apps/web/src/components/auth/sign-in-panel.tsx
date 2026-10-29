@@ -2,6 +2,10 @@
 
 import { SignIn } from '@clerk/react';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
+import {
+  SIGN_UP_CONSENT_PATH,
+  withReturn,
+} from '@/components/consent/consent-prompts';
 
 /**
  * Clerk's own sign-in, with sign-up in the same flow (`withSignUp`: an email without an account
@@ -24,7 +28,8 @@ export function SignInPanel({
         routing="hash"
         withSignUp
         forceRedirectUrl={returnTo}
-        signUpForceRedirectUrl={returnTo}
+        // A new account goes straight to the sign-up consent step (D73), then on to returnTo.
+        signUpForceRedirectUrl={withReturn(SIGN_UP_CONSENT_PATH, returnTo)}
         appearance={APPEARANCE}
       />
     </ClerkBrowser>

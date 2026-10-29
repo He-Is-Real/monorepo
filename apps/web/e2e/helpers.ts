@@ -9,14 +9,19 @@ export async function shots(
   project: string,
   scheme: string,
   name: string,
+  { signedIn = false }: { signedIn?: boolean } = {},
 ) {
   // T8: images to look at, on 4 sizes only (dark on the smallest and 1280), nothing compares
   // them, and the CI artifact stays small.
   if (!SCREENSHOT_DEVICES.includes(project)) return;
   if (scheme === 'dark' && !['phone-320', 'desktop-1280'].includes(project))
     return;
-  // The full header in every screenshot (Sign in, a link to the sign-in page).
-  await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+  // The full header in every screenshot (Sign in, a link to the sign-in page; or the account).
+  await expect(
+    signedIn
+      ? page.getByRole('button', { name: /^Account: / })
+      : page.getByRole('link', { name: 'Sign in' }),
+  ).toBeVisible();
   // JPEG: a fraction of PNG's size, plenty to look at (the CI artifact stays small).
   await page.screenshot({
     path: `test-output/e2e/screenshots/${project}/${scheme}-${name}.jpg`,

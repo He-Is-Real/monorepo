@@ -41,6 +41,8 @@ export interface Account {
   role: 'Viewer' | 'User' | 'Moderator' | 'Admin' | 'SuperAdmin';
   createdAt: string;
   signupConsent: { accepted: boolean };
+  /** D85: a newer testimony form must be accepted before a new story (the banner). */
+  testimonyConsent: { acceptanceRequired: boolean };
 }
 
 /** api-user answered with an error (anything but 2xx and 304). */

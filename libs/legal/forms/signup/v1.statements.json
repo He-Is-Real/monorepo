@@ -1,0 +1,9 @@
+{
+  "statements": [
+    { "key": "age_18plus", "label": "I am 18 or over." },
+    {
+      "key": "account_data",
+      "label": "Store my account and the stories I save as favourites. I understand that saving stories on a Christian testimony site can say something about my beliefs, and I agree to He Is Real Today keeping that, as the privacy document describes."
+    }
+  ]
+}

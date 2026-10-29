@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { expectClerkTargetsFullSize, expectFitsScreen } from './clerk-card';
 
-// Signing in on the deployed dev site with the real Clerk dev instance, then the browser's
+// Signing in on the deployed dev site with the real Clerk dev instance (the test user lands on
+// the sign-up consent step, D73, without ticking it), then the browser's
 // real cross-origin call to api-user: the account bootstrap (M2), with the person's session
 // token (Clerk's RS256, `azp` = web's origin), allowed by api-user's CORS (D31).
 //
@@ -47,13 +48,22 @@ for (const viewport of [
     );
     await page.keyboard.type(TEST_CODE);
 
-    // Back where they started, signed in.
-    await expect(page).toHaveURL(`${web}/about`);
+    // The step follows api-user's answer, which can take a while from a cold start.
+    const response = await bootstrap;
+    // Signed in. The test user never accepts the sign-up form, so the header sends them to
+    // the sign-up consent step (D73), set to return to where they started; its boxes are
+    // left unticked, so every run sees the same.
+    await expect(page).toHaveURL(
+      `${web}/consent/sign-up?redirect_url=%2Fabout`,
+    );
     await expect(
       page.getByRole('button', { name: /^Account: / }),
     ).toBeVisible();
+    await expect(page.getByRole('checkbox')).toHaveCount(2);
+    for (const box of await page.getByRole('checkbox').all()) {
+      await expect(box).not.toBeChecked();
+    }
 
-    const response = await bootstrap;
     expect(new URL(response.url()).origin).not.toBe(web);
     expect(response.request().headers()['authorization']).toMatch(/^Bearer ey/);
     expect(response.status()).toBe(200);
@@ -62,6 +72,7 @@ for (const viewport of [
       role: 'User',
       version: null,
       signupConsent: { accepted: false },
+      testimonyConsent: { acceptanceRequired: false },
     });
   });
 }

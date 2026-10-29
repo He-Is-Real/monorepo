@@ -23,6 +23,8 @@ const PAGES = [
   '/privacy',
   '/terms',
   '/donate',
+  '/consent/sign-up',
+  '/consent/testimony',
   '/stories/no-such-story',
 ];
 

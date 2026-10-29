@@ -89,6 +89,7 @@ describe('GET /v1/account, the account bootstrap', () => {
       createdAt: new Date(String(row['createdAt'])).toISOString(),
       // No sign-up form is published yet.
       signupConsent: { accepted: false },
+      testimonyConsent: { acceptanceRequired: false },
     });
 
     const again = await get(as('user_firstvisit'));
@@ -110,6 +111,44 @@ describe('GET /v1/account, the account bootstrap', () => {
     // A newer sign-up version needs accepting again.
     await publishForm(t, 'signup', 'v2', { dpa: 'v1' });
     expect(await accepted()).toBe(false);
+  });
+
+  it('says when a newer testimony version must be accepted before a new story (D85, the banner)', async () => {
+    await createPeople(t, { teller: 'user_teller' });
+    const required = async () =>
+      (await (await get(as('user_teller'))).json()).testimonyConsent
+        .acceptanceRequired;
+    const teller = await t.person('user_teller');
+    // v1 of the forms is published (previous test). No testimony consent yet: nothing to ask.
+    expect(await required()).toBe(false);
+    await consentEvent(teller, 'special_category_religious', 'granted', 'v1');
+    expect(await required()).toBe(false);
+    // A newer version that doesn't require acceptance: still nothing to ask.
+    await publishForm(t, 'testimony', 'v2', { dpa: 'v1' });
+    expect(await required()).toBe(false);
+    await publishForm(t, 'testimony', 'v3', {
+      dpa: 'v1',
+      requiresAcceptanceForNewSubmissions: true,
+    });
+    expect(await required()).toBe(true);
+    // Accepting the version in force, as the banner's page does, moves the account to it (D85).
+    const res = await fetch(`${url}/v1/account/consents`, {
+      method: 'POST',
+      headers: {
+        ...as('user_teller'),
+        'content-type': 'application/json',
+        'idempotency-key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        form: 'testimony',
+        formVersion: 'v3',
+        statement: 'special_category_religious',
+        mechanism: 'reconsent_prompt',
+      }),
+    });
+    expect(await contract.check('POST', res)).toEqual([]);
+    expect(res.status).toBe(201);
+    expect(await required()).toBe(false);
   });
 
   it('gives staff their row too, with their role from the token', async () => {

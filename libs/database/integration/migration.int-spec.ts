@@ -1136,6 +1136,199 @@ describe('upgrading a database migrated by the previous release (Codex, #101)', 
   });
 });
 
+/**
+ * The release before D114 (main after #115): consent forms whose boxes were read from their
+ * text. Dev was migrated with it, so its published v1 forms have no statements data yet.
+ */
+const BEFORE_STATEMENTS_RELEASE = '082b55e5db27e2baf55510e55d819f807c760ab7';
+
+describe('D114: the boxes are structured data, synced from libs/legal/forms/<kind>/<id>.statements.json', () => {
+  const dev = { environment: 'dev', dev_legal_placeholders: true } as const;
+  let t: TestDatabase;
+  let previous: string;
+  const stored = async (table: string) =>
+    (
+      await rows<{ statements: unknown; statementsHash: unknown }>(
+        await t.migrator(),
+        `SELECT statements, statementsHash FROM ONLY type::record($table, 'v1')`,
+        { table },
+      )
+    )[0];
+  beforeAll(async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'before-statements-'));
+    const repo = join(__dirname, '../../..');
+    const archive = execFileSync(
+      'git',
+      [
+        'archive',
+        '--format=tar',
+        BEFORE_STATEMENTS_RELEASE,
+        'libs/database/schema',
+      ],
+      { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
+    );
+    execFileSync('tar', ['-x', '-C', dir], { input: archive });
+    previous = join(dir, 'libs/database/schema');
+    t = await TestDatabase.create({ migrate: false });
+    await t.migrate(t.params(dev), {
+      bundleDir: previous,
+      runner: join(previous, 'migrate.py'),
+    });
+  });
+  afterAll(async () => {
+    await t?.close();
+    if (previous) await rm(join(previous, '../../..'), { recursive: true });
+  });
+
+  it('dev’s published v1 forms, from before D114, get their statements once, from their files', async () => {
+    expect(
+      (await stored('signupFormVersion'))?.statementsHash ?? null,
+    ).toBeNull();
+    await t.migrate(t.params(dev));
+    const legal = t.params(dev);
+    for (const [kind, table] of [
+      ['signup', 'signupFormVersion'],
+      ['testimony', 'testimonyFormVersion'],
+      ['social', 'socialSharingFormVersion'],
+    ] as const) {
+      expect(await stored(table)).toEqual({
+        statements: legal.form_statements[kind]['v1'].statements,
+        statementsHash: legal.form_statements_sha256[kind]['v1'],
+      });
+    }
+    expect(
+      (await stored('signupFormVersion')).statements as { key: string }[],
+    ).toEqual([
+      expect.objectContaining({ key: 'age_18plus' }),
+      expect.objectContaining({ key: 'account_data' }),
+    ]);
+    // A second run changes nothing.
+    expect(await t.migrate(t.params(dev))).toMatchObject({ applied: [] });
+  });
+
+  it('then they are frozen: a changed statements file of a published version fails the migration', async () => {
+    const legal = t.params(dev);
+    const changed = {
+      statements: [
+        { key: 'age_18plus', label: 'I am 18 or over.' },
+        { key: 'account_data', label: 'Changed after publishing.' },
+      ],
+    };
+    const result = await t.runMigration(
+      t.params({
+        ...dev,
+        form_statements: {
+          ...legal.form_statements,
+          signup: { v1: changed },
+        },
+        form_statements_sha256: {
+          ...legal.form_statements_sha256,
+          signup: { v1: sha256(JSON.stringify(changed)) },
+        },
+      }),
+      { bundleDir: await withScratchTable() },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain(
+      'signupFormVersion:v1 is published, but its statements file in libs/legal/forms has changed',
+    );
+    expect(await scratchTableExists(t)).toBe(false); // checked before the schema step
+    // And the database itself refuses the change, whoever writes it.
+    expect(
+      await outcome(
+        await t.migrator(),
+        `UPDATE signupFormVersion:v1 SET statements[1].label = 'Changed'`,
+      ),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('published form versions are frozen'),
+    });
+  });
+
+  it.each([
+    [
+      'its statements file is missing',
+      (legal: ReturnType<TestDatabase['params']>) => ({
+        form_statements: { ...legal.form_statements, testimony: {} },
+        form_statements_sha256: {
+          ...legal.form_statements_sha256,
+          testimony: {},
+        },
+      }),
+      'testimonyFormVersion:v1 exists, but libs/legal/forms/testimony/v1.statements.json does not',
+    ],
+    [
+      'its statements file lacks a box the pages need',
+      (legal: ReturnType<TestDatabase['params']>) => ({
+        form_statements: {
+          ...legal.form_statements,
+          testimony: {
+            v1: {
+              statements: [{ key: 'publish', label: 'Publish my story.' }],
+            },
+          },
+        },
+      }),
+      'testimonyFormVersion:v1: libs/legal/forms/testimony/v1.statements.json must list exactly',
+    ],
+    [
+      'a box has no words',
+      (legal: ReturnType<TestDatabase['params']>) => ({
+        form_statements: {
+          ...legal.form_statements,
+          social: {
+            v1: { statements: [{ key: 'share_socials', label: '  ' }] },
+          },
+        },
+      }),
+      'needs words to show beside its box',
+    ],
+  ])(
+    'the migration refuses a form version when %s, before changing anything',
+    async (_case, change, message) => {
+      const legal = t.params(dev);
+      const result = await t.runMigration(
+        t.params({ ...dev, ...change(legal) }),
+        { bundleDir: await withScratchTable() },
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toContain(message);
+      expect(await scratchTableExists(t)).toBe(false);
+    },
+  );
+
+  it('the database refuses statements that aren’t exactly the version’s boxes, each with words', async () => {
+    // As the migrator: the form tables' events run for every writer, system users included.
+    const migrator = await t.migrator();
+    const draft = (statements: unknown) =>
+      outcome(
+        migrator,
+        `CREATE signupFormVersion:d114_bad CONTENT {
+           textRef: 'libs/legal/forms/signup/d114_bad.md', textHash: $h, text: 'x',
+           dpaVersion: dpaVersion:dev_placeholder, statements: $statements,
+           statementsHash: $h }`,
+        { statements, h: sha256('x') },
+      );
+    for (const statements of [
+      [{ key: 'age_18plus', label: 'I am 18 or over.' }],
+      [
+        { key: 'age_18plus', label: 'I am 18 or over.' },
+        { key: 'account_data', label: 'Store it.' },
+        { key: 'publish', label: 'Publish.' },
+      ],
+      [
+        { key: 'age_18plus', label: 'I am 18 or over.' },
+        { key: 'account_data', label: '' },
+      ],
+    ]) {
+      expect(await draft(statements)).toEqual({
+        ok: false,
+        error: expect.stringContaining('D114'),
+      });
+    }
+  });
+});
+
 describe('data scripts on an already-migrated database', () => {
   let t: TestDatabase;
   beforeAll(async () => {

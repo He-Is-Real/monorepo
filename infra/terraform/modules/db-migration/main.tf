@@ -108,6 +108,11 @@ locals {
   form_files  = { for k in local.form_kinds : k => [for f in fileset("${local.forms_dir}/${k}", "*.md") : f if f != "README.md"] }
   form_sha256 = { for k in local.form_kinds : k => { for f in local.form_files[k] : trimsuffix(f, ".md") => filesha256("${local.forms_dir}/${k}/${f}") } }
   form_text   = { for k in local.form_kinds : k => { for f in local.form_files[k] : trimsuffix(f, ".md") => file("${local.forms_dir}/${k}/${f}") } }
+  # D114: each version's boxes, libs/legal/forms/<kind>/<id>.statements.json, decoded and with
+  # the file's sha256 (form-sync.surql; evidence v3 covers the hash).
+  statement_files        = { for k in local.form_kinds : k => fileset("${local.forms_dir}/${k}", "*.statements.json") }
+  form_statements        = { for k in local.form_kinds : k => { for f in local.statement_files[k] : trimsuffix(f, ".statements.json") => jsondecode(file("${local.forms_dir}/${k}/${f}")) } }
+  form_statements_sha256 = { for k in local.form_kinds : k => { for f in local.statement_files[k] : trimsuffix(f, ".statements.json") => filesha256("${local.forms_dir}/${k}/${f}") } }
 
   params = {
     clerk_jwt_public_key   = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
@@ -117,6 +122,8 @@ locals {
     dpa_text               = local.dpa_text
     form_sha256            = local.form_sha256
     form_text              = local.form_text
+    form_statements        = local.form_statements
+    form_statements_sha256 = local.form_statements_sha256
     environment            = var.environment
     identity_hash          = var.identity_hash
     seed_dev_story         = var.seed_dev_story

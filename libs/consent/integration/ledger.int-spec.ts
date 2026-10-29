@@ -36,6 +36,12 @@ import {
  */
 const FIXED_VECTOR_V2 =
   '07c2cf2c8265cbe8de2d4536ff90c35b0a4fa2b0bd96053981ebeef7b64684a7';
+/**
+ * D114: sha256 of ["heisreal-consent-evidence/v3","testimony","v1","aaa…","ddd…","v1","bbb…",
+ * "publish","granted","web_form_submission"], with the statements file's hash ("ddd…").
+ */
+const FIXED_VECTOR_V3 =
+  '83ea9be09161a7257bdbdd4fc065b1b551619d30b13318720b9720cbdbfb3418';
 /** The v1 format's fixed vector (rows from before forms keep verifying against it). */
 const FIXED_VECTOR_V1 =
   '742fa2d7efa880025031ba5410d3e85f63e1179b49f8680fe126e34001db62e0';
@@ -58,6 +64,33 @@ const independentV2 = (r: {
         r.form,
         r.formVersion,
         r.formHash,
+        r.dpa,
+        r.dpaHash,
+        r.type,
+        r.event,
+        r.mechanism,
+      ]),
+    )
+    .digest('hex');
+const independentV3 = (r: {
+  form: string;
+  formVersion: string;
+  formHash: string;
+  statementsHash: string;
+  dpa: string;
+  dpaHash: string;
+  type: string;
+  event: string;
+  mechanism: string;
+}) =>
+  createHash('sha256')
+    .update(
+      JSON.stringify([
+        'heisreal-consent-evidence/v3',
+        r.form,
+        r.formVersion,
+        r.formHash,
+        r.statementsHash,
         r.dpa,
         r.dpaHash,
         r.type,
@@ -178,7 +211,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
   describe('once v1 of the DPA and the three forms are published', () => {
     beforeAll(() => publishDpa(t, 'v1'));
 
-    it('grants each statement on its form in the person’s own session, with evidence v2 and no IP', async () => {
+    it('grants each statement on its form in the person’s own session, with evidence v3 and no IP', async () => {
       for (const type of CONSENT_TYPES) {
         expect(await grant('user_ann', type)).toEqual({
           id: expect.stringMatching(/^\w+$/),
@@ -188,16 +221,18 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       }
       const stored = await rows<Record<string, unknown>>(
         await t.migrator(),
-        `SELECT *, dpaVersion.contentHash AS dpaHash, form.textHash AS formHash
+        `SELECT *, dpaVersion.contentHash AS dpaHash, form.textHash AS formHash,
+           form.statementsHash AS statementsHash
            FROM consent WHERE subject = user:ann ORDER BY occurredAt`,
       );
       expect(stored).toHaveLength(CONSENT_TYPES.length);
       for (const row of stored) {
-        const { dpaHash, formHash, ...fields } = row;
+        const { dpaHash, formHash, statementsHash, ...fields } = row;
         expect(Object.keys(fields).sort()).toEqual([
           'dpaVersion',
           'event',
           'evidenceHash',
+          'evidenceVersion',
           'form',
           'id',
           'mechanism',
@@ -207,11 +242,14 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
         ]); // D19: no ipAddress, nothing else
         const type = String(row['type']) as ConsentType;
         expect(row['form']).toBe(`${FORM_TABLE[FORM_OF[type]]}:v1`);
+        expect(row['evidenceVersion']).toBe(3);
+        expect(String(statementsHash)).toMatch(/^[0-9a-f]{64}$/);
         expect(row['evidenceHash']).toBe(
-          independentV2({
+          independentV3({
             form: FORM_OF[type],
             formVersion: 'v1',
             formHash: String(formHash),
+            statementsHash: String(statementsHash),
             dpa: 'v1',
             dpaHash: String(dpaHash),
             type,
@@ -234,6 +272,27 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
         mechanism: 'web_form_submission',
       };
       expect(independentV2(base)).toBe(FIXED_VECTOR_V2);
+      // D114: v3 adds the statements file's hash.
+      const statementsHash = 'd'.repeat(64);
+      expect(independentV3({ ...base, statementsHash })).toBe(FIXED_VECTOR_V3);
+      expect(
+        evidenceHash({
+          form: {
+            kind: 'testimony',
+            version: 'v1',
+            textHash: base.formHash,
+            statementsHash,
+          },
+          dpaVersion: 'v1',
+          dpaContentHash: base.dpaHash,
+          type: 'publish',
+          event: 'granted',
+          mechanism: 'web_form_submission',
+        }),
+      ).toBe(FIXED_VECTOR_V3);
+      expect(
+        independentV3({ ...base, statementsHash: 'e'.repeat(64) }),
+      ).not.toBe(FIXED_VECTOR_V3);
       // The ledger's own function, both formats.
       expect(
         evidenceHash({
@@ -367,7 +426,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       );
     });
 
-    it('still counts, can be withdrawn, and the whole history verifies (v1 and v2 rows)', async () => {
+    it('still counts, can be withdrawn, and the whole history verifies (v1 and v3 rows)', async () => {
       expect(await as('user_vee', (s) => asAdmin.callerHas(s, ART9))).toBe(
         true,
       );
@@ -379,10 +438,38 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       expect(checks.map((c) => [c.format, c.verified])).toEqual([
         ['v1', true],
         ['v1', true], // the withdrawal binds to the v1 grant it follows
-        ['v2', true],
+        ['v3', true],
       ]);
       const ann = await as('user_ann', (s) => ledger.verifyEvidence(s));
-      expect(ann.every((c) => c.format === 'v2' && c.verified)).toBe(true);
+      expect(ann.every((c) => c.format === 'v3' && c.verified)).toBe(true);
+    });
+
+    it('a row from before D114 (no evidenceVersion) keeps verifying as v2', async () => {
+      const [{ formHash, dpaHash }] = await rows<Record<string, string>>(
+        await t.migrator(),
+        `SELECT textHash AS formHash, dpaVersion.contentHash AS dpaHash
+           FROM ONLY testimonyFormVersion:v1`,
+      );
+      await run(
+        await t.migrator(),
+        `CREATE consent CONTENT { subject: user:vee, type: 'publish', event: 'granted',
+           dpaVersion: dpaVersion:v1, form: testimonyFormVersion:v1,
+           mechanism: 'web_form_submission', evidenceHash: $h }`,
+        {
+          h: independentV2({
+            form: 'testimony',
+            formVersion: 'v1',
+            formHash,
+            dpa: 'v1',
+            dpaHash,
+            type: 'publish',
+            event: 'granted',
+            mechanism: 'web_form_submission',
+          }),
+        },
+      );
+      const checks = await as('user_vee', (s) => ledger.verifyEvidence(s));
+      expect(checks.at(-1)).toMatchObject({ format: 'v2', verified: true });
     });
 
     it('a tampered hash doesn’t verify', async () => {

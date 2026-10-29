@@ -9,6 +9,8 @@
  *   - params.json: dpa_sha256 = { <id>: sha256 of libs/legal/dpa/<id>.md } for every file there,
  *     dpa_text = their words, form_sha256 / form_text = the same for every consent form version
  *     in libs/legal/forms/<signup|testimony|social>/<id>.md (D84),
+ *     form_statements / form_statements_sha256 = each version's boxes and their file's sha256, from
+ *     <id>.statements.json beside its text (D114),
  *     clerk_jwt_public_key = the PEM file given, or null. No identity_hash: locally, restart
  *     SurrealDB yourself after changing the init Secret (the identity-check sidecar still gates
  *     readiness on the credentials). environment = 'local', so consent checks are never relaxed
@@ -86,6 +88,30 @@ const formText = Object.fromEntries(
     texts(join(root, 'libs/legal/forms', k)),
   ]),
 );
+// D114: each version's boxes, <id>.statements.json beside its text.
+const statementFiles = (dir) =>
+  Object.fromEntries(
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.statements.json'))
+      .map((f) => [
+        f.slice(0, -'.statements.json'.length),
+        readFileSync(join(dir, f), 'utf8'),
+      ]),
+  );
+const formStatementFiles = Object.fromEntries(
+  ['signup', 'testimony', 'social'].map((k) => [
+    k,
+    statementFiles(join(root, 'libs/legal/forms', k)),
+  ]),
+);
+const formStatements = Object.fromEntries(
+  Object.entries(formStatementFiles).map(([k, byId]) => [
+    k,
+    Object.fromEntries(
+      Object.entries(byId).map(([id, text]) => [id, JSON.parse(text)]),
+    ),
+  ]),
+);
 const clerkKeyFile = args['clerk-public-key-file'];
 const params = {
   clerk_jwt_public_key: clerkKeyFile
@@ -99,6 +125,10 @@ const params = {
     Object.entries(formText).map(([k, byId]) => [k, sha256(byId)]),
   ),
   form_text: formText,
+  form_statements: formStatements,
+  form_statements_sha256: Object.fromEntries(
+    Object.entries(formStatementFiles).map(([k, byId]) => [k, sha256(byId)]),
+  ),
   environment: 'local',
   identity_hash: null,
   seed_dev_story: args['seed-dev-story'],

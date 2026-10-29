@@ -1026,9 +1026,9 @@ components:
         One ledger event: one statement ticked on the form version shown (D84). The version must be the one
         in force (`GET /v1/legal/forms/{form}` on api-public-read); the database refuses anything but a
         published version. The privacy document is the one the form version links. The server sets
-        `occurredAt` and computes the evidence hash (`heisreal-consent-evidence/v2`): sha256 of the form,
-        its version and its text's sha256, the DPA version and its text's sha256, the statement, the event
-        and the mechanism. No IP address (D19).
+        `occurredAt` and computes the evidence hash (`heisreal-consent-evidence/v3`, D114): sha256 of the form,
+        its version, its text's sha256 and its statements file's sha256 (the words beside each box), the DPA
+        version and its text's sha256, the statement, the event and the mechanism. No IP address (D19).
       required: [form, formVersion, statement, mechanism]
       properties:
         form:
@@ -1092,8 +1092,8 @@ components:
     ConsentFormVersion:
       type: object
       description: |
-        A published version of a consent form (D84), frozen once published: its words, the statements (boxes)
-        it has, the privacy document it links and, for the testimony and social sharing forms, its features.
+        A published version of a consent form (D84), frozen once published: its words (a document to read),
+        the statements (boxes) it has as structured data (D114), the privacy document it links and, for the testimony and social sharing forms, its features.
         "18+" is on the sign-up form only (D77, D93).
       required:
         [
@@ -1105,6 +1105,8 @@ components:
           textHash,
           text,
           statements,
+          boxes,
+          statementsHash,
           version,
         ]
       properties:
@@ -1132,8 +1134,31 @@ components:
           description: Markdown.
         statements:
           type: array
+          description: The statements (consent types) this version has.
           items:
             $ref: '#/components/schemas/ConsentType'
+        boxes:
+          type: array
+          description: |
+            D114: the version's boxes, in the order shown, each a statement with the exact words shown
+            beside it, from the version's statements file (`libs/legal/forms/<form>/<id>.statements.json`).
+            Pages draw the boxes from this, outside the document: nothing in `text` adds, removes or
+            changes a box. Lists every statement in `statements`, once each.
+          items:
+            type: object
+            required: [statement, label]
+            additionalProperties: false
+            properties:
+              statement:
+                $ref: '#/components/schemas/ConsentType'
+              label:
+                type: string
+                minLength: 1
+        statementsHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: SHA-256 of the statements file; consent evidence v3 covers it (D114).
         version:
           $ref: '#/components/schemas/Version'
         features:
@@ -1232,7 +1257,7 @@ components:
         the record (created on the person's first call), `role` from the token's claim (D1). Email and
         name stay in Clerk and are edited in Clerk's own account panel (D16, D81). There are no
         notification settings in M2 (D81: no emails in M2, D79), so `notificationPrefs` is absent.
-      required: [id, role, createdAt, signupConsent]
+      required: [id, role, createdAt, signupConsent, testimonyConsent]
       properties:
         id:
           type: string
@@ -1260,6 +1285,18 @@ components:
           required: [accepted]
           properties:
             accepted:
+              type: boolean
+        testimonyConsent:
+          type: object
+          description: |
+            The testimony consent form (D85, D93), for the banner after sign-in: `acceptanceRequired` is
+            `ConsentState.testimony.acceptanceRequired`. A version requiring acceptance for new
+            submissions came after the person's own, so they must accept the one in force before
+            starting a new draft or submitting. Their stories stay public either way. `false` for
+            someone who never gave testimony consent.
+          required: [acceptanceRequired]
+          properties:
+            acceptanceRequired:
               type: boolean
 
     AccountPatch:

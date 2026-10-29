@@ -79,11 +79,12 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
         ),
       ]).toEqual([id, [true, true]]);
     }
-    // Every grant's evidence is the API's v2 hash of what it names, computed independently.
+    // Every grant's evidence is the API's v3 hash of what it names (D114), computed independently.
     const ledger = await rows<Record<string, string>>(
       migrator,
       `SELECT type, event, mechanism, evidenceHash, record::tb(form) AS table,
          record::id(form) AS version, form.textHash AS textHash,
+         form.statementsHash AS statementsHash, evidenceVersion,
          record::id(dpaVersion) AS dpa, dpaVersion.contentHash AS dpaHash
        FROM consent`,
     );
@@ -98,14 +99,16 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
       'special_category_religious testimonyFormVersion',
     ]);
     for (const r of ledger) {
+      expect(r['evidenceVersion']).toBe(3);
       expect(r['evidenceHash']).toBe(
         createHash('sha256')
           .update(
             JSON.stringify([
-              'heisreal-consent-evidence/v2',
+              'heisreal-consent-evidence/v3',
               r['table'] === 'signupFormVersion' ? 'signup' : 'testimony',
               r['version'],
               r['textHash'],
+              r['statementsHash'],
               r['dpa'],
               r['dpaHash'],
               r['type'],

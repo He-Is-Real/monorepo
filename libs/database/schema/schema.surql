@@ -927,6 +927,12 @@ DEFINE FIELD OVERWRITE textRef     ON signupFormVersion TYPE string;   -- libs/l
 DEFINE FIELD OVERWRITE textHash    ON signupFormVersion TYPE string ASSERT string::len($value) = 64;
 DEFINE FIELD OVERWRITE text        ON signupFormVersion TYPE option<string>;
 DEFINE FIELD OVERWRITE dpaVersion  ON signupFormVersion TYPE record<dpaVersion>;
+-- D114: the version's boxes (statements) and the exact words shown beside each, as structured
+-- data, never read from its text: libs/legal/forms/<kind>/<id>.statements.json, copied in by
+-- form-sync.surql with the file's sha256 (statementsHash, which evidence v3 covers).
+DEFINE FIELD OVERWRITE statements     ON signupFormVersion TYPE option<array<{ key: string, label: string }>>;
+DEFINE FIELD OVERWRITE statementsHash ON signupFormVersion TYPE option<string>
+  ASSERT $value = NONE OR string::len($value) = 64;
 DEFINE FIELD OVERWRITE publishedAt ON signupFormVersion TYPE option<datetime>   -- set by the server
   VALUE IF $this.status != 'draft' { $before OR time::now() } ELSE { NONE };
 DEFINE FIELD OVERWRITE version     ON signupFormVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
@@ -943,6 +949,12 @@ DEFINE FIELD OVERWRITE textRef     ON testimonyFormVersion TYPE string;   -- lib
 DEFINE FIELD OVERWRITE textHash    ON testimonyFormVersion TYPE string ASSERT string::len($value) = 64;
 DEFINE FIELD OVERWRITE text        ON testimonyFormVersion TYPE option<string>;
 DEFINE FIELD OVERWRITE dpaVersion  ON testimonyFormVersion TYPE record<dpaVersion>;
+-- D114: the version's boxes (statements) and the exact words shown beside each, as structured
+-- data, never read from its text: libs/legal/forms/<kind>/<id>.statements.json, copied in by
+-- form-sync.surql with the file's sha256 (statementsHash, which evidence v3 covers).
+DEFINE FIELD OVERWRITE statements     ON testimonyFormVersion TYPE option<array<{ key: string, label: string }>>;
+DEFINE FIELD OVERWRITE statementsHash ON testimonyFormVersion TYPE option<string>
+  ASSERT $value = NONE OR string::len($value) = 64;
 DEFINE FIELD OVERWRITE publishedAt ON testimonyFormVersion TYPE option<datetime>
   VALUE IF $this.status != 'draft' { $before OR time::now() } ELSE { NONE };
 DEFINE FIELD OVERWRITE version     ON testimonyFormVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
@@ -970,6 +982,12 @@ DEFINE FIELD OVERWRITE textRef     ON socialSharingFormVersion TYPE string;   --
 DEFINE FIELD OVERWRITE textHash    ON socialSharingFormVersion TYPE string ASSERT string::len($value) = 64;
 DEFINE FIELD OVERWRITE text        ON socialSharingFormVersion TYPE option<string>;
 DEFINE FIELD OVERWRITE dpaVersion  ON socialSharingFormVersion TYPE record<dpaVersion>;
+-- D114: the version's boxes (statements) and the exact words shown beside each, as structured
+-- data, never read from its text: libs/legal/forms/<kind>/<id>.statements.json, copied in by
+-- form-sync.surql with the file's sha256 (statementsHash, which evidence v3 covers).
+DEFINE FIELD OVERWRITE statements     ON socialSharingFormVersion TYPE option<array<{ key: string, label: string }>>;
+DEFINE FIELD OVERWRITE statementsHash ON socialSharingFormVersion TYPE option<string>
+  ASSERT $value = NONE OR string::len($value) = 64;
 DEFINE FIELD OVERWRITE publishedAt ON socialSharingFormVersion TYPE option<datetime>
   VALUE IF $this.status != 'draft' { $before OR time::now() } ELSE { NONE };
 DEFINE FIELD OVERWRITE version     ON socialSharingFormVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
@@ -1016,9 +1034,15 @@ DEFINE FUNCTION OVERWRITE fn::form::check_change($event: string, $before: any, $
       -- publishing goes from NONE to its default false, which isn't a change.
       LET $keys = array::union(object::keys($before), object::keys($after))
         .filter(|$k| $k NOT IN ['status', 'version']);
-      IF $keys.any(|$k| $after[$k] != $before[$k] AND !($before[$k] = NONE AND $after[$k] = false)) {
+      -- D114: a version published before statements existed gets them once, from its file
+      -- (form-sync.surql); after that they're frozen like everything else.
+      IF $keys.any(|$k| $after[$k] != $before[$k] AND !($before[$k] = NONE AND $after[$k] = false)
+          AND !($k IN ['statements', 'statementsHash'] AND $before[$k] = NONE)) {
         THROW 'published form versions are frozen: publish a new version instead';
       };
+    };
+    IF $after.statements != NONE OR $after.statementsHash != NONE {
+      fn::form::check_statements(record::tb($after.id), $after);
     };
     IF $after.status != 'draft' AND ($event = 'CREATE' OR $before.status = 'draft') {
       IF $after.text = NONE OR crypto::sha256($after.text) != $after.textHash {
@@ -1060,19 +1084,44 @@ DEFINE FUNCTION OVERWRITE fn::form::kind_statements($form: any) {
   IF record::tb($form) = 'socialSharingFormVersion' { RETURN ['share_socials'] };
   RETURN [];
 };
--- The statements (boxes) one form version has, each one consent type (D93): its form's
--- (fn::form::kind_statements), except that a testimony version has `publish` only if it covers
--- publishing on heisreal.today. A grant only counts for a statement its version has
--- (fn::consent::valid).
+-- The statements (boxes) a form version must have, each one consent type (D93), from its table
+-- and, for a testimony version, whether it covers publishing: `publish` only then. Its
+-- statements data (D114) must list exactly these (fn::form::check_statements).
+DEFINE FUNCTION OVERWRITE fn::form::required_statements($table: string, $coversPublicPublishing: any) {
+  IF $table = 'signupFormVersion' { RETURN ['age_18plus', 'account_data'] };
+  IF $table = 'testimonyFormVersion' {
+    RETURN array::concat(['special_category_religious'],
+      IF $coversPublicPublishing = true { ['publish'] } ELSE { [] });
+  };
+  IF $table = 'socialSharingFormVersion' { RETURN ['share_socials'] };
+  RETURN [];
+};
+-- The statements (boxes) one form version has: fn::form::required_statements for it. A grant
+-- only counts for a statement its version has (fn::consent::valid).
 DEFINE FUNCTION OVERWRITE fn::form::statements($form: any) {
   IF $form = NONE { RETURN [] };
-  IF record::tb($form) = 'signupFormVersion' { RETURN ['age_18plus', 'account_data'] };
-  IF record::tb($form) = 'testimonyFormVersion' {
-    RETURN array::concat(['special_category_religious'],
-      IF (SELECT VALUE coversPublicPublishing FROM ONLY $form) = true { ['publish'] } ELSE { [] });
+  RETURN fn::form::required_statements(record::tb($form),
+    IF record::tb($form) = 'testimonyFormVersion' {
+      (SELECT VALUE coversPublicPublishing FROM ONLY $form)
+    } ELSE { NONE });
+};
+-- D114: a version's statements data lists every statement it must have, once each, and no
+-- other, each with words to show beside its box, and comes with its file's sha256. The pages
+-- draw the boxes from it, so a version can't be published with a box missing or misnamed.
+DEFINE FUNCTION OVERWRITE fn::form::check_statements($table: string, $f: any) {
+  IF $f.statements = NONE OR $f.statementsHash = NONE {
+    THROW 'a form version’s statements come with their file’s sha256 (statementsHash), and the other way round';
   };
-  IF record::tb($form) = 'socialSharingFormVersion' { RETURN ['share_socials'] };
-  RETURN [];
+  LET $keys = $f.statements.map(|$s| $s.key);
+  LET $required = fn::form::required_statements($table, $f.coversPublicPublishing);
+  IF array::len($keys) != array::len(array::distinct($keys))
+    OR array::len($keys) != array::len($required)
+    OR $required.any(|$k| $k NOT IN $keys) {
+    THROW 'a form version’s statements must be exactly ' + <string> $required + ' (D114), each once';
+  };
+  IF $f.statements.any(|$s| string::len(string::trim($s.label)) = 0) {
+    THROW 'every statement of a form version has words to show beside its box (D114)';
+  };
 };
 -- D93: whether a person whose testimony version is $form (NONE: a grant from before forms) must
 -- accept the version in force before a new draft or submission: theirs isn't the one in force,
@@ -1105,6 +1154,10 @@ DEFINE FIELD OVERWRITE event        ON consent TYPE string ASSERT $value IN ['gr
 DEFINE FIELD OVERWRITE mechanism    ON consent TYPE string
   ASSERT $value IN ['web_form_submission', 'account_settings', 'reconsent_prompt', 'legacy_import'];
 DEFINE FIELD OVERWRITE evidenceHash ON consent TYPE string ASSERT string::len($value) = 64;  -- sha256(presented text + checkbox states)
+-- Which evidence format evidenceHash follows (libs/consent/src/lib/evidence.ts), so it can be
+-- recomputed: 3 (D114: it also covers the form version's statements data, the words beside each
+-- box), set by the API on every event since; NONE on older rows: v2 with a form, v1 without.
+DEFINE FIELD OVERWRITE evidenceVersion ON consent TYPE option<int> ASSERT $value = NONE OR $value = 3;
 DEFINE FIELD OVERWRITE legacyGivenAt ON consent TYPE option<datetime>;  -- D22: original date, legacy imports only
 DEFINE FIELD OVERWRITE occurredAt   ON consent TYPE datetime VALUE time::now() READONLY;   -- server time only
 DEFINE INDEX OVERWRITE consent_latest ON consent FIELDS subject, type, occurredAt;  -- D18: "latest event" lookup
