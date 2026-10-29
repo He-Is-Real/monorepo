@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, test } from '@playwright/test';
 import { Contract } from '@heisreal/contracts/testing';
-import { E2E_FIXTURE_TOKEN, STUB_URL, STUB_USER_URL } from './servers';
+import { fixtureToken, STUB_URL, STUB_USER_URL } from './servers';
 
 // T3: the stub api-public-read (stub-api.mjs) answers as libs/contracts/openapi/
 // api-public-read.yaml says, like the real service does in its integration tests
@@ -56,6 +56,19 @@ test('every list page, filter and search the stub serves fits the contract', asy
     }
   }
   expect((await check(request, '/v1/stories?cursor=forged')).status).toBe(400);
+  // Cards by id (hearts kept on a device, M2).
+  const byId = await check(
+    request,
+    '/v1/stories?id=browse_01&id=browse_02&id=no_such',
+  );
+  expect(byId.status).toBe(200);
+  expect(byId.body.data.map((s: { id: string }) => s.id)).toEqual([
+    'browse_01',
+    'browse_02',
+  ]);
+  expect(
+    (await check(request, '/v1/stories?id=browse_01&limit=5')).status,
+  ).toBe(400);
 });
 
 test('every story, its related list and the tags fit the contract', async ({
@@ -126,7 +139,7 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
     ).toEqual([]);
     return res;
   };
-  const signedIn = { authorization: `Bearer ${E2E_FIXTURE_TOKEN}` };
+  const signedIn = { authorization: `Bearer ${fixtureToken()}` };
   const account = await get('/v1/account', signedIn);
   expect(account.status()).toBe(200);
   const etag = account.headers()['etag'];
@@ -143,7 +156,7 @@ test('the stub api-user’s consent grants fit the contract', async ({
   const post = async (
     body: unknown,
     headers: Record<string, string> = {
-      authorization: `Bearer ${E2E_FIXTURE_TOKEN}`,
+      authorization: `Bearer ${fixtureToken()}`,
     },
   ) => {
     const res = await request.post(`${STUB_USER_URL}/v1/account/consents`, {
@@ -163,7 +176,7 @@ test('the stub api-user’s consent grants fit the contract', async ({
     return { status: res.status(), body: text ? JSON.parse(text) : undefined };
   };
   const signedIn = (key: string) => ({
-    authorization: `Bearer ${E2E_FIXTURE_TOKEN}`,
+    authorization: `Bearer ${fixtureToken()}`,
     'idempotency-key': `contract-check-${key}`,
   });
   const grant = {
@@ -196,4 +209,71 @@ test('the stub api-user’s consent grants fit the contract', async ({
   expect(
     (await post(grant, { 'idempotency-key': 'contract-check-anon' })).status,
   ).toBe(401);
+});
+
+test('the stub api-user’s hearts fit the contract', async ({ request }) => {
+  const send = async (
+    method: 'GET' | 'PUT' | 'DELETE',
+    path: string,
+    headers: Record<string, string> = {},
+  ) => {
+    const res = await request.fetch(`${STUB_USER_URL}${path}`, {
+      method,
+      headers,
+    });
+    const text = await res.text();
+    expect(
+      userContract.problems({
+        method,
+        path: new URL(res.url()).pathname,
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body: text === '' ? undefined : JSON.parse(text),
+      }),
+      `${method} ${path}`,
+    ).toEqual([]);
+    return res;
+  };
+  // Its own session, so no other test's hearts show up.
+  const me = { authorization: `Bearer ${fixtureToken('contract')}` };
+  const noConsent = {
+    authorization: `Bearer ${fixtureToken('no-consent-contract')}`,
+  };
+  const list = '/v1/account/favourites';
+  expect((await send('PUT', `${list}/browse_01`, me)).status()).toBe(204);
+  expect((await send('PUT', `${list}/browse_02`, me)).status()).toBe(204);
+  expect((await send('PUT', `${list}/no_such`, me)).status()).toBe(404);
+  expect((await send('PUT', `${list}/browse_01`, noConsent)).status()).toBe(
+    403,
+  );
+  const page = await send('GET', `${list}?limit=1`, me);
+  expect(page.status()).toBe(200);
+  const { data, nextCursor } = await page.json();
+  expect(data.map((s: { id: string }) => s.id)).toEqual(['browse_02']);
+  expect(
+    (await send('GET', `${list}?limit=1&cursor=${nextCursor}`, me)).status(),
+  ).toBe(200);
+  const among = await send(
+    'GET',
+    `${list}?storyId=browse_01&storyId=browse_03`,
+    me,
+  );
+  expect((await among.json()).data.map((s: { id: string }) => s.id)).toEqual([
+    'browse_01',
+  ]);
+  expect(
+    (
+      await send('GET', list, {
+        ...me,
+        'if-none-match': (await send('GET', list, me)).headers()['etag'],
+      })
+    ).status(),
+  ).toBe(304);
+  expect((await send('GET', `${list}?storyId=a&limit=2`, me)).status()).toBe(
+    400,
+  );
+  expect((await send('DELETE', `${list}/browse_01`, me)).status()).toBe(204);
+  expect((await send('GET', list)).status()).toBe(401);
+  expect((await send('PUT', `${list}/browse_01`)).status()).toBe(401);
+  expect((await send('DELETE', `${list}/browse_01`)).status()).toBe(401);
 });

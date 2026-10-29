@@ -171,6 +171,7 @@ export function CardPlayer({
       <div
         ref={box}
         data-card-media=""
+        data-card-playing=""
         className={`${boxClass} bg-black`}
         style={{ ...style, minHeight: PLAYER_MIN_HEIGHT, minWidth: 0 }}
       >

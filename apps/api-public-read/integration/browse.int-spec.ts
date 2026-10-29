@@ -11,7 +11,7 @@ import {
   devDatabaseWithDataset,
   type StoryFixture,
 } from '@heisreal/dev-seed/testing';
-import { MediaUrls, mediaConfigFromEnv } from '../src/app/media/media-urls';
+import { MediaUrls, mediaConfigFromEnv } from '@heisreal/story-cards';
 import { tagProbes } from '../src/app/tags/tags.controller';
 import { startPublicRead } from './app';
 
@@ -362,6 +362,37 @@ describe('browse API over the dev dataset', () => {
       );
       expect(res.status).toBe(400);
       expect(await res.json()).toMatchObject({ code: 'invalid_cursor' });
+    });
+  });
+
+  describe('cards by id (hearts kept on a device, M2)', () => {
+    it('answers the public stories among the ids, newest first, and nothing else', async () => {
+      const ids = [
+        ...latestFirst.slice(0, 3).reverse(),
+        unpublished[0].id,
+        'no_such_story',
+      ];
+      const { data, nextCursor } = await page(
+        `/v1/stories?${ids.map((id) => `id=${id}`).join('&')}`,
+      );
+      expect(data.map((c) => c.id)).toEqual(latestFirst.slice(0, 3));
+      expect(nextCursor).toBeNull();
+    });
+
+    it('takes up to 50 ids, on their own', async () => {
+      const fifty = Array.from({ length: 50 }, (_, i) => `id=s${i}`).join('&');
+      expect((await get(`/v1/stories?${fifty}`)).status).toBe(200);
+      for (const query of [
+        `${fifty}&id=s50`,
+        'id=bad%20id',
+        `id=${latestFirst[0]}&tag=doubt`,
+        `id=${latestFirst[0]}&limit=5`,
+        `id=${latestFirst[0]}&sort=oldest`,
+      ]) {
+        const res = await get(`/v1/stories?${query}`);
+        expect(res.status, query).toBe(400);
+        expect(await res.text(), query).not.toContain('bad id');
+      }
     });
   });
 

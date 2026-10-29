@@ -3,12 +3,15 @@ import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
 import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
+import { CardHeart } from './heart-button';
 
 // A story's card (browse, home, related). Its parts and sizes mirror lib/masonry.ts, which
 // predicts its height (D55): change them together. The card's one link is its title, stretched
 // over the whole card, so the link's name is the story's title and tags stay plain text. On
 // video and audio cards the media area plays the story instead (card-player.tsx), so the link
 // covers only the text below it. No counts or metrics of any kind (design principles).
+// The person's heart sits in the top-right corner, over the picture when there is one, so it
+// never changes the card's height; it fills in from the browser (heart-button.tsx, D83).
 
 /** Home's uniform media box (the mockup's 16:10). */
 const UNIFORM_ASPECT = 16 / 10;
@@ -176,7 +179,9 @@ export function StoryCard({
       <div
         className={`flex flex-1 flex-col p-5 ${playable && media ? 'relative' : ''}`}
       >
-        <p className="mb-2 flex items-baseline justify-between gap-3 text-[0.8125rem] leading-5 text-muted-foreground">
+        <p
+          className={`mb-2 flex items-baseline justify-between gap-3 text-[0.8125rem] leading-5 text-muted-foreground ${media ? '' : 'pr-10'}`}
+        >
           <span className="shrink-0">{cardLabel(story)}</span>
           <span className="truncate">{story.bylineName ?? 'Anonymous'}</span>
         </p>
@@ -213,6 +218,7 @@ export function StoryCard({
           </ul>
         )}
       </div>
+      <CardHeart storyId={story.id} title={story.title} overPicture={!!media} />
     </article>
   );
 }

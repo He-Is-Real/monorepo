@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
 import { Suspense } from 'react';
+import { DeviceHeartsPrompt } from '@/components/favourites/device-hearts-prompt';
 import { JsonLd } from '@/components/page/json-ld';
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
@@ -77,6 +78,8 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <SiteFooter />
         </Suspense>
+        {/* Signed in: offers to add this device's hearts to the account (M2). */}
+        <DeviceHeartsPrompt />
       </body>
     </html>
   );

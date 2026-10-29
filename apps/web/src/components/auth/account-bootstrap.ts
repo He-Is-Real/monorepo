@@ -107,13 +107,17 @@ export function useAccountBootstrap(
 
 /**
  * The bootstrap's state for the page's signed-in person, without starting it: for the parts of
- * the page outside the header (the consent step and banner, consent-prompts.tsx), which read
- * what the header's bootstrap found.
+ * the page outside the header (the consent step and banner, consent-prompts.tsx; the device
+ * hearts prompt), which read what the header's bootstrap found. With `userId`, only that
+ * person's: idle for anyone else, so one person's state never reaches another's (hearts, M2).
  */
-export function useAccountState(): AccountBootstrap {
+export function useAccountState(userId?: string | null): AccountBootstrap {
   return useSyncExternalStore(
     subscribe,
-    () => state.bootstrap,
+    () =>
+      userId === undefined || (userId && state.userId === userId)
+        ? state.bootstrap
+        : IDLE,
     () => IDLE,
   );
 }

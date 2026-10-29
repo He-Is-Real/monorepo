@@ -5,7 +5,7 @@ import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 import { LegalModule } from './legal/legal.controller';
-import { MediaUrlsModule } from './media/media-urls';
+import { MediaUrlsModule } from '@heisreal/story-cards';
 import { StoriesModule } from './stories/stories.controller';
 import { TagsModule } from './tags/tags.controller';
 

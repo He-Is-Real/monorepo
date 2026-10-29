@@ -538,6 +538,29 @@ retried`, on both RocksDB and the in-memory engine.
     writes `_setting` in its own step after the schema: on 3.2.4 a `publicStory` row deleted in
     the transaction that redefines its indexes leaves its slug in the unique index.
 
+### M2 hearts (favourites; founder, 2026-10-25: hearts are private)
+
+34. **`favourite`: a person's private hearts.** `person`, `story`, `createdAt`, all `READONLY`; one
+    per person and story (`favourite_unique`). Permissions: only the person reads, creates and
+    deletes their own rows; nobody updates them; **no service login reads them**, and neither does
+    the story's owner (tested: Bob sees no row and a count of 0 on his own story). Event
+    `favourite_rules`: a new heart needs a live person (`fn::person::live`, fence) and fences the
+    story's owner too (Codex, #117: a heart racing the owner's erasure, which deletes the story
+    and its hearts, conflicts at commit instead of outliving the story; tested), the sign-up
+    consent (`account_data` and `age_18plus` granted on any version that counts, D73, D93;
+    `favourite_needs_consent`) and a story public now (its `publicStory` row;
+    `favourite_not_published`); deleting one bumps the person's fence. A story that stops being
+    public later keeps its hearts (removable any time), and lists read `publicStory` in the
+    person's session (C15), so it drops out of them. **Erasure:** `user_erasure_favourites` deletes
+    the person's hearts when `gdprDeletedAt` is set (whichever service erases), and
+    `story_erasure_cascade` deletes the hearts on a deleted story. api-user:
+    `PUT`/`DELETE`/`GET /v1/account/favourites` (`favourites.int-spec.ts` in api-user and here).
+    **Seam, not built:** the owner's count per story ("my stories", PR 8 of the M2 plan). A person
+    session can't count others' rows, and functions run with the caller's permissions, so it will
+    be a counter the `favourite_rules` event keeps (events run elevated) in its own table with the
+    story's id, like `hiddenStory`, so hearts never bump the story's `version` (D29), readable only
+    by the story's owner: a number, never who.
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
@@ -551,6 +574,7 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | `consent`                                                                                                                                                                            | the ledger; `subject`                          | linked     | subject live + fence; append-only                                          | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
 | `moderationReview`                                                                                                                                                                   | feedback about a story; `story`, `moderator`   | linked     | story exists, its submitter live + fence                                   | deleted (cascade)                                                 |
 | `idempotencyKey`                                                                                                                                                                     | `[service, user record, key]`; `{id, version}` | linked     | user live + fence (webhook keys exempt); people: own keys only             | deleted by erasure; others expire in 24 h                         |
+| `favourite`                                                                                                                                                                          | a heart; `person`, `story`                     | linked     | person + story owner live, fenced; sign-up consent; story public; own rows | deleted (erasure event; also with the story)                      |
 | `auditLog`                                                                                                                                                                           | `actor`, `entity` ids; typed codes             | kept (D38) | none: no person-state dependency, and the fields can't hold text           | kept 6 years; ids point nowhere                                   |
 | `personFence`                                                                                                                                                                        | a counter keyed by user id                     | none       | written by events only; `PERMISSIONS NONE`                                 | stays (no data); can go with the stub                             |
 | `legalFence`                                                                                                                                                                         | one counter (`legalFence:forms`)               | none       | written by events only; `PERMISSIONS NONE`                                 | —                                                                 |
@@ -560,7 +584,7 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
   anyway (D38). They can't carry testimony text: every field is typed or an enum, and unknown
   fields are refused. The `moderationReview.moderator` and `auditLog.actor` links point at
   staff `user` rows, which become stubs like anyone's.
-- **Future tables follow the same pattern** (favourites/seen M2, donors M4, helped/concern M6,
+- **Future tables follow the same pattern** (as `favourite` does; donors M4, helped/concern M6,
   any Bunny pending-deletions table, D40): call `fn::person::live` on create/update, bump on
   delete, and classify the table in the spec.
 
@@ -717,7 +741,8 @@ spec has the reference:
    removes `publicStory` and `moderationReview`.
 3. Delete their idempotency keys (`WHERE record::id(id)[1] = $u`).
 4. Set `gdprDeletedAt` (the database stamps the time) and clear `clerkUserId` in one update
-   (D37). From then on `AUTHENTICATE` can't find them.
+   (D37). From then on `AUTHENTICATE` can't find them. The same update deletes their hearts
+   (`user_erasure_favourites`), and step 2 deleted the hearts others gave their stories.
 
 **What is race-safe, exactly.** Only the **linked** tables in "Person-linked tables" are covered:
 

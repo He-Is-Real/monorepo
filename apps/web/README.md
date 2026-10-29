@@ -61,3 +61,28 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
   add, remove or break a box. If a box the page asks for is missing, nothing can be ticked.
 - Ticking records one grant per box through api-user (`POST /v1/account/consents`, the version
   shown, an `Idempotency-Key` per box kept for retries), only once every box is ticked.
+
+## Personal parts of pages (hearts)
+
+Clerk runs only in the header's account control, so that control publishes who is signed in to
+`src/lib/personal-session.ts`, and the rest of the page reads it there (D83). Hearts
+(`src/lib/favourites.ts`, `src/components/stories/heart-button.tsx`) render the same for
+everyone on the server, in a fixed place and size, and fill in once the browser knows: one
+`GET /v1/account/favourites?storyId=…` colours every card on the page. Everything in the store
+belongs to the person signed in now: an answer that arrives after someone else signed in is
+dropped. **Signed out, hearts are the device's own** (Joel, 2026-10-28;
+`src/lib/device-hearts.ts`): kept in this browser's local storage (`heisreal:device-hearts`,
+listed on /privacy) with no expiry, and nothing reaches our servers. "My favourites"
+(`/account/favourites`, in the account menu) then lists them, its cards read by web's server
+from api-public-read by id (`deviceHeartCards`, anonymous: no login, D83). Signed in, a press
+refused for the sign-up consent keeps the heart on the device and goes to `/consent/sign-up`
+(only from a press, so it can't loop). Device hearts never go into an account by themselves:
+once signed in with the sign-up consent, `src/components/favourites/device-hearts-prompt.tsx`
+asks "Add the N stories you hearted on this device to your account?" (Add / Not now), counting
+the public ones from the anonymous card lookup: nothing reaches api-user before Add. Add saves
+them like presses, through the per-story queue, and reports what really happened; the device's
+list stays as it is, and what was added is marked so it isn't offered again. Every api-user call
+from the hearts uses `personalApiUser`: a token is sent only if its `sub` is the person the
+work started for (Clerk's `getToken()` answers for whoever is signed in when it resolves). The
+e2e fixture tokens are shaped like session tokens for that reason (`e2e.<payload>.fixture`). In e2e each test can give its browser its own
+stub session (localStorage `e2e-session`), so parallel tests never share hearts.

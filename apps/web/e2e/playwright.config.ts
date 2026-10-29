@@ -76,6 +76,8 @@ export default defineConfig({
       url: `${STUB_USER_URL}/health`,
       env: {
         STUB_USER_PORT: String(STUB_USER_PORT),
+        // Hearts' cards come from the stub api-public-read, as api-user reads publicStory.
+        STUB_PUBLIC_URL: `http://127.0.0.1:${STUB_PORT}`,
         // CORS: only the signed-in server's origin, as OpenTofu allows only web's (D31).
         STUB_USER_ORIGINS: `http://localhost:${WEB_SIGNED_IN_PORT}`,
       },

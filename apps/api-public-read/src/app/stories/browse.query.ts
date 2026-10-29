@@ -27,18 +27,25 @@ export interface BrowseQuery {
   sort: Sort;
   limit: number;
   after: CursorKey | null;
+  /**
+   * Only these stories (ids, unique), on their own: the cards for hearts kept on a device
+   * (M2). `null` = the normal list.
+   */
+  ids: string[] | null;
 }
 
 export const LIMIT = { default: 20, max: 50 } as const;
 export const Q_MAX_CHARS = 200;
 export const TAGS_MAX = 5;
 export const CURSOR_MAX_CHARS = 300;
+/** At most this many ids in one `id` lookup. */
+export const IDS_MAX = 50;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SLUG_MAX = 60;
 const SORTS: readonly Sort[] = ['latest', 'oldest', 'relevance'];
 const FORMATS: readonly StoryFormat[] = ['video', 'audio', 'written'];
-const KNOWN = new Set(['q', 'tag', 'format', 'sort', 'limit', 'cursor']);
+const KNOWN = new Set(['q', 'tag', 'format', 'sort', 'limit', 'cursor', 'id']);
 const ID = /^[A-Za-z0-9_]{1,64}$/;
 // SurrealDB's own datetime text: UTC, up to nanoseconds.
 const DATETIME =
@@ -149,6 +156,27 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
   if (cursor !== undefined && cursor.length > CURSOR_MAX_CHARS)
     fail('cursor', 'too_long', 'Not a cursor from this API.');
 
+  // Cards by id, for hearts kept on a device: on their own, never with filters or paging.
+  let ids: string[] | null = null;
+  const rawIds = query['id'];
+  if (rawIds !== undefined) {
+    const list = typeof rawIds === 'string' ? [rawIds] : rawIds;
+    if (
+      !Array.isArray(list) ||
+      list.length < 1 ||
+      list.length > IDS_MAX ||
+      !list.every((id) => typeof id === 'string' && ID.test(id))
+    )
+      fail('id', 'invalid', `From 1 to ${IDS_MAX} story ids.`);
+    else if (Object.keys(query).some((name) => name !== 'id'))
+      fail(
+        'id',
+        'alone',
+        'Give story ids on their own, without other parameters.',
+      );
+    else ids = [...new Set(list as string[])];
+  }
+
   if (errors.length > 0) throw invalid(errors);
   const parsed: BrowseQuery = {
     q,
@@ -157,6 +185,7 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
     sort: sort as Sort,
     limit,
     after: null,
+    ids,
   };
   if (cursor !== undefined) parsed.after = decodeCursor(parsed, cursor);
   return parsed;

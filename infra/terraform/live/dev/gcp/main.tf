@@ -119,6 +119,9 @@ module "gcp" {
     stream_cdn_hostname = "vz-bd66cea0-80b.b-cdn.net"
     images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
   }
+  # Hearts (M2): api-user signs the media links on favourites' cards with the same keys. Apply
+  # the bunny root first (it lets api-user read them), or api-user's new revision won't start.
+  api_user_media_signing = true
   # api-user and api-admin (M2): public at the Cloud Run layer like api-public-read, because the
   # browser calls them directly (D31); every route but /health needs a Clerk session token, which
   # the apps verify. Capped at 2 instances each and scale to zero.

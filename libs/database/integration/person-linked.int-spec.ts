@@ -30,6 +30,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   consent: 'linked', // subject (kept after erasure as proof; pruned after 6 years)
   moderationReview: 'linked', // story → submitter
   idempotencyKey: 'linked', // id[1] = user record
+  favourite: 'linked', // person (hearts, M2); deleted at erasure
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
@@ -66,6 +67,21 @@ type LinkedCase = {
 };
 
 const LINKED: Record<string, LinkedCase> = {
+  favourite: {
+    setup: (c) =>
+      run(
+        c.admin,
+        `LET $s = (SELECT * FROM ONLY story:${c.p}_s);
+         CREATE publicStory:${c.p}_s CONTENT {
+           version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
+           body: $s.body, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: [],
+           publishedAt: time::now() };`,
+      ),
+    writer: (c) => c.person,
+    write: (c, db) =>
+      run(db(c), `CREATE favourite SET person = $auth, story = story:${c.p}_s`),
+    landed: (c) => `SELECT VALUE id FROM favourite WHERE person = user:${c.p}`,
+  },
   story: {
     writer: (c) => c.person,
     write: (c, db) => draft(db(c), `${c.p}_new`),

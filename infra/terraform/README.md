@@ -130,7 +130,10 @@ available only on `main`); bootstrap is planned and applied locally.
   changes" and skip their apply. Every Release Images completion, success or failure, triggers a
   full run, so a new image in `apps` is planned as soon as it exists.
 - **Two approval waves.** Wave 1: gcp and bunny plan in parallel; if either changes, `approve-1`
-  waits for one approval in `dev`, then both apply their saved plans. Wave 2: cluster (and images)
+  waits for one approval in `dev`, then both apply their saved plans, **bunny first**: gcp applies
+  once bunny applied or had no changes (bunny grants gcp's services access to keys they read at
+  start-up, e.g. api-user's link-signing keys; a failed bunny plan or apply holds gcp back, and
+  wave 2 with it, until a dispatched run; `tools/scripts/tests/tf-apply-order.test.mjs`). Wave 2: cluster (and images)
   plan **after** gcp's apply, against its fresh outputs; if either changes, `approve-2` asks once
   more. A single-root change asks once; gcp + cluster asks twice.
 - **Each apply applies exactly its saved plan** (KMS-encrypted, in `gs://heisreal-dev-tfstate/plans/`,

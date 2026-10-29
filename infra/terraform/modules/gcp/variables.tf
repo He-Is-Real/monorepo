@@ -127,6 +127,22 @@ variable "api_public_read_media" {
   }
 }
 
+variable "api_user_media_signing" {
+  description = <<-EOT
+    Hearts (M2): api-user signs the media links on the story cards of a person's
+    favourites, with the same settings and keys as api-public-read
+    (api_public_read_media, which must be set). The bunny root must already let
+    api-user read the two token auth keys (signing_key_readers): a revision that
+    can't read them doesn't start. false = api-user's cards carry no media links.
+  EOT
+  type        = bool
+  default     = false
+  validation {
+    condition     = !var.api_user_media_signing || var.api_public_read_media != null
+    error_message = "api_user_media_signing needs api_public_read_media (the identifiers and secret names it reuses)."
+  }
+}
+
 variable "api_public_read_invokers" {
   description = "Members allowed to call api-public-read when it isn't public (e.g. user:someone@heisreal.today)."
   type        = list(string)

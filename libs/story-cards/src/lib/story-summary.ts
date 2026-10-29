@@ -1,4 +1,4 @@
-import type { MediaUrls } from '../media/media-urls';
+import type { MediaUrls } from './media-urls';
 
 /** A published clip's stored fields (`publicStory.media[*]`). Never sent as they are. */
 export interface StoredMedia {

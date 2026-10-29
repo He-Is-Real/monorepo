@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useId, useRef, useState } from 'react';
 import {
-  E2E_FIXTURE_TOKEN,
   E2E_FIXTURE_USER_ID,
+  e2eFixtureToken,
 } from '@/components/auth/account-control';
 import {
   confirmConsent,
@@ -93,7 +93,7 @@ export function FixtureConsentForm({
       {...ask}
       signedIn={signedIn}
       userId={signedIn ? E2E_FIXTURE_USER_ID : null}
-      getToken={async () => E2E_FIXTURE_TOKEN}
+      getToken={e2eFixtureToken}
       signOut={(button) => (
         <span onClickCapture={() => router.push('/')}>{button}</span>
       )}

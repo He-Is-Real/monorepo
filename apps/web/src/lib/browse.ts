@@ -95,6 +95,30 @@ export async function browseStories(
   return body;
 }
 
+/** A story id as the APIs give them out. */
+export const STORY_ID = /^[A-Za-z0-9_]{1,64}$/;
+/** At most this many ids in one `id=` lookup (api-public-read.yaml). */
+export const MAX_IDS = 50;
+
+/**
+ * `GET /v1/stories?id=…`: the cards of the stories among `ids` that are public now, newest
+ * first (hearts kept on a device, M2). Anonymous: api-public-read learns which stories, never
+ * who asks. At most {@link MAX_IDS} valid ids.
+ */
+export async function storyCardsByIds(
+  ids: readonly string[],
+): Promise<StorySummary[]> {
+  if (ids.length === 0) return [];
+  if (ids.length > MAX_IDS || !ids.every((id) => STORY_ID.test(id)))
+    throw new Error('storyCardsByIds: 1 to 50 story ids');
+  const query = new URLSearchParams();
+  for (const id of ids) query.append('id', id);
+  const res = await get(`/v1/stories?${query}`, { cached: false });
+  const body = await json(res);
+  if (!isPage(body)) throw new StoriesUnavailableError('unexpected response');
+  return body.data;
+}
+
 /** `GET /v1/stories/{slug}/related`: the story page's related cards. */
 export async function getRelatedStories(slug: string): Promise<RelatedResult> {
   if (!SLUG.test(slug) || slug.length > 200) return { kind: 'not_found' };

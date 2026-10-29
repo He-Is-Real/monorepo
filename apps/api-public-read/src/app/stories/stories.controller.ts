@@ -9,13 +9,16 @@ import {
   Res,
 } from '@nestjs/common';
 import { runQuery, SURREAL } from '@heisreal/database';
+import {
+  MediaUrls,
+  type StoredImage,
+  type StoredMedia,
+} from '@heisreal/story-cards';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import { publicCacheControl, representationETag, sendCached } from '../caching';
-import { MediaUrls } from '../media/media-urls';
 import { BrowseController } from './browse.controller';
 import { isSlug, notFound } from './slug';
-import type { StoredImage, StoredMedia } from './story-summary';
 
 /** `components.yaml#/components/schemas/StoryPublic`. */
 export interface StoryPublic {

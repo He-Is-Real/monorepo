@@ -16,6 +16,8 @@ export function generateMetadata() {
 // 2026-10-23 (M1 step 6b-2, #65 review): the theme the visitor picks, and Clerk's sign-in (it
 // runs in the header on every page, D32), with Clerk's optional telemetry off.
 // Bunny's player keeps the visitor's own playback settings once they change one (Codex, #65).
+// Hearts pressed while signed out (or before the sign-up consent) stay in this browser's local
+// storage (M2, Joel, 2026-10-28); only their story ids are sent, anonymously, to show their cards.
 // All strictly necessary (PECR reg. 6(4)), so no consent banner. Clerk may add a short suffix
 // to its cookie names.
 const STORAGE = [
@@ -48,6 +50,14 @@ const STORAGE = [
     by: 'Clerk',
     purpose: 'Keeps a copy of the sign-in settings, so sign-in loads quickly.',
     lasts: 'Until you clear it',
+  },
+  {
+    name: 'heisreal:device-hearts',
+    kind: 'Local storage',
+    by: 'This site',
+    purpose:
+      'The stories you hearted on this device: while signed out, or signed in before agreeing to keep favourites in your account, and which of them were added to an account from here. The list stays in your browser, and we keep no copy of it. To show these stories in My favourites, or to offer adding them to your account, your browser tells our site which stories they are, without saying who you are. Only if you choose Add are they saved to your account.',
+    lasts: 'Until you remove the hearts or clear this browser’s data',
   },
   {
     name: '__cf_bm, _cfuvid',

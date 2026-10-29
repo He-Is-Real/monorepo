@@ -49,6 +49,9 @@
     },
     {
       "path": "../../libs/auth/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/story-cards/tsconfig.lib.json"
     }
   ]
 }

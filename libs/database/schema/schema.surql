@@ -670,6 +670,7 @@ DEFINE EVENT OVERWRITE story_erasure_cascade ON story
     DELETE type::record('publicStory', record::id($before.id));
     DELETE type::record('hiddenStory', record::id($before.id));
     DELETE moderationReview WHERE story = $before.id;
+    DELETE favourite WHERE story = $before.id;                  -- others' hearts on it
   };
 DEFINE INDEX OVERWRITE story_slug      ON story FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE story_queue     ON story FIELDS status, submittedAt;
@@ -1465,6 +1466,46 @@ DEFINE EVENT OVERWRITE idempotencyKey_owner ON idempotencyKey
   };
 DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- pruned by the nightly job
 
--- Later milestones add (same file): favourited/seen edges (M2), donor/donation (M4),
+-- ---------------------------------------------------------------- favourite (M2: hearts)
+-- A person's hearts: their private favourites list (founder, 2026-10-25). Only the person who
+-- hearted a story can read the row: no service login, and not the story's owner (who will see a
+-- count per story on their profile later, never who gave it: not built, see
+-- docs/db-permissions.md item 34). One per person and story. A heart needs the sign-up form's
+-- consent ("store my account and favourites" and 18+, D73; any version that counts, D93) and a
+-- story that is public now (its publicStory row). A story that stops being public later keeps
+-- the heart, but lists read publicStory, so it no longer shows (C15). Person-linked twice: a new
+-- heart fences both the person and the story's owner. Erasure deletes the person's hearts
+-- (user_erasure_favourites), and deleting a story deletes the hearts on it (story_erasure_cascade). Nothing about a heart changes after it is made.
+DEFINE TABLE OVERWRITE favourite SCHEMAFULL PERMISSIONS        -- id = favourite:<random>
+  FOR select, delete WHERE person = $auth.id,
+  FOR create WHERE person = $auth.id AND $auth.gdprDeletedAt = NONE,
+  FOR update NONE;
+DEFINE FIELD OVERWRITE person    ON favourite TYPE record<user> READONLY;
+DEFINE FIELD OVERWRITE story     ON favourite TYPE record<story> READONLY;
+DEFINE FIELD OVERWRITE createdAt ON favourite TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE INDEX OVERWRITE favourite_unique ON favourite FIELDS person, story UNIQUE;
+DEFINE INDEX OVERWRITE favourite_list   ON favourite FIELDS person, createdAt;  -- newest first
+DEFINE INDEX OVERWRITE favourite_story  ON favourite FIELDS story;              -- story deletion
+DEFINE EVENT OVERWRITE favourite_rules ON favourite
+  WHEN true THEN {
+    IF $event = 'DELETE' { fn::fence::bump($before.person) }      -- erasure: no live check
+    ELSE {
+      fn::person::live($after.person);
+      IF !fn::consent::granted($after.person, ['account_data', 'age_18plus']) {
+        THROW 'favourite_needs_consent: a heart needs the sign-up consent (account_data, age_18plus)';
+      };
+      IF !record::exists(type::record('publicStory', record::id($after.story))) {
+        THROW 'favourite_not_published: only a public story can be hearted';
+      };
+      -- The story's owner too (Codex, #117): a heart racing their erasure, which deletes the
+      -- story and the hearts on it, then conflicts at commit instead of outliving the story.
+      fn::person::live($after.story.submitter);
+    };
+  };
+DEFINE EVENT OVERWRITE user_erasure_favourites ON user
+  WHEN $event = 'UPDATE' AND $before.gdprDeletedAt = NONE AND $after.gdprDeletedAt != NONE
+  THEN { DELETE favourite WHERE person = $after.id };
+
+-- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),
 -- helped/concern edges + trust/quality fields (M6), embedOrigin (M8).
 
