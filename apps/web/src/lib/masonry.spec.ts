@@ -24,6 +24,7 @@ const card = (over: Partial<StorySummary> = {}): StorySummary => ({
   textLength: 900,
   tags: [],
   publishedAt: '2026-10-21T20:00:00Z',
+  isNew: false,
   ...over,
 });
 const video = (width: number, height: number) =>

@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { DEVICES } from './devices';
 import {
+  E2E_NOW,
   SIGNED_IN_NAME,
   STUB_DOWN_PORT,
   STUB_LIVE_PORT,
@@ -111,6 +112,8 @@ function web(port: number, stubPort: number, env: Record<string, string>) {
       API_PUBLIC_READ_URL: `http://127.0.0.1:${stubPort}`,
       // No INDEXING unless given: noindex, as in dev.
       SITE_URL: `http://localhost:${port}`,
+      // The pinned clock for the NEW badge (servers.ts); read only with E2E_FIXTURES.
+      E2E_NOW,
       ...env,
     },
     reuseExistingServer: false,

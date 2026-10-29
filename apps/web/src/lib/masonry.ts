@@ -26,6 +26,19 @@ const CARD = {
   padX: 20,
   padY: 40, // 20 top + 20 bottom
   meta: 20 + 8, // the "Video · 0:12" line and the space under it
+  /**
+   * That line's parts (D72 badge, label, the name's 2.5rem minimum, the heart's room on a card
+   * without a picture): the name drops to a second line (`gap-y-1` + 20) when they don't fit.
+   */
+  metaLine: {
+    font: 13,
+    glyph: 0.48,
+    badge: 44 + 8,
+    gap: 12,
+    name: 40,
+    heart: 40,
+    second: 4 + 20,
+  },
   title: { font: 17, line: 24, maxLines: 3, glyph: 0.56, after: 6 },
   excerpt: { font: 15, line: 24, maxLines: 3, glyph: 0.5 },
   quote: { font: 18, line: 28, maxLines: 6, glyph: 0.5 }, // written, no image
@@ -41,6 +54,19 @@ export interface CardShape {
   titleChars: number;
   excerptChars: number;
   tagChars: number[];
+  /** Its top line's label, "Written · 3 min read" or "Video · 0:12" (story-card.tsx). */
+  labelChars: number;
+  /** D72: the card says NEW (a badge in its top line). */
+  isNew: boolean;
+}
+
+/** story-card.tsx's `cardLabel`, counted: about 1,000 characters a minute for written stories. */
+function labelChars(s: StorySummary): number {
+  if (s.primaryFormat === 'written')
+    return `Written · ${Math.max(1, Math.ceil(s.textLength / 1000))} min read`
+      .length;
+  const d = s.durationSeconds;
+  return d ? `Video · ${Math.floor(d / 60)}:00`.length : 'Video'.length;
 }
 
 export function cardShape(s: StorySummary): CardShape {
@@ -59,6 +85,8 @@ export function cardShape(s: StorySummary): CardShape {
     titleChars: [...s.title].length,
     excerptChars: [...s.excerpt].length,
     tagChars: s.tags.map((t) => [...t.name].length),
+    labelChars: labelChars(s),
+    isNew: s.isNew,
   };
 }
 
@@ -104,7 +132,15 @@ export function predictHeight(
     rows === 0
       ? 0
       : CARD.tags.before + rows * CARD.tags.row + (rows - 1) * CARD.tags.gap;
-  return media + CARD.padY + CARD.meta + title + excerpt + tags + CARD.slack;
+  const m = CARD.metaLine;
+  const metaWidth =
+    (shape.isNew ? m.badge : 0) +
+    shape.labelChars * m.font * m.glyph +
+    m.gap +
+    m.name +
+    (shape.aspect === null ? m.heart : 0);
+  const meta = CARD.meta + (metaWidth > text ? m.second : 0);
+  return media + CARD.padY + meta + title + excerpt + tags + CARD.slack;
 }
 
 /**
