@@ -123,9 +123,8 @@ module "gcp" {
   # the bunny root first (it lets api-user read them), or api-user's new revision won't start.
   api_user_media_signing = true
   # Site videos (not stories) api-public-read signs, by key: GUIDs from
-  # tools/scripts/site-asset-upload.mjs (infra/terraform/README.md, "Site assets"). The founder's
-  # introduction isn't uploaded to dev yet, so About shows its placeholder:
-  # site_videos = { founder-intro = "<guid>" }
+  # tools/scripts/site-asset-upload.mjs (infra/terraform/README.md, "Site assets").
+  site_videos = { founder-intro = "0cfd81a9-31a2-491b-90c4-7e7338025944" }
   # api-user and api-admin (M2): public at the Cloud Run layer like api-public-read, because the
   # browser calls them directly (D31); every route but /health needs a Clerk session token, which
   # the apps verify. Capped at 2 instances each and scale to zero.
