@@ -94,10 +94,15 @@ resource "bunnynet_stream_library" "media" {
 # (SITE_VIDEO_* in the gcp root). Same library, so the same player, encoding and token auth.
 # Non-video site assets (images and the like) go under the `site-assets/` path in the images
 # storage zone below: a naming rule only (Edge Storage folders are implicit), behind the same
-# signed pull zone.
+# signed pull zone. prevent_destroy, like the Stream storage zone: destroying the collection
+# deletes every video in it.
 resource "bunnynet_stream_collection" "site_assets" {
   library = bunnynet_stream_library.media.id
   name    = "site-assets"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # The storage zone Bunny made for the library, where its videos live. Bunny sets

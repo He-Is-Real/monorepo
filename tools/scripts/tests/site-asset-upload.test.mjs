@@ -33,6 +33,8 @@ let api;
 /** What the stand-in holds and was asked. */
 let videos;
 let requests;
+/** When set, every request gets a 401 whose body repeats the key. */
+let echoKey = false;
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'site-asset-upload-'));
@@ -59,6 +61,11 @@ before(async () => {
         res.end(JSON.stringify(body));
       };
       if (req.headers.accesskey !== KEY) return send(401, {});
+      // A Bunny that echoes the key back in an error body.
+      if (echoKey)
+        return send(401, {
+          Message: `Invalid AccessKey ${req.headers.accesskey}`,
+        });
       const lib = '/library/789855';
       if (req.method === 'GET' && url.pathname === `${lib}/collections`)
         return send(200, {
@@ -179,4 +186,17 @@ test('refuses any environment but dev before reading a key', async () => {
   assert.match(run.out, /unknown environment "prod"/);
   assert.equal(requests.length, 0);
   assert.equal(readFileSync(join(dir, 'gcloud.log'), 'utf8'), '');
+});
+
+test('an error that echoes the key never prints it', async () => {
+  echoKey = true;
+  try {
+    const run = await upload(join(dir, 'video.mp4'), '--title', TITLE);
+    assert.equal(run.code, 1);
+    assert.match(run.out, /HTTP 401/);
+    assert.ok(requests.length > 0, 'the stand-in was asked');
+    assert.ok(!run.out.includes(KEY), 'the key is never printed');
+  } finally {
+    echoKey = false;
+  }
 });

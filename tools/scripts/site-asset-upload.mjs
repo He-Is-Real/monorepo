@@ -38,8 +38,13 @@ const NEEDS_FILE = new Set([0, 6]);
 // Tests point this at a stand-in (tools/scripts/tests/site-asset-upload.test.mjs).
 const API = process.env.SITE_ASSET_STREAM_API ?? 'https://video.bunnycdn.com';
 
+/** The library key, once read. Declared first so `fail` can always redact it. */
+let key = '';
+
+/** Prints `message` without the key (belt and braces: no message should hold it) and exits. */
 function fail(message) {
-  console.error(`site-asset-upload: ${message}`);
+  const safe = key ? message.replaceAll(key, '[redacted]') : message;
+  console.error(`site-asset-upload: ${safe}`);
   process.exit(1);
 }
 
@@ -73,7 +78,6 @@ try {
   fail(`can't read ${file}`);
 }
 
-let key;
 try {
   key = execFileSync(
     'gcloud',
@@ -101,7 +105,7 @@ if (!/^[A-Za-z0-9-]+$/.test(key)) {
 
 const library = `${API}/library/${encodeURIComponent(target.libraryId)}`;
 
-/** A Stream API call. Errors carry the method, path, status and Bunny's message only. */
+/** A Stream API call. Errors carry the method, path and status only. */
 async function call(method, path, body, contentType = 'application/json') {
   const res = await fetch(`${library}${path}`, {
     method,
@@ -112,10 +116,10 @@ async function call(method, path, body, contentType = 'application/json') {
     },
     body,
   });
+  // Never Bunny's response body: it could echo what we sent, the key included.
   if (!res.ok) {
-    const text = (await res.text()).slice(0, 300);
     throw new Error(
-      `${method} ${new URL(res.url).pathname}: HTTP ${res.status} ${text}`,
+      `${method} ${new URL(res.url).pathname}: Bunny answered HTTP ${res.status}`,
     );
   }
   return res.json().catch(() => ({}));
