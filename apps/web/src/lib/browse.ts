@@ -59,7 +59,7 @@ export function isNewStory(publishedAt: string, now: number): boolean {
 }
 
 /** A card as the API sends it. */
-type ApiSummary = Omit<StorySummary, 'isNew'>;
+export type ApiSummary = Omit<StorySummary, 'isNew'>;
 
 const withNew = (cards: ApiSummary[]): StorySummary[] => {
   const now = serverNow();
@@ -130,7 +130,8 @@ export const MAX_IDS = 50;
 /**
  * `GET /v1/stories?id=…`: the cards of the stories among `ids` that are public now, newest
  * first (hearts kept on a device, M2). Anonymous: api-public-read learns which stories, never
- * who asks. At most {@link MAX_IDS} valid ids.
+ * who asks. At most {@link MAX_IDS} valid ids. Never NEW: these are the person's favourites,
+ * shown like the signed-in list, whose cards come from api-user in the browser (D72).
  */
 export async function storyCardsByIds(
   ids: readonly string[],
@@ -143,7 +144,7 @@ export async function storyCardsByIds(
   const res = await get(`/v1/stories?${query}`, { cached: false });
   const body = await json(res);
   if (!isPage(body)) throw new StoriesUnavailableError('unexpected response');
-  return body.data;
+  return body.data.map((c) => ({ ...c, isNew: false }));
 }
 
 /** `GET /v1/stories/{slug}/related`: the story page's related cards. */

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { StoryCard } from '@/components/stories/story-card';
 import { Button } from '@/components/ui/button';
 import { deviceHeartCards } from '@/app/stories/actions';
-import type { StorySummary } from '@/lib/browse';
+import type { ApiSummary, StorySummary } from '@/lib/browse';
 import { deviceHeartIds } from '@/lib/device-hearts';
 import { markHearted, personalApiUser } from '@/lib/favourites';
 import { usePersonalSession } from '@/lib/personal-session';
@@ -68,11 +68,16 @@ export function FavouritesList() {
         ? `?limit=${PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`
         : `?limit=${PAGE_SIZE}`;
       // That person's token only (personalApiUser).
-      const { data } = await personalApiUser(now).get<Page>(
-        `/v1/account/favourites${query}`,
-      );
+      const { data } = await personalApiUser(now).get<{
+        data: ApiSummary[];
+        nextCursor: string | null;
+      }>(`/v1/account/favourites${query}`);
       if (!data) throw new Error('No answer');
-      return data;
+      // No NEW badge on favourites: only web's server decides it, for finding stories (D72).
+      return {
+        data: data.data.map((c) => ({ ...c, isNew: false })),
+        nextCursor: data.nextCursor,
+      };
     },
     [],
   );

@@ -46,7 +46,16 @@ async function expectInside(inner: Locator, outer: Locator, what: string) {
   ).toEqual({ left: true, right: true });
 }
 
-/** The badge sits inside its card, clear of the media area (play button, player). */
+/** The card's label (badge included) is clear of the card's heart (top right, heart-button.tsx). */
+async function expectClearOfHeart(c: Locator, what: string) {
+  const label = await c.locator('[data-card-label]').boundingBox();
+  const heart = await c.locator('[data-heart]').boundingBox();
+  expect(label && heart, what).toBeTruthy();
+  if (!label || !heart) return;
+  expect(overlaps(label, heart), `${what}: label covers the heart`).toBe(false);
+}
+
+/** The badge sits inside its card, clear of the heart and the media area (play button, player). */
 async function expectBadgePlaced(c: Locator) {
   const badge = await badgeIn(c).boundingBox();
   const article = await c.boundingBox();
@@ -54,6 +63,7 @@ async function expectBadgePlaced(c: Locator) {
   if (!badge || !article) return;
   expect(badge.x).toBeGreaterThanOrEqual(article.x);
   expect(badge.x + badge.width).toBeLessThanOrEqual(article.x + article.width);
+  await expectClearOfHeart(c, 'badge');
   const media = c.locator('[data-card-media]');
   if ((await media.count()) === 0) return; // a written story without a picture
   const box = await media.boundingBox();
@@ -144,6 +154,7 @@ test.describe('200% text', () => {
       expect(
         await label.evaluate((el) => el.scrollWidth <= el.clientWidth),
       ).toBe(true);
+      await expectClearOfHeart(c, title);
       if (NEW.includes(title))
         await expectInside(badgeIn(c), c, `${title}: badge`);
     }

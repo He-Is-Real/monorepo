@@ -60,7 +60,7 @@ export function NewBadge() {
   return (
     <span
       data-new-badge=""
-      className="inline-flex h-5 shrink-0 items-center rounded-full bg-teal/15 px-2 text-[0.6875rem] leading-5 font-semibold tracking-wide text-link-hover dark:bg-teal/20"
+      className="inline-flex h-5 shrink-0 items-center rounded-full bg-teal/15 px-1.5 text-[0.6875rem] leading-5 font-semibold tracking-wide text-link-hover dark:bg-teal/20"
     >
       <span aria-hidden="true">NEW</span>
       <span className="sr-only">New: published in the last week</span>
@@ -206,7 +206,7 @@ export function StoryCard({
         >
           <span
             data-card-label=""
-            className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+            className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1"
           >
             {story.isNew && <NewBadge />}
             {cardLabel(story)}
