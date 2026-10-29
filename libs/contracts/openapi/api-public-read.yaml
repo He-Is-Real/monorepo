@@ -41,6 +41,8 @@ tags:
     description: 'The tag taxonomy.'
   - name: Legal
     description: 'Published Data Processing Agreement versions.'
+  - name: Site
+    description: 'Media that is part of the site itself, not stories.'
 
 paths:
   /health:
@@ -346,6 +348,44 @@ paths:
             application/json:
               schema:
                 $ref: './components.yaml#/components/schemas/ConsentFormVersion'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/site-videos/{key}:
+    get:
+      tags: [Site]
+      operationId: getSiteVideo
+      summary: A signed player link for a site video
+      description: |
+        A signed, expiring Bunny player link (D52) for one of the site's own videos, by key: the founder's
+        introduction on About. Only the listed keys; a key with no video set in this environment, or with
+        media signing off, is `404` (the page then shows its placeholder). Takes no query parameters (`400`).
+      x-milestone: M2
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: './components.yaml#/components/schemas/SiteVideoKey'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The signed link and when it expires.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/RepresentationETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/SiteVideo'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '400':

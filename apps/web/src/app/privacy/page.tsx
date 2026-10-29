@@ -198,11 +198,11 @@ export default function PrivacyPage() {
               stores anything nor sends usage data.
             </p>
             <p>
-              Story videos and audio play in Bunny.net’s player. It stores
-              nothing on your device unless you change a player setting (listed
-              above). While a story plays, it sends Bunny playback statistics
-              (which video, and how long it played) so we can tell that videos
-              work.
+              Story videos and audio, and our founder’s introduction on the
+              About page, play in Bunny.net’s player. It stores nothing on your
+              device unless you change a player setting (listed above). While a
+              video plays, it sends Bunny playback statistics (which video, and
+              how long it played) so we can tell that videos work.
             </p>
           </div>
         </section>

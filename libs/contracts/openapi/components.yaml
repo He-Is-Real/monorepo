@@ -898,6 +898,31 @@ components:
           account_data,
         ]
 
+    SiteVideoKey:
+      type: string
+      description: |
+        A video that's part of the site itself, not a story, by a fixed key: `founder-intro` (the founder's
+        introduction on About). Its Bunny video sits in the library's `site-assets` collection and is set in
+        OpenTofu (`site_videos`); a visitor can never name a video.
+      enum: [founder-intro]
+
+    SiteVideo:
+      type: object
+      description: A signed, expiring player link for a site video (D52), as a story's `playbackUrl`.
+      required: [key, playbackUrl, expiresAt]
+      additionalProperties: false
+      properties:
+        key:
+          $ref: '#/components/schemas/SiteVideoKey'
+        playbackUrl:
+          type: string
+          format: uri
+          description: Bunny's player (`https://player.mediadelivery.net/embed/…?token=…&expires=…`).
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the link stops working (6–7 hours after it's issued). Don't keep it past this.
+
     ConsentForm:
       type: string
       description: |

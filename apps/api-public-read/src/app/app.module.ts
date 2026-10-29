@@ -6,6 +6,7 @@ import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 import { LegalModule } from './legal/legal.controller';
 import { MediaUrlsModule } from '@heisreal/story-cards';
+import { SiteVideosModule } from './site-videos/site-videos.controller';
 import { StoriesModule } from './stories/stories.controller';
 import { TagsModule } from './tags/tags.controller';
 
@@ -18,6 +19,7 @@ import { TagsModule } from './tags/tags.controller';
     StoriesModule,
     TagsModule,
     LegalModule,
+    SiteVideosModule,
   ],
   // RFC 9457 errors (D30). api-user and api-admin adopt it with their first M1/M2 commands.
   providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],

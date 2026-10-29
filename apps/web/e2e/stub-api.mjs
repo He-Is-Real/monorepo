@@ -14,6 +14,9 @@
 // their boxes from the statements files, D114) and privacy document, read from libs/legal as the
 // database copies them (D75); on the Go live port
 // none is published (404), as anywhere but dev.
+//
+// The founder's video (`/v1/site-videos/founder-intro`) is set on the dev port and not on the
+// Go live port (404), so About's player and its placeholder are both seen.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -620,6 +623,17 @@ const PLAYER_HTML =
   '<!doctype html><title>Stub player</title><body style="margin:0;background:#000;color:#fff;font:16px sans-serif">' +
   '<button style="min-width:44px;min-height:44px">Play</button></body>';
 
+/** `GET /v1/site-videos/{key}`: the founder's video in dev; none set on the Go live port. */
+function siteVideo(mode, key, res) {
+  if (mode !== 'dev' || key !== 'founder-intro')
+    return problem(res, 404, 'not_found');
+  json(res, 200, {
+    key,
+    playbackUrl: playback('0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f'),
+    expiresAt: '2100-01-01T00:00:00.000Z',
+  });
+}
+
 const handler = (mode) => (req, res) => {
   if (mode === 'down') return problem(res, 503, 'unavailable');
   if (req.url?.startsWith('/embed/')) {
@@ -677,6 +691,8 @@ const handler = (mode) => (req, res) => {
       reads: reads.get(url.searchParams.get('slug')) ?? 0,
     });
   if (url.pathname.startsWith('/v1/legal/')) return legal(mode, url, res);
+  const site = /^\/v1\/site-videos\/([^/]+)$/.exec(url.pathname);
+  if (site) return siteVideo(mode, site[1], res);
   if (url.pathname === '/v1/stories') return listStories(mode, url, res);
   if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);

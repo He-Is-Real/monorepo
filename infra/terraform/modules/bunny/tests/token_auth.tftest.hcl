@@ -133,3 +133,14 @@ run "player_controls_are_touch_sized_without_script" {
     error_message = "The player's custom head sizes controls to 44 px, makes the player opaque and is plain CSS: no script, imports or external URLs."
   }
 }
+
+# Site videos live in their own collection of the same library, so they share its player,
+# encoding and token auth.
+run "site_assets_collection_in_the_media_library" {
+  command = plan
+
+  assert {
+    condition     = bunnynet_stream_collection.site_assets.name == "site-assets" && bunnynet_stream_collection.site_assets.library == 102
+    error_message = "The site-assets collection is in the media library."
+  }
+}
