@@ -2,13 +2,8 @@ import { connection } from 'next/server';
 import { ButtonLink } from '@/components/page/button-link';
 import { RaisedBand } from '@/components/page/card';
 import { WideColumn, PageHeader } from '@/components/page/page-header';
-import {
-  PLAYER_ALLOW,
-  PLAYER_MIN_HEIGHT,
-  playerSrc,
-} from '@/components/stories/story-media';
+import { SiteVideo } from '@/components/page/site-video';
 import { pageMetadata } from '@/lib/seo';
-import { siteVideoUrl } from '@/lib/site-videos';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
 export function generateMetadata() {
@@ -38,52 +33,9 @@ const VALUES = [
   },
 ];
 
-/**
- * The founder's introduction: Bunny's player with a signed link from api-public-read (D52, a
- * site video in the `site-assets` collection), the same player as a story's. Until a video is
- * set for this environment, or if api-public-read can't be reached, the placeholder.
- */
-function FounderVideo({ src }: { src: string | null }) {
-  if (src) {
-    return (
-      <div
-        data-player=""
-        className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black"
-        style={{ minHeight: PLAYER_MIN_HEIGHT }}
-      >
-        <iframe
-          src={src}
-          title="Video: The heart behind He Is Real, from our founder Stephen Linnecar"
-          allow={PLAYER_ALLOW}
-          allowFullScreen
-          className="absolute inset-0 block h-full w-full border-0"
-        />
-      </div>
-    );
-  }
-  return (
-    <div
-      data-video-placeholder=""
-      className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-2xl bg-black px-4 text-center text-white/70"
-    >
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 24 24"
-        className="size-12 opacity-50 sm:size-16"
-      >
-        <polygon points="8,5 19,12 8,19" fill="currentColor" />
-      </svg>
-      <p className="text-sm">Founder’s introduction</p>
-      <p className="text-xs text-white/60">Video coming soon</p>
-    </div>
-  );
-}
-
 export default async function AboutPage() {
   // Per request: the player link is signed and expires (D52), so the page is never prerendered.
   await connection();
-  const playbackUrl = await siteVideoUrl('founder-intro');
-  const src = playbackUrl ? playerSrc(playbackUrl) : null;
   return (
     <main id="main" className="flex-1">
       <section className="py-12 sm:py-20">
@@ -93,7 +45,11 @@ export default async function AboutPage() {
             title="The heart behind He Is Real"
             lead="Hear from our founder, Stephen Linnecar"
           />
-          <FounderVideo src={src} />
+          <SiteVideo
+            videoKey="founder-intro"
+            title="Video: The heart behind He Is Real, from our founder Stephen Linnecar"
+            label="Founder’s introduction"
+          />
         </WideColumn>
       </section>
 

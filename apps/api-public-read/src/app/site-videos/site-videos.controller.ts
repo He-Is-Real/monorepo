@@ -24,6 +24,7 @@ import { refuseQueryParameters } from '../stories/browse.query';
  */
 export const SITE_VIDEO_KEYS = {
   'founder-intro': 'SITE_VIDEO_FOUNDER_INTRO',
+  'next-steps': 'SITE_VIDEO_NEXT_STEPS',
 } as const;
 
 export type SiteVideoKey = keyof typeof SITE_VIDEO_KEYS;

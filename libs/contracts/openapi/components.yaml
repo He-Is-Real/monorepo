@@ -902,9 +902,9 @@ components:
       type: string
       description: |
         A video that's part of the site itself, not a story, by a fixed key: `founder-intro` (the founder's
-        introduction on About). Its Bunny video sits in the library's `site-assets` collection and is set in
+        introduction on About) or `next-steps` (the founder on taking a next step, on Next Steps). Its Bunny video sits in the library's `site-assets` collection and is set in
         OpenTofu (`site_videos`); a visitor can never name a video.
-      enum: [founder-intro]
+      enum: [founder-intro, next-steps]
 
     SiteVideo:
       type: object

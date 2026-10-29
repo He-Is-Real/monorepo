@@ -364,7 +364,7 @@ paths:
       summary: A signed player link for a site video
       description: |
         A signed, expiring Bunny player link (D52) for one of the site's own videos, by key: the founder's
-        introduction on About. Only the listed keys; a key with no video set in this environment, or with
+        introduction on About and the founder's video on Next Steps. Only the listed keys; a key with no video set in this environment, or with
         media signing off, is `404` (the page then shows its placeholder). Takes no query parameters (`400`).
       x-milestone: M2
       parameters:

@@ -15,8 +15,9 @@
 // database copies them (D75); on the Go live port
 // none is published (404), as anywhere but dev.
 //
-// The founder's video (`/v1/site-videos/founder-intro`) is set on the dev port and not on the
-// Go live port (404), so About's player and its placeholder are both seen.
+// The founder's videos (`/v1/site-videos/founder-intro` and `/next-steps`) are set on the dev
+// port and not on the Go live port (404), so About's and Next Steps' players and their
+// placeholders are all seen.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -670,13 +671,19 @@ const PLAYER_HTML =
   '<!doctype html><title>Stub player</title><body style="margin:0;background:#000;color:#fff;font:16px sans-serif">' +
   '<button style="min-width:44px;min-height:44px">Play</button></body>';
 
-/** `GET /v1/site-videos/{key}`: the founder's video in dev; none set on the Go live port. */
+/** Site video key → stand-in GUID (site-videos.e2e.ts checks each page plays its own). */
+const SITE_VIDEOS = {
+  'founder-intro': '0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f',
+  'next-steps': '7c2e9a14-5b3d-4f6e-a8c1-2d3e4f5a6b7c',
+};
+
+/** `GET /v1/site-videos/{key}`: the founder's videos in dev; none set on the Go live port. */
 function siteVideo(mode, key, res) {
-  if (mode !== 'dev' || key !== 'founder-intro')
+  if (mode !== 'dev' || !Object.hasOwn(SITE_VIDEOS, key))
     return problem(res, 404, 'not_found');
   json(res, 200, {
     key,
-    playbackUrl: playback('0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f'),
+    playbackUrl: playback(SITE_VIDEOS[key]),
     expiresAt: '2100-01-01T00:00:00.000Z',
   });
 }

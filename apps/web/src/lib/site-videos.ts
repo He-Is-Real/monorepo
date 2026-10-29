@@ -5,7 +5,7 @@ import { apiPublicReadUrl } from './config';
 // so it's read per request and never cached.
 
 /** `SiteVideoKey` in libs/contracts/openapi/components.yaml. */
-export type SiteVideoKey = 'founder-intro';
+export type SiteVideoKey = 'founder-intro' | 'next-steps';
 
 /** A short wait: the page shows its placeholder rather than hang on a slow API. */
 const TIMEOUT_MS = 5_000;

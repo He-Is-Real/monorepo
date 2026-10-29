@@ -148,17 +148,17 @@ variable "site_videos" {
     Site videos (not stories) api-public-read signs player links for, by key: the
     Bunny Stream video GUID in the library's `site-assets` collection, uploaded with
     tools/scripts/site-asset-upload.mjs. Only the keys api-public-read knows
-    (founder-intro); each becomes SITE_VIDEO_<KEY>. Needs api_public_read_media
+    (founder-intro, next-steps); each becomes SITE_VIDEO_<KEY>. Needs api_public_read_media
     (the same library and key). Empty = the pages show their placeholders.
   EOT
   type        = map(string)
   default     = {}
   validation {
     condition = alltrue([for k, guid in var.site_videos :
-      contains(["founder-intro"], k) &&
+      contains(["founder-intro", "next-steps"], k) &&
       can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", guid))
     ])
-    error_message = "site_videos: keys api-public-read knows (founder-intro) and lowercase Bunny video GUIDs."
+    error_message = "site_videos: keys api-public-read knows (founder-intro, next-steps) and lowercase Bunny video GUIDs."
   }
   validation {
     condition     = length(var.site_videos) == 0 || var.api_public_read_media != null

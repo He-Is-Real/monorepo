@@ -5,11 +5,12 @@ import { siteVideosFromEnv } from '../src/app/site-videos/site-videos.controller
 import { startPublicRead } from './app';
 
 /**
- * The About page's founder video: api-public-read signs a player link for a site video only by
+ * The founder's videos on About and Next Steps: api-public-read signs a player link for a site video only by
  * one of its known keys, and only when that key has a video configured (SITE_VIDEO_*, from
  * OpenTofu). Anything else is a 404, so no visitor can get an arbitrary video signed.
  */
 const FOUNDER = '0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f';
+const NEXT_STEPS = '7c2e9a14-5b3d-4f6e-a8c1-2d3e4f5a6b7c';
 const LIBRARY = '786537';
 const NOW = Date.UTC(2026, 9, 29, 10, 15);
 
@@ -84,8 +85,33 @@ describe('GET /v1/site-videos/{key}', () => {
     expect(again.status).toBe(304);
   });
 
+  it('signs each key’s own video: Next Steps beside the founder’s introduction', async () => {
+    const url = await start(signing, {
+      SITE_VIDEO_FOUNDER_INTRO: FOUNDER,
+      SITE_VIDEO_NEXT_STEPS: NEXT_STEPS,
+    });
+    for (const [key, guid] of [
+      ['next-steps', NEXT_STEPS],
+      ['founder-intro', FOUNDER],
+    ]) {
+      const res = await fetch(`${url}/v1/site-videos/${key}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { key: string; playbackUrl: string };
+      expect(body.key).toBe(key);
+      expect(new URL(body.playbackUrl).pathname).toBe(
+        `/embed/${LIBRARY}/${guid}`,
+      );
+    }
+  });
+
+  it('answers 404 for Next Steps when only the founder’s introduction is set', async () => {
+    const url = await start(signing, { SITE_VIDEO_FOUNDER_INTRO: FOUNDER });
+    const res = await fetch(`${url}/v1/site-videos/next-steps`);
+    expect(res.status).toBe(404);
+  });
+
   it.each([
-    ['a key it doesn’t know', 'next-steps'],
+    ['a key it doesn’t know', 'contact'],
     ['a video GUID instead of a key', FOUNDER],
     ['a key in another case', 'Founder-Intro'],
   ])('answers 404 for %s', async (_, key) => {
@@ -118,5 +144,8 @@ describe('GET /v1/site-videos/{key}', () => {
     expect(() =>
       siteVideosFromEnv({ SITE_VIDEO_FOUNDER_INTRO: '../../etc' }),
     ).toThrow(/SITE_VIDEO_FOUNDER_INTRO/);
+    expect(() =>
+      siteVideosFromEnv({ SITE_VIDEO_NEXT_STEPS: 'not-a-guid' }),
+    ).toThrow(/SITE_VIDEO_NEXT_STEPS/);
   });
 });
