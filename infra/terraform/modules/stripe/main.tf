@@ -8,8 +8,9 @@
 #   monthly  £1 a month, and the donor chooses how many (1–999): 10 = £10 a month. Stripe can't
 #            let donors type a monthly amount (pay-what-you-want has no recurring prices).
 #   portal   Stripe's donor portal (a login page by email): change the monthly amount, update
-#            the card, see receipts, or stop the gift at the end of the month already paid
-#            (no per-product limits for now: see subscription_update below).
+#            the card, see receipts, or stop the gift at the end of the month already paid.
+#            Changing the amount needs the portal's `products`, which OpenTofu can't set for
+#            now (see subscription_update below).
 #
 # Nothing here is secret: IDs and public URLs only, so the state holds no secrets.
 
@@ -152,11 +153,13 @@ resource "stripe_billing_portal_configuration" "donors" {
   }
 
   features = {
-    # Donors change how many £1s they give. No `products` (the per-product limits, 1 to
-    # max_quantity): the stripe provider 0.3.0 never asks Stripe to include that field, so
+    # No `products`: the stripe provider 0.3.0 never asks Stripe to include that field, so
     # Stripe's answer always lacks it and every apply that sets it fails ("inconsistent result",
-    # stripe/terraform-provider-stripe#53 and #54). Put it back once a release fixes that.
-    # README, "Stripe": dev's portal kept the 1-999 limits from its first apply.
+    # stripe/terraform-provider-stripe#53 and #54). Dev keeps its stored products (1-999) from
+    # the first apply. A portal created without them (a new environment, or a replacement)
+    # probably only allows cancel, card and receipts, not changing the amount: Stripe applies
+    # default_allowed_updates to the items listed in `products`. Put it back once a release
+    # fixes the provider; needed before Go live (README, "Stripe").
     subscription_update = {
       enabled                 = true
       default_allowed_updates = ["quantity"]

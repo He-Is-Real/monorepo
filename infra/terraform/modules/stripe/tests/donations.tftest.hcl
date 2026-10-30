@@ -63,7 +63,7 @@ run "sandbox_donations" {
       # setting it fails every apply.
       stripe_billing_portal_configuration.donors.features.subscription_update.products == null
     )
-    error_message = "Monthly donors can change how many £1s they give, or stop (at the end of the month paid), from Stripe's portal; the portal sets no products while the provider can't read them back."
+    error_message = "Monthly donors can stop (at the end of the month paid) from Stripe's portal, which asks for quantity updates but sets no products while the provider can't read them back (so a new portal probably can't change the amount: stripe/terraform-provider-stripe#53/#54)."
   }
 }
 

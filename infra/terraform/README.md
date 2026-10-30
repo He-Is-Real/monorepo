@@ -533,22 +533,29 @@ sends no Content-Security-Policy yet; when one comes, it needs `script-src` and 
 | First setup: the buttons (once) | Dashboard (sandbox) → Payment Links → open each link → **Buy button** → Copy code. From each snippet keep `buy-button-id` (and the `publishable-key`, the same in both), put them and the portal URL in `web_donations` in `live/dev/gcp/main.tf`, and apply gcp                                                                                                                              |
 | Rotate the key                  | create a new restricted key as above, add it as a new version (same command), roll the old one in the Dashboard                                                                                                                                                                                                                                                                               |
 
-**The donor portal sets no per-product limits (provider bug).** Stripe's provider 0.3.0 never
-asks Stripe to include the portal's `features.subscription_update.products` (Stripe leaves that
-field out unless asked), so an apply that sets it always ends "Provider produced inconsistent
-result after apply" and taints the portal (stripe/terraform-provider-stripe#53 and #54, open).
-So `modules/stripe` leaves `products` out: donors can still change their quantity or stop.
-Dev's portal (`bpc_1UWDW6QXwDT04lZZmPiB1gcP`, the account's default) kept the 1–999 limits from
-its first apply, which set them before failing; OpenTofu doesn't see or change them. A new
-environment's portal won't have them. Once a provider release expands the field, put `products`
-back (the limits `var.monthly` gives) and plan: it converges everywhere.
+**The donor portal sets no `products` (provider bug).** Stripe's provider 0.3.0 never asks Stripe
+to include the portal's `features.subscription_update.products` (Stripe leaves that field out
+unless asked), so an apply that sets it always ends "Provider produced inconsistent result after
+apply" and taints the portal (stripe/terraform-provider-stripe#53 and #54, open). So
+`modules/stripe` leaves `products` out. **Dev keeps its stored products (1–999)**: its portal
+(`bpc_1UWDW6QXwDT04lZZmPiB1gcP`, the account's default) got them from the first apply, which set
+them before failing; OpenTofu doesn't see or change them. **A portal created without them** (a new
+environment, or a replacement) **probably only allows cancel, card and receipts, not changing the
+amount**: Stripe applies `default_allowed_updates` to the items listed in `products` ("When
+empty, subscriptions are not updateable"). Once a provider release expands the field, put
+`products` back (the limits `var.monthly` gives) and plan: it converges everywhere.
 
-**After that first failed apply (dev, once).** The portal exists in Stripe but its state is
-tainted, and a plan would deactivate it (it's the account's default) and make another. Clear the
-taint before the next stripe plan (`tofu-apply.yml`), as a developer:
-`tools/scripts/tf.sh stripe untaint module.stripe.stripe_billing_portal_configuration.donors`.
-The next plan should then say "No changes" for the portal (`modules/stripe/tests/link-lifecycle.sh`
-checks both cases). Nothing to clean up in Stripe: there is one portal configuration.
+**Clearing the first apply's taint (dev, once).** The portal exists in Stripe but its state is
+tainted, so every `tofu-apply.yml` run plans to deactivate it (it's the account's default) and
+make another (`delete,create`), under wave 1's shared approval (approve-1).
+
+1. Run `tools/scripts/tf.sh stripe untaint module.stripe.stripe_billing_portal_configuration.donors`
+   **before** merging the fix, or before approving any `tofu-apply.yml` run.
+2. If a run has already planned the portal's `delete,create`, reject it, untaint, then dispatch
+   `tofu-apply.yml` and check that the stripe plan says "No changes".
+
+`modules/stripe/tests/link-lifecycle.sh` checks both cases (untainted: no change; tainted:
+`delete,create`). Nothing to clean up in Stripe: there is one portal configuration.
 
 **Changing an amount** (the one-off minimum or starting amount, or the monthly unit) makes a new
 price, since Stripe's prices can't change, and so a **new Payment Link**: a link's price can't be
@@ -573,7 +580,10 @@ drift: OpenTofu pins `active = true`, so the next plan turns it back on.
 module (it then refuses a sandbox key), a restricted **live** key in its own project's
 `stripe-api-key`, buttons made in live mode and a `pk_live_` key in its `web_donations` (dev's
 `web_donations` refuses `pk_live_`). Before that: the charity registration, Gift Aid (below),
-the privacy text, and Stripe's live-mode payment method and receipt settings, all for Joel.
+the privacy text, and Stripe's live-mode payment method and receipt settings, all for Joel; and
+**a provider release that reads back the portal's `products`** (above), with `products` restored:
+a new live portal would otherwise probably not let donors change the amount, which /donate's
+"change or stop it at any time" and `apps/web/src/lib/config.ts`'s donor portal promise.
 
 **Later: Gift Aid.** Once He Is Real Today is a registered charity: either collect the Gift Aid
 declaration in Stripe (a Payment Link custom field "I am a UK taxpayer…" plus
