@@ -17,7 +17,8 @@
 //     (no create, delete, replace or read);
 //   - in each update, the only changed attributes are its containers' `image`s, each now a digest
 //     from our own `apps` repository; any other attribute changes nothing or is one Google
-//     computes after every update (etag, generation, revisions, conditions, ...);
+//     computes after every update (etag, generation, revisions, conditions, ...). Labels and
+//     annotations count as changes, including the provider's merged default_labels;
 //   - at least one image changes.
 // Output changes are allowed: they change nothing in the cloud.
 import { readFileSync } from 'node:fs';
@@ -37,14 +38,17 @@ const IMAGE_PATH = {
   google_cloud_run_v2_service: /^template\.0\.containers\.\d+\.image$/,
   google_cloud_run_v2_job: /^template\.0\.template\.0\.containers\.\d+\.image$/,
 };
-// Top-level attributes Google sets after every update; they can't be configured.
+// Top-level attributes Google sets after every update; they can't be configured. Not the
+// provider's merged labels and annotations (terraform_labels, effective_labels,
+// effective_annotations): though computed, they hold the provider's default_labels and are what
+// it sends to Cloud Run, so a change there is a real change (a default_labels edit leaves
+// `labels` alone). An image update never touches them: in a real dev plan they stay known and
+// equal, so any change or unknown there waits for the approval.
 const COMPUTED = new Set([
   'conditions',
   'create_time',
   'creator',
   'delete_time',
-  'effective_annotations',
-  'effective_labels',
   'etag',
   'execution_count',
   'expire_time',
@@ -56,7 +60,6 @@ const COMPUTED = new Set([
   'observed_generation',
   'reconciling',
   'terminal_condition',
-  'terraform_labels',
   'traffic_statuses',
   'uid',
   'update_time',
@@ -123,8 +126,7 @@ export function decide(environment, plan) {
     let changed = 0;
     for (const d of differences(before, after, unknown)) {
       const path = d.path.join('.');
-      if (d.unknown && d.path.length >= 1 && COMPUTED.has(d.path[0])) continue;
-      if (!d.unknown && COMPUTED.has(d.path[0])) continue;
+      if (COMPUTED.has(d.path[0])) continue;
       if (d.unknown || !IMAGE_PATH[rc.type].test(path))
         return manual(`${where}: ${path || 'the resource'} changes`);
       const image = d.path.reduce((v, k) => v?.[k], after);

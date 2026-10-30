@@ -6,7 +6,7 @@
 //   node --test tools/scripts/tests/
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -204,6 +204,55 @@ test('an image change plus any other change on the service → approval', () => 
   const rc = webUpdate();
   rc.change.after_unknown.template[0].service_account = true;
   assert.equal(decide('dev', plan(rc)).auto, false);
+});
+
+// A real dev plan (2026-10-30, google provider 8.7.0) that moves web to an older apps digest,
+// trimmed to that change, with the env values redacted.
+const realPlan = () =>
+  JSON.parse(
+    readFileSync(new URL('fixtures/dev-plan-web-image.json', import.meta.url)),
+  );
+
+test('a real dev plan that changes only the web image → auto', () => {
+  const result = decide('dev', realPlan());
+  assert.equal(result.auto, true, result.reason);
+  assert.deepEqual(
+    result.images.map(([s]) => s),
+    ['web'],
+  );
+});
+
+test('labels the provider adds (default_labels) or annotations change with the image → approval', () => {
+  // The provider sends effective_labels to Cloud Run, merged from the resource's labels and the
+  // provider's default_labels, so a default_labels change alone is a real cloud change.
+  const cases = {
+    'a default label changes': (c) => {
+      c.after.terraform_labels.team = 'x';
+      c.after.effective_labels.team = 'x';
+    },
+    'only effective_labels changes': (c) =>
+      (c.after.effective_labels.team = 'x'),
+    'terraform_labels becomes unknown': (c) => {
+      delete c.after.terraform_labels;
+      c.after_unknown.terraform_labels = true;
+    },
+    'effective_labels becomes unknown': (c) => {
+      delete c.after.effective_labels;
+      c.after_unknown.effective_labels = true;
+    },
+    'effective_annotations changes': (c) =>
+      (c.after.effective_annotations = { a: 'b' }),
+  };
+  for (const [what, change] of Object.entries(cases)) {
+    const p = realPlan();
+    change(p.resource_changes[0].change);
+    assert.equal(decide('dev', p).auto, false, what);
+    assert.match(
+      decide('dev', p).reason,
+      /_(labels|annotations)\b.* changes$/,
+      what,
+    );
+  }
 });
 
 test('an image that is not a digest from our apps repository → approval', () => {
