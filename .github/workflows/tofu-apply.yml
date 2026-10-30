@@ -215,8 +215,12 @@ jobs:
       - id: image-only
         if: steps.plan.outputs.changes == 'true'
         run: |
-          tools/scripts/tf.sh gcp show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/tfplan.json"
-          decision="$(node tools/scripts/tf-image-only.mjs dev "$RUNNER_TEMP/tfplan.json")"
+          # A failed check means "ask", never a failed plan.
+          decision='manual: the image-only check could not run'
+          if tools/scripts/tf.sh gcp show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/tfplan.json"; then
+            decision="$(node tools/scripts/tf-image-only.mjs dev "$RUNNER_TEMP/tfplan.json")" ||
+              decision='manual: the image-only check could not run'
+          fi
           rm -f "$RUNNER_TEMP/tfplan.json"
           if [ "$(head -n1 <<<"$decision")" = auto ]; then
             echo image_only=true >> "$GITHUB_OUTPUT"
