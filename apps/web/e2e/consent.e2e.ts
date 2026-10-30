@@ -431,8 +431,10 @@ test.describe('behaviour', () => {
       /I agree to He Is Real Today storing and processing my story/,
     );
     await page.getByRole('button', { name: 'Accept' }).click();
-    // Back on browse. On a tall screen browse may already have loaded its next page by itself
-    // (D55), which adds ?pages=2 to the address.
+    // Back on browse. It arrives scrolled down (about 2,300 px on desktop-1280: the form's
+    // router.replace keeps the window scrolled from clicking Accept), so its end is in view and it
+    // loads its next page by itself (D55) 70–150 ms later, adding ?pages=2. Either address is
+    // "back on browse"; checking for exactly /stories raced that load.
     await expect(page).toHaveURL(
       new RegExp(`^${WEB_SIGNED_IN_URL}/stories(\\?pages=\\d+)?$`),
     );
