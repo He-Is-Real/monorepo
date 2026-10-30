@@ -126,7 +126,7 @@ run "api_user_signing_needs_the_settings" {
   expect_failures = [var.api_user_media_signing]
 }
 
-# Site videos (the founder's introduction on About): api-public-read gets each GUID as
+# Site videos (the founder's on About and Next Steps): api-public-read gets each GUID as
 # SITE_VIDEO_<KEY>, only for keys it knows and only with signing on.
 run "site_videos_reach_api_public_read_only" {
   command = plan
@@ -137,15 +137,21 @@ run "site_videos_reach_api_public_read_only" {
       images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
     }
     api_user_media_signing = true
-    site_videos            = { founder-intro = "0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f" }
+    site_videos = {
+      founder-intro = "0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f"
+      next-steps    = "7c2e9a14-5b3d-4f6e-a8c1-2d3e4f5a6b7c"
+    }
   }
 
   assert {
     condition = {
       for e in google_cloud_run_v2_service.api_public_read.template[0].containers[0].env :
       e.name => e.value if startswith(e.name, "SITE_VIDEO_")
-    } == { SITE_VIDEO_FOUNDER_INTRO = "0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f" }
-    error_message = "api-public-read gets SITE_VIDEO_FOUNDER_INTRO."
+      } == {
+      SITE_VIDEO_FOUNDER_INTRO = "0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f"
+      SITE_VIDEO_NEXT_STEPS    = "7c2e9a14-5b3d-4f6e-a8c1-2d3e4f5a6b7c"
+    }
+    error_message = "api-public-read gets SITE_VIDEO_FOUNDER_INTRO and SITE_VIDEO_NEXT_STEPS."
   }
   assert {
     condition = length([for e in google_cloud_run_v2_service.signed_in_api["api-user"].template[0].containers[0].env :
@@ -154,7 +160,20 @@ run "site_videos_reach_api_public_read_only" {
   }
 }
 
-run "site_videos_unknown_key_or_bad_guid_refused" {
+run "site_videos_unknown_key_refused" {
+  command = plan
+  variables {
+    api_public_read_media = {
+      stream_library_id   = "786537"
+      stream_cdn_hostname = "vz-da4dce15-a49.b-cdn.net"
+      images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
+    }
+    site_videos = { contact = "0b6f1c3e-2d4a-4c5b-8e9f-1a2b3c4d5e6f" }
+  }
+  expect_failures = [var.site_videos]
+}
+
+run "site_videos_bad_guid_refused" {
   command = plan
   variables {
     api_public_read_media = {

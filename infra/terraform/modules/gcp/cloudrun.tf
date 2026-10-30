@@ -23,7 +23,8 @@ locals {
     BUNNY_STREAM_TOKEN_KEY_SECRET = var.api_public_read_media.stream_token_key_secret
     BUNNY_IMAGES_TOKEN_KEY_SECRET = var.api_public_read_media.images_token_key_secret
   }
-  # Site videos by key (founder-intro → SITE_VIDEO_FOUNDER_INTRO): GUIDs, not secrets.
+  # Site videos by key (founder-intro → SITE_VIDEO_FOUNDER_INTRO, next-steps →
+  # SITE_VIDEO_NEXT_STEPS): GUIDs, not secrets.
   site_video_env = {
     for k, guid in var.site_videos : "SITE_VIDEO_${upper(replace(k, "-", "_"))}" => guid
   }

@@ -476,13 +476,20 @@ Files that are part of the site itself (not stories) have their own place at Bun
    video's GUID and whether Bunny has finished encoding it. It works on dev only (`--env`, `ENVIRONMENTS` in the
    script); add prod there when prod exists.
 
-2. Put the GUID in `live/dev/gcp/main.tf`: `site_videos = { founder-intro = "<guid>" }`. Apply gcp: api-public-read
-   gets `SITE_VIDEO_FOUNDER_INTRO`, and the About page plays it (`GET /v1/site-videos/founder-intro`, a signed
-   6–7 hour link). Until then, or if api-public-read is down, About shows "Video coming soon".
+2. Put the GUID in `live/dev/gcp/main.tf` under its key in `site_videos`. Apply gcp: api-public-read gets
+   `SITE_VIDEO_<KEY>`, and the page plays it (`GET /v1/site-videos/<key>`, a signed 6–7 hour link). Until then, or
+   if api-public-read is down, the page shows "Video coming soon".
 
-A new kind of site video (say, one for Next Steps) needs a key in three places: api-public-read's `SITE_VIDEO_KEYS`,
-the allowed keys of `site_videos` in `modules/gcp`, and `SiteVideoKey` in the contract. api-public-read signs only
-those keys, so nobody can ask it to sign any other video.
+| Key             | Page       | Title at Bunny              | api-public-read gets       |
+| --------------- | ---------- | --------------------------- | -------------------------- |
+| `founder-intro` | About      | The heart behind He Is Real | `SITE_VIDEO_FOUNDER_INTRO` |
+| `next-steps`    | Next Steps | Next steps with He Is Real  | `SITE_VIDEO_NEXT_STEPS`    |
+
+A new kind of site video needs a key in five places: api-public-read's `SITE_VIDEO_KEYS`, the allowed keys of
+`site_videos` in `modules/gcp` (and its test), `SiteVideoKey` in the contract and in `apps/web/src/lib/site-videos.ts`,
+and the e2e stub (`apps/web/e2e/stub-api.mjs`). The page shows it with `SiteVideo`
+(`apps/web/src/components/page/site-video.tsx`). api-public-read signs only those keys, so nobody can ask it to sign
+any other video.
 
 **Cost:** Bunny bills at least $1 a month per account; dev usage (a few test files) stays under
 it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, free encoding.

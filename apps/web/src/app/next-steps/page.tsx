@@ -1,6 +1,12 @@
+import { connection } from 'next/server';
 import { ButtonLink } from '@/components/page/button-link';
 import { Card } from '@/components/page/card';
-import { NarrowColumn, PageHeader } from '@/components/page/page-header';
+import {
+  NarrowColumn,
+  PageHeader,
+  WideColumn,
+} from '@/components/page/page-header';
+import { SiteVideo } from '@/components/page/site-video';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -39,15 +45,26 @@ const STEPS = [
   },
 ];
 
-export default function NextStepsPage() {
+export default async function NextStepsPage() {
+  // Per request: the player link is signed and expires (D52), so the page is never prerendered.
+  await connection();
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
-      <NarrowColumn>
+      {/* The header and the founder's video in About's wider column; the steps keep the
+          reading column. */}
+      <WideColumn className="mb-10 sm:mb-14">
         <PageHeader
           eyebrow="Keep going"
           title="Next steps"
           lead="You don’t need to have all the answers to keep exploring. Here are some gentle ways to take the next step."
         />
+        <SiteVideo
+          videoKey="next-steps"
+          title="Video: Next steps with He Is Real, from our founder Stephen Linnecar"
+          label="Next steps with our founder"
+        />
+      </WideColumn>
+      <NarrowColumn>
         <ul className="flex flex-col gap-5">
           {STEPS.map((step) => (
             <li key={step.title}>
