@@ -129,6 +129,14 @@
           "command": "playwright test -c apps/dev-seed/behavioural/playwright.config.ts",
           "cwd": "{workspaceRoot}"
         }
+      },
+      "upload-spike": {
+        "executor": "nx:run-commands",
+        "cache": false,
+        "options": {
+          "command": "playwright test -c apps/dev-seed/behavioural/playwright.developer.config.ts",
+          "cwd": "{workspaceRoot}"
+        }
       }
     },
     "tags": [

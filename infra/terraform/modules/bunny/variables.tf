@@ -70,3 +70,13 @@ variable "signing_key_readers" {
     error_message = "Only this project's service accounts (serviceAccount:<name>@<project>.iam.gserviceaccount.com) may read the signing keys; never allUsers, groups or people."
   }
 }
+
+variable "upload_key_readers" {
+  description = "The service that signs uploads (D80: api-user only), as serviceAccount:api-user@<project>.iam.gserviceaccount.com: it may read the Stream library key and the images zone password, and no other bunny-* secret. Empty: no reader."
+  type        = set(string)
+  default     = []
+  validation {
+    condition     = alltrue([for m in var.upload_key_readers : m == "serviceAccount:api-user@${var.project_id}.iam.gserviceaccount.com"])
+    error_message = "Only this project's api-user service account may read the upload keys (D80: api-user alone creates and signs uploads)."
+  }
+}
