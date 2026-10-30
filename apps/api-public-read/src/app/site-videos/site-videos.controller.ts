@@ -19,8 +19,8 @@ import { refuseQueryParameters } from '../stories/browse.query';
  * Videos that are part of the site itself, not stories: each key a page asks for, and the
  * variable OpenTofu sets with its Bunny video GUID (gcp root, `site_videos`; the video sits in the
  * library's `site-assets` collection, tools/scripts/site-asset-upload.mjs). Only these keys are
- * ever signed: a visitor can't name a video. Adding one is an entry here, in OpenTofu's
- * allowed keys (modules/gcp, `site_videos`) and in the contract's `SiteVideoKey`.
+ * ever signed: a visitor can't name a video. Adding one takes an entry here and in the other
+ * places infra/terraform/README.md lists ("Site assets").
  */
 export const SITE_VIDEO_KEYS = {
   'founder-intro': 'SITE_VIDEO_FOUNDER_INTRO',
