@@ -375,7 +375,7 @@ test.describe('behaviour', () => {
     ]);
   });
 
-  test('an upload request answered without its link counts as no answer: the same file carries on with the same video (Codex #133 round 2)', async ({
+  test('an upload request answered without its link counts as no answer: the same file carries on with the same video (Codex #133 rounds 2 and 3)', async ({
     page,
     request,
   }, info) => {
@@ -384,25 +384,92 @@ test.describe('behaviour', () => {
     await page.getByLabel('Title').fill('My video');
     const path = clip(info.outputPath('clip.mp4'));
     // api-user makes the video and moves the draft on, but the browser gets an empty success,
-    // then one with an empty object.
-    const empty = ['', '{}'];
+    // one with an empty object, then the link without each of Bunny's four headers in turn.
+    const empty: (string | ((h: Record<string, string>) => void))[] = [
+      '',
+      '{}',
+      ...[
+        'AuthorizationSignature',
+        'AuthorizationExpire',
+        'VideoId',
+        'LibraryId',
+      ].map((name) => (h: Record<string, string>) => delete h[name]),
+    ];
+    const tries = empty.length;
     await page.route(
       `${STUB_USER_URL}/v1/stories/*/upload-url`,
       async (route) => {
-        const body = empty.shift();
-        if (body === undefined) return route.fallback();
+        const answer = empty.shift();
+        if (answer === undefined) return route.fallback();
         const res = await route.fetch();
-        return route.fulfill({ response: res, body });
+        if (typeof answer === 'string') {
+          return route.fulfill({ response: res, body: answer });
+        }
+        const json = await res.json();
+        answer(json.headers);
+        return route.fulfill({ response: res, json });
       },
     );
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < tries; i++) {
       await page.getByLabel('Choose a file').setInputFiles(path);
       await expect(alert(page, 'can’t reach our server')).toBeVisible();
     }
     await page.getByLabel('Choose a file').setInputFiles(path);
     await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
     const { requests, videos } = await me.uploads();
-    expect([requests, videos.length, videos[0].done]).toEqual([3, 1, true]);
+    expect([requests, videos.length, videos[0].done]).toEqual([
+      tries + 1,
+      1,
+      true,
+    ]);
+  });
+
+  test('leaving the step while the upload link is on its way starts no upload (Codex #133 round 3)', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('My video');
+    const path = clip(info.outputPath('clip.mp4'));
+    let creations = 0;
+    page.on('request', (r) => {
+      if (r.method() === 'POST' && r.url().endsWith('/tusupload')) creations++;
+    });
+    // The link's answer waits until the person has pressed Back.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let first = true;
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/*/upload-url`,
+      async (route) => {
+        if (!first) return route.fallback();
+        first = false;
+        const res = await route.fetch();
+        await held;
+        return route.fulfill({ response: res });
+      },
+    );
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(page.getByText(/^Getting “clip\.mp4” ready/)).toBeVisible();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await step(page, 'Prepare your story');
+    const answered = page.waitForResponse(/\/upload-url$/);
+    release();
+    await answered;
+
+    // Coming back, the same file goes up once, with the same video.
+    await page.getByRole('button', { name: 'Upload my video' }).click();
+    await step(page, 'Upload your video');
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    const { requests, videos } = await me.uploads();
+    expect([creations, requests, videos.length, videos[0].done]).toEqual([
+      1,
+      2,
+      1,
+      true,
+    ]);
   });
 
   test('a draft changed in another tab is read again and the upload goes ahead (Codex #133, 2)', async ({

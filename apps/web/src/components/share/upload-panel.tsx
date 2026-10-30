@@ -291,8 +291,22 @@ export function UploadPanel({
     else onState(hasEarlierFile && !cancelled ? 'earlier' : 'none');
   }, [phase.at, kept, hasEarlierFile, cancelled, onState]);
 
+  // Each run's token. Leaving the step (Back, another account) or a newer run makes an older
+  // run's late answers unused: nothing kept, no upload started that nobody can see or cancel.
+  const runs = useRef(0);
+  const begin = useCallback(() => {
+    const mine = ++runs.current;
+    return () => runs.current !== mine;
+  }, []);
+
   // Leaving the step pauses the upload; it carries on when the person comes back to it.
-  useEffect(() => () => void upload.current?.abort(), []);
+  useEffect(
+    () => () => {
+      runs.current++;
+      void upload.current?.abort();
+    },
+    [],
+  );
 
   const remember = useCallback(
     (id: string, k: Kept | null) => {
@@ -312,6 +326,7 @@ export function UploadPanel({
       file: File,
       first: { draftId: string; version: number },
       request: UploadRequest,
+      gone: () => boolean,
     ): Promise<UploadTarget | null> => {
       let ready = first;
       for (let again = false; ; again = true) {
@@ -335,18 +350,20 @@ export function UploadPanel({
             attempt.request,
             attempt.key,
           );
+          if (gone()) return null;
           writeAttempt(owner, ready.draftId, null);
           // A replay answers the version its request made; the draft may be past it since.
           if (target.version > ready.version) setVersion(target.version);
           return target;
         } catch (err) {
-          if (outcomeUnknown(err)) throw err;
+          if (outcomeUnknown(err) || gone()) throw err;
           writeAttempt(owner, ready.draftId, null);
           if (!(err instanceof StaleVersion) || again) throw err;
           // Changed elsewhere (another tab, or a request of this one whose answer was lost):
           // read it again, then ask at its version.
-          if (!(await reload(ready.draftId))) throw err;
+          if (!(await reload(ready.draftId)) || gone()) throw err;
           const now = await prepare();
+          if (gone()) return null;
           if (typeof now === 'string') {
             setProblem(now);
             return null;
@@ -364,8 +381,10 @@ export function UploadPanel({
       file: File,
       contentType: string,
       durationSeconds: number | undefined,
+      gone: () => boolean,
     ): Promise<{ target: UploadTarget; draftId: string } | null> => {
       const ready = await prepare();
+      if (gone()) return null;
       if (typeof ready === 'string') {
         setProblem(ready);
         return null;
@@ -386,6 +405,7 @@ export function UploadPanel({
             ...request,
             resume: true,
           });
+          if (gone()) return null;
           remember(ready.draftId, { ...k, target });
           return { target, draftId: ready.draftId };
         } catch (err) {
@@ -398,7 +418,7 @@ export function UploadPanel({
           }
         }
       }
-      const target = await newUpload(file, ready, request);
+      const target = await newUpload(file, ready, request, gone);
       if (!target) return null;
       remember(ready.draftId, {
         name: file.name,
@@ -414,18 +434,25 @@ export function UploadPanel({
   );
 
   const run = useCallback(
-    async (file: File, contentType: string, durationSeconds?: number) => {
+    async (
+      file: File,
+      contentType: string,
+      durationSeconds: number | undefined,
+      gone: () => boolean,
+    ) => {
       setProblem(null);
       setNotice(null);
       setPhase({ at: 'checking', name: file.name });
       let link;
       try {
-        link = await linkFor(file, contentType, durationSeconds);
+        link = await linkFor(file, contentType, durationSeconds, gone);
       } catch (err) {
+        if (gone()) return;
         setPhase({ at: 'idle' });
         setProblem(refusal(err, noun));
         return;
       }
+      if (gone()) return;
       if (!link) {
         setPhase({ at: 'idle' });
         return;
@@ -462,6 +489,7 @@ export function UploadPanel({
       upload.current = tus;
       setPhase({ at: 'uploading', name: file.name, sent: 0, total: file.size });
       const previous = await tus.findPreviousUploads().catch(() => []);
+      if (gone()) return;
       if (previous[0]) tus.resumeFromPreviousUpload(previous[0]);
       tus.start();
     },
@@ -486,7 +514,9 @@ export function UploadPanel({
       return;
     }
     setPhase({ at: 'checking', name: file.name });
+    const gone = begin();
     const seconds = await readDuration(file, format);
+    if (gone()) return;
     if (seconds && seconds > limits.maxDurationSeconds) {
       setPhase({ at: 'idle' });
       setProblem(
@@ -494,7 +524,7 @@ export function UploadPanel({
       );
       return;
     }
-    await run(file, contentType, seconds);
+    await run(file, contentType, seconds, gone);
   }
 
   function pause() {
@@ -506,10 +536,11 @@ export function UploadPanel({
     const c = current.current;
     if (!c) return;
     const contentType = contentTypeOf(c.file, format);
-    if (contentType) void run(c.file, contentType);
+    if (contentType) void run(c.file, contentType, undefined, begin());
   }
 
   function cancel() {
+    runs.current++;
     void upload.current?.abort();
     upload.current = null;
     const c = current.current;

@@ -186,6 +186,14 @@ export function commandResult(
   return { id: d.id, version: d.version as number };
 }
 
+/** The TUS creation headers api-user.yaml requires; without any of them Bunny refuses it. */
+const BUNNY_HEADERS = [
+  'AuthorizationSignature',
+  'AuthorizationExpire',
+  'VideoId',
+  'LibraryId',
+];
+
 /**
  * RequestUpload's whole `UploadTarget`. A success without a usable link (an empty body, `{}`, a
  * field missing) may still have made the grant, so like {@link commandResult} it counts as no
@@ -214,8 +222,7 @@ function uploadTarget(data: unknown): UploadTarget {
     d.method !== 'POST' ||
     typeof d.expiresAt !== 'string' ||
     Number.isNaN(Date.parse(d.expiresAt)) ||
-    typeof signed['VideoId'] !== 'string' ||
-    !signed['VideoId'] ||
+    !BUNNY_HEADERS.every((h) => typeof signed[h] === 'string' && !!signed[h]) ||
     !Object.values(signed).every((v) => typeof v === 'string')
   ) {
     throw new ApiUserUnavailable('api-user answered without the upload link');
