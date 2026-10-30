@@ -106,3 +106,45 @@ run "refuses_a_private_key" {
   }
   expect_failures = [var.clerk_jwt_public_key]
 }
+
+# Uploads (M2 plan PR 7): api-user alone gets the Stream library and the library key's secret
+# name (never its value), merged with media signing's variables; api-admin gets neither.
+run "uploads_only_on_api_user" {
+  command = plan
+
+  variables {
+    api_public_read_media = {
+      stream_library_id   = "789855"
+      stream_cdn_hostname = "vz-abc.b-cdn.net"
+      images_cdn_hostname = "images.b-cdn.net"
+    }
+    api_user_media_signing = true
+    api_user_uploads       = true
+  }
+
+  assert {
+    condition = (
+      { for e in google_cloud_run_v2_service.signed_in_api["api-user"].template[0].containers[0].env :
+        e.name => e.value if contains(["BUNNY_STREAM_LIBRARY_ID", "BUNNY_STREAM_API_KEY_SECRET"], e.name)
+        } == {
+        BUNNY_STREAM_LIBRARY_ID     = "789855"
+        BUNNY_STREAM_API_KEY_SECRET = "bunny-stream-api-key"
+      } &&
+      length([for e in google_cloud_run_v2_service.signed_in_api["api-user"].template[0].containers[0].env :
+      e if e.name == "BUNNY_STREAM_LIBRARY_ID"]) == 1 &&
+      length([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
+      e if startswith(e.name, "BUNNY_")]) == 0
+    )
+    error_message = "Only api-user gets the upload settings, once each, beside media signing's."
+  }
+}
+
+run "uploads_need_the_library" {
+  command = plan
+
+  variables {
+    api_user_uploads = true
+  }
+
+  expect_failures = [var.api_user_uploads]
+}

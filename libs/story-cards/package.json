@@ -10,6 +10,11 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./upload-signing": {
+      "types": "./src/lib/upload-signing.ts",
+      "import": "./src/lib/upload-signing.ts",
+      "default": "./src/lib/upload-signing.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

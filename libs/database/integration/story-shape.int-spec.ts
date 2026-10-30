@@ -1,7 +1,7 @@
 import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Surreal, SurrealQueryable } from 'surrealdb';
+import { RecordId, type Surreal, type SurrealQueryable } from 'surrealdb';
 import {
   consentEvent,
   createPeople,
@@ -43,17 +43,26 @@ describe('story types and shapes (D53)', () => {
     vars?: Record<string, unknown>,
   ) => rows<T>(migrator, sql, vars);
 
-  /** Pat creates a story with these extra fields (SurrealQL object entries); returns its id. */
-  const create = async (fields: string, person: SurrealQueryable = pat) => {
+  /**
+   * Pat creates a story with these extra fields (SurrealQL object entries); returns its id. With
+   * media, a system user creates it for Pat: a person's session never writes media (D80), and
+   * the shape rules are the same for every writer.
+   */
+  const create = async (fields: string, person?: SurrealQueryable) => {
     seq += 1;
     const id = `shape_${seq}`;
+    const writer = person ?? (/\bmedia:/.test(fields) ? migrator : pat);
     const result = await outcome(
-      person,
+      writer,
       `CREATE type::record('story', $id) CONTENT {
-         submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
+         submitter: $submitter ?? $auth, slug: $id, title: 'A story', description: 'How I came to faith',
          ${fields}
        } RETURN VALUE id`,
-      { id },
+      {
+        id,
+        submitter:
+          writer === migrator ? new RecordId('user', 'pat') : undefined,
+      },
     );
     return { id, result };
   };
@@ -297,7 +306,10 @@ describe('story types and shapes (D53)', () => {
         ok: false,
         error: expect.stringContaining(`a ${format} story needs its ${format}`),
       });
-      expect(await update(id, `media = [${own}]`)).toMatchObject({ ok: true });
+      // The upload (D80: never the person's own write).
+      expect(await update(id, `media = [${own}]`, migrator)).toMatchObject({
+        ok: true,
+      });
       expect(await submit(pat, id)).toHaveLength(1);
 
       const empty = await created(`primaryFormat: '${format}'`);

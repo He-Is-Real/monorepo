@@ -10,7 +10,7 @@ import {
   presignStorageUrl,
   type StorageZone,
   tusSignature,
-} from './upload-signing';
+} from '@heisreal/story-cards/upload-signing';
 
 // M2's upload spike (the "proven presigned PUT" prerequisite): a real browser at web's dev
 // origin uploads straight to dev Bunny with links signed the way api-user will sign them

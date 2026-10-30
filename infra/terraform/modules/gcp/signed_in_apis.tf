@@ -124,9 +124,16 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
         value = join(",", var.web_origins)
       }
       # Hearts (M2): api-user signs the media links on favourites' cards like api-public-read
-      # (D52). Secret names, never values; the bunny root grants the access.
+      # (D52). Uploads (M2 plan PR 7): it creates and signs Stream uploads with the library key.
+      # Secret names, never values; the bunny root grants the access.
       dynamic "env" {
-        for_each = each.key == "api-user" && var.api_user_media_signing ? local.api_public_read_media_env : {}
+        for_each = each.key != "api-user" ? {} : merge(
+          var.api_user_media_signing ? local.api_public_read_media_env : {},
+          var.api_user_uploads ? {
+            BUNNY_STREAM_LIBRARY_ID     = var.api_public_read_media.stream_library_id
+            BUNNY_STREAM_API_KEY_SECRET = "bunny-stream-api-key"
+          } : {},
+        )
         content {
           name  = env.key
           value = env.value

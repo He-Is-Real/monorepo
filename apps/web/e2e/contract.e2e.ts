@@ -495,3 +495,106 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     submissions: { per7Days: 1, nextAvailableAt: expect.any(String) },
   });
 });
+
+test('the stub api-user’s uploads fit the contract, answers and errors (M2 plan PR 7)', async ({
+  request,
+}) => {
+  const session = `contractup${Date.now()}`;
+  await request.post(`${STUB_USER_URL}/__e2e/sessions/${session}`, {
+    data: {
+      signupAccepted: true,
+      granted: [
+        'age_18plus',
+        'account_data',
+        'special_category_religious',
+        'publish',
+      ],
+    },
+  });
+  const auth = { authorization: `Bearer ${fixtureToken(session)}` };
+  const call = async (
+    method: string,
+    path: string,
+    {
+      data,
+      headers = {},
+    }: { data?: unknown; headers?: Record<string, string> } = {},
+  ) => {
+    const res = await request.fetch(`${STUB_USER_URL}${path}`, {
+      method,
+      headers: { ...auth, ...headers },
+      data,
+    });
+    const text = await res.text();
+    const body = text === '' ? undefined : JSON.parse(text);
+    expect(
+      userContract.problems({
+        method,
+        path,
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body,
+      }),
+      `${method} ${path} ${res.status()}`,
+    ).toEqual([]);
+    return { status: res.status(), body };
+  };
+  const created = await call('POST', '/v1/stories', {
+    data: { title: 'My video', primaryFormat: 'video', tagSlugs: ['hope'] },
+    headers: { 'idempotency-key': `contract-up-${Date.now()}-xxxxxxxx` },
+  });
+  expect(created.status).toBe(201);
+  const id = created.body.id;
+  const file = {
+    format: 'video',
+    contentType: 'video/mp4',
+    fileSizeBytes: 1000,
+    durationSeconds: 3,
+  };
+  let n = 0;
+  const upload = (
+    version: number | undefined,
+    data: object = file,
+    key = `contract-upl-${Date.now()}-${++n}-xxxx`,
+  ) =>
+    call('POST', `/v1/stories/${id}/upload-url`, {
+      data,
+      headers: {
+        'idempotency-key': key,
+        ...(version ? { 'if-match': `"${version}"` } : {}),
+      },
+    });
+  expect((await upload(undefined)).status).toBe(428);
+  expect((await upload(1, { ...file, fileSizeBytes: 5e9 })).status).toBe(400);
+  expect((await upload(1, { ...file, resume: true })).body.code).toBe(
+    'nothing_to_resume',
+  );
+  const key = `contract-upload-${Date.now()}-xxxx`;
+  const target = await upload(1, file, key);
+  expect(target).toMatchObject({ status: 200, body: { version: 2 } });
+  // The same key again (a lost answer's retry) replays it; another key at the old version is 412.
+  expect((await upload(1, file, key)).body).toEqual(target.body);
+  expect((await upload(1, { ...file, fileSizeBytes: 9 }, key)).status).toBe(
+    422,
+  );
+  expect((await upload(1)).status).toBe(412);
+  expect((await upload(2, { ...file, resume: true })).body.version).toBe(2);
+  // The file hasn't arrived: submit says so.
+  const early = await call('POST', `/v1/stories/${id}/submit`, {
+    headers: {
+      'if-match': '"2"',
+      'idempotency-key': `contract-sub-${Date.now()}-xxxx`,
+    },
+  });
+  expect(early).toMatchObject({
+    status: 409,
+    body: { code: 'media_not_uploaded' },
+  });
+  expect(
+    (await call('GET', `/v1/account/stories/${id}`)).body.media,
+  ).toHaveLength(1);
+  expect((await call('GET', '/v1/account/limits')).body.uploads).toMatchObject({
+    perHour: 10,
+    per7Days: 5,
+  });
+});

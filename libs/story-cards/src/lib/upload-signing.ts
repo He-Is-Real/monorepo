@@ -1,9 +1,11 @@
 import { createHash, createHmac } from 'node:crypto';
 
 /**
- * The two upload signatures api-user will make (M2; proven on dev by uploads.developer.ts). The
- * browser uploads straight to Bunny with them, so no service handles media bytes. Keys come from
- * Secret Manager (`bunny-stream-api-key`, `bunny-storage-password`) and are never logged.
+ * The two upload signatures api-user makes (M2; proven on dev by dev-seed's uploads.developer.ts,
+ * and used by api-user's RequestUpload). The browser uploads straight to Bunny with them, so no
+ * service handles media bytes. Keys come from Secret Manager (`bunny-stream-api-key`,
+ * `bunny-storage-password`) and are never logged. Imported as `@heisreal/story-cards/upload-signing`
+ * (no Nest code, so Playwright's loader can read it too).
  */
 
 /**

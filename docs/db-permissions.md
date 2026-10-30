@@ -51,7 +51,7 @@ bypasses permissions) that the row is unchanged or absent.
 | Only the migrator (OWNER) can `DEFINE`/`REMOVE` anything. Every service and person session is refused `DEFINE TABLE/FIELD/ACCESS/USER/FUNCTION`, `REMOVE EVENT`, `REMOVE TABLE`. The guard events are still present afterwards.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `schema`                          |
 | `svc` sign-in: argon2 hashes only. Wrong password, another service's password and unknown names are rejected. No service can read, rewrite or create `service` rows.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | `service-permissions`             |
 | `api_public_read`: only `publicStory`, `tag`, published `dpaVersion` and `_setting` (D48, readable by everyone). Nothing in `story` (not even approved rows), `consent`, `user`, reviews, audit, idempotency keys or `_migration`. Every write is a no-op.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `service-permissions`             |
-| `api_user` login: can't read, create, edit or reassign stories, or read or forge consent. It can delete stories (erasure), create/update users but not rebind or clear `clerkUserId` outside erasure, write but not read audit rows, own idempotency keys, and can't moderate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | `service-permissions`             |
+| `api_user` login: can't read, create, edit or reassign stories (its upload grants' event writes a draft's media, item 37), or read or forge consent. It can delete stories (erasure), create/update users but not rebind or clear `clerkUserId` outside erasure, write but not read audit rows, own idempotency keys, and can't moderate.                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `service-permissions`             |
 | `api_admin`: reads all stories, consent, reviews and audit; can't write consent; manages DPAs (published = frozen, none deletable); links a legacy person's Clerk ID once.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `service-permissions`             |
 | D41 write scope: `workflow` writes media/processing fields only; content, status, approval, lock and feedback writes are dropped. `api_admin` writes moderation fields and status only; content and media writes (including `media[0].x`) are dropped, and `publicStory` must mirror the approved story.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `write-scope`                     |
 | Consent is append-only for every identity: permissions give an empty result; even the OWNER migrator is stopped by the event.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `service-permissions`, `consent`  |
@@ -567,7 +567,7 @@ retried`, on both RocksDB and the in-memory engine.
     2026-10-28).** `submissionSettings:current` (one record; data script 0006 writes today's
     values, which are also the field defaults): `storyTextMin` 200, `storyTextMax` 10,000,
     `tagsMin` 1, `tagsMax` 5, `openDraftsMax` 3, `submissionsPer7Days` 1,
-    `uploadRequestsPerHour` 10 (for the upload PR; not enforced yet). Everyone reads it; only
+    `uploadRequestsPerHour` 10 (enforced on uploads, item 37). Everyone reads it; only
     api-admin's login and system users write it, never delete it; min ≤ max is checked; every
     change writes an `UpdateSubmissionSettings` audit row with `changedBy` as the actor
     (required from api-admin; the record keeps the last admin's name, so api-admin sets it on
@@ -617,9 +617,40 @@ retried`, on both RocksDB and the in-memory engine.
       that start more stories per person mark their people trusted (`trustSubmitters`), and
       `buildWorld` makes Ann and Bob trusted.
 
+### M2 video and audio uploads (D65, D80, D113; M2 plan PR 7)
+
+37. **A story's video or audio is only ever what api-user uploaded for it.**
+    - **`uploadGrant`** (id = the Bunny video id, so a video is granted once, to one story):
+      `story`, `person`, `format`, `contentType`, `sizeBytes`, `durationSeconds` (the browser's
+      word), `storyVersion` (the command's `If-Match`), `at`. Only api-user's login creates it, and
+      nobody updates it; the person reads their own; erasure deletes it.
+    - **`uploadGrant_attach`** (elevated): the story must be the grant's person's, editable
+      (`draft`, `changes_requested`), at `storyVersion` (`story_cmd:stale_version`), of that
+      format (`upload_refused:`), and within the person's upload limits (`limit_upload_size:`,
+      `limit_upload_duration:`, `limit_upload_hourly:`, `limit_upload_weekly:`). It then sets the
+      story's media to that one item (its version steps once; the media `VALUE` starts processing
+      again) and prunes the person's grants older than 7 days that are no longer any story's media.
+      It bumps the person's fence, so two overlapping grants conflict at commit.
+    - **Media fields:** `PERMISSIONS FOR update WHERE $auth = service:workflow`, and the media
+      `VALUE` gives any session but workflow, api-user's (the grant's event) and system users their
+      stored media back. So a person's write to media, on create or update, is dropped, whatever
+      the status (D80). api-admin still can't write them.
+    - **`story_media_granted`:** any write but a system user's that adds a Bunny id the story
+      didn't have needs a grant naming this story (`media_not_granted:`). Workflow can't swap in
+      another story's video either. Thumbnails stay workflow's and are checked at approval.
+    - **Limits** (`fn::limits::effective`, `fn::upload::next_allowed_at`): `uploadRequestsPerHour`
+      (everyone, overridable), `uploadsPer7Days` (overridable; none if trusted), `videoMaxBytes`,
+      `audioMaxBytes`, `mediaMaxSeconds` (trusted get the ceilings, `fn::settings::upload_ceilings`:
+      10 GiB, 2 GiB, 3 hours, which also cap what an admin may set). Counted from grants, so
+      replacing a file or deleting a story frees nothing.
+    - Not yet: api-public-read requiring a grant behind each public video (dev's seeded stories,
+      written by a system user, have none). Tests: `uploads.int-spec.ts` (here and in api-user);
+      fixtures that need media on a story now set it as the migrator (`media-processing`,
+      `story-shape`) or through `grantUpload` (`support/world.ts`).
+
 ### M2 legal documents (D121, D122, D125; Joel, 2026-10-30)
 
-37. **The privacy policy and the terms of use: numbered Markdown versions, kept for ever.** The
+38. **The privacy policy and the terms of use: numbered Markdown versions, kept for ever.** The
     privacy policy stays in `dpaVersion` (every existing consent keeps pointing at its version);
     the terms of use are the new `termsVersion`. A published version has its Markdown (`text`),
     its sha256 (`contentHash`, checked against the text by `dpa_document` / `terms_kept`), a
@@ -630,8 +661,8 @@ retried`, on both RocksDB and the in-memory engine.
     transaction, which also checks that the version the admin edited is still in force, else
     `409 document_changed`); nobody updates or deletes a published one (`dpa_immutable`,
     `terms_kept`, system users included), except that the migration (`$auth = NONE`) may give a
-    privacy policy version from before numbers its number, once (data 0007 for dev's
-    placeholder). `devPlaceholder` versions count only in dev (D75). Every write bumps
+    privacy policy version from before numbers its number, once (data 0007 numbers every one,
+    in publishing order, in every environment). `devPlaceholder` versions count only in dev (D75). Every write bumps
     `legalFence`, so a grant racing a publish retries under the new version. **In force:**
     `fn::legal::dpa_in_force`, `fn::legal::terms_in_force` (the highest-numbered version that
     counts). **Grants (D122):** a grant names the privacy policy in force
@@ -659,12 +690,13 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | `idempotencyKey`                                                                                                                                                                                           | `[service, user record, key]`; `{id, version}`                                                                                 | linked     | user live + fence (webhook keys exempt); people: own keys only                                                                         | deleted by erasure; others expire in 24 h                         |
 | `favourite`                                                                                                                                                                                                | a heart; `person`, `story`                                                                                                     | linked     | person + story owner live, fenced; sign-up consent; story public; own rows                                                             | deleted (erasure event; also with the story)                      |
 | `auditLog`                                                                                                                                                                                                 | `actor`, `entity` ids; typed codes                                                                                             | kept (D38) | none: no person-state dependency, and the fields can't hold text                                                                       | kept 6 years; ids point nowhere                                   |
-| `dpaVersion`, `termsVersion`                                                                                                                                                                               | the privacy policy's and the terms of use's versions (D121); `publishedBy` (the publishing admin's id, read by api-admin only) | kept       | api-admin creates (`PublishPrivacyPolicy`, `PublishTerms`, with an audit row); nobody updates or deletes a published version (item 37) | kept for ever as the record; `publishedBy` points at a stub       |
+| `dpaVersion`, `termsVersion`                                                                                                                                                                               | the privacy policy's and the terms of use's versions (D121); `publishedBy` (the publishing admin's id, read by api-admin only) | kept       | api-admin creates (`PublishPrivacyPolicy`, `PublishTerms`, with an audit row); nobody updates or deletes a published version (item 38) | kept for ever as the record; `publishedBy` points at a stub       |
 | `personFence`                                                                                                                                                                                              | a counter keyed by user id                                                                                                     | none       | written by events only; `PERMISSIONS NONE`                                                                                             | stays (no data); can go with the stub                             |
 | `legalFence`                                                                                                                                                                                               | one counter (`legalFence:forms`)                                                                                               | none       | written by events only; `PERMISSIONS NONE`                                                                                             | —                                                                 |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------                                                                 | ---------- | ------------------------------------------------------------------------------------------------                                       | ----------------------------------------------------------------- |
 | `submitterLimits`                                                                                                                                                                                          | D112's per-person limits and trusted mark; `user`, `changedBy`                                                                 | linked     | user live + fence; `changedBy` required from api-admin; `devSeed` dev only; audit row per change                                       |
 | `submissionLog`                                                                                                                                                                                            | D113's recent submissions; `person`                                                                                            | linked     | written by `story_limits` only; person live + fence                                                                                    |
+| `uploadGrant`                                                                                                                                                                                              | D80's uploads; `person`, `story`                                                                                               | linked     | created by api-user's login only; person live + fence (`uploadGrant_attach`)                                                           |
 | `submissionSettings`, `tag`, `signupFormVersion`, `testimonyFormVersion`, `socialSharingFormVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity`, `_setting`               | no person data                                                                                                                 | none       | —                                                                                                                                      | —                                                                 |
 
 - **Audit writes that race erasure.** These are allowed to commit, because audit rows are kept
@@ -827,7 +859,8 @@ spec has the reference:
 2. `DELETE story WHERE submitter = $u`. This works without select permission, and the cascade
    removes `publicStory` and `moderationReview`.
 3. Delete their idempotency keys (`WHERE record::id(id)[1] = $u`).
-   Delete their `submitterLimits` row and `submissionLog` rows (D112, D113).
+   Delete their `submitterLimits` row, `submissionLog` and `uploadGrant` rows (D112, D113, D80).
+   Their Bunny videos are deleted with the account deletion PR (D82).
 4. Set `gdprDeletedAt` (the database stamps the time) and clear `clerkUserId` in one update
    (D37). From then on `AUTHENTICATE` can't find them. The same update deletes their hearts
    (`user_erasure_favourites`), and step 2 deleted the hearts others gave their stories.

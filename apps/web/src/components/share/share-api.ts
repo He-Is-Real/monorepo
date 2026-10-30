@@ -37,6 +37,8 @@ export interface Tag {
   category: 'theme' | 'journey' | 'emotion';
 }
 
+export type StoryFormat = 'video' | 'audio' | 'written';
+
 /** The contract's `StoryMine`, the parts the flow uses. */
 export interface MyStory {
   id: string;
@@ -46,7 +48,9 @@ export interface MyStory {
   description: string;
   body: string | null;
   bylineName: string | null;
-  primaryFormat: 'video' | 'audio' | 'written';
+  primaryFormat: StoryFormat;
+  /** A video or audio story's file, once one was uploaded to it (M2 plan PR 7). */
+  media: { format: string; processing: string | null }[];
   tags: Tag[];
   submittedAt: string | null;
   updatedAt: string;
@@ -70,6 +74,39 @@ export interface SubmissionLimits {
   tags: { min: number; max: number };
   openDrafts: { max: number | null; open: number };
   submissions: { per7Days: number | null; nextAvailableAt: string | null };
+  /** Video and audio files (D113): one file's size and length, and new uploads per hour/7 days. */
+  uploads: {
+    videoMaxBytes: number;
+    audioMaxBytes: number;
+    maxDurationSeconds: number;
+    perHour: number;
+    per7Days: number | null;
+    nextAvailableAt: string | null;
+  };
+}
+
+/**
+ * The contract's `UploadTarget`: a TUS upload link for the draft's own video (D80). Its
+ * `headers` (Bunny's signature for that one video, not a person's token) are `signed` here, so
+ * web's D32 rule against touching `.headers` keeps meaning request headers.
+ */
+export interface UploadTarget {
+  id: string;
+  version: number;
+  provider: 'bunny_tus';
+  uploadUrl: string;
+  method: 'POST';
+  signed: Record<string, string>;
+  expiresAt: string;
+}
+
+/** The contract's `UploadUrlRequest`. */
+export interface UploadRequest {
+  format: 'video' | 'audio';
+  contentType: string;
+  fileSizeBytes: number;
+  durationSeconds?: number;
+  resume?: boolean;
 }
 
 export interface CommandResult {
@@ -149,6 +186,58 @@ export function commandResult(
   return { id: d.id, version: d.version as number };
 }
 
+/** The TUS creation headers api-user.yaml requires; without any of them Bunny refuses it. */
+const BUNNY_HEADERS = [
+  'AuthorizationSignature',
+  'AuthorizationExpire',
+  'VideoId',
+  'LibraryId',
+];
+
+/**
+ * RequestUpload's whole `UploadTarget`. A success without a usable link (an empty body, `{}`, a
+ * field missing) may still have made the grant, so like {@link commandResult} it counts as no
+ * answer (Codex #133 round 2): the caller keeps its Idempotency-Key, version and body.
+ */
+function uploadTarget(data: unknown): UploadTarget {
+  const { headers, ...d } = (
+    data && typeof data === 'object' ? data : {}
+  ) as Partial<
+    Omit<UploadTarget, 'signed'> & { headers: Record<string, unknown> }
+  >;
+  const signed = headers && typeof headers === 'object' ? headers : {};
+  const link = (u: unknown) => {
+    try {
+      return typeof u === 'string' && !!new URL(u);
+    } catch {
+      return false;
+    }
+  };
+  if (
+    typeof d.id !== 'string' ||
+    !d.id ||
+    !Number.isInteger(d.version) ||
+    d.provider !== 'bunny_tus' ||
+    !link(d.uploadUrl) ||
+    d.method !== 'POST' ||
+    typeof d.expiresAt !== 'string' ||
+    Number.isNaN(Date.parse(d.expiresAt)) ||
+    !BUNNY_HEADERS.every((h) => typeof signed[h] === 'string' && !!signed[h]) ||
+    !Object.values(signed).every((v) => typeof v === 'string')
+  ) {
+    throw new ApiUserUnavailable('api-user answered without the upload link');
+  }
+  return {
+    id: d.id,
+    version: d.version as number,
+    provider: d.provider,
+    uploadUrl: d.uploadUrl as string,
+    method: d.method,
+    signed: signed as Record<string, string>,
+    expiresAt: d.expiresAt,
+  };
+}
+
 export function shareApi(api: ApiUser) {
   return {
     consents: async () =>
@@ -188,15 +277,20 @@ export function shareApi(api: ApiUser) {
         },
         idempotencyKey,
       }),
-    create: async (fields: StoryFields, idempotencyKey: string) => {
+    create: async (
+      fields: StoryFields,
+      idempotencyKey: string,
+      format: StoryFormat = 'written',
+    ) => {
       const n = normalise(fields);
       return commandResult(
         await api.command<CommandResult>('/v1/stories', {
           method: 'POST',
           body: {
             title: n.title,
-            primaryFormat: 'written',
-            body: n.body,
+            primaryFormat: format,
+            // A video or audio story's text is optional (D53): none until it has some.
+            body: format === 'written' || n.body.trim() ? n.body : null,
             description: n.description,
             bylineName: n.bylineName || null,
             tagSlugs: n.tagSlugs,
@@ -212,6 +306,23 @@ export function shareApi(api: ApiUser) {
           { method: 'PATCH', body: patch, version, mergePatch: true },
         ),
       ),
+    /**
+     * RequestUpload (M2 plan PR 7): a TUS link for the draft's video (a new one, or `resume`).
+     * A new one counts against the person's upload limits, so a retry after a lost answer sends
+     * the same Idempotency-Key, version and body, and gets the same video back (D29).
+     */
+    uploadUrl: async (
+      id: string,
+      version: number,
+      request: UploadRequest,
+      idempotencyKey = newIdempotencyKey(),
+    ): Promise<UploadTarget> => {
+      const res = await api.command<unknown>(
+        `/v1/stories/${encodeURIComponent(id)}/upload-url`,
+        { method: 'POST', body: request, version, idempotencyKey },
+      );
+      return uploadTarget(res.data);
+    },
     submit: async (id: string, version: number, idempotencyKey: string) =>
       commandResult(
         await api.command<CommandResult>(

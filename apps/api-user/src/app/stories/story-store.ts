@@ -76,6 +76,14 @@ export interface SubmissionLimits {
   tags: { min: number; max: number };
   openDrafts: { max: number | null; open: number };
   submissions: { per7Days: number | null; nextAvailableAt: string | null };
+  uploads: {
+    videoMaxBytes: number;
+    audioMaxBytes: number;
+    maxDurationSeconds: number;
+    perHour: number;
+    per7Days: number | null;
+    nextAvailableAt: string | null;
+  };
 }
 
 export interface CommandResult {
@@ -328,11 +336,15 @@ export class StoryStore {
     }
   }
 
-  /** SubmitStory: draft/changes_requested → pending, once per Idempotency-Key, at `ifMatch`. */
+  /**
+   * SubmitStory: draft/changes_requested → pending, once per Idempotency-Key, at `ifMatch`.
+   * `checkMedia`: a video or audio story's file checks (uploads.ts), run with the others.
+   */
   async submit(
     id: string,
     ifMatch: number,
     idempotency: { scope: IdempotencyScope; requestHash: string },
+    checkMedia?: () => Promise<void>,
   ): Promise<CommandResult> {
     try {
       const { response } = await runIdempotent(
@@ -384,6 +396,7 @@ export class StoryStore {
             const availableAt = await this.nextSubmissionAt();
             if (availableAt) throw this.weekly(availableAt);
           }
+          await checkMedia?.();
           return {
             status: 200,
             statements: `LET $s = (SELECT version FROM type::record('story', $id))[0];
@@ -418,14 +431,24 @@ export class StoryStore {
       `RETURN fn::settings::submission();
        RETURN fn::limits::effective($auth);
        RETURN count(SELECT id FROM story WHERE submitter = $auth AND status = 'draft');
-       RETURN fn::story::next_submission_at($auth);`,
+       RETURN fn::story::next_submission_at($auth);
+       RETURN fn::upload::next_allowed_at($auth);`,
     )) as [
       SubmissionSettings,
-      { openDraftsMax?: number | null; submissionsPer7Days?: number | null },
+      {
+        openDraftsMax?: number | null;
+        submissionsPer7Days?: number | null;
+        uploadRequestsPerHour: number;
+        uploadsPer7Days?: number | null;
+        videoMaxBytes: number;
+        audioMaxBytes: number;
+        mediaMaxSeconds: number;
+      },
       number,
       string | null | undefined,
+      string | null | undefined,
     ];
-    const [set, mine, open, next] = results;
+    const [set, mine, open, next, nextUpload] = results;
     return {
       storyText: { min: set.storyTextMin, max: set.storyTextMax },
       tags: { min: set.tagsMin, max: set.tagsMax },
@@ -433,6 +456,14 @@ export class StoryStore {
       submissions: {
         per7Days: mine.submissionsPer7Days ?? null,
         nextAvailableAt: next ? new Date(next).toISOString() : null,
+      },
+      uploads: {
+        videoMaxBytes: mine.videoMaxBytes,
+        audioMaxBytes: mine.audioMaxBytes,
+        maxDurationSeconds: mine.mediaMaxSeconds,
+        perHour: mine.uploadRequestsPerHour,
+        per7Days: mine.uploadsPer7Days ?? null,
+        nextAvailableAt: nextUpload ? new Date(nextUpload).toISOString() : null,
       },
     };
   }

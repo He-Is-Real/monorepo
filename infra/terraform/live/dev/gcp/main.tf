@@ -122,6 +122,9 @@ module "gcp" {
   # Hearts (M2): api-user signs the media links on favourites' cards with the same keys. Apply
   # the bunny root first (it lets api-user read them), or api-user's new revision won't start.
   api_user_media_signing = true
+  # Video and audio uploads (M2 plan PR 7): api-user creates and signs Bunny Stream uploads with
+  # the library key. The bunny root's upload_key_readers grant (#123) must be applied first.
+  api_user_uploads = true
   # Site videos (not stories) api-public-read signs, by key: GUIDs from
   # tools/scripts/site-asset-upload.mjs (infra/terraform/README.md, "Site assets").
   site_videos = {

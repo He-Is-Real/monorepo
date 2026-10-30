@@ -14,6 +14,12 @@
 //   random per test.
 // - The submit flow (M2 plan PR 4): consent state, limits, tags, the person's stories, and
 //   create, edit and submit, per test session (see the section below).
+// - Video and audio (M2 plan PR 7): `POST /v1/stories/{id}/upload-url` (RequestUpload, with the
+//   real service's checks and one video per draft) and a minimal TUS server at `/tusupload`
+//   standing in for Bunny Stream: creation (`POST`, the signed headers checked), `HEAD` and
+//   `PATCH`. A test can make the next PATCHes fail or hold them (`POST /__e2e/sessions/<id>/tus`)
+//   and read what arrived (`GET /__e2e/sessions/<id>/uploads`); submit needs the file to have
+//   arrived, as api-user asks Bunny.
 // - Hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and `GET /v1/account/favourites`
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
@@ -32,7 +38,7 @@
 // Hearts are kept per token, so tests running in parallel never see each other's. A session
 // starting `no-consent` has lost the sign-up consent since the page loaded (its account answer
 // still says accepted): hearting answers 403 `consent_required` (D73).
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
@@ -346,6 +352,11 @@ const SETTINGS = {
   tagsMax: 5,
   openDraftsMax: 3,
   submissionsPer7Days: 1,
+  uploadRequestsPerHour: 10,
+  uploadsPer7Days: 5,
+  videoMaxBytes: 4294967296,
+  audioMaxBytes: 524288000,
+  mediaMaxSeconds: 900,
 };
 const TAGS = [
   { slug: 'healing', name: 'Healing', category: 'theme', version: 1 },
@@ -382,6 +393,12 @@ function newSession(id, seed = {}) {
     settings: { ...SETTINGS, ...(seed.settings ?? {}) },
     stories: new Map(),
     keys: new Map(),
+    // Uploads: the videos made for this session's drafts, when new ones were started, and
+    // what the TUS server should do with the next PATCHes.
+    videos: new Map(),
+    uploadTimes: [],
+    uploadRequests: 0,
+    tus: { fail: 0, hold: false },
   };
   for (const story of seed.stories ?? []) {
     const now = new Date().toISOString();
@@ -488,7 +505,19 @@ function storyMine(id, st) {
     body: st.body ?? null,
     bylineName: st.bylineName,
     primaryFormat: st.primaryFormat ?? 'written',
-    media: [],
+    media: st.videoId
+      ? [
+          {
+            format: st.primaryFormat,
+            playbackUrl: null,
+            thumbnailUrl: null,
+            width: null,
+            height: null,
+            durationSeconds: null,
+            processing: null,
+          },
+        ]
+      : [],
     image: null,
     tags: st.tagSlugs.map((slug) => TAGS.find((t) => t.slug === slug)),
     rejectionFeedback: null,
@@ -519,8 +548,55 @@ function limitsOf(s) {
     tags: { min: s.settings.tagsMin, max: s.settings.tagsMax },
     openDrafts: { max: s.trusted ? null : s.settings.openDraftsMax, open },
     submissions: { per7Days, nextAvailableAt: next },
+    uploads: uploadLimitsOf(s),
   };
 }
+
+/** The upload half of the limits (D113): trusted has no weekly limit and the ceilings. */
+function uploadLimitsOf(s) {
+  const now = Date.now();
+  const week = s.uploadTimes
+    .filter((t) => t + WEEK_MS > now)
+    .sort((a, b) => a - b);
+  const hour = week.filter((t) => t + 3600_000 > now);
+  const perHour = s.settings.uploadRequestsPerHour;
+  const per7Days = s.trusted ? null : s.settings.uploadsPer7Days;
+  const byHour =
+    hour.length >= perHour ? hour[hour.length - perHour] + 3600_000 : null;
+  const byWeek =
+    per7Days !== null && week.length >= per7Days
+      ? week[week.length - per7Days] + WEEK_MS
+      : null;
+  const next = Math.max(byHour ?? 0, byWeek ?? 0);
+  return {
+    videoMaxBytes: s.trusted ? 10737418240 : s.settings.videoMaxBytes,
+    audioMaxBytes: s.trusted ? 2147483648 : s.settings.audioMaxBytes,
+    maxDurationSeconds: s.trusted ? 10800 : s.settings.mediaMaxSeconds,
+    perHour,
+    per7Days,
+    nextAvailableAt: next ? new Date(next).toISOString() : null,
+  };
+}
+
+/** A4: the types api-user accepts. */
+const UPLOAD_TYPES = {
+  video: ['video/mp4', 'video/quicktime', 'video/webm'],
+  audio: [
+    'audio/mpeg',
+    'audio/mp4',
+    'audio/x-m4a',
+    'audio/wav',
+    'audio/x-wav',
+    'audio/wave',
+  ],
+};
+/** The stub's stand-in for sha256(libraryId + key + expires + videoId). */
+const tusSignature = (expires, videoId) =>
+  createHash('sha256')
+    .update(`stub-library-key${expires}${videoId}`)
+    .digest('hex');
+/** TUS uploads by id: { session, videoId, length, received }. */
+const tusUploads = new Map();
 
 // An edit over a maximum is refused only if it makes it worse (Joel, 2026-10-30: trimming a draft
 // that's over a newly lowered limit is saved); `current` is the stored story, none on create.
@@ -792,9 +868,17 @@ async function handleShare(req, res, path, url, s) {
             },
           ],
         });
+      if ((st.primaryFormat ?? 'written') !== 'written') {
+        const video = st.videoId ? s.videos.get(st.videoId) : undefined;
+        if (!video?.done)
+          return p(409, 'Conflict', 'media_not_uploaded', {
+            detail: `Your ${st.primaryFormat === 'audio' ? 'audio' : 'video'} hasn’t finished uploading yet. Upload it, then submit your story.`,
+          });
+      }
+      const written = (st.primaryFormat ?? 'written') === 'written';
       // Every limit in force applies at submit (Joel, 2026-10-30: no grandfathering).
       const { storyTextMax, tagsMax } = s.settings;
-      if ((st.body ?? '').length > storyTextMax)
+      if (written && (st.body ?? '').length > storyTextMax)
         return p(400, 'Bad request', 'story_text_too_long', {
           detail: `Your story is longer than the current limit of ${storyTextMax} characters. Shorten it, then submit.`,
           limit: storyTextMax,
@@ -802,7 +886,7 @@ async function handleShare(req, res, path, url, s) {
             { pointer: '/body', message: `at most ${storyTextMax} characters` },
           ],
         });
-      if (trimmed(st.body) < storyTextMin)
+      if (written && trimmed(st.body) < storyTextMin)
         return p(400, 'Bad request', 'story_text_too_short', {
           errors: [
             {
@@ -836,6 +920,187 @@ async function handleShare(req, res, path, url, s) {
       };
     });
   }
+  const uploadUrl = /^\/v1\/stories\/([^/]+)\/upload-url$/.exec(path);
+  if (uploadUrl && req.method === 'POST') {
+    s.uploadRequests += 1;
+    if (!s.granted.has('special_category_religious'))
+      return shareProblem(res, 403, 'Forbidden', 'consent_required');
+    const st = s.stories.get(uploadUrl[1]);
+    if (!st) return shareProblem(res, 404, 'Not found');
+    const v = ifMatchOf(req);
+    if (v === undefined)
+      return shareProblem(
+        res,
+        428,
+        'Precondition required',
+        'if_match_required',
+      );
+    const b = (await readJson(req)) ?? {};
+    // As api-user: the key is looked up first, so a retry after a lost answer replays the same
+    // video and version even once the story has moved on (D29; Codex #133 round 1).
+    return idempotent(s, req, res, b, () => {
+      const p = (status, title, code, extra = {}) => ({
+        status,
+        body: { type: 'about:blank', title, status, code, ...extra },
+        headers: { 'content-type': 'application/problem+json' },
+      });
+      if (v !== st.version)
+        return p(412, 'Precondition failed', 'stale_version');
+      if (!['draft', 'changes_requested'].includes(st.status))
+        return p(409, 'Conflict', 'story_locked');
+      const limits = uploadLimitsOf(s);
+      const errors = [];
+      if (b.format !== st.primaryFormat)
+        errors.push({
+          pointer: '/format',
+          message: `this is a ${st.primaryFormat} story`,
+        });
+      else if (!UPLOAD_TYPES[b.format].includes(b.contentType))
+        errors.push({ pointer: '/contentType', message: 'not a type we take' });
+      const max =
+        b.format === 'audio' ? limits.audioMaxBytes : limits.videoMaxBytes;
+      if (!(b.fileSizeBytes > 0) || b.fileSizeBytes > max)
+        errors.push({
+          pointer: '/fileSizeBytes',
+          message: `at most ${max} bytes`,
+        });
+      if (
+        b.durationSeconds !== undefined &&
+        b.durationSeconds > limits.maxDurationSeconds
+      )
+        errors.push({
+          pointer: '/durationSeconds',
+          message: `at most ${limits.maxDurationSeconds} seconds`,
+        });
+      if (errors.length)
+        return p(400, 'Bad request', 'validation_failed', { errors });
+      const sign = (videoId) => {
+        const expires = Math.floor(Date.now() / 1000) + 3600;
+        return {
+          status: 200,
+          body: {
+            id: uploadUrl[1],
+            version: st.version,
+            provider: 'bunny_tus',
+            uploadUrl: `http://${req.headers.host}/tusupload`,
+            method: 'POST',
+            headers: {
+              AuthorizationSignature: tusSignature(expires, videoId),
+              AuthorizationExpire: String(expires),
+              VideoId: videoId,
+              LibraryId: '42',
+            },
+            expiresAt: new Date(expires * 1000).toISOString(),
+          },
+          headers: { etag: `"${st.version}"` },
+        };
+      };
+      if (b.resume === true) {
+        const video = st.videoId && s.videos.get(st.videoId);
+        if (!video || video.done)
+          return p(409, 'Conflict', 'nothing_to_resume');
+        return sign(st.videoId);
+      }
+      if (limits.nextAvailableAt)
+        return p(409, 'Conflict', 'upload_limit_reached', {
+          detail: 'You’ve started as many uploads as you can for now.',
+          availableAt: limits.nextAvailableAt,
+        });
+      // One video per draft: the old one is deleted at once (api-user does it at Bunny).
+      if (st.videoId) s.videos.get(st.videoId).deleted = true;
+      const videoId = randomUUID();
+      s.videos.set(videoId, {
+        story: uploadUrl[1],
+        length: null,
+        received: 0,
+        done: false,
+        deleted: false,
+      });
+      s.uploadTimes.push(Date.now());
+      st.videoId = videoId;
+      st.version += 1;
+      st.updatedAt = new Date().toISOString();
+      return sign(videoId);
+    });
+  }
+  return false;
+}
+
+/** The TUS server standing in for Bunny Stream's (tus 1.0.0, the parts tus-js-client uses). */
+async function handleTus(req, res, path) {
+  const tusHeaders = {
+    'tus-resumable': '1.0.0',
+    'cache-control': 'no-store',
+  };
+  if (path === '/tusupload' && req.method === 'POST') {
+    const videoId = req.headers['videoid'];
+    const expires = req.headers['authorizationexpire'];
+    const session = [...sessions.values()].find((x) => x.videos.has(videoId));
+    const video = session?.videos.get(videoId);
+    if (
+      !video ||
+      video.deleted ||
+      req.headers['authorizationsignature'] !==
+        tusSignature(expires, videoId) ||
+      Number(expires) * 1000 < Date.now()
+    ) {
+      res.writeHead(401, tusHeaders);
+      return res.end();
+    }
+    const length = Number(req.headers['upload-length']);
+    const id = randomUUID();
+    tusUploads.set(id, { session, videoId, length, received: 0 });
+    video.length = length;
+    res.writeHead(201, {
+      ...tusHeaders,
+      location: `http://${req.headers.host}/tusupload/${id}`,
+    });
+    return res.end();
+  }
+  const one = /^\/tusupload\/([0-9a-f-]{36})$/.exec(path);
+  const upload = one && tusUploads.get(one[1]);
+  if (one && !upload) {
+    res.writeHead(404, tusHeaders);
+    return res.end();
+  }
+  if (one && req.method === 'HEAD') {
+    res.writeHead(200, {
+      ...tusHeaders,
+      'upload-offset': String(upload.received),
+      'upload-length': String(upload.length),
+    });
+    return res.end();
+  }
+  if (one && req.method === 'PATCH') {
+    const s = upload.session;
+    const offset = Number(req.headers['upload-offset']);
+    const chunks = [];
+    // The browser gave up (pause, cancel): the response closes before it's written.
+    let closed = false;
+    res.on('close', () => (closed = !res.writableEnded));
+    for await (const c of req) chunks.push(c);
+    if (s.tus.fail > 0) {
+      s.tus.fail -= 1;
+      res.writeHead(403, tusHeaders);
+      return res.end();
+    }
+    // Held: nothing arrives until the test lets it through (or the browser gives up).
+    while (s.tus.hold && !closed) await new Promise((r) => setTimeout(r, 50));
+    if (closed) return;
+    if (offset !== upload.received) {
+      res.writeHead(409, tusHeaders);
+      return res.end();
+    }
+    upload.received += Buffer.concat(chunks).length;
+    const video = s.videos.get(upload.videoId);
+    video.received = upload.received;
+    if (upload.received >= upload.length) video.done = !video.deleted;
+    res.writeHead(204, {
+      ...tusHeaders,
+      'upload-offset': String(upload.received),
+    });
+    return res.end();
+  }
   return false;
 }
 
@@ -850,7 +1115,10 @@ createServer(async (req, res) => {
   if (origin && origins.includes(origin)) {
     res.setHeader('access-control-allow-origin', origin);
     res.setHeader('vary', 'Origin');
-    res.setHeader('access-control-expose-headers', 'ETag,Location');
+    res.setHeader(
+      'access-control-expose-headers',
+      'ETag,Location,Upload-Offset,Upload-Length,Tus-Resumable',
+    );
   }
   const url = new URL(req.url ?? '/', 'http://stub');
   const path = url.pathname;
@@ -862,7 +1130,9 @@ createServer(async (req, res) => {
       );
       res.setHeader(
         'access-control-allow-headers',
-        'Authorization,Content-Type,If-Match,If-None-Match,Idempotency-Key',
+        'Authorization,Content-Type,If-Match,If-None-Match,Idempotency-Key,' +
+          // Bunny Stream's TUS headers (the stand-in at /tusupload)
+          'Tus-Resumable,Upload-Length,Upload-Metadata,Upload-Offset,AuthorizationSignature,AuthorizationExpire,VideoId,LibraryId',
       );
       res.setHeader('access-control-max-age', '600');
     }
@@ -891,6 +1161,27 @@ createServer(async (req, res) => {
       );
     res.writeHead(204);
     return res.end();
+  }
+  // Test set-up only: what the TUS server does with the next PATCHes ({ fail: n, hold: bool }).
+  const tusSet = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/tus$/.exec(path);
+  if (tusSet && req.method === 'POST') {
+    Object.assign(shareSession(tusSet[1]).tus, (await readJson(req)) ?? {});
+    res.writeHead(204);
+    return res.end();
+  }
+  // Test read-back only: the session's upload requests and what reached each video.
+  const uploadsOf = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/uploads$/.exec(
+    path,
+  );
+  if (uploadsOf && req.method === 'GET') {
+    const s = shareSession(uploadsOf[1]);
+    return sendJson(res, 200, {
+      requests: s.uploadRequests,
+      videos: [...s.videos].map(([id, v]) => ({ id, ...v })),
+    });
+  }
+  if (path === '/tusupload' || path.startsWith('/tusupload/')) {
+    if ((await handleTus(req, res, path)) !== false) return;
   }
   const token = sessionOf(req.headers.authorization);
   const signedIn = () => {

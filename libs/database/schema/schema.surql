@@ -222,8 +222,9 @@ DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
 -- api-user's own login can only delete (erasure): it can't read, create, reassign or edit stories.
 -- Write scope per field (D41): the person's words (content fields) only by the person; moderation
--- fields only by api-admin; media/processing fields by the person and workflow, and `processing`
--- (A2) by workflow only. A field write outside its scope is silently dropped (field PERMISSIONS,
+-- fields only by api-admin; media fields by workflow (processing) and api-user's login, through an
+-- upload grant only (D80: never the person's session; uploadGrant_attach), and `processing` (A2)
+-- by workflow only. A field write outside its scope is silently dropped (field PERMISSIONS,
 -- or the field's VALUE for `processing`), so check the stored state.
 DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:<ulid>
   FOR select WHERE submitter = $auth.id OR $auth.id IN [service:api_admin, service:workflow],
@@ -296,42 +297,49 @@ DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
 DEFINE FIELD OVERWRITE image.processing ON story TYPE option<string>
   ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
--- Media and processing fields: the person (upload) and workflow (M7 processing); never api-admin.
--- Each nested field carries the same rule, so `SET media[0].x = ...` is covered too.
+-- Media and processing fields (D80, Joel 2026-10-25): never the person's session, never api-admin.
+-- Workflow writes them (M7 processing). An upload reaches them only through an upload grant that
+-- api-user's own login creates: its event (uploadGrant_attach, elevated) puts the video on the
+-- draft. A person's write to them is dropped. Each nested field carries the same rule, so
+-- `SET media[0].x = ...` is covered too; story_media_granted refuses a new Bunny id without a
+-- grant for that story, whoever writes it (system users aside).
 -- 3.2.4 stores undefined keys inside array<object> items (tested), so fn::story::shape_problem
 -- allows only the fields defined here ($mediaFields there).
 -- A2: media[*].processing is workflow's. For everyone else (the person) the VALUE keeps an item's
 -- stored `processing` only while the item is otherwise unchanged; a new or changed item (another
 -- upload, a different size) starts again at NONE, and a person's own `processing` is ignored.
+-- A person's session gets its stored media back (none on create); api-user's login (only ever
+-- through uploadGrant_attach) gets the new item, processing NONE.
 DEFINE FIELD OVERWRITE media                    ON story TYPE array<object> DEFAULT []
   VALUE IF $auth = NONE OR $auth = service:workflow { $value }
+    ELSE IF $auth != service:api_user { $before ?? [] }
     ELSE {
       $value.map(|$m| object::extend(object::remove($m, 'processing'), {
         processing: ($before ?? []).find(|$b|
           object::remove($b, 'processing') = object::remove($m, 'processing')).processing
       }))
     }
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE media[*].format          ON story TYPE string ASSERT $value IN ['video', 'audio']
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE media[*].bunnyVideoId    ON story TYPE option<string>
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE media[*].thumbnailPath   ON story TYPE option<string>
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
 -- D53: the real pixel size, replacing the aspectRatio label. A video's is Bunny's encode result.
 -- An audio file's is its thumbnail's, the picture shown for it (Joel, 2026-10-24): the person's
 -- own image, or the site's default audio thumbnail; never Bunny's audio placeholder.
 REMOVE FIELD IF EXISTS media[*].aspectRatio ON story;
 DEFINE FIELD OVERWRITE media[*].width           ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE media[*].height          ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE media[*].durationSeconds ON story TYPE option<int>
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
 -- A2: NONE = not processed yet; then 'processing', 'ready' or 'failed' (set by workflow, M7).
 DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
   ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
 -- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary, with the same
 -- rule (and adds them to $mediaFields in fn::story::shape_problem).
 -- D17, D86: consent is per person; a story derives it from its submitter's current ledger state.
@@ -467,6 +475,23 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
   };
   RETURN NONE;
 };
+-- D65, D80: a story's video or audio is only ever what was uploaded for it. A Bunny id a write
+-- adds (one the story didn't have) needs an upload grant naming this story (uploadGrant, made by
+-- api-user's login when it created that video at Bunny), whoever writes: workflow, api-user's
+-- grant, and a person's write if a permission ever let one through. System users (the migrator,
+-- dev-seed's dummy data) load data as given. Thumbnails stay workflow's (M7) and are checked at
+-- approval (fn::media::own_thumbnail); the person can't write them (field permissions).
+DEFINE EVENT OVERWRITE story_media_granted ON story
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $auth != NONE
+  THEN {
+    LET $had = ($before.media ?? []).map(|$m| $m.bunnyVideoId);
+    FOR $m IN ($after.media ?? []) {
+      IF $m.bunnyVideoId != NONE AND $m.bunnyVideoId NOT IN $had
+        AND (SELECT VALUE story FROM ONLY type::record('uploadGrant', <string> $m.bunnyVideoId)) != $after.id {
+        THROW 'media_not_granted: a story’s video or audio must be one api-user created for it (D80)';
+      };
+    };
+  };
 -- Every write, by anyone (system users too): the stored story always has a valid type and shape.
 DEFINE EVENT OVERWRITE story_shape ON story
   WHEN $event IN ['CREATE', 'UPDATE']
@@ -520,7 +545,10 @@ DEFINE EVENT OVERWRITE story_consent ON story
 -- story write bumps their fence (story_fence), so two overlapping creates or submissions conflict
 -- at commit and the retry sees the other.
 -- The limits that apply to a person: their override where an admin set one, else the setting.
--- Trusted: no open-drafts or weekly limit (NONE = unlimited); the upload limit still applies.
+-- Trusted: no open-drafts, weekly or weekly-upload limit (NONE = unlimited), and the uploads'
+-- size and length limits are the hard ceilings (D113's video limits, Joel 2026-10-30: "trusted
+-- submitters are exempt, as with the other limits"); the hourly upload limit still applies (an
+-- abuse guard, raised per person if needed).
 -- Runs with the caller's permissions: a person reads the settings and their own override row.
 DEFINE FUNCTION OVERWRITE fn::limits::effective($user: option<record<user>>) {
   LET $set = fn::settings::submission();
@@ -528,11 +556,16 @@ DEFINE FUNCTION OVERWRITE fn::limits::effective($user: option<record<user>>) {
     (SELECT * FROM ONLY type::record('submitterLimits', record::id($user)))
   };
   LET $trusted = $o.trusted = true;
+  LET $ceil = fn::settings::upload_ceilings();
   RETURN {
     trusted: $trusted,
     openDraftsMax: IF $trusted { NONE } ELSE { $o.openDraftsMax ?? $set.openDraftsMax },
     submissionsPer7Days: IF $trusted { NONE } ELSE { $o.submissionsPer7Days ?? $set.submissionsPer7Days },
-    uploadRequestsPerHour: $o.uploadRequestsPerHour ?? $set.uploadRequestsPerHour
+    uploadRequestsPerHour: $o.uploadRequestsPerHour ?? $set.uploadRequestsPerHour,
+    uploadsPer7Days: IF $trusted { NONE } ELSE { $o.uploadsPer7Days ?? $set.uploadsPer7Days },
+    videoMaxBytes: IF $trusted { $ceil.videoMaxBytes } ELSE { $set.videoMaxBytes },
+    audioMaxBytes: IF $trusted { $ceil.audioMaxBytes } ELSE { $set.audioMaxBytes },
+    mediaMaxSeconds: IF $trusted { $ceil.mediaMaxSeconds } ELSE { $set.mediaMaxSeconds }
   };
 };
 -- When the person may next submit a story for review: 7 days after the submission that fills
@@ -1778,7 +1811,13 @@ DEFINE EVENT OVERWRITE user_erasure_favourites ON user
 --   storyTextMin / storyTextMax: a written story's text, trimmed, to submit / at most (A3);
 --   tagsMin / tagsMax: themes to submit / at most;
 --   openDraftsMax, submissionsPer7Days: D94's limits per person (overridable per person);
---   uploadRequestsPerHour: per person, for the upload PR (not enforced yet; overridable).
+--   uploadRequestsPerHour: new uploads per person in any rolling hour (overridable; trusted too);
+--   uploadsPer7Days: new uploads per person in any rolling 7 days (overridable; none if trusted);
+--   videoMaxBytes / audioMaxBytes / mediaMaxSeconds: one file's size and length (A4: 4 GB and
+--     500 MB, 15 minutes; trusted submitters get the hard ceilings, fn::settings::upload_ceilings).
+--   The upload limits (D113, Joel 2026-10-28/30: stop people filling our video storage) are
+--   checked when an upload is granted (uploadGrant_attach) and again at submit by api-user, with
+--   the values in force then ("new rules apply to everyone", Joel 2026-10-30).
 -- Everyone reads it (the submit page shows the numbers); only api-admin's login, naming the admin
 -- in changedBy, and the migrator change it, never delete it. Every change is audit-logged. No
 -- admin route or page yet: they come with M3's admin screens.
@@ -1802,6 +1841,14 @@ DEFINE FIELD OVERWRITE submissionsPer7Days ON submissionSettings TYPE int DEFAUL
   ASSERT $value >= 1 AND $value <= 1000;
 DEFINE FIELD OVERWRITE uploadRequestsPerHour ON submissionSettings TYPE int DEFAULT 10
   ASSERT $value >= 1 AND $value <= 10000;
+DEFINE FIELD OVERWRITE uploadsPer7Days ON submissionSettings TYPE int DEFAULT 5
+  ASSERT $value >= 1 AND $value <= 1000;
+DEFINE FIELD OVERWRITE videoMaxBytes ON submissionSettings TYPE int DEFAULT 4294967296   -- 4 GiB
+  ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().videoMaxBytes;
+DEFINE FIELD OVERWRITE audioMaxBytes ON submissionSettings TYPE int DEFAULT 524288000    -- 500 MiB
+  ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().audioMaxBytes;
+DEFINE FIELD OVERWRITE mediaMaxSeconds ON submissionSettings TYPE int DEFAULT 900        -- 15 minutes
+  ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().mediaMaxSeconds;
 DEFINE FIELD OVERWRITE changedBy     ON submissionSettings TYPE option<record<user>>;
 DEFINE FIELD OVERWRITE version       ON submissionSettings TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE updatedAt     ON submissionSettings TYPE datetime VALUE time::now();
@@ -1824,14 +1871,23 @@ DEFINE FUNCTION OVERWRITE fn::settings::submission() {
     storyTextMin: $s.storyTextMin ?? 200, storyTextMax: $s.storyTextMax ?? 10000,
     tagsMin: $s.tagsMin ?? 1, tagsMax: $s.tagsMax ?? 5,
     openDraftsMax: $s.openDraftsMax ?? 3, submissionsPer7Days: $s.submissionsPer7Days ?? 1,
-    uploadRequestsPerHour: $s.uploadRequestsPerHour ?? 10
+    uploadRequestsPerHour: $s.uploadRequestsPerHour ?? 10,
+    uploadsPer7Days: $s.uploadsPer7Days ?? 5,
+    videoMaxBytes: $s.videoMaxBytes ?? 4294967296, audioMaxBytes: $s.audioMaxBytes ?? 524288000,
+    mediaMaxSeconds: $s.mediaMaxSeconds ?? 900
   };
+};
+-- The most any setting may allow for one upload, and what a trusted submitter gets: 10 GiB of
+-- video, 2 GiB of audio, 3 hours (a cost ceiling, not a product rule).
+DEFINE FUNCTION OVERWRITE fn::settings::upload_ceilings() {
+  RETURN { videoMaxBytes: 10737418240, audioMaxBytes: 2147483648, mediaMaxSeconds: 10800 };
 };
 
 -- ---------------------------------------------------------------- submitterLimits (D94, D112)
 -- One person's limits, set by an admin (Joel, 2026-10-28: test accounts get values that don't
 -- interfere with testing). id = submitterLimits:<user id>. `trusted` (the whitelist: e.g. the
--- church media team, pastors) lifts the open-drafts and weekly limits; each other field, when
+-- church media team, pastors) lifts the open-drafts, weekly and upload limits but the hourly one
+-- (fn::limits::effective); each other field, when
 -- set, replaces that setting for this person (NONE = the setting). fn::limits::effective reads it.
 -- Only api-admin's login (naming the admin in changedBy) and system users (the migrator,
 -- dev-seed) write it; every change is audit-logged. An admin resets someone by updating the row
@@ -1851,6 +1907,8 @@ DEFINE FIELD OVERWRITE submissionsPer7Days ON submitterLimits TYPE option<int>
   ASSERT $value = NONE OR ($value >= 1 AND $value <= 1000);
 DEFINE FIELD OVERWRITE uploadRequestsPerHour ON submitterLimits TYPE option<int>
   ASSERT $value = NONE OR ($value >= 1 AND $value <= 10000);
+DEFINE FIELD OVERWRITE uploadsPer7Days ON submitterLimits TYPE option<int>
+  ASSERT $value = NONE OR ($value >= 1 AND $value <= 1000);
 DEFINE FIELD OVERWRITE devSeed       ON submitterLimits TYPE bool DEFAULT false;
 -- The admin who made this change (their own user record); NONE only from a system user.
 DEFINE FIELD OVERWRITE changedBy     ON submitterLimits TYPE option<record<user>>;
@@ -1890,6 +1948,94 @@ DEFINE EVENT OVERWRITE submissionLog_fence ON submissionLog
   WHEN true THEN {
     IF $event = 'DELETE' { fn::fence::bump($before.person) }
     ELSE { fn::person::live($after.person) };
+  };
+
+-- ---------------------------------------------------------------- uploadGrant (D65, D80, D113)
+-- One row per video or audio file api-user created at Bunny Stream for a story (RequestUpload,
+-- M2 plan PR 7). id = uploadGrant:<bunnyVideoId>, so a Bunny video is granted once, to one story.
+-- Only api-user's own login creates it, after creating the video itself (title = the story id,
+-- D69); its event checks the draft and the person's upload limits and puts the video on the draft
+-- in the same write (D80: the browser never names a video, and a person's session never writes
+-- media). story_media_granted then refuses any Bunny id without a grant for that story.
+-- Also the per-person record of uploads (D113, Joel 2026-10-28: the limits must hold when stories
+-- or videos are deleted): replacing a draft's file deletes the old video at Bunny but keeps its
+-- grant, so the hourly and weekly counts stay honest. A grant that's no longer its story's media
+-- goes after 7 days (pruned here); a story's current one stays while the story does. Person-linked:
+-- erasure deletes them all. The person reads their own (the limits page, the submit checks).
+-- storyVersion: the `If-Match` the command was given: the event refuses another (412).
+-- sizeBytes / durationSeconds: what the browser declared (the TUS link binds neither, D68); the
+-- limits are checked on them here and again at submit, with Bunny's own length once it has one.
+DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
+  FOR select WHERE person = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
+  FOR create WHERE $auth.id = service:api_user,
+  FOR update NONE,
+  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
+DEFINE FIELD OVERWRITE story           ON uploadGrant TYPE record<story> READONLY;
+DEFINE FIELD OVERWRITE person          ON uploadGrant TYPE record<user> READONLY;
+DEFINE FIELD OVERWRITE format          ON uploadGrant TYPE string READONLY
+  ASSERT $value IN ['video', 'audio'];
+DEFINE FIELD OVERWRITE contentType     ON uploadGrant TYPE string READONLY
+  ASSERT string::len($value) > 0 AND string::len($value) <= 100;
+DEFINE FIELD OVERWRITE sizeBytes       ON uploadGrant TYPE int READONLY ASSERT $value > 0;
+DEFINE FIELD OVERWRITE durationSeconds ON uploadGrant TYPE option<int> READONLY
+  ASSERT $value = NONE OR $value > 0;
+DEFINE FIELD OVERWRITE storyVersion    ON uploadGrant TYPE int READONLY;
+DEFINE FIELD OVERWRITE at              ON uploadGrant TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE INDEX OVERWRITE uploadGrant_person ON uploadGrant FIELDS person, at;
+DEFINE INDEX OVERWRITE uploadGrant_story  ON uploadGrant FIELDS story;
+-- When the person may next start an upload: NONE if now, else when the hourly or weekly count
+-- frees a place (the later of the two). Their own session reads their own grants.
+DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>>) {
+  IF $user = NONE { RETURN NONE };
+  LET $l = fn::limits::effective($user);
+  LET $week = (SELECT VALUE at FROM uploadGrant
+    WHERE person = $user AND at > time::now() - 7d ORDER BY at ASC);
+  LET $hour = $week.filter(|$a| $a > time::now() - 1h);
+  LET $byHour = IF array::len($hour) < $l.uploadRequestsPerHour { NONE }
+    ELSE { $hour[array::len($hour) - $l.uploadRequestsPerHour] + 1h };
+  LET $byWeek = IF $l.uploadsPer7Days = NONE OR array::len($week) < $l.uploadsPer7Days { NONE }
+    ELSE { $week[array::len($week) - $l.uploadsPer7Days] + 7d };
+  RETURN IF $byHour = NONE { $byWeek } ELSE IF $byWeek = NONE { $byHour }
+    ELSE IF $byHour > $byWeek { $byHour } ELSE { $byWeek };
+};
+DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
+  WHEN $event IN ['CREATE', 'DELETE'] THEN {
+    IF $event = 'DELETE' { fn::fence::bump($before.person) }
+    ELSE {
+      fn::person::live($after.person);
+      LET $s = (SELECT * FROM ONLY $after.story);
+      IF $s = NONE OR $s.submitter != $after.person {
+        THROW 'upload_refused: the story isn’t this person’s';
+      };
+      IF $s.version != $after.storyVersion { THROW 'story_cmd:stale_version' };
+      IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
+      IF $s.primaryFormat != $after.format {
+        THROW 'upload_refused: a ' + $s.primaryFormat + ' story takes no ' + $after.format;
+      };
+      LET $l = fn::limits::effective($after.person);
+      IF $after.sizeBytes > (IF $after.format = 'video' { $l.videoMaxBytes } ELSE { $l.audioMaxBytes }) {
+        THROW 'limit_upload_size: the file is bigger than the person may upload (D113)';
+      };
+      IF $after.durationSeconds != NONE AND $after.durationSeconds > $l.mediaMaxSeconds {
+        THROW 'limit_upload_duration: the file is longer than the person may upload (D113)';
+      };
+      -- Counted without this row; the fence above makes two overlapping grants conflict.
+      LET $week = (SELECT VALUE at FROM uploadGrant
+        WHERE person = $after.person AND id != $after.id AND at > time::now() - 7d);
+      IF array::len($week.filter(|$a| $a > time::now() - 1h)) >= $l.uploadRequestsPerHour {
+        THROW 'limit_upload_hourly: the person has started as many uploads as they may in an hour (D113)';
+      };
+      IF $l.uploadsPer7Days != NONE AND array::len($week) >= $l.uploadsPer7Days {
+        THROW 'limit_upload_weekly: the person has started as many uploads as they may in 7 days (D113)';
+      };
+      -- The draft's one video or audio file is now this one (D80). The story's media VALUE
+      -- starts its processing again (A2); its version steps once, to storyVersion + 1.
+      UPDATE $after.story SET media = [{ format: $after.format, bunnyVideoId: record::id($after.id) }]
+        RETURN NONE;
+      -- Older grants that are no longer any story's media.
+      DELETE uploadGrant WHERE person = $after.person AND at <= time::now() - 7d
+        AND record::id(id) NOT IN (story.media ?? []).map(|$m| $m.bunnyVideoId);
+    };
   };
 
 -- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),

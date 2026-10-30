@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Surreal, SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
@@ -8,7 +9,7 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { draft, ERASE, submit } from './support/world';
+import { draft, ERASE, grantUpload, submit } from './support/world';
 
 /**
  * Review round 3: every table that holds or links person data, directly or through `story`, is
@@ -33,6 +34,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   favourite: 'linked', // person (hearts, M2); deleted at erasure
   submitterLimits: 'linked', // user (D112: limits, trusted mark)
   submissionLog: 'linked', // person (D113: recent submissions)
+  uploadGrant: 'linked', // person, story (D80: the Bunny videos api-user made for them)
   submissionSettings: 'none', // the limits an admin sets (W3, D112)
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
@@ -174,6 +176,23 @@ const LINKED: Record<string, LinkedCase> = {
            changedBy = user:moderator`,
       ),
     landed: (c) => `SELECT VALUE id FROM submitterLimits:${c.p}`,
+  },
+  uploadGrant: {
+    // RequestUpload's grant (D80), on api-user's login, for the person's video draft.
+    setup: (c) =>
+      draft(c.person, `${c.p}_v`, { primaryFormat: 'video', body: undefined }),
+    writer: (c) => c.apiUser,
+    write: (c, db) =>
+      grantUpload(db(c), {
+        video: randomUUID(),
+        story: `${c.p}_v`,
+        person: c.p,
+        version: 1,
+      }).then((o) => {
+        if (!o.ok) throw new Error(o.error);
+      }),
+    landed: (c) =>
+      `SELECT VALUE id FROM uploadGrant WHERE person = user:${c.p}`,
   },
   submissionLog: {
     // Written by story_limits when the person first submits a story. livePerson's own

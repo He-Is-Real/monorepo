@@ -149,6 +149,23 @@ variable "api_user_media_signing" {
   }
 }
 
+variable "api_user_uploads" {
+  description = <<-EOT
+    Video and audio uploads (M2 plan PR 7): api-user creates each story's Bunny
+    Stream video, signs the browser's TUS upload for it and deletes replaced ones,
+    with the library key in the bunny-stream-api-key secret (named here, never its
+    value) and the library in api_public_read_media (which must be set). The bunny
+    root must already let api-user read that secret (upload_key_readers): a
+    revision that can't read it doesn't start. false = RequestUpload answers 503.
+  EOT
+  type        = bool
+  default     = false
+  validation {
+    condition     = !var.api_user_uploads || var.api_public_read_media != null
+    error_message = "api_user_uploads needs api_public_read_media (the Stream library id)."
+  }
+}
+
 variable "site_videos" {
   description = <<-EOT
     Site videos (not stories) api-public-read signs player links for, by key: the

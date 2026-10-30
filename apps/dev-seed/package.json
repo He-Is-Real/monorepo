@@ -154,6 +154,7 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@heisreal/database": "workspace:*"
+    "@heisreal/database": "workspace:*",
+    "@heisreal/story-cards": "workspace:*"
   }
 }
