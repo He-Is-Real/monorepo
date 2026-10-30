@@ -274,7 +274,7 @@ Scheduler starts it at 03:30 London time; both are in `europe-west2`, written ou
 - **Identities.** `housekeeping` runs the Job: it reads `surreal-housekeeping-password` (granted
   here) and `bunny-stream-api-key` (granted by the bunny root's `stream_key_readers`, which accepts
   only this account), and signs in as `service:housekeeping`, whose permissions are in
-  [docs/db-permissions.md](../../docs/db-permissions.md) item 39. `housekeeping-scheduler` is
+  [docs/db-permissions.md](../../docs/db-permissions.md) item 40. `housekeeping-scheduler` is
   Scheduler's: `run.invoker` on this Job only, so it can start it (without overrides) and nothing
   else. Scheduler calls the Cloud Run Admin API's `jobs.run` with an OAuth token (a Google API
   takes OAuth, not an OIDC ID token).
