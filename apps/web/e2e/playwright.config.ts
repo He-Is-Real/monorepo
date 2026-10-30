@@ -7,6 +7,7 @@ import {
   STUB_DOWN_PORT,
   STUB_LIVE_PORT,
   STUB_PORT,
+  STUB_SLOW_PORT,
   STUB_USER_PORT,
   STRIPE_E2E,
   STUB_USER_URL,
@@ -14,13 +15,15 @@ import {
   WEB_LIVE_PORT,
   WEB_PORT,
   WEB_SIGNED_IN_PORT,
+  WEB_SLOW_PORT,
 } from './servers';
 
 // `pnpm nx e2e web`: the built standalone server (apps/web/dist, from `prune`) against a stub
 // api-public-read (and, for the signed-in server's browser, a stub api-user), across the device
 // matrix in light and dark. Screenshots land in
 // test-output/e2e/screenshots (CI uploads them). More copies of the server cover Go live
-// (indexing on, D48 off), api-public-read down and a signed-in visitor (servers.ts). Nothing
+// (indexing on, D48 off), api-public-read down, api-public-read slow to give site videos and a
+// signed-in visitor (servers.ts). Nothing
 // is loaded over the internet: the real Clerk is checked on dev (apps/dev-seed/behavioural).
 const root = `${resolve(__dirname, '../../..')}/`;
 
@@ -70,6 +73,7 @@ export default defineConfig({
         STUB_PORT: String(STUB_PORT),
         STUB_LIVE_PORT: String(STUB_LIVE_PORT),
         STUB_DOWN_PORT: String(STUB_DOWN_PORT),
+        STUB_SLOW_PORT: String(STUB_SLOW_PORT),
       },
       reuseExistingServer: false,
     },
@@ -98,6 +102,7 @@ export default defineConfig({
       STRIPE_DONOR_PORTAL_URL: STRIPE_E2E.donorPortalUrl,
     }),
     web(WEB_DOWN_PORT, STUB_DOWN_PORT, { E2E_FIXTURES: 'true' }),
+    web(WEB_SLOW_PORT, STUB_SLOW_PORT, { E2E_FIXTURES: 'true' }),
     // Signed in: E2E_FIXTURES makes the header show this name instead of Clerk's control, so no
     // Clerk session or secret is needed. Its browser calls the stub api-user.
     web(WEB_SIGNED_IN_PORT, STUB_PORT, {

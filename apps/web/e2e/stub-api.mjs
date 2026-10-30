@@ -5,10 +5,12 @@
 // the filters), test-only stories for the hide, withdrawal, card playback and hearts tests, a 503 for
 // "down" and 404 problems for anything else.
 //
-// One process, three ports, for the three web servers in playwright.config.ts:
+// One process, four ports, for the web servers in playwright.config.ts:
 // - STUB_PORT: dev as it is today (D48's relaxed consent checks on);
 // - STUB_LIVE_PORT: the same stories with D48 off, as at Go live (indexing.e2e.ts);
-// - STUB_DOWN_PORT: api-public-read down, every request answers 503.
+// - STUB_DOWN_PORT: api-public-read down, every request answers 503;
+// - STUB_SLOW_PORT: dev, but each site video's answer waits until the test releases its key
+//   (`POST /__test/release-site-video/{key}`; site-videos.e2e.ts: the page doesn't wait for it).
 //
 // The legal routes (`/v1/legal/forms/{form}`, `/v1/legal/dpa`) serve dev's placeholder forms (with
 // their boxes from the statements files, D114) and privacy document, read from libs/legal as the
@@ -26,6 +28,7 @@ import { resolve } from 'node:path';
 const port = Number(process.env.STUB_PORT ?? 4310);
 const livePort = Number(process.env.STUB_LIVE_PORT ?? 4311);
 const downPort = Number(process.env.STUB_DOWN_PORT ?? 4312);
+const slowPort = Number(process.env.STUB_SLOW_PORT ?? 4314);
 const base = {
   bylineName: 'Test Person',
   primaryFormat: 'written',
@@ -820,3 +823,24 @@ const handler = (mode) => (req, res) => {
 createServer(handler('dev')).listen(port, '127.0.0.1');
 createServer(handler('live')).listen(livePort, '127.0.0.1');
 createServer(handler('down')).listen(downPort, '127.0.0.1');
+// The slow port: site-video requests held per key until released; a release with nothing held
+// lets the key's next request through (the order of the two doesn't matter).
+const dev = handler('dev');
+const held = new Map();
+const released = new Set();
+createServer((req, res) => {
+  const release = /^\/__test\/release-site-video\/([^/]+)$/.exec(req.url ?? '');
+  if (release && req.method === 'POST') {
+    const waiting = held.get(release[1]) ?? [];
+    held.delete(release[1]);
+    if (waiting.length === 0) released.add(release[1]);
+    for (const go of waiting) go();
+    res.writeHead(204);
+    return res.end();
+  }
+  const site = /^\/v1\/site-videos\/([^/?]+)/.exec(req.url ?? '');
+  if (!site) return dev(req, res);
+  const key = site[1];
+  if (released.delete(key)) return dev(req, res);
+  held.set(key, [...(held.get(key) ?? []), () => dev(req, res)]);
+}).listen(slowPort, '127.0.0.1');

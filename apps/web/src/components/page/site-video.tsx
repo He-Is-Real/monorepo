@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import {
   PLAYER_ALLOW,
   PLAYER_MIN_HEIGHT,
@@ -5,42 +6,52 @@ import {
 } from '@/components/stories/story-media';
 import { type SiteVideoKey, siteVideoUrl } from '@/lib/site-videos';
 
-/**
- * One of the site's own videos (the founder's on About and Next Steps): Bunny's player with a
- * signed link from api-public-read (D52, a site video in the `site-assets` collection), the same
- * player as a story's. Until a video is set for this environment, or if api-public-read can't be
- * reached, a placeholder. The page must render per request (`connection()`): the link expires.
- */
-export async function SiteVideo({
-  videoKey,
-  title,
-  label,
-}: {
+type Props = {
   videoKey: SiteVideoKey;
   /** The frame's accessible name, "Video: …". */
   title: string;
   /** What the placeholder says the video is. */
   label: string;
-}) {
+};
+
+/**
+ * One of the site's own videos (the founder's on About and Next Steps): Bunny's player with a
+ * signed link from api-public-read (D52, a site video in the `site-assets` collection), the same
+ * player as a story's. The page doesn't wait for the link (up to 5 s, lib/site-videos.ts): it
+ * streams with the placeholder in the video's place, and the server sends the player when the
+ * link arrives. If none is set for this environment, or api-public-read fails or is too slow,
+ * the placeholder stays. The page must render per request (`connection()`): the link expires.
+ */
+export function SiteVideo(props: Props) {
+  return (
+    <Suspense fallback={<Placeholder label={props.label} />}>
+      <Player {...props} />
+    </Suspense>
+  );
+}
+
+async function Player({ videoKey, title, label }: Props) {
   const playbackUrl = await siteVideoUrl(videoKey);
   const src = playbackUrl ? playerSrc(playbackUrl) : null;
-  if (src) {
-    return (
-      <div
-        data-player=""
-        className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black"
-        style={{ minHeight: PLAYER_MIN_HEIGHT }}
-      >
-        <iframe
-          src={src}
-          title={title}
-          allow={PLAYER_ALLOW}
-          allowFullScreen
-          className="absolute inset-0 block h-full w-full border-0"
-        />
-      </div>
-    );
-  }
+  if (!src) return <Placeholder label={label} />;
+  return (
+    <div
+      data-player=""
+      className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black"
+      style={{ minHeight: PLAYER_MIN_HEIGHT }}
+    >
+      <iframe
+        src={src}
+        title={title}
+        allow={PLAYER_ALLOW}
+        allowFullScreen
+        className="absolute inset-0 block h-full w-full border-0"
+      />
+    </div>
+  );
+}
+
+function Placeholder({ label }: { label: string }) {
   return (
     <div
       data-video-placeholder=""
