@@ -65,6 +65,8 @@ export const CONTENT_TYPES: Record<UploadRequest['format'], readonly string[]> =
 
 /** Bunny statuses (bunny-stream.ts): nothing uploaded yet, and an upload that failed. */
 const NOT_UPLOADED = [0, 6];
+/** Uploaded, processing, transcoding, finished, couldn't be encoded, just-in-time stages. */
+const ARRIVED = [1, 2, 3, 4, 5, 7, 8];
 const ENCODING_FAILED = 5;
 
 interface FieldError {
@@ -266,13 +268,23 @@ export class Uploads {
       { sizeBytes: number; durationSeconds?: number; format: string } | null,
     ];
     const video = await bunny.video(draft.videoId);
-    if (!grant || !video || NOT_UPLOADED.includes(video.status)) {
+    // Only a status Bunny documents as "the file is there" counts; anything else (none yet, a
+    // failed upload, a status added later) is not uploaded: fail closed.
+    if (!grant || !video || !ARRIVED.includes(video.status)) {
       throw notUploaded();
     }
     if (video.status === ENCODING_FAILED) {
       throw new ConflictException({
         code: 'media_failed',
         message: `We couldn’t read that ${draft.primaryFormat} file. Please upload it again, or try another file.`,
+      });
+    }
+    // The length is Bunny's own once it has read the file; until then the declared one can't be
+    // trusted (the TUS link binds neither size nor length, D68), so submit waits for it.
+    if (!(video.length > 0)) {
+      throw new ConflictException({
+        code: 'media_processing',
+        message: `We’re still checking your ${draft.primaryFormat}. Please try again in a minute.`,
       });
     }
     const limits = await this.limits(person);

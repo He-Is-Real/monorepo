@@ -225,6 +225,16 @@ describe('video and audio uploads', () => {
       409,
       'media_not_uploaded',
     ]);
+    // Uploaded, but Bunny hasn't read its length yet: submit waits for that too.
+    Object.assign(bunny.videos.get(videoId) ?? {}, { status: 1 });
+    const reading = await submit('ann', id, 3);
+    expect([reading.status, reading.body.code]).toEqual([
+      409,
+      'media_processing',
+    ]);
+    // An unknown status counts as not uploaded (fail closed).
+    Object.assign(bunny.videos.get(videoId) ?? {}, { status: 99, length: 30 });
+    expect((await submit('ann', id, 3)).body.code).toBe('media_not_uploaded');
     bunny.arrived(videoId);
     const sent = await submit('ann', id, 3);
     expect(sent.status).toBe(200);
