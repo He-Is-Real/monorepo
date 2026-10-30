@@ -259,14 +259,22 @@ DEFINE FIELD OVERWRITE tagRefs       ON story TYPE array<record<tag>> DEFAULT []
 DEFINE FIELD OVERWRITE status        ON story TYPE string DEFAULT 'draft'
   ASSERT $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn']
   PERMISSIONS FOR update WHERE $auth != service:workflow;
--- D53: the optional image of a written story. Content: only the person writes it (D41), like the
--- text. path = its file in the images storage zone; width/height = the real pixel size; alt =
--- the person's short description (NONE: readers show a neutral default).
+-- D53: the optional image of a written story, an audio story's own picture (M2 plan PR 10; it
+-- becomes the clip's thumbnail through processing, M7), or a video's own thumbnail (Joel,
+-- 2026-10-30): readers show it in place of Bunny's generated thumbnail. One image system: it is
+-- never set at Bunny. Processing and the media-ready step (PR 13) can never overwrite it: this
+-- VALUE keeps workflow to `processing` alone, and media writes never touch `image`. path = its file in the images storage
+-- zone; width/height = the real pixel size; alt = the person's short description (NONE: readers
+-- show a neutral default).
+-- D65/D80 (M2 plan PR 10): the file is server-assigned like a video. Only an upload grant puts
+-- one on a story (uploadGrant_attach, on api-user's login: path, size and alt together); the
+-- person's session may then change only `alt`, or remove the image (NONE), never add one or
+-- change its path or size. story_media_granted refuses a new path without a grant for the story.
 -- A2: image.processing is workflow's (the server-side check before approval), so workflow may
--- write `image`, but its VALUE keeps only workflow's `processing` and the person's other fields.
--- The person's writes never set `processing`: it stays as it was while the image is unchanged,
--- and goes back to NONE (not processed) when anything in it changes. System users ($auth NONE,
--- the migrator) write it as given.
+-- write `image`, but its VALUE keeps only workflow's `processing` and the stored other fields.
+-- Every other writer's `processing` is ignored: it stays as it was while the file (path, size)
+-- is unchanged, and goes back to NONE (not processed) when a new file comes. System users ($auth
+-- NONE, the migrator, dev-seed) write it as given.
 DEFINE FIELD OVERWRITE image         ON story TYPE option<object>
   VALUE IF $auth = NONE { $value }
     ELSE IF $auth = service:workflow {
@@ -274,13 +282,15 @@ DEFINE FIELD OVERWRITE image         ON story TYPE option<object>
       ELSE { object::extend(object::remove($before, 'processing'), { processing: $value.processing }) }
     }
     ELSE IF $value = NONE { NONE }
-    ELSE {
+    ELSE IF $auth = service:api_user {
       object::extend(object::remove($value, 'processing'), {
         processing: IF $before != NONE
-          AND object::remove($before, 'processing') = object::remove($value, 'processing')
+          AND [$before.path, $before.width, $before.height] = [$value.path, $value.width, $value.height]
           { $before.processing } ELSE { NONE }
       })
     }
+    ELSE IF $before = NONE { NONE }
+    ELSE { object::extend($before, { alt: $value.alt }) }
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
 DEFINE FIELD OVERWRITE image.path    ON story TYPE string
   ASSERT string::len($value) > 0 AND string::len($value) <= 500
@@ -391,7 +401,9 @@ DEFINE FUNCTION OVERWRITE fn::text::trimmed_length($text: option<string>) {
 -- D53: what's wrong with a story's type and shape, or NONE. Three types, each with one main part
 -- and one optional part:
 --   written: text (body, not blank), no video or audio; optional image
---   video / audio: one media item of that format, optional text; no image
+--   video / audio: one media item of that format, optional text; an optional image (M2 plan
+--   PR 10): an audio story's picture, or a video's own thumbnail (Joel, 2026-10-30), shown in
+--   place of Bunny's generated thumbnail
 -- A draft is created before its upload (CreateDraftStory), so video and audio need their media
 -- item from submit on (pending, in_review, approved), and may lack it while editable or after
 -- (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its upload).
@@ -419,7 +431,6 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
     IF $length = 0 { RETURN 'a written story needs its text' };
     IF array::len($media) > 0 { RETURN 'a written story has no video or audio' };
   } ELSE {
-    IF $s.image != NONE { RETURN 'only a written story can have an image' };
     IF array::len($media) > 1 { RETURN 'a ' + $s.primaryFormat + ' story has exactly one media item' };
     IF $media.any(|$m| $m.format != $s.primaryFormat) {
       RETURN 'a ' + $s.primaryFormat + ' story’s media must be ' + $s.primaryFormat;
@@ -475,7 +486,7 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
   };
   RETURN NONE;
 };
--- D65, D80: a story's video or audio is only ever what was uploaded for it. A Bunny id a write
+-- D65, D80: a story's video, audio or image is only ever what was uploaded for it. A Bunny id a write
 -- adds (one the story didn't have) needs an upload grant naming this story (uploadGrant, made by
 -- api-user's login when it created that video at Bunny), whoever writes: workflow, api-user's
 -- grant, and a person's write if a permission ever let one through. System users (the migrator,
@@ -490,6 +501,13 @@ DEFINE EVENT OVERWRITE story_media_granted ON story
         AND (SELECT VALUE story FROM ONLY type::record('uploadGrant', <string> $m.bunnyVideoId)) != $after.id {
         THROW 'media_not_granted: a story’s video or audio must be one api-user created for it (D80)';
       };
+    };
+    -- Its image likewise (M2 plan PR 10): a new path must be in the story's own folder and
+    -- granted to it.
+    IF $after.image.path != NONE AND $after.image.path != $before.image.path
+      AND (!string::starts_with($after.image.path, 'stories/' + record::id($after.id) + '/')
+        OR (SELECT VALUE story FROM ONLY type::record('uploadGrant', $after.image.path)) != $after.id) {
+      THROW 'media_not_granted: a story’s image must be one api-user picked for it, in its own folder (D80)';
     };
   };
 -- Every write, by anyone (system users too): the stored story always has a valid type and shape.
@@ -1798,6 +1816,11 @@ DEFINE EVENT OVERWRITE submissionLog_fence ON submissionLog
 -- storyVersion: the `If-Match` the command was given: the event refuses another (412).
 -- sizeBytes / durationSeconds: what the browser declared (the TUS link binds neither, D68); the
 -- limits are checked on them here and again at submit, with Bunny's own length once it has one.
+-- Images (M2 plan PR 10): id = uploadGrant:`stories/<story id>/<random>.webp`, the file's path in
+-- the images storage zone, which api-user picks (D80); the presigned PUT it signs binds that path,
+-- the type and the exact size (D68). width/height/alt: the picture's real size (D53, 1:3..3:1) and
+-- its description, put on the story with it. Images count towards the same hourly and weekly
+-- upload limits; their size and pixel bounds are fixed (fn::upload::image_limits).
 DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
   FOR select WHERE person = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
   FOR create WHERE $auth.id = service:api_user,
@@ -1806,12 +1829,16 @@ DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
 DEFINE FIELD OVERWRITE story           ON uploadGrant TYPE record<story> READONLY;
 DEFINE FIELD OVERWRITE person          ON uploadGrant TYPE record<user> READONLY;
 DEFINE FIELD OVERWRITE format          ON uploadGrant TYPE string READONLY
-  ASSERT $value IN ['video', 'audio'];
+  ASSERT $value IN ['video', 'audio', 'image'];
 DEFINE FIELD OVERWRITE contentType     ON uploadGrant TYPE string READONLY
   ASSERT string::len($value) > 0 AND string::len($value) <= 100;
 DEFINE FIELD OVERWRITE sizeBytes       ON uploadGrant TYPE int READONLY ASSERT $value > 0;
 DEFINE FIELD OVERWRITE durationSeconds ON uploadGrant TYPE option<int> READONLY
   ASSERT $value = NONE OR $value > 0;
+DEFINE FIELD OVERWRITE width           ON uploadGrant TYPE option<int> READONLY;   -- images
+DEFINE FIELD OVERWRITE height          ON uploadGrant TYPE option<int> READONLY;
+DEFINE FIELD OVERWRITE alt             ON uploadGrant TYPE option<string> READONLY
+  ASSERT $value = NONE OR string::len($value) <= 500;
 DEFINE FIELD OVERWRITE storyVersion    ON uploadGrant TYPE int READONLY;
 DEFINE FIELD OVERWRITE at              ON uploadGrant TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE INDEX OVERWRITE uploadGrant_person ON uploadGrant FIELDS person, at;
@@ -1831,6 +1858,11 @@ DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>
   RETURN IF $byHour = NONE { $byWeek } ELSE IF $byWeek = NONE { $byHour }
     ELSE IF $byHour > $byWeek { $byHour } ELSE { $byWeek };
 };
+-- An image's fixed bounds (M2 plan PR 10): the browser re-encodes it to WebP at most 2048 px on its
+-- longer side, so these only stop what no browser of ours sends. Mirrored in api-user (uploads.ts).
+DEFINE FUNCTION OVERWRITE fn::upload::image_limits() {
+  RETURN { maxBytes: 5242880, minSide: 200, maxSide: 4096 };
+};
 DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
   WHEN $event IN ['CREATE', 'DELETE'] THEN {
     IF $event = 'DELETE' { fn::fence::bump($before.person) }
@@ -1842,15 +1874,42 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
       };
       IF $s.version != $after.storyVersion { THROW 'story_cmd:stale_version' };
       IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
-      IF $s.primaryFormat != $after.format {
-        THROW 'upload_refused: a ' + $s.primaryFormat + ' story takes no ' + $after.format;
-      };
       LET $l = fn::limits::effective($after.person);
-      IF $after.sizeBytes > (IF $after.format = 'video' { $l.videoMaxBytes } ELSE { $l.audioMaxBytes }) {
-        THROW 'limit_upload_size: the file is bigger than the person may upload (D113)';
-      };
-      IF $after.durationSeconds != NONE AND $after.durationSeconds > $l.mediaMaxSeconds {
-        THROW 'limit_upload_duration: the file is longer than the person may upload (D113)';
+      IF $after.format = 'image' {
+        -- A written story's image, an audio story's picture or a video's own thumbnail, in the
+        -- story's own folder, named by api-user (a 32-hex random name), a WebP of a size and
+        -- shape we take (D53).
+        LET $path = record::id($after.id);
+        LET $name = string::replace($path, 'stories/' + record::id($s.id) + '/', '');
+        IF !string::starts_with($path, 'stories/' + record::id($s.id) + '/')
+          OR string::len($name) != 37 OR !string::ends_with($name, '.webp')
+          OR !string::is_hexadecimal(string::slice($name, 0, 32)) {
+          THROW 'upload_refused: an image goes in its story’s own folder, under a name api-user picks';
+        };
+        IF $after.contentType != 'image/webp' { THROW 'upload_refused: an image is a WebP' };
+        LET $il = fn::upload::image_limits();
+        IF $after.sizeBytes > $il.maxBytes {
+          THROW 'limit_upload_size: the image is bigger than we take (M2 plan PR 10)';
+        };
+        IF $after.width = NONE OR $after.height = NONE
+          OR $after.width < $il.minSide OR $after.height < $il.minSide
+          OR $after.width > $il.maxSide OR $after.height > $il.maxSide
+          OR !fn::shape::allowed($after.width, $after.height) {
+          THROW 'upload_refused: an image’s pixel size or shape is outside what we take (D53)';
+        };
+        IF $s.primaryFormat = 'written' AND fn::text::trimmed_length($after.alt) = 0 {
+          THROW 'upload_refused: a written story’s image needs its description';
+        };
+      } ELSE {
+        IF $s.primaryFormat != $after.format {
+          THROW 'upload_refused: a ' + $s.primaryFormat + ' story takes no ' + $after.format;
+        };
+        IF $after.sizeBytes > (IF $after.format = 'video' { $l.videoMaxBytes } ELSE { $l.audioMaxBytes }) {
+          THROW 'limit_upload_size: the file is bigger than the person may upload (D113)';
+        };
+        IF $after.durationSeconds != NONE AND $after.durationSeconds > $l.mediaMaxSeconds {
+          THROW 'limit_upload_duration: the file is longer than the person may upload (D113)';
+        };
       };
       -- Counted without this row; the fence above makes two overlapping grants conflict.
       LET $week = (SELECT VALUE at FROM uploadGrant
@@ -1861,13 +1920,22 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
       IF $l.uploadsPer7Days != NONE AND array::len($week) >= $l.uploadsPer7Days {
         THROW 'limit_upload_weekly: the person has started as many uploads as they may in 7 days (D113)';
       };
-      -- The draft's one video or audio file is now this one (D80). The story's media VALUE
-      -- starts its processing again (A2); its version steps once, to storyVersion + 1.
-      UPDATE $after.story SET media = [{ format: $after.format, bunnyVideoId: record::id($after.id) }]
-        RETURN NONE;
-      -- Older grants that are no longer any story's media.
+      -- The draft's one video or audio file, or its image, is now this one (D80). The story's
+      -- media or image VALUE starts its processing again (A2); its version steps once, to
+      -- storyVersion + 1. A replaced image's file stays where it is: an approved story's public
+      -- copy may still show it, so the clean-up sweep removes it later (media-runbook).
+      IF $after.format = 'image' {
+        UPDATE $after.story SET image = { path: record::id($after.id), width: $after.width,
+          height: $after.height, alt: IF fn::text::trimmed_length($after.alt) = 0 { NONE }
+            ELSE { string::trim($after.alt) } } RETURN NONE;
+      } ELSE {
+        UPDATE $after.story SET media = [{ format: $after.format, bunnyVideoId: record::id($after.id) }]
+          RETURN NONE;
+      };
+      -- Older grants that are no longer any story's media or image.
       DELETE uploadGrant WHERE person = $after.person AND at <= time::now() - 7d
-        AND record::id(id) NOT IN (story.media ?? []).map(|$m| $m.bunnyVideoId);
+        AND record::id(id) NOT IN (story.media ?? []).map(|$m| $m.bunnyVideoId)
+        AND record::id(id) != story.image.path;
     };
   };
 

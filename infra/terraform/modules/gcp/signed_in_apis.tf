@@ -124,7 +124,8 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
         value = join(",", var.web_origins)
       }
       # Hearts (M2): api-user signs the media links on favourites' cards like api-public-read
-      # (D52). Uploads (M2 plan PR 7): it creates and signs Stream uploads with the library key.
+      # (D52). Uploads (M2 plan PR 7): it creates and signs Stream uploads with the library key;
+      # images (PR 10): it signs S3 presigned PUTs with the images zone's password.
       # Secret names, never values; the bunny root grants the access.
       dynamic "env" {
         for_each = each.key != "api-user" ? {} : merge(
@@ -133,6 +134,12 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
             BUNNY_STREAM_LIBRARY_ID     = var.api_public_read_media.stream_library_id
             BUNNY_STREAM_API_KEY_SECRET = "bunny-stream-api-key"
           } : {},
+          var.api_user_image_uploads == null ? {} : {
+            BUNNY_STORAGE_ZONE            = var.api_user_image_uploads.storage_zone
+            BUNNY_STORAGE_S3_HOST         = var.api_user_image_uploads.s3_host
+            BUNNY_STORAGE_S3_REGION       = var.api_user_image_uploads.s3_region
+            BUNNY_STORAGE_PASSWORD_SECRET = var.api_user_image_uploads.password_secret
+          },
         )
         content {
           name  = env.key

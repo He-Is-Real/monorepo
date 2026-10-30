@@ -459,8 +459,11 @@ components:
     StoryImage:
       type: object
       description: |
-        The optional image of a written story (D53): the person's own content, mirrored into the read
-        model. Never beyond 1:3 or 3:1; cards clamp it between 9:16 and 2:1 (cropped around the centre).
+        The optional image of a written story (D53), or an audio story's own picture (M2 plan PR 10; it
+        becomes the clip's thumbnail through processing, so clients show the thumbnail for audio): the
+        person's own content, mirrored into the read model. Its file is server-assigned (D80), a WebP
+        re-encoded in the browser without metadata. Never beyond 1:3 or 3:1; cards clamp it between 9:16
+        and 2:1 (cropped around the centre).
       required: [url, width, height, alt]
       properties:
         url:
@@ -661,7 +664,9 @@ components:
           items:
             $ref: '#/components/schemas/MediaPlayback'
         image:
-          description: A written story's image (D53); `null` otherwise or when there is none.
+          description: |
+            A written story's image or an audio story's picture (D53; M2 plan PR 10), signed for its
+            owner (D52; `url` is `null` when signing is off); `null` when there is none.
           oneOf:
             - $ref: '#/components/schemas/StoryImage'
             - type: 'null'
@@ -792,6 +797,21 @@ components:
             type: string
           maxItems: 20
           uniqueItems: true
+        image:
+          description: |
+            M2 plan PR 10: `null` removes the story's image (its file stays for the clean-up sweep: an
+            approved copy may still show it); `{ alt }` changes its description (`400` `/image` if the
+            story has none; a written story's can't be blank, `/image/alt`). Only `/upload-url` puts an
+            image on a story (D80).
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [alt]
+              additionalProperties: false
+              properties:
+                alt:
+                  type: [string, 'null']
+                  maxLength: 500
 
     SubmissionLimits:
       type: object
@@ -888,22 +908,43 @@ components:
         first; api-user checks again before it creates anything at Bunny, and the database when it
         records the upload (D113). The TUS link binds neither size nor type (D68), so these are the
         person's word: submit checks again, with Bunny's own length.
+
+        **Images (M2 plan PR 10; D53):** `format: image`, `contentType: image/webp`, the WebP's exact
+        `fileSizeBytes` (at most 5 MiB; the PUT binds it), its real `width` and `height` (200 to 4096
+        pixels each, within 1:3..3:1) and `alt`, its description (required on a written story, `400`
+        `/alt`; optional for an audio story's picture). The browser re-encodes the picture to WebP
+        without metadata (no EXIF or GPS), at most 2048 pixels on its longer side. No `resume` or
+        `durationSeconds`.
       required: [format, contentType, fileSizeBytes]
       additionalProperties: false
       properties:
         format:
           type: string
-          enum: [video, audio]
-          description: The story's own `primaryFormat`.
+          enum: [video, audio, image]
+          description: |
+            The story's own `primaryFormat`, or `image` for a written story's image or an audio story's
+            picture.
         contentType:
           type: string
           description: |
             Video: `video/mp4`, `video/quicktime` or `video/webm`. Audio: `audio/mpeg`, `audio/mp4`,
-            `audio/x-m4a`, `audio/wav`, `audio/x-wav` or `audio/wave` (A4: MP4/MOV/WebM, MP3/M4A/WAV).
+            `audio/x-m4a`, `audio/wav`, `audio/x-wav` or `audio/wave` (A4: MP4/MOV/WebM, MP3/M4A/WAV). Image: `image/webp`.
           example: video/mp4
         fileSizeBytes:
           type: integer
           minimum: 1
+        width:
+          type: integer
+          minimum: 1
+          description: Images only; the picture's real width in pixels.
+        height:
+          type: integer
+          minimum: 1
+          description: Images only; the picture's real height in pixels.
+        alt:
+          type: string
+          maxLength: 500
+          description: Images only; the person's short description of the picture.
         durationSeconds:
           type: integer
           minimum: 1
@@ -920,11 +961,59 @@ components:
     UploadTarget:
       description: |
         The documented exception to "commands return only `{ id, version }`" (D28): a short-lived
-        direct-upload link for the draft's own video (D80: api-user created it and put it on the
-        draft; the browser never names one). Also carries the story's new version, for the next
-        `If-Match` (unchanged for a resume). The browser starts a TUS upload (`POST uploadUrl` with
-        `headers`, then `PATCH` the bytes to the `Location` it gets back) straight to Bunny Stream
-        (D68, Frankfurt, D89). Video and audio both go there.
+        direct-upload link for the draft's own file, with the story's new version for the next
+        `If-Match` (unchanged for a resume). Two kinds, by `provider`:
+
+        - `bunny_tus` (video and audio, M2 plan PR 7): a link for the draft's own video (D80: api-user
+          created it and put it on the draft; the browser never names one). The browser starts a TUS
+          upload (`POST uploadUrl` with `headers`, then `PATCH` the bytes to the `Location` it gets
+          back) straight to Bunny Stream (D68, Frankfurt, D89).
+        - `bunny_s3` (images, M2 plan PR 10): an S3 presigned `PUT` to the images storage zone (D68,
+          London) for the path api-user picked, `stories/<story id>/<random>.webp`, already on the
+          draft. The browser sends the WebP's bytes with `headers` exactly; the link binds the path,
+          the type, the exact size and its expiry (a few minutes), and works once (a second `PUT`
+          answers 412).
+      oneOf:
+        - $ref: '#/components/schemas/UploadTargetTus'
+        - $ref: '#/components/schemas/UploadTargetImage'
+
+    UploadTargetImage:
+      description: An image's presigned `PUT` (M2 plan PR 10).
+      allOf:
+        - $ref: '#/components/schemas/CommandResult'
+        - type: object
+          required: [provider, uploadUrl, method, headers, expiresAt]
+          properties:
+            provider:
+              type: string
+              enum: [bunny_s3]
+              description: Bunny Storage's S3 endpoint, presigned (SigV4).
+            uploadUrl:
+              type: string
+              format: uri
+              example: https://uk-s3.storage.bunnycdn.com/heisreal-dev-image-store/stories/01JB/0f1e.webp?X-Amz-Algorithm=AWS4-HMAC-SHA256
+            method:
+              type: string
+              enum: [PUT]
+            headers:
+              type: object
+              description: Headers for the `PUT`, exactly as given (the browser sets `Content-Length`).
+              required: [Content-Type, If-None-Match]
+              additionalProperties: false
+              properties:
+                Content-Type:
+                  type: string
+                  enum: [image/webp]
+                If-None-Match:
+                  type: string
+                  enum: ['*']
+            expiresAt:
+              type: string
+              format: date-time
+              description: When the link stops working (a few minutes); ask again for a new picture after it.
+
+    UploadTargetTus:
+      description: A video or audio file's TUS link (M2 plan PR 7).
       allOf:
         - $ref: '#/components/schemas/CommandResult'
         - type: object

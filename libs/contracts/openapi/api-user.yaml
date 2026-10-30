@@ -725,6 +725,17 @@ paths:
         same key with another body is `422`. If api-user loses the database's answer itself, it
         looks the key up again; `503` `upload_outcome_unknown` when it still can't tell, and the
         same key then settles it. A `resume` writes nothing and stores no key.
+
+        **Images (M2 plan PR 10; D53, D65, D80):** `format: image` on a written story (its image) or
+        an audio story (its picture; a video story is `400`). api-user picks the path,
+        `stories/<story id>/<random>.webp`, and records an upload grant whose event puts it on the
+        draft with its size and description, in the same write (the story's version steps once); then
+        it returns a presigned `PUT` (`provider: bunny_s3`) binding that path, the type and the exact
+        size. The size, pixel bounds, shape and a written story's description are checked by api-user
+        and again by the database (`400`). An image counts towards the same hourly and 7-day upload
+        limits. The previous image's file is not deleted: an approved story's public copy may still
+        show it, so the clean-up sweep removes it later. `503` `uploads_unavailable` when image uploads
+        are off.
       x-required-role: User
       x-requires-consent:
         subject: caller

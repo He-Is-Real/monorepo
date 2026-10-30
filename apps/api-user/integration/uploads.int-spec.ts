@@ -18,6 +18,10 @@ import { tusSignature } from '@heisreal/story-cards';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import {
+  BUNNY_STORAGE,
+  BunnyImageStore,
+} from '../src/app/stories/bunny-storage';
+import {
   BUNNY_STREAM,
   type BunnyStream,
   signUpload,
@@ -206,6 +210,15 @@ describe('video and audio uploads', () => {
       .useValue('test-project')
       .overrideProvider(BUNNY_STREAM)
       .useValue(bunny)
+      .overrideProvider(BUNNY_STORAGE)
+      .useValue(
+        new BunnyImageStore({
+          name: 'test-zone',
+          password: 'zone-password',
+          host: 'uk-s3.storage.bunnycdn.com',
+          region: 'uk',
+        }),
+      )
       .compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
@@ -487,6 +500,58 @@ describe('video and audio uploads', () => {
     const again = await upload('gus', id, 1, FILE, k);
     expect([again.status, again.body.version]).toEqual([200, 2]);
     expect(await grants('gus')).toEqual([again.body.headers.VideoId]);
+  });
+
+  it('a picture: api-user names its path in the story’s folder, puts it on the draft and presigns a PUT binding it; a retry replays the same path', async () => {
+    await person('pia');
+    const created = await call('POST', '/v1/stories', 'pia', {
+      body: { title: 'Words', primaryFormat: 'written', body: 'x'.repeat(250) },
+      headers: { 'idempotency-key': key() },
+    });
+    const id = created.body.id as string;
+    const PICTURE = {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes: 40_000,
+      width: 900,
+      height: 1200,
+      alt: 'A hill at dawn',
+    };
+    // A written story's picture needs its description; checked before anything is written.
+    const bare = await upload('pia', id, 1, { ...PICTURE, alt: undefined });
+    expect(bare.body.errors).toEqual([
+      { pointer: '/alt', message: 'a short description of the picture' },
+    ]);
+    const k = key();
+    const res = await upload('pia', id, 1, PICTURE, k);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      id,
+      version: 2,
+      provider: 'bunny_s3',
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/webp', 'If-None-Match': '*' },
+    });
+    const link = new URL(res.body.uploadUrl);
+    expect(link.pathname).toMatch(
+      new RegExp(`^/test-zone/stories/${id}/[0-9a-f]{32}\\.webp$`),
+    );
+    expect(link.searchParams.get('X-Amz-SignedHeaders')).toBe(
+      'content-length;content-type;host;if-none-match',
+    );
+    const mine = await call('GET', `/v1/account/stories/${id}`, 'pia');
+    expect(mine.body.image).toEqual({
+      url: null,
+      width: 900,
+      height: 1200,
+      alt: 'A hill at dawn',
+    });
+    // A lost answer's retry: the same path, nothing new counted.
+    const again = await upload('pia', id, 1, PICTURE, k);
+    expect(new URL(again.body.uploadUrl).pathname).toBe(link.pathname);
+    expect(await grants('pia')).toEqual([
+      link.pathname.slice('/test-zone/'.length),
+    ]);
   });
 
   it('a written story takes no upload', async () => {

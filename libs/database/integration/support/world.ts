@@ -65,6 +65,48 @@ export function grantUpload(
   );
 }
 
+/**
+ * RequestUpload's database half for an image (M2 plan PR 10): the grant api-user records for the
+ * file it named, `stories/<story>/<32 hex>.webp` unless `path` says otherwise. The defaults suit a
+ * small portrait WebP with its description.
+ */
+export function grantImage(
+  apiUser: SurrealQueryable,
+  g: {
+    story: string;
+    person: string;
+    version: number;
+    path?: string;
+    name?: string;
+    contentType?: string;
+    sizeBytes?: number;
+    width?: number;
+    height?: number;
+    alt?: string | null;
+  },
+) {
+  const path = g.path ?? `stories/${g.story}/${g.name ?? 'a'.repeat(32)}.webp`;
+  return outcome(
+    apiUser,
+    `CREATE type::record('uploadGrant', $path) CONTENT {
+       story: type::record('story', $story), person: type::record('user', $person),
+       format: 'image', contentType: $contentType, sizeBytes: $sizeBytes,
+       width: $width, height: $height, alt: $alt, storyVersion: $version
+     } RETURN NONE`,
+    {
+      story: g.story,
+      person: g.person,
+      version: g.version,
+      path,
+      contentType: g.contentType ?? 'image/webp',
+      sizeBytes: g.sizeBytes ?? 40_000,
+      width: g.width ?? 900,
+      height: g.height ?? 1200,
+      alt: g.alt === null ? undefined : (g.alt ?? 'A sunrise over the hills'),
+    },
+  );
+}
+
 /** The owner submits: draft/changes_requested → pending. */
 export function submit(person: SurrealQueryable, id: string): Promise<Row[]> {
   return rows(

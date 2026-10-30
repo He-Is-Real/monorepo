@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -21,6 +22,7 @@ import {
   WriteNotAppliedError,
 } from '@heisreal/database';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
+import type { ImageStore, SignedImageUpload } from './bunny-storage';
 import type { BunnyStream, SignedUpload } from './bunny-stream';
 import { StaleVersionException } from './story-store';
 
@@ -37,27 +39,59 @@ import { StaleVersionException } from './story-store';
  * - The TUS link bounds neither size nor type (D68), so the person's limits (D113, admin
  *   settings) are checked before anything is created at Bunny, by the database again when the
  *   grant is written, and at submit with the limits in force then and Bunny's own length.
+ *
+ * Images (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's picture or a
+ * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's, never set at Bunny). The
+ * browser re-encodes it to WebP without metadata and sends its size, pixel size and description;
+ * api-user picks its path, `stories/<story id>/<random>.webp`, records the grant (whose event puts
+ * it on the draft) and signs an S3 presigned PUT binding that path, the type and the exact size
+ * (D68). Nothing is made at Bunny before the grant, so a refusal leaves nothing behind. A replaced
+ * image's file is never deleted here: an approved story's public copy may still show it, so it's
+ * an orphan for the clean-up sweep (media-runbook).
  */
 
 export interface UploadRequest {
-  format: 'video' | 'audio';
+  format: 'video' | 'audio' | 'image';
   contentType: string;
   fileSizeBytes: number;
   durationSeconds?: number;
   resume: boolean;
+  /** Images: the real pixel size (D53) and the description (required on a written story). */
+  width?: number;
+  height?: number;
+  alt?: string;
 }
 
-/** The contract's `UploadTarget`. */
-export interface UploadTarget extends SignedUpload {
-  id: string;
-  version: number;
-  provider: 'bunny_tus';
-  method: 'POST';
-}
+/** The contract's `UploadTarget`: a TUS link for a video or audio file, or an image's PUT. */
+export type UploadTarget =
+  | (SignedUpload & {
+      id: string;
+      version: number;
+      provider: 'bunny_tus';
+      method: 'POST';
+    })
+  | (SignedImageUpload & {
+      id: string;
+      version: number;
+      provider: 'bunny_s3';
+      method: 'PUT';
+    });
 
-/** A4: video MP4/MOV/WebM, audio MP3/M4A/WAV (browsers name some of them two ways). */
+/**
+ * An image's fixed bounds, as the database's fn::upload::image_limits: the browser sends at most
+ * 2048 px on the longer side, so these only stop what no browser of ours sends.
+ */
+export const IMAGE_LIMITS = {
+  maxBytes: 5_242_880,
+  minSide: 200,
+  maxSide: 4096,
+  altMax: 500,
+};
+
+/** A4: video MP4/MOV/WebM, audio MP3/M4A/WAV (browsers name some of them two ways); images WebP. */
 export const CONTENT_TYPES: Record<UploadRequest['format'], readonly string[]> =
   {
+    image: ['image/webp'],
     video: ['video/mp4', 'video/quicktime', 'video/webm'],
     audio: [
       'audio/mpeg',
@@ -96,19 +130,16 @@ export function parseUploadRequest(body: unknown): UploadRequest {
   }
   const b = body as Record<string, unknown>;
   const errors: FieldError[] = [];
-  const known = [
-    'format',
-    'contentType',
-    'fileSizeBytes',
-    'durationSeconds',
-    'resume',
-  ];
+  const image = b['format'] === 'image';
+  const known = image
+    ? ['format', 'contentType', 'fileSizeBytes', 'width', 'height', 'alt']
+    : ['format', 'contentType', 'fileSizeBytes', 'durationSeconds', 'resume'];
   for (const k of Object.keys(b)) {
     if (!known.includes(k))
       errors.push({ pointer: `/${k}`, message: 'unknown field' });
   }
-  if (b['format'] !== 'video' && b['format'] !== 'audio') {
-    errors.push({ pointer: '/format', message: 'video or audio' });
+  if (!['video', 'audio', 'image'].includes(b['format'] as string)) {
+    errors.push({ pointer: '/format', message: 'video, audio or image' });
   }
   const format = b['format'] as UploadRequest['format'];
   if (
@@ -118,10 +149,32 @@ export function parseUploadRequest(body: unknown): UploadRequest {
     errors.push({
       pointer: '/contentType',
       message:
-        format === 'audio'
-          ? 'an MP3, M4A or WAV file'
-          : 'an MP4, MOV or WebM file',
+        format === 'image'
+          ? 'a WebP image'
+          : format === 'audio'
+            ? 'an MP3, M4A or WAV file'
+            : 'an MP4, MOV or WebM file',
     });
+  }
+  if (image) {
+    for (const side of ['width', 'height']) {
+      if (!posInt(b[side])) {
+        errors.push({
+          pointer: `/${side}`,
+          message: 'whole pixels, at least 1',
+        });
+      }
+    }
+    const alt = b['alt'];
+    if (
+      alt !== undefined &&
+      (typeof alt !== 'string' || [...alt].length > IMAGE_LIMITS.altMax)
+    ) {
+      errors.push({
+        pointer: '/alt',
+        message: `at most ${IMAGE_LIMITS.altMax} characters`,
+      });
+    }
   }
   if (!posInt(b['fileSizeBytes'])) {
     errors.push({
@@ -145,6 +198,13 @@ export function parseUploadRequest(body: unknown): UploadRequest {
     fileSizeBytes: b['fileSizeBytes'] as number,
     durationSeconds: b['durationSeconds'] as number | undefined,
     resume: b['resume'] === true,
+    ...(image
+      ? {
+          width: b['width'] as number,
+          height: b['height'] as number,
+          alt: (b['alt'] as string | undefined)?.trim() || undefined,
+        }
+      : {}),
   };
 }
 
@@ -160,6 +220,7 @@ interface DraftMedia {
   status: string;
   primaryFormat: string;
   videoId?: string;
+  imagePath?: string;
 }
 
 const EDITABLE = ['draft', 'changes_requested'];
@@ -171,6 +232,7 @@ export class Uploads {
     /** api-user's own login: only it creates upload grants (D80). */
     private readonly service: SurrealQueryable,
     private readonly bunny: BunnyStream | null,
+    private readonly images: ImageStore | null = null,
   ) {}
 
   private stream(): BunnyStream {
@@ -196,6 +258,9 @@ export class Uploads {
     input: UploadRequest,
     idempotency: { key: string; requestHash: string },
   ): Promise<UploadTarget> {
+    if (input.format === 'image') {
+      return this.requestImage(person, user, id, ifMatch, input, idempotency);
+    }
     const bunny = this.stream();
     if (input.resume) {
       const draft = await this.checkDraft(person, id, ifMatch, input);
@@ -287,6 +352,95 @@ export class Uploads {
   }
 
   /**
+   * RequestUpload for an image (M2 plan PR 10), once per Idempotency-Key like a video's: its
+   * grant counts against the same upload limits, so a retry after a lost answer replays the same
+   * path. The path is picked here, never by the browser (D80), and the grant's event puts it on
+   * the draft with its size and description. A replay signs the same path again only while it's
+   * still the story's image and the story editable; the PUT is one use (`If-None-Match: *`), so
+   * a file already there can't be replaced.
+   */
+  private async requestImage(
+    person: SurrealQueryable,
+    user: RecordId,
+    id: string,
+    ifMatch: number,
+    input: UploadRequest,
+    idempotency: { key: string; requestHash: string },
+  ): Promise<UploadTarget> {
+    const images = this.imageStore();
+    const scope: IdempotencyScope = {
+      service: 'api-user',
+      owner: user,
+      key: idempotency.key,
+    };
+    const path = `stories/${id}/${randomBytes(16).toString('hex')}.webp`;
+    const prepare = async (): Promise<PreparedCommand> => {
+      await this.checkDraft(person, id, ifMatch, input);
+      const availableAt = await this.nextAllowedAt(person);
+      if (availableAt) throw limitReached(availableAt);
+      return {
+        status: 200,
+        statements: `LET $grant = (CREATE ONLY type::record('uploadGrant', $path) CONTENT {
+            story: type::record('story', $id), person: $person, format: 'image',
+            contentType: $contentType, sizeBytes: $size, width: $width, height: $height,
+            alt: $alt, storyVersion: $version
+          } RETURN id, storyVersion);
+          IF $grant = NONE { THROW 'upload_refused: upload grant not written' };
+          LET $result = { id: $grant.id, version: $grant.storyVersion + 1 };`,
+        vars: {
+          path,
+          id,
+          person: user,
+          contentType: input.contentType,
+          size: input.fileSizeBytes,
+          width: input.width,
+          height: input.height,
+          alt: input.alt,
+          version: ifMatch,
+        },
+      };
+    };
+    let outcome: { response: IdempotentResponse; replayed: boolean };
+    try {
+      outcome = await runIdempotent(
+        this.service,
+        scope,
+        idempotency.requestHash,
+        prepare,
+      );
+    } catch (err) {
+      // Nothing was made at Bunny, so there's nothing to discard either way.
+      if (definite(err)) throw await this.refusal(err, person);
+      outcome = await this.reconcile(
+        scope,
+        idempotency.requestHash,
+        undefined,
+        err,
+      );
+    }
+    const granted = recordKey(outcome.response.id);
+    const version = outcome.response.version ?? ifMatch + 1;
+    if (outcome.replayed && granted !== path) {
+      const draft = await this.draft(person, id);
+      if (!EDITABLE.includes(draft.status)) throw locked();
+      if (draft.imagePath !== granted) {
+        throw new ConflictException({
+          code: 'nothing_to_resume',
+          message:
+            'That picture is no longer on your story. Choose it again to add it.',
+        });
+      }
+    }
+    return {
+      id,
+      version,
+      provider: 'bunny_s3',
+      method: 'PUT',
+      ...images.sign(granted, input.fileSizeBytes),
+    };
+  }
+
+  /**
    * After a write with no answer: the key's stored response if it committed (its grant and the
    * video on the draft went with it), else `503`, keeping the video. Trying again with the same
    * key then replays it, or makes the upload, without counting a second one.
@@ -338,6 +492,17 @@ export class Uploads {
     }
   }
 
+  private imageStore(): ImageStore {
+    if (!this.images) {
+      throw new ServiceUnavailableException({
+        code: 'uploads_unavailable',
+        message:
+          'Adding a picture isn’t available right now. Your story is saved.',
+      });
+    }
+    return this.images;
+  }
+
   private async discard(videoId: string, what: string) {
     await this.stream()
       .deleteVideo(videoId)
@@ -358,6 +523,10 @@ export class Uploads {
     const draft = await this.draft(person, id);
     if (draft.version !== ifMatch) throw new StaleVersionException();
     if (!EDITABLE.includes(draft.status)) throw locked();
+    if (input.format === 'image') {
+      checkImage(input, draft.primaryFormat);
+      return draft;
+    }
     if (draft.primaryFormat !== input.format) {
       invalid([
         {
@@ -438,8 +607,8 @@ export class Uploads {
   ): Promise<DraftMedia> {
     const [rows] = (await runQuery(
       person,
-      `SELECT version, status, primaryFormat, media[0].bunnyVideoId AS videoId
-         FROM type::record('story', $id)`,
+      `SELECT version, status, primaryFormat, media[0].bunnyVideoId AS videoId,
+         image.path AS imagePath FROM type::record('story', $id)`,
       { id },
     )) as [DraftMedia[]];
     if (!rows.length) throw new NotFoundException();
@@ -528,6 +697,14 @@ export class Uploads {
     if (/story_cmd:stale_version/.test(message))
       return new StaleVersionException();
     if (/story_cmd:locked/.test(message)) return locked();
+    // The database's own checks of an image (its folder, type, size, shape, description).
+    if (/upload_refused: (an image|a written story’s image)/.test(message)) {
+      return new BadRequestException({
+        code: 'validation_failed',
+        message: 'The upload isn’t valid',
+        errors: [{ pointer: '', message: 'an image we can take' }],
+      });
+    }
     if (/needs the submitter’s current Art 9/.test(message)) {
       return new ForbiddenException({
         code: 'consent_required',
@@ -536,6 +713,46 @@ export class Uploads {
     }
     return err;
   }
+}
+
+/**
+ * An image's checks before anything is written (D53; the database checks them again): a written
+ * story's image, an audio story's picture or a video's own thumbnail (Joel, 2026-10-30), within the fixed size and pixel bounds, 1:3..3:1,
+ * and a written story's needs its description.
+ */
+function checkImage(input: UploadRequest, primaryFormat: string) {
+  const errors: FieldError[] = [];
+  const { width = 0, height = 0 } = input;
+  if (input.fileSizeBytes > IMAGE_LIMITS.maxBytes) {
+    errors.push({
+      pointer: '/fileSizeBytes',
+      message: `at most ${IMAGE_LIMITS.maxBytes} bytes`,
+    });
+  }
+  for (const [side, px] of [
+    ['width', width],
+    ['height', height],
+  ] as const) {
+    if (px < IMAGE_LIMITS.minSide || px > IMAGE_LIMITS.maxSide) {
+      errors.push({
+        pointer: `/${side}`,
+        message: `${IMAGE_LIMITS.minSide} to ${IMAGE_LIMITS.maxSide} pixels`,
+      });
+    }
+  }
+  if (height > width * 3 || width > height * 3) {
+    errors.push({
+      pointer: '/width',
+      message: 'no wider than 3:1 and no taller than 1:3',
+    });
+  }
+  if (primaryFormat === 'written' && !input.alt) {
+    errors.push({
+      pointer: '/alt',
+      message: 'a short description of the picture',
+    });
+  }
+  if (errors.length) invalid(errors, 'The picture can’t be used');
 }
 
 /** Thrown by the reconciling lookup's command: it never writes. */

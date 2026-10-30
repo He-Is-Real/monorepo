@@ -51,9 +51,19 @@ export interface MyStory {
   primaryFormat: StoryFormat;
   /** A video or audio story's file, once one was uploaded to it (M2 plan PR 7). */
   media: { format: string; processing: string | null }[];
+  /** A written story's image or an audio story's picture (M2 plan PR 10), signed for its owner. */
+  image: StoryPicture | null;
   tags: Tag[];
   submittedAt: string | null;
   updatedAt: string;
+}
+
+/** The contract's `StoryImage`, as api-user gives it for the person's own draft. */
+export interface StoryPicture {
+  url: string | null;
+  width: number;
+  height: number;
+  alt: string | null;
 }
 
 /** The contract's `ConsentState`, the parts the flow uses. */
@@ -86,27 +96,32 @@ export interface SubmissionLimits {
 }
 
 /**
- * The contract's `UploadTarget`: a TUS upload link for the draft's own video (D80). Its
- * `headers` (Bunny's signature for that one video, not a person's token) are `signed` here, so
- * web's D32 rule against touching `.headers` keeps meaning request headers.
+ * The contract's `UploadTarget`: a TUS upload link for the draft's own video (D80), or an image's
+ * presigned PUT (M2 plan PR 10). Its `headers` (Bunny's signature for that one file, not a
+ * person's token) are `signed` here, so web's D32 rule against touching `.headers` keeps meaning
+ * request headers.
  */
 export interface UploadTarget {
   id: string;
   version: number;
-  provider: 'bunny_tus';
+  provider: 'bunny_tus' | 'bunny_s3';
   uploadUrl: string;
-  method: 'POST';
+  method: 'POST' | 'PUT';
   signed: Record<string, string>;
   expiresAt: string;
 }
 
 /** The contract's `UploadUrlRequest`. */
 export interface UploadRequest {
-  format: 'video' | 'audio';
+  format: 'video' | 'audio' | 'image';
   contentType: string;
   fileSizeBytes: number;
   durationSeconds?: number;
   resume?: boolean;
+  /** Images: the WebP's real pixel size, and its description. */
+  width?: number;
+  height?: number;
+  alt?: string;
 }
 
 export interface CommandResult {
@@ -187,12 +202,16 @@ export function commandResult(
 }
 
 /** The TUS creation headers api-user.yaml requires; without any of them Bunny refuses it. */
-const BUNNY_HEADERS = [
-  'AuthorizationSignature',
-  'AuthorizationExpire',
-  'VideoId',
-  'LibraryId',
-];
+const BUNNY_HEADERS: Record<UploadTarget['provider'], string[]> = {
+  bunny_tus: [
+    'AuthorizationSignature',
+    'AuthorizationExpire',
+    'VideoId',
+    'LibraryId',
+  ],
+  bunny_s3: ['Content-Type', 'If-None-Match'],
+};
+const METHODS = { bunny_tus: 'POST', bunny_s3: 'PUT' } as const;
 
 /**
  * RequestUpload's whole `UploadTarget`. A success without a usable link (an empty body, `{}`, a
@@ -217,12 +236,14 @@ function uploadTarget(data: unknown): UploadTarget {
     typeof d.id !== 'string' ||
     !d.id ||
     !Number.isInteger(d.version) ||
-    d.provider !== 'bunny_tus' ||
+    (d.provider !== 'bunny_tus' && d.provider !== 'bunny_s3') ||
     !link(d.uploadUrl) ||
-    d.method !== 'POST' ||
+    d.method !== METHODS[d.provider] ||
     typeof d.expiresAt !== 'string' ||
     Number.isNaN(Date.parse(d.expiresAt)) ||
-    !BUNNY_HEADERS.every((h) => typeof signed[h] === 'string' && !!signed[h]) ||
+    !BUNNY_HEADERS[d.provider].every(
+      (h) => typeof signed[h] === 'string' && !!signed[h],
+    ) ||
     !Object.values(signed).every((v) => typeof v === 'string')
   ) {
     throw new ApiUserUnavailable('api-user answered without the upload link');
@@ -304,7 +325,8 @@ export function shareApi(api: ApiUser) {
         ),
       ),
     /**
-     * RequestUpload (M2 plan PR 7): a TUS link for the draft's video (a new one, or `resume`).
+     * RequestUpload (M2 plan PR 7): a TUS link for the draft's video (a new one, or `resume`), or
+     * (PR 10) a presigned PUT for its picture.
      * A new one counts against the person's upload limits, so a retry after a lost answer sends
      * the same Idempotency-Key, version and body, and gets the same video back (D29).
      */

@@ -74,6 +74,13 @@ signed and what each link enforces: [infra/terraform/README.md](../infra/terrafo
 | Video, audio | Bunny Stream by TUS (`video.bunnycdn.com/tusupload`), one video per item | Frankfurt, Germany: the library's storage (D89)      |
 | Story image  | The images storage zone by S3 PUT (`uk-s3.storage.bunnycdn.com`)         | London: `heisreal-dev-image-store` in dev, no copies |
 
+"Story image" is any story's own picture (M2 plan PR 10): a written story's image, an audio
+story's picture, or a video's own thumbnail (Joel, 2026-10-30). It's always `story.image`, at
+`stories/<story id>/<32 hex>.webp`, never set at Bunny Stream; cards and the story page show it in
+place of Bunny's generated thumbnail (`clipPicture`, `libs/story-cards`). Processing and the
+media-ready step can't change it: `story.image`'s VALUE keeps workflow to `processing` alone
+(`libs/database/schema/schema.surql`).
+
 No personal data goes into Bunny names: a video's title is the story id (D69) and an image's path
 is under the story's folder (D80). Deleting an image leaves its folder behind, so deletions remove
 the folder too. To check uploads still work against dev: `pnpm nx run dev-seed:upload-spike` (a
@@ -108,6 +115,27 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
 - **A link still in use after submit:** a TUS link lasts an hour and binds only the video (D68),
   so a file could be uploaded over an unfinished one until it expires. api-user signs no new
   link once the story is submitted, and submit needs Bunny's own length of the file.
+
+## Replaced and orphaned images
+
+Pictures (M2 plan PR 10) work like videos, but api-user **never deletes one**: a story sent back
+for changes still has its approved copy public, and that copy may show the old picture. So each of
+these leaves an orphan file in the images zone until the clean-up sweep (D40):
+
+- **Replaced:** a new picture for the same story (its grant row stays 7 days for the limits).
+- **Removed:** the person removes the picture (`PATCH` `image: null`), or a video's thumbnail
+  (the video goes back to Bunny's own).
+- **Never uploaded:** the grant committed and the picture is on the draft, but the browser's PUT
+  never arrived (closed tab, expired 10-minute link). The story then points at a missing file;
+  processing (M7) marks it `failed`, and approval waits for `ready` (A2). A picture whose PUT
+  arrived after the person replaced it is an orphan too.
+- **Lost answers:** api-user lost the database's answer to the grant; the retry with the same
+  Idempotency-Key replays the same path, so nothing new is made.
+
+Find orphans by listing a story's folder and comparing with `story.image.path` (and the
+`publicStory`'s), then delete the file and, if it's empty, the folder (the Edge Storage API,
+`DELETE https://uk.storage.bunnycdn.com/<zone>/stories/<story id>/`; deleting a folder's last
+object by S3 leaves the folder behind).
 
 ## The Stream player
 

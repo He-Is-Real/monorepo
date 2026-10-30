@@ -125,6 +125,14 @@ module "gcp" {
   # Video and audio uploads (M2 plan PR 7): api-user creates and signs Bunny Stream uploads with
   # the library key. The bunny root's upload_key_readers grant (#123) must be applied first.
   api_user_uploads = true
+  # Image uploads (M2 plan PR 10): api-user signs S3 presigned PUTs to the images zone in London
+  # with its password; the same upload_key_readers grant (#123) covers it.
+  # Values: `tf.sh bunny output bunny` (storage_zone_name, storage_s3_hostname).
+  api_user_image_uploads = {
+    storage_zone = "heisreal-dev-image-store"
+    s3_host      = "uk-s3.storage.bunnycdn.com"
+    s3_region    = "uk"
+  }
   # Site videos (not stories) api-public-read signs, by key: GUIDs from
   # tools/scripts/site-asset-upload.mjs (infra/terraform/README.md, "Site assets").
   site_videos = {

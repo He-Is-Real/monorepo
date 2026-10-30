@@ -35,8 +35,14 @@ import {
 } from '@heisreal/database';
 import { RequiresRole } from '@heisreal/roles';
 import { SecretsService } from '@heisreal/secrets';
+import { MediaUrls } from '@heisreal/story-cards';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import {
+  BUNNY_STORAGE,
+  createImageStore,
+  type ImageStore,
+} from './bunny-storage';
 import {
   BUNNY_STREAM,
   type BunnyStream,
@@ -133,7 +139,7 @@ function reused(err: unknown): unknown {
 }
 
 /**
- * The submit flow's routes (M2 plan PR 4, written stories; PR 7, video and audio): the person's
+ * The submit flow's routes (M2 plan PR 4, written stories; PR 7, video and audio; PR 10, images): the person's
  * own stories and the commands that create, edit, upload to and submit a draft. Everything runs in
  * the person's own database session (D27), but for the upload grant on api-user's own login (D80). Consent is checked by the guard first and by the database (D21, D93); D94's
  * limits by the database (story_limits).
@@ -147,8 +153,11 @@ export class StoriesController {
     private readonly people: PersonSessions,
     @Inject(SURREAL) service: Surreal,
     @Inject(BUNNY_STREAM) bunny: BunnyStream | null,
+    @Inject(BUNNY_STORAGE) images: ImageStore | null,
+    /** The draft's own image, signed for its owner (D52). */
+    private readonly urls: MediaUrls,
   ) {
-    this.uploads = new Uploads(service, bunny);
+    this.uploads = new Uploads(service, bunny, images);
   }
 
   @Get('v1/tags')
@@ -184,7 +193,7 @@ export class StoriesController {
       });
     }
     const page = await this.people.run(req, ({ session }) =>
-      new StoryStore(session).list(
+      new StoryStore(session, this.urls).list(
         status,
         parseLimit(limit),
         decodeCursor(cursor),
@@ -222,7 +231,7 @@ export class StoriesController {
     @Headers('if-none-match') ifNoneMatch?: string,
   ): Promise<StoryMine | undefined> {
     const story = await this.people.run(req, ({ session }) =>
-      new StoryStore(session).get(storyId(id)),
+      new StoryStore(session, this.urls).get(storyId(id)),
     );
     if (!story) throw new NotFoundException();
     const etag = `"${story.version}"`;
@@ -366,6 +375,12 @@ export class StoriesController {
       provide: BUNNY_STREAM,
       inject: [SecretsService],
       useFactory: (secrets: SecretsService) => createBunnyStream(secrets),
+    },
+    {
+      // Images (M2 plan PR 10): null when off (no BUNNY_STORAGE_PASSWORD_SECRET).
+      provide: BUNNY_STORAGE,
+      inject: [SecretsService],
+      useFactory: (secrets: SecretsService) => createImageStore(secrets),
     },
   ],
 })

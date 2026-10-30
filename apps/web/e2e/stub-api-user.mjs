@@ -20,6 +20,13 @@
 //   `PATCH`. A test can make the next PATCHes fail or hold them (`POST /__e2e/sessions/<id>/tus`)
 //   and read what arrived (`GET /__e2e/sessions/<id>/uploads`); submit needs the file to have
 //   arrived, as api-user asks Bunny.
+// - Pictures (M2 plan PR 10): `format: image` on the same route (a written story's image, an
+//   audio story's picture, a video's own thumbnail) puts the picture on the draft at a path the
+//   stub picks, `stories/<id>/<random>.webp`, and answers a presigned PUT to `/__s3/<path>`,
+//   standing in for Bunny's S3 endpoint: it checks the signature, the type, the exact size and
+//   one use (412), keeps the bytes, and serves them back (GET) as the draft's signed image link.
+//   `GET /__e2e/sessions/<id>/uploads` reads them back (base64), so a test can check what left
+//   the browser. `PATCH` takes `image: null` (remove) and `image: { alt }`.
 // - Hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and `GET /v1/account/favourites`
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
@@ -294,6 +301,8 @@ function newSession(id, seed = {}) {
     uploadTimes: [],
     uploadRequests: 0,
     tus: { fail: 0, hold: false },
+    // Pictures by path: { story, size, bytes (a Buffer once PUT) }.
+    images: new Map(),
   };
   for (const story of seed.stories ?? []) {
     const now = new Date().toISOString();
@@ -413,7 +422,14 @@ function storyMine(id, st) {
           },
         ]
       : [],
-    image: null,
+    image: st.image
+      ? {
+          url: st.image.url,
+          width: st.image.width,
+          height: st.image.height,
+          alt: st.image.alt ?? null,
+        }
+      : null,
     tags: st.tagSlugs.map((slug) => TAGS.find((t) => t.slug === slug)),
     rejectionFeedback: null,
     submittedAt: st.submittedAt,
@@ -489,6 +505,11 @@ const UPLOAD_TYPES = {
 const tusSignature = (expires, videoId) =>
   createHash('sha256')
     .update(`stub-library-key${expires}${videoId}`)
+    .digest('hex');
+/** The stub's stand-in for a presigned PUT's signature: the path and the exact size. */
+const s3Signature = (path, size, expires) =>
+  createHash('sha256')
+    .update(`stub-zone-password${path}${size}${expires}`)
     .digest('hex');
 /** TUS uploads by id: { session, videoId, length, received }. */
 const tusUploads = new Map();
@@ -699,10 +720,16 @@ async function handleShare(req, res, path, url, s) {
     const b = await readJson(req);
     const errors = fieldErrors(
       b,
-      ['title', 'description', 'body', 'bylineName', 'tagSlugs'],
+      ['title', 'description', 'body', 'bylineName', 'tagSlugs', 'image'],
       s,
       st,
     );
+    if (b && 'image' in b && b.image !== null) {
+      if (!st.image)
+        errors.push({ pointer: '/image', message: 'no picture to describe' });
+      else if (st.primaryFormat === 'written' && !trimmed(b.image?.alt))
+        errors.push({ pointer: '/image/alt', message: 'a description' });
+    }
     if (b && 'body' in b && !trimmed(b.body))
       errors.push({
         pointer: '/body',
@@ -717,6 +744,12 @@ async function handleShare(req, res, path, url, s) {
     if ('body' in b) st.body = b.body;
     if ('bylineName' in b) st.bylineName = b.bylineName?.trim() || null;
     if ('tagSlugs' in b) st.tagSlugs = b.tagSlugs;
+    // The picture's file stays (api-user never deletes one: the clean-up sweep does).
+    if ('image' in b)
+      st.image =
+        b.image === null
+          ? null
+          : { ...st.image, alt: b.image.alt?.trim() || null };
     st.version += 1;
     st.updatedAt = new Date().toISOString();
     return sendJson(
@@ -845,6 +878,64 @@ async function handleShare(req, res, path, url, s) {
         return p(409, 'Conflict', 'story_locked');
       const limits = uploadLimitsOf(s);
       const errors = [];
+      if (b.format === 'image') {
+        // As api-user (uploads.ts, checkImage): WebP, 5 MiB, 200–4096 px, 1:3..3:1, and a
+        // written story's description.
+        const { width: w, height: h } = b;
+        if (b.contentType !== 'image/webp')
+          errors.push({ pointer: '/contentType', message: 'a WebP image' });
+        if (!(b.fileSizeBytes > 0) || b.fileSizeBytes > 5_242_880)
+          errors.push({ pointer: '/fileSizeBytes', message: 'at most 5 MiB' });
+        if (
+          ![w, h].every((x) => Number.isInteger(x) && x >= 200 && x <= 4096) ||
+          w > h * 3 ||
+          h > w * 3
+        )
+          errors.push({
+            pointer: '/width',
+            message: 'a size and shape we take',
+          });
+        if (st.primaryFormat === 'written' && !trimmed(b.alt))
+          errors.push({ pointer: '/alt', message: 'a description' });
+        if (errors.length)
+          return p(400, 'Bad request', 'validation_failed', { errors });
+        if (limits.nextAvailableAt)
+          return p(409, 'Conflict', 'upload_limit_reached', {
+            detail: 'You’ve started as many uploads as you can for now.',
+            availableAt: limits.nextAvailableAt,
+          });
+        const path = `stories/${uploadUrl[1]}/${randomUUID().replace(/-/g, '')}.webp`;
+        const url = `http://${req.headers.host}/__s3/${path}`;
+        s.images.set(path, {
+          story: uploadUrl[1],
+          size: b.fileSizeBytes,
+          bytes: null,
+        });
+        s.uploadTimes.push(Date.now());
+        st.image = {
+          path,
+          url,
+          width: w,
+          height: h,
+          alt: b.alt?.trim() || null,
+        };
+        st.version += 1;
+        st.updatedAt = new Date().toISOString();
+        const expires = Math.floor(Date.now() / 1000) + 600;
+        return {
+          status: 200,
+          body: {
+            id: uploadUrl[1],
+            version: st.version,
+            provider: 'bunny_s3',
+            uploadUrl: `${url}?X-Amz-Expires=${expires}&X-Amz-Signature=${s3Signature(path, b.fileSizeBytes, expires)}`,
+            method: 'PUT',
+            headers: { 'Content-Type': 'image/webp', 'If-None-Match': '*' },
+            expiresAt: new Date(expires * 1000).toISOString(),
+          },
+          headers: { etag: `"${st.version}"` },
+        };
+      }
       if (b.format !== st.primaryFormat)
         errors.push({
           pointer: '/format',
@@ -919,6 +1010,45 @@ async function handleShare(req, res, path, url, s) {
     });
   }
   return false;
+}
+
+/** The presigned PUT and signed GET standing in for Bunny Storage's (the images zone). */
+async function handleS3(req, res, url) {
+  const path = decodeURIComponent(url.pathname.slice('/__s3/'.length));
+  const session = [...sessions.values()].find((x) => x.images.has(path));
+  const image = session?.images.get(path);
+  if (req.method === 'GET') {
+    if (!image?.bytes) {
+      res.writeHead(404);
+      return res.end();
+    }
+    res.writeHead(200, { 'content-type': 'image/webp' });
+    return res.end(image.bytes);
+  }
+  if (req.method !== 'PUT') return false;
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const body = Buffer.concat(chunks);
+  const expires = Number(url.searchParams.get('X-Amz-Expires'));
+  if (
+    !image ||
+    url.searchParams.get('X-Amz-Signature') !==
+      s3Signature(path, Number(req.headers['content-length']), expires) ||
+    expires * 1000 < Date.now() ||
+    req.headers['content-type'] !== 'image/webp' ||
+    req.headers['if-none-match'] !== '*' ||
+    body.length !== image.size
+  ) {
+    res.writeHead(403);
+    return res.end();
+  }
+  if (image.bytes) {
+    res.writeHead(412);
+    return res.end();
+  }
+  image.bytes = body;
+  res.writeHead(200);
+  return res.end();
 }
 
 /** The TUS server standing in for Bunny Stream's (tus 1.0.0, the parts tus-js-client uses). */
@@ -1063,7 +1193,16 @@ createServer(async (req, res) => {
     return sendJson(res, 200, {
       requests: s.uploadRequests,
       videos: [...s.videos].map(([id, v]) => ({ id, ...v })),
+      images: [...s.images].map(([path, i]) => ({
+        path,
+        story: i.story,
+        size: i.size,
+        bytes: i.bytes ? i.bytes.toString('base64') : null,
+      })),
     });
+  }
+  if (path.startsWith('/__s3/')) {
+    if ((await handleS3(req, res, url)) !== false) return;
   }
   if (path === '/tusupload' || path.startsWith('/tusupload/')) {
     if ((await handleTus(req, res, path)) !== false) return;
