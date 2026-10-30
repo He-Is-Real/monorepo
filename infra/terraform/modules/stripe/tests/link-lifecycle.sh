@@ -4,7 +4,10 @@
 # `plan -refresh=false` never calls Stripe (the key is a dummy). Run by test-modules.sh.
 #   1. nothing changed: the one-off Payment Link stays (its Buy Button keeps working);
 #   2. a new one-off amount (a new price) replaces the link (a link's price can't change in place);
-#   3. a link, price or product deactivated in the Dashboard plans `active = true` again.
+#   3. a link, price or product deactivated in the Dashboard plans `active = true` again;
+#   4. the donor portal as Stripe returns it (no `products`: the provider never reads them,
+#      stripe/terraform-provider-stripe#53/#54) plans no change; marked tainted, as the first dev
+#      apply left it, it would be replaced, hence the untaint in README "Stripe".
 #
 #   infra/terraform/modules/stripe/tests/link-lifecycle.sh
 set -euo pipefail
@@ -34,14 +37,18 @@ tofu -chdir="$work" init -input=false > /dev/null
 
 # The state after an apply of the defaults: the product, both prices and the one-off link,
 # with `active` as given (true, or false = deactivated in the Dashboard).
-state() { # state <link active> <price active> <product active>
+state() { # state <link active> <price active> <product active> [portal status, e.g. tainted]
   python3 - "$@" << 'EOF'
 import json, sys
 link, price, product = (a == "true" for a in sys.argv[1:4])
+portal_status = sys.argv[4] if len(sys.argv) > 4 else None
 meta = {"managed_by": "opentofu", "environment": "dev"}
-def res(t, n, v, a, prov='provider["registry.opentofu.org/stripe/stripe"]'):
+def res(t, n, v, a, prov='provider["registry.opentofu.org/stripe/stripe"]', status=None):
+    instance = {"schema_version": v, "attributes": a, "sensitive_attributes": []}
+    if status:
+        instance["status"] = status
     return {"module": "module.stripe", "mode": "managed", "type": t, "name": n, "provider": prov,
-            "instances": [{"schema_version": v, "attributes": a, "sensitive_attributes": []}]}
+            "instances": [instance]}
 print(json.dumps({"version": 4, "terraform_version": "1.13.2", "serial": 1,
   "lineage": "00000000-0000-0000-0000-000000000000", "outputs": {}, "resources": [
   res("terraform_data", "key_mode", 0, {"id": "x", "input": None, "output": None, "triggers_replace": None},
@@ -61,6 +68,25 @@ print(json.dumps({"version": 4, "terraform_version": "1.13.2", "serial": 1,
                       "adjustable_quantity": None, "price_data": None}],
       "after_completion": {"type": "hosted_confirmation", "redirect": None, "hosted_confirmation": {
           "custom_message": "Thank you for your gift to He Is Real Today. Stripe will email your receipt."}}}),
+  # As the provider stores it after Stripe's answer: subscription_update without `products`.
+  res("stripe_billing_portal_configuration", "donors", 0, {"id": "bpc_1", "active": True,
+      "name": "Donors", "default_return_url": "https://web.example/donate", "metadata": meta,
+      "is_default": True, "livemode": False,
+      "business_profile": {"headline": "He Is Real Today: your monthly gift",
+                           "privacy_policy_url": "https://web.example/privacy",
+                           "terms_of_service_url": None},
+      "login_page": {"enabled": True, "url": "https://billing.stripe.com/p/login/test_1"},
+      "features": {
+          "customer_update": None,
+          "invoice_history": {"enabled": True},
+          "payment_method_update": {"enabled": True, "payment_method_configuration": None},
+          "subscription_cancel": {"enabled": True, "mode": "at_period_end",
+                                  "cancellation_reason": None, "proration_behavior": None},
+          "subscription_update": {"enabled": True, "default_allowed_updates": ["quantity"],
+                                  "proration_behavior": "none", "products": None,
+                                  "billing_cycle_anchor": None, "schedule_at_period_end": None,
+                                  "trial_update_behavior": None}}},
+      status=portal_status),
 ]}))
 EOF
 }
@@ -98,5 +124,14 @@ for address in stripe_payment_link.one_off stripe_price.one_off stripe_product.d
   expect "...to active = true" true \
     "$(jq -r --arg a "module.stripe.$address" '.resource_changes[] | select(.address == $a) | .change.after.active' <<< "$json")"
 done
+
+state true true true > "$work/terraform.tfstate"
+json="$(plan)"
+expect "portal as Stripe holds it: no change" no-op \
+  "$(actions stripe_billing_portal_configuration.donors "$json")"
+state true true true tainted > "$work/terraform.tfstate"
+json="$(plan)"
+expect "portal left tainted: deactivated, then made again (untaint it first)" delete,create \
+  "$(actions stripe_billing_portal_configuration.donors "$json")"
 
 [ "$failures" -eq 0 ] || exit 1
