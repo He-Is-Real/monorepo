@@ -470,9 +470,18 @@ const STORIES: StoryFixture[] = [
   },
 ];
 
+/**
+ * D112 (Joel, 2026-10-28): dev's Clerk test accounts, by Clerk user id (`user_…`, shown in the
+ * Clerk dashboard; not secret), marked trusted submitters on every reset so the submission limits
+ * don't interfere with testing. The dev behavioural suite's `behavioural+clerk_test@example.com`
+ * belongs here once its id is known.
+ */
+const TEST_ACCOUNTS: string[] = [];
+
 export const DATASET: Dataset = {
   people: PEOPLE,
   moderator: MODERATOR,
   tags: TAGS,
   stories: STORIES,
+  testAccounts: TEST_ACCOUNTS,
 };

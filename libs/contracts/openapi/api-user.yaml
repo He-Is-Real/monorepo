@@ -83,7 +83,10 @@ paths:
       tags: [My stories]
       operationId: listMyStories
       summary: My submissions, any status
-      description: Drafts, pending, feedback and approved. Read as the person (D27).
+      description: |
+        Drafts, pending, feedback and approved, newest first (by creation), read as the person (D27).
+        `status` narrows it to one status: the submit flow lists the person's open drafts
+        (`?status=draft`) to continue one.
       x-required-role: User
       x-milestone: M2
       parameters:
@@ -132,7 +135,7 @@ paths:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: My story, with its derived consent (D17).
+          description: My story. The strong `ETag` is its `version`, for the next `If-Match` (D29).
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/ETag'
@@ -148,6 +151,40 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+
+  /v1/account/limits:
+    get:
+      tags: [Submission]
+      operationId: getMySubmissionLimits
+      summary: The limits that apply to me (for the submit page)
+      description: |
+        The text and theme limits an admin sets (W3: `submissionSettings`) and the person's own D94
+        limits (the settings, or the admin's override for them; D112): open drafts (`max` null =
+        unlimited, as for a trusted submitter) and how many they have, and submissions per rolling 7
+        days with when they may next submit (`nextAvailableAt` null = now). The submit page shows
+        these numbers; nothing is hard-coded. Read as the person; needs no consent.
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: My limits.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/SubmissionLimits'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/account:
     get:
@@ -516,6 +553,45 @@ paths:
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
 
+  /v1/tags:
+    get:
+      tags: [Submission]
+      operationId: listStoryTags
+      summary: Every tag a story can carry (for the submit form)
+      description: |
+        Every tag, by category (theme, journey, emotion) then name, for choosing a story's themes
+        (how many: `GET /v1/account/limits`).
+        Unlike api-public-read's `/v1/tags` (only tags a published story uses, D63), this lists them all.
+        Read as the person (D27); needs no consent (tags aren't personal data).
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: Every tag (a few dozen at most, so unpaged).
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: './components.yaml#/components/schemas/Tag'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
   # ------------------------------------------------------------------ the person's commands
   /v1/stories:
     post:
@@ -526,7 +602,13 @@ paths:
         Command `CreateDraftStory`, in the person's own session. The draft exists before any media
         upload, so an abandoned upload leaves recoverable context. `Location` is the story under
         `/v1/account/stories/{id}`. A draft is testimony content, so the person's current Art 9
-        consent is checked first (`403` without it; plan task 2.3).
+        consent is checked first (`403` without it; plan task 2.3), with the sign-up form in force
+        accepted and no newer testimony version requiring acceptance (D93).
+
+        **Limits (D94, W3, D112):** open drafts per person (default 3: the admin's setting, or their
+        override for this person; none for a trusted submitter); one more answers `409`
+        `draft_limit_reached`. Text longer, or more themes, than the settings allow answers `400`
+        (`/body`, `/tagSlugs`); so do unknown tags. The database enforces all of these too.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -558,8 +640,12 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
         '422':
           $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/stories/{id}:
     patch:
@@ -568,8 +654,14 @@ paths:
       summary: Edit my story (draft or changes_requested only)
       description: |
         CRUD with JSON Merge Patch on the editable fields; never the status (D28). The database locks
-        the content once the story leaves `draft`/`changes_requested` (`409`). Needs the person's
-        current Art 9 consent (`403`).
+        the content once the story leaves `draft`/`changes_requested` (`409` `story_locked`). Needs
+        the person's current Art 9 consent (`403`). A stale `If-Match` answers `412`: the client
+        re-reads, re-applies its change when nothing it touched has changed, and asks the person only
+        on a real clash (D70). An edit that makes the text longer, or adds themes, beyond the settings'
+        maximum (W3) answers `400` (`/body`, `/tagSlugs`); one that trims a draft that's still over a
+        newly lowered maximum is accepted, so it can be fixed (Joel, 2026-10-30). Unknown tags answer
+        `400` (`/tagSlugs`). Answers `ETag` with the new version. Also accepts
+        `application/json`.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -601,6 +693,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/stories/{id}/upload-url:
     post:
@@ -658,9 +752,23 @@ paths:
       description: |
         Command `SubmitStory`: moves `draft`/`changes_requested` → `pending` and publishes
         `story-submitted` for the worker tier. Needs the person's current Art 9, publish and age consent
-        (D17); `403` if any is missing or withdrawn. A written story needs at least 200 characters of
-        text, not counting leading and trailing spaces (Joel, 2026-10-23, from the POC); shorter is `400`
+        (D17); `403` if any is missing or withdrawn. A written story needs the settings' minimum of
+        text (W3: default 200 characters, not counting leading and trailing spaces); shorter is `400`
         with `code: story_text_too_short` and an `errors` entry for `/body`. The database refuses it too.
+        Every story needs the settings' number of themes (default 1–5; `400` `tags_required`,
+        `/tagSlugs`). Every limit in force applies at submit, whatever the limits were when the draft
+        was started (Joel, 2026-10-30: no grandfathering): longer than the text maximum is `400`
+        `story_text_too_long`, more themes than the maximum `400` `too_many_tags`, each with the
+        `limit` and a message that says it, so the person can edit the draft and submit.
+
+        **Limit (D94, D112, D113):** stories submitted for review per rolling 7 days (default 1: the
+        admin's setting, or their override for this person; none for a trusted submitter), counted
+        from each story's first submission and kept for 7 days whatever happens to the story
+        (withdrawing or deleting it doesn't free the week; sending a story back after "changes
+        requested" isn't a new one). Otherwise `409` `weekly_submission_limit_reached` with
+        `availableAt`. The database enforces it too. A story that isn't a draft (or `changes_requested`) answers `409`
+        `story_not_submittable`. Publishing `story-submitted` to the worker tier waits for the
+        async lane (plan PR 9); nothing is published yet.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -695,6 +803,8 @@ paths:
           $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/stories/{id}/withdraw:
     post:

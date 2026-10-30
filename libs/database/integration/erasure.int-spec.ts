@@ -153,6 +153,12 @@ describe('erasure on api_user’s service login', () => {
            WHERE entity = user:ann OR entity = story:ann_live ORDER BY createdAt`,
       ),
     ).toEqual([
+      // buildWorld makes Ann a trusted submitter (D94).
+      {
+        action: 'UpdateSubmitterLimits',
+        entity: 'user:ann',
+        createdAt: expect.any(String),
+      },
       {
         action: 'ApproveStory',
         entity: 'story:ann_live',

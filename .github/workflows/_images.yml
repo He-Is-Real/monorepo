@@ -4,7 +4,9 @@ name: Build images (reusable)
 # apps-scratch). Tag = hash of the service's pruned build output
 # (tools/scripts/image-tag.sh), so unchanged services are skipped; the git SHA
 # goes in an OCI label instead. Decision doc:
-# project context/research/image-build-efficiency.html.
+# project context/research/image-build-efficiency.html. One job (pipeline
+# speed review, P2): the "what changed?" check, then every changed service built
+# side by side (tools/scripts/image-push.sh).
 
 on:
   workflow_call:
@@ -17,6 +19,10 @@ on:
         description: Identity allowed to push to that repository
         type: string
         required: true
+      changed_only:
+        description: Skip the build when no service could have changed since the last successful Release Images
+        type: boolean
+        default: false
 
 # Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
 permissions: {}
@@ -34,9 +40,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read # nx-set-shas looks up the last successful images.yml run
       id-token: write # keyless Google auth (Workload Identity Federation)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          filter: tree:0
+          fetch-depth: 0
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -44,31 +54,62 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      # With changed_only, skips the rest when no service could have changed since the
+      # last successful run (docs, OpenTofu, ...). Only a gate: the content-hash tag still
+      # decides what is pushed. A skipped build is still a successful run, which starts
+      # the deploy (tofu-apply.yml) for infra-only merges.
+      - if: inputs.changed_only
+        uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
+        with:
+          workflow-id: images.yml
+      - id: changes
+        shell: bash # -eo pipefail: if Nx fails, fail rather than skip a release
+        env:
+          CHANGED_ONLY: ${{ inputs.changed_only }}
+        run: |
+          if [ "$CHANGED_ONLY" != true ]; then
+            echo build=true >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Services Nx sees as changed (their code, libs, deps or Dockerfile),
+          # plus the files outside Nx that change how images are tagged/built.
+          affected=$(pnpm -s nx show projects --affected --with-target container --json)
+          services=$(jq -er 'join(" ")' <<<"$affected")
+          other=$(git diff --name-only "$NX_BASE" "$NX_HEAD" -- tools/scripts/image-tag.sh tools/scripts/image-push.sh .github/workflows/_images.yml .github/workflows/images.yml)
+          echo "Affected services: ${services:-none}. Image tooling changed: ${other:-no}." | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -n "$services$other" ]; then build=true; else build=false; fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
       # Nx build cache across runs: restores main's latest, only main saves
       # (snapshot runs on branches only read it). See ci.yml for the key.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: steps.changes.outputs.build == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.NX_CACHE_PATHS }}
           key: nx-images-${{ github.sha }}
           restore-keys: nx-images-
-      - run: tools/scripts/nx-cache-adopt.sh
+      - if: steps.changes.outputs.build == 'true'
+        run: tools/scripts/nx-cache-adopt.sh
 
       # Every image service: tools/scripts/image-services.txt.
-      - run: pnpm nx run-many -t prune -p $(tools/scripts/image-services.sh)
-      - if: github.ref == 'refs/heads/main'
+      - if: steps.changes.outputs.build == 'true'
+        run: pnpm nx run-many -t prune -p $(tools/scripts/image-services.sh)
+      - if: steps.changes.outputs.build == 'true' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.NX_CACHE_PATHS }}
           key: nx-images-${{ github.sha }}
 
-      - id: auth
+      - if: steps.changes.outputs.build == 'true'
+        id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: projects/236063168938/locations/global/workloadIdentityPools/github/providers/github-actions
           service_account: ${{ inputs.service_account }}
           token_format: access_token
 
-      - name: Log in to Artifact Registry
+      - if: steps.changes.outputs.build == 'true'
+        name: Log in to Artifact Registry
         env:
           ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: printf '%s' "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin "https://$REGISTRY"
@@ -77,46 +118,26 @@ jobs:
       # docker-container builder and the runtime token exposed to `docker
       # buildx`. Only GitHub-owned and allowlisted actions may run here, so no
       # third-party setup actions.
-      - name: Set up buildx with the Actions cache
+      - if: steps.changes.outputs.build == 'true'
+        name: Set up buildx with the Actions cache
         run: docker buildx create --use --driver docker-container
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      - if: steps.changes.outputs.build == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN);
             core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL);
 
-      - name: Build and push changed services
+      # All at once, one layer cache scope per service; one summary row each, by digest.
+      - if: steps.changes.outputs.build == 'true'
+        name: Build and push changed services
         env:
           REPO: ${{ env.REGISTRY }}/heisreal-dev/${{ inputs.repository }}
-        # pipefail + jq -e: a failed inspect must fail the step, not leave an
-        # empty digest in a green run.
+          REPOSITORY: ${{ inputs.repository }}
         run: |
-          set -o pipefail
-          SERVICES="$(tools/scripts/image-services.sh)"
           {
-            echo "### ${{ inputs.repository }} @ ${GITHUB_SHA::12}"
+            echo "### $REPOSITORY @ ${GITHUB_SHA::12}"
             echo '| Service | Image | |'
             echo '| --- | --- | --- |'
           } >> "$GITHUB_STEP_SUMMARY"
-          for svc in $SERVICES; do
-            image="$REPO/$svc:$(tools/scripts/image-tag.sh "$svc")"
-            if docker buildx imagetools inspect "$image" > /dev/null 2>&1; then
-              state=unchanged
-            else
-              # No provenance/SBOM manifests: one registry version per build,
-              # so the cleanup policy's keep_count counts builds.
-              docker buildx build "apps/$svc/dist" --push --tag "$image" \
-                --provenance=false --sbom=false \
-                --label "org.opencontainers.image.revision=$GITHUB_SHA" \
-                --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-                --cache-from "type=gha,version=2,scope=$svc" \
-                --cache-to "type=gha,version=2,scope=$svc,mode=max"
-              state=pushed
-            fi
-            digest=$(docker buildx imagetools inspect "$image" --format '{{json .Manifest}}' | jq -er .digest)
-            if [ -z "$digest" ]; then
-              echo "::error::No digest for $image" >&2
-              exit 1
-            fi
-            echo "| \`$svc\` | \`$REPO/$svc@$digest\` | $state |" >> "$GITHUB_STEP_SUMMARY"
-          done
+          tools/scripts/image-push.sh $(tools/scripts/image-services.sh) >> "$GITHUB_STEP_SUMMARY"

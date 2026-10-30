@@ -1,17 +1,27 @@
 name: OpenTofu apply
 
-# Merge → plan every root unattended → one approval per wave with changes → apply exactly the
-# saved plan (D54, D57). Never auto-applies: an approval in the `dev` environment means "I read
-# this plan and choose to apply it" (self-approval is expected; Claude may approve dev applies).
+# Merge → Release Images → plan every root unattended → one approval per wave with changes →
+# apply exactly the saved plan, once the merge's CI passed (D54, D57). Never auto-applies: an
+# approval in the `dev` environment means "I read this plan and choose to apply it"
+# (self-approval is expected; Claude may approve dev applies).
 #
 # Correct by construction, no selection logic:
+#   - One run per merge: Release Images runs on every push to main (it skips the build when no
+#     service changed), and its completion, success or failure, starts this workflow. There's no
+#     push trigger, so a merge never starts a second run that holds the queue (pipeline speed
+#     review, P1).
 #   - One run at a time (one concurrency group, never cancelled in progress). GitHub keeps at
 #     most one pending run and drops older pending ones; nothing is lost, because...
 #   - ...every run plans every root (gcp, cluster, bunny, stripe; images only when dispatched
 #     with `images`; never bootstrap, which is local-only). Unchanged roots plan "No changes"
 #     and skip their apply.
 #   - One target per run: `target` resolves main's HEAD once and every job checks out that SHA
-#     ($GITHUB_SHA and workflow_run.head_sha are never used).
+#     ($GITHUB_SHA and workflow_run.head_sha are never used). Main may have moved past the
+#     merge that started the run, so `target` then waits for the target's own Release Images and
+#     fails unless it succeeded: plans pick up the newest images, so they must exist first.
+#   - CI gate: every apply needs `ci`, which waits for ci.yml's push run of the target on main
+#     and fails unless it succeeded. It runs beside the plans and approve-1, so the wait overlaps
+#     them. A failed CI applies nothing; recover by re-running CI's failed jobs, then dispatching.
 #   - Wave 1: gcp, bunny and stripe plan in parallel; one approval (approve-1) covers their
 #     applies, and gcp applies after bunny (bunny grants gcp's services access to keys they
 #     read). stripe (donations' Stripe sandbox objects) depends on nothing and nothing waits on it.
@@ -21,18 +31,17 @@ name: OpenTofu apply
 #     and the approve jobs re-check main after the click and apply nothing (go=false). The
 #     `superseded` job then warns and fails on purpose, so the run is red, not a green tick that
 #     looks like a deploy.
-#   - Failed, rejected, stale or superseded stops every later stage (tools/scripts/tf-stage.sh);
-#     "no changes" and "not selected" stop nothing.
+#   - Failed CI, failed, rejected, stale or superseded stops every later stage
+#     (tools/scripts/tf-stage.sh); "no changes" and "not selected" stop nothing.
 #   - Every plan is checked for locations outside the UK (D119's interim guard): `tf.sh <root>
 #     plan` runs tools/scripts/tf-location-check.sh on the saved plan. In dev a finding is a
 #     warning in the step summary (addresses and locations only, bunny's too) and the plan goes
 #     on to approval; outside dev it fails the plan, which then never reaches an approval.
-#   - Every Release Images completion, success or failure, triggers a full run: it may replace
-#     a pending push run in the queue, so it must plan everything too.
-#   - "Dev behavioural tests" is dispatched once per deploy, after its final wave, and only by a
-#     run that started after the target's Release Images succeeded (job `behavioural`).
+#   - "Dev behavioural tests" is dispatched once per deploy, after its final wave (job
+#     `behavioural`).
 #
-# Recover from anything (a failed, rejected or superseded run): dispatch this workflow.
+# Recover from anything (a failed, rejected or superseded run, a failed CI or Release Images once
+# re-run green): dispatch this workflow. A re-run of Release Images starts a run by itself.
 #
 # Public repository: logs are world-readable. gcp, cluster and images plans hold no secrets and
 # go to the log. Bunny output never does: the jobs mask the Bunny keys, keep raw output in
@@ -43,9 +52,8 @@ name: OpenTofu apply
 # this file and tofu-drift.yml on main (deploy_gate and bunny_gate in modules/bootstrap).
 
 on:
-  # No paths filter: every new main gets a run, so a superseded run always has a successor.
-  push:
-    branches: [main]
+  # Every push to main runs Release Images, so every new main gets a run and a superseded run
+  # always has a successor.
   workflow_run:
     workflows: [Release Images]
     types: [completed]
@@ -81,7 +89,9 @@ env:
 jobs:
   target:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     permissions:
+      contents: read
       actions: read # Release Images' run for the target
     outputs:
       sha: ${{ steps.main.outputs.sha }}
@@ -93,21 +103,61 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve main"; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Target: main at \`$sha\` (event: $GITHUB_EVENT_NAME)" >> "$GITHUB_STEP_SUMMARY"
-      # Whether the target's images exist before anything plans: gcp picks up the newest images,
-      # so only a run that starts after the target's Release Images succeeded deploys them all
-      # (`behavioural` below). Otherwise that completion triggers another run, which will.
-      # Never blocks a deploy: if the lookup fails, the output is empty and no test is dispatched.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.main.outputs.sha }}
+          sparse-checkout: tools/scripts
+      # The target's images before anything plans: gcp picks up the newest images in apps, so a
+      # run whose target moved past the merge that started it waits for the target's Release
+      # Images (usually already done). Anything but success stops the run: re-run Release Images,
+      # and its completion starts a new run.
       - id: images
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.main.outputs.sha }}
         run: |
-          images="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/images.yml/runs?head_sha=$SHA&per_page=10" \
-            --jq '[.workflow_runs[] | if .status == "completed" then .conclusion else "pending" end]
-                  | if index("success") then "success" else (.[0] // "pending") end')"
+          code=0
+          images="$(tools/scripts/gh-wait-run.sh images.yml "$SHA")" || code=$?
           echo "images=$images" >> "$GITHUB_OUTPUT"
-          echo "Release Images for the target: $images" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release Images for the target: $images" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -ne 0 ]; then
+            echo "::error::Release Images for $SHA is $images: nothing planned. Re-run it; its completion starts a new run."
+            exit 1
+          fi
+
+  # The CI gate: nothing applies unless ci.yml passed on main for the target. Beside the plans
+  # and approve-1, so its wait overlaps them; every apply job and every stage needs it.
+  ci:
+    needs: target
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read # ci.yml's run for the target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          sparse-checkout: tools/scripts
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.target.outputs.sha }}
+          WAIT_TIMEOUT: 2700
+        run: |
+          code=0
+          ci="$(tools/scripts/gh-wait-run.sh ci.yml "$SHA")" || code=$?
+          echo "CI for the target: $ci" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -ne 0 ]; then
+            main="$(git ls-remote origin refs/heads/main | cut -f1)"
+            if [ "$main" != "$SHA" ]; then
+              advice="main has moved on to $main; the run its Release Images starts deploys it."
+            else
+              advice="Re-run CI's failed jobs; once it's green, dispatch this workflow."
+            fi
+            echo "::error title=CI gate::CI for $SHA is $ci: nothing applied. $advice"
+            echo "**CI for \`$SHA\` is $ci: nothing applied.** $advice" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
   # ---- Wave 1: gcp and bunny ----------------------------------------------------------------
 
@@ -296,9 +346,9 @@ jobs:
   # cancelled bunny plan or apply holds gcp back (stage-gcp then blocks wave 2; dispatch to
   # recover).
   apply-gcp:
-    needs: [target, plan-gcp, plan-bunny, approve-1, apply-bunny]
+    needs: [target, ci, plan-gcp, plan-bunny, approve-1, apply-bunny]
     if: >-
-      always() && needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true' &&
+      always() && needs.ci.result == 'success' && needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true' &&
       needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true' &&
       (needs.apply-bunny.result == 'success' ||
       (needs.apply-bunny.result == 'skipped' && needs.plan-bunny.result == 'success' &&
@@ -326,9 +376,9 @@ jobs:
       - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   apply-bunny:
-    needs: [target, plan-bunny, approve-1]
+    needs: [target, ci, plan-bunny, approve-1]
     if: >-
-      always() && needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'true' &&
+      always() && needs.ci.result == 'success' && needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'true' &&
       needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -374,9 +424,9 @@ jobs:
       - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   apply-stripe:
-    needs: [target, plan-stripe, approve-1]
+    needs: [target, ci, plan-stripe, approve-1]
     if: >-
-      always() && needs.plan-stripe.result == 'success' && needs.plan-stripe.outputs.changes == 'true' &&
+      always() && needs.ci.result == 'success' && needs.plan-stripe.result == 'success' && needs.plan-stripe.outputs.changes == 'true' &&
       needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -402,7 +452,7 @@ jobs:
       - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   stage-gcp:
-    needs: [target, plan-gcp, approve-1, apply-gcp]
+    needs: [target, ci, plan-gcp, approve-1, apply-gcp]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -416,7 +466,7 @@ jobs:
           sparse-checkout: tools/scripts
       - id: stage
         env:
-          PREV: "${{ needs.target.result == 'success' && 'ok' || 'blocked: target' }}"
+          PREV: "${{ needs.target.result == 'success' && needs.ci.result == 'success' && 'ok' || 'blocked: target or CI' }}"
           PLAN: ${{ needs.plan-gcp.result }}
           CHANGES: ${{ needs.plan-gcp.outputs.changes }}
           GO: ${{ needs.approve-1.outputs.go }}
@@ -428,7 +478,7 @@ jobs:
 
   # Summary only: nothing waits on bunny.
   stage-bunny:
-    needs: [target, plan-bunny, approve-1, apply-bunny]
+    needs: [target, ci, plan-bunny, approve-1, apply-bunny]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -442,7 +492,7 @@ jobs:
           sparse-checkout: tools/scripts
       - id: stage
         env:
-          PREV: "${{ needs.target.result == 'success' && 'ok' || 'blocked: target' }}"
+          PREV: "${{ needs.target.result == 'success' && needs.ci.result == 'success' && 'ok' || 'blocked: target or CI' }}"
           PLAN: ${{ needs.plan-bunny.result }}
           CHANGES: ${{ needs.plan-bunny.outputs.changes }}
           GO: ${{ needs.approve-1.outputs.go }}
@@ -454,7 +504,7 @@ jobs:
 
   # Summary only: nothing waits on stripe.
   stage-stripe:
-    needs: [target, plan-stripe, approve-1, apply-stripe]
+    needs: [target, ci, plan-stripe, approve-1, apply-stripe]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -468,7 +518,7 @@ jobs:
           sparse-checkout: tools/scripts
       - id: stage
         env:
-          PREV: "${{ needs.target.result == 'success' && 'ok' || 'blocked: target' }}"
+          PREV: "${{ needs.target.result == 'success' && needs.ci.result == 'success' && 'ok' || 'blocked: target or CI' }}"
           PLAN: ${{ needs.plan-stripe.result }}
           CHANGES: ${{ needs.plan-stripe.outputs.changes }}
           GO: ${{ needs.approve-1.outputs.go }}
@@ -630,9 +680,9 @@ jobs:
           fi
 
   apply-cluster:
-    needs: [target, plan-cluster, approve-2]
+    needs: [target, ci, plan-cluster, approve-2]
     if: >-
-      always() && needs.plan-cluster.result == 'success' && needs.plan-cluster.outputs.changes == 'true' &&
+      always() && needs.ci.result == 'success' && needs.plan-cluster.result == 'success' && needs.plan-cluster.outputs.changes == 'true' &&
       needs.approve-2.result == 'success' && needs.approve-2.outputs.go == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -656,9 +706,9 @@ jobs:
       - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   apply-images:
-    needs: [target, plan-images, approve-2]
+    needs: [target, ci, plan-images, approve-2]
     if: >-
-      always() && needs.plan-images.result == 'success' && needs.plan-images.outputs.changes == 'true' &&
+      always() && needs.ci.result == 'success' && needs.plan-images.result == 'success' && needs.plan-images.outputs.changes == 'true' &&
       needs.approve-2.result == 'success' && needs.approve-2.outputs.go == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -755,14 +805,13 @@ jobs:
   # ---- After a deploy: the dev behavioural suite (T3) -----------------------------------------
   # Once per deploy, after its final run (tools/scripts/tf-behavioural.sh). This job needs every
   # stage, so it starts only after the last wave; and it dispatches only when:
-  #   - the target's Release Images had succeeded when this run started (`target`), so this run
-  #     rolled out the target's images. A push run starts before them (#79: its cluster apply
-  #     changed the schema while the old dev-seed image still ran, and the tests failed); the
-  #     run their completion triggers is the final one;
-  #   - every root's stage is ok (nothing failed, was rejected, went stale or was superseded, so
-  #     no half-deployed dev);
+  #   - the target's Release Images had succeeded before anything planned (`target` waits for
+  #     it), so this run rolled out the target's images (#79: a run that planned before them
+  #     changed the schema while the old dev-seed image still ran, and the tests failed);
+  #   - every root's stage is ok (CI passed, and nothing failed, was rejected, went stale or was
+  #     superseded, so no half-deployed dev);
   #   - something was applied: in this run, or in an earlier run since "Dev behavioural tests"
-  #     last started (a push run's applies are tested by the run after Release Images).
+  #     last started (say one whose cluster apply failed after gcp applied).
   # Then dispatch "Dev behavioural tests": it resets dev to the dummy dataset and tests the real
   # site, the real API and real Bunny together. stripe isn't part of it: those tests never
   # reach Stripe, and web gets the Buy Button IDs from gcp. A dispatch, not a call: only a dispatched run on

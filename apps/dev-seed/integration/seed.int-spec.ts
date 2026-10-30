@@ -243,6 +243,36 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
     ).toEqual([]);
   });
 
+  it('marks dev’s Clerk test accounts trusted submitters, signed in before or not (D112)', async () => {
+    const migrator = await t.migrator();
+    await run(
+      migrator,
+      `CREATE user:tester_known SET clerkUserId = 'user_tester_known'`,
+    );
+    const withAccounts = {
+      ...vars(),
+      testAccounts: ['user_tester_known', 'user_tester_new'],
+    };
+    await reset(seeder, withAccounts);
+    await reset(seeder, withAccounts); // idempotent
+    expect(
+      await rows(
+        migrator,
+        `SELECT user.clerkUserId AS clerk, trusted, devSeed FROM submitterLimits
+           WHERE user.clerkUserId IN ['user_tester_known', 'user_tester_new'] ORDER BY clerk`,
+      ),
+    ).toEqual([
+      { clerk: 'user_tester_known', trusted: true, devSeed: true },
+      { clerk: 'user_tester_new', trusted: true, devSeed: true },
+    ]);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE id FROM user WHERE clerkUserId = 'user_tester_new'`,
+      ),
+    ).toHaveLength(1);
+  });
+
   it('is one transaction: a failure leaves the data as it was', async () => {
     const migrator = await t.migrator();
     const before = await rows(

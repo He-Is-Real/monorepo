@@ -119,7 +119,6 @@ export default function GetReadyPage() {
           </ul>
         </section>
 
-        {/* No /submit in M1 (sharing is M2). */}
         <section aria-labelledby="ready" className="text-center">
           <h2
             id="ready"
@@ -128,12 +127,10 @@ export default function GetReadyPage() {
             Ready?
           </h2>
           <p className="mb-6 text-secondary-text">
-            Story sharing opens soon. Until then, these tips are a good place to
-            start, and the FAQs explain how it will work.
+            Take your time. Your story is saved as you write, so you can come
+            back to it.
           </p>
-          <ButtonLink href="/faqs" variant="secondary">
-            Read the FAQs
-          </ButtonLink>
+          <ButtonLink href="/share">Share your story</ButtonLink>
         </section>
       </NarrowColumn>
     </main>

@@ -95,20 +95,21 @@ GKE Autopilot Spot Pods, about £3–5/month.
   [docs/db-permissions.md](docs/db-permissions.md)) and container builds for affected projects (`validate`
   includes kubeconform on the Kubernetes manifests). Beside those, when web is affected, the
   Playwright device matrix runs in parallel shards from one build of the site (each shard runs like
-  a local `web:e2e`: 4 workers, no retries); screenshots land in one `web-e2e-screenshots` artifact,
+  a local `web:e2e`: 4 workers, no retries; `apps/web/e2e/shard-balance.ts` deals the tests out
+  round-robin so every shard gets an even share of every device); screenshots land in one `web-e2e-screenshots` artifact,
   and a failure adds one merged `web-e2e-report` (HTML, with traces). The required check is the
   `main` job, which passes only when all of these do. The Nx cache, the pnpm store and Playwright's
   browser are kept between runs in the Actions cache. Both api-public-read's integration tests and web's e2e stub are checked against
   `libs/contracts/openapi/api-public-read.yaml`, and api-user's integration tests and the stub's api-user half against
   `api-user.yaml`, so the stubs can't drift from the APIs.
-- **`images.yml`** ("Release Images", pushes to `main` that affect a service) and
-  **`snapshot-images.yml`** (manual, any branch): build the services whose code changed and push
-  them to `apps` / `apps-scratch`. Which build each
+- **`images.yml`** ("Release Images", every push to `main`; it skips the build when no service
+  changed) and **`snapshot-images.yml`** (manual, any branch): build the services whose code
+  changed, side by side in one job, and push them to `apps` / `apps-scratch`. Which build each
   environment runs is committed in `infra/terraform/live/<env>/gcp/images.auto.tfvars`.
 - **`tofu-plan.yml`**: automatic, read-only OpenTofu plans of the roots a PR touches (never bunny).
-- **`tofu-apply.yml`**: the only CI path that changes the cloud. Every push to `main` (and every
-  Release Images run) plans every root unattended; each apply waits for one approval in the `dev`
-  environment, then applies exactly the saved plan. Dispatch it to recover from anything. After a
+- **`tofu-apply.yml`**: the only CI path that changes the cloud. One run per merge, started when
+  Release Images finishes; it plans every root unattended, and each apply waits for one approval in
+  the `dev` environment and for the merge's CI on `main` to pass, then applies exactly the saved plan. Dispatch it to recover from anything. After a
   successful apply it dispatches **`dev-behavioural-tests.yml`** (reset dev, then test the real site,
   API and Bunny together).
 - **`tofu-drift.yml`**: weekly full-refresh plans; fails on drift.

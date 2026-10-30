@@ -71,4 +71,9 @@ export interface Dataset {
   moderator: string;
   tags: TagFixture[];
   stories: StoryFixture[];
+  /**
+   * D112: dev's Clerk test accounts (their Clerk user ids, `user_…`), marked trusted submitters
+   * on every reset so D94's limits don't get in the way of testing (dev only).
+   */
+  testAccounts: string[];
 }

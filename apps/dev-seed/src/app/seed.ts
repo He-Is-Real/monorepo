@@ -16,6 +16,8 @@ import type { SeedVars } from './plan';
  * appended only when the person's current one isn't on the version in force, so resets don't
  * grow the ledger (append-only: it's never wiped).
  *
+ * dev's Clerk test accounts (the dataset's testAccounts) are marked trusted submitters (D112).
+ *
  * Wiped: story (and, through its erasure cascade, publicStory and moderationReview), whatever
  * read-model rows or reviews are left, auditLog, idempotencyKey and tag. Kept: people who aren't
  * fixtures (Clerk sign-ins), the consent ledger (append-only), DPA versions, settings and the
@@ -57,6 +59,18 @@ FOR $c IN $consents {
       mechanism: 'web_form_submission', evidenceHash: $c.evidenceHash, evidenceVersion: 3
     } RETURN NONE;
   };
+};
+-- D112: dev's Clerk test accounts are trusted submitters (no open-drafts or weekly limit), so the
+-- limits don't interfere with testing. Their account row is made here if they haven't signed in
+-- yet (the same row api-user would make). devSeed marks it as dev-seed's; the database refuses
+-- that anywhere but dev.
+FOR $clerk IN $testAccounts {
+  LET $found = (SELECT VALUE id FROM user WHERE clerkUserId = $clerk)[0];
+  LET $u = IF $found != NONE { $found } ELSE {
+    (CREATE ONLY user CONTENT { clerkUserId: $clerk } RETURN id).id
+  };
+  UPSERT type::record('submitterLimits', record::id($u))
+    SET user = $u, trusted = true, devSeed = true RETURN NONE;
 };
 FOR $t IN $tags {
   CREATE type::record('tag', $t.id) CONTENT { name: $t.name, category: $t.category } RETURN NONE;

@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { deviceHeartCards } from '@/app/stories/actions';
 import type { ApiSummary, StorySummary } from '@/lib/browse';
 import { deviceHeartIds } from '@/lib/device-hearts';
-import { markHearted, personalApiUser } from '@/lib/favourites';
-import { usePersonalSession } from '@/lib/personal-session';
+import { markHearted } from '@/lib/favourites';
+import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
 
 /** Cards per page: fills whole rows of 1, 2 or 3 columns. */
