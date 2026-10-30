@@ -153,3 +153,26 @@ it('sends nothing with the new person’s token before the page hears of the swi
     'saved nothing to the account signed in now',
   );
 });
+
+it('doesn’t go on as the new person when the switch comes during the last save', async () => {
+  render(view('user_a'));
+  tickAllAndAccept();
+  await waitFor(() => expect(sent).toHaveLength(1));
+  await act(async () => answers[0]());
+  await waitFor(() => expect(sent).toHaveLength(2));
+
+  // A's last box is on its way with A's token; B signs in before the answer comes back.
+  signedIn = 'user_b';
+  await act(async () => answers[1]());
+  await settle();
+
+  expect(sent.map((s) => s.token)).toEqual([
+    tokenFor('user_a'),
+    tokenFor('user_a'),
+  ]);
+  expect(router.replace).not.toHaveBeenCalled();
+  expect(boxes().every((b) => !b.checked)).toBe(true);
+  expect(screen.getByRole('alert').textContent).toContain(
+    'saved nothing to the account signed in now',
+  );
+});

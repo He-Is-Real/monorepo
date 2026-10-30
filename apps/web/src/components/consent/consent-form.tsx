@@ -27,7 +27,11 @@ import type {
   ConsentStatement,
   LegalBlock,
 } from '@/lib/legal';
-import { personalApiUser, SomeoneElseSignedIn } from '@/lib/personal-session';
+import {
+  personalApiUser,
+  personalToken,
+  SomeoneElseSignedIn,
+} from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
 
 /** What a consent page asks for, from the server's read of the form in force (D32). */
@@ -121,7 +125,8 @@ type Changed = 'someone-else' | 'signed-out' | null;
  * A consent is one person's (Art 9), so the form belongs to the person it was opened for: if
  * someone else signs in on this browser while it is open (another tab, say), it starts again
  * for them, boxes unticked and new keys, and says why; a save still running for the first
- * person stops, and sends nothing with the second person's token (personalApiUser).
+ * person stops, sends nothing with the second person's token (personalApiUser), and doesn't go
+ * on as if the second person had accepted.
  */
 export function ConsentFormView(props: ViewProps) {
   const { userId } = props;
@@ -222,12 +227,13 @@ function PersonsConsentForm({
     setSaving({ status: 'saving' });
     try {
       // This person's token only: if Clerk hands over someone else's, nothing is sent.
-      const api = personalApiUser({
+      const session = {
         status: 'signed-in',
         userId,
         apiUserUrl,
         getToken,
-      });
+      } as const;
+      const api = personalApiUser(session);
       for (const statement of statements) {
         if (!live.current) return;
         let key = keys.current.get(statement);
@@ -241,6 +247,10 @@ function PersonsConsentForm({
           idempotencyKey: key,
         });
       }
+      // Someone else may have signed in while the last answer was on its way: this page then
+      // doesn't go on as if they had accepted (their account has nothing new).
+      if (!live.current) return;
+      await personalToken(session);
     } catch (err) {
       if (!live.current) return;
       if (err instanceof SomeoneElseSignedIn) {
@@ -254,7 +264,7 @@ function PersonsConsentForm({
       });
       return;
     }
-    if (!live.current) return;
+    if (!live.current) return; // the switch reached the page during that last check
     // Accepted for the rest of this page load, even if the bootstrap's answer, sent before
     // this, arrives afterwards saying otherwise (account-bootstrap.ts).
     confirmConsent(userId, form === 'signup' ? 'signup' : 'testimony');

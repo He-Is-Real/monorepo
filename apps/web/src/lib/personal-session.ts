@@ -103,19 +103,24 @@ export class SomeoneElseSignedIn extends NotSignedIn {
   override name = 'SomeoneElseSignedIn';
 }
 
+type SignedIn = Extract<PersonalSession, { status: 'signed-in' }>;
+
 /**
- * api-user for one person only (Codex, #117 round 4; Favourites and Share): Clerk's
- * `getToken()` answers for whoever is signed in when it resolves, so a token is used only if it
- * is this person's (its `sub` is their Clerk user id). Otherwise nothing is sent:
- * `SomeoneElseSignedIn`.
+ * Clerk's token, if it is this person's (its `sub` is their Clerk user id; null when signed
+ * out). Clerk's `getToken()` answers for whoever is signed in when it resolves, so anyone else's
+ * is refused: `SomeoneElseSignedIn`.
+ */
+export async function personalToken(s: SignedIn): Promise<string | null> {
+  const token = await s.getToken();
+  if (token !== null && subjectOf(token) !== s.userId)
+    throw new SomeoneElseSignedIn('Someone else is signed in now');
+  return token;
+}
+
+/**
+ * api-user for one person only (Codex, #117 round 4; Favourites and Share): a request goes out
+ * only with this person's token (personalToken); otherwise nothing is sent.
  * Work started for one person can never act in another's account.
  */
-export const personalApiUser = (
-  s: Extract<PersonalSession, { status: 'signed-in' }>,
-) =>
-  apiUser(s.apiUserUrl, async () => {
-    const token = await s.getToken();
-    if (token !== null && subjectOf(token) !== s.userId)
-      throw new SomeoneElseSignedIn('Someone else is signed in now');
-    return token;
-  });
+export const personalApiUser = (s: SignedIn) =>
+  apiUser(s.apiUserUrl, () => personalToken(s));
