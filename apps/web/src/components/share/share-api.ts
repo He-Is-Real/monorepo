@@ -261,16 +261,19 @@ export function shareApi(api: ApiUser) {
     grant: (
       form: 'testimony' | 'social',
       formVersion: string,
+      privacyPolicyVersion: string,
       statement: string,
       idempotencyKey = newIdempotencyKey(),
     ) =>
       api.command('/v1/account/consents', {
         method: 'POST',
+        // D122: the privacy policy shown, which the grant binds (409 if another is in force).
         body: {
           form,
           formVersion,
           statement,
           mechanism: 'web_form_submission',
+          privacyPolicyVersion,
         },
         idempotencyKey,
       }),

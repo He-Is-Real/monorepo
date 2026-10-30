@@ -309,8 +309,10 @@ paths:
         statement (box) ticked on the form version shown (D84). `formVersion` must be the version of that
         form in force (`GET /v1/legal/forms/{form}` on api-public-read); a draft, retired, older or unknown
         version answers `409 form_version_not_in_force` (the database refuses anything but a published
-        version too), and a statement the version doesn't have answers `409 statement_not_on_form`. While
-        no form is published no consent can be given. Used at sign-up, at the start of a draft, at submit
+        version too), and a statement the version doesn't have answers `409 statement_not_on_form`. D122: the
+        event binds the privacy policy in force (and, on a sign-up version with the terms box, the terms of
+        use in force); a `privacyPolicyVersion` or `termsVersion` that is missing or isn't the one in force
+        answers `409 legal_document_not_in_force`. While no form is published no consent can be given. Used at sign-up, at the start of a draft, at submit
         and for re-consent. No `If-Match`: the ledger is append-only, so there is nothing to conflict with.
       x-required-role: User
       x-milestone: M0

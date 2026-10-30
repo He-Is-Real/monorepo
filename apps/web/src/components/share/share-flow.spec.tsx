@@ -1,5 +1,13 @@
 import React, { createRef } from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import { ApiUserProblem } from '@/lib/api-user';
+import { renderLegalMarkdown } from '@/lib/markdown';
 import type { ShareForm, ShareLegal } from '@/lib/share-legal';
 import { EMPTY_FIELDS, type SubmissionLimits } from './share-api';
 import { ConsentStep, Limits, ReviewStep } from './share-flow';
@@ -13,23 +21,15 @@ const form = (boxes: ShareForm['boxes']): ShareForm => ({
   version: 'v1',
   boxes,
   // The words even mention the statement as a list item: never turned into a box.
-  blocks: [
+  html: renderLegalMarkdown(
+    '# Your story\n\n- `special_category_religious`\n',
     {
-      kind: 'heading',
-      level: 1,
-      content: [{ kind: 'text', text: 'Your story' }],
+      topLevel: 3,
     },
-    {
-      kind: 'list',
-      items: [
-        { content: [{ kind: 'code', text: 'special_category_religious' }] },
-      ],
-    },
-  ],
-  dpaVersion: 'dev_placeholder',
-  dpaBlocks: [
-    { kind: 'paragraph', content: [{ kind: 'text', text: 'Privacy words' }] },
-  ],
+  ),
+  privacyVersion: 'dev_placeholder',
+  privacyNumber: 1,
+  privacyHtml: renderLegalMarkdown('Privacy words'),
 });
 const ART9 = {
   statement: 'special_category_religious' as const,
@@ -143,5 +143,52 @@ describe('ReviewStep', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }));
     expect(calls.grant).not.toHaveBeenCalled();
     expect(calls.submit).not.toHaveBeenCalled();
+  });
+
+  it('a privacy policy published after the person reached Review: the draft is kept, and the way on is a reload, not a retry of the old version', async () => {
+    const calls = {
+      grant: jest.fn(async () => {
+        throw new ApiUserProblem({
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          code: 'legal_document_not_in_force',
+          detail: 'privacyPolicyVersion is not the version in force.',
+        });
+      }),
+      submit: jest.fn(),
+    };
+    const forget = jest.fn();
+    render(
+      <Limits.Provider value={LIMITS}>
+        <ReviewStep
+          heading={createRef()}
+          draft={{ ...draft, forget }}
+          tags={[{ slug: 'hope', name: 'Hope', category: 'emotion' }]}
+          legal={{ testimony: form([ART9, PUBLISH]), social: null }}
+          consents={consents}
+          calls={calls as never}
+          refreshConsents={jest.fn()}
+          onEdit={jest.fn()}
+          onDone={jest.fn()}
+        />
+      </Limits.Provider>,
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Publish my story' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('updated');
+    expect(alert.textContent).toContain('Your story is saved');
+    expect(alert.textContent).not.toContain('privacyPolicyVersion');
+    // No "Submit for review" that would send the old version again: a reload instead.
+    expect(
+      screen.queryByRole('button', { name: 'Submit for review' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Reload the page' }),
+    ).toBeTruthy();
+    await waitFor(() => expect(calls.grant).toHaveBeenCalledTimes(1));
+    expect(calls.submit).not.toHaveBeenCalled();
+    expect(forget).not.toHaveBeenCalled();
   });
 });

@@ -272,22 +272,25 @@ describe('consent forms (D84)', () => {
       }
     });
 
-    it('refuses a grant naming another privacy document than its form links', async () => {
+    it('D122: a grant names the privacy policy in force, which may be newer than its form’s link, never a draft', async () => {
       await publishDpa(t, 'other_dpa');
-      expect(
-        await outcome(
-          await t.person('user_ann'),
+      const ann = await t.person('user_ann');
+      const grant = (dpa: string) =>
+        outcome(
+          ann,
           `CREATE consent CONTENT { subject: $auth, type: 'publish', event: 'granted',
-             dpaVersion: dpaVersion:other_dpa, form: testimonyFormVersion:v1,
+             dpaVersion: type::record('dpaVersion', $dpa), form: testimonyFormVersion:v1,
              mechanism: 'web_form_submission', evidenceHash: $h }`,
-          { h: sha256('e') },
-        ),
-      ).toEqual({
-        ok: false,
-        error: expect.stringContaining(
-          'privacy document its form version links',
-        ),
-      });
+          { dpa, h: sha256(`e ${dpa}`) },
+        );
+      expect((await grant('other_dpa')).ok).toBe(true);
+      await run(
+        admin,
+        `CREATE dpaVersion:draft_policy CONTENT { materiality: 'minor',
+           documentPath: 'x.md', contentHash: $h }`,
+        { h: sha256('draft policy') },
+      );
+      expect((await grant('draft_policy')).ok).toBe(false);
     });
 
     it('D109: no row ties 18+ to a testimony or social sharing version, grant or withdrawal, whoever writes it', async () => {
@@ -818,14 +821,22 @@ describe('dev placeholder privacy document and forms (D75)', () => {
     let t: TestDatabase;
     const placeholders = (on: boolean) =>
       t.migrate(t.params({ environment: 'dev', dev_legal_placeholders: on }));
+    // As the API grants since D122: on dev's v2, under the privacy policy in force and, on the
+    // sign-up form, the terms of use in force (evidence v4, D125).
     const devGrant = (db: Surreal, type: string, form: string) =>
       run(
         db,
         `CREATE consent CONTENT { subject: $auth, type: $type, event: 'granted',
-           dpaVersion: dpaVersion:dev_placeholder, form: <record> $form,
-           mechanism: 'web_form_submission', evidenceHash: $h }`,
+           dpaVersion: dpaVersion:dev_policy, form: <record> $form,
+           termsVersion: IF string::starts_with($form, 'signupFormVersion') { termsVersion:dev_placeholder } ELSE { NONE },
+           mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: 4 }`,
         { type, form, h: sha256(`${type} ${form}`) },
       );
+    const signUp = async (db: Surreal) => {
+      for (const type of ['account_data', 'age_18plus', 'terms_of_use']) {
+        await devGrant(db, type, 'signupFormVersion:v2');
+      }
+    };
     beforeAll(async () => {
       t = await TestDatabase.create({
         params: { environment: 'dev', dev_legal_placeholders: true },
@@ -836,23 +847,36 @@ describe('dev placeholder privacy document and forms (D75)', () => {
     });
     afterAll(() => t?.close());
 
-    it('publishes the placeholder DPA and the three v1 forms, with their files’ words', async () => {
+    it('publishes the privacy policy and terms of use, numbered, and v2 of the three forms: boxes as data, a short introduction', async () => {
       const legal = legalParams();
       const svc = await t.service('api_public_read');
-      expect(await rows(svc, 'RETURN fn::legal::dpa_in_force()')).toEqual([
-        'dpaVersion:dev_placeholder',
+      // D121, D125: dev's placeholder privacy document is the privacy policy's version 1, the
+      // words /privacy showed before D125 its version 2, in force (data 0007); the terms of
+      // use's version 1 beside them.
+      expect(
+        await rows(
+          svc,
+          `RETURN [fn::legal::dpa_in_force(), fn::legal::terms_in_force()]`,
+        ),
+      ).toEqual(['dpaVersion:dev_policy', 'termsVersion:dev_placeholder']);
+      expect(
+        await rows(
+          svc,
+          `SELECT VALUE [record::id(id), number, text = $texts[record::id(id)],
+              contentHash = $hashes[record::id(id)], publishedBy]
+             FROM dpaVersion WHERE number != NONE ORDER BY number`,
+          { texts: legal.dpa_text, hashes: legal.dpa_sha256 },
+        ),
+      ).toEqual([
+        ['dev_placeholder', 1, true, true, undefined],
+        ['dev_policy', 2, true, true, undefined],
       ]);
       expect(
         await rows(
           svc,
-          `SELECT text, contentHash FROM ONLY dpaVersion:dev_placeholder`,
+          `SELECT text, number FROM ONLY termsVersion:dev_placeholder`,
         ),
-      ).toEqual([
-        {
-          text: legal.dpa_text['dev_placeholder'],
-          contentHash: legal.dpa_sha256['dev_placeholder'],
-        },
-      ]);
+      ).toEqual([{ text: legal.terms_text['dev_placeholder'], number: 1 }]);
       const table = {
         signup: 'signupFormVersion',
         testimony: 'testimonyFormVersion',
@@ -865,30 +889,80 @@ describe('dev placeholder privacy document and forms (D75)', () => {
           { kind },
         );
         expect(form).toMatchObject({
-          id: `${table[kind]}:v1`,
+          id: `${table[kind]}:v2`,
           status: 'published',
-          text: legal.form_text[kind]['v1'],
-          textHash: legal.form_sha256[kind]['v1'],
-          dpaVersion: 'dpaVersion:dev_placeholder',
+          text: legal.form_text[kind]['v2'],
+          dpaVersion: 'dpaVersion:dev_policy',
           // D114: its boxes, from its statements file.
-          statements: legal.form_statements[kind]['v1'].statements,
-          statementsHash: legal.form_statements_sha256[kind]['v1'],
+          statements: legal.form_statements[kind]['v2'].statements,
+          statementsHash: legal.form_statements_sha256[kind]['v2'],
         });
-        expect(String(form['text']).toLowerCase()).not.toContain('parent');
-        // D93: 18+ is asked on the sign-up form only.
-        expect([
-          kind,
-          String(form['text']).includes('I am 18 or over'),
-        ]).toEqual([kind, kind === 'signup']);
+        // D122: a short introduction, never a document listing the boxes: no statement's key
+        // (as v1 named them, `publish`) or the words beside its box appear in it.
+        const text = String(form['text']);
+        expect(text.length).toBeLessThan(800);
+        for (const box of legal.form_statements[kind]['v2'].statements) {
+          expect([kind, box.key, text.includes(`\`${box.key}\``)]).toEqual([
+            kind,
+            box.key,
+            false,
+          ]);
+          expect([kind, box.key, text.includes(box.label)]).toEqual([
+            kind,
+            box.key,
+            false,
+          ]);
+        }
       }
-      // Social v1 allows every platform and use its words name, and nothing else.
+      // D122: Joel's sign-up boxes, the terms box among them.
+      const [signup] = await rows<{
+        coversTerms: boolean;
+        statements: { key: string; label: string }[];
+      }>(svc, `SELECT coversTerms, statements FROM ONLY signupFormVersion:v2`);
+      expect(signup.coversTerms).toBe(true);
+      expect(signup.statements.map((b) => b.label)).toEqual([
+        'I am 18 or over.',
+        'Store my account activity and preferences. I understand these may show my interest in the Christian faith.',
+        'I agree to the terms of use.',
+      ]);
+      // The testimony form's boxes say where they sit, as data.
+      const [{ statements }] = await rows<{
+        statements: { key: string; step?: string }[];
+      }>(svc, `SELECT statements FROM ONLY testimonyFormVersion:v2`);
+      expect(statements.map((b) => [b.key, b.step])).toEqual([
+        ['special_category_religious', 'start'],
+        ['publish', 'submit'],
+      ]);
+      // Social v2 allows every platform and use its words name, as v1.
       const [social] = await rows<Record<string, unknown>>(
         svc,
         `SELECT * OMIT id, text, textHash, textRef, dpaVersion, status, publishedAt,
-           version, createdAt, statements, statementsHash FROM ONLY socialSharingFormVersion:v1`,
+           version, createdAt, statements, statementsHash FROM ONLY socialSharingFormVersion:v2`,
       );
       expect(Object.values(social).every((v) => v === true)).toBe(true);
       expect(Object.keys(social)).toHaveLength(8);
+    });
+
+    it('D122: the sign-up form in force needs the terms box too, bound to the terms in force', async () => {
+      await createPeople(t, { cy: 'user_cy' });
+      const cy = await t.person('user_cy');
+      await devGrant(cy, 'account_data', 'signupFormVersion:v2');
+      await devGrant(cy, 'age_18plus', 'signupFormVersion:v2');
+      expect(await accepted(cy, 'cy')).toEqual([false]);
+      // A sign-up grant without the terms in force is refused.
+      expect(
+        (
+          await outcome(
+            cy,
+            `CREATE consent CONTENT { subject: $auth, type: 'terms_of_use', event: 'granted',
+               dpaVersion: dpaVersion:dev_policy, form: signupFormVersion:v2,
+               mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: 4 }`,
+            { h: sha256('no terms') },
+          )
+        ).ok,
+      ).toBe(false);
+      await devGrant(cy, 'terms_of_use', 'signupFormVersion:v2');
+      expect(await accepted(cy, 'cy')).toEqual([true]);
     });
 
     it('real consent works against them; switched off, they and the grants stop counting', async () => {
@@ -896,10 +970,9 @@ describe('dev placeholder privacy document and forms (D75)', () => {
       await devGrant(
         ann,
         'special_category_religious',
-        'testimonyFormVersion:v1',
+        'testimonyFormVersion:v2',
       );
-      await devGrant(ann, 'account_data', 'signupFormVersion:v1');
-      await devGrant(ann, 'age_18plus', 'signupFormVersion:v1');
+      await signUp(ann);
       expect(await accepted(ann, 'ann')).toEqual([true]);
       expect(await draft(ann, 'ann_story')).toHaveLength(1);
 
@@ -919,14 +992,13 @@ describe('dev placeholder privacy document and forms (D75)', () => {
       // These suites test consent, with more stories per person than D94 lets one start.
       await trustSubmitters(t, 'bo');
       const bo = await t.person('user_bo');
-      await devGrant(bo, 'account_data', 'signupFormVersion:v1');
-      await devGrant(bo, 'age_18plus', 'signupFormVersion:v1');
+      await signUp(bo);
       await devGrant(
         bo,
         'special_category_religious',
-        'testimonyFormVersion:v1',
+        'testimonyFormVersion:v2',
       );
-      await devGrant(bo, 'publish', 'testimonyFormVersion:v1');
+      await devGrant(bo, 'publish', 'testimonyFormVersion:v2');
       await draft(bo, 'bo_live');
       await submit(bo, 'bo_live');
       await approve(await t.service('api_admin'), 'bo_live');

@@ -56,6 +56,13 @@ resource "google_cloud_run_v2_service" "web" {
         value = google_cloud_run_v2_service.signed_in_api["api-user"].uri
       }
 
+      # api-admin's origin for the browser's own calls, as for api-user (moderation and
+      # policy uploads). web's server never calls api-admin.
+      env {
+        name  = "API_ADMIN_URL"
+        value = google_cloud_run_v2_service.signed_in_api["api-admin"].uri
+      }
+
       # Public (D32): read at request time and handed to Clerk in the browser,
       # which is the only place Clerk runs. web's server holds no Clerk secret.
       env {

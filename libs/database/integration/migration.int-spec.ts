@@ -49,6 +49,7 @@ const SEEDS = [
   '0004-check-story-shapes',
   '0005-dev-legal-placeholders',
   '0006-submission-settings',
+  '0007-dev-legal-documents',
 ];
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
@@ -577,7 +578,7 @@ describe('P1: scripts can never commit partly', () => {
     async (_, middle, word) => {
       const result = await t.runMigration(t.params(), {
         bundleDir: await bundleWith({
-          'data/0009-refused.surql': `${tag('before')}${middle}\n${tag('after')}`,
+          'data/0109-refused.surql': `${tag('before')}${middle}\n${tag('after')}`,
         }),
       });
       expect(result.exitCode).toBe(2);
@@ -604,9 +605,9 @@ describe('P1: scripts can never commit partly', () => {
     ].join('\n');
     expect(
       await t.migrate(t.params(), {
-        bundleDir: await bundleWith({ 'data/0098-allowed.surql': text }),
+        bundleDir: await bundleWith({ 'data/0106-allowed.surql': text }),
       }),
-    ).toMatchObject({ applied: ['0098-allowed'] });
+    ).toMatchObject({ applied: ['0106-allowed'] });
     expect(await tagIds(t, 'last')).toEqual(['last']);
   });
 
@@ -621,14 +622,14 @@ describe('P1: scripts can never commit partly', () => {
     async (_, sep) => {
       const text = `IF true {\n${tag('sep_before')}-- comment${sep}BREAK;\n${tag('sep_after')}};\n`;
       const result = await t.runMigration(t.params(), {
-        bundleDir: await bundleWith({ 'data/0009-separator.surql': text }),
+        bundleDir: await bundleWith({ 'data/0109-separator.surql': text }),
       });
       expect(result.exitCode).toBe(2);
       expect(result.output).toContain(
         `U+${sep.codePointAt(0)?.toString(16).toUpperCase().padStart(4, '0')}`,
       );
       expect(await tagIds(t, 'sep_before', 'sep_after')).toEqual([]);
-      expect(await appliedIds(t)).not.toContain('0009-separator');
+      expect(await appliedIds(t)).not.toContain('0109-separator');
       expect(await pendingSteps(t)).toEqual([]);
     },
   );
@@ -661,7 +662,7 @@ describe('P1: scripts can never commit partly', () => {
     ],
   ])('refuses %s', async (_, text, message) => {
     const result = await t.runMigration(t.params(), {
-      bundleDir: await bundleWith({ 'data/0009-characters.surql': text }),
+      bundleDir: await bundleWith({ 'data/0109-characters.surql': text }),
     });
     expect(result.exitCode).toBe(2);
     expect(result.output).toContain(message);
@@ -672,10 +673,10 @@ describe('P1: scripts can never commit partly', () => {
     expect(
       await t.migrate(t.params(), {
         bundleDir: await bundleWith({
-          'data/0008-unicode.surql': `CREATE tag:uni SET name = 'caf\u00e9 ’quoted’', category = 'theme';\n`,
+          'data/0108-unicode.surql': `CREATE tag:uni SET name = 'caf\u00e9 ’quoted’', category = 'theme';\n`,
         }),
       }),
-    ).toMatchObject({ applied: ['0008-unicode'] });
+    ).toMatchObject({ applied: ['0108-unicode'] });
     expect(
       await rows(await t.migrator(), 'SELECT VALUE name FROM tag:uni'),
     ).toEqual(['caf\u00e9 ’quoted’']);
@@ -683,7 +684,7 @@ describe('P1: scripts can never commit partly', () => {
 
   it('defence in depth: a BREAK in an IF block that got past the grammar blocks until cleared (review round 4)', async () => {
     const leaky = `IF true {\n${tag('brk_before')}BREAK;\n${tag('brk_after')}};\n`;
-    const bundle = await bundleWith({ 'data/0010-break.surql': leaky });
+    const bundle = await bundleWith({ 'data/0110-break.surql': leaky });
     const first = await t.runMigration(t.params(), {
       bundleDir: bundle,
       bypassGrammar: true,
@@ -692,7 +693,7 @@ describe('P1: scripts can never commit partly', () => {
     expect(first.output).toContain('PARTIAL COMMIT POSSIBLE');
     // 3.2.4 committed the transaction (marker included) but skipped brk_after.
     expect(await tagIds(t, 'brk_before', 'brk_after')).toEqual(['brk_before']);
-    expect(await pendingSteps(t)).toEqual(['0010-break']);
+    expect(await pendingSteps(t)).toEqual(['0110-break']);
 
     // The second run must not treat the marker as proof: the pending row still blocks it.
     const second = await t.runMigration(t.params(), {
@@ -701,18 +702,18 @@ describe('P1: scripts can never commit partly', () => {
       env: { MIGRATE_PENDING_WAIT_SECONDS: '1' },
     });
     expect(second.exitCode).toBe(3);
-    expect(second.output).toContain('blocked: unfinished step(s) 0010-break');
+    expect(second.output).toContain('blocked: unfinished step(s) 0110-break');
 
     // The operator completes the script's work and clears the row deliberately.
     await run(
       await t.migrator(),
-      `${tag('brk_after')}DELETE _migrationPending:⟨0010-break⟩;`,
+      `${tag('brk_after')}DELETE _migrationPending:⟨0110-break⟩;`,
     );
     expect(
       await t.migrate(t.params(), { bundleDir: bundle, bypassGrammar: true }),
     ).toMatchObject({
       applied: [],
-      alreadyApplied: expect.arrayContaining(['0010-break']),
+      alreadyApplied: expect.arrayContaining(['0110-break']),
     });
   });
 
@@ -729,16 +730,16 @@ describe('P1: scripts can never commit partly', () => {
 
   it('refuses Codex’s regex example before anything runs (grammar on)', async () => {
     const result = await t.runMigration(t.params(), {
-      bundleDir: await bundleWith({ 'data/0011-regex.surql': CODEX_REGEX }),
+      bundleDir: await bundleWith({ 'data/0111-regex.surql': CODEX_REGEX }),
     });
     expect(result.exitCode).toBe(2);
     expect(result.output).toContain('`/` outside a string');
     expect(await probes()).toEqual([]);
-    expect(await appliedIds(t)).not.toContain('0011-regex');
+    expect(await appliedIds(t)).not.toContain('0111-regex');
   });
 
   it('the closing acknowledgement catches it even with the grammar off: exit 3, then blocked until cleared', async () => {
-    const bundle = await bundleWith({ 'data/0011-regex.surql': CODEX_REGEX });
+    const bundle = await bundleWith({ 'data/0111-regex.surql': CODEX_REGEX });
     const first = await t.runMigration(t.params(), {
       bundleDir: bundle,
       bypassGrammar: true,
@@ -746,8 +747,8 @@ describe('P1: scripts can never commit partly', () => {
     expect(first.exitCode).toBe(3);
     expect(first.output).toContain("the step's closing nonce never came back");
     expect(await probes()).toEqual(['before']); // 3.2.4 committed the part before the RETURN
-    expect(await appliedIds(t)).not.toContain('0011-regex');
-    expect(await pendingSteps(t)).toEqual(['0011-regex']);
+    expect(await appliedIds(t)).not.toContain('0111-regex');
+    expect(await pendingSteps(t)).toEqual(['0111-regex']);
 
     const second = await t.runMigration(t.params(), {
       bundleDir: bundle,
@@ -755,20 +756,20 @@ describe('P1: scripts can never commit partly', () => {
       env: { MIGRATE_PENDING_WAIT_SECONDS: '1' },
     });
     expect(second.exitCode).toBe(3);
-    expect(second.output).toContain('blocked: unfinished step(s) 0011-regex');
+    expect(second.output).toContain('blocked: unfinished step(s) 0111-regex');
 
     // The operator undoes the partial write, fixes the script and clears the row.
     await run(
       await t.migrator(),
-      'DELETE reviewProbe; DELETE _migrationPending:⟨0011-regex⟩;',
+      'DELETE reviewProbe; DELETE _migrationPending:⟨0111-regex⟩;',
     );
     expect(
       await t.migrate(t.params(), {
         bundleDir: await bundleWith({
-          'data/0011-regex.surql': `UPSERT reviewProbe:before SET ran = true;\nUPSERT reviewProbe:after SET ran = true;\n`,
+          'data/0111-regex.surql': `UPSERT reviewProbe:before SET ran = true;\nUPSERT reviewProbe:after SET ran = true;\n`,
         }),
       }),
-    ).toMatchObject({ applied: ['0011-regex'] });
+    ).toMatchObject({ applied: ['0111-regex'] });
     expect(await probes()).toEqual(['after', 'before']);
   });
 
@@ -805,7 +806,7 @@ describe('P1: scripts can never commit partly', () => {
     async (_, line, message) => {
       const result = await t.runMigration(t.params(), {
         bundleDir: await bundleWith({
-          'data/0012-literal.surql': `${tag('lit_before')}${line}\n`,
+          'data/0112-literal.surql': `${tag('lit_before')}${line}\n`,
         }),
       });
       expect(result.exitCode).toBe(2);
@@ -839,7 +840,7 @@ describe('P1: scripts can never commit partly', () => {
   it('defence in depth: a RETURN that got past the grammar fails loudly and blocks every later run', async () => {
     const leaky = `${tag('dd_before')}${CODEX_EXAMPLES[0]}\n${tag('dd_after')}`;
     const bypassed = await t.runMigration(t.params(), {
-      bundleDir: await bundleWith({ 'data/0007-leaky.surql': leaky }),
+      bundleDir: await bundleWith({ 'data/0107-leaky.surql': leaky }),
       bypassGrammar: true,
     });
     expect(bypassed.exitCode).toBe(3);
@@ -848,32 +849,32 @@ describe('P1: scripts can never commit partly', () => {
     );
     // What 3.2.4 committed before the early exit stays; the rest and the marker don't.
     expect(await tagIds(t, 'dd_before', 'dd_after')).toEqual(['dd_before']);
-    expect(await appliedIds(t)).not.toContain('0007-leaky');
-    expect(await pendingSteps(t)).toEqual(['0007-leaky']);
+    expect(await appliedIds(t)).not.toContain('0107-leaky');
+    expect(await pendingSteps(t)).toEqual(['0107-leaky']);
 
     // A retry, even with the script fixed, refuses to start: it can't mark 0007 as done.
     const retry = await t.runMigration(t.params(), {
       bundleDir: await bundleWith({
-        'data/0007-leaky.surql': `${tag('dd_before')}${tag('dd_after')}`,
+        'data/0107-leaky.surql': `${tag('dd_before')}${tag('dd_after')}`,
       }),
       env: { MIGRATE_PENDING_WAIT_SECONDS: '1' },
     });
     expect(retry.exitCode).toBe(3);
-    expect(retry.output).toContain('blocked: unfinished step(s) 0007-leaky');
-    expect(await appliedIds(t)).not.toContain('0007-leaky');
+    expect(retry.output).toContain('blocked: unfinished step(s) 0107-leaky');
+    expect(await appliedIds(t)).not.toContain('0107-leaky');
 
     // The operator checks the data, undoes the partial write, clears the row (README).
     await run(
       await t.migrator(),
-      'DELETE tag:dd_before; DELETE _migrationPending:⟨0007-leaky⟩;',
+      'DELETE tag:dd_before; DELETE _migrationPending:⟨0107-leaky⟩;',
     );
     expect(
       await t.migrate(t.params(), {
         bundleDir: await bundleWith({
-          'data/0007-leaky.surql': `${tag('dd_before')}${tag('dd_after')}`,
+          'data/0107-leaky.surql': `${tag('dd_before')}${tag('dd_after')}`,
         }),
       }),
-    ).toMatchObject({ applied: ['0007-leaky'] });
+    ).toMatchObject({ applied: ['0107-leaky'] });
     expect(await tagIds(t, 'dd_before', 'dd_after')).toEqual([
       'dd_after',
       'dd_before',
@@ -1118,6 +1119,7 @@ describe('upgrading a database migrated by the previous release (Codex, #101)', 
     expect(summary.applied).toEqual([
       '0005-dev-legal-placeholders',
       '0006-submission-settings',
+      '0007-dev-legal-documents',
     ]);
     const migrator = await t.migrator();
     expect(
@@ -1342,39 +1344,39 @@ describe('data scripts on an already-migrated database', () => {
 
   it('runs a new script exactly once', async () => {
     const bundle = await bundleWith({
-      'data/0013-add-tag.surql': tag('migrated'),
+      'data/0113-add-tag.surql': tag('migrated'),
     });
     expect(await t.migrate(t.params(), { bundleDir: bundle })).toMatchObject({
-      applied: ['0013-add-tag'],
+      applied: ['0113-add-tag'],
       alreadyApplied: SEEDS,
     });
     // CREATE fails on an existing record, so a re-run would fail this migration.
     expect(await t.migrate(t.params(), { bundleDir: bundle })).toMatchObject({
       applied: [],
-      alreadyApplied: [...SEEDS, '0013-add-tag'],
+      alreadyApplied: [...SEEDS, '0113-add-tag'],
     });
     expect(await tagIds(t, 'migrated')).toEqual(['migrated']);
   });
 
   it('a failing script leaves no _migration row, none of its writes and no pending row, and stops there', async () => {
     const failing = await bundleWith({
-      'data/0014-fails.surql': `${tag('partial')}THROW 'boom';\n`,
-      'data/0015-after.surql': tag('after'),
+      'data/0114-fails.surql': `${tag('partial')}THROW 'boom';\n`,
+      'data/0115-after.surql': tag('after'),
     });
     const result = await t.runMigration(t.params(), { bundleDir: failing });
     expect(result.exitCode).toBe(1);
-    expect(result.output).toContain('0014-fails: An error occurred: boom');
+    expect(result.output).toContain('0114-fails: An error occurred: boom');
     expect(result.output).toContain("the server refused the step's COMMIT");
-    expect(await appliedIds(t)).toEqual([...SEEDS, '0013-add-tag']);
+    expect(await appliedIds(t)).toEqual([...SEEDS, '0113-add-tag']);
     expect(await tagIds(t, 'partial', 'after')).toEqual([]);
     expect(await pendingSteps(t)).toEqual([]);
 
     const fixed = await bundleWith({
-      'data/0014-fails.surql': tag('partial'),
-      'data/0015-after.surql': tag('after'),
+      'data/0114-fails.surql': tag('partial'),
+      'data/0115-after.surql': tag('after'),
     });
     expect(await t.migrate(t.params(), { bundleDir: fixed })).toMatchObject({
-      applied: ['0014-fails', '0015-after'],
+      applied: ['0114-fails', '0115-after'],
     });
   });
 
@@ -1424,14 +1426,14 @@ describe('parameters (OpenTofu values)', () => {
         {
           bundleDir: await bundleWith({
             'schema.surql': `${await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8')}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
-            'data/0013-needs-key.surql': `CREATE tag:k SET name = $clerk_jwt_public_key, category = 'theme';\n`,
+            'data/0113-needs-key.surql': `CREATE tag:k SET name = $clerk_jwt_public_key, category = 'theme';\n`,
           }),
         },
       );
       expect(result.exitCode).toBe(1);
       // migrate.py's wording; it's part of the migration bundle, so it keeps the old tool name.
       expect(result.output).toContain(
-        '0013-needs-key.surql uses clerk_jwt_public_key, which Terraform passed as null',
+        '0113-needs-key.surql uses clerk_jwt_public_key, which Terraform passed as null',
       );
       expect(await scratchTableExists(t)).toBe(false);
     } finally {

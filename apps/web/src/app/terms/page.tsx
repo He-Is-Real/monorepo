@@ -1,5 +1,4 @@
-import { DraftNotice } from '@/components/page/draft-notice';
-import { NarrowColumn } from '@/components/page/page-header';
+import { CurrentDocument } from '@/components/legal/legal-routes';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -11,27 +10,10 @@ export function generateMetadata() {
   });
 }
 
+/**
+ * The terms of use (D121, D125): the version in force, which the sign-up form's "I agree to the
+ * terms of use" binds (D122), as Markdown an Admin publishes at /admin/legal.
+ */
 export default function TermsPage() {
-  return (
-    <main id="main" className="flex-1 py-12 sm:py-20">
-      <NarrowColumn>
-        <DraftNotice>
-          This is a placeholder. The real terms come before the site goes live.
-        </DraftNotice>
-        <h1 className="mb-6 text-[2rem] leading-tight font-normal sm:text-[2.75rem]">
-          Terms of use
-        </h1>
-        <div className="space-y-4 text-secondary-text">
-          <p>
-            This is the development version of He Is Real Today. Everything on
-            it is test content: the stories are made up, and nobody shared them.
-          </p>
-          <p>
-            The full terms, including how stories are shared, reviewed and
-            removed, will be published here before the site goes live.
-          </p>
-        </div>
-      </NarrowColumn>
-    </main>
-  );
+  return <CurrentDocument document="terms" />;
 }

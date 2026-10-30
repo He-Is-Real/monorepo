@@ -335,7 +335,9 @@ describe('service identities (D13 B)', () => {
       );
       expect(edit).toEqual({
         ok: false,
-        error: expect.stringContaining('published DPA versions are immutable'),
+        error: expect.stringContaining(
+          'published privacy policy versions are kept for ever',
+        ),
       });
       expect(
         await rows(db, 'DELETE dpaVersion:v2_draft RETURN BEFORE'),

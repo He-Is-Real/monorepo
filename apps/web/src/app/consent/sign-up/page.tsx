@@ -11,7 +11,7 @@ export function generateMetadata(): Metadata {
     ...pageMetadata({
       title: 'Before you use your account',
       description:
-        'Two things we need before you use your He Is Real Today account.',
+        'Three things we need before you use your He Is Real Today account.',
       path: '/consent/sign-up',
     }),
     robots: { index: false, follow: false },
@@ -20,9 +20,10 @@ export function generateMetadata(): Metadata {
 
 /**
  * The sign-up consent step (D73): once, after Clerk's sign-up or sign-in, for anyone who hasn't
- * accepted the sign-up form in force (the header sends them here, consent-prompts.tsx). Two
- * unticked boxes from the published form, "I am 18 or over" and "store my account and
- * favourites"; nothing is recorded until both are ticked. 18+ only, no parental route (D77).
+ * accepted the sign-up form in force (the header sends them here, consent-prompts.tsx). Three
+ * unticked boxes from the published form (D122): "I am 18 or over", "store my account activity
+ * and preferences" and "I agree to the terms of use"; nothing is recorded until all are ticked.
+ * 18+ only, no parental route (D77).
  */
 export default async function SignUpConsentPage({
   searchParams,
@@ -33,10 +34,10 @@ export default async function SignUpConsentPage({
   return (
     <ConsentPage
       form="signup"
-      ask={['age_18plus', 'account_data']}
+      ask={['age_18plus', 'account_data', 'terms_of_use']}
       mechanism="web_form_submission"
       title="Before you use your account"
-      lead="Please read this and tick both boxes. It only takes a moment, and we’ll take you back to where you were."
+      lead="Please read this and tick the boxes. It only takes a moment, and we’ll take you back to where you were."
       returnTo={returnTo}
     />
   );

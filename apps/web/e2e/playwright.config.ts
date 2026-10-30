@@ -111,6 +111,8 @@ export default defineConfig({
       E2E_FIXTURES: 'true',
       E2E_SIGNED_IN_NAME: SIGNED_IN_NAME,
       API_USER_URL: STUB_USER_URL,
+      // The stub api-user also answers api-admin's legal document routes (stub-api-user.mjs).
+      API_ADMIN_URL: STUB_USER_URL,
       // Only the monthly Buy Button (donate.e2e.ts): the One-off option is hidden.
       STRIPE_PUBLISHABLE_KEY: STRIPE_E2E.publishableKey,
       STRIPE_DONATE_MONTHLY_BUTTON_ID: STRIPE_E2E.monthlyButtonId,
