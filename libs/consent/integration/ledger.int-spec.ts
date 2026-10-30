@@ -190,6 +190,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
         formVersion,
         statement,
         mechanism,
+        privacyPolicyVersion: 'v1',
       }),
     );
   const conflict = async (p: Promise<unknown>) => {
@@ -462,6 +463,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
                 formVersion: 'v1',
                 statement,
                 mechanism: 'web_form_submission',
+                privacyPolicyVersion: 'v1',
               }),
             ),
           ),
@@ -768,6 +770,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
           formVersion: 'v3',
           statement: 'publish',
           mechanism: 'reconsent_prompt',
+          privacyPolicyVersion: 'v1',
         }),
       ).catch((e: unknown) => e);
       expect(published).toBe(true);
@@ -869,10 +872,14 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       expect(checks.every((c) => c.verified)).toBe(true);
     });
 
-    it('a page that showed another privacy policy or terms gets 409, and nothing is recorded', async () => {
+    it('a page that showed another privacy policy or terms, or doesn’t name them, gets 409, and nothing is recorded', async () => {
+      // No name is never filled in with the one in force: a page from an older release that
+      // doesn't send them didn't show those words.
       for (const shown of [
-        { privacyPolicyVersion: 'v1' },
-        { termsVersion: 'other' },
+        { privacyPolicyVersion: 'v1', termsVersion: 't1' },
+        { privacyPolicyVersion: 'p2', termsVersion: 'other' },
+        { termsVersion: 't1' },
+        { privacyPolicyVersion: 'p2' },
       ]) {
         expect(
           await conflict(

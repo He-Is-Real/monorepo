@@ -76,7 +76,8 @@ export function parseGrantConsent(body: unknown): GrantConsentInput {
       message: `one of ${CONSENT_MECHANISMS.join(', ')}`,
     });
   }
-  // D122: the privacy policy (and terms of use) versions the page showed, optional.
+  // D122: the privacy policy (and terms of use) versions the page showed; a missing one is the
+  // ledger's 409 (legal_document_not_in_force), so a page from an older release reloads.
   for (const name of ['privacyPolicyVersion', 'termsVersion']) {
     const v = b[name];
     if (v !== undefined && (typeof v !== 'string' || !FORM_VERSION.test(v))) {

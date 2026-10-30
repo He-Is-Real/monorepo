@@ -92,7 +92,8 @@ export interface GrantConsentInput {
   mechanism: ConsentMechanism;
   /**
    * D122: the privacy policy version the page showed, and on a sign-up version asking for them
-   * the terms of use version; each must be the one in force (409). Absent: the one in force.
+   * the terms of use version; each must be the one in force (409). Absent counts as not in
+   * force (409): the server never binds a document the page didn't name.
    */
   privacyPolicyVersion?: string;
   termsVersion?: string;
@@ -420,14 +421,14 @@ export class ConsentLedger {
       );
     }
     // D122: every grant binds the privacy policy in force (and on a sign-up version asking for
-    // them, the terms of use in force); the page names the ones it showed.
+    // them, the terms of use in force); the page must name the ones it showed. A missing one is
+    // refused like a stale one (a page from an older release reloads), never filled in here.
     const dpa = inForce.dpaVersion ? recordKey(inForce.dpaVersion) : null;
     const terms = inForce.termsVersion ? recordKey(inForce.termsVersion) : null;
     if (
       !dpa ||
       !inForce.dpaHash ||
-      (input.privacyPolicyVersion !== undefined &&
-        input.privacyPolicyVersion !== dpa)
+      input.privacyPolicyVersion !== dpa
     ) {
       throw new ConsentConflictError(
         'legal_document_not_in_force',
@@ -440,7 +441,7 @@ export class ConsentLedger {
       inForce.coversTerms &&
       (!terms ||
         !inForce.termsHash ||
-        (input.termsVersion !== undefined && input.termsVersion !== terms))
+        input.termsVersion !== terms)
     ) {
       throw new ConsentConflictError(
         'legal_document_not_in_force',

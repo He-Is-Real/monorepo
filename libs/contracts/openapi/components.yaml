@@ -1178,11 +1178,11 @@ components:
         in force (`GET /v1/legal/forms/{form}` on api-public-read); the database refuses anything but a
         published version. D122: the event binds the privacy policy in force and, on a sign-up version that
         asks for them, the terms of use in force (`GET /v1/legal/documents/{document}`); a page that showed
-        others gets `409 legal_document_not_in_force`. The server sets `occurredAt` and computes the evidence
+        others, or doesn't name them, gets `409 legal_document_not_in_force`. The server sets `occurredAt` and computes the evidence
         hash (`heisreal-consent-evidence/v4`, D125): sha256 of the form, its version, its text's and
         statements file's sha256, the privacy policy version with its words' sha256, the terms of use
         version with theirs (or nulls), the statement, the event and the mechanism. No IP address (D19).
-      required: [form, formVersion, statement, mechanism]
+      required: [form, formVersion, statement, mechanism, privacyPolicyVersion]
       properties:
         form:
           $ref: '#/components/schemas/ConsentForm'
@@ -1195,10 +1195,14 @@ components:
           $ref: '#/components/schemas/ConsentMechanism'
         privacyPolicyVersion:
           type: string
-          description: D122, the privacy policy version the page showed; must be the one in force.
+          description: |
+            D122, the privacy policy version the page showed; must be the one in force. Required: a grant
+            without it answers `409 legal_document_not_in_force` (a page from an older release reloads).
         termsVersion:
           type: string
-          description: D122, on a sign-up version asking for them, the terms of use version the page showed.
+          description: |
+            D122, the terms of use version the page showed. Required on a sign-up version that asks for
+            them (missing answers `409 legal_document_not_in_force`); ignored on other forms.
 
     DpaVersion:
       type: object

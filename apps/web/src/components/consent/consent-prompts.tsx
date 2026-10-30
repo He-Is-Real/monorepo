@@ -14,8 +14,8 @@ export const TESTIMONY_CONSENT_PATH = '/consent/testimony';
 
 /**
  * Pages a person who hasn't accepted the sign-up form may stay on: the step itself, sign-in,
- * the legal pages they may want to read first, and the staff page that publishes those
- * documents (D121). In a new environment nothing is published yet, so the step can't be
+ * the legal pages they may want to read first (with the numbered versions the step links), and
+ * the staff page that publishes those documents (D121). In a new environment nothing is published yet, so the step can't be
  * completed until an Admin publishes there; api-admin still refuses anyone below Admin.
  */
 const OPEN_BEFORE_SIGN_UP_CONSENT = [
@@ -25,6 +25,8 @@ const OPEN_BEFORE_SIGN_UP_CONSENT = [
   '/terms',
   '/admin/legal',
 ];
+/** `/privacy/versions/3`, `/terms/versions/12`: one numbered version (D125), nothing else. */
+const LEGAL_DOCUMENT_VERSION = /^\/(privacy|terms)\/versions\/[1-9][0-9]{0,8}$/;
 
 /** `path` with `redirect_url` set to where the person is now. */
 export function withReturn(path: string, here: string): string {
@@ -76,7 +78,8 @@ export function ConsentPrompts() {
   const needsSignUpConsent =
     account.status === 'ready' &&
     !account.account.signupConsent.accepted &&
-    !OPEN_BEFORE_SIGN_UP_CONSENT.includes(pathname);
+    !OPEN_BEFORE_SIGN_UP_CONSENT.includes(pathname) &&
+    !LEGAL_DOCUMENT_VERSION.test(pathname);
   useEffect(() => {
     if (needsSignUpConsent)
       router.replace(withReturn(SIGN_UP_CONSENT_PATH, here));

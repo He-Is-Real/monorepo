@@ -102,10 +102,28 @@ test('the sign-up step’s terms box links the terms of use in force, outside it
   await expect(
     privacy.locator('code', { hasText: 'theme' }).first(),
   ).toBeVisible();
-  await expect(
-    privacy.getByRole('link', { name: /^Version 2, on its own page/ }),
-  ).toHaveAttribute('href', '/privacy/versions/2');
+  const policy = privacy.getByRole('link', {
+    name: /^Version 2, on its own page/,
+  });
+  await expect(policy).toHaveAttribute('href', '/privacy/versions/2');
   await expectNoHorizontalOverflow(page);
+  // Both links open their version for someone who hasn't accepted yet, not the step again.
+  for (const [opener, path, version] of [
+    [link, '/terms/versions/1', '1'],
+    [policy, '/privacy/versions/2', '2'],
+  ] as const) {
+    const [tab] = await Promise.all([
+      page.waitForEvent('popup'),
+      opener.click(),
+    ]);
+    await expect(tab.getByRole('button', { name: /^Account: / })).toBeVisible();
+    await expect(tab.locator('[data-legal-version]')).toHaveAttribute(
+      'data-legal-version',
+      version,
+    );
+    await expect(tab).toHaveURL(`${WEB_SIGNED_IN_URL}${path}`);
+    await tab.close();
+  }
 });
 
 test.describe('/admin/legal', () => {

@@ -236,11 +236,11 @@ async function grant(req, res, onGranted) {
   if (formVersion !== 'v2') {
     return problem(res, 409, 'Conflict', 'form_version_not_in_force');
   }
-  // D122: the documents shown must be the ones in force (dev's placeholders).
+  // D122: the documents shown must be named and be the ones in force (dev's placeholders); the
+  // sign-up version asks for the terms.
   if (
-    (privacyPolicyVersion !== undefined &&
-      privacyPolicyVersion !== 'dev_policy') ||
-    (termsVersion !== undefined && termsVersion !== 'dev_placeholder')
+    privacyPolicyVersion !== 'dev_policy' ||
+    (form === 'signup' && termsVersion !== 'dev_placeholder')
   ) {
     return problem(res, 409, 'Conflict', 'legal_document_not_in_force');
   }
