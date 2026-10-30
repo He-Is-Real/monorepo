@@ -3,7 +3,7 @@
 import { SignOutButton, useAuth, useUser } from '@clerk/react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Popover } from 'radix-ui';
-import { cloneElement, type ReactElement, useEffect } from 'react';
+import { cloneElement, type ReactElement, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
 import { usePublishPersonalSession } from '@/lib/personal-session';
@@ -76,7 +76,7 @@ function useForgetOthersShareStorage(
  * avatar, first name, ▾): a compact button no wider than the header's account slot
  * (site-header.tsx), so it never pushes the header onto a second row. The first name shows
  * from 640 px and truncates to fit; phones get the avatar only.
- * It opens a panel with the full name, My favourites and Sign out. Presentational, so the e2e suite can render
+ * It opens a panel with the full name, My profile, My favourites and Sign out. Presentational, so the e2e suite can render
  * it without a Clerk session (site-header.tsx, E2E_FIXTURES). `signOut` wraps the Sign out
  * button (Clerk's SignOutButton in the app).
  */
@@ -130,6 +130,22 @@ export function SignedInAccount({
             Signed in as{' '}
             <span className="font-medium text-foreground">{name}</span>
           </p>
+          <a
+            href="/account"
+            className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="size-4 fill-none stroke-current"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+            </svg>
+            My profile
+          </a>
           <a
             href="/account/favourites"
             className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -194,8 +210,10 @@ export const e2eFixtureToken = async (): Promise<string> => {
 };
 
 /**
- * e2e fixture (E2E_FIXTURES): the signed-in header without Clerk; Sign out does nothing. It
- * calls the account bootstrap like the real one, with the fixture token.
+ * e2e fixture (E2E_FIXTURES): the signed-in header without Clerk. It calls the account bootstrap
+ * like the real one, with the fixture token. Sign out signs out on this page without leaving it,
+ * as a sign-out in another tab reaches this one (Clerk keeps a browser's tabs in step), so tests
+ * can see what a page does when its person goes.
  */
 export function FixtureSignedInAccount({
   name,
@@ -204,13 +222,20 @@ export function FixtureSignedInAccount({
   name: string;
   apiUserUrl?: string;
 }) {
-  useAccountBootstrap(E2E_FIXTURE_USER_ID, apiUserUrl, e2eFixtureToken);
-  usePublishPersonalSession(E2E_FIXTURE_USER_ID, apiUserUrl, e2eFixtureToken);
+  const [signedOut, setSignedOut] = useState(false);
+  const userId = signedOut ? null : E2E_FIXTURE_USER_ID;
+  useAccountBootstrap(userId, apiUserUrl, e2eFixtureToken);
+  usePublishPersonalSession(userId, apiUserUrl, e2eFixtureToken);
+  if (signedOut) return <SignInLink />;
   return (
     <SignedInAccount
       name={name}
       shortName={name.split(' ')[0]}
-      signOut={(button) => button}
+      signOut={(button) =>
+        cloneElement(button as ReactElement<{ onClick?: () => void }>, {
+          onClick: () => setSignedOut(true),
+        })
+      }
     />
   );
 }
