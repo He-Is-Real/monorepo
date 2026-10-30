@@ -379,6 +379,14 @@ describe('the submit flow for written stories', () => {
       tags: { min: 1, max: 5 },
       openDrafts: { max: 3, open: 0 },
       submissions: { per7Days: 1, nextAvailableAt: null },
+      uploads: {
+        videoMaxBytes: 4294967296,
+        audioMaxBytes: 524288000,
+        maxDurationSeconds: 900,
+        perHour: 10,
+        per7Days: 5,
+        nextAvailableAt: null,
+      },
     });
     const admin = await t.service('api_admin');
     await createPeople(t, { limadmin: 'user_limadmin' });

@@ -115,6 +115,11 @@ export interface SubmissionSettings {
   openDraftsMax: number;
   submissionsPer7Days: number;
   uploadRequestsPerHour: number;
+  /** D113's upload limits (M2 plan PR 7). */
+  uploadsPer7Days: number;
+  videoMaxBytes: number;
+  audioMaxBytes: number;
+  mediaMaxSeconds: number;
 }
 
 /** The query that returns them (any session: everyone reads the settings). */
@@ -171,4 +176,19 @@ export function submissionLimitOf(err: unknown): SubmissionLimit | undefined {
   if (/\blimit_open_drafts:/.test(message)) return 'open_drafts';
   if (/\blimit_weekly_submission:/.test(message)) return 'weekly_submission';
   return undefined;
+}
+
+/** The upload limits the database refused a grant for (schema.surql, uploadGrant_attach; D113). */
+export type UploadLimit = 'size' | 'duration' | 'hourly' | 'weekly';
+
+/**
+ * Which upload limit the database refused an upload grant for, if any: a file bigger or longer
+ * than the person may upload (`limit_upload_size:`, `limit_upload_duration:`), or more new uploads
+ * than they may start in an hour or 7 days (`limit_upload_hourly:`, `limit_upload_weekly:`).
+ */
+export function uploadLimitOf(err: unknown): UploadLimit | undefined {
+  const message = err instanceof Error ? err.message : String(err);
+  return /\blimit_upload_(size|duration|hourly|weekly):/.exec(message)?.[1] as
+    | UploadLimit
+    | undefined;
 }

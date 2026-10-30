@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   HttpStatus,
+  Inject,
   type MiddlewareConsumer,
   Module,
   type NestModule,
@@ -27,9 +28,20 @@ import {
   RequiresConsent,
   weakETag,
 } from '@heisreal/consent';
-import { IdempotencyKeyReusedError, requestHash } from '@heisreal/database';
+import {
+  IdempotencyKeyReusedError,
+  requestHash,
+  SURREAL,
+} from '@heisreal/database';
 import { RequiresRole } from '@heisreal/roles';
+import { SecretsService } from '@heisreal/secrets';
 import type { Request, Response } from 'express';
+import type { Surreal } from 'surrealdb';
+import {
+  BUNNY_STREAM,
+  type BunnyStream,
+  createBunnyStream,
+} from './bunny-stream';
 import { mergePatchBody } from './merge-patch-body';
 import { parseCreate, parseIfMatch, parsePatch } from './story-input';
 import {
@@ -41,6 +53,7 @@ import {
   type SubmissionLimits,
   type Tag,
 } from './story-store';
+import { parseUploadRequest, type UploadTarget, Uploads } from './uploads';
 
 const STATUSES = [
   'draft',
@@ -120,15 +133,23 @@ function reused(err: unknown): unknown {
 }
 
 /**
- * The submit flow's routes (M2 plan PR 4, written stories): the person's own stories and the
- * commands that create, edit and submit a draft. Everything runs in the person's own database
- * session (D27). Consent is checked by the guard first and by the database (D21, D93); D94's
+ * The submit flow's routes (M2 plan PR 4, written stories; PR 7, video and audio): the person's
+ * own stories and the commands that create, edit, upload to and submit a draft. Everything runs in
+ * the person's own database session (D27), but for the upload grant on api-user's own login (D80). Consent is checked by the guard first and by the database (D21, D93); D94's
  * limits by the database (story_limits).
  */
 @RequiresRole('User')
 @Controller()
 export class StoriesController {
-  constructor(private readonly people: PersonSessions) {}
+  private readonly uploads: Uploads;
+
+  constructor(
+    private readonly people: PersonSessions,
+    @Inject(SURREAL) service: Surreal,
+    @Inject(BUNNY_STREAM) bunny: BunnyStream | null,
+  ) {
+    this.uploads = new Uploads(service, bunny);
+  }
 
   @Get('v1/tags')
   @NoConsentRequired(
@@ -273,10 +294,15 @@ export class StoriesController {
     const idempotencyKey = parseIdempotencyKey(key);
     const result = await this.people
       .run(req, ({ session, user }) =>
-        new StoryStore(session).submit(sid, version, {
-          scope: { service: 'api-user', owner: user, key: idempotencyKey },
-          requestHash: requestHash(['POST', 'submit', sid, version]),
-        }),
+        new StoryStore(session).submit(
+          sid,
+          version,
+          {
+            scope: { service: 'api-user', owner: user, key: idempotencyKey },
+            requestHash: requestHash(['POST', 'submit', sid, version]),
+          },
+          () => this.uploads.checkBeforeSubmit(session, sid),
+        ),
       )
       .catch((err: unknown) => {
         throw reused(err);
@@ -284,6 +310,27 @@ export class StoriesController {
     res.status(HttpStatus.OK);
     res.setHeader('ETag', `"${result.version}"`);
     return result;
+  }
+
+  @Post('v1/stories/:id/upload-url')
+  @RequiresConsent(CONSENT_REQUIRED.requestUpload)
+  async requestUploadUrl(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Headers('if-match') ifMatch?: string,
+  ): Promise<UploadTarget> {
+    const sid = storyId(id);
+    const version = ifMatchOf(ifMatch);
+    const input = parseUploadRequest(body);
+    const target = await this.people.run(req, ({ session, user }) =>
+      this.uploads.request(session, user, sid, version, input),
+    );
+    res.status(HttpStatus.OK);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('ETag', `"${target.version}"`);
+    return target;
   }
 
   private collection<T>(
@@ -302,7 +349,17 @@ export class StoriesController {
   }
 }
 
-@Module({ controllers: [StoriesController] })
+@Module({
+  controllers: [StoriesController],
+  providers: [
+    {
+      // Uploads (M2 plan PR 7): null when off (no BUNNY_STREAM_API_KEY_SECRET).
+      provide: BUNNY_STREAM,
+      inject: [SecretsService],
+      useFactory: (secrets: SecretsService) => createBunnyStream(secrets),
+    },
+  ],
+})
 export class StoriesModule implements NestModule {
   // EditStory takes JSON Merge Patch (D28), which Nest's JSON parser leaves alone.
   configure(consumer: MiddlewareConsumer) {

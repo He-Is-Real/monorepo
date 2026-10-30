@@ -702,9 +702,22 @@ paths:
       operationId: requestUploadUrl
       summary: Get a short-lived direct-upload target for my draft
       description: |
-        Command `RequestUpload`. The documented exception to "commands return `{ id, version }`": it also
-        returns short-lived Bunny Stream TUS credentials. The client uploads straight to Bunny.net.
-        Needs the person's current Art 9 consent (`403`).
+        Command `RequestUpload` (M2 plan PR 7; D65, D80). The documented exception to "commands
+        return `{ id, version }`": it also returns short-lived Bunny Stream TUS credentials, and the
+        client uploads straight to Bunny.net. Needs the person's current Art 9 consent (`403`).
+
+        api-user checks the story is the caller's, still editable (`409` `story_locked`) and at
+        `If-Match` (`412`), and that it's a story of that format (`400`). Then, unless `resume`: it
+        creates a video at Bunny (titled with the story id only, D69), records an upload grant on
+        its own login and, in the same database write, makes it the draft's one video or audio
+        file (the story's version steps once); the draft's previous file is deleted at Bunny at
+        once. The browser never names a video, and the link binds only that one.
+
+        **Limits (D113; admin settings, `SubmissionLimits.uploads`):** the file's size and length
+        (`400` `validation_failed`, `/fileSizeBytes` or `/durationSeconds`), and new uploads per
+        rolling hour and 7 days (`409` `upload_limit_reached` with `availableAt`); a trusted
+        submitter has only the hourly one, and the ceilings for size and length. The database
+        enforces them too. `503` `uploads_unavailable` when uploads are off.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -743,6 +756,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/stories/{id}/submit:
     post:
@@ -769,6 +784,14 @@ paths:
         `availableAt`. The database enforces it too. A story that isn't a draft (or `changes_requested`) answers `409`
         `story_not_submittable`. Publishing `story-submitted` to the worker tier waits for the
         async lane (plan PR 9); nothing is published yet.
+
+        **Video and audio (M2 plan PR 7):** no body: the story's file is the one its last
+        `/upload-url` put on it (D80; `mediaRef` is gone). api-user asks Bunny whether it arrived:
+        `409` `media_not_uploaded` until it has (or after a failed upload), `409` `media_failed`
+        if Bunny couldn't read it, and `409` `media_over_limit` if it's bigger or longer than the
+        limits in force now (D113; "new rules apply to everyone", Joel 2026-10-30), from the
+        size the browser declared and Bunny's own length. `503` `uploads_unavailable` when api-user
+        can't reach Bunny's settings.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -778,12 +801,6 @@ paths:
         - $ref: './components.yaml#/components/parameters/storyId'
         - $ref: './components.yaml#/components/parameters/ifMatch'
         - $ref: './components.yaml#/components/parameters/idempotencyKey'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: './components.yaml#/components/schemas/SubmitStory'
       responses:
         '200':
           $ref: './components.yaml#/components/responses/CommandApplied'

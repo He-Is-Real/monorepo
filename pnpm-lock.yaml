@@ -355,6 +355,9 @@ importers:
       '@heisreal/database':
         specifier: workspace:*
         version: link:../../libs/database
+      '@heisreal/story-cards':
+        specifier: workspace:*
+        version: link:../../libs/story-cards
 
   apps/web:
     dependencies:
