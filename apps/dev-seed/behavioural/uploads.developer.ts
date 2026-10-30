@@ -105,6 +105,29 @@ function stream(path: string, init: RequestInit = {}) {
   });
 }
 
+/**
+ * D50: delete what a test uploaded. Every step is tried, even if an earlier one throws or answers
+ * an unexpected status, and only then are the results checked. The checks are soft, so a cleanup
+ * failure is reported alongside, never instead of, a failure in the test itself.
+ */
+async function cleanUp(
+  steps: { name: string; ok: number[]; run: () => Promise<Response> }[],
+) {
+  const results: { name: string; ok: number[]; result: number | string }[] = [];
+  for (const step of steps) {
+    let result: number | string;
+    try {
+      result = (await step.run()).status;
+    } catch (e) {
+      result = String(e);
+    }
+    results.push({ ...step, result });
+  }
+  for (const { name, ok, result } of results) {
+    expect.soft(ok, `${name}: ${result}`).toContain(result);
+  }
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto(WEB_URL);
   expect(new URL(page.url()).origin).toBe(new URL(WEB_URL).origin);
@@ -231,20 +254,31 @@ test('a WebP uploads from web’s origin by presigned PUT, once, and only as sig
       sha256(webp),
     );
   } finally {
-    const del = await fetch(
-      presignStorageUrl(zone, { method: 'DELETE', key, expiresIn: 60 }),
+    await cleanUp([
       {
-        method: 'DELETE',
+        name: 'delete the image',
+        ok: [204, 404],
+        run: () =>
+          fetch(
+            presignStorageUrl(zone, { method: 'DELETE', key, expiresIn: 60 }),
+            {
+              method: 'DELETE',
+            },
+          ),
       },
-    );
-    expect([204, 404]).toContain(del.status);
-    // Deleting a folder's last object leaves the folder behind (Bunny's storage keeps it), so
-    // the folder is deleted too, through the Edge Storage API.
-    const rmdir = await fetch(`${STORAGE_API}/${folder}/`, {
-      method: 'DELETE',
-      headers: { AccessKey: zone.password },
-    });
-    expect([200, 404]).toContain(rmdir.status);
+      // Deleting a folder's last object leaves the folder behind (Bunny's storage keeps it), so
+      // the folder is deleted too, through the Edge Storage API. It deletes what's inside it as
+      // well, so it also cleans up if the image delete failed.
+      {
+        name: 'delete the folder',
+        ok: [200, 404],
+        run: () =>
+          fetch(`${STORAGE_API}/${folder}/`, {
+            method: 'DELETE',
+            headers: { AccessKey: zone.password },
+          }),
+      },
+    ]);
   }
   const gone = await fetch(
     presignStorageUrl(zone, { method: 'GET', key, expiresIn: 60 }),
@@ -363,9 +397,13 @@ test('a 2-second clip uploads from web’s origin by presigned TUS and Bunny enc
     };
     expect(video.length).toBe(2);
   } finally {
-    expect((await stream(`/videos/${guid}`, { method: 'DELETE' })).status).toBe(
-      200,
-    );
+    await cleanUp([
+      {
+        name: 'delete the video',
+        ok: [200, 404],
+        run: () => stream(`/videos/${guid}`, { method: 'DELETE' }),
+      },
+    ]);
   }
   expect((await stream(`/videos/${guid}`)).status).toBe(404);
 });

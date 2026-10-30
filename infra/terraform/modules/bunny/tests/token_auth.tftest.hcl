@@ -39,9 +39,13 @@ run "token_auth_on_by_default" {
 }
 
 # apply (mocked): the data source is read after the library, so its values are
-# known only then.
+# known only then. Targeted at what it checks: the site-assets collection has
+# prevent_destroy, so applying it here would fail the test's clean-up destroy.
 run "signing_keys_in_secret_manager" {
   command = apply
+  plan_options {
+    target = [google_secret_manager_secret.app, data.bunnynet_pullzone.stream]
+  }
 
   assert {
     condition = alltrue([for id in ["bunny-stream-token-key", "bunny-images-token-key"] :
