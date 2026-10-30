@@ -1457,6 +1457,130 @@ components:
           items:
             $ref: '#/components/schemas/AdminLegalDocumentVersion'
 
+    SubmissionSettingsValues:
+      type: object
+      description: |
+        Every submission limit (W3, D94, D112, D113), as `UpdateSubmissionSettings` takes them and
+        `GET /v1/admin/submission-settings` returns them. Each must be within its `bounds`, and
+        `storyTextMin` ≤ `storyTextMax`, `tagsMin` ≤ `tagsMax`.
+      required:
+        [
+          storyTextMin,
+          storyTextMax,
+          tagsMin,
+          tagsMax,
+          openDraftsMax,
+          submissionsPer7Days,
+          uploadRequestsPerHour,
+          uploadsPer7Days,
+          videoMaxBytes,
+          audioMaxBytes,
+          mediaMaxSeconds,
+        ]
+      additionalProperties: false
+      properties:
+        storyTextMin:
+          type: integer
+          description: "A written story's text, trimmed, to submit (characters)."
+        storyTextMax:
+          type: integer
+          description: "A written story's text at most (characters)."
+        tagsMin:
+          type: integer
+          description: 'Themes needed to submit.'
+        tagsMax:
+          type: integer
+          description: 'Themes at most.'
+        openDraftsMax:
+          type: integer
+          description: 'Open drafts per person.'
+        submissionsPer7Days:
+          type: integer
+          description: 'Stories submitted for review per person in any rolling 7 days.'
+        uploadRequestsPerHour:
+          type: integer
+          description: 'New uploads per person in any rolling hour.'
+        uploadsPer7Days:
+          type: integer
+          description: 'New uploads per person in any rolling 7 days.'
+        videoMaxBytes:
+          type: integer
+          description: 'One video file at most (bytes).'
+        audioMaxBytes:
+          type: integer
+          description: 'One audio file at most (bytes).'
+        mediaMaxSeconds:
+          type: integer
+          description: 'One recording at most (seconds).'
+
+    SettingBounds:
+      type: object
+      required: [min, max]
+      additionalProperties: false
+      properties:
+        min:
+          type: integer
+        max:
+          type: integer
+
+    AdminSubmissionSettings:
+      type: object
+      required: [version, updatedAt, changedBy, settings, bounds]
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        updatedAt:
+          type: string
+          format: date-time
+        changedBy:
+          type: [string, 'null']
+          description: The user record id of the last admin who saved them (Clerk holds names, D16); `null` if only the migrator has.
+        settings:
+          $ref: '#/components/schemas/SubmissionSettingsValues'
+        bounds:
+          type: object
+          description: What each limit may be set to, inclusive.
+          required:
+            [
+              storyTextMin,
+              storyTextMax,
+              tagsMin,
+              tagsMax,
+              openDraftsMax,
+              submissionsPer7Days,
+              uploadRequestsPerHour,
+              uploadsPer7Days,
+              videoMaxBytes,
+              audioMaxBytes,
+              mediaMaxSeconds,
+            ]
+          additionalProperties: false
+          properties:
+            storyTextMin:
+              $ref: '#/components/schemas/SettingBounds'
+            storyTextMax:
+              $ref: '#/components/schemas/SettingBounds'
+            tagsMin:
+              $ref: '#/components/schemas/SettingBounds'
+            tagsMax:
+              $ref: '#/components/schemas/SettingBounds'
+            openDraftsMax:
+              $ref: '#/components/schemas/SettingBounds'
+            submissionsPer7Days:
+              $ref: '#/components/schemas/SettingBounds'
+            uploadRequestsPerHour:
+              $ref: '#/components/schemas/SettingBounds'
+            uploadsPer7Days:
+              $ref: '#/components/schemas/SettingBounds'
+            videoMaxBytes:
+              $ref: '#/components/schemas/SettingBounds'
+            audioMaxBytes:
+              $ref: '#/components/schemas/SettingBounds'
+            mediaMaxSeconds:
+              $ref: '#/components/schemas/SettingBounds'
+
     PublishLegalDocument:
       type: object
       description: |

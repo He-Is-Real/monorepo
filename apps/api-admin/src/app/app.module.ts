@@ -7,6 +7,7 @@ import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 import { LegalDocumentsModule } from './legal-documents/legal-documents.controller';
+import { SubmissionSettingsModule } from './submission-settings/submission-settings.controller';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { LegalDocumentsModule } from './legal-documents/legal-documents.controll
     ConsentModule.forRoot({ authenticator: ApiAdminAuthenticator }),
     HealthModule.forService('api-admin'),
     LegalDocumentsModule,
+    SubmissionSettingsModule,
   ],
   // D30: every error as an RFC 9457 problem; unknown errors never say why.
   providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],

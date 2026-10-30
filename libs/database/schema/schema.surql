@@ -1819,8 +1819,9 @@ DEFINE EVENT OVERWRITE user_erasure_favourites ON user
 --   checked when an upload is granted (uploadGrant_attach) and again at submit by api-user, with
 --   the values in force then ("new rules apply to everyone", Joel 2026-10-30).
 -- Everyone reads it (the submit page shows the numbers); only api-admin's login, naming the admin
--- in changedBy, and the migrator change it, never delete it. Every change is audit-logged. No
--- admin route or page yet: they come with M3's admin screens.
+-- in changedBy, and the migrator change it, never delete it. Every change is audit-logged. Admins
+-- change it at /admin/limits (api-admin's GET/PUT /v1/admin/submission-settings, If-Match on
+-- `version`).
 -- These are anti-spam and cost controls, not invariants (coordinator, Codex #118 round 2): a
 -- change applies to writes that start after it commits; a write already in flight may finish
 -- under the old values. No fence ties settings writes to story writes (it would touch every
@@ -1850,6 +1851,10 @@ DEFINE FIELD OVERWRITE audioMaxBytes ON submissionSettings TYPE int DEFAULT 5242
 DEFINE FIELD OVERWRITE mediaMaxSeconds ON submissionSettings TYPE int DEFAULT 900        -- 15 minutes
   ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().mediaMaxSeconds;
 DEFINE FIELD OVERWRITE changedBy     ON submissionSettings TYPE option<record<user>>;
+-- The admin's role when they made the change (a snapshot of the Clerk claim, D1), for the audit
+-- row's actorRole as PublishLegalDocument records it; api-admin sets it with changedBy.
+DEFINE FIELD OVERWRITE changedByRole ON submissionSettings TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
 DEFINE FIELD OVERWRITE version       ON submissionSettings TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE updatedAt     ON submissionSettings TYPE datetime VALUE time::now();
 DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
@@ -1861,7 +1866,7 @@ DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
     IF $after.changedBy = NONE AND $auth != NONE { THROW 'a settings change names the admin who made it (changedBy)' };
     CREATE auditLog CONTENT {
       service: fn::audit::service(), action: 'UpdateSubmissionSettings',
-      entity: $after.id, actor: $after.changedBy
+      entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
     };
   };
 -- The settings in force, with the defaults for anything missing (also before data/0006 ran).

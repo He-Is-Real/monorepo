@@ -612,8 +612,16 @@ retried`, on both RocksDB and the in-memory engine.
       withdrawing a story doesn't free the week. Nobody writes it directly; the person reads their
       own; erasure deletes it (api-user's login). Every write bumps the person's fence, so
       overlapping creates or submissions conflict at commit. api-user maps the codes to `409`
-      (`submissionLimitOf`) and `400` (`storyLimitOf`, `isStoryTextTooShortError`). No admin route
-      yet (M3's admin screens). Tests: `submission-limits.int-spec.ts`; suites about other rules
+      (`submissionLimitOf`) and `400` (`storyLimitOf`, `isStoryTextTooShortError`).
+      **The admin route (2026-10-30):** api-admin's `PUT /v1/admin/submission-settings`
+      (`/admin/limits`) updates `submissionSettings:current` as api-admin's login, which the
+      table already allowed (`FOR create, update WHERE $auth.id = service:api_admin`), so no new
+      rule was needed. It sets `changedBy` (the admin's user record, from their own session) and
+      `changedByRole` (their Clerk role, `Admin` or `SuperAdmin`) on every save, and the
+      `submissionSettings_check` event copies both into the `UpdateSubmissionSettings` audit row
+      (`actor`, `actorRole`). The version check (`If-Match`) and the write are one transaction;
+      two saves at once conflict at commit. Per-person overrides have no admin route yet. Tests:
+      `submission-limits.int-spec.ts`, api-admin's `submission-settings.int-spec.ts`; suites about other rules
       that start more stories per person mark their people trusted (`trustSubmitters`), and
       `buildWorld` makes Ann and Bob trusted.
 
