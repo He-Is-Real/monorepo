@@ -23,8 +23,11 @@ name: OpenTofu apply
 #     and fails unless it succeeded. It runs beside the plans and approve-1, so the wait overlaps
 #     them. A failed CI applies nothing; recover by re-running CI's failed jobs, then dispatching.
 #   - Wave 1: gcp, bunny and stripe plan in parallel; one approval (approve-1) covers their
-#     applies, and gcp applies after bunny (bunny grants gcp's services access to keys they
-#     read). stripe (donations' Stripe sandbox objects) depends on nothing and nothing waits on it.
+#     applies, except D119's dev-only exception: when gcp's plan changes only Cloud Run image
+#     digests from apps (tools/scripts/tf-image-only.mjs) and bunny and stripe have no changes,
+#     the separate `auto-approve-1` job (no environment) takes approve-1's place. The `dev`
+#     environment keeps its required approval; production never applies on its own. gcp
+#     applies after bunny (bunny grants gcp's services access to keys they read). stripe (donations' Stripe sandbox objects) depends on nothing and nothing waits on it.
 #     Wave 2: cluster (and images) plan after gcp's apply, against its fresh outputs; a second
 #     approval (approve-2) only if they change.
 #   - Superseded: if main moves while a run waits, its plan summaries say "reject this run",
@@ -168,6 +171,8 @@ jobs:
     outputs:
       changes: ${{ steps.plan.outputs.changes }}
       object: ${{ steps.plan.outputs.object }}
+      image_only: ${{ steps.image-only.outputs.image_only }}
+      images: ${{ steps.image-only.outputs.images }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -204,6 +209,23 @@ jobs:
             exit 1
             ;;
           esac
+      # D119: may this plan apply without the approval? Only if it changes nothing but Cloud Run
+      # image digests from apps (and bunny and stripe have no changes: auto-approve-1). The JSON
+      # stays on the runner; only the decision and each service's new image are published.
+      - id: image-only
+        if: steps.plan.outputs.changes == 'true'
+        run: |
+          tools/scripts/tf.sh gcp show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/tfplan.json"
+          decision="$(node tools/scripts/tf-image-only.mjs dev "$RUNNER_TEMP/tfplan.json")"
+          rm -f "$RUNNER_TEMP/tfplan.json"
+          if [ "$(head -n1 <<<"$decision")" = auto ]; then
+            echo image_only=true >> "$GITHUB_OUTPUT"
+            { echo 'images<<EOF'; tail -n +2 <<<"$decision"; echo EOF; } >> "$GITHUB_OUTPUT"
+            echo 'Image versions only: applies without an approval unless bunny or stripe changes (D119).' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo image_only=false >> "$GITHUB_OUTPUT"
+            echo "Needs the approval: ${decision#manual: }." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   plan-bunny:
     needs: target
@@ -316,7 +338,10 @@ jobs:
       always() && needs.target.result == 'success' &&
       ((needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true') ||
       (needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'true') ||
-      (needs.plan-stripe.result == 'success' && needs.plan-stripe.outputs.changes == 'true'))
+      (needs.plan-stripe.result == 'success' && needs.plan-stripe.outputs.changes == 'true')) &&
+      !(needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.image_only == 'true' &&
+      needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'false' &&
+      needs.plan-stripe.result == 'success' && needs.plan-stripe.outputs.changes == 'false')
     runs-on: ubuntu-latest
     env:
       SHA: ${{ needs.target.outputs.sha }}
@@ -336,16 +361,57 @@ jobs:
             echo go=false >> "$GITHUB_OUTPUT"
           fi
 
+  # D119 (Joel, 2026-10-30): approve-1's place when wave 1 changes only image versions in dev
+  # (plan-gcp's image-only check; bunny and stripe unchanged, so neither ever applies this way).
+  # A separate job without the `dev` environment: the environment keeps its required approval
+  # for everything else. Like approve-1, it re-checks main and applies nothing if superseded.
+  auto-approve-1:
+    needs: [target, plan-gcp, plan-bunny, plan-stripe]
+    if: >-
+      always() && needs.target.result == 'success' &&
+      needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.image_only == 'true' &&
+      needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'false' &&
+      needs.plan-stripe.result == 'success' && needs.plan-stripe.outputs.changes == 'false'
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+      IMAGES: ${{ needs.plan-gcp.outputs.images }}
+    permissions: {}
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - id: check
+        run: |
+          main="$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | cut -f1)"
+          if [ "$main" = "$SHA" ]; then
+            echo go=true >> "$GITHUB_OUTPUT"
+            {
+              echo '### auto-approved: image versions only'
+              echo 'dev only (D119). Applies once CI on main passed for the target.'
+              echo '| Service | New image |'
+              echo '| --- | --- |'
+              while read -r svc image; do
+                [ -n "$svc" ] && echo "| \`$svc\` | \`$image\` |"
+              done <<<"$IMAGES"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Superseded::superseded by $main: not applying"
+            echo "superseded by $main: not applying" >> "$GITHUB_STEP_SUMMARY"
+            echo go=false >> "$GITHUB_OUTPUT"
+          fi
+
   # After bunny (Codex, #117): gcp's services read keys the bunny root grants them access to
   # (e.g. api-user's link-signing keys), so a revision that needs a new grant must not start
   # before it exists. gcp applies once bunny applied, or had nothing to change; a failed or
   # cancelled bunny plan or apply holds gcp back (stage-gcp then blocks wave 2; dispatch to
   # recover).
   apply-gcp:
-    needs: [target, ci, plan-gcp, plan-bunny, approve-1, apply-bunny]
+    needs:
+      [target, ci, plan-gcp, plan-bunny, approve-1, auto-approve-1, apply-bunny]
     if: >-
       always() && needs.ci.result == 'success' && needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true' &&
-      needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true' &&
+      ((needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true') ||
+      (needs.auto-approve-1.result == 'success' && needs.auto-approve-1.outputs.go == 'true')) &&
       (needs.apply-bunny.result == 'success' ||
       (needs.apply-bunny.result == 'skipped' && needs.plan-bunny.result == 'success' &&
       needs.plan-bunny.outputs.changes == 'false'))
@@ -448,7 +514,7 @@ jobs:
       - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
   stage-gcp:
-    needs: [target, ci, plan-gcp, approve-1, apply-gcp]
+    needs: [target, ci, plan-gcp, approve-1, auto-approve-1, apply-gcp]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -465,7 +531,7 @@ jobs:
           PREV: "${{ needs.target.result == 'success' && needs.ci.result == 'success' && 'ok' || 'blocked: target or CI' }}"
           PLAN: ${{ needs.plan-gcp.result }}
           CHANGES: ${{ needs.plan-gcp.outputs.changes }}
-          GO: ${{ needs.approve-1.outputs.go }}
+          GO: ${{ needs.approve-1.outputs.go || needs.auto-approve-1.outputs.go }}
           APPLY: ${{ needs.apply-gcp.result }}
         run: |
           result="$(tools/scripts/tf-stage.sh "$PREV" true "$PLAN" "$CHANGES" "$GO" "$APPLY")"
@@ -878,6 +944,7 @@ jobs:
     needs:
       - target
       - approve-1
+      - auto-approve-1
       - approve-2
       - plan-gcp
       - plan-bunny
@@ -894,7 +961,9 @@ jobs:
       - stage-stripe
       - stage-cluster
       - stage-images
-    if: always() && (needs.approve-1.outputs.go == 'false' || needs.approve-2.outputs.go == 'false')
+    if: >-
+      always() && (needs.approve-1.outputs.go == 'false' || needs.auto-approve-1.outputs.go == 'false' ||
+      needs.approve-2.outputs.go == 'false')
     runs-on: ubuntu-latest
     permissions:
       contents: read

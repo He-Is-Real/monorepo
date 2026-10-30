@@ -142,6 +142,14 @@ speed review, P3).
   changes" and skip their apply. If `main` moved past the merge that started the run, the first
   job waits for the new HEAD's Release Images (`tools/scripts/gh-wait-run.sh`); unless it
   succeeded, nothing plans (re-run Release Images: its completion starts a new run).
+- **Image-only dev plans apply themselves (D119, Joel 2026-10-30).** When gcp's plan changes
+  nothing but Cloud Run image digests from `apps` (`tools/scripts/tf-image-only.mjs` reads
+  `tofu show -json`; tests in `tools/scripts/tests/tf-image-only.test.mjs`) and bunny and stripe
+  have no changes, the `auto-approve-1` job takes approve-1's place: no click, and the summary
+  says "auto-approved: image versions only" with each service's new digest. It still waits for
+  the CI gate and re-checks for a newer `main`. Anything else (cluster, IAM, secrets, Bunny,
+  Stripe, a create, delete or replace, an `apps-scratch` image) waits for the `dev` approval,
+  which the environment still requires. Production never applies on its own.
 - **The CI gate.** No apply runs unless `ci.yml` passed on `main` for the target commit. The `ci`
   job waits for it beside the plans and the first approval, so the wait mostly overlaps them; every
   apply job and wave 1's stages need it (`tools/scripts/tests/tf-apply-order.test.mjs`). If CI
