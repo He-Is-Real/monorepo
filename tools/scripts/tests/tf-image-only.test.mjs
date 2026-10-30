@@ -1,4 +1,4 @@
-// tools/scripts/tf-image-only.mjs: D119 (Joel, 2026-10-30), a dev gcp plan applies without the
+// tools/scripts/tf-image-only.mjs: D120 (Joel, 2026-10-30), a dev gcp plan applies without the
 // approval only when every change is a Cloud Run service or job moving to a new image digest
 // from our own `apps` repository. Everything else waits for the `dev` approval, and production
 // never applies on its own. Plans are shaped as `tofu show -json` writes them.

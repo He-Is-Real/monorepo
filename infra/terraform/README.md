@@ -142,7 +142,7 @@ speed review, P3).
   changes" and skip their apply. If `main` moved past the merge that started the run, the first
   job waits for the new HEAD's Release Images (`tools/scripts/gh-wait-run.sh`); unless it
   succeeded, nothing plans (re-run Release Images: its completion starts a new run).
-- **Image-only dev plans apply themselves (D119, Joel 2026-10-30).** When gcp's plan changes
+- **Image-only dev plans apply themselves (D120, Joel 2026-10-30).** When gcp's plan changes
   nothing but Cloud Run image digests from `apps` (`tools/scripts/tf-image-only.mjs` reads
   `tofu show -json`; tests in `tools/scripts/tests/tf-image-only.test.mjs`) and bunny and stripe
   have no changes, the `auto-approve-1` job takes approve-1's place: no click, and the summary

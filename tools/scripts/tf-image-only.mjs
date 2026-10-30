@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Whether a saved gcp plan may apply without the `dev` approval: D119 (Joel, 2026-10-30), dev
+// Whether a saved gcp plan may apply without the `dev` approval: D120 (Joel, 2026-10-30), dev
 // plans that change only image versions apply themselves (tests: tests/tf-image-only.test.mjs).
 //
 //   tofu show -json plan > plan.json
@@ -21,7 +21,7 @@
 // Output changes are allowed: they change nothing in the cloud.
 import { readFileSync } from 'node:fs';
 
-/** The only environment that may ever apply on its own. Production never does (D119). */
+/** The only environment that may ever apply on its own. Production never does (D120). */
 const AUTO_ENVIRONMENT = 'dev';
 const PROJECT = 'heisreal-dev';
 const TYPES = new Set([

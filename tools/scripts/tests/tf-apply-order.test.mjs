@@ -174,7 +174,7 @@ test("a failed CI blocks wave 1's stages, and so wave 2 and the behavioural test
   }
 });
 
-// D119 (Joel, 2026-10-30): dev plans that change only image versions apply without the approval.
+// D120 (Joel, 2026-10-30): dev plans that change only image versions apply without the approval.
 const wave1 = ({
   gcp = 'true',
   imageOnly = 'true',
