@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { e2eFixtureToken } from '@/components/auth/account-control';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { type ApiUser, apiUser } from '@/lib/api-user';
+import { personalApiUser } from '@/lib/personal-session';
 import type { ShareLegal } from '@/lib/share-legal';
 import { ShareFlow } from './share-flow';
 
@@ -37,9 +38,19 @@ function ShareSignedIn({
   legal: ShareLegal;
 }) {
   const { isLoaded, isSignedIn, getToken, userId } = useAuth();
-  // One client per signed-in person; getToken is asked on every call.
+  // One client per signed-in person, bound to them (Codex #118 round 4): Clerk's getToken reads
+  // the active session on each call, so a save still running after someone else signs in would
+  // otherwise go out with their token. Only a token whose `sub` is this person's is sent.
   const api = useMemo(
-    () => (isSignedIn && userId ? apiUser(apiUserUrl, () => getToken()) : null),
+    () =>
+      isSignedIn && userId
+        ? personalApiUser({
+            status: 'signed-in',
+            userId,
+            apiUserUrl,
+            getToken: () => getToken(),
+          })
+        : null,
     // getToken's identity changes on Clerk updates; the person is what matters.
     [apiUserUrl, isSignedIn, userId],
   );

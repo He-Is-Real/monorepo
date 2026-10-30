@@ -3,6 +3,8 @@
 import {
   type ApiUser,
   ApiUserProblem,
+  type ApiUserResponse,
+  ApiUserUnavailable,
   newIdempotencyKey,
 } from '@/lib/api-user';
 
@@ -126,6 +128,27 @@ export function plainMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/**
+ * A command's `{ id, version }`. A success without them (an empty or unexpected body) says
+ * nothing about what was done, so it counts as no answer (Codex #118 round 4): callers keep
+ * their Idempotency-Key, body and the copy on this device, and try again.
+ */
+export function commandResult(
+  res: ApiUserResponse<CommandResult>,
+): CommandResult {
+  const d = res.data as Partial<CommandResult> | undefined;
+  if (
+    !d ||
+    typeof d !== 'object' ||
+    typeof d.id !== 'string' ||
+    !d.id ||
+    !Number.isInteger(d.version)
+  ) {
+    throw new ApiUserUnavailable('api-user answered without the result');
+  }
+  return { id: d.id, version: d.version as number };
+}
+
 export function shareApi(api: ApiUser) {
   return {
     consents: async () =>
@@ -164,7 +187,7 @@ export function shareApi(api: ApiUser) {
       }),
     create: async (fields: StoryFields, idempotencyKey: string) => {
       const n = normalise(fields);
-      return (
+      return commandResult(
         await api.command<CommandResult>('/v1/stories', {
           method: 'POST',
           body: {
@@ -176,23 +199,23 @@ export function shareApi(api: ApiUser) {
             tagSlugs: n.tagSlugs,
           },
           idempotencyKey,
-        })
-      ).data as CommandResult;
+        }),
+      );
     },
     edit: async (id: string, version: number, patch: Record<string, unknown>) =>
-      (
+      commandResult(
         await api.command<CommandResult>(
           `/v1/stories/${encodeURIComponent(id)}`,
           { method: 'PATCH', body: patch, version, mergePatch: true },
-        )
-      ).data as CommandResult,
+        ),
+      ),
     submit: async (id: string, version: number, idempotencyKey: string) =>
-      (
+      commandResult(
         await api.command<CommandResult>(
           `/v1/stories/${encodeURIComponent(id)}/submit`,
           { method: 'POST', version, idempotencyKey },
-        )
-      ).data as CommandResult,
+        ),
+      ),
   };
 }
 

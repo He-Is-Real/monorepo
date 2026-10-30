@@ -98,3 +98,28 @@ it('sends nothing when signed out, and reports an unreachable api-user', async (
     ApiUserUnavailable,
   );
 });
+
+// Codex #118 round 4: work started for one person (a Share save, a heart) asks Clerk for a
+// token after someone else has signed in. Clerk answers for whoever is signed in now, so the
+// client bound to the first person must send nothing with the second person's token.
+it('sends nothing when the token is someone else’s', async () => {
+  const { personalApiUser } = await import('./personal-session');
+  const tokenFor = (sub: string) =>
+    `h.${Buffer.from(JSON.stringify({ sub })).toString('base64url')}.s`;
+  global.fetch = answer(201, { id: 's1', version: 1 }) as typeof fetch;
+  let signedIn = 'user_a';
+  const api = personalApiUser({
+    status: 'signed-in',
+    userId: 'user_a',
+    apiUserUrl: BASE,
+    getToken: async () => tokenFor(signedIn),
+  });
+  await api.command('/v1/stories', { method: 'POST', body: {} });
+  expect(sent).toHaveLength(1);
+
+  signedIn = 'user_b';
+  await expect(
+    api.command('/v1/stories', { method: 'POST', body: { title: 'A’s' } }),
+  ).rejects.toBeInstanceOf(NotSignedIn);
+  expect(sent).toHaveLength(1);
+});

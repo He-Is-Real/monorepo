@@ -200,6 +200,12 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const running = useRef<Promise<boolean> | null>(null);
   const again = useRef(false);
+  /**
+   * False once this flow is gone (the page left, or another person signed in: the flow is keyed
+   * by its owner). A save still on its way then stops where it is: no further request, and
+   * nothing written to this tab's storage for a person who has left (Codex #118 round 4).
+   */
+  const alive = useRef(true);
 
   const commit = useCallback(
     (next: Stored) => {
@@ -224,6 +230,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
   const saveOnce = useCallback(async (): Promise<boolean> => {
     if (!api) return false;
     for (let round = 0; round < 5; round++) {
+      if (!alive.current) return false;
       const s = state.current;
       if (!s.draftId) {
         if (!canCreate(s.local)) {
@@ -244,6 +251,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         try {
           created = await api.create(sent, createKey);
         } catch (err) {
+          if (!alive.current) return false;
           // A definite refusal (e.g. the draft limit): the next try is a new create, with
           // whatever is on screen then. No answer, or a server error: keep both, to replay.
           if (err instanceof ApiUserProblem && err.status < 500) {
@@ -251,6 +259,9 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
           }
           throw err;
         }
+        // Gone meanwhile: the copy on this device (with the key and body) stays, so a later
+        // visit by this person replays the create and recovers the draft.
+        if (!alive.current) return false;
         removeStored(owner, null);
         commit({
           draftId: created.id,
@@ -277,16 +288,19 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
       try {
         const sent = normalise(s.local);
         const { version } = await api.edit(s.draftId, s.version ?? 0, patch);
+        if (!alive.current) return false;
         const saved = { ...state.current.saved };
         for (const k of Object.keys(patch) as (keyof StoryFields)[]) {
           (saved as Record<string, unknown>)[k] = sent[k];
         }
         commit({ ...state.current, version, saved });
       } catch (err) {
+        if (!alive.current) return false;
         if (err instanceof ApiUserProblem && err.code === 'story_locked') {
           // Locked: it was submitted, e.g. by a submission whose answer was lost. If so,
           // there is nothing left to save here: say so (the flow shows "Thank you").
           const story = await api.story(s.draftId);
+          if (!alive.current) return false;
           if (!['draft', 'changes_requested'].includes(story.status)) {
             removeStored(owner, s.draftId);
             try {
@@ -301,6 +315,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         if (!(err instanceof StaleVersion)) throw err;
         // D70: re-read, and re-apply only what nobody else changed.
         const story = await api.story(s.draftId);
+        if (!alive.current) return false;
         const server = fieldsOf(story);
         const { clashes, local } = rebase(s.saved, state.current.local, server);
         if (clashes.length) {
@@ -353,7 +368,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
           }
           return false;
         }
-      } while (again.current);
+      } while (again.current && alive.current);
       return ok;
     })();
     running.current = run;
@@ -379,6 +394,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     async (id: string): Promise<boolean> => {
       if (!api) return false;
       const story = await api.story(id);
+      if (!alive.current) return false;
       if (!['draft', 'changes_requested'].includes(story.status)) {
         removeStored(owner, id);
         try {
@@ -497,12 +513,13 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     [commit],
   );
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
       if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   return {
     draftId: state.current.draftId,
