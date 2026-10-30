@@ -44,6 +44,11 @@ source of truth, so change them in the same PR as the code.
   choose to apply it". It isn't access control, and approving your own run is expected. Claude may approve
   dev applies. Applies happen through the `dev` environment in `tofu-apply.yml` (it applies exactly the plan
   it saved) or a developer running `tf.sh <root> apply`. `bootstrap` is applied locally only.
+  **One exception, dev only (Joel, 2026-10-30; D120):** a dev plan whose every change is a Cloud Run
+  service or job moving to a new image digest from our own `apps` repository applies without the click
+  (`tools/scripts/tf-image-only.mjs`, job `auto-approve-1`). Anything else (the database or cluster, IAM,
+  secrets, Bunny, Stripe, any create, delete or replace) waits for the approval. Production never applies
+  on its own; don't widen the check or remove the `dev` environment's required approval.
 - State and saved plans are encrypted with Cloud KMS (`tofu-state`; `tofu-bunny` for bunny). Never disable
   or destroy those keys or their versions, and never revert bootstrap wholesale. State must still never hold
   secrets: write-only attributes for values, `ephemeral` for tokens. One approved exception (Joel,
