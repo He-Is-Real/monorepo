@@ -1213,7 +1213,8 @@ function DetailsStep({
           </label>
           <input
             id="story-name"
-            className={input}
+            className={`${input} placeholder:text-secondary-text focus:placeholder:text-transparent`}
+            placeholder="Anonymous"
             maxLength={80}
             autoComplete="given-name"
             value={draft.fields.bylineName}
