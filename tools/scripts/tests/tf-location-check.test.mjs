@@ -235,8 +235,11 @@ test("Bunny: images in London, only Stream's zone in Frankfurt, nothing replicat
   assert.doesNotMatch(bad.all, /SECRET/);
 });
 
-test('an empty plan passes and an unreadable one fails', () => {
+test('an empty plan passes and an unreadable or missing one fails', () => {
   assert.equal(check([]).stdout, 'location-check: ok (0 created or updated)\n');
+  const missing = spawnSync(script, ['prod'], { encoding: 'utf8', input: '' });
+  assert.equal(missing.status, 1);
+  assert.equal(missing.stdout, 'location-check: could not parse plan\n');
   const result = spawnSync(script, ['prod'], {
     encoding: 'utf8',
     input: 'not json SECRET',
@@ -410,4 +413,106 @@ test('sensitivity inherited from a parent block hides the special-case values to
   );
   assert.match(result.stdout, /zone\.z: replication_regions=\(sensitive\)/);
   assert.doesNotMatch(result.all, /SECRET/);
+});
+
+test("Secret Manager's automatic replication known only after apply fails", () => {
+  // A dynamic `auto` block: the plan knows nothing of it but that it's there.
+  const result = check([
+    rc(
+      'google_secret_manager_secret.dyn',
+      { replication: [{ user_managed: [] }] },
+      { after_unknown: { replication: [{ auto: true }] } },
+    ),
+    rc('google_secret_manager_secret.second', {
+      replication: [{ user_managed: [] }, { auto: [{}] }],
+    }),
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stdout,
+    /secret\.dyn: replication\[0\]\.auto=\(known after apply\)/,
+  );
+  assert.match(result.stdout, /secret\.second: replication\.auto=global/);
+});
+
+test('Google location attributes under other names are checked too', () => {
+  const result = check([
+    rc('google_firestore_database.db', { location_id: 'us-central1' }),
+    rc('google_container_cluster.c', {
+      location: 'europe-west2',
+      node_locations: ['europe-west2-a', 'us-east1-b'],
+    }),
+    rc('google_storage_bucket.dual', {
+      location: 'EUROPE-WEST2',
+      custom_placement_config: [{ data_locations: ['EUROPE-WEST1'] }],
+    }),
+    rc('google_logging_organization_settings.o', { storage_location: 'EU' }),
+    rc('google_spanner_instance.s', { config: 'regional-us-central1' }),
+    rc(
+      'google_app_engine_application.later',
+      {},
+      { after_unknown: { location_id: true } },
+    ),
+    rc(
+      'google_spanner_instance.later',
+      {},
+      { after_unknown: { config: true } },
+    ),
+  ]);
+  assert.equal(result.status, 1);
+  assert.equal(
+    result.stdout,
+    [
+      'location-check: google_firestore_database.db: location_id=us-central1',
+      'location-check: google_container_cluster.c: node_locations[1]=us-east1-b',
+      'location-check: google_storage_bucket.dual: custom_placement_config[0].data_locations[0]=EUROPE-WEST1',
+      'location-check: google_logging_organization_settings.o: storage_location=EU',
+      'location-check: google_spanner_instance.s: config=regional-us-central1',
+      'location-check: google_app_engine_application.later: location_id=(known after apply)',
+      'location-check: google_spanner_instance.later: config=(known after apply)',
+      'location-check: 7 outside the UK; fix them, or record an exception in tools/scripts/tf-location-check.sh',
+      '',
+    ].join('\n'),
+  );
+});
+
+test('London under those names passes, and names that are not places are ignored', () => {
+  const result = check([
+    rc('google_firestore_database.db', { location_id: 'europe-west2' }),
+    rc('google_redis_instance.r', {
+      region: 'europe-west2',
+      location_id: 'europe-west2-a',
+      alternative_location_id: 'europe-west2-b',
+    }),
+    rc('google_spanner_instance.s', {
+      config: 'projects/p/instanceConfigs/regional-europe-west2',
+    }),
+    rc(
+      'google_sql_database_instance.db',
+      {
+        region: 'europe-west2',
+        settings: [
+          {
+            time_zone: 'America/New_York',
+            location_preference: [{ zone: 'europe-west2-a' }],
+          },
+        ],
+      },
+      { after_unknown: { settings: [{ time_zone: true }] } },
+    ),
+    rc('google_cloud_run_v2_service.api', {
+      location: 'europe-west2',
+      build_config: [{ source_location: 'gs://us-bucket/src.zip' }],
+    }),
+    rc('google_dns_record_set.r', { managed_zone: 'heisreal-us' }),
+    rc(
+      'google_redis_instance.computed',
+      { location_id: 'europe-west2-a' },
+      { after_unknown: { current_location_id: true } },
+    ),
+    // Only Google resources get the wider names: Bunny's CDN routing zones are continents
+    // it serves from, not where data is stored.
+    rc('bunnynet_pullzone.images', { routing: [{ zones: ['EU', 'US'] }] }),
+  ]);
+  assert.equal(result.status, 0, result.all);
 });

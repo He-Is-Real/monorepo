@@ -616,11 +616,15 @@ interim guard). **In dev the guard warns and never blocks; in any other environm
    every root: PR plans, `tofu-apply.yml` before approval, the weekly drift job and local plans,
    bootstrap's included), for the root's environment, taken from its path (`live/<environment>/`)
    so it can't be forgotten. It reports a resource the plan creates or updates that has a `location`,
-   `region` or `zone` (any case, at any depth) other than `europe-west2`, `europe-west2-a/b/c` or
-   `EUROPE-WEST2`, or one known only after apply (a container of locations too, such as a
-   secret's replicas); a Pub/Sub topic whose
+   `region` or `zone` (any case, at any depth; on Google resources also names built on them, such
+   as Firestore's `location_id`, GKE's `node_locations` or a bucket's `data_locations`) other than
+   `europe-west2`, `europe-west2-a/b/c` or `EUROPE-WEST2`, or one known only after apply (a
+   container of locations too, such as a secret's replicas); a Spanner instance whose `config`
+   isn't `regional-europe-west2`; a Pub/Sub topic whose
    `message_storage_policy.allowed_persistence_regions` isn't exactly `["europe-west2"]`; or a
-   secret with automatic (global) replication. Exceptions are listed in the script, each with its
+   secret with automatic (global) replication, or one that may get it (known only after apply).
+   Names that look like places but aren't (time zones, DNS zones, Cloud Storage paths such as
+   `source_location`) are listed in the script. Exceptions are listed in the script, each with its
    reason: genuinely global types (IAM, service accounts, project services, the VPC network and
    firewall, the budget, Workload Identity, the log sink, quota settings), never checked; and
    Bunny's own region names (`UK` for images; `DE` only for Stream's storage zone, D89; no
