@@ -19,6 +19,8 @@ export const CONSENT_TYPES = [
   'share_socials',
   'age_18plus',
   'account_data',
+  // D122: "I agree to the terms of use", on the sign-up form from v2, bound to the terms in force.
+  'terms_of_use',
 ] as const;
 export type ConsentType = (typeof CONSENT_TYPES)[number];
 
@@ -40,6 +42,7 @@ export const STATEMENT_FORM: Record<ConsentType, ConsentForm> = {
   share_socials: 'social',
   age_18plus: 'signup',
   account_data: 'signup',
+  terms_of_use: 'signup',
 };
 
 export function isConsentForm(value: unknown): value is ConsentForm {

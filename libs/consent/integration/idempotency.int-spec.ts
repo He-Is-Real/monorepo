@@ -54,6 +54,7 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
       formVersion: 'v1',
       statement: type,
       mechanism: 'web_form_submission' as const,
+      privacyPolicyVersion: 'v1',
     };
     return command(person, k, ['POST', 'consents', input], (s, idem) =>
       ledger.grant(s, input, idem),

@@ -120,15 +120,17 @@ for (const [slug, { media: hasMedia }] of Object.entries(STORIES)) {
   });
 }
 
-test('privacy: heading, notice, text and table share the column', async ({
+test('privacy: heading, policy, text and table share the column', async ({
   page,
 }, info) => {
   await page.goto('/privacy');
   const column = page.locator('main [data-reading-column]');
+  // The stub publishes a policy, so the page shows it (D121) rather than its draft notice.
   await expectAligned(page, column, {
-    'draft notice': page.getByRole('note'),
+    policy: page.locator('[data-legal-version]'),
     heading: page.getByRole('heading', { level: 1 }),
-    'first paragraph': page.locator('main p').nth(1),
+    'version line': page.locator('[data-version-line]'),
+    'first paragraph': page.locator('[data-legal-text] > p').first(),
     'cookies heading': page.getByRole('heading', {
       name: 'Cookies and storage',
     }),

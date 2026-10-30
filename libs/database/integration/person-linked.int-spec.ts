@@ -40,7 +40,10 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   personFence: 'none', // a counter keyed by user id; events only
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
   tag: 'none',
-  dpaVersion: 'none',
+  // The legal documents (D121): the publishing admin's user id only (publishedBy, read by
+  // api-admin alone), like an audit row's actor; kept for ever, never testimony.
+  dpaVersion: 'kept',
+  termsVersion: 'kept',
   signupFormVersion: 'none', // consent form versions (D84): text and features only
   testimonyFormVersion: 'none',
   socialSharingFormVersion: 'none',

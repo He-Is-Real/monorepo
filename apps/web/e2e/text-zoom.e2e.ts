@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { enlargeText as enlarge, expectNoHorizontalOverflow } from './helpers';
+import { WEB_SIGNED_IN_URL } from './servers';
 
 // T7 (WCAG 1.4.4): with text at 200% on the smallest phone, every page still fits without
 // sideways scrolling and nothing is cut off. A reader's text-size setting scales rem, and so
@@ -86,3 +87,23 @@ for (const path of PAGES) {
     expect(clipped, 'headings cut off').toEqual([]);
   });
 }
+
+test('200% text: /admin/legal with its preview and confirmation fits on a 320 px phone', async ({
+  page,
+}) => {
+  await enlarge(page);
+  // An admin (stub-api-user.mjs: sessions starting `admin` are Admins), signed in.
+  await page.addInitScript(() =>
+    window.localStorage.setItem('e2e-session', 'admin-text-zoom'),
+  );
+  await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
+  // The editor and its preview, with a table and a long code name, and the confirmation.
+  await page
+    .getByLabel('The text')
+    .fill(
+      '## Storage\n\n| Name | Set by |\n| --- | --- |\n| `bunny_stream_settings_long_name` | This site |\n',
+    );
+  await page.getByRole('button', { name: /^Publish as version/ }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});

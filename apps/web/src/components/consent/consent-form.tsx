@@ -13,7 +13,7 @@ import {
   useAccountState,
 } from '@/components/auth/account-bootstrap';
 import { dismissTestimonyBanner } from '@/components/consent/consent-prompts';
-import { LegalBlocks } from '@/components/consent/legal-blocks';
+import { LegalHtml } from '@/components/legal/legal-html';
 import { Button } from '@/components/ui/button';
 import {
   ApiUserProblem,
@@ -25,8 +25,8 @@ import type {
   ConsentBox,
   ConsentFormName,
   ConsentStatement,
-  LegalBlock,
 } from '@/lib/legal';
+import { documentVersionHref } from '@/lib/legal-text';
 import {
   personalApiUser,
   personalToken,
@@ -46,9 +46,19 @@ export interface ConsentAsk {
   boxes: ConsentBox[];
   /** `GrantConsent.mechanism`. */
   mechanism: 'web_form_submission' | 'reconsent_prompt';
-  blocks: LegalBlock[];
-  dpaVersion: string;
-  dpaBlocks: LegalBlock[];
+  /** The form version's short introduction (D122), rendered by the server (lib/markdown.ts). */
+  html: string;
+  /**
+   * The privacy policy in force (D121), which every grant binds: its record id, its number and
+   * its words, rendered by the server.
+   */
+  privacy: {
+    version: string;
+    number: number;
+    html: string;
+  };
+  /** The terms of use in force, when the version has the terms box (D122). */
+  terms: { version: string; number: number } | null;
   /** A same-site path to go on to afterwards (return-path.ts). */
   returnTo: string;
   /** api-user's origin (config.ts); none: nothing can be recorded. */
@@ -147,9 +157,9 @@ function PersonsConsentForm({
   formVersion,
   boxes: asked,
   mechanism,
-  blocks,
-  dpaVersion,
-  dpaBlocks,
+  html,
+  privacy,
+  terms,
   returnTo,
   apiUserUrl,
   signedIn,
@@ -243,7 +253,15 @@ function PersonsConsentForm({
         }
         await api.command('/v1/account/consents', {
           method: 'POST',
-          body: { form, formVersion, statement, mechanism },
+          // D122: the documents shown, which the grant binds (409 if another is in force).
+          body: {
+            form,
+            formVersion,
+            statement,
+            mechanism,
+            privacyPolicyVersion: privacy.version,
+            ...(terms ? { termsVersion: terms.version } : {}),
+          },
           idempotencyKey: key,
         });
       }
@@ -276,13 +294,13 @@ function PersonsConsentForm({
 
   return (
     <div className="space-y-8">
-      {/* The form's words: a document to read, beside the boxes (D114). */}
+      {/* The form's short introduction (D122): never a box, nor a document listing them. */}
       <section
-        aria-label="The form"
+        aria-label="About this step"
         data-legal-document={formVersion}
         className="rounded-2xl border border-border bg-card px-5 py-4"
       >
-        <LegalBlocks blocks={blocks} />
+        <LegalHtml html={html} />
       </section>
 
       <details className="group rounded-2xl border border-border bg-card">
@@ -295,13 +313,21 @@ function PersonsConsentForm({
           >
             <path d="M9 6l6 6-6 6" />
           </svg>
-          Read the privacy document
+          Read the privacy policy
         </summary>
         <div
-          data-privacy-document={dpaVersion}
-          className="border-t border-border px-5 py-4"
+          data-privacy-document={privacy.version}
+          className="space-y-4 border-t border-border px-5 py-4"
         >
-          <LegalBlocks blocks={dpaBlocks} />
+          <LegalHtml html={privacy.html} />
+          <a
+            href={documentVersionHref('privacy', privacy.number)}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
+          >
+            Version {privacy.number}, on its own page (opens in a new tab)
+          </a>
         </div>
       </details>
 
@@ -315,13 +341,16 @@ function PersonsConsentForm({
             the document above. */}
         <fieldset className="space-y-3">
           <legend className="mb-3 text-lg font-semibold text-foreground">
-            {statements.length > 1 ? 'Tick both boxes' : 'Tick the box'}
+            {statements.length === 1
+              ? 'Tick the box'
+              : statements.length === 2
+                ? 'Tick both boxes'
+                : 'Tick all the boxes'}
           </legend>
           {asked.map(({ statement, label }) => {
             const invalid = missing.includes(statement);
-            return (
+            const box = (
               <label
-                key={statement}
                 className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border bg-card px-4 py-3 text-[1.0625rem] leading-relaxed text-foreground transition-colors hover:border-border-hover [overflow-wrap:anywhere] ${invalid ? 'border-destructive' : 'border-border'}`}
               >
                 <input
@@ -352,6 +381,25 @@ function PersonsConsentForm({
                 <span className="min-w-0">{label}</span>
               </label>
             );
+            // D122: the terms box links the terms of use in force, outside its label (a link
+            // inside a label would tick the box).
+            return statement === 'terms_of_use' && terms ? (
+              <div key={statement} className="space-y-1">
+                {box}
+                <a
+                  href={documentVersionHref('terms', terms.number)}
+                  target="_blank"
+                  rel="noopener"
+                  data-terms-version={terms.version}
+                  className="ml-4 inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
+                >
+                  Read the terms of use, version {terms.number} (opens in a new
+                  tab)
+                </a>
+              </div>
+            ) : (
+              <div key={statement}>{box}</div>
+            );
           })}
         </fieldset>
 
@@ -365,9 +413,9 @@ function PersonsConsentForm({
         )}
         {missing.length > 0 && (
           <p id={errorId} className="font-medium text-destructive">
-            {statements.length > 1
-              ? 'Tick both boxes to continue. Nothing is stored until you do.'
-              : 'Tick the box to continue.'}
+            {statements.length === 1
+              ? 'Tick the box to continue.'
+              : `Tick ${statements.length === 2 ? 'both boxes' : 'all the boxes'} to continue. Nothing is stored until you do.`}
           </p>
         )}
         {saving.status === 'error' && (
@@ -486,11 +534,14 @@ function messageFor(err: unknown, here: string): React.ReactNode {
   if (
     err instanceof ApiUserProblem &&
     err.status === 409 &&
-    err.code === 'form_version_not_in_force'
+    (err.code === 'form_version_not_in_force' ||
+      err.code === 'legal_document_not_in_force')
   ) {
     return (
       <>
-        This form was updated while you were reading it.{' '}
+        {err.code === 'form_version_not_in_force'
+          ? 'This form was updated while you were reading it.'
+          : 'Our privacy policy or terms of use were updated while you were reading.'}{' '}
         <a
           href={here}
           className="inline-flex min-h-11 items-center font-medium"

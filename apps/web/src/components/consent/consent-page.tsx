@@ -16,8 +16,8 @@ import {
   type ConsentStatement,
   type ConsentBox,
   getConsentForm,
-  parseLegalText,
 } from '@/lib/legal';
+import { renderLegalMarkdown } from '@/lib/markdown';
 import { safeReturnPath } from '@/lib/return-path';
 
 /**
@@ -87,9 +87,18 @@ export async function ConsentPage({
         formVersion: result.form.id,
         boxes: boxes as ConsentBox[],
         mechanism,
-        blocks: parseLegalText(result.form.text),
-        dpaVersion: result.dpa.id,
-        dpaBlocks: parseLegalText(result.dpa.text),
+        html: renderLegalMarkdown(result.form.text),
+        privacy: {
+          version: result.privacy.current.id,
+          number: result.privacy.current.number,
+          html: renderLegalMarkdown(result.privacy.current.text),
+        },
+        terms: result.terms
+          ? {
+              version: result.terms.current.id,
+              number: result.terms.current.number,
+            }
+          : null,
         returnTo,
         apiUserUrl: apiUserUrl(),
       };

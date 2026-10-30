@@ -59,7 +59,8 @@ for (const viewport of [
     await expect(
       page.getByRole('button', { name: /^Account: / }),
     ).toBeVisible();
-    await expect(page.getByRole('checkbox')).toHaveCount(2);
+    // D122: 18+, account activity and the terms of use.
+    await expect(page.getByRole('checkbox')).toHaveCount(3);
     for (const box of await page.getByRole('checkbox').all()) {
       await expect(box).not.toBeChecked();
     }

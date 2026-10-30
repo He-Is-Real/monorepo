@@ -45,6 +45,10 @@ run "repo_bundle" {
     error_message = "D84: each legal text and its sha256 reach the runner; no dev placeholders (D75) by default."
   }
   assert {
+    condition     = output.params.terms_text["dev_placeholder"] == file("../../../../libs/legal/terms/dev_placeholder.md")
+    error_message = "The terms of use's repo versions reach the runner (data 0007)."
+  }
+  assert {
     condition = (output.params.dpa_sha256["v1"] == filesha256("../../../../libs/legal/dpa/v1.md")
       && output.params.clerk_jwt_public_key == null && output.params.identity_hash == null
       && output.params.seed_dev_story == false && output.params.dev_consent_relaxed == false

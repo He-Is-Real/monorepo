@@ -9,10 +9,12 @@
 --   * a seeded version, draft or published, whose file is missing fails the migration: the text
 --     consent was (or will be) given against must stay in the repo. Only a version that isn't
 --     seeded yet may lack a file.
+--   * D125: a privacy policy version an admin published (source 'admin') has no file: its words
+--     are in its row, kept for ever. It is skipped.
 -- With $sync_check = true (the runner's check before the schema step) it only validates: the
 -- previous schema may not define `text` yet, so it writes nothing.
 -- 3.2.4: FOR over a subquery fails ("Cannot execute statement using value"); over a LET works.
-LET $versions = (SELECT id, status, contentHash, text FROM dpaVersion);
+LET $versions = (SELECT id, status, contentHash, text FROM dpaVersion WHERE source != 'admin');
 FOR $d IN $versions {
   LET $h = $dpa_sha256[record::id($d.id)];
   LET $t = $dpa_text[record::id($d.id)];

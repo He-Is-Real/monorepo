@@ -4,7 +4,7 @@ info:
   version: 1.0.0-draft
   description: |
     **Moderation and admin.** The moderation queue and decisions, flag triage, role assignment, tag
-    curation, and DPA versions. Its own service and database login (D13, D33). No featured or
+    curation, and the legal documents' versions (the privacy policy, D20's DPA, and the terms of use). Its own service and database login (D13, D33). No featured or
     pinned stories (Joel, 2026-10-23: unfair to everyone else).
 
     - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
@@ -46,8 +46,8 @@ tags:
     description: 'Users and roles.'
   - name: Tags
     description: 'Tag taxonomy writes.'
-  - name: DPA
-    description: 'Data Processing Agreement versions (GDPR).'
+  - name: LegalDocuments
+    description: 'The privacy policy and terms of use: their numbered versions and publishing (D121, D125).'
 
 paths:
   /health:
@@ -560,19 +560,26 @@ paths:
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
 
-  # ------------------------------------------------------------------ DPA (D20)
-  /v1/admin/dpa:
+  # ------------------------------------------------------------------ legal documents (D121, D125)
+  /v1/admin/legal-documents/{document}/versions:
+    parameters:
+      - name: document
+        in: path
+        required: true
+        schema:
+          $ref: './components.yaml#/components/schemas/LegalDocumentName'
     get:
-      tags: [DPA]
-      operationId: listDpaVersions
-      summary: All DPA versions, drafts included
-      x-required-role: SuperAdmin
-      x-milestone: M5
+      tags: [LegalDocuments]
+      operationId: listAdminLegalDocumentVersions
+      summary: Every published version of one legal document, with who published it
+      description: 'Newest first. Read-only: no route edits or deletes a version.'
+      x-required-role: Admin
+      x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: Versions, newest first.
+          description: The versions, and the one in force with its Markdown.
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -581,74 +588,47 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [data]
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: './components.yaml#/components/schemas/DpaVersion'
+                $ref: './components.yaml#/components/schemas/AdminLegalDocumentVersionList'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
     post:
-      tags: [DPA]
-      operationId: createDpaDraft
-      summary: Create a draft DPA version
-      description: CRUD create. Nobody can consent to a draft (D20); publishing is a separate command.
-      x-required-role: SuperAdmin
-      x-milestone: M5
+      tags: [LegalDocuments]
+      operationId: publishLegalDocument
+      summary: Publish the next version of one legal document
+      description: |
+        Command `PublishLegalDocument` (D125). Writes the version (numbered by the database, the next one,
+        in force at once) and an audit row with the admin, in one transaction. The first version of a
+        document may be published here (`basedOn: null`). Creates with a natural key take no
+        `Idempotency-Key` (D29): a `basedOn` that isn't the version in force now (another admin published
+        meanwhile) is `409 document_changed`, and nothing is written.
+      x-required-role: Admin
+      x-milestone: M2
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: './components.yaml#/components/schemas/CreateDpaDraft'
+              $ref: './components.yaml#/components/schemas/PublishLegalDocument'
       responses:
         '201':
-          description: Draft created.
+          description: Published.
           headers:
             Location:
               $ref: './components.yaml#/components/headers/Location'
-            ETag:
-              $ref: './components.yaml#/components/headers/ETag'
           content:
             application/json:
               schema:
-                $ref: './components.yaml#/components/schemas/CommandResult'
+                $ref: './components.yaml#/components/schemas/PublishedLegalDocument'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-
-  /v1/admin/dpa/{version}/publish:
-    post:
-      tags: [DPA]
-      operationId: publishDpa
-      summary: Publish a draft DPA version
-      description: |
-        Command `PublishDpa`. A published version is immutable (enforced by the database). A `material`
-        change starts the re-consent fan-out (`dpa-change-notify`, worker tier, M7).
-      x-required-role: SuperAdmin
-      x-milestone: M5
-      parameters:
-        - name: version
-          in: path
-          required: true
-          description: DPA version ID (e.g. `v2`).
-          schema:
-            type: string
-        - $ref: './components.yaml#/components/parameters/ifMatch'
-      responses:
-        '200':
-          $ref: './components.yaml#/components/responses/CommandApplied'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -657,10 +637,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotFound'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
-        '412':
-          $ref: './components.yaml#/components/responses/PreconditionFailed'
-        '428':
-          $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
 components:
   securitySchemes:

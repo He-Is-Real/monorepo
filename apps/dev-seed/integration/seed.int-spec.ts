@@ -79,16 +79,19 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
         ),
       ]).toEqual([id, [true, true]]);
     }
-    // Every grant's evidence is the API's v3 hash of what it names (D114), computed independently.
+    // Every grant's evidence is the API's v4 hash of what it names (D125: the privacy policy in
+    // force, and on the sign-up form the terms in force), computed independently.
     const ledger = await rows<Record<string, string>>(
       migrator,
       `SELECT type, event, mechanism, evidenceHash, record::tb(form) AS table,
          record::id(form) AS version, form.textHash AS textHash,
          form.statementsHash AS statementsHash, evidenceVersion,
-         record::id(dpaVersion) AS dpa, dpaVersion.contentHash AS dpaHash
+         record::id(dpaVersion) AS dpa, dpaVersion.contentHash AS dpaHash,
+         IF termsVersion = NONE { NONE } ELSE { record::id(termsVersion) } AS terms,
+         termsVersion.contentHash AS termsHash
        FROM consent`,
     );
-    expect(ledger).toHaveLength(people.length * 4);
+    expect(ledger).toHaveLength(people.length * 5);
     // D109: 18+ is ticked on the sign-up form only, and nobody ticks sharing.
     expect(
       [...new Set(ledger.map((r) => `${r['type']} ${r['table']}`))].sort(),
@@ -97,20 +100,29 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
       'age_18plus signupFormVersion',
       'publish testimonyFormVersion',
       'special_category_religious testimonyFormVersion',
+      'terms_of_use signupFormVersion',
     ]);
     for (const r of ledger) {
-      expect(r['evidenceVersion']).toBe(3);
+      expect(r['evidenceVersion']).toBe(4);
+      const signup = r['table'] === 'signupFormVersion';
+      expect([r['type'], r['dpa'], r['terms'] ?? null]).toEqual([
+        r['type'],
+        'dev_policy',
+        signup ? 'dev_placeholder' : null,
+      ]);
       expect(r['evidenceHash']).toBe(
         createHash('sha256')
           .update(
             JSON.stringify([
-              'heisreal-consent-evidence/v3',
-              r['table'] === 'signupFormVersion' ? 'signup' : 'testimony',
+              'heisreal-consent-evidence/v4',
+              signup ? 'signup' : 'testimony',
               r['version'],
               r['textHash'],
               r['statementsHash'],
               r['dpa'],
               r['dpaHash'],
+              signup ? r['terms'] : null,
+              signup ? r['termsHash'] : null,
               r['type'],
               r['event'],
               r['mechanism'],
@@ -123,7 +135,7 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
     await reset(seeder, vars());
     expect(
       await rows(migrator, 'SELECT count() AS n FROM consent GROUP ALL'),
-    ).toEqual([{ n: people.length * 4 }]);
+    ).toEqual([{ n: people.length * 5 }]);
   });
 
   it('is idempotent: a second reset gives the same data', async () => {

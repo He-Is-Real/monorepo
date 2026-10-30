@@ -20,6 +20,8 @@
  * - Commands that modify an existing resource send `If-Match` with its `version`
  *   ({@link ifMatch}); non-idempotent `POST`s send an `Idempotency-Key`
  *   ({@link newIdempotencyKey}), kept and reused when retrying the same command (D29).
+ * - **api-admin too:** staff pages (`/admin/legal`) call api-admin with this same client at
+ *   api-admin's origin (`API_ADMIN_URL`): the same token, the same rules (D31).
  */
 
 /** Clerk's `getToken()`: the current session token, or null when signed out. */

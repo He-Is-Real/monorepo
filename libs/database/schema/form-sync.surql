@@ -18,7 +18,7 @@
 --   * a draft follows its file; a published version is frozen, except that one published
 --     before statements existed gets them once from its file.
 -- With $sync_check = true (the runner's check before the schema step) it only validates.
-LET $signup = (SELECT id, status, textHash, text, statements, statementsHash, NONE AS coversPublicPublishing,
+LET $signup = (SELECT id, status, textHash, text, statements, statementsHash, coversTerms AS coversPublicPublishing,
   'signup' AS kind, 'signupFormVersion' AS tb FROM signupFormVersion);
 LET $testimony = (SELECT id, status, textHash, text, statements, statementsHash, coversPublicPublishing,
   'testimony' AS kind, 'testimonyFormVersion' AS tb FROM testimonyFormVersion);
@@ -48,8 +48,11 @@ FOR $f IN $all {
   };
   -- The same rule as fn::form::required_statements and fn::form::check_statements in
   -- schema.surql, written out here because this check also runs against the previous schema.
+  -- `coversPublicPublishing` here is what the version covers: publishing on a testimony
+  -- version, the terms of use on a sign-up version (coversTerms, D122).
   LET $required = {
     'signupFormVersion false': ['age_18plus', 'account_data'],
+    'signupFormVersion true': ['age_18plus', 'account_data', 'terms_of_use'],
     'testimonyFormVersion false': ['special_category_religious'],
     'testimonyFormVersion true': ['special_category_religious', 'publish'],
     'socialSharingFormVersion false': ['share_socials']

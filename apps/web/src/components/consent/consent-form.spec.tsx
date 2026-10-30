@@ -70,9 +70,9 @@ const ask: ConsentAsk = {
     { statement: 'account_data', label: 'Keep my account details' },
   ],
   mechanism: 'web_form_submission',
-  blocks: [],
-  dpaVersion: 'dpa1',
-  dpaBlocks: [],
+  html: '',
+  privacy: { version: 'dpa1', number: 1, html: '' },
+  terms: null,
   returnTo: '/stories',
   apiUserUrl: 'https://api-user.example',
 };

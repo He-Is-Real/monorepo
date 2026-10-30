@@ -17,9 +17,10 @@ import {
   newIdempotencyKey,
   StaleVersion,
 } from '@/lib/api-user';
-import { LegalBlocks } from '@/components/consent/legal-blocks';
+import { LegalHtml } from '@/components/legal/legal-html';
 import type { ConsentBox, ConsentStatement } from '@/lib/legal';
 import type { ShareForm, ShareLegal } from '@/lib/share-legal';
+import { documentVersionHref } from '@/lib/legal-text';
 import { signInHref } from '@/lib/return-path';
 import {
   type ConsentState,
@@ -392,10 +393,11 @@ function SignedInFlow({
               legal={legal}
               grant={async () => {
                 if (!legal.testimony) return;
-                // The version shown, whose box and privacy document were on screen.
+                // The version shown, whose box and privacy policy were on screen.
                 await calls.grant(
                   'testimony',
                   legal.testimony.version,
+                  legal.testimony.privacyVersion,
                   'special_category_religious',
                 );
                 await refreshConsents();
@@ -475,20 +477,53 @@ function boxFor(
   return form?.boxes.find((b) => b.statement === statement);
 }
 
-/** A form's words, or its privacy document's: a document to read, in a box of its own. */
+/**
+ * The privacy policy a grant on this form names (D122), folded away to read, with its own
+ * numbered page: shown beside every box that grants, so what's agreed to is what was shown.
+ */
+function PrivacyPolicy({
+  form,
+  className,
+}: {
+  form: ShareForm;
+  className?: string;
+}) {
+  return (
+    <details
+      className={`rounded-xl border border-border p-4 ${className ?? ''}`}
+    >
+      <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-link">
+        Read the privacy policy
+      </summary>
+      <div className="mt-3" data-privacy-document={form.privacyVersion}>
+        <LegalHtml html={form.privacyHtml} />
+        <a
+          href={documentVersionHref('privacy', form.privacyNumber)}
+          target="_blank"
+          rel="noopener"
+          className="mt-2 inline-flex min-h-11 items-center font-semibold text-link underline-offset-4 hover:underline"
+        >
+          Version {form.privacyNumber}, on its own page (opens in a new tab)
+        </a>
+      </div>
+    </details>
+  );
+}
+
+/** A form's words, or the privacy policy's: a document to read, in a box of its own. */
 function LegalDocument({
   label,
-  blocks,
+  html,
 }: {
   label: string;
-  blocks: ShareForm['blocks'];
+  html: ShareForm['html'];
 }) {
   return (
     <section
       aria-label={label}
       className="max-h-[60svh] overflow-y-auto rounded-xl border border-border p-4"
     >
-      <LegalBlocks below={2} blocks={blocks} />
+      <LegalHtml html={html} />
     </section>
   );
 }
@@ -738,7 +773,8 @@ export function ConsentStep({
         } catch (err) {
           setProblem(
             err instanceof ApiUserProblem &&
-              err.code === 'form_version_not_in_force'
+              (err.code === 'form_version_not_in_force' ||
+                err.code === 'legal_document_not_in_force')
               ? 'The form has just been updated. Please reload the page to read the new version.'
               : err instanceof ApiUserUnavailable
                 ? 'We can’t reach our server right now. Please try again in a moment.'
@@ -754,15 +790,8 @@ export function ConsentStep({
     >
       <StepHeading heading={heading}>Your story and your data</StepHeading>
       {/* The form's words: a document to read. The box below is the page's own (D114). */}
-      <LegalDocument label="The form" blocks={form.blocks} />
-      <details className="mt-4 rounded-xl border border-border p-4">
-        <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-link">
-          Read the privacy document
-        </summary>
-        <div className="mt-3" data-dpa-version={form.dpaVersion}>
-          <LegalBlocks below={2} blocks={form.dpaBlocks} />
-        </div>
-      </details>
+      <LegalDocument label="The form" html={form.html} />
+      <PrivacyPolicy form={form} className="mt-4" />
       <div className="mt-6">
         <Checkbox
           checked={ticked}
@@ -1184,7 +1213,8 @@ function DetailsStep({
           </label>
           <input
             id="story-name"
-            className={input}
+            className={`${input} placeholder:text-secondary-text focus:placeholder:text-transparent`}
+            placeholder="Anonymous"
             maxLength={80}
             autoComplete="given-name"
             value={draft.fields.bylineName}
@@ -1310,6 +1340,9 @@ export function ReviewStep({
   const [social, setSocial] = useState(false);
   const [problem, setProblem] = useState<React.ReactNode>(null);
   const [busy, setBusy] = useState(false);
+  // A form or privacy policy replaced since this page loaded (D122): trying again would send
+  // the old version again, so the way on is a reload (the draft is saved and in the address).
+  const [outdated, setOutdated] = useState(false);
   // One key per grant, kept while retrying (D29).
   const keys = useRef({
     publish: newIdempotencyKey(),
@@ -1321,6 +1354,7 @@ export function ReviewStep({
   );
 
   async function submit() {
+    if (outdated) return;
     if (askPublish && !publishBox) {
       setProblem(
         'The publishing consent can’t be shown right now, so your story can’t be submitted yet. It’s saved; please try again later.',
@@ -1344,6 +1378,7 @@ export function ReviewStep({
         await calls.grant(
           'testimony',
           legal.testimony.version,
+          legal.testimony.privacyVersion,
           'publish',
           keys.current.publish,
         );
@@ -1352,6 +1387,7 @@ export function ReviewStep({
         await calls.grant(
           'social',
           legal.social.version,
+          legal.social.privacyVersion,
           'share_socials',
           keys.current.social,
         );
@@ -1383,7 +1419,16 @@ export function ReviewStep({
         (err instanceof ApiUserProblem &&
           (err.code === 'story_not_submittable' ||
             err.code === 'story_locked'));
-      if (changed && draftId) {
+      if (
+        err instanceof ApiUserProblem &&
+        (err.code === 'form_version_not_in_force' ||
+          err.code === 'legal_document_not_in_force')
+      ) {
+        setOutdated(true);
+        setProblem(
+          'Our privacy policy or consent form was updated while you were writing. Your story is saved. Reload the page to read the new version, then submit.',
+        );
+      } else if (changed && draftId) {
         // Already submitted (a submission whose answer was lost, then retried with another
         // key): "Thank you", not an error. Otherwise it changed elsewhere: check it again.
         if (!(await draft.load(draftId))) {
@@ -1534,14 +1579,19 @@ export function ReviewStep({
       </dl>
       <div className="mt-6 flex flex-col gap-3">
         {askPublish ? (
-          publishBox ? (
-            <Checkbox
-              checked={publish}
-              onChange={setPublish}
-              className="rounded-xl border border-border bg-accent p-[12px] sm:p-4"
-            >
-              {publishBox.label}
-            </Checkbox>
+          publishBox && legal.testimony ? (
+            <div data-grant="publish">
+              <Checkbox
+                checked={publish}
+                onChange={setPublish}
+                className="rounded-xl border border-border bg-accent p-[12px] sm:p-4"
+              >
+                {publishBox.label}
+              </Checkbox>
+              {/* The privacy policy this grant names, even when the consent step was skipped
+                  (consented before, under an earlier one). */}
+              <PrivacyPolicy form={legal.testimony} className="mt-2" />
+            </div>
           ) : (
             <p role="alert" className="text-destructive">
               The publishing consent can’t be shown right now, so your story
@@ -1555,7 +1605,10 @@ export function ReviewStep({
           </p>
         )}
         {socialBox && legal.social && (
-          <div className="rounded-xl border border-border p-[12px] sm:p-4">
+          <div
+            data-grant="share_socials"
+            className="rounded-xl border border-border p-[12px] sm:p-4"
+          >
             <Checkbox checked={social} onChange={setSocial}>
               {socialBox.label}{' '}
               <span className="text-secondary-text">(optional)</span>
@@ -1565,18 +1618,15 @@ export function ReviewStep({
                 What sharing beyond heisreal.today means
               </summary>
               <div className="mt-2">
-                <LegalBlocks below={2} blocks={legal.social.blocks} />
+                <LegalHtml html={legal.social.html} />
               </div>
-              {legal.social.dpaVersion !== legal.testimony?.dpaVersion && (
-                // The privacy document this version links, when it isn't the one already shown.
-                <div
-                  className="mt-4"
-                  data-dpa-version={legal.social.dpaVersion}
-                >
-                  <LegalBlocks below={2} blocks={legal.social.dpaBlocks} />
-                </div>
-              )}
             </details>
+            {/* The privacy policy this grant names, unless the same one is shown above. */}
+            {!(
+              askPublish &&
+              publishBox &&
+              legal.social.privacyVersion === legal.testimony?.privacyVersion
+            ) && <PrivacyPolicy form={legal.social} className="mt-2" />}
           </div>
         )}
       </div>
@@ -1593,9 +1643,19 @@ export function ReviewStep({
         >
           Back
         </button>
-        <button type="submit" className={primary} disabled={busy}>
-          {busy ? 'Submitting…' : 'Submit for review'}
-        </button>
+        {outdated ? (
+          <button
+            type="button"
+            className={primary}
+            onClick={() => window.location.reload()}
+          >
+            Reload the page
+          </button>
+        ) : (
+          <button type="submit" className={primary} disabled={busy}>
+            {busy ? 'Submitting…' : 'Submit for review'}
+          </button>
+        )}
       </Actions>
       <p className="mt-4 text-sm text-secondary-text">
         Our team reads every story before it’s published.
