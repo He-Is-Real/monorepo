@@ -385,3 +385,29 @@ test('Pub/Sub and Bunny replication findings respect sensitivity', () => {
   assert.match(result.stdout, /zone\.z: replication_regions=\(sensitive\)/);
   assert.doesNotMatch(result.all, /SECRET/);
 });
+
+test('sensitivity inherited from a parent block hides the special-case values too', () => {
+  const result = check([
+    rc(
+      'google_pubsub_topic.t',
+      {
+        message_storage_policy: [
+          { allowed_persistence_regions: ['SECRET-region'] },
+        ],
+      },
+      { after_sensitive: { message_storage_policy: true } },
+    ),
+    rc(
+      'bunnynet_storage_zone.z',
+      { region: 'UK', replication_regions: ['SECRET-region'] },
+      { after_sensitive: true },
+    ),
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stdout,
+    /topic\.t: message_storage_policy\.allowed_persistence_regions=\(sensitive\)/,
+  );
+  assert.match(result.stdout, /zone\.z: replication_regions=\(sensitive\)/);
+  assert.doesNotMatch(result.all, /SECRET/);
+});

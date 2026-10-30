@@ -630,8 +630,8 @@ interim guard). **In dev the guard warns and never blocks; in any other environm
    **Anywhere else** (prod at launch) it fails the plan (exit 1), so it never reaches an
    approval. Clerk (US, D6) isn't in OpenTofu, so neither check sees it.
 
-Tip: a local `tf.sh <root> apply` without a plan file plans again and isn't location-checked;
-`tf.sh <root> plan -out=tfplan` followed by `tf.sh <root> apply tfplan` applies a checked plan.
+Tip: applying a saved plan (`tf.sh <root> plan -out=f`, then `tf.sh <root> apply f`) applies
+exactly what was checked.
 
 | Data                                                    | Where                                     | Declared in                              |
 | ------------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
