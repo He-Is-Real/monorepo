@@ -97,6 +97,7 @@ export async function ConsentPage({
           ? {
               version: result.terms.current.id,
               number: result.terms.current.number,
+              html: renderLegalMarkdown(result.terms.current.text),
             }
           : null,
         returnTo,
