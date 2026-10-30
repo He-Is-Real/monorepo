@@ -804,7 +804,9 @@ test('values inside an exempt GKE path, or holding one, pass when unknown; other
     rc(address, { location: 'europe-west2' }, { after_unknown: afterUnknown });
   const ok = check(
     [
-      cluster('google_container_cluster.autoscaling', { cluster_autoscaling: true }),
+      cluster('google_container_cluster.autoscaling', {
+        cluster_autoscaling: true,
+      }),
       cluster('google_container_cluster.pool', {
         node_pool: [{ node_locations: true, node_config: true }],
       }),
@@ -819,8 +821,14 @@ test('values inside an exempt GKE path, or holding one, pass when unknown; other
   // and so is the cluster's own location.
   const bad = check(
     [
-      cluster('google_container_cluster.autoscaling', { cluster_autoscaling: true }),
-      rc('google_container_cluster.where', {}, { after_unknown: { location: true } }),
+      cluster('google_container_cluster.autoscaling', {
+        cluster_autoscaling: true,
+      }),
+      rc(
+        'google_container_cluster.where',
+        {},
+        { after_unknown: { location: true } },
+      ),
     ],
     'prod',
     schemaFile({
