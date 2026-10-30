@@ -26,7 +26,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
-:root {
+:root,
+/* A light island in either theme (`light` on an element): for Stripe's Buy Button, whose iframe
+   is light only, so it sits on the light card in dark mode too. */
+.light {
   color-scheme: light;
 
   /* Brand */

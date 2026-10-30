@@ -25,8 +25,13 @@ export function StripeBuyButtonScript() {
 }
 
 /**
- * One Buy Button. The text inside shows only until Stripe's script draws the button (its own
- * shadow DOM hides it), or if the script is blocked.
+ * One Buy Button, framed on a card. Stripe draws a fixed 288 px iframe (one-off 243 px tall,
+ * monthly 223 px; Stripe's own styling inside it is set in its Dashboard), light only: so the card
+ * is the light theme's in either theme (`light`, global.css), and in dark mode the button sits on
+ * it rather than as a white box on the dark page. Centred, and on phones the card runs edge to
+ * edge, as the 288 px button fills a 320 px phone's column. The element reserves the taller
+ * button's height so nothing moves when it arrives; its text shows only until Stripe's script
+ * draws the button (Stripe's shadow DOM leaves it out), or if the script is blocked.
  */
 export function StripeBuyButton({
   buttonId,
@@ -36,12 +41,14 @@ export function StripeBuyButton({
   publishableKey: string;
 }) {
   return (
-    <stripe-buy-button
-      buy-button-id={buttonId}
-      publishable-key={publishableKey}
-      className="block min-h-11 max-w-full text-sm text-muted-foreground"
-    >
-      Loading Stripe’s secure button…
-    </stripe-buy-button>
+    <div className="light -mx-4 border-y border-border bg-card px-4 py-6 sm:mx-0 sm:rounded-2xl sm:border-x">
+      <stripe-buy-button
+        buy-button-id={buttonId}
+        publishable-key={publishableKey}
+        className="flex min-h-[243px] items-center justify-center text-center text-sm text-muted-foreground"
+      >
+        Loading Stripe’s secure button…
+      </stripe-buy-button>
+    </div>
   );
 }
