@@ -186,6 +186,51 @@ export function commandResult(
   return { id: d.id, version: d.version as number };
 }
 
+/**
+ * RequestUpload's whole `UploadTarget`. A success without a usable link (an empty body, `{}`, a
+ * field missing) may still have made the grant, so like {@link commandResult} it counts as no
+ * answer (Codex #133 round 2): the caller keeps its Idempotency-Key, version and body.
+ */
+function uploadTarget(data: unknown): UploadTarget {
+  const { headers, ...d } = (
+    data && typeof data === 'object' ? data : {}
+  ) as Partial<
+    Omit<UploadTarget, 'signed'> & { headers: Record<string, unknown> }
+  >;
+  const signed = headers && typeof headers === 'object' ? headers : {};
+  const link = (u: unknown) => {
+    try {
+      return typeof u === 'string' && !!new URL(u);
+    } catch {
+      return false;
+    }
+  };
+  if (
+    typeof d.id !== 'string' ||
+    !d.id ||
+    !Number.isInteger(d.version) ||
+    d.provider !== 'bunny_tus' ||
+    !link(d.uploadUrl) ||
+    d.method !== 'POST' ||
+    typeof d.expiresAt !== 'string' ||
+    Number.isNaN(Date.parse(d.expiresAt)) ||
+    typeof signed['VideoId'] !== 'string' ||
+    !signed['VideoId'] ||
+    !Object.values(signed).every((v) => typeof v === 'string')
+  ) {
+    throw new ApiUserUnavailable('api-user answered without the upload link');
+  }
+  return {
+    id: d.id,
+    version: d.version as number,
+    provider: d.provider,
+    uploadUrl: d.uploadUrl as string,
+    method: d.method,
+    signed: signed as Record<string, string>,
+    expiresAt: d.expiresAt,
+  };
+}
+
 export function shareApi(api: ApiUser) {
   return {
     consents: async () =>
@@ -262,19 +307,11 @@ export function shareApi(api: ApiUser) {
       request: UploadRequest,
       idempotencyKey = newIdempotencyKey(),
     ): Promise<UploadTarget> => {
-      const { headers: signed, ...link } = (
-        await api.command<
-          Omit<UploadTarget, 'signed'> & { headers: Record<string, string> }
-        >(`/v1/stories/${encodeURIComponent(id)}/upload-url`, {
-          method: 'POST',
-          body: request,
-          version,
-          idempotencyKey,
-        })
-      ).data as Omit<UploadTarget, 'signed'> & {
-        headers: Record<string, string>;
-      };
-      return { ...link, signed };
+      const res = await api.command<unknown>(
+        `/v1/stories/${encodeURIComponent(id)}/upload-url`,
+        { method: 'POST', body: request, version, idempotencyKey },
+      );
+      return uploadTarget(res.data);
     },
     submit: async (id: string, version: number, idempotencyKey: string) =>
       commandResult(

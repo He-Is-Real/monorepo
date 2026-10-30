@@ -375,6 +375,36 @@ test.describe('behaviour', () => {
     ]);
   });
 
+  test('an upload request answered without its link counts as no answer: the same file carries on with the same video (Codex #133 round 2)', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('My video');
+    const path = clip(info.outputPath('clip.mp4'));
+    // api-user makes the video and moves the draft on, but the browser gets an empty success,
+    // then one with an empty object.
+    const empty = ['', '{}'];
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/*/upload-url`,
+      async (route) => {
+        const body = empty.shift();
+        if (body === undefined) return route.fallback();
+        const res = await route.fetch();
+        return route.fulfill({ response: res, body });
+      },
+    );
+    for (let i = 0; i < 2; i++) {
+      await page.getByLabel('Choose a file').setInputFiles(path);
+      await expect(alert(page, 'can’t reach our server')).toBeVisible();
+    }
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    const { requests, videos } = await me.uploads();
+    expect([requests, videos.length, videos[0].done]).toEqual([3, 1, true]);
+  });
+
   test('a draft changed in another tab is read again and the upload goes ahead (Codex #133, 2)', async ({
     page,
     request,

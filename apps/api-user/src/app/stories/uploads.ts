@@ -278,7 +278,9 @@ export class Uploads {
         await this.discard(videoId, 'an unused video');
       }
       // A replay signs a link only as a resume would: the story still editable, the video
-      // still its file, and nothing arrived for it yet. Never a link once it's submitted.
+      // still its file, and nothing arrived for it yet. Never a link once it's submitted, nor
+      // for a file the limits in force now refuse (its version may be stale; its file may not).
+      this.checkFile(input, await this.limits(person));
       await this.checkResumable(person, id, granted);
     }
     return this.target(bunny, id, version, granted);

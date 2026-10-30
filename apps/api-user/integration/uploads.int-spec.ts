@@ -443,6 +443,31 @@ describe('video and audio uploads', () => {
     ]);
   });
 
+  it('a replay checks the file against the limits in force now, as a resume does (Codex #133 round 2)', async () => {
+    await person('hal');
+    const id = await draft('hal');
+    const k = key();
+    const first = await upload('hal', id, 1, FILE, k);
+    expect(first.status).toBe(200);
+    try {
+      // An admin lowers the size limit after the upload started.
+      await settings({ videoMaxBytes: 1_000_000 });
+      const resume = await upload('hal', id, 2, { ...FILE, resume: true });
+      expect([resume.status, resume.body.code]).toEqual([
+        400,
+        'validation_failed',
+      ]);
+      const replay = await upload('hal', id, 1, FILE, k);
+      expect([replay.status, replay.body.code]).toEqual([
+        400,
+        'validation_failed',
+      ]);
+    } finally {
+      await settings({ videoMaxBytes: 4_294_967_296 });
+    }
+    expect(await grants('hal')).toEqual([first.body.headers.VideoId]);
+  });
+
   it('a grant that never reached the database is not guessed at: 503, the video kept, and the retry goes through once (Codex #133, 1)', async () => {
     await person('gus');
     const id = await draft('gus');
