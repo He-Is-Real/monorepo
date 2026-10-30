@@ -135,3 +135,58 @@ export function serverNow(): number {
   }
   return Date.now();
 }
+
+export interface StripeDonations {
+  publishableKey: string;
+  /** Each Buy Button, or undefined when it isn't configured (its option is hidden). */
+  oneOffButtonId: string | undefined;
+  monthlyButtonId: string | undefined;
+  /** Stripe's donor portal login page, where monthly donors change or stop their gift. */
+  donorPortalUrl: string | undefined;
+}
+
+/**
+ * Stripe's Buy Buttons on /donate (Joel, 2026-10-29), set by OpenTofu (`web_donations`): the
+ * publishable key and the one-off and monthly buttons' IDs, all public by design, plus the donor
+ * portal's login page. Each button is optional; undefined (the page's placeholder) unless the key
+ * and at least one button are set and well formed. Malformed values are logged and left out, so
+ * the page never shows a broken button.
+ */
+export function stripeDonations(): StripeDonations | undefined {
+  const read = (name: string) => process.env[name]?.trim() ?? '';
+  const valid = (name: string, pattern: RegExp, what: string) => {
+    const value = read(name);
+    if (!value) return undefined;
+    if (pattern.test(value)) return value;
+    console.error(`${name} is not ${what}; ignoring it`);
+    return undefined;
+  };
+  const publishableKey = valid(
+    'STRIPE_PUBLISHABLE_KEY',
+    /^pk_(test|live)_[A-Za-z0-9]+$/,
+    'a Stripe publishable key (pk_…)',
+  );
+  const button = /^buy_btn_[A-Za-z0-9]+$/;
+  const oneOffButtonId = valid(
+    'STRIPE_DONATE_ONE_OFF_BUTTON_ID',
+    button,
+    'a Buy Button ID (buy_btn_…)',
+  );
+  const monthlyButtonId = valid(
+    'STRIPE_DONATE_MONTHLY_BUTTON_ID',
+    button,
+    'a Buy Button ID (buy_btn_…)',
+  );
+  if (!publishableKey || (!oneOffButtonId && !monthlyButtonId))
+    return undefined;
+  return {
+    publishableKey,
+    oneOffButtonId,
+    monthlyButtonId,
+    donorPortalUrl: valid(
+      'STRIPE_DONOR_PORTAL_URL',
+      /^https:\/\/billing\.stripe\.com\/p\/login\/[A-Za-z0-9_]+$/,
+      'a Stripe portal login page',
+    ),
+  };
+}

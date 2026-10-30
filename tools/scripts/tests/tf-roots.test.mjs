@@ -117,7 +117,12 @@ test('bootstrap is listed last', () => {
   );
 });
 
-test('the tofu tooling selects gcp, cluster and bunny', () => {
+test('the stripe root and module select stripe', () => {
+  assert.equal(changed(`${tf}/modules/stripe/main.tf`), 'stripe');
+  assert.equal(changed(`${tf}/live/dev/stripe/main.tf`), 'stripe');
+});
+
+test('the tofu tooling selects gcp, cluster, bunny and stripe', () => {
   for (const file of [
     'tools/scripts/tf.sh',
     'tools/scripts/tf-stage.sh',
@@ -125,7 +130,7 @@ test('the tofu tooling selects gcp, cluster and bunny', () => {
     '.github/workflows/tofu-apply.yml',
     'mise.toml',
   ]) {
-    assert.equal(changed(file), 'gcp\ncluster\nbunny', file);
+    assert.equal(changed(file), 'gcp\ncluster\nbunny\nstripe', file);
   }
 });
 
@@ -153,8 +158,9 @@ test('every root, in order', () => {
       `${tf}/modules/cluster/a.tf`,
       `${tf}/live/dev/images/a.tf`,
       `${tf}/modules/gcp/a.tf`,
+      `${tf}/modules/stripe/a.tf`,
     ),
-    'gcp\nimages\ncluster\nbunny\nbootstrap',
+    'gcp\nimages\ncluster\nbunny\nstripe\nbootstrap',
   );
 });
 

@@ -146,6 +146,16 @@ module "gcp" {
   clerk_jwt_public_key    = var.clerk_jwt_public_key
   run_deletion_protection = var.run_deletion_protection
 
+  # Stripe's Buy Buttons on /donate (Joel, 2026-10-29), in Stripe's sandbox. Public values, filled
+  # in once Joel has made the two buttons in the Stripe Dashboard (infra/terraform/README.md,
+  # "Stripe"): until then /donate shows "Giving isn't open yet".
+  web_donations = {
+    stripe_publishable_key = "" # pk_test_… from the Buy Button snippet
+    one_off_button_id      = "" # buy_btn_… made from the one-off Payment Link
+    monthly_button_id      = "" # buy_btn_… made from the monthly Payment Link
+    donor_portal_url       = "" # `tf.sh stripe output stripe`: donor_portal_url
+  }
+
   # D49/D50: the dev-seed Job (dev only) and who may start it. try(): until bootstrap is applied
   # with ci-dev-seeder, the Job exists but no CI identity may start it.
   dev_seed            = true

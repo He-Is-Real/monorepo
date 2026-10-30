@@ -22,12 +22,14 @@ modules/
   db-identity/ SurrealDB's identity config: init Secret names, restart hash, marker (same)
   bunny/       Bunny.net: Stream library, storage zone + pull zone, app keys in Secret Manager
   bunny-state-guard/ the bunny root's "never public" check (no providers; tested)
+  stripe/      donations in Stripe: product, prices, Payment Links, donor portal (tested, mock provider)
 live/dev/      one root per concern, applied in this order:
   bootstrap/   developer only, locally (billing + org roles; calls org/) state: dev/bootstrap
   gcp/         tofu-apply.yml (approved) or a developer              state: dev/gcp
   images/      a developer (Docker), or tofu-apply.yml on request    state: dev/images
   cluster/     tofu-apply.yml (approved) or a developer              state: dev/cluster
   bunny/       tofu-apply.yml (approved, as tf-bunny) or a developer state: dev/bunny (private)
+  stripe/      tofu-apply.yml (approved) or a developer, Stripe sandbox state: dev/stripe
 ```
 
 State is in `gs://heisreal-dev-tfstate` (London, versioned, 30 days of old versions, 7 days of
@@ -196,16 +198,16 @@ kubectl -n database get secrets --as "$P"                                       
 
 ## Who can do what
 
-| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                             |
-| ----------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys; organisation policies and log settings (granted by hand)               |
-| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/`), `tofu-state`, bucket metadata; reads the organisation's policies and log settings. No secret values or backups |
-| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/`), `tofu-state`                                                                        |
-| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster and images roots manage; state (not `dev/bunny/`), `tofu-state`, saved plans in `plans/`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes          |
-| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                                        |
-| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                                        |
-| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                                |
-| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                              |
+| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys; organisation policies and log settings (granted by hand)                                      |
+| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/`), `tofu-state`, bucket metadata; reads the organisation's policies and log settings. No secret values or backups                        |
+| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/`), `tofu-state`                                                                                               |
+| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster, images and stripe roots manage; state (not `dev/bunny/`), `tofu-state`, saved plans in `plans/`; reads `stripe-api-key`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes |
+| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                                                               |
+| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                                                               |
+| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                                                       |
+| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                                                     |
 
 The gates are CEL expressions over GitHub's OIDC claims (`modules/bootstrap/*.cel.tftpl`, tested
 with claim fixtures in `modules/bootstrap/tests/`): ref, workflow file and event. Environments
@@ -484,6 +486,82 @@ those keys, so nobody can ask it to sign any other video.
 
 **Cost:** Bunny bills at least $1 a month per account; dev usage (a few test files) stays under
 it. Storage is $0.01/GB/month (Standard, one region), CDN $0.01/GB in EU/US, free encoding.
+
+## Stripe
+
+Donations (Joel, 2026-10-29: Stripe's embeddable Buy Buttons, option A, replacing the custom
+payment form in `project/context/research/donation-integration.md`). Stripe hosts every payment
+page; no card data and no donor data reach our services, and there is no webhook yet (api-user's
+comes with M4). **Dev is Stripe's sandbox only** (account `acct_1UUWPqQXwDT04lZZ`, "He is Real
+Today sandbox"): no real money.
+
+`live/dev/stripe` (module `modules/stripe`, Stripe's own provider `stripe/stripe`) makes:
+
+| Object                           | What donors get                                                                                                                         |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| product "Donation to He Is Real" | the name on Stripe's page and receipt                                                                                                   |
+| one-off price + Payment Link     | GBP, "customer chooses price" from £1, starting at £10; the button says Donate (`submit_type = "donate"`)                               |
+| monthly price + Payment Link     | £1 a month, and the donor chooses the quantity (1–999), starting at 10: 10 = £10 a month. A note beside Stripe's pay button explains it |
+| donor portal configuration       | a login page (by email) where monthly donors change the quantity, update the card, see receipts or stop at the end of the paid month    |
+
+Stripe can't let donors type a monthly amount: "customer chooses price" works for one-off
+payments only, hence the £1 unit. Receipts are Stripe's own emails; card, Google Pay, Apple Pay
+(through Stripe) and Link come from the account's payment method settings. Gift Aid isn't
+collected yet (charity registration is pending); see "Later" below.
+
+**The key.** The provider runs with a restricted key read from Secret Manager (`stripe-api-key`,
+container from the bootstrap root, readable by tf-deployer only) through an `ephemeral` read, so
+it's in neither state nor plans; the state holds Stripe IDs and public URLs only. The module
+refuses to plan with a live key in dev (`sk_live_`/`rk_live_`; only the key's mode is checked,
+never printed). CI masks the key before any tofu step (`tf.sh stripe-mask`). PRs never plan
+stripe (tf-planner can't read the key); `tofu-apply.yml` plans it on `main` in wave 1, beside gcp
+and bunny, under the same approval, and `tofu-drift.yml` checks it weekly.
+
+**The buttons.** Stripe has no API for Buy Buttons, so they're made once in the Dashboard from
+the Payment Links. Only their public IDs and the publishable key reach the site, through
+`web_donations` in `live/dev/gcp` (web's `STRIPE_*` settings). /donate shows a "One-off |
+Monthly" choice and only the chosen button (`?frequency=monthly` links straight to Monthly);
+an option whose button isn't set is hidden, and with neither set the page keeps its "Giving
+isn't open yet" placeholder. Stripe's script (`js.stripe.com`) loads on /donate only. The site
+sends no Content-Security-Policy yet; when one comes, it needs `script-src` and `frame-src`
+`https://js.stripe.com`.
+
+| Task (owner: Joel)              | How                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First setup: the key (once)     | apply `bootstrap` (the secret container and tf-deployer's read). In the Dashboard, **in the sandbox**, Developers → API keys → Create restricted key with **Write** on Products, Prices, Payment Links and Customer portal (nothing else), then: `read -rsp 'Stripe key: ' k && printf %s "$k" \| gcloud secrets versions add stripe-api-key --project heisreal-dev --data-file=- && unset k` |
+| First setup: the objects        | let `tofu-apply.yml` plan and apply `stripe` (or `tf.sh stripe apply`), then `tools/scripts/tf.sh stripe output stripe` for the two Payment Links and the portal URL                                                                                                                                                                                                                          |
+| First setup: the buttons (once) | Dashboard (sandbox) → Payment Links → open each link → **Buy button** → Copy code. From each snippet keep `buy-button-id` (and the `publishable-key`, the same in both), put them and the portal URL in `web_donations` in `live/dev/gcp/main.tf`, and apply gcp                                                                                                                              |
+| Rotate the key                  | create a new restricted key as above, add it as a new version (same command), roll the old one in the Dashboard                                                                                                                                                                                                                                                                               |
+
+**Changing an amount** (the one-off minimum or starting amount, or the monthly unit) makes a new
+price, since Stripe's prices can't change, and so a **new Payment Link**: a link's price can't be
+swapped in place (`replace_triggered_by` in `modules/stripe`; tested offline by
+`modules/stripe/tests/link-lifecycle.sh`). A new link needs a **new Buy Button** (owner step,
+Dashboard), whose ID then goes into `web_donations`. The apply makes the new price and link first,
+then deactivates the old link and archives the old price, so **the old button stops working at
+that apply** until gcp applies the new ID. Either:
+
+- do it in one sitting: approve the stripe apply, make the new button, update `web_donations`
+  and apply gcp straight away (the gap is those few minutes); or
+- for no gap: before the run that plans the change, let OpenTofu forget the old ones so they stay
+  live (`tools/scripts/tf.sh stripe state rm module.stripe.stripe_payment_link.one_off
+module.stripe.stripe_price.one_off`, or the `monthly` pair). The apply then only creates the new
+  price and link. Switch `web_donations` to the new button, apply gcp, then archive the old link
+  and price in the Dashboard.
+
+Anything deactivated or archived in the Dashboard (a link, a price, the product, the portal) is
+drift: OpenTofu pins `active = true`, so the next plan turns it back on.
+
+**Going live (not now).** A production environment gets its own root with `live = true` in the
+module (it then refuses a sandbox key), a restricted **live** key in its own project's
+`stripe-api-key`, buttons made in live mode and a `pk_live_` key in its `web_donations` (dev's
+`web_donations` refuses `pk_live_`). Before that: the charity registration, Gift Aid (below),
+the privacy text, and Stripe's live-mode payment method and receipt settings, all for Joel.
+
+**Later: Gift Aid.** Once He Is Real Today is a registered charity: either collect the Gift Aid
+declaration in Stripe (a Payment Link custom field "I am a UK taxpayer…" plus
+`billing_address_collection = "required"` for the home address HMRC needs, and claim from the
+exported payments), or a service such as Swiftaid that collects and claims it. Not built.
 
 ## Where data lives (D101–D104)
 

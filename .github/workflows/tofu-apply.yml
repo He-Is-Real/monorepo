@@ -7,13 +7,14 @@ name: OpenTofu apply
 # Correct by construction, no selection logic:
 #   - One run at a time (one concurrency group, never cancelled in progress). GitHub keeps at
 #     most one pending run and drops older pending ones; nothing is lost, because...
-#   - ...every run plans every root (gcp, cluster, bunny; images only when dispatched with
-#     `images`; never bootstrap, which is local-only). Unchanged roots plan "No changes" and
-#     skip their apply.
+#   - ...every run plans every root (gcp, cluster, bunny, stripe; images only when dispatched
+#     with `images`; never bootstrap, which is local-only). Unchanged roots plan "No changes"
+#     and skip their apply.
 #   - One target per run: `target` resolves main's HEAD once and every job checks out that SHA
 #     ($GITHUB_SHA and workflow_run.head_sha are never used).
-#   - Wave 1: gcp and bunny plan in parallel; one approval (approve-1) covers both applies, and
-#     gcp applies after bunny (bunny grants gcp's services access to keys they read).
+#   - Wave 1: gcp, bunny and stripe plan in parallel; one approval (approve-1) covers their
+#     applies, and gcp applies after bunny (bunny grants gcp's services access to keys they
+#     read). stripe (donations' Stripe sandbox objects) depends on nothing and nothing waits on it.
 #     Wave 2: cluster (and images) plan after gcp's apply, against its fresh outputs; a second
 #     approval (approve-2) only if they change.
 #   - Superseded: if main moves while a run waits, its plan summaries say "reject this run",
@@ -34,7 +35,7 @@ name: OpenTofu apply
 # gs://heisreal-dev-tfstate/dev/bunny/logs/ and publish only `tf.sh bunny plan-summary`. No
 # Bunny plan is ever an artifact.
 #
-# Identities: tf-deployer (gcp, cluster, images) and tf-bunny (bunny) are available only to
+# Identities: tf-deployer (gcp, cluster, images, stripe) and tf-bunny (bunny) are available only to
 # this file and tofu-drift.yml on main (deploy_gate and bunny_gate in modules/bootstrap).
 
 on:
@@ -210,17 +211,66 @@ jobs:
             exit 1
           fi
 
+  # Stripe's sandbox (donations): the plan holds Stripe IDs and public URLs only. The API key is
+  # read by the root itself, ephemerally; it's masked first in case an error ever quotes it.
+  plan-stripe:
+    needs: target
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ needs.target.outputs.sha }}
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+      object: ${{ steps.plan.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.DEPLOYER }}
+      - run: tools/scripts/tf.sh stripe-mask
+      - run: tools/scripts/tf.sh stripe init -input=false
+      - id: plan
+        run: |
+          code=0
+          tools/scripts/tf.sh stripe plan -input=false -detailed-exitcode -out="$RUNNER_TEMP/tfplan" -no-color || code=$?
+          main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          {
+            echo "### dev/stripe at \`$SHA\`"
+            [ "$main" = "$SHA" ] || echo "**⚠ superseded by $main: reject this run; the next run plans again.**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$code" in
+          0)
+            echo changes=false >> "$GITHUB_OUTPUT"
+            echo 'No changes.' >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          2)
+            object="$PLANS/stripe/$RUN.tfplan"
+            gcloud storage cp --no-user-output-enabled "$RUNNER_TEMP/tfplan" "$object"
+            { echo changes=true; echo "object=$object"; } >> "$GITHUB_OUTPUT"
+            { echo '```'; tools/scripts/tf.sh stripe plan-summary "$RUNNER_TEMP/tfplan"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          *)
+            echo "plan failed (exit $code)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+            ;;
+          esac
+
   approve-1:
-    needs: [target, plan-gcp, plan-bunny]
+    needs: [target, plan-gcp, plan-bunny, plan-stripe]
     # always(): a failed plan on one side doesn't stop the other side's approval.
     if: >-
       always() && needs.target.result == 'success' &&
       ((needs.plan-gcp.result == 'success' && needs.plan-gcp.outputs.changes == 'true') ||
-      (needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'true'))
+      (needs.plan-bunny.result == 'success' && needs.plan-bunny.outputs.changes == 'true') ||
+      (needs.plan-stripe.result == 'success' && needs.plan-stripe.outputs.changes == 'true'))
     runs-on: ubuntu-latest
     env:
       SHA: ${{ needs.target.outputs.sha }}
-    environment: dev # pauses for approval: read the gcp and bunny plan summaries first
+    environment: dev # pauses for approval: read the gcp, bunny and stripe plan summaries first
     permissions: {}
     outputs:
       go: ${{ steps.check.outputs.go }}
@@ -319,6 +369,34 @@ jobs:
       # Unused plans expire through the bucket's 7-day lifecycle rule.
       - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
 
+  apply-stripe:
+    needs: [target, plan-stripe, approve-1]
+    if: >-
+      always() && needs.plan-stripe.result == 'success' && needs.plan-stripe.outputs.changes == 'true' &&
+      needs.approve-1.result == 'success' && needs.approve-1.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Google auth (tf-deployer)
+    env:
+      OBJECT: ${{ needs.plan-stripe.outputs.object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: ./.github/actions/tofu
+        with:
+          service_account: ${{ env.DEPLOYER }}
+      - run: tools/scripts/tf.sh stripe-mask
+      # Exactly the saved plan; OpenTofu refuses it if state changed meanwhile (stale).
+      - run: |
+          tools/scripts/tf.sh stripe init -input=false
+          gcloud storage cp --no-user-output-enabled "$OBJECT" "$RUNNER_TEMP/tfplan"
+          tools/scripts/tf.sh stripe apply -input=false -no-color "$RUNNER_TEMP/tfplan"
+      # Only after a successful apply: a failed job keeps its plan so "Re-run failed jobs" works.
+      # Unused plans expire through the bucket's 7-day lifecycle rule.
+      - run: gcloud storage rm --no-user-output-enabled "$OBJECT" || true
+
   stage-gcp:
     needs: [target, plan-gcp, approve-1, apply-gcp]
     if: always()
@@ -369,6 +447,32 @@ jobs:
           result="$(tools/scripts/tf-stage.sh "$PREV" true "$PLAN" "$CHANGES" "$GO" "$APPLY")"
           echo "result=$result" >> "$GITHUB_OUTPUT"
           echo "bunny: $result" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Summary only: nothing waits on stripe.
+  stage-stripe:
+    needs: [target, plan-stripe, approve-1, apply-stripe]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.stage.outputs.result }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          sparse-checkout: tools/scripts
+      - id: stage
+        env:
+          PREV: "${{ needs.target.result == 'success' && 'ok' || 'blocked: target' }}"
+          PLAN: ${{ needs.plan-stripe.result }}
+          CHANGES: ${{ needs.plan-stripe.outputs.changes }}
+          GO: ${{ needs.approve-1.outputs.go }}
+          APPLY: ${{ needs.apply-stripe.result }}
+        run: |
+          result="$(tools/scripts/tf-stage.sh "$PREV" true "$PLAN" "$CHANGES" "$GO" "$APPLY")"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "stripe: $result" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ---- Wave 2: cluster (and images), after gcp's apply ----------------------------------------
   # W1 = stage-gcp is ok AND approve-1 was skipped (nothing in wave 1 changed) or approved and
@@ -656,7 +760,8 @@ jobs:
   #   - something was applied: in this run, or in an earlier run since "Dev behavioural tests"
   #     last started (a push run's applies are tested by the run after Release Images).
   # Then dispatch "Dev behavioural tests": it resets dev to the dummy dataset and tests the real
-  # site, the real API and real Bunny together. A dispatch, not a call: only a dispatched run on
+  # site, the real API and real Bunny together. stripe isn't part of it: those tests never
+  # reach Stripe, and web gets the Buy Button IDs from gcp. A dispatch, not a call: only a dispatched run on
   # main may sign in as ci-dev-seeder (dev_seed_gate in modules/bootstrap), so this needs no new
   # identity or secret. It queues behind any reset (concurrency `dev-data`).
   behavioural:
@@ -727,14 +832,17 @@ jobs:
       - approve-2
       - plan-gcp
       - plan-bunny
+      - plan-stripe
       - plan-cluster
       - plan-images
       - apply-gcp
       - apply-bunny
+      - apply-stripe
       - apply-cluster
       - apply-images
       - stage-gcp
       - stage-bunny
+      - stage-stripe
       - stage-cluster
       - stage-images
     if: always() && (needs.approve-1.outputs.go == 'false' || needs.approve-2.outputs.go == 'false')
@@ -752,6 +860,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GCP: ${{ needs.plan-gcp.result }},${{ needs.plan-gcp.outputs.changes }},${{ needs.apply-gcp.result }}
           BUNNY: ${{ needs.plan-bunny.result }},${{ needs.plan-bunny.outputs.changes }},${{ needs.apply-bunny.result }}
+          STRIPE: ${{ needs.plan-stripe.result }},${{ needs.plan-stripe.outputs.changes }},${{ needs.apply-stripe.result }}
           CLUSTER: ${{ needs.plan-cluster.result }},${{ needs.plan-cluster.outputs.changes }},${{ needs.apply-cluster.result }}
           IMAGES: ${{ needs.plan-images.result }},${{ needs.plan-images.outputs.changes }},${{ needs.apply-images.result }}
         run: |
@@ -761,7 +870,7 @@ jobs:
           {
             read -r message
             read -r advice
-          } < <(tools/scripts/tf-superseded.sh "$newer" "gcp=$GCP" "bunny=$BUNNY" "cluster=$CLUSTER" "images=$IMAGES")
+          } < <(tools/scripts/tf-superseded.sh "$newer" "gcp=$GCP" "bunny=$BUNNY" "stripe=$STRIPE" "cluster=$CLUSTER" "images=$IMAGES")
           echo "::warning title=Superseded::$message"
           {
             echo "### ⚠ $message"

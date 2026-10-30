@@ -5,14 +5,15 @@
 #   tools/scripts/tf.sh <root> plan-summary <plan>  changed addresses, actions and a count only
 #   tools/scripts/tf.sh bunny-cli <args...>         the bunny CLI with the account key, one process
 #   tools/scripts/tf.sh bunny-mask secrets|state    CI only: ::add-mask:: every Bunny key
+#   tools/scripts/tf.sh stripe-mask                 CI only: ::add-mask:: the Stripe API key
 #
-# Roots: bootstrap|gcp|images|cluster|bunny.
+# Roots: bootstrap|gcp|images|cluster|bunny|stripe.
 #
 # Identity (TF_SH_IDENTITY: unset, `self`, or a service-account email):
 #   - an explicit TF_SH_IDENTITY wins (bootstrap accepts only `self`);
 #   - otherwise, in GitHub Actions, the job's ambient credentials;
-#   - otherwise the root's CI identity: gcp, images, cluster as tf-deployer; bunny as tf-bunny;
-#     bootstrap always with your own credentials.
+#   - otherwise the root's CI identity: gcp, images, cluster, stripe as tf-deployer; bunny as
+#     tf-bunny; bootstrap always with your own credentials.
 # Impersonation needs `gcloud auth login --update-adc` and Token Creator on the account.
 #
 # Refuses debug logs (TF_LOG*, RUNNER_DEBUG=1): they can print secrets into public CI logs.
@@ -24,7 +25,7 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 project=heisreal-dev
-roots='bootstrap|gcp|images|cluster|bunny'
+roots='bootstrap|gcp|images|cluster|bunny|stripe'
 deployer="tf-deployer@${project}.iam.gserviceaccount.com"
 tf_bunny="tf-bunny@${project}.iam.gserviceaccount.com"
 
@@ -47,11 +48,12 @@ case "$1" in -h | --help) usage ;; esac
 target="$1"
 shift
 case "$target" in
-bootstrap | gcp | images | cluster | bunny) root="$target" ;;
+bootstrap | gcp | images | cluster | bunny | stripe) root="$target" ;;
 bunny-cli | bunny-mask) root=bunny ;;
-*) usage_error "unknown root '$target' (expected $roots, bunny-cli or bunny-mask)" ;;
+stripe-mask) root=stripe ;;
+*) usage_error "unknown root '$target' (expected $roots, bunny-cli, bunny-mask or stripe-mask)" ;;
 esac
-[ $# -ge 1 ] || usage
+[ "$target" = stripe-mask ] || [ $# -ge 1 ] || usage
 
 # Debug logs: provider logs include API responses, Bunny keys and Secret Manager payloads.
 for var in TF_LOG TF_LOG_CORE TF_LOG_PROVIDER TF_LOG_PATH; do
@@ -110,6 +112,24 @@ if [ "$target" = bunny-cli ]; then
     die "couldn't read bunny-account-api-key (gcloud auth login, and Token Creator on ${identity:-nobody}?)"
   [ -n "$key" ] || die "bunny-account-api-key is empty (runbook: infra/terraform/README.md, Bunny.net)"
   BUNNYNET_API_KEY="$key" exec bunny "$@"
+fi
+
+if [ "$target" = stripe-mask ]; then
+  # The stripe root reads the key itself (ephemeral); this only hides it from the rest of the
+  # job's log, should an error ever quote it. Prints nothing but the ::add-mask:: line.
+  [ "${GITHUB_ACTIONS:-}" = true ] || die "stripe-mask runs only in GitHub Actions"
+  [ $# -eq 0 ] || usage_error "stripe-mask takes no arguments"
+  key="$(gcloud_as secrets versions access latest --secret=stripe-api-key 2> /dev/null)" || {
+    echo "stripe-mask: failed" >&2
+    exit 1
+  }
+  # Each line as stored and trimmed (the root trims it, so an error would quote the trimmed key).
+  while IFS= read -r line || [ -n "$line" ]; do
+    trimmed="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<< "$line")"
+    [ -z "$line" ] || printf '::add-mask::%s\n' "$line"
+    [ -z "$trimmed" ] || [ "$trimmed" = "$line" ] || printf '::add-mask::%s\n' "$trimmed"
+  done <<< "$key"
+  exit 0
 fi
 
 dir="$repo/infra/terraform/live/dev/$root"

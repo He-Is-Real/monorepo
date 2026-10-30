@@ -11,9 +11,9 @@ import {
   useState,
 } from 'react';
 
-// The site's sections (mockups' nav). The static pages are M1 step 6b-2; Donate is a placeholder
-// until M4. "Impact" from the mockups waits for real figures. Submission is M2, so "Share your
-// story" leads to Get Ready to Share for now.
+// The site's sections (mockups' nav). The static pages are M1 step 6b-2; Donate shows Stripe's
+// Buy Buttons where they're set (M4), otherwise a placeholder. "Impact" from the mockups waits
+// for real figures. Submission is M2, so "Share your story" leads to Get Ready to Share for now.
 export const NAV_LINKS = [
   { href: '/stories', label: 'Stories' },
   { href: '/about', label: 'About' },

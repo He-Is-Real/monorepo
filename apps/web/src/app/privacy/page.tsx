@@ -18,6 +18,8 @@ export function generateMetadata() {
 // Bunny's player keeps the visitor's own playback settings once they change one (Codex, #65).
 // Hearts pressed while signed out (or before the sign-up consent) stay in this browser's local
 // storage (M2, Joel, 2026-10-28); only their story ids are sent, anonymously, to show their cards.
+// Stripe's Buy Buttons on /donate (2026-10-29) load Stripe's fraud checks, which set one cookie on
+// m.stripe.com (checked in Chromium on 2026-10-29: nothing on this site's own origin).
 // All strictly necessary (PECR reg. 6(4)), so no consent banner. Clerk may add a short suffix
 // to its cookie names.
 const STORAGE = [
@@ -73,6 +75,13 @@ const STORAGE = [
     purpose:
       'Remembers the playback speed, volume or mute you chose. Only saved if you change one of them.',
     lasts: 'Until you clear it',
+  },
+  {
+    name: 'm',
+    kind: 'Cookie, on Stripe’s domain (m.stripe.com), from the donate page only',
+    by: 'Stripe, our payment provider',
+    purpose: 'Helps Stripe detect fraud before you pay.',
+    lasts: 'About 13 months',
   },
   {
     name: '__clerk_db_jwt',
@@ -205,6 +214,32 @@ export default function PrivacyPage() {
               how long it played) so we can tell that videos work.
             </p>
           </div>
+        </section>
+
+        <section
+          id="donations"
+          aria-labelledby="donations-heading"
+          className="mt-12 scroll-mt-6"
+        >
+          <h2
+            id="donations-heading"
+            className="mb-4 text-2xl font-normal sm:text-[1.75rem]"
+          >
+            Donations
+          </h2>
+          <p className="text-secondary-text">
+            Donations are processed by Stripe, our payment provider, on its own
+            secure pages, and{' '}
+            <a
+              href="https://stripe.com/gb/privacy"
+              rel="noreferrer"
+              className="inline-flex min-h-11 items-center"
+            >
+              Stripe’s privacy policy
+            </a>{' '}
+            applies to the details you give there. We never see your card
+            details, and we keep no record of your donation on this site.
+          </p>
         </section>
 
         <section aria-labelledby="questions" className="mt-12">

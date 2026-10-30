@@ -5,6 +5,7 @@ name: OpenTofu drift
 # applies: fix drift in code, or let the next tofu-apply.yml run plan it.
 #
 #   gcp, cluster  tf-deployer
+#   stripe        tf-deployer, with the Stripe key masked (the root reads it ephemerally)
 #   bootstrap     tf-planner (read-only; bootstrap is applied locally only)
 #   bunny         tf-bunny, with masking, a private raw log and a summary only (public logs)
 #   images        never: its plan compares local build output
@@ -20,7 +21,7 @@ on:
       root:
         description: Root to check
         type: choice
-        options: [all, gcp, cluster, bootstrap, bunny]
+        options: [all, gcp, cluster, stripe, bootstrap, bunny]
         default: all
 
 # Nothing by default; each job asks for what it uses (tools/scripts/tests/workflows.test.mjs).
@@ -46,7 +47,7 @@ jobs:
       matrix:
         root: >-
           ${{ fromJSON((github.event_name == 'schedule' || inputs.root == 'all')
-          && '["gcp","cluster","bootstrap"]' || format('["{0}"]', inputs.root)) }}
+          && '["gcp","cluster","stripe","bootstrap"]' || format('["{0}"]', inputs.root)) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,6 +61,8 @@ jobs:
           service_account: >-
             ${{ matrix.root == 'bootstrap' && 'tf-planner@heisreal-dev.iam.gserviceaccount.com'
             || 'tf-deployer@heisreal-dev.iam.gserviceaccount.com' }}
+      - if: matrix.root == 'stripe'
+        run: tools/scripts/tf.sh stripe-mask
       - run: tools/scripts/tf.sh "$ROOT" init -input=false
       - run: |
           code=0

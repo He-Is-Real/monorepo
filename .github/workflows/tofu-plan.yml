@@ -1,6 +1,6 @@
 name: OpenTofu plan
 
-# Pull requests only, read-only advice: never applies, never touches bunny. What merges is
+# Pull requests only, read-only advice: never applies, never touches bunny or stripe. What merges is
 # planned again on main by tofu-apply.yml, which plans every root and asks before each apply.
 #
 # Every PR first gets offline checks that fail loudly: fmt, validate of every root, the
@@ -8,8 +8,9 @@ name: OpenTofu plan
 # schema-checked. ci.yml's required job runs the modules' `tofu test` (terraform:test) and the
 # database integration suite.
 # Then the roots the PR touches (tools/scripts/tf-roots.sh) are planned without a refresh or
-# lock as tf-planner (gcp, images). bunny is never planned here: tf-bunny is only available on
-# main. bootstrap is planned and applied locally.
+# lock as tf-planner (gcp, images). bunny and stripe are never planned here: tf-bunny is only
+# available on main, and tf-planner can't read the Stripe key. bootstrap is planned and applied
+# locally.
 #
 # The cluster plan (D42) is a separate job. Its kustomization diffs are server-side dry runs,
 # which Kubernetes authorises like real writes, so it runs as tf-cluster-planner, which can
@@ -86,7 +87,7 @@ jobs:
               { echo "::error file=$file::state and plan must both be enforced"; exit 1; }
           }
           key_only bunny tofu-bunny tofu-state
-          for root in bootstrap gcp images cluster; do key_only "$root" tofu-state tofu-bunny; done
+          for root in bootstrap gcp images cluster stripe; do key_only "$root" tofu-state tofu-bunny; done
           if git grep -n -E 'method +"unencrypted"|fallback +\{' -- 'infra/terraform/*.tf'; then
             echo "::error::no plaintext method or fallback: every state is encrypted (D54)"
             exit 1
@@ -155,7 +156,7 @@ jobs:
             echo '```'
             echo "${roots:-none}"
             echo '```'
-            echo "bunny: planned after merge on main (tofu-apply.yml); bootstrap: plan and apply locally."
+            echo "bunny, stripe: planned after merge on main (tofu-apply.yml); bootstrap: plan and apply locally."
           } >> "$GITHUB_STEP_SUMMARY"
 
   plan-gcp:

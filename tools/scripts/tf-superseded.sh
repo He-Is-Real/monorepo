@@ -5,7 +5,7 @@
 #   tools/scripts/tf-superseded.sh <newer_run> <root>=<plan>,<changes>,<apply> ...
 #
 #   newer_run  the newer run's number, or empty if it couldn't be found
-#   root       gcp, bunny, cluster, images: the plan job's result, its `changes` output and
+#   root       gcp, bunny, stripe, cluster, images: the plan job's result, its `changes` output and
 #              the apply job's result (any may be empty)
 #
 # Prints two lines: the message (which roots applied, failed, or weren't applied), then the
