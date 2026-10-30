@@ -6,7 +6,7 @@
 #
 # Google's audit logs (`_Required` sink and bucket, 400 days) are untouched: neither can be
 # changed. Only a project created after the organisation's default log location is London
-# (modules/org, D104) gets a London `_Required` bucket.
+# (modules/org, D104, postponed by D119) gets a London `_Required` bucket.
 
 locals {
   # Everything except Google's audit logs, which the `_Required` sink takes. The same filter

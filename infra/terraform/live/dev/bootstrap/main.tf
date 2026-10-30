@@ -1,6 +1,7 @@
 # Bootstrap for the dev environment: project, APIs, Terraform state bucket,
-# CI identities, the budget, log storage and the organisation's settings. Applied by a developer (needs billing-account
-# permissions for the budget); never by CI.
+# CI identities, the budget and log storage. Applied by a developer (needs billing-account
+# permissions for the budget); never by CI. The organisation-wide settings (modules/org) are
+# postponed (D119), so this root needs no organisation roles.
 #
 # First run ever: see infra/terraform/README.md "Bootstrapping a new environment"
 # (state starts local, then moves into the bucket this root creates).
@@ -57,25 +58,17 @@ module "bootstrap" {
   ]
 }
 
-# Organisation-wide (every project in heisreal.today, prod included): UK locations only (D102)
-# and London as new projects' default log location (D104). Only this root may call the module.
-# Needs organisation roles a developer gets once from the organisation admin (README,
-# "Where data lives").
-module "org" {
-  source = "../../../modules/org"
+# D119 (Joel, 2026-10-30): the organisation-wide UK settings (D102, D104) are postponed until
+# the organisation admin's one-time setup, a gate before Go live (infra/terraform/README.md,
+# "Where data lives"). If anything of module.org reached this state, OpenTofu forgets it and
+# Google keeps it; if nothing did, this block does nothing. Don't delete it before checking
+# `tf.sh bootstrap state list` shows no module.org.
+removed {
+  from = module.org
 
-  org_id               = "463617123121"
-  allowed_locations    = ["in:gb-locations"] # the UK: today London (europe-west2) and its zones
-  log_storage_location = "europe-west2"
-
-  # The Org Policy API is enabled in this project (module.bootstrap), which bills the calls.
-  depends_on = [module.bootstrap]
-}
-
-# The organisation's log settings always exist; adopt them before changing them.
-import {
-  to = module.org.google_logging_organization_settings.this
-  id = "organizations/463617123121/settings"
+  lifecycle {
+    destroy = false
+  }
 }
 
 # --- Adopt resources created by hand on 2026-09-27 -------------------------
@@ -103,8 +96,4 @@ import {
 
 output "bootstrap" {
   value = module.bootstrap
-}
-
-output "org" {
-  value = module.org
 }
