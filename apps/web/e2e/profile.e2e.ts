@@ -216,6 +216,56 @@ test.describe('behaviour', () => {
     expect(await me.stories()).toEqual([['d1', 'draft']]);
   });
 
+  test('once the person signs out, what they did is never shown: not a notice, not one finishing late', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      stories: [
+        { id: 'o1', title: 'Gone first' },
+        { id: 'o2', title: 'Gone later' },
+      ],
+    });
+    await page.goto(PROFILE);
+    const first = row(page, 'Gone first');
+    await first.getByRole('button', { name: 'Delete' }).click();
+    await first.getByRole('button', { name: 'Delete draft' }).click();
+    await expect(page.locator('[data-notice]')).toContainText(
+      '“Gone first” is deleted.',
+    );
+
+    // The next delete is held on its way while the person signs out (here, or in another tab).
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    await page.route(`${STUB_USER_URL}/v1/stories/o2`, async (route) => {
+      await held;
+      await route.continue();
+    });
+    const later = row(page, 'Gone later');
+    await later.getByRole('button', { name: 'Delete' }).click();
+    const answered = page.waitForResponse(`${STUB_USER_URL}/v1/stories/o2`);
+    await later.getByRole('button', { name: 'Delete draft' }).click();
+    await page.getByRole('button', { name: /^Account: / }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(
+      page.getByRole('link', { name: 'Sign in' }).first(),
+    ).toBeVisible();
+    await expect(page.locator('[data-notice]')).toBeEmpty();
+
+    release();
+    await (await answered).finished();
+    // Let the page take the answer in before looking.
+    await page.evaluate(
+      () =>
+        new Promise((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(r)),
+        ),
+    );
+    expect(await me.stories()).toEqual([]);
+    await expect(page.locator('[data-notice]')).toBeEmpty();
+    await expect(page.getByText(/Gone (first|later)/)).toHaveCount(0);
+  });
+
   test('a story that changed elsewhere isn’t deleted: the list catches up and says so', async ({
     page,
     request,

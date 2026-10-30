@@ -8,7 +8,7 @@ import {
   ApiUserUnavailable,
   newIdempotencyKey,
 } from '@/lib/api-user';
-import { useOwnData } from './use-own-data';
+import { useOwnData, useOwnNotice } from './use-own-data';
 
 /** The contract's `ConsentState`, the part this shows. */
 interface ConsentCurrent {
@@ -36,7 +36,10 @@ export function SocialSharingConsent() {
   const own = useOwnData(readSharing);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ alert: boolean; text: string }>();
+  const { notice: message, say } = useOwnNotice<{
+    alert: boolean;
+    text: string;
+  }>();
   // One key per withdrawal, kept across retries of it (D29).
   const [key, setKey] = useState(newIdempotencyKey);
 
@@ -47,7 +50,7 @@ export function SocialSharingConsent() {
     const api = own.api(owner);
     if (!api) return;
     setBusy(true);
-    setMessage(undefined);
+    say(owner, undefined);
     try {
       await api.command('/v1/account/consents/share_socials/withdraw', {
         method: 'POST',
@@ -55,13 +58,13 @@ export function SocialSharingConsent() {
       });
       setKey(newIdempotencyKey());
       setConfirm(false);
-      setMessage({
+      say(owner, {
         alert: false,
         text: 'Withdrawn. We won’t share your stories beyond heisreal.today any more.',
       });
       await own.reload(owner);
     } catch (err) {
-      setMessage({
+      say(owner, {
         alert: true,
         text:
           err instanceof ApiUserProblem && err.problem.detail

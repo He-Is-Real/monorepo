@@ -3,7 +3,7 @@
 import { SignOutButton, useAuth, useUser } from '@clerk/react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Popover } from 'radix-ui';
-import { cloneElement, type ReactElement, useEffect } from 'react';
+import { cloneElement, type ReactElement, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
 import { usePublishPersonalSession } from '@/lib/personal-session';
@@ -210,8 +210,10 @@ export const e2eFixtureToken = async (): Promise<string> => {
 };
 
 /**
- * e2e fixture (E2E_FIXTURES): the signed-in header without Clerk; Sign out does nothing. It
- * calls the account bootstrap like the real one, with the fixture token.
+ * e2e fixture (E2E_FIXTURES): the signed-in header without Clerk. It calls the account bootstrap
+ * like the real one, with the fixture token. Sign out signs out on this page without leaving it,
+ * as a sign-out in another tab reaches this one (Clerk keeps a browser's tabs in step), so tests
+ * can see what a page does when its person goes.
  */
 export function FixtureSignedInAccount({
   name,
@@ -220,13 +222,20 @@ export function FixtureSignedInAccount({
   name: string;
   apiUserUrl?: string;
 }) {
-  useAccountBootstrap(E2E_FIXTURE_USER_ID, apiUserUrl, e2eFixtureToken);
-  usePublishPersonalSession(E2E_FIXTURE_USER_ID, apiUserUrl, e2eFixtureToken);
+  const [signedOut, setSignedOut] = useState(false);
+  const userId = signedOut ? null : E2E_FIXTURE_USER_ID;
+  useAccountBootstrap(userId, apiUserUrl, e2eFixtureToken);
+  usePublishPersonalSession(userId, apiUserUrl, e2eFixtureToken);
+  if (signedOut) return <SignInLink />;
   return (
     <SignedInAccount
       name={name}
       shortName={name.split(' ')[0]}
-      signOut={(button) => button}
+      signOut={(button) =>
+        cloneElement(button as ReactElement<{ onClick?: () => void }>, {
+          onClick: () => setSignedOut(true),
+        })
+      }
     />
   );
 }

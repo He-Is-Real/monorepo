@@ -10,7 +10,7 @@ import {
   StaleVersion,
 } from '@/lib/api-user';
 import { signInHref } from '@/lib/return-path';
-import { useOwnData } from './use-own-data';
+import { useOwnData, useOwnNotice } from './use-own-data';
 
 /** The contract's `StoryMine`, the parts the profile shows. */
 export interface MyStoryRow {
@@ -79,7 +79,7 @@ type Command = 'withdraw' | 'delete';
  */
 export function MySubmissions() {
   const own = useOwnData(readAll);
-  const [notice, setNotice] = useState('');
+  const { notice, say } = useOwnNotice<string>();
   const heading = useRef<HTMLHeadingElement>(null);
 
   const run = async (
@@ -117,7 +117,8 @@ export function MySubmissions() {
           : 'We couldn’t withdraw it just now. Please try again in a moment.';
       }
     }
-    setNotice(
+    say(
+      owner,
       command === 'delete'
         ? `“${story.title}” is deleted.`
         : `“${story.title}” is withdrawn. It’s no longer on the site or waiting for review.`,
