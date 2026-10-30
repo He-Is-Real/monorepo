@@ -425,11 +425,7 @@ export class ConsentLedger {
     // refused like a stale one (a page from an older release reloads), never filled in here.
     const dpa = inForce.dpaVersion ? recordKey(inForce.dpaVersion) : null;
     const terms = inForce.termsVersion ? recordKey(inForce.termsVersion) : null;
-    if (
-      !dpa ||
-      !inForce.dpaHash ||
-      input.privacyPolicyVersion !== dpa
-    ) {
+    if (!dpa || !inForce.dpaHash || input.privacyPolicyVersion !== dpa) {
       throw new ConsentConflictError(
         'legal_document_not_in_force',
         dpa
@@ -439,9 +435,7 @@ export class ConsentLedger {
     }
     if (
       inForce.coversTerms &&
-      (!terms ||
-        !inForce.termsHash ||
-        input.termsVersion !== terms)
+      (!terms || !inForce.termsHash || input.termsVersion !== terms)
     ) {
       throw new ConsentConflictError(
         'legal_document_not_in_force',
