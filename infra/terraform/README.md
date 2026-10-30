@@ -15,7 +15,7 @@ Background and decisions (project docs, `context/research/`): `terraform-state-o
 ```
 modules/
   bootstrap/   project, APIs, state bucket, KMS keys, CI identities (keyless), budget, Bunny account key secret, log bucket (London)
-  org/         organisation-wide: UK-only resource locations, London default for new projects' logs
+  org/         organisation-wide UK settings; postponed, no root calls it (D119, its README)
   gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run, dev-seed Job (dev)
   cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
   db-migration/ the D14 migration bundle and Job name (no providers; `tofu test` offline)
@@ -24,7 +24,7 @@ modules/
   bunny-state-guard/ the bunny root's "never public" check (no providers; tested)
   stripe/      donations in Stripe: product, prices, Payment Links, donor portal (tested, mock provider)
 live/dev/      one root per concern, applied in this order:
-  bootstrap/   developer only, locally (billing + org roles; calls org/) state: dev/bootstrap
+  bootstrap/   developer only, locally (billing roles)                  state: dev/bootstrap
   gcp/         tofu-apply.yml (approved) or a developer              state: dev/gcp
   images/      a developer (Docker), or tofu-apply.yml on request    state: dev/images
   cluster/     tofu-apply.yml (approved) or a developer              state: dev/cluster
@@ -563,10 +563,12 @@ declaration in Stripe (a Payment Link custom field "I am a UK taxpayer…" plus
 `billing_address_collection = "required"` for the home address HMRC needs, and claim from the
 exported payments), or a service such as Swiftaid that collects and claims it. Not built.
 
-## Where data lives (D101–D104)
+## Where data lives (D101–D104, D119)
 
 Joel's rule: data stays in the UK wherever possible, written explicitly in OpenTofu, never left to
-a provider's default. Every Google Cloud resource we create names `europe-west2` (London).
+a provider's default. Every Google Cloud resource we create names `europe-west2` (London). That,
+and review of each plan, is what keeps dev in the UK today: the organisation-wide enforcement
+below is postponed (D119).
 
 | Data                                                    | Where                                     | Declared in                              |
 | ------------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
@@ -574,7 +576,7 @@ a provider's default. Every Google Cloud resource we create names `europe-west2`
 | Cloud Run services and jobs, Artifact Registry images   | London                                    | `gcp`                                    |
 | Secrets (Secret Manager)                                | London only (user-managed replication)    | `gcp`, `bootstrap`, `bunny`              |
 | Our services' logs (`_Default` sink, 30 days, D101)     | London (`default-europe-west2`)           | `modules/bootstrap/logging.tf`           |
-| Google's audit logs (`_Required`, 400 days, D104)       | dev: `global` (can't move); new: London   | `modules/org` (new projects only)        |
+| Google's audit logs (`_Required`, 400 days, D104)       | `global` (dev can't move; D119 postponed) | `modules/org`, not called yet (D119)     |
 | Images (Bunny storage)                                  | London                                    | `bunny`                                  |
 | Story videos and audio (Bunny Stream, D89)              | Frankfurt (Bunny's only choice)           | `bunny`                                  |
 | Bunny's CDN caches (D103)                               | EU + US edges (images), worldwide (video) | Bunny's defaults; revisit for production |
@@ -586,8 +588,19 @@ the existing `_Default` sink at it (imported, filter unchanged, deletion refused
 **Dev's `_Required` bucket stays `global`**: Google can't move, delete or redirect it, so only
 recreating the project would put it in London (D104).
 
-**Organisation settings (D102, D104; `modules/org`).** They cover every project in
-`heisreal.today`, so only `live/dev/bootstrap` calls the module; a prod bootstrap must not.
+**Organisation settings (D102, D104; `modules/org`): postponed (D119, Joel, 2026-10-30).** They
+need organisation roles that only the organisation admin can grant, and that one-time setup
+hasn't been done, so `live/dev/bootstrap` no longer calls the module and a plain
+`tf.sh bootstrap plan` works with a developer's own login. Until the setup is done:
+
+- nothing at organisation level refuses a resource outside the UK, so a missing or wrong
+  location in OpenTofu would go through: check every new location-bound resource names
+  `europe-west2` (London) when reading its plan;
+- a project created now gets its `_Required` audit-log bucket in `global` for good.
+
+**Gate:** the organisation admin's setup and turning `modules/org` back on (its README has the
+steps) come before Go live and before a prod project is created. When on, the module sets, for
+every project in `heisreal.today` (so only one root may call it, and a prod bootstrap must not):
 
 - **Default log location `europe-west2`**: new projects get their `_Default` and `_Required` buckets
   in London. Existing buckets keep theirs. The settings are imported, with the other two fields
@@ -601,7 +614,7 @@ recreating the project would put it in London (D104).
   secrets keep user-managed London replication. Topics created after the policy store messages
   in the UK; still declare `message_storage_policy` on M2's topics. No exception is needed.
 
-**Before the first apply**, the organisation admin (`info@heisreal.today`) runs this once, in Cloud
+**Before `modules/org` is turned back on**, the organisation admin (`info@heisreal.today`) runs this once, in Cloud
 Shell or a terminal signed in as that account. Nobody who runs OpenTofu can change organisation
 access, and the org admin role can't create roles itself, hence the first line:
 
@@ -618,9 +631,9 @@ gcloud organizations add-iam-policy-binding $ORG --member=serviceAccount:tf-plan
 Developers apply bootstrap (`orgpolicy.policyAdmin`: custom roles can't set policies; the log
 settings role holds only the two settings permissions). The organisation grant gives `tf-planner`
 only those two reads and no log-entry access (any workflow in this repository, PRs included, can
-use it). Its existing project-level Viewer role in dev still lets it read dev's own logs. Until the grants
-exist, bootstrap's plan fails on importing the log settings (and so does `tofu-drift.yml`);
-`tf.sh bootstrap plan -exclude=module.org` plans the rest.
+use it). Its existing project-level Viewer role in dev still lets it read dev's own logs. The
+grants must exist before the module goes back into bootstrap, or bootstrap's plan fails on
+importing the log settings (and so does `tofu-drift.yml`).
 
 ## Cost guardrails
 
@@ -636,6 +649,9 @@ exist, bootstrap's plan fails on importing the log settings (and so does `tofu-d
 `tf.sh` only knows the dev roots (`live/dev/<root>`), so these steps call `tofu -chdir=…` directly
 with your own credentials. Set `R=infra/terraform/live/prod` first.
 
+0. Turn the organisation settings back on first ([Where data lives](#where-data-lives-d101d104-d119),
+   D119): a project's audit-log bucket takes the organisation's default location when the
+   project is created and never moves.
 1. Copy `live/dev` to `live/prod` and change names/IDs, **without `encryption.tf`** (the keys don't
    exist yet). Let `google_project` **create** the project with `auto_create_network = false`
    (dev's was made by hand, so its open-by-default network had to be imported and destroyed).

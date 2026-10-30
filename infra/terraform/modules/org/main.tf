@@ -1,7 +1,8 @@
 # Organisation-wide settings (heisreal.today): they apply to every project in the organisation,
-# dev and prod alike, so exactly one root may call this module (live/dev/bootstrap today).
-# Applied locally by a developer who holds roles/orgpolicy.policyAdmin and the custom role
-# logSettingsAdmin on the organisation (README, "Where data lives").
+# dev and prod alike, so exactly one root may call this module. No root calls it today: postponed
+# until the organisation admin's one-time setup (D119; README.md here). Applied locally by a
+# developer who holds roles/orgpolicy.policyAdmin and the custom role logSettingsAdmin on the
+# organisation (infra/terraform/README.md, "Where data lives").
 
 # D104: new projects' log buckets, Google's 400-day audit logs (`_Required`) included, are
 # created in London. Existing buckets keep their location: Google fixes it at creation.
