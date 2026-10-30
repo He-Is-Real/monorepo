@@ -789,3 +789,56 @@ test("unknown GKE zones pass: Google picks them inside the cluster's checked loc
     /c: node_locations\[0\]=us-east1-b\n.*c: location=\(known after apply\)/s,
   );
 });
+
+test('values inside an exempt GKE path, or holding one, pass when unknown; other locations still fail', () => {
+  // A Standard cluster with default autoscaling, and an inline node pool, as google 8.7.0 plans them.
+  const schema = schemaFile({
+    google_container_cluster: block(['location', 'node_locations'], {
+      node_pool: block(['name'], { node_config: block(['machine_type']) }),
+      cluster_autoscaling: block(['auto_provisioning_locations'], {
+        auto_provisioning_defaults: block(['service_account']),
+      }),
+    }),
+  });
+  const cluster = (address, afterUnknown) =>
+    rc(address, { location: 'europe-west2' }, { after_unknown: afterUnknown });
+  const ok = check(
+    [
+      cluster('google_container_cluster.autoscaling', { cluster_autoscaling: true }),
+      cluster('google_container_cluster.pool', {
+        node_pool: [{ node_locations: true, node_config: true }],
+      }),
+    ],
+    'prod',
+    schema,
+  );
+  assert.equal(ok.status, 0, ok.all);
+  assert.equal(ok.stdout, 'location-check: ok (2 created or updated)\n');
+
+  // An unknown ancestor that also holds a location outside the exempt path is still a finding,
+  // and so is the cluster's own location.
+  const bad = check(
+    [
+      cluster('google_container_cluster.autoscaling', { cluster_autoscaling: true }),
+      rc('google_container_cluster.where', {}, { after_unknown: { location: true } }),
+    ],
+    'prod',
+    schemaFile({
+      google_container_cluster: block(['location'], {
+        cluster_autoscaling: block(['auto_provisioning_locations'], {
+          auto_provisioning_defaults: block(['region']),
+        }),
+      }),
+    }),
+  );
+  assert.equal(bad.status, 1, bad.all);
+  assert.equal(
+    bad.stdout,
+    [
+      'location-check: google_container_cluster.autoscaling: cluster_autoscaling=(known after apply)',
+      'location-check: google_container_cluster.where: location=(known after apply)',
+      'location-check: 2 outside the UK; fix them, or record an exception in tools/scripts/tf-location-check.sh',
+      '',
+    ].join('\n'),
+  );
+});

@@ -22,7 +22,7 @@
 #     object) whose schema holds a location attribute anywhere inside it, or that the schema
 #     doesn't describe. This follows the provider's schema rather than a list of paths, so a new
 #     resource or block is covered from day one. derived_when_unknown below lists the unknown
-#     values Google can only derive from a location that is checked;
+#     values (and everything inside them) Google can only derive from a location that is checked;
 #   - a google_spanner_instance whose config isn't regional-europe-west2;
 #   - a google_pubsub_topic whose message_storage_policy isn't exactly ["europe-west2"];
 #   - a google_secret_manager_secret with automatic replication (global), or one that may get it
@@ -68,8 +68,9 @@ not_places='[
 ]'
 
 # Values Google derives from a location that is checked, so being unknown until apply hides
-# nothing: by resource type, the attribute path without list indexes. Known values are still
-# checked like any other.
+# nothing: by resource type, the attribute path without list indexes. Everything inside a listed
+# value is exempt too, and an unknown value holding one (a whole cluster_autoscaling block) is a
+# finding only if it holds another location. Known values are still checked like any other.
 derived_when_unknown='{
   "google_container_cluster": {
     "node_locations": "GKE only takes zones inside the cluster location, which is checked",
@@ -112,9 +113,21 @@ def holds_locations($rc): is_loc_key($rc) or (type == "string" and (ascii_downca
   "allowed_persistence_regions", "replication_regions")))
   or ($rc.type == "google_secret_manager_secret" and . == "auto")
   or ($rc.type == "google_spanner_instance" and . == "config");
-# Every attribute and block name in a schema subtree, including the fields of object-typed attributes.
-def schema_names: (.. | objects | (.attributes, .block_types) | objects | keys[]),
-  (.. | arrays | select(length == 2 and .[0] == "object" and (.[1] | type) == "object") | .[1] | keys[]);
+# The path (names only) of every attribute and block in a schema subtree: a block, an attribute,
+# or an attribute type, including the fields of object-typed and nested attributes.
+def schema_paths: if type == "array" then
+    if .[0] == "object" then .[1] | to_entries[] | [.key], [.key] + (.value | schema_paths)
+    elif .[0] == "tuple" then .[1][] | schema_paths
+    else .[1] | schema_paths end
+  elif type != "object" then empty
+  elif has("type") then .type | schema_paths
+  elif has("nested_type") then .nested_type | schema_paths
+  else ((.attributes // {}), (.block_types // {}) | to_entries[]
+    | [.key], [.key] + (.value | .block // . | schema_paths)) end;
+# Whether attribute path $names (no list indexes) is, or is inside, a value listed in
+# derived_when_unknown for resource $rc.
+def derived($rc; $names): any($derived[$rc.type] // {} | keys[] | split(".");
+  . as $d | ($names | length) >= ($d | length) and $names[:($d | length)] == $d);
 # The schema of the unknown value at path $p in block $b: a block, or the attribute the path
 # enters (all of it: a superset of the unknown part); null if the schema does not describe it.
 def schema_at($b; $p): reduce $p[] as $k ({s: $b, attribute: false};
@@ -124,13 +137,15 @@ def schema_at($b; $p): reduce $p[] as $k ({s: $b, attribute: false};
   else .s = null end) | .s;
 # Why an unknown value at path $p may hide a location, or empty if it cannot.
 def unknown_risk($rc; $p):
-  if $derived[$rc.type][$p | map(strings) | join(".")] != null then empty
+  ($p | map(strings)) as $names
+  | if derived($rc; $names) then empty
   elif $p | leaf_key | holds_locations($rc) then "known after apply"
   elif ($rc.type | startswith("google_") | not) then empty
   elif $schema == null then "known after apply; no provider schema to rule out a location"
   else schema_at($schema[$rc.type].block; $p) as $s
     | if $s == null then "known after apply; not in the provider schema"
-      elif any($s | schema_names; is_loc_key($rc)) then "known after apply"
+      elif any($s | schema_paths; (.[-1] | is_loc_key($rc)) and (derived($rc; $names + .) | not))
+      then "known after apply"
       else empty end
   end;
 def bunny_ok($rc; $key; $v):
