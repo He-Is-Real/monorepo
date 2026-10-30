@@ -24,7 +24,8 @@
 //   and `POST …/versions`, Admin and above only (sessions starting `admin` are Admins; everyone
 //   else 403). Each document starts with dev's placeholder version; a publish is checked like the
 //   real one (a PDF signature, the preview's hashes, the version in force it was based on) and
-//   kept per session.
+//   kept per session. A session seeded with `noLegalDocuments` starts with none (a fresh
+//   environment's first publication).
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -928,7 +929,17 @@ createServer(async (req, res) => {
   // Test set-up only (not part of api-user): a session's starting state for the submit flow.
   const seed = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})$/.exec(path);
   if (seed && req.method === 'POST') {
-    sessions.set(seed[1], newSession(seed[1], (await readJson(req)) ?? {}));
+    const body = (await readJson(req)) ?? {};
+    sessions.set(seed[1], newSession(seed[1], body));
+    // A fresh environment: no version of either legal document published yet.
+    if (body.noLegalDocuments)
+      adminState.set(
+        seed[1],
+        new Map([
+          ['privacy', []],
+          ['terms', []],
+        ]),
+      );
     res.writeHead(204);
     return res.end();
   }

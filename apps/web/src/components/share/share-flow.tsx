@@ -1128,6 +1128,9 @@ export function ReviewStep({
   const [social, setSocial] = useState(false);
   const [problem, setProblem] = useState<React.ReactNode>(null);
   const [busy, setBusy] = useState(false);
+  // A form or privacy policy replaced since this page loaded (D122): trying again would send
+  // the old version again, so the way on is a reload (the draft is saved and in the address).
+  const [outdated, setOutdated] = useState(false);
   // One key per grant, kept while retrying (D29).
   const keys = useRef({
     publish: newIdempotencyKey(),
@@ -1139,6 +1142,7 @@ export function ReviewStep({
   );
 
   async function submit() {
+    if (outdated) return;
     if (askPublish && !publishBox) {
       setProblem(
         'The publishing consent can’t be shown right now, so your story can’t be submitted yet. It’s saved; please try again later.',
@@ -1203,7 +1207,16 @@ export function ReviewStep({
         (err instanceof ApiUserProblem &&
           (err.code === 'story_not_submittable' ||
             err.code === 'story_locked'));
-      if (changed && draftId) {
+      if (
+        err instanceof ApiUserProblem &&
+        (err.code === 'form_version_not_in_force' ||
+          err.code === 'legal_document_not_in_force')
+      ) {
+        setOutdated(true);
+        setProblem(
+          'Our privacy policy or consent form was updated while you were writing. Your story is saved. Reload the page to read the new version, then submit.',
+        );
+      } else if (changed && draftId) {
         // Already submitted (a submission whose answer was lost, then retried with another
         // key): "Thank you", not an error. Otherwise it changed elsewhere: check it again.
         if (!(await draft.load(draftId))) {
@@ -1393,9 +1406,19 @@ export function ReviewStep({
         >
           Back
         </button>
-        <button type="submit" className={primary} disabled={busy}>
-          {busy ? 'Submitting…' : 'Submit for review'}
-        </button>
+        {outdated ? (
+          <button
+            type="button"
+            className={primary}
+            onClick={() => window.location.reload()}
+          >
+            Reload the page
+          </button>
+        ) : (
+          <button type="submit" className={primary} disabled={busy}>
+            {busy ? 'Submitting…' : 'Submit for review'}
+          </button>
+        )}
       </Actions>
       <p className="mt-4 text-sm text-secondary-text">
         Our team reads every story before it’s published.

@@ -7,7 +7,7 @@ import {
   expectNoHorizontalOverflow,
   expectTarget,
 } from './helpers';
-import { WEB_SIGNED_IN_URL } from './servers';
+import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // The legal documents (D121, D123; Joel, 2026-10-30: "isn't privacy consent button and privacy
 // policy and terms of use just the same document? but one needs an approve button"), on every
@@ -195,6 +195,45 @@ test.describe('/admin/legal', () => {
     ).toBeChecked();
     await expect(page.locator('[data-versions="terms"] > li')).toHaveCount(1);
     await expectNoHorizontalOverflow(page);
+  });
+
+  test('the first publication: an admin who hasn’t accepted sign-up (nothing to accept yet) stays on the page and publishes', async ({
+    page,
+    request,
+  }) => {
+    // A fresh environment: no version of either document, so the sign-up step can't be
+    // completed until the first one is published here.
+    const session = `admin-${randomUUID().slice(0, 8)}`;
+    const seeded = await request.post(
+      `${STUB_USER_URL}/__e2e/sessions/${session}`,
+      { data: { signupAccepted: false, noLegalDocuments: true } },
+    );
+    expect(seeded.status()).toBe(204);
+    await useSession(page, session);
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
+    await expect(page.getByText('No version is published yet.')).toBeVisible();
+
+    const file = readFileSync(`${LEGAL}/dpa/dev_placeholder.pdf`);
+    await page.getByLabel('The PDF (at most 10 MB)').setInputFiles({
+      name: 'privacy-v1.pdf',
+      mimeType: 'application/pdf',
+      buffer: file,
+    });
+    await page
+      .getByLabel('The words the site shows (Markdown)')
+      .fill('# Privacy policy\n\nThe first one.\n');
+    await page.getByRole('button', { name: 'Preview' }).click();
+    await expect(page.locator('[data-preview-pdf-sha256]')).toHaveText(
+      sha256(file),
+    );
+    await page.getByLabel('What changed').fill('First version');
+    await page.getByRole('button', { name: 'Publish this version' }).click();
+    await expect(page.locator('[data-publish-status="done"]')).toHaveText(
+      'Published version 1. It’s in force now.',
+    );
+    // Still on the publishing page: never sent to the sign-up step.
+    expect(new URL(page.url()).pathname).toBe('/admin/legal');
+    await expect(page.locator('[data-versions="privacy"] > li')).toHaveCount(1);
   });
 
   test('only for admins: anyone else is told so and sees no versions', async ({

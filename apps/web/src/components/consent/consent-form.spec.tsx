@@ -71,8 +71,8 @@ const ask: ConsentAsk = {
   ],
   mechanism: 'web_form_submission',
   blocks: [],
-  dpaVersion: 'dpa1',
-  dpaBlocks: [],
+  privacy: { version: 'dpa1', blocks: [], pdf: null },
+  terms: null,
   returnTo: '/stories',
   apiUserUrl: 'https://api-user.example',
 };

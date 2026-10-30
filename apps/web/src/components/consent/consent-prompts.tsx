@@ -14,13 +14,16 @@ export const TESTIMONY_CONSENT_PATH = '/consent/testimony';
 
 /**
  * Pages a person who hasn't accepted the sign-up form may stay on: the step itself, sign-in,
- * and the legal pages they may want to read first.
+ * the legal pages they may want to read first, and the staff page that publishes those
+ * documents (D121). In a new environment nothing is published yet, so the step can't be
+ * completed until an Admin publishes there; api-admin still refuses anyone below Admin.
  */
 const OPEN_BEFORE_SIGN_UP_CONSENT = [
   SIGN_UP_CONSENT_PATH,
   SIGN_IN_PATH,
   '/privacy',
   '/terms',
+  '/admin/legal',
 ];
 
 /** `path` with `redirect_url` set to where the person is now. */
