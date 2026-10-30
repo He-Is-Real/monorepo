@@ -424,6 +424,17 @@ describe('video and audio uploads', () => {
     ]).toEqual([200, 2, videoId]);
     expect(bunny.videos.size).toBe(count);
     expect(await grants('fay')).toEqual([videoId]);
+    // Once the story is submitted, a replay signs no new link (nor once the file arrived).
+    bunny.arrived(videoId);
+    const done = await upload('fay', id, 1, FILE, k);
+    expect([done.status, done.body.code]).toEqual([409, 'nothing_to_resume']);
+    expect((await submit('fay', id, 2)).status).toBe(200);
+    Object.assign(bunny.videos.get(videoId) ?? {}, { status: 0 });
+    const submitted = await upload('fay', id, 1, FILE, k);
+    expect([submitted.status, submitted.body.code]).toEqual([
+      409,
+      'story_locked',
+    ]);
     // The same key for another file is refused, not replayed.
     const other = await upload('fay', id, 1, { ...FILE, fileSizeBytes: 9 }, k);
     expect([other.status, other.body.code]).toEqual([

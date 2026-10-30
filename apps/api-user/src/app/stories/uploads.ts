@@ -199,17 +199,9 @@ export class Uploads {
     const bunny = this.stream();
     if (input.resume) {
       const draft = await this.checkDraft(person, id, ifMatch, input);
-      // The same video again, for a new link (after a reload, or once the last one expired),
-      // only while nothing has arrived for it: a finished file can't be uploaded over.
-      const video = draft.videoId ? await bunny.video(draft.videoId) : null;
-      if (!draft.videoId || !video || !NOT_UPLOADED.includes(video.status)) {
-        throw new ConflictException({
-          code: 'nothing_to_resume',
-          message:
-            'There’s no unfinished upload on this story to carry on with. Choose the file again to upload it.',
-        });
-      }
-      return this.target(bunny, id, draft.version, draft.videoId);
+      // The same video again, for a new link (after a reload, or once the last one expired).
+      await this.checkResumable(person, id, draft.videoId);
+      return this.target(bunny, id, draft.version, draft.videoId as string);
     }
 
     const scope: IdempotencyScope = {
@@ -280,9 +272,14 @@ export class Uploads {
       if (replaced && replaced !== granted) {
         await this.discard(replaced, 'a replaced video');
       }
-    } else if (videoId && videoId !== granted) {
-      // Another attempt with this key had committed first (a racing retry): ours is unused.
-      await this.discard(videoId, 'an unused video');
+    } else {
+      if (videoId && videoId !== granted) {
+        // Another attempt with this key had committed first (a racing retry): ours is unused.
+        await this.discard(videoId, 'an unused video');
+      }
+      // A replay signs a link only as a resume would: the story still editable, the video
+      // still its file, and nothing arrived for it yet. Never a link once it's submitted.
+      await this.checkResumable(person, id, granted);
     }
     return this.target(bunny, id, version, granted);
   }
@@ -311,6 +308,30 @@ export class Uploads {
         code: 'upload_outcome_unknown',
         message:
           'We couldn’t confirm your upload started. Your story is saved; please try again.',
+      });
+    }
+  }
+
+  /**
+   * A link for `videoId` again only while the story is editable, that video is still its file,
+   * and nothing has arrived for it: a finished file can't be uploaded over (`409`).
+   */
+  private async checkResumable(
+    person: SurrealQueryable,
+    id: string,
+    videoId: string | undefined,
+  ): Promise<void> {
+    const draft = await this.draft(person, id);
+    if (!EDITABLE.includes(draft.status)) throw locked();
+    const video =
+      videoId && draft.videoId === videoId
+        ? await this.stream().video(videoId)
+        : null;
+    if (!video || !NOT_UPLOADED.includes(video.status)) {
+      throw new ConflictException({
+        code: 'nothing_to_resume',
+        message:
+          'There’s no unfinished upload on this story to carry on with. Choose the file again to upload it.',
       });
     }
   }
