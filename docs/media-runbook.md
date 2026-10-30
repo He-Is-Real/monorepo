@@ -79,6 +79,33 @@ is under the story's folder (D80). Deleting an image leaves its folder behind, s
 the folder too. To check uploads still work against dev: `pnpm nx run dev-seed:upload-spike` (a
 developer, with gcloud ADC and ffmpeg; it deletes what it uploads).
 
+## Replaced and orphaned videos
+
+Each video or audio story has one Bunny video at a time, titled with the story id (D69). api-user
+creates it when the person chooses a file (RequestUpload), and the database puts it on the draft
+through an upload grant (D80; the person's browser never names a video).
+
+- **Replaced:** choosing another file creates a new video and deletes the old one at Bunny at
+  once, because nobody reviewed it. Its grant row stays for 7 days so the upload limits still
+  count it.
+- **Orphans** (a video on Bunny that no story shows) happen when that delete fails (api-user
+  logs `Couldn’t delete replaced video …`), when the database refused the grant after the video
+  was created and the delete after it failed (`… after a refused upload`), or when a person
+  abandons a draft whose file never finished (Bunny keeps it at status 0, "created"). Until the
+  sweep (D40, with account deletion) find them by title: a story id with no story, or a video id
+  that isn't the story's `media[0].bunnyVideoId`:
+
+  ```bash
+  tools/scripts/tf.sh bunny-cli api GET '/library/<library id>/videos?itemsPerPage=100' | jq '.items[] | {guid, title, status, dateUploaded}'
+  ```
+
+  Delete one with `tools/scripts/tf.sh bunny-cli api DELETE /library/<library id>/videos/<guid>`.
+  A Stream video has no storage folder to remove (the empty-folder issue is the images zone's).
+
+- **A link still in use after submit:** a TUS link lasts an hour and binds only the video (D68),
+  so a file could be uploaded over an unfinished one until it expires. api-user signs no new
+  link once the story is submitted, and submit needs Bunny's own length of the file.
+
 ## The Stream player
 
 Videos and audio play in Bunny's player, a frame from `player.mediadelivery.net`. Its look comes
