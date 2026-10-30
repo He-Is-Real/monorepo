@@ -20,6 +20,7 @@ import {
 import { LegalHtml } from '@/components/legal/legal-html';
 import type { ConsentBox, ConsentStatement } from '@/lib/legal';
 import type { ShareForm, ShareLegal } from '@/lib/share-legal';
+import { documentVersionHref } from '@/lib/legal-text';
 import { signInHref } from '@/lib/return-path';
 import {
   type ConsentState,
@@ -450,6 +451,39 @@ function boxFor(
   return form?.boxes.find((b) => b.statement === statement);
 }
 
+/**
+ * The privacy policy a grant on this form names (D122), folded away to read, with its own
+ * numbered page: shown beside every box that grants, so what's agreed to is what was shown.
+ */
+function PrivacyPolicy({
+  form,
+  className,
+}: {
+  form: ShareForm;
+  className?: string;
+}) {
+  return (
+    <details
+      className={`rounded-xl border border-border p-4 ${className ?? ''}`}
+    >
+      <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-link">
+        Read the privacy policy
+      </summary>
+      <div className="mt-3" data-privacy-document={form.privacyVersion}>
+        <LegalHtml html={form.privacyHtml} />
+        <a
+          href={documentVersionHref('privacy', form.privacyNumber)}
+          target="_blank"
+          rel="noopener"
+          className="mt-2 inline-flex min-h-11 items-center font-semibold text-link underline-offset-4 hover:underline"
+        >
+          Version {form.privacyNumber}, on its own page (opens in a new tab)
+        </a>
+      </div>
+    </details>
+  );
+}
+
 /** A form's words, or the privacy policy's: a document to read, in a box of its own. */
 function LegalDocument({
   label,
@@ -718,14 +752,7 @@ export function ConsentStep({
       <StepHeading heading={heading}>Your story and your data</StepHeading>
       {/* The form's words: a document to read. The box below is the page's own (D114). */}
       <LegalDocument label="The form" html={form.html} />
-      <details className="mt-4 rounded-xl border border-border p-4">
-        <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-link">
-          Read the privacy policy
-        </summary>
-        <div className="mt-3" data-privacy-document={form.privacyVersion}>
-          <LegalHtml html={form.privacyHtml} />
-        </div>
-      </details>
+      <PrivacyPolicy form={form} className="mt-4" />
       <div className="mt-6">
         <Checkbox
           checked={ticked}
@@ -1345,14 +1372,19 @@ export function ReviewStep({
       </dl>
       <div className="mt-6 flex flex-col gap-3">
         {askPublish ? (
-          publishBox ? (
-            <Checkbox
-              checked={publish}
-              onChange={setPublish}
-              className="rounded-xl border border-border bg-accent p-[12px] sm:p-4"
-            >
-              {publishBox.label}
-            </Checkbox>
+          publishBox && legal.testimony ? (
+            <div data-grant="publish">
+              <Checkbox
+                checked={publish}
+                onChange={setPublish}
+                className="rounded-xl border border-border bg-accent p-[12px] sm:p-4"
+              >
+                {publishBox.label}
+              </Checkbox>
+              {/* The privacy policy this grant names, even when the consent step was skipped
+                  (consented before, under an earlier one). */}
+              <PrivacyPolicy form={legal.testimony} className="mt-2" />
+            </div>
           ) : (
             <p role="alert" className="text-destructive">
               The publishing consent can’t be shown right now, so your story
@@ -1366,7 +1398,10 @@ export function ReviewStep({
           </p>
         )}
         {socialBox && legal.social && (
-          <div className="rounded-xl border border-border p-[12px] sm:p-4">
+          <div
+            data-grant="share_socials"
+            className="rounded-xl border border-border p-[12px] sm:p-4"
+          >
             <Checkbox checked={social} onChange={setSocial}>
               {socialBox.label}{' '}
               <span className="text-secondary-text">(optional)</span>
@@ -1378,18 +1413,13 @@ export function ReviewStep({
               <div className="mt-2">
                 <LegalHtml html={legal.social.html} />
               </div>
-              {legal.social.privacyVersion !==
-                legal.testimony?.privacyVersion && (
-                // The privacy policy, when it isn't the one already shown (one was published
-                // between the two reads).
-                <div
-                  className="mt-4"
-                  data-privacy-document={legal.social.privacyVersion}
-                >
-                  <LegalHtml html={legal.social.privacyHtml} />
-                </div>
-              )}
             </details>
+            {/* The privacy policy this grant names, unless the same one is shown above. */}
+            {!(
+              askPublish &&
+              publishBox &&
+              legal.social.privacyVersion === legal.testimony?.privacyVersion
+            ) && <PrivacyPolicy form={legal.social} className="mt-2" />}
           </div>
         )}
       </div>

@@ -28,6 +28,7 @@ const form = (boxes: ShareForm['boxes']): ShareForm => ({
     },
   ),
   privacyVersion: 'dev_placeholder',
+  privacyNumber: 1,
   privacyHtml: renderLegalMarkdown('Privacy words'),
 });
 const ART9 = {

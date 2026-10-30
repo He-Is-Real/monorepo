@@ -39,7 +39,7 @@ const isDocument = (d: string): d is DocumentName =>
   Object.hasOwn(DOCUMENTS, d);
 
 /** The text's limit, as the schema's (characters). */
-const MAX_TEXT = 200_000;
+export const MAX_TEXT = 200_000;
 
 /** `table:id` → `id`. */
 const key = (id: string) => {

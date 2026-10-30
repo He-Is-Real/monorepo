@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
 import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
@@ -13,6 +13,7 @@ import {
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
+import { useBodyParser } from '../src/app/body-parser';
 
 /**
  * The legal documents (D121, D125; Joel, 2026-10-30) through api-admin's real AppModule on its
@@ -26,7 +27,7 @@ describe('legal documents (api-admin)', () => {
   let t: TestDatabase;
   let clerk: TestClerk;
   let migrator: Surreal;
-  let app: INestApplication;
+  let app: NestExpressApplication;
   let url: string;
 
   const sha256 = (text: string) =>
@@ -102,7 +103,10 @@ describe('legal documents (api-admin)', () => {
       .overrideProvider(SECRETS_PROJECT)
       .useValue('test-project')
       .compile();
-    app = moduleRef.createNestApplication({ logger: false });
+    app = moduleRef.createNestApplication<NestExpressApplication>({
+      logger: false,
+    });
+    useBodyParser(app); // as main.ts
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
   });
@@ -219,6 +223,17 @@ describe('legal documents (api-admin)', () => {
       const res = await publish('terms', body);
       expect(res.status).toBe(400);
     }
+  });
+
+  it('takes the longest text the editor allows, in any script and escaping; one character more is refused by its rule, not by size', async () => {
+    // 200,000 characters: half "ü", half a control character JSON escapes to 6 bytes.
+    const text = 'ü'.repeat(100_000) + '\u0001'.repeat(100_000);
+    const longest = await publish('privacy', { text, basedOn: 2 });
+    expect(longest.status).toBe(201);
+    expect(await longest.json()).toMatchObject({ number: 3 });
+    const over = await publish('privacy', { text: `${text}x`, basedOn: 3 });
+    expect(over.status).toBe(400);
+    expect(await code(over)).toBe('validation_failed');
   });
 
   it('is for Admin and above (D1): a moderator can neither list nor publish', async () => {

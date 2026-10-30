@@ -16,8 +16,12 @@ export interface ShareForm {
    * read, never the source of a box.
    */
   html: string;
-  /** The privacy policy in force, which the grant names (D122), and its words, rendered. */
+  /**
+   * The privacy policy in force, which the grant names (D122): its id, its number (for
+   * /privacy/versions/<n>) and its words, rendered.
+   */
   privacyVersion: string;
+  privacyNumber: number;
   privacyHtml: string;
 }
 
@@ -35,6 +39,7 @@ async function shareForm(form: ConsentFormName): Promise<ShareForm | null> {
     boxes: result.form.boxes,
     html: renderLegalMarkdown(result.form.text, { topLevel: 3 }),
     privacyVersion: result.privacy.current.id,
+    privacyNumber: result.privacy.current.number,
     privacyHtml: renderLegalMarkdown(result.privacy.current.text, {
       topLevel: 3,
     }),

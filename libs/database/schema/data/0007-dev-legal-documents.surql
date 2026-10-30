@@ -3,11 +3,15 @@
 -- site renders, and the consent moments' boxes, in dev. Only with $dev_legal_placeholders = true
 -- (OpenTofu's dev_legal_placeholders, set only in live/dev/cluster); elsewhere it records itself
 -- as applied and writes nothing, and the first versions are published from /admin/legal.
---   * Privacy policy: dev's placeholder privacy document (dpaVersion:dev_placeholder, 0005) is
---     version 1. It gets its number here, the one change dpa_immutable allows a published
---     version, and only the migration may make it (a fresh database numbered it when 0005 made
---     it). Every consent in dev already names it; nothing in the ledger moves. Version 2 is the
---     words /privacy showed before D125, cookie table and all (libs/legal/dpa/dev_policy.md).
+--   * Every environment: each privacy policy version published before numbers existed (a
+--     published standard dpaVersion with no number; in dev, the placeholder privacy document,
+--     dpaVersion:dev_placeholder from 0005) gets its number here, in publishing order (effective
+--     date, else creation, then id), after any already numbered. It's the one change
+--     dpa_immutable allows a published version, and only the migration may make it; its id,
+--     words, hash and every consent naming it stay as they are. Without a number a version
+--     would drop out of /privacy's list of versions.
+--   * Privacy policy, dev: version 2 is the words /privacy showed before D125, cookie table and
+--     all (libs/legal/dpa/dev_policy.md).
 --   * Terms of use: dev's placeholder version 1 (libs/legal/terms/dev_placeholder.md), counted
 --     only in dev (D75).
 --   * Version 2 of the three consent forms: a short introduction instead of a document, the
@@ -15,8 +19,15 @@
 --     form Joel's new wording and the box "I agree to the terms of use" (coversTerms). Under
 --     D93's rules: a new sign-up version is accepted at the next sign-in (D84); the testimony
 --     and social sharing versions require nothing (same boxes, same words beside them).
+-- 3.2.4: FOR over a subquery fails; over a LET works. Each UPDATE takes the next number (the
+-- field's VALUE), so the order of the loop is the order of the numbers.
+LET $unnumbered = (SELECT id, effectiveFrom ?? createdAt AS since, createdAt FROM dpaVersion
+  WHERE status = 'published' AND kind = 'standard' AND number = NONE
+  ORDER BY since ASC, createdAt ASC, id ASC);
+FOR $d IN $unnumbered {
+  UPDATE $d.id SET number = NONE WHERE number = NONE;
+};
 IF $dev_legal_placeholders = true {
-  UPDATE dpaVersion:dev_placeholder SET number = NONE WHERE number = NONE;
   CREATE dpaVersion:dev_policy CONTENT {
     kind: 'standard', status: 'published', materiality: 'minor', devPlaceholder: true,
     documentPath: 'libs/legal/dpa/dev_policy.md', contentHash: $dpa_sha256.dev_policy,

@@ -147,25 +147,53 @@ describe('the legal documents (D121, D125)', () => {
       ).toBe(false);
     });
 
-    it('only the migration numbers a repo version published before numbers, once', async () => {
-      // As a published version from before D125 is: no number (the field didn't exist). Made
-      // without the field's rules, which the next migration puts back.
+    it('the migration numbers every version published before numbers, in publishing order, once', async () => {
+      // As published versions from before D125 are: no number (the field didn't exist). Made
+      // without the field's rules, which the next migration puts back, the later one first; and
+      // a database that hasn't run data 0007 yet.
       await run(
         migrator,
         `REMOVE FIELD number ON dpaVersion;
-         CREATE dpaVersion:old CONTENT object::extend($c, { publishedBy: user:ada,
-           effectiveFrom: d'2026-01-01' });`,
-        { c: policy('Old') },
+         CREATE dpaVersion:old_b CONTENT object::extend($b, { publishedBy: user:ada,
+           effectiveFrom: d'2026-02-01' });
+         CREATE dpaVersion:old_a CONTENT object::extend($a, { publishedBy: user:ada,
+           effectiveFrom: d'2026-01-01' });
+         DELETE _migration:⟨0007-dev-legal-documents⟩;`,
+        { a: policy('Old A'), b: policy('Old B') },
       );
-      await t.migrate(t.params());
-      expect(await number('dpaVersion', 'old')).toBeUndefined();
-      const give = `UPDATE dpaVersion:old SET number = NONE WHERE number = NONE`;
-      expect((await outcome(admin, give)).ok).toBe(false);
-      expect((await outcome(migrator, give)).ok).toBe(true);
-      expect(await number('dpaVersion', 'old')).toBe(3);
+      const kept = `SELECT VALUE [text, contentHash] FROM [dpaVersion:old_a, dpaVersion:old_b]`;
+      // Only the migration numbers them: api-admin can't touch a published version.
       expect(
-        (await outcome(migrator, `UPDATE dpaVersion:old SET text = 'New'`)).ok,
+        (
+          await outcome(
+            admin,
+            `UPDATE dpaVersion:old_a SET effectiveFrom = d'2026-01-02'`,
+          )
+        ).ok,
       ).toBe(false);
+      const before = await rows(migrator, kept);
+      expect((await t.migrate(t.params())).applied).toEqual([
+        '0007-dev-legal-documents',
+      ]);
+      expect(await number('dpaVersion', 'old_a')).toBe(3);
+      expect(await number('dpaVersion', 'old_b')).toBe(4);
+      expect(await rows(migrator, kept)).toEqual(before);
+      // Listed with the others now (the public query reads numbered versions only).
+      expect(
+        await rows(
+          publicRead,
+          `SELECT VALUE number FROM dpaVersion WHERE number != NONE ORDER BY number`,
+        ),
+      ).toEqual([1, 2, 3, 4]);
+      // Nobody changes a number once given, nor the words.
+      for (const db of [admin, migrator]) {
+        await outcome(db, `UPDATE dpaVersion:old_a SET number = 9`);
+        expect(
+          (await outcome(db, `UPDATE dpaVersion:old_a SET text = 'New'`)).ok,
+        ).toBe(false);
+      }
+      expect(await number('dpaVersion', 'old_a')).toBe(3);
+      expect(await rows(migrator, kept)).toEqual(before);
     });
 
     it('the public reads the documents, but never who published them', async () => {
@@ -240,9 +268,9 @@ describe('the legal documents (D121, D125)', () => {
              ORDER BY type`,
         ),
       ).toEqual([
-        ['account_data', 'old', 't1'],
-        ['age_18plus', 'old', 't1'],
-        ['terms_of_use', 'old', 't1'],
+        ['account_data', 'old_b', 't1'],
+        ['age_18plus', 'old_b', 't1'],
+        ['terms_of_use', 'old_b', 't1'],
       ]);
       expect(await state('ann')).toEqual({
         signup: true,
