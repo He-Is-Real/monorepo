@@ -156,10 +156,12 @@ module "gcp" {
   # in once Joel has made the two buttons in the Stripe Dashboard (infra/terraform/README.md,
   # "Stripe"): until then /donate shows "Giving isn't open yet".
   web_donations = {
-    stripe_publishable_key = "" # pk_test_… from the Buy Button snippet
-    one_off_button_id      = "" # buy_btn_… made from the one-off Payment Link
-    monthly_button_id      = "" # buy_btn_… made from the monthly Payment Link
-    donor_portal_url       = "" # `tf.sh stripe output stripe`: donor_portal_url
+    # Public by design. The buttons were made in the Stripe Dashboard (sandbox) from the stripe
+    # root's Payment Links; the portal URL is `tf.sh stripe output stripe`: donor_portal_url.
+    stripe_publishable_key = "pk_test_51UUWPqQXwDT04lZZ2Pnzk6NMRXSGrVvqBEQLB6ObZ1WJmd2XlaFxirg1HrhCXyFgChagB19OC0f8uGQ3aTR7sgTn00DEMppsdA"
+    one_off_button_id      = "buy_btn_1UWO6mQXwDT04lZZVePFhYMh"
+    monthly_button_id      = "buy_btn_1UWO7OQXwDT04lZZysSNapqq"
+    donor_portal_url       = "https://billing.stripe.com/p/login/test_aFa8wR1Hv3lE8gk6Ly1wY00"
   }
 
   # D49/D50: the dev-seed Job (dev only) and who may start it. try(): until bootstrap is applied
