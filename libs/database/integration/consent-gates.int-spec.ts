@@ -9,7 +9,14 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { approve, draft, processed, storyText, submit } from './support/world';
+import {
+  approve,
+  draft,
+  processed,
+  storyText,
+  submit,
+  grantUpload,
+} from './support/world';
 
 /**
  * Consent at every step that processes testimony, enforced by the database (review round 1,
@@ -67,15 +74,13 @@ describe('consent gates on edit, submit, approve and publish', () => {
       ok: false,
       error: expect.stringContaining('current Art 9 consent'),
     });
+    // D80: a person's session never writes media; the write is dropped (media stays empty).
     expect(
       await outcome(
         p,
         `UPDATE story:codex_story SET media = [{ format: 'video', bunnyVideoId: 'v1' }]`,
       ),
-    ).toEqual({
-      ok: false,
-      error: expect.stringContaining('current Art 9 consent'),
-    });
+    ).toMatchObject({ ok: true });
     expect(
       await outcome(p, `UPDATE story:codex_story SET status = 'pending'`),
     ).toEqual({
@@ -209,10 +214,21 @@ describe('consent gates on edit, submit, approve and publish', () => {
       // Video stories: D53 allows media only on video and audio stories.
       await draft(p, 'wf_draft', { primaryFormat: 'video' });
       await draft(p, 'wf_live', { primaryFormat: 'video' });
-      await run(
-        workflow,
-        `UPDATE story:wf_live SET media = [{ format: 'video', bunnyVideoId: 'vid-live' }]`,
-      );
+      // Their uploads (D80: api-user's grants put the videos on the drafts).
+      const apiUser = await t.service('api_user');
+      for (const [story, video] of [
+        ['wf_draft', 'vid-1'],
+        ['wf_live', 'vid-live'],
+      ]) {
+        expect(
+          await grantUpload(apiUser, {
+            video,
+            story,
+            person: 'wf',
+            version: 1,
+          }),
+        ).toMatchObject({ ok: true });
+      }
       await submit(p, 'wf_live');
       await processed(workflow, 'wf_live'); // A2: approval waits for processing
       await approve(admin, 'wf_live');
@@ -221,10 +237,10 @@ describe('consent gates on edit, submit, approve and publish', () => {
     it('workflow writes media while the submitter consents', async () => {
       await run(
         workflow,
-        `UPDATE story:wf_draft SET media = [{ format: 'video', bunnyVideoId: 'vid-1' }]`,
+        `UPDATE story:wf_draft SET media[0].processing = 'processing'`,
       );
       expect((await media('wf_draft'))[0].media).toEqual([
-        { format: 'video', bunnyVideoId: 'vid-1' },
+        { format: 'video', bunnyVideoId: 'vid-1', processing: 'processing' },
       ]);
     });
 

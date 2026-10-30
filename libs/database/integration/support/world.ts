@@ -2,6 +2,7 @@ import type { SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
   grantAll,
+  outcome,
   publishDpa,
   type Row,
   rows,
@@ -27,6 +28,40 @@ export async function draft(
        description: 'How I came to faith', body: $body, primaryFormat: 'written'
      }, $fields)`,
     { id, fields, body: storyText(id) },
+  );
+}
+
+/**
+ * RequestUpload's database half (D80), as api-user runs it on its own login after creating the
+ * video at Bunny: an upload grant for the person's story, whose event puts the video on the draft.
+ * `version` is the story's version (If-Match); the defaults suit a small video.
+ */
+export function grantUpload(
+  apiUser: SurrealQueryable,
+  g: {
+    video: string;
+    story: string;
+    person: string;
+    version: number;
+    format?: 'video' | 'audio';
+    sizeBytes?: number;
+    durationSeconds?: number;
+  },
+) {
+  return outcome(
+    apiUser,
+    `CREATE type::record('uploadGrant', $video) CONTENT {
+       story: type::record('story', $story), person: type::record('user', $person),
+       format: $format, contentType: $contentType, sizeBytes: $sizeBytes,
+       durationSeconds: $durationSeconds, storyVersion: $version
+     } RETURN NONE`,
+    {
+      ...g,
+      format: g.format ?? 'video',
+      contentType: g.format === 'audio' ? 'audio/mpeg' : 'video/mp4',
+      sizeBytes: g.sizeBytes ?? 1_000_000,
+      durationSeconds: g.durationSeconds ?? 60,
+    },
   );
 }
 
@@ -157,6 +192,7 @@ export const ERASE = `
   DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
   DELETE submitterLimits WHERE user = $u;         -- D112: their limits and trusted mark
   DELETE submissionLog WHERE person = $u;         -- D113: their recent submissions
+  DELETE uploadGrant WHERE person = $u;           -- D80, D113: their uploads (Bunny's go too, D82)
   UPDATE $u SET gdprDeletedAt = time::now(), clerkUserId = NONE;   -- D37: a stub remains
   CREATE auditLog CONTENT { service: 'api-user', action: 'EraseAccount', entity: $u,
     reason: $reason };

@@ -26,17 +26,21 @@ import {
   type MyStory,
   plainMessage,
   shareApi,
+  type StoryFormat,
   type SubmissionLimits,
   type Tag,
 } from './share-api';
 import { useDraft } from './use-draft';
+import { type FileState, UploadPanel } from './upload-panel';
 
 /**
  * The submit flow for written stories (M2 plan PR 4), from the mockup authenticated/submit.html,
  * reordered by D67: Choose → Your story and your data (Art 9 consent, only when the person isn't
  * on the testimony form in force, D85) → Prepare (prompts, guidance only, never stored) → Write →
  * Details (optional first name, no email: Clerk has it) → Review (publish consent; 18+ was asked
- * at sign-up, D93) → submitted for review. Video and audio come with the upload work.
+ * at sign-up, D93) → submitted for review. A video or audio story uploads its file where a
+ * written one is written (M2 plan PR 7: upload-panel.tsx), with its title; recording in the
+ * browser is left out of M2 (A5).
  *
  * Everything personal happens in the browser, against api-user (D32, D83). Nothing is stored
  * before the Art 9 tick; the draft is created once it has a title and text, and autosaves
@@ -65,6 +69,14 @@ const STEP_LABELS: Record<Exclude<Step, 'done'>, string> = {
   write: 'Write',
   details: 'Details',
   review: 'Review',
+};
+/** A video or audio story's "write" step is its upload. */
+const stepLabel = (s: Exclude<Step, 'done'>, format: StoryFormat) =>
+  s === 'write' && format !== 'written' ? 'Upload' : STEP_LABELS[s];
+const NOUN: Record<StoryFormat, string> = {
+  written: 'story',
+  video: 'video',
+  audio: 'audio file',
 };
 
 /** The sign-up consent step (D73, PR 116's page). */
@@ -347,7 +359,7 @@ function SignedInFlow({
                           : 'text-secondary-text'
                     }
                   >
-                    {i + 1}. {STEP_LABELS[s]}
+                    {i + 1}. {stepLabel(s, draft.format)}
                     {done && <span className="sr-only"> (done)</span>}
                   </li>
                 );
@@ -360,7 +372,10 @@ function SignedInFlow({
             <ChooseStep
               heading={heading}
               drafts={drafts}
-              onWritten={() => go(after('choose'))}
+              onStart={(format) => {
+                draft.setFormat(format);
+                go(after('choose'));
+              }}
               onContinue={async (id) => {
                 if (askConsent) {
                   window.history.replaceState(null, '', `/share?draft=${id}`);
@@ -397,11 +412,22 @@ function SignedInFlow({
           {step === 'prepare' && (
             <PrepareStep
               heading={heading}
+              format={draft.format}
               onNext={() => go(after('prepare'))}
               onBack={() => go(before('prepare'))}
             />
           )}
-          {step === 'write' && (
+          {step === 'write' && draft.format !== 'written' && (
+            <MediaStep
+              heading={heading}
+              draft={draft}
+              calls={calls}
+              owner={owner}
+              onNext={() => go(after('write'))}
+              onBack={() => go(before('write'))}
+            />
+          )}
+          {step === 'write' && draft.format === 'written' && (
             <WriteStep
               heading={heading}
               draft={draft}
@@ -548,21 +574,26 @@ function Actions({ children }: { children: React.ReactNode }) {
 function ChooseStep({
   heading,
   drafts,
-  onWritten,
+  onStart,
   onContinue,
 }: {
   heading: HeadingRef;
   drafts: MyStory[];
-  onWritten: () => void;
+  onStart: (format: StoryFormat) => void;
   onContinue: (id: string) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [format, setFormat] = useState<StoryFormat>('written');
   const options = [
-    { id: 'written', label: 'Written', note: null },
-    { id: 'video', label: 'Video', note: 'Coming soon' },
-    { id: 'audio', label: 'Audio', note: 'Coming soon' },
+    { id: 'written', label: 'Written', note: 'Write it here' },
+    { id: 'video', label: 'Video', note: 'Upload a video file' },
+    { id: 'audio', label: 'Audio', note: 'Upload an audio file' },
   ] as const;
-  const written = drafts.filter((d) => d.primaryFormat === 'written');
+  const start: Record<StoryFormat, string> = {
+    written: 'Write my story',
+    video: 'Share my video',
+    audio: 'Share my audio',
+  };
   return (
     <div>
       <StepHeading heading={heading}>How would you like to share?</StepHeading>
@@ -572,47 +603,51 @@ function ChooseStep({
           {options.map((o) => (
             <label
               key={o.id}
-              className={`flex min-h-20 flex-col items-center justify-center gap-1 rounded-xl border p-4 text-center ${
-                o.note
-                  ? 'border-border text-secondary-text'
-                  : 'cursor-pointer border-2 border-teal bg-accent font-semibold'
+              className={`flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl p-4 text-center has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
+                format === o.id
+                  ? 'border-2 border-teal bg-accent font-semibold'
+                  : 'border border-border text-secondary-text'
               }`}
             >
               <input
                 type="radio"
                 name="format"
                 value={o.id}
-                defaultChecked={!o.note}
-                disabled={!!o.note}
+                checked={format === o.id}
+                onChange={() => setFormat(o.id)}
                 className="sr-only"
               />
               <span>{o.label}</span>
-              {o.note && (
-                <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium">
-                  {o.note}
-                </span>
-              )}
+              <span className="text-xs font-normal text-secondary-text">
+                {o.note}
+              </span>
             </label>
           ))}
         </div>
       </fieldset>
       <p className="mt-4 text-sm text-secondary-text">
-        Recording or uploading video and audio comes in the next step of
-        building the site. For now you can write your story.
+        Recorded a video or a voice note already? Upload the file. Recording
+        straight from this page comes later.
       </p>
-      {written.length > 0 && (
+      {drafts.length > 0 && (
         <section aria-labelledby="your-drafts" className="mt-8">
           <h3 id="your-drafts" className="mb-3 font-semibold">
             Your drafts
           </h3>
           <ul className="flex flex-col gap-2">
-            {written.map((d) => (
+            {drafts.map((d) => (
               <li
                 key={d.id}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3"
               >
                 <span className="min-w-0 [overflow-wrap:anywhere]">
                   {d.title}
+                  {d.primaryFormat !== 'written' && (
+                    <span className="text-secondary-text">
+                      {' '}
+                      ({d.primaryFormat})
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"
@@ -639,8 +674,12 @@ function ChooseStep({
         <a href="/get-ready" className={secondary}>
           Tips for getting ready
         </a>
-        <button type="button" className={primary} onClick={onWritten}>
-          Write my story
+        <button
+          type="button"
+          className={primary}
+          onClick={() => onStart(format)}
+        >
+          {start[format]}
         </button>
       </Actions>
     </div>
@@ -753,10 +792,12 @@ export function ConsentStep({
 
 function PrepareStep({
   heading,
+  format,
   onNext,
   onBack,
 }: {
   heading: HeadingRef;
+  format: StoryFormat;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -764,8 +805,9 @@ function PrepareStep({
     <div>
       <StepHeading heading={heading}>Prepare your story</StepHeading>
       <p className="mb-5 text-secondary-text">
-        Some questions to think about before you write. They’re only here to
-        help: nothing on this step is saved.
+        Some questions to think about before you{' '}
+        {format === 'written' ? 'write' : 'record'}. They’re only here to help:
+        nothing on this step is saved.
       </p>
       <ul className="flex flex-col gap-3">
         {PROMPTS.map((p) => (
@@ -783,7 +825,7 @@ function PrepareStep({
           Back
         </button>
         <button type="button" className={primary} onClick={onNext}>
-          Start writing
+          {format === 'written' ? 'Start writing' : `Upload my ${NOUN[format]}`}
         </button>
       </Actions>
     </div>
@@ -795,7 +837,9 @@ function SaveState({ draft }: { draft: DraftState }) {
   const text: Record<string, string> = {
     idle: '',
     unsaved:
-      'Kept on this device. It’s saved to your account once it has a title and some text.',
+      draft.format === 'written'
+        ? 'Kept on this device. It’s saved to your account once it has a title and some text.'
+        : 'Kept on this device. It’s saved to your account once it has a title.',
     saving: 'Saving…',
     saved: 'Saved',
     offline:
@@ -949,6 +993,146 @@ function WriteStep({
           Continue
         </button>
       </Actions>
+    </form>
+  );
+}
+
+/**
+ * A video or audio story's title and file (M2 plan PR 7). The draft is created once it has a
+ * title, before the upload (metadata first: a failed upload leaves the draft to come back to).
+ */
+function MediaStep({
+  heading,
+  draft,
+  calls,
+  owner,
+  onNext,
+  onBack,
+}: {
+  heading: HeadingRef;
+  draft: DraftState;
+  calls: ReturnType<typeof shareApi>;
+  owner: string;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const limits = useLimits();
+  const format = draft.format === 'audio' ? 'audio' : 'video';
+  const noun = NOUN[format];
+  const [titleProblem, setTitleProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [file, setFile] = useState<FileState>('none');
+  const [earlier, setEarlier] = useState(false);
+  const { draftId } = draft;
+
+  // Whether the story has a file from before (another tab or device).
+  useEffect(() => {
+    if (!draftId) return;
+    let live = true;
+    calls
+      .story(draftId)
+      .then((story) => live && setEarlier(story.media.length > 0))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [calls, draftId]);
+
+  const prepare = async () => {
+    if (!draft.fields.title.trim()) {
+      setTitleProblem('Give your story a title.');
+      return 'Give your story a title first, then choose your file.';
+    }
+    setTitleProblem(null);
+    if (!(await draft.flush())) {
+      return 'Your story couldn’t be saved yet, so the upload can’t start. Please try again.';
+    }
+    const { draftId: id, version } = draft.current();
+    if (!id || !version) return 'Your story isn’t saved yet. Please try again.';
+    return { draftId: id, version };
+  };
+
+  return (
+    <form
+      noValidate
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!draft.fields.title.trim()) {
+          setTitleProblem('Give your story a title.');
+          return;
+        }
+        if (file === 'none') {
+          setProblem(`Choose your ${noun} to upload.`);
+          return;
+        }
+        if (file === 'unfinished') {
+          setProblem(
+            `Your ${noun} hasn’t finished uploading. Wait for it to finish, or pause it and come back later: your story is saved.`,
+          );
+          return;
+        }
+        setProblem(null);
+        if (await draft.flush()) onNext();
+      }}
+    >
+      <StepHeading heading={heading}>Upload your {noun}</StepHeading>
+      <div className="flex flex-col gap-5">
+        <div>
+          <label htmlFor="story-title" className="mb-1.5 block font-semibold">
+            Title
+          </label>
+          <input
+            id="story-title"
+            className={input}
+            maxLength={140}
+            value={draft.fields.title}
+            aria-invalid={!!titleProblem}
+            aria-describedby={titleProblem ? 'story-title-problem' : undefined}
+            onChange={(e) => draft.update({ title: e.target.value })}
+          />
+          {titleProblem && (
+            <p
+              id="story-title-problem"
+              className="mt-1 text-sm text-destructive"
+            >
+              {titleProblem}
+            </p>
+          )}
+        </div>
+        <div>
+          <p className="mb-1.5 font-semibold">Your {noun}</p>
+          <UploadPanel
+            calls={calls}
+            owner={owner}
+            format={format}
+            limits={limits.uploads}
+            draftId={draftId}
+            hasEarlierFile={earlier}
+            prepare={prepare}
+            setVersion={draft.setVersion}
+            reload={draft.load}
+            onState={setFile}
+          />
+        </div>
+      </div>
+      <SaveState draft={draft} />
+      {problem && (
+        <p role="alert" className="mt-2 text-destructive">
+          {problem}
+        </p>
+      )}
+      <Actions>
+        <button type="button" className={secondary} onClick={onBack}>
+          Back
+        </button>
+        <button type="submit" className={primary}>
+          Continue
+        </button>
+      </Actions>
+      <p className="mt-4 text-sm text-secondary-text">
+        Your {noun} goes straight to our video host in Frankfurt. Only our team
+        sees it until your story is approved.
+      </p>
     </form>
   );
 }
@@ -1260,6 +1444,26 @@ export function ReviewStep({
               </button>
             </>,
           );
+        } else if (
+          p.code === 'media_not_uploaded' ||
+          p.code === 'media_failed' ||
+          p.code === 'media_over_limit'
+        ) {
+          setProblem(
+            <>
+              {plainMessage(
+                err,
+                `Your ${NOUN[draft.format]} isn’t ready to submit yet.`,
+              )}{' '}
+              <button
+                type="button"
+                className="min-h-11 font-semibold text-link underline"
+                onClick={() => onEdit('write')}
+              >
+                Go to your upload
+              </button>
+            </>,
+          );
         } else if (p.code === 'tags_required') {
           setProblem(
             <>
@@ -1318,13 +1522,15 @@ export function ReviewStep({
         {row('Name shown', f.bylineName.trim() || 'Anonymous', 'details')}
         {row('Description', f.description.trim() || '—', 'details')}
         {row('Themes', tagNames.join(', ') || '—', 'details')}
-        {row(
-          'Your story',
-          <p className="max-h-64 overflow-y-auto whitespace-pre-wrap">
-            {f.body}
-          </p>,
-          'write',
-        )}
+        {draft.format === 'written'
+          ? row(
+              'Your story',
+              <p className="max-h-64 overflow-y-auto whitespace-pre-wrap">
+                {f.body}
+              </p>,
+              'write',
+            )
+          : row(`Your ${NOUN[draft.format]}`, 'Uploaded', 'write')}
       </dl>
       <div className="mt-6 flex flex-col gap-3">
         {askPublish ? (

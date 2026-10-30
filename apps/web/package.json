@@ -107,7 +107,8 @@
     "radix-ui": "^1.8.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwind-merge": "^3.7.0"
+    "tailwind-merge": "^3.7.0",
+    "tus-js-client": "^4.3.1"
   },
   "devDependencies": {
     "@heisreal/contracts": "workspace:*",
