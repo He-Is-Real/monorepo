@@ -161,6 +161,7 @@ describe('ReviewStep', () => {
         });
       }),
       submit: jest.fn(),
+      story: jest.fn().mockResolvedValue({ media: [], image: null }),
     };
     const forget = jest.fn();
     render(
