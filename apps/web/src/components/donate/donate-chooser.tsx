@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { StripeDonations } from '@/lib/config';
-import type { Frequency } from './frequency';
+import { type Frequency, frequencyFor } from './frequency';
 import { StripeBuyButton } from './stripe-buy-button';
 
 const OPTIONS = [
@@ -15,24 +15,23 @@ const OPTIONS = [
  * "One-off | Monthly" (Joel, 2026-10-29): a segmented control of native radios (arrow keys move
  * between them, Tab leaves the group), showing only the chosen Stripe button. Options whose
  * button isn't configured are left out, and with one left there's no control at all. The choice
- * is kept in the address (`?frequency=monthly`; One-off has no parameter) so it can be linked.
+ * is kept in the address (`?frequency=monthly`; One-off has no parameter) so it can be linked,
+ * and the address is the only state: a link to /donate (the header's, say) shows One-off again,
+ * even from this page (Codex, #122). Next keeps useSearchParams in step with replaceState.
  */
-export function DonateChooser({
-  stripe,
-  initial,
-}: {
-  stripe: StripeDonations;
-  initial: Frequency;
-}) {
-  const [frequency, setFrequency] = useState<Frequency>(initial);
+export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
+  const frequency = frequencyFor(
+    stripe,
+    useSearchParams().get('frequency') ?? undefined,
+  );
   const options = OPTIONS.filter((o) => stripe[o.button]);
 
   const choose = (next: Frequency) => {
-    setFrequency(next);
     const url = new URL(window.location.href);
     if (next === 'monthly') url.searchParams.set('frequency', 'monthly');
     else url.searchParams.delete('frequency');
-    window.history.replaceState(window.history.state, '', url);
+    // null, as Next's docs show: Next then updates useSearchParams (its own state it ignores).
+    window.history.replaceState(null, '', url);
   };
 
   return (

@@ -31,6 +31,7 @@ resource "terraform_data" "key_mode" {
 
 resource "stripe_product" "donation" {
   name     = var.product_name
+  active   = true # pinned: one archived in the Dashboard plans as drift
   metadata = local.metadata
 
   depends_on = [terraform_data.key_mode]
@@ -40,12 +41,18 @@ resource "stripe_price" "one_off" {
   product  = stripe_product.donation.id
   currency = local.currency
   nickname = "One-off, donor chooses the amount"
+  active   = true
   metadata = local.metadata
 
   custom_unit_amount {
     enabled = true
     minimum = var.one_off.minimum
     preset  = var.one_off.preset
+  }
+
+  # Prices are immutable: an amount change makes a new price, and the old one is archived after.
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
@@ -54,13 +61,23 @@ resource "stripe_price" "monthly" {
   currency    = local.currency
   unit_amount = var.monthly.unit_amount
   nickname    = "Monthly, £${local.pounds} a unit"
+  active      = true
   metadata    = local.metadata
 
   recurring {
     interval = "month"
   }
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
+# A link's price can't be changed in place (Stripe can't swap a link's line items, and the
+# provider would only update it), so a new price means a new link: replace_triggered_by. The new
+# link exists before the old one is deactivated, but a new link means new Buy Buttons in the
+# Dashboard (README, "Stripe": "Changing an amount"). `active` is pinned so a link deactivated in
+# the Dashboard plans as drift.
 resource "stripe_payment_link" "one_off" {
   line_items = [{
     price    = stripe_price.one_off.id
@@ -68,7 +85,13 @@ resource "stripe_payment_link" "one_off" {
   }]
   submit_type                = "donate"
   billing_address_collection = "auto"
+  active                     = true
   metadata                   = local.metadata
+
+  lifecycle {
+    create_before_destroy = true
+    replace_triggered_by  = [stripe_price.one_off.id]
+  }
 
   after_completion = {
     type = "hosted_confirmation"
@@ -89,7 +112,13 @@ resource "stripe_payment_link" "monthly" {
     }
   }]
   billing_address_collection = "auto"
+  active                     = true
   metadata                   = local.metadata
+
+  lifecycle {
+    create_before_destroy = true
+    replace_triggered_by  = [stripe_price.monthly.id]
+  }
 
   # Stripe shows a quantity, so say what it means beside the pay button.
   custom_text = {
@@ -108,6 +137,7 @@ resource "stripe_payment_link" "monthly" {
 
 resource "stripe_billing_portal_configuration" "donors" {
   name               = "Donors"
+  active             = true
   default_return_url = "${var.site_url}/donate"
   metadata           = local.metadata
 

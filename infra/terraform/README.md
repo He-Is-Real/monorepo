@@ -533,6 +533,25 @@ sends no Content-Security-Policy yet; when one comes, it needs `script-src` and 
 | First setup: the buttons (once) | Dashboard (sandbox) → Payment Links → open each link → **Buy button** → Copy code. From each snippet keep `buy-button-id` (and the `publishable-key`, the same in both), put them and the portal URL in `web_donations` in `live/dev/gcp/main.tf`, and apply gcp                                                                                                                              |
 | Rotate the key                  | create a new restricted key as above, add it as a new version (same command), roll the old one in the Dashboard                                                                                                                                                                                                                                                                               |
 
+**Changing an amount** (the one-off minimum or starting amount, or the monthly unit) makes a new
+price, since Stripe's prices can't change, and so a **new Payment Link**: a link's price can't be
+swapped in place (`replace_triggered_by` in `modules/stripe`; tested offline by
+`modules/stripe/tests/link-lifecycle.sh`). A new link needs a **new Buy Button** (owner step,
+Dashboard), whose ID then goes into `web_donations`. The apply makes the new price and link first,
+then deactivates the old link and archives the old price, so **the old button stops working at
+that apply** until gcp applies the new ID. Either:
+
+- do it in one sitting: approve the stripe apply, make the new button, update `web_donations`
+  and apply gcp straight away (the gap is those few minutes); or
+- for no gap: before the run that plans the change, let OpenTofu forget the old ones so they stay
+  live (`tools/scripts/tf.sh stripe state rm module.stripe.stripe_payment_link.one_off
+module.stripe.stripe_price.one_off`, or the `monthly` pair). The apply then only creates the new
+  price and link. Switch `web_donations` to the new button, apply gcp, then archive the old link
+  and price in the Dashboard.
+
+Anything deactivated or archived in the Dashboard (a link, a price, the product, the portal) is
+drift: OpenTofu pins `active = true`, so the next plan turns it back on.
+
 **Going live (not now).** A production environment gets its own root with `live = true` in the
 module (it then refuses a sandbox key), a restricted **live** key in its own project's
 `stripe-api-key`, buttons made in live mode and a `pk_live_` key in its `web_donations` (dev's

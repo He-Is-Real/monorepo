@@ -181,6 +181,30 @@ test.describe('behaviour', () => {
     );
   });
 
+  test('the header’s Donate link, from Monthly, opens One-off again', async ({
+    page,
+  }) => {
+    await standInStripe(page);
+    await page.goto(`${WEB_LIVE_URL}/donate`);
+    await frequency(page).getByText('Monthly').click();
+    await expect(page).toHaveURL(`${WEB_LIVE_URL}/donate?frequency=monthly`);
+    // A client-side navigation to the same page (Next's Link), not a reload.
+    const header = page.getByRole('banner');
+    const menu = header.getByRole('button', { name: 'Menu' });
+    if (await menu.isVisible()) await menu.click();
+    await page
+      .getByRole('navigation', { name: /^(Main navigation|Menu)$/ })
+      .getByRole('link', { name: 'Donate' })
+      .filter({ visible: true })
+      .click();
+    await expect(page).toHaveURL(`${WEB_LIVE_URL}/donate`);
+    await expect(option(page, 'One-off')).toBeChecked();
+    await expect(stripeButton(page, STRIPE_E2E.oneOffButtonId)).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Give monthly' }),
+    ).toHaveCount(0);
+  });
+
   test('an option without a button is hidden: Monthly only, no choice to make', async ({
     page,
   }) => {

@@ -13,6 +13,9 @@
 #     login, Clerk settings and web's origins.
 #   bootstrap: the _Default sink writes to the London log bucket with Google's filter (D101).
 #   org: only London locations are allowed, and new projects' logs start in London (D102, D104).
+#   stripe: what donors can give (D116) and that dev refuses a live key; then, with the real
+#     provider planning offline against a written state (stripe/tests/link-lifecycle.sh), that
+#     a new price replaces its Payment Link and that anything deactivated in the Dashboard is drift.
 set -euo pipefail
 cd "$(dirname "$0")/modules"
 for tests in */tests; do
@@ -27,3 +30,7 @@ for tests in */tests; do
   tofu -chdir="$module" test
   echo "::endgroup::"
 done
+# Needs python3 and jq, both on GitHub's runners.
+echo "::group::stripe link lifecycle"
+stripe/tests/link-lifecycle.sh
+echo "::endgroup::"

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { connection } from 'next/server';
 import { DonateChooser } from '@/components/donate/donate-chooser';
-import { type Frequency, frequencyFor } from '@/components/donate/frequency';
 import { StripeBuyButtonScript } from '@/components/donate/stripe-buy-button';
 import { NarrowColumn } from '@/components/page/page-header';
 import { stripeDonations, type StripeDonations } from '@/lib/config';
@@ -23,23 +23,13 @@ export async function generateMetadata(): Promise<Metadata> {
  * Monthly" choice, for whichever OpenTofu has set in this environment (`web_donations`);
  * otherwise the placeholder. Stripe's script loads on this page only.
  */
-export default async function DonatePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function DonatePage() {
+  await connection(); // the Stripe settings are read per request, never at build time
   const stripe = stripeDonations();
   return (
     <main id="main" className="flex-1 py-16 sm:py-24">
       <NarrowColumn>
-        {stripe ? (
-          <Giving
-            stripe={stripe}
-            initial={frequencyFor(stripe, (await searchParams)['frequency'])}
-          />
-        ) : (
-          <NotOpenYet />
-        )}
+        {stripe ? <Giving stripe={stripe} /> : <NotOpenYet />}
       </NarrowColumn>
     </main>
   );
@@ -67,13 +57,7 @@ function NotOpenYet() {
   );
 }
 
-function Giving({
-  stripe,
-  initial,
-}: {
-  stripe: StripeDonations;
-  initial: Frequency;
-}) {
+function Giving({ stripe }: { stripe: StripeDonations }) {
   return (
     <>
       <StripeBuyButtonScript />
@@ -99,7 +83,7 @@ function Giving({
         </p>
       )}
 
-      <DonateChooser stripe={stripe} initial={initial} />
+      <DonateChooser stripe={stripe} />
 
       <p className="mt-10 border-t border-border pt-8 text-sm text-secondary-text">
         Stripe, our payment provider, takes your payment on its own secure page
