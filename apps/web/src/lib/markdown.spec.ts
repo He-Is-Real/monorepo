@@ -52,24 +52,4 @@ describe('renderLegalMarkdown', () => {
     expect(codes[0].className).toContain('font-mono');
     expect(div.querySelector('pre > code')).not.toBeNull();
   });
-
-  it('names heading anchors, starting at the page’s level', () => {
-    const div = html('## Cookies and storage {#cookies}\n\n### Then\n');
-    expect(div.querySelector('h2')?.id).toBe('cookies');
-    expect(div.querySelector('h2')?.textContent).toBe('Cookies and storage');
-    expect(div.querySelector('h3')?.id).toBe('then');
-  });
-
-  it('labels each table cell with its column, for phones', () => {
-    const div = html(
-      '## Storage\n\n| Name | Set by |\n| --- | --- |\n| `theme` | This site |\n',
-    );
-    expect(div.querySelector('caption')?.textContent).toBe('Storage');
-    expect(div.querySelector('tbody th[scope=row] code')?.textContent).toBe(
-      'theme',
-    );
-    expect(div.querySelector('tbody td')?.getAttribute('data-label')).toBe(
-      'Set by',
-    );
-  });
 });

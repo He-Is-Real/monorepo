@@ -65,7 +65,7 @@ describe('the legal documents (D121, D125)', () => {
   afterAll(() => t?.close());
 
   describe('numbered, kept for ever, unchanged', () => {
-    it('numbers privacy policy versions in publishing order; the highest is in force', async () => {
+    it('numbers each document’s versions in publishing order; only api-admin publishes one, whole', async () => {
       expect(await number('dpaVersion', 'v1')).toBe(1);
       expect((await publish('dpaVersion', 'p2', policy('Policy two'))).ok).toBe(
         true,
@@ -74,32 +74,6 @@ describe('the legal documents (D121, D125)', () => {
       expect(await rows(migrator, `RETURN fn::legal::dpa_in_force()`)).toEqual([
         'dpaVersion:p2',
       ]);
-    });
-
-    it('nobody changes or deletes a published privacy policy version, the migration included', async () => {
-      for (const change of [
-        `text = 'other words', contentHash = '${sha256('other words')}'`,
-        `publishedBy = user:ann`,
-        `number = 7`,
-        `materiality = 'material'`,
-      ]) {
-        for (const db of [admin, migrator]) {
-          expect([
-            change,
-            (await outcome(db, `UPDATE dpaVersion:p2 SET ${change}`)).ok,
-          ]).toEqual([change, false]);
-        }
-      }
-      // A delete the permissions refuse returns nothing (api-admin); the event refuses the
-      // migrator's: either way it's still there, unchanged.
-      for (const db of [admin, migrator])
-        await outcome(db, `DELETE dpaVersion:p2`);
-      expect(
-        await rows(migrator, `SELECT VALUE [number, text] FROM dpaVersion:p2`),
-      ).toEqual([[2, 'Policy two']]);
-    });
-
-    it('a terms version: only api-admin creates one, numbered; nobody changes or deletes it', async () => {
       for (const db of [
         await t.service('api_user'),
         publicRead,
@@ -117,19 +91,7 @@ describe('the legal documents (D121, D125)', () => {
         true,
       );
       expect(await number('termsVersion', 't1')).toBe(1);
-      for (const db of [admin, migrator]) {
-        await outcome(db, `UPDATE termsVersion:t1 SET text = 'x'`);
-        await outcome(db, `DELETE termsVersion:t1`);
-      }
-      expect(
-        await rows(
-          migrator,
-          `SELECT VALUE [text, number] FROM termsVersion:t1`,
-        ),
-      ).toEqual([['Terms one', 1]]);
-    });
-
-    it('an admin version comes whole: its words, their hash and who published it', async () => {
+      // A version comes whole: its words, their hash and who published it.
       for (const [what, content] of [
         ['words that aren’t its hash', { ...policy('Words'), text: 'not it' }],
         ['a draft', { ...policy('Words'), status: 'draft' }],
@@ -145,6 +107,38 @@ describe('the legal documents (D121, D125)', () => {
           })
         ).ok,
       ).toBe(false);
+    });
+
+    it('nobody changes or deletes a published version of either document, the migration included', async () => {
+      for (const change of [
+        `text = 'other words', contentHash = '${sha256('other words')}'`,
+        `publishedBy = user:ann`,
+        `number = 7`,
+        `materiality = 'material'`,
+      ]) {
+        for (const db of [admin, migrator]) {
+          expect([
+            change,
+            (await outcome(db, `UPDATE dpaVersion:p2 SET ${change}`)).ok,
+          ]).toEqual([change, false]);
+        }
+      }
+      // A change or delete the permissions refuse returns nothing (api-admin); the event
+      // refuses the migrator's: either way it's still there, unchanged.
+      for (const db of [admin, migrator]) {
+        await outcome(db, `UPDATE termsVersion:t1 SET text = 'x'`);
+        await outcome(db, `DELETE dpaVersion:p2`);
+        await outcome(db, `DELETE termsVersion:t1`);
+      }
+      expect(
+        await rows(migrator, `SELECT VALUE [number, text] FROM dpaVersion:p2`),
+      ).toEqual([[2, 'Policy two']]);
+      expect(
+        await rows(
+          migrator,
+          `SELECT VALUE [text, number] FROM termsVersion:t1`,
+        ),
+      ).toEqual([['Terms one', 1]]);
     });
 
     it('the migration numbers every version published before numbers, in publishing order, once', async () => {
@@ -279,7 +273,7 @@ describe('the legal documents (D121, D125)', () => {
       });
     });
 
-    it('a sign-up grant must name the terms in force; another form’s grant names none', async () => {
+    it('only a sign-up grant names the terms, the ones in force, with evidence v4 that covers them', async () => {
       const ann = await person('ann');
       expect(
         (
@@ -304,12 +298,9 @@ describe('the legal documents (D121, D125)', () => {
           )
         ).ok,
       ).toBe(false);
-    });
-
-    it('naming the terms needs evidence v4, which covers them', async () => {
       expect(
         await outcome(
-          await person('ann'),
+          ann,
           `CREATE consent CONTENT { subject: $auth, type: 'terms_of_use', event: 'granted',
              form: signupFormVersion:withterms, dpaVersion: fn::legal::dpa_in_force(),
              termsVersion: fn::legal::terms_in_force(),

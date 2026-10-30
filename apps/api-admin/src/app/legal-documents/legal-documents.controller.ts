@@ -71,7 +71,7 @@ const notFound = () =>
  * transaction conflict or the unique version number means another admin published this
  * document at the same moment: the same answer, reload and edit again.
  */
-export function publishRefusal(err: unknown): ProblemException | null {
+function publishRefusal(err: unknown): ProblemException | null {
   const message = err instanceof Error ? err.message : String(err);
   if (
     message.includes('document_changed') ||

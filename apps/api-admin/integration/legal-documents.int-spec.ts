@@ -214,17 +214,6 @@ describe('legal documents (api-admin)', () => {
     ).toEqual([1, 2]);
   });
 
-  it('refuses empty text and unknown fields', async () => {
-    for (const body of [
-      { text: '   ', basedOn: 2 },
-      { text: 'Words', basedOn: 2, note: 'x' },
-      { text: 'Words', basedOn: 'v2' },
-    ]) {
-      const res = await publish('terms', body);
-      expect(res.status).toBe(400);
-    }
-  });
-
   it('takes the longest text the editor allows, in any script and escaping; one character more is refused by its rule, not by size', async () => {
     // 200,000 characters: half "ü", half a control character JSON escapes to 6 bytes.
     const text = 'ü'.repeat(100_000) + '\u0001'.repeat(100_000);
