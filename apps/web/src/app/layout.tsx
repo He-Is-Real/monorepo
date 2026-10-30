@@ -1,11 +1,18 @@
 import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
+import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { DeviceHeartsPrompt } from '@/components/favourites/device-hearts-prompt';
 import { JsonLd } from '@/components/page/json-ld';
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
-import { robotsNoindex, siteUrl } from '@/lib/config';
+import {
+  clerkPublishableKey,
+  e2eFixtures,
+  robotsNoindex,
+  siteUrl,
+} from '@/lib/config';
 import {
   SITE_DESCRIPTION,
   SITE_NAME,
@@ -51,12 +58,41 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+/**
+ * Every page, in the site's one ClerkProvider (D115; clerk-browser.tsx). Per request, for the
+ * deployment's publishable key (OpenTofu sets it on the Cloud Run service; images are built
+ * once for every environment). Every page already rendered per request for the header's
+ * account area, so this changes no page's caching; the data caches (browse.ts,
+ * site-status.ts) are untouched. Without a key, or with the e2e fixtures (no network, T4),
+ * there's no provider and no page renders anything of Clerk's.
+ */
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await connection();
   const origin = siteUrl();
+  const clerkKey = e2eFixtures() ? undefined : clerkPublishableKey();
+  const page = (
+    <>
+      <a
+        href="#main"
+        className="sr-only rounded-b-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:text-primary-foreground focus:not-sr-only focus:absolute focus:top-0 focus:left-4 focus:z-50"
+      >
+        Skip to content
+      </a>
+      <SiteHeader />
+      {children}
+      {origin && <JsonLd data={siteJsonLd(origin)} />}
+      {/* D48: says when consent checks are relaxed (dev only); nothing otherwise. */}
+      <Suspense fallback={null}>
+        <SiteFooter />
+      </Suspense>
+      {/* Signed in: offers to add this device's hearts to the account (M2). */}
+      <DeviceHeartsPrompt />
+    </>
+  );
   return (
     // The theme script sets `dark` before first paint, so React's markup differs from the
     // live class list by design.
@@ -65,21 +101,11 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="flex min-h-dvh flex-col">
-        <a
-          href="#main"
-          className="sr-only rounded-b-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:text-primary-foreground focus:not-sr-only focus:absolute focus:top-0 focus:left-4 focus:z-50"
-        >
-          Skip to content
-        </a>
-        <SiteHeader />
-        {children}
-        {origin && <JsonLd data={siteJsonLd(origin)} />}
-        {/* D48: says when consent checks are relaxed (dev only); nothing otherwise. */}
-        <Suspense fallback={null}>
-          <SiteFooter />
-        </Suspense>
-        {/* Signed in: offers to add this device's hearts to the account (M2). */}
-        <DeviceHeartsPrompt />
+        {clerkKey ? (
+          <ClerkBrowser publishableKey={clerkKey}>{page}</ClerkBrowser>
+        ) : (
+          page
+        )}
       </body>
     </html>
   );

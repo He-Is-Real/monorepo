@@ -96,7 +96,7 @@ export async function ConsentPage({
       body = e2eFixtures() ? (
         <FixtureConsentForm {...props} signedIn={!!e2eSignedInName()} />
       ) : publishableKey ? (
-        <ClerkConsentForm {...props} publishableKey={publishableKey} />
+        <ClerkConsentForm {...props} />
       ) : (
         <Unavailable>Signing in isn’t available on this site yet.</Unavailable>
       );

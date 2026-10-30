@@ -3,34 +3,17 @@
 import { useAuth } from '@clerk/react';
 import { useEffect, useMemo, useState } from 'react';
 import { e2eFixtureToken } from '@/components/auth/account-control';
-import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { type ApiUser, apiUser } from '@/lib/api-user';
 import { personalApiUser } from '@/lib/personal-session';
 import type { ShareLegal } from '@/lib/share-legal';
 import { ShareFlow } from './share-flow';
 
 /**
- * The submit flow with the signed-in person's api-user client: Clerk in the browser (D32), its
- * `getToken()` on every call. Without Clerk's key or api-user's address, sharing isn't
- * available on this deployment.
+ * The submit flow with the signed-in person's api-user client: the site's Clerk session in the
+ * browser (app/layout.tsx, D32, D115), its `getToken()` on every call. Without Clerk's key or
+ * api-user's address, sharing isn't available on this deployment.
  */
 export function ShareWithClerk({
-  publishableKey,
-  apiUserUrl,
-  legal,
-}: {
-  publishableKey: string;
-  apiUserUrl: string;
-  legal: ShareLegal;
-}) {
-  return (
-    <ClerkBrowser publishableKey={publishableKey}>
-      <ShareSignedIn apiUserUrl={apiUserUrl} legal={legal} />
-    </ClerkBrowser>
-  );
-}
-
-function ShareSignedIn({
   apiUserUrl,
   legal,
 }: {
