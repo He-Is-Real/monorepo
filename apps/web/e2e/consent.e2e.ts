@@ -431,7 +431,11 @@ test.describe('behaviour', () => {
       /I agree to He Is Real Today storing and processing my story/,
     );
     await page.getByRole('button', { name: 'Accept' }).click();
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/stories`);
+    // Back on browse. On a tall screen browse may already have loaded its next page by itself
+    // (D55), which adds ?pages=2 to the address.
+    await expect(page).toHaveURL(
+      new RegExp(`^${WEB_SIGNED_IN_URL}/stories(\\?pages=\\d+)?$`),
+    );
     await expect(page.locator('main article').first()).toBeVisible();
     await expect(banner).toHaveCount(0);
     expect(grants.map((g) => g.body)).toEqual([
