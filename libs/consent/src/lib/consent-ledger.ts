@@ -90,6 +90,13 @@ export interface GrantConsentInput {
   /** The statement (box) ticked: a consent type on that form version. */
   statement: ConsentType;
   mechanism: ConsentMechanism;
+  /**
+   * D122: the privacy policy version the page showed, and on a sign-up version asking for them
+   * the terms of use version; each must be the one in force (409). Absent counts as not in
+   * force (409): the server never binds a document the page didn't name.
+   */
+  privacyPolicyVersion?: string;
+  termsVersion?: string;
 }
 
 /** An `Idempotency-Key` for one command (D29), scoped to the person. */
@@ -110,6 +117,7 @@ export class ConsentConflictError extends Error {
   constructor(
     readonly code:
       | 'form_version_not_in_force'
+      | 'legal_document_not_in_force'
       | 'statement_not_on_form'
       | 'consent_not_granted',
     message: string,
@@ -144,7 +152,7 @@ export function formRef(id: string | null | undefined): FormRef | null {
 /** One ledger row checked against its recomputed evidence hash. */
 export interface EvidenceCheck {
   id: string;
-  format: 'v1' | 'v2' | 'v3';
+  format: 'v1' | 'v2' | 'v3' | 'v4';
   verified: boolean;
 }
 
@@ -255,8 +263,9 @@ export class ConsentLedger {
     const [found] = (await runQuery(
       person,
       `SELECT id, type, event, mechanism, evidenceHash, evidenceVersion, dpaVersion, occurredAt,
-         dpaVersion.contentHash AS dpaHash, form, form.textHash AS formHash,
-         form.statementsHash AS statementsHash
+         dpaVersion.contentHash AS dpaHash, form,
+         form.textHash AS formHash, form.statementsHash AS statementsHash,
+         termsVersion, termsVersion.contentHash AS termsHash
        FROM consent WHERE subject = $auth ORDER BY occurredAt ASC`,
     )) as [
       {
@@ -271,11 +280,14 @@ export class ConsentLedger {
         formHash?: string | null;
         evidenceVersion?: number | null;
         statementsHash?: string | null;
+        termsVersion?: string | null;
+        termsHash?: string | null;
       }[],
     ];
     return found.map((r) => {
       const ref = formRef(r.form);
-      const v3 = r.evidenceVersion === 3;
+      const v4 = r.evidenceVersion === 4;
+      const v3 = r.evidenceVersion === 3 || v4;
       const expected = evidenceHash({
         form: ref
           ? {
@@ -288,13 +300,24 @@ export class ConsentLedger {
           : undefined,
         dpaVersion: recordKey(r.dpaVersion),
         dpaContentHash: r.dpaHash,
+        // v4 (D125): the terms of use named, or none.
+        ...(v4
+          ? {
+              terms: r.termsVersion
+                ? {
+                    version: recordKey(r.termsVersion),
+                    contentHash: r.termsHash ?? 'missing',
+                  }
+                : null,
+            }
+          : {}),
         type: r.type,
         event: r.event,
         mechanism: r.mechanism,
       });
       return {
         id: recordKey(r.id),
-        format: v3 ? 'v3' : ref ? 'v2' : 'v1',
+        format: v4 ? 'v4' : v3 ? 'v3' : ref ? 'v2' : 'v1',
         verified: expected === r.evidenceHash,
       };
     });
@@ -355,10 +378,13 @@ export class ConsentLedger {
     const results = await runQuery(
       person,
       `LET $f = fn::form::latest($form);
+       LET $d = fn::legal::dpa_in_force();
+       LET $t = IF $f.coversTerms = true { fn::legal::terms_in_force() } ELSE { NONE };
        RETURN IF $f = NONE { NONE } ELSE {
          { id: $f.id, textHash: $f.textHash, statementsHash: $f.statementsHash,
-           dpaVersion: $f.dpaVersion,
-           dpaHash: $f.dpaVersion.contentHash, statements: fn::form::statements($f.id) }
+           coversTerms: $f.coversTerms = true, statements: fn::form::statements($f.id),
+           dpaVersion: $d, dpaHash: $d.contentHash,
+           termsVersion: $t, termsHash: $t.contentHash }
        };`,
       { form: input.form },
     );
@@ -366,9 +392,12 @@ export class ConsentLedger {
       id: string;
       textHash: string;
       statementsHash?: string | null;
-      dpaVersion: string;
-      dpaHash: string;
+      coversTerms: boolean;
       statements: string[];
+      dpaVersion?: string | null;
+      dpaHash?: string | null;
+      termsVersion?: string | null;
+      termsHash?: string | null;
     } | null;
     if (!inForce || recordKey(inForce.id) !== input.formVersion) {
       throw new ConsentConflictError(
@@ -391,13 +420,38 @@ export class ConsentLedger {
         `${input.form} form ${input.formVersion} has no statements data (statementsHash)`,
       );
     }
-    const dpa = recordKey(inForce.dpaVersion);
+    // D122: every grant binds the privacy policy in force (and on a sign-up version asking for
+    // them, the terms of use in force); the page must name the ones it showed. A missing one is
+    // refused like a stale one (a page from an older release reloads), never filled in here.
+    const dpa = inForce.dpaVersion ? recordKey(inForce.dpaVersion) : null;
+    const terms = inForce.termsVersion ? recordKey(inForce.termsVersion) : null;
+    if (!dpa || !inForce.dpaHash || input.privacyPolicyVersion !== dpa) {
+      throw new ConsentConflictError(
+        'legal_document_not_in_force',
+        dpa
+          ? `Consent is given under the privacy policy in force (${dpa})`
+          : 'No privacy policy is published yet, so consent can’t be given',
+      );
+    }
+    if (
+      inForce.coversTerms &&
+      (!terms || !inForce.termsHash || input.termsVersion !== terms)
+    ) {
+      throw new ConsentConflictError(
+        'legal_document_not_in_force',
+        terms
+          ? `The sign-up form binds the terms of use in force (${terms})`
+          : 'No terms of use are published yet, so the sign-up form can’t be accepted',
+      );
+    }
     return {
       status: 201,
-      // Checked again in the transaction: a version published since the check above must not
-      // let this grant commit (Codex, #101). The grant writes legalFence (consent event), as
-      // does a form version's publication, so the two can't overlap either.
-      statements: `IF fn::form::latest($form_kind).id != <record> $form {
+      // Checked again in the transaction: a form version, privacy policy or terms published
+      // since the check above must not let this grant commit (Codex, #101). The grant writes
+      // legalFence (consent event), as does any of those publications, so they can't overlap.
+      statements: `IF fn::form::latest($form_kind).id != <record> $form
+          OR fn::legal::dpa_in_force() != type::record('dpaVersion', $dpa)
+          OR ($terms AND fn::legal::terms_in_force() != type::record('termsVersion', $terms)) {
           THROW '${NOT_IN_FORCE}';
         };
         ${appendEvent('granted')}
@@ -406,9 +460,10 @@ export class ConsentLedger {
         form_kind: input.form,
         type: input.statement,
         dpa,
+        terms: inForce.coversTerms ? terms : null,
         form: `${FORM_TABLES[input.form]}:${input.formVersion}`,
         mechanism: input.mechanism,
-        evidence_version: 3,
+        evidence_version: 4,
         hash: evidenceHash({
           form: {
             kind: input.form,
@@ -418,6 +473,10 @@ export class ConsentLedger {
           },
           dpaVersion: dpa,
           dpaContentHash: inForce.dpaHash,
+          terms:
+            inForce.coversTerms && terms
+              ? { version: terms, contentHash: inForce.termsHash as string }
+              : null,
           type: input.statement,
           event: 'granted',
           mechanism: input.mechanism,
@@ -434,17 +493,19 @@ export class ConsentLedger {
       person,
       `LET $latest = fn::consent::current($auth, $type);
        RETURN { latest: $latest, contentHash: $latest.dpaVersion.contentHash,
-         textHash: $latest.form.textHash, statementsHash: $latest.form.statementsHash };`,
+         textHash: $latest.form.textHash, statementsHash: $latest.form.statementsHash,
+         terms: $latest.termsVersion, termsHash: $latest.termsVersion.contentHash };`,
       { type },
     );
-    const { latest, contentHash, textHash, statementsHash } = results[
-      results.length - 1
-    ] as {
-      latest: RawSnapshot | null;
-      contentHash: string | null;
-      textHash: string | null;
-      statementsHash?: string | null;
-    };
+    const { latest, contentHash, textHash, statementsHash, terms, termsHash } =
+      results[results.length - 1] as {
+        latest: RawSnapshot | null;
+        contentHash: string | null;
+        textHash: string | null;
+        statementsHash?: string | null;
+        terms?: string | null;
+        termsHash?: string | null;
+      };
     if (!latest || !contentHash) {
       throw new ConsentConflictError(
         'consent_not_granted',
@@ -469,10 +530,12 @@ export class ConsentLedger {
       vars: {
         type,
         dpa,
+        // D122: a withdrawal binds the documents of the grant it follows.
+        terms: terms ? recordKey(terms) : null,
         form: latest.form ?? null,
         mechanism,
-        // D114: v3 when the withdrawn grant's form version has statements data.
-        evidence_version: ref && statementsHash ? 3 : null,
+        // D114, D125: v4 when the withdrawn grant's form version has statements data.
+        evidence_version: ref && statementsHash ? 4 : null,
         hash: evidenceHash({
           form: ref
             ? {
@@ -484,6 +547,16 @@ export class ConsentLedger {
             : undefined,
           dpaVersion: dpa,
           dpaContentHash: contentHash,
+          ...(ref && statementsHash
+            ? {
+                terms: terms
+                  ? {
+                      version: recordKey(terms),
+                      contentHash: termsHash ?? 'missing',
+                    }
+                  : null,
+              }
+            : {}),
           type,
           event: 'withdrawn',
           mechanism,
@@ -538,7 +611,7 @@ export class ConsentLedger {
       ) {
         throw new ConsentConflictError(
           'form_version_not_in_force',
-          'The form version is no longer open for consent',
+          'The form version, privacy policy or terms of use shown is no longer the one in force',
         );
       }
       throw err;
@@ -551,6 +624,7 @@ function appendEvent(event: 'granted' | 'withdrawn'): string {
   return `LET $event = (CREATE ONLY consent CONTENT {
       subject: $auth, type: $type, event: '${event}',
       dpaVersion: type::record('dpaVersion', $dpa),
+      termsVersion: IF $terms { type::record('termsVersion', $terms) } ELSE { NONE },
       form: IF $form { <record> $form } ELSE { NONE },
       mechanism: $mechanism, evidenceHash: $hash,
       evidenceVersion: IF $evidence_version { $evidence_version } ELSE { NONE }

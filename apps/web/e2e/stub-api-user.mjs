@@ -7,8 +7,8 @@
 //   the sign-up form and needs no testimony re-acceptance, so pages carry on as usual (sessions
 //   starting `unaccepted` haven't accepted the sign-up form: the site sends them to the step).
 //   Tests of the consent step and banner answer it themselves (consent.e2e.ts).
-// - `POST /v1/account/consents`, one box ticked on a form version: only dev's v1 of each form is
-//   in force (stub-api.mjs serves the same), with the real service's checks: the version in
+// - `POST /v1/account/consents`, one box ticked on a form version: only dev's v2 of each form is
+//   in force, under dev's placeholder privacy policy (and on sign-up the terms) in force (D122) (stub-api.mjs serves the same), with the real service's checks: the version in
 //   force (409), a statement on that form (409), an `Idempotency-Key` (400; the same key with
 //   another body 422, the same body answers as before). No state but the keys, which are
 //   random per test.
@@ -31,6 +31,13 @@
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
 //   so a story hidden there leaves the list too.
+// - api-admin's legal document routes (D121, D125), on the same port for the stub (web's
+//   API_ADMIN_URL points here; the real ones are two services): `GET /v1/admin/legal-documents/
+//   {privacy|terms}/versions` and `POST …/versions`, Admin and above only (sessions starting
+//   `admin` are Admins; everyone else 403). Each document starts with dev's placeholder versions;
+//   a publish is checked like the real one (its text, and 409 unless the version it was based on
+//   is still in force) and kept per session. A session seeded with `noLegalDocuments` starts with none (a fresh
+//   environment's first publication).
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -39,7 +46,9 @@
 // starting `no-consent` has lost the sign-up consent since the page loaded (its account answer
 // still says accepted): hearting answers 403 `consent_required` (D73).
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { resolve } from 'node:path';
 
 const port = Number(process.env.STUB_USER_PORT ?? 4313);
 const publicUrl = process.env.STUB_PUBLIC_URL ?? 'http://127.0.0.1:4310';
@@ -78,9 +87,9 @@ const ID = /^[A-Za-z0-9_]{1,64}$/;
 const hearts = new Map();
 let clock = 0;
 
-/** The statements of each form's version in force, v1 (D84, D93). */
+/** The statements of each form's version in force, v2 (D84, D93, D122). */
 const FORMS = {
-  signup: ['age_18plus', 'account_data'],
+  signup: ['age_18plus', 'account_data', 'terms_of_use'],
   testimony: ['special_category_religious', 'publish'],
   social: ['share_socials'],
 };
@@ -100,6 +109,86 @@ const send = (res, status, body) => {
   });
   res.end(JSON.stringify(body));
 };
+
+const readBytes = (req) =>
+  new Promise((done) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => done(Buffer.concat(chunks)));
+  });
+
+// --- api-admin: the legal documents (D121, D125) --------------------------------------------
+const LEGAL = resolve(import.meta.dirname, '../../../libs/legal');
+const repoVersion = (number, file, publishedAt) => ({
+  number,
+  publishedAt,
+  publishedBy: null,
+  source: 'repo',
+  devPlaceholder: true,
+  text: readFileSync(`${LEGAL}/${file}`, 'utf8'),
+});
+/** Dev's placeholder versions of a document (data 0007), as api-admin lists them. */
+const devVersions = (document) =>
+  document === 'privacy'
+    ? [
+        repoVersion(2, 'dpa/dev_policy.md', '2026-10-30T12:00:00.000Z'),
+        repoVersion(1, 'dpa/dev_placeholder.md', '2026-10-25T12:00:00.000Z'),
+      ]
+    : [repoVersion(1, 'terms/dev_placeholder.md', '2026-10-30T12:00:00.000Z')];
+/** Session → document → versions (newest first). */
+const adminState = new Map();
+const versionsFor = (session, document) => {
+  if (!adminState.has(session)) adminState.set(session, new Map());
+  const docs = adminState.get(session);
+  if (!docs.has(document)) docs.set(document, devVersions(document));
+  return docs.get(document);
+};
+const listOf = (document, versions) => ({
+  document,
+  current: versions.length
+    ? { number: versions[0].number, text: versions[0].text }
+    : null,
+  data: versions.map(({ text: _t, ...v }) => v),
+});
+const invalid = (res, pointer, code, message = code) => {
+  res.writeHead(400, {
+    'content-type': 'application/problem+json',
+    'cache-control': 'no-store',
+  });
+  res.end(
+    JSON.stringify({
+      type: 'about:blank',
+      title: 'Validation failed',
+      status: 400,
+      code: 'validation_failed',
+      errors: [{ pointer, code, message }],
+    }),
+  );
+};
+
+/** `POST …/versions` (PublishLegalDocument), checked like api-admin. */
+async function publishDocument(req, res, session, document) {
+  const body = await readJson(req);
+  const text =
+    typeof body?.text === 'string' ? body.text.replace(/\r\n?/g, '\n') : '';
+  if (!text.trim()) return invalid(res, '/text', 'invalid_text');
+  const versions = versionsFor(session, document);
+  // Another admin published meanwhile: the version edited isn't in force now.
+  if ((body.basedOn ?? null) !== (versions[0]?.number ?? null))
+    return problem(res, 409, 'Conflict', 'document_changed');
+  const number = (versions[0]?.number ?? 0) + 1;
+  const publishedAt = new Date().toISOString();
+  versions.unshift({
+    number,
+    publishedAt,
+    publishedBy: 'e2efixture',
+    source: 'admin',
+    devPlaceholder: false,
+    text,
+  });
+  res.setHeader('location', `/v1/admin/legal-documents/${document}/versions`);
+  return send(res, 201, { number, publishedAt });
+}
 
 const readBody = (req) =>
   new Promise((done) => {
@@ -133,18 +222,34 @@ async function grant(req, res, onGranted) {
   } catch {
     return problem(res, 400, 'Bad request', 'validation_failed');
   }
-  const { form, formVersion, statement, mechanism } = body ?? {};
+  const {
+    form,
+    formVersion,
+    statement,
+    mechanism,
+    privacyPolicyVersion,
+    termsVersion,
+    ...rest
+  } = body ?? {};
   if (
     !(form in FORMS) ||
     typeof formVersion !== 'string' ||
     typeof statement !== 'string' ||
     !MECHANISMS.includes(mechanism) ||
-    Object.keys(body).length !== 4
+    Object.keys(rest).length !== 0
   ) {
     return problem(res, 400, 'Bad request', 'validation_failed');
   }
-  if (formVersion !== 'v1') {
+  if (formVersion !== 'v2') {
     return problem(res, 409, 'Conflict', 'form_version_not_in_force');
+  }
+  // D122: the documents shown must be named and be the ones in force (dev's placeholders); the
+  // sign-up version asks for the terms.
+  if (
+    privacyPolicyVersion !== 'dev_policy' ||
+    (form === 'signup' && termsVersion !== 'dev_placeholder')
+  ) {
+    return problem(res, 409, 'Conflict', 'legal_document_not_in_force');
   }
   if (!FORMS[form].includes(statement)) {
     return problem(res, 409, 'Conflict', 'statement_not_on_form');
@@ -1179,7 +1284,17 @@ createServer(async (req, res) => {
   // Test set-up only (not part of api-user): a session's starting state for the submit flow.
   const seed = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})$/.exec(path);
   if (seed && req.method === 'POST') {
-    sessions.set(seed[1], newSession(seed[1], (await readJson(req)) ?? {}));
+    const body = (await readJson(req)) ?? {};
+    sessions.set(seed[1], newSession(seed[1], body));
+    // A fresh environment: no version of either legal document published yet.
+    if (body.noLegalDocuments)
+      adminState.set(
+        seed[1],
+        new Map([
+          ['privacy', []],
+          ['terms', []],
+        ]),
+      );
     res.writeHead(204);
     return res.end();
   }
@@ -1225,11 +1340,29 @@ createServer(async (req, res) => {
 
   if (path === '/v1/account' && req.method === 'GET') {
     if (!signedIn()) return;
-    // The sign-up consent is accepted, except for the `unaccepted…` sessions.
+    // The sign-up consent is accepted, except for the `unaccepted…` sessions; `admin…`
+    // sessions are Admins.
     return cached(req, res, {
       ...ACCOUNT,
+      role: token.startsWith('admin') ? 'Admin' : 'User',
       signupConsent: { accepted: shareSession(token).signup },
     });
+  }
+  const admin = /^\/v1\/admin\/legal-documents\/([^/]+)\/(versions)$/.exec(
+    path,
+  );
+  if (admin && (req.method === 'GET' || req.method === 'POST')) {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    const [, document, what] = admin;
+    if (document !== 'privacy' && document !== 'terms')
+      return problem(res, 404, 'Not found', 'not_found');
+    if (what === 'versions' && req.method === 'POST')
+      return void publishDocument(req, res, token, document);
+    if (what === 'versions')
+      return cached(req, res, listOf(document, versionsFor(token, document)));
+    return problem(res, 404, 'Not found', 'not_found');
   }
   if (path === '/v1/account/consents' && req.method === 'POST') {
     if (!signedIn()) return;

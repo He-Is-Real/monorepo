@@ -40,7 +40,7 @@ tags:
   - name: Tags
     description: 'The tag taxonomy.'
   - name: Legal
-    description: 'Published Data Processing Agreement versions.'
+    description: 'The legal documents (privacy policy, terms of use) with their numbered versions, and the consent forms.'
   - name: Site
     description: 'Media that is part of the site itself, not stories.'
 
@@ -348,6 +348,87 @@ paths:
             application/json:
               schema:
                 $ref: './components.yaml#/components/schemas/ConsentFormVersion'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/legal/documents/{document}:
+    get:
+      tags: [Legal]
+      operationId: getLegalDocument
+      summary: A legal document in force, with its words, and every version
+      description: |
+        D121, D125: the privacy policy (`privacy`, the privacy document of D20 and D75) or the terms of use
+        (`terms`). The version in force with the Markdown `/privacy` and `/terms` render, and every version
+        that counts, newest first (their "Previous versions"). Dev's placeholders in dev only (D75).
+      x-milestone: M2
+      parameters:
+        - name: document
+          in: path
+          required: true
+          schema:
+            $ref: './components.yaml#/components/schemas/LegalDocumentName'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The document.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/LegalDocument'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/legal/documents/{document}/versions/{number}:
+    get:
+      tags: [Legal]
+      operationId: getLegalDocumentVersion
+      summary: One version of a legal document, with its words
+      description: |
+        D125: any version that counts, by its number, with its Markdown (`/privacy/versions/{number}`,
+        `/terms/versions/{number}`): versions are kept for ever, so a person can read what they agreed to.
+      x-milestone: M2
+      parameters:
+        - name: document
+          in: path
+          required: true
+          schema:
+            $ref: './components.yaml#/components/schemas/LegalDocumentName'
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The version.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/RepresentationETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/LegalDocumentVersionText'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '400':

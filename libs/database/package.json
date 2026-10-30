@@ -31,6 +31,7 @@
           "^production",
           "{workspaceRoot}/libs/legal/dpa/**/*",
           "{workspaceRoot}/libs/legal/forms/**/*",
+          "{workspaceRoot}/libs/legal/terms/**/*",
           "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
           "{workspaceRoot}/infra/k8s/surrealdb/base/init.surql.tmpl",
           "{workspaceRoot}/infra/k8s/surrealdb/base/identity_check.py",

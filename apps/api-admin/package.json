@@ -109,6 +109,31 @@
             ]
           }
         ]
+      },
+      "test-integration": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/libs/database/integration/support/**/*",
+          "{workspaceRoot}/libs/database/schema/**/*",
+          "{workspaceRoot}/libs/legal/dpa/**/*",
+          "{workspaceRoot}/libs/legal/forms/**/*",
+          "{workspaceRoot}/libs/legal/terms/**/*",
+          "{workspaceRoot}/libs/contracts/openapi/**/*",
+          "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
+          {
+            "externalDependencies": [
+              "surrealdb",
+              "vitest"
+            ]
+          }
+        ],
+        "outputs": [],
+        "options": {
+          "command": "vitest run --config vitest.integration.config.mts",
+          "cwd": "{projectRoot}"
+        }
       }
     },
     "tags": [
@@ -135,6 +160,9 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@nestjs/testing": "^12.2.0"
+    "@heisreal/contracts": "workspace:*",
+    "@nestjs/testing": "^12.2.0",
+    "@types/express": "^5.0.6",
+    "surrealdb": "^2.0.8"
   }
 }

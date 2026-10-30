@@ -1,6 +1,7 @@
 import { apiPublicReadUrl } from './config';
+import type { LegalDocumentName } from './legal-text';
 
-// D32: the consent forms and the privacy document are public, so web's server reads them from
+// D32: the consent forms and the legal documents (D121: privacy policy, terms of use) are public, so web's server reads them from
 // api-public-read like a story, with nothing from the visitor's request. The browser then
 // grants consent on exactly that version through api-user (consent-form.tsx).
 
@@ -13,16 +14,20 @@ export type ConsentStatement =
   | 'publish'
   | 'share_socials'
   | 'age_18plus'
-  | 'account_data';
+  | 'account_data'
+  /** D122: "I agree to the terms of use", on the sign-up form from v2. */
+  | 'terms_of_use';
 
-/** `ConsentFormVersion.boxes` (D114): one box and the exact words shown beside it. */
+/** `ConsentBox` (D114): one box, the exact words shown beside it, and where it sits. */
 export interface ConsentBox {
   statement: ConsentStatement;
   label: string;
+  /** The testimony form's `start` or `submit`; null where the version doesn't say. */
+  step?: 'start' | 'submit' | null;
 }
 
 /**
- * `ConsentFormVersion`: the version in force, with its words (Markdown, a document to read) and
+ * `ConsentFormVersion`: the version in force, with its short introduction (Markdown, D122) and
  * its boxes as structured data (D114): the boxes never come from the words.
  */
 export interface ConsentFormVersion {
@@ -34,16 +39,45 @@ export interface ConsentFormVersion {
   boxes: ConsentBox[];
 }
 
-/** `DpaDocument`: the privacy document a form version links, with its words. */
-export interface PrivacyDocument {
+/** `LegalDocumentVersion`: one version of a legal document, without its words (D125). */
+export interface LegalDocumentVersion {
+  /** The record id a grant names. */
   id: string;
-  text: string;
+  /** 1, 2, 3..., in publishing order. */
+  number: number;
+  publishedAt: string;
+  contentHash: string;
 }
 
-/** What a consent page shows: the form version in force and the privacy document it links. */
+/** `LegalDocument`: the version in force with its words, and every version, newest first. */
+export interface LegalDocument {
+  document: LegalDocumentName;
+  current: (LegalDocumentVersion & { text: string }) | null;
+  versions: LegalDocumentVersion[];
+}
+
+/** `LegalDocumentVersionText`: one version with its words, and whether it's in force. */
+export type LegalDocumentVersionText = LegalDocumentVersion & {
+  document: LegalDocumentName;
+  text: string;
+  current: boolean;
+};
+
+/** What a consent page shows: the form version in force and the documents in force (D122). */
 export type LegalResult =
-  | { kind: 'ok'; form: ConsentFormVersion; dpa: PrivacyDocument }
-  /** No version of the form is published (404), or its privacy document isn't. */
+  | {
+      kind: 'ok';
+      form: ConsentFormVersion;
+      /** The privacy policy in force, which every grant binds. */
+      privacy: LegalDocument & {
+        current: NonNullable<LegalDocument['current']>;
+      };
+      /** The terms of use in force, on a sign-up version that asks for them. */
+      terms:
+        | (LegalDocument & { current: NonNullable<LegalDocument['current']> })
+        | null;
+    }
+  /** No version of the form is published (404), or a document it binds isn't. */
   | { kind: 'not_published' }
   /** api-public-read couldn't be reached or answered unexpectedly. */
   | { kind: 'unavailable' };
@@ -81,9 +115,77 @@ const isForm = (v: unknown, form: ConsentFormName): v is ConsentFormVersion => {
   );
 };
 
+const isVersion = (v: unknown): v is LegalDocumentVersion => {
+  const r = v as Partial<LegalDocumentVersion> | null;
+  return (
+    !!r &&
+    typeof r.id === 'string' &&
+    typeof r.number === 'number' &&
+    typeof r.publishedAt === 'string' &&
+    typeof r.contentHash === 'string'
+  );
+};
+
+const isDocument = (
+  v: unknown,
+  document: LegalDocumentName,
+): v is LegalDocument => {
+  const d = v as Partial<LegalDocument> | null;
+  return (
+    !!d &&
+    d.document === document &&
+    Array.isArray(d.versions) &&
+    d.versions.every(isVersion) &&
+    (d.current === null ||
+      (isVersion(d.current) && typeof d.current?.text === 'string'))
+  );
+};
+
 /**
- * The form `form` in force (`GET /v1/legal/forms/{form}`) and the privacy document that version
- * links (`GET /v1/legal/dpa?version=…`), per request.
+ * A legal document (`GET /v1/legal/documents/{document}`, D121): the version in force with its
+ * words, and every version. `null` when it can't be read.
+ */
+export async function getLegalDocument(
+  document: LegalDocumentName,
+): Promise<LegalDocument | null> {
+  try {
+    const d = await read(`/v1/legal/documents/${document}`);
+    return isDocument(d, document) ? d : null;
+  } catch (err) {
+    console.error(
+      `api-public-read: ${document} unavailable: ${err instanceof Error ? err.message : 'error'}`,
+    );
+    return null;
+  }
+}
+
+/**
+ * One version of a legal document by its number (`GET /v1/legal/documents/{document}/versions/
+ * {number}`, D125). `null` when there's no such version; throws when it can't be read.
+ */
+export async function getLegalDocumentVersion(
+  document: LegalDocumentName,
+  number: number,
+): Promise<LegalDocumentVersionText | null> {
+  const v = (await read(
+    `/v1/legal/documents/${document}/versions/${number}`,
+  )) as Partial<LegalDocumentVersionText> | null;
+  if (v === null) return null;
+  if (
+    !isVersion({ ...v }) ||
+    v.document !== document ||
+    typeof v.text !== 'string' ||
+    typeof v.current !== 'boolean'
+  ) {
+    throw new Error('unexpected answer');
+  }
+  return v as LegalDocumentVersionText;
+}
+
+/**
+ * The form `form` in force (`GET /v1/legal/forms/{form}`) and the documents a grant on it binds
+ * (D122): the privacy policy in force and, when the version has the terms box, the terms of use
+ * in force. Per request.
  */
 export async function getConsentForm(
   form: ConsentFormName,
@@ -92,22 +194,34 @@ export async function getConsentForm(
     const version = await read(`/v1/legal/forms/${form}`);
     if (version === null) return { kind: 'not_published' };
     if (!isForm(version, form)) return { kind: 'unavailable' };
-    const dpa = (await read(
-      `/v1/legal/dpa?version=${encodeURIComponent(version.dpaVersion)}`,
-    )) as { current?: Partial<PrivacyDocument> } | null;
-    if (dpa === null) return { kind: 'not_published' };
-    const current = dpa.current;
+    const wantsTerms = version.boxes.some(
+      (b) => b.statement === 'terms_of_use',
+    );
+    const [privacy, terms] = await Promise.all([
+      read('/v1/legal/documents/privacy'),
+      wantsTerms ? read('/v1/legal/documents/terms') : Promise.resolve(null),
+    ]);
+    if (privacy === null || (wantsTerms && terms === null)) {
+      return { kind: 'not_published' };
+    }
     if (
-      typeof current?.id !== 'string' ||
-      typeof current.text !== 'string' ||
-      current.id !== version.dpaVersion
+      !isDocument(privacy, 'privacy') ||
+      (wantsTerms && !isDocument(terms, 'terms'))
     ) {
       return { kind: 'unavailable' };
     }
+    const p = privacy as LegalDocument;
+    const t = wantsTerms ? (terms as LegalDocument) : null;
+    if (!p.current || (t && !t.current)) return { kind: 'not_published' };
     return {
       kind: 'ok',
       form: version,
-      dpa: { id: current.id, text: current.text },
+      privacy: p as LegalDocument & {
+        current: NonNullable<LegalDocument['current']>;
+      },
+      terms: t as
+        | (LegalDocument & { current: NonNullable<LegalDocument['current']> })
+        | null,
     };
   } catch (err) {
     console.error(
@@ -117,124 +231,4 @@ export async function getConsentForm(
   }
 }
 
-// --- The texts' Markdown ---------------------------------------------------------------------
-//
-// The forms and the privacy document are short, plain Markdown (libs/legal/README.md): headings,
-// paragraphs, "> " notes, "- " lists, **bold** and `code`. They are documents to read only: the
-// boxes come from the version's statements data (D114), never from these words.
-
-/** A run of text: plain, **bold** or `code`. */
-export type Inline = { kind: 'text' | 'bold' | 'code'; text: string };
-
-export type LegalBlock =
-  | { kind: 'heading'; level: number; content: Inline[] }
-  | { kind: 'paragraph'; content: Inline[] }
-  | { kind: 'note'; paragraphs: Inline[][] }
-  | { kind: 'list'; items: LegalListItem[] };
-
-export interface LegalListItem {
-  content: Inline[];
-}
-
-/** `**bold**` and `` `code` `` runs; anything else is text. */
-export function parseInline(text: string): Inline[] {
-  const out: Inline[] = [];
-  const re = /\*\*([^*]+)\*\*|`([^`]+)`/g;
-  let last = 0;
-  for (let m = re.exec(text); m; m = re.exec(text)) {
-    if (m.index > last)
-      out.push({ kind: 'text', text: text.slice(last, m.index) });
-    out.push(
-      m[1] !== undefined
-        ? { kind: 'bold', text: m[1] }
-        : { kind: 'code', text: m[2] },
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push({ kind: 'text', text: text.slice(last) });
-  return out;
-}
-
-/** The text's blocks. Lines that continue a paragraph, note or list item are joined to it. */
-export function parseLegalText(markdown: string): LegalBlock[] {
-  const blocks: LegalBlock[] = [];
-  // Each block's raw lines first, then their inline runs.
-  type Raw =
-    | { kind: 'heading'; level: number; text: string }
-    | { kind: 'paragraph'; text: string }
-    | { kind: 'note'; paragraphs: string[] }
-    | { kind: 'list'; items: string[] };
-  const raws: Raw[] = [];
-  let open: Raw | null = null;
-  for (const line of markdown.replace(/\r\n?/g, '\n').split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      if (open?.kind === 'note') open.paragraphs.push('');
-      else open = null;
-      continue;
-    }
-    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-    if (heading) {
-      raws.push({
-        kind: 'heading',
-        level: heading[1].length,
-        text: heading[2],
-      });
-      open = null;
-      continue;
-    }
-    if (trimmed.startsWith('>')) {
-      const text = trimmed.replace(/^>\s?/, '');
-      if (open?.kind !== 'note') {
-        open = { kind: 'note', paragraphs: [''] };
-        raws.push(open);
-      }
-      const paragraphs = open.paragraphs;
-      if (!text) paragraphs.push('');
-      else
-        paragraphs[paragraphs.length - 1] =
-          `${paragraphs[paragraphs.length - 1]} ${text}`.trim();
-      continue;
-    }
-    if (open?.kind === 'note') open = null;
-    const item = /^[-*]\s+(.*)$/.exec(trimmed);
-    if (item && !line.startsWith(' ')) {
-      if (open?.kind !== 'list') {
-        open = { kind: 'list', items: [] };
-        raws.push(open);
-      }
-      open.items.push(item[1]);
-      continue;
-    }
-    if (open?.kind === 'list') {
-      open.items[open.items.length - 1] += ` ${trimmed}`;
-    } else if (open?.kind === 'paragraph') {
-      open.text += ` ${trimmed}`;
-    } else {
-      open = { kind: 'paragraph', text: trimmed };
-      raws.push(open);
-    }
-  }
-  for (const raw of raws) {
-    if (raw.kind === 'heading') {
-      blocks.push({
-        kind: 'heading',
-        level: raw.level,
-        content: parseInline(raw.text),
-      });
-    } else if (raw.kind === 'paragraph') {
-      blocks.push({ kind: 'paragraph', content: parseInline(raw.text) });
-    } else if (raw.kind === 'note') {
-      blocks.push({
-        kind: 'note',
-        paragraphs: raw.paragraphs.filter(Boolean).map(parseInline),
-      });
-    } else {
-      blocks.push({
-        kind: 'list',
-        items: raw.items.map((text) => ({ content: parseInline(text) })),
-      });
-    }
-  }
-  return blocks;
-}
+export * from './legal-text';

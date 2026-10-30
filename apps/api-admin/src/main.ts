@@ -4,12 +4,17 @@
  */
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { corsOptions } from '@heisreal/http';
 import { AppModule } from './app/app.module';
+import { useBodyParser } from './app/body-parser';
 
 async function bootstrap() {
   // D31: the browser calls this service directly, from web's origin only (CORS_ALLOWED_ORIGINS).
-  const app = await NestFactory.create(AppModule, { cors: corsOptions() });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    cors: corsOptions(),
+  });
+  useBodyParser(app);
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3003;
   await app.listen(port);

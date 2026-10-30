@@ -266,10 +266,10 @@ test.describe('behaviour', () => {
     await page.goto(SHARE);
     await page.getByRole('button', { name: 'Write my story' }).click();
     await step(page, 'Your story and your data');
-    // The privacy document is there to read.
-    await page.getByText('Read the privacy document', { exact: true }).click();
+    // The privacy policy is there to read.
+    await page.getByText('Read the privacy policy', { exact: true }).click();
     await expect(
-      page.getByText(/What the real document will cover/),
+      page.getByRole('heading', { name: 'Cookies and storage' }),
     ).toBeVisible();
     await page.getByRole('button', { name: 'I agree, continue' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
@@ -281,11 +281,13 @@ test.describe('behaviour', () => {
     expect(await me.consents()).not.toContain('special_category_religious');
   });
 
-  test('someone already on the testimony form skips the consent step', async ({
+  test('someone already on the testimony form skips the consent step, and Review shows the newer privacy policy its grants name', async ({
     page,
     request,
   }) => {
-    await person(page, request, {
+    // Their Art 9 consent named privacy policy version 1 (the stub's seeded grants); version 2
+    // has been published since, and the publishing grant names it.
+    const me = await person(page, request, {
       ...SIGNED_UP,
       granted: [...(SIGNED_UP.granted ?? []), 'special_category_religious'],
     });
@@ -295,6 +297,30 @@ test.describe('behaviour', () => {
     ).not.toContainText('Your data');
     await page.getByRole('button', { name: 'Write my story' }).click();
     await step(page, 'Prepare your story');
+    await page.getByRole('button', { name: 'Start writing' }).click();
+    await page.getByLabel('Title').fill('Shown what I agree to');
+    await page.getByLabel('Your story').fill(TEXT);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    // Beside the publishing box: version 2, to read and on its own page.
+    const publish = page.locator('[data-grant="publish"]');
+    await publish.getByText('Read the privacy policy', { exact: true }).click();
+    const policy = publish.locator('[data-privacy-document="dev_policy"]');
+    await expect(
+      policy.getByRole('heading', { name: 'Cookies and storage' }),
+    ).toBeVisible();
+    await expect(
+      policy.getByRole('link', { name: /^Version 2, on its own page/ }),
+    ).toHaveAttribute('href', '/privacy/versions/2');
+    // The social sharing grant names the same version, already shown, so it isn't repeated.
+    await expect(page.locator('[data-privacy-document]')).toHaveCount(1);
+    await tick(page, PUBLISH);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    // The stub accepts only grants naming version 2 (dev_policy).
+    await step(page, 'Thank you for sharing your story');
+    expect(await me.consents()).toContain('publish');
   });
 
   test('without the sign-up consent, the page sends people to finish setting up', async ({

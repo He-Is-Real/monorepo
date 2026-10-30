@@ -80,6 +80,7 @@ describe('the consent guard on SurrealDB (D21, Art 9)', () => {
             formVersion: 'v1',
             statement: type as never,
             mechanism: 'web_form_submission',
+            privacyPolicyVersion: 'v1',
           });
       });
     // Ann: everything a draft needs (the sign-up form too, D93). Bob: none of it. Cat: all but

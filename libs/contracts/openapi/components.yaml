@@ -1101,7 +1101,8 @@ components:
         A consent type, which is also a statement (a box) on a consent form (D84, D93): the sign-up form has
         `age_18plus` and `account_data` (D73: "store my account and favourites"); the testimony form has
         `special_category_religious` and, if it covers publishing on heisreal.today, `publish`; the optional
-        social sharing form has `share_socials`.
+        social sharing form has `share_socials`. From sign-up v2 (D122) the sign-up form also has
+        `terms_of_use` ("I agree to the terms of use"), bound to the terms of use in force.
       enum:
         [
           special_category_religious,
@@ -1109,6 +1110,7 @@ components:
           share_socials,
           age_18plus,
           account_data,
+          terms_of_use,
         ]
 
     SiteVideoKey:
@@ -1263,11 +1265,13 @@ components:
       description: |
         One ledger event: one statement ticked on the form version shown (D84). The version must be the one
         in force (`GET /v1/legal/forms/{form}` on api-public-read); the database refuses anything but a
-        published version. The privacy document is the one the form version links. The server sets
-        `occurredAt` and computes the evidence hash (`heisreal-consent-evidence/v3`, D114): sha256 of the form,
-        its version, its text's sha256 and its statements file's sha256 (the words beside each box), the DPA
-        version and its text's sha256, the statement, the event and the mechanism. No IP address (D19).
-      required: [form, formVersion, statement, mechanism]
+        published version. D122: the event binds the privacy policy in force and, on a sign-up version that
+        asks for them, the terms of use in force (`GET /v1/legal/documents/{document}`); a page that showed
+        others, or doesn't name them, gets `409 legal_document_not_in_force`. The server sets `occurredAt` and computes the evidence
+        hash (`heisreal-consent-evidence/v4`, D125): sha256 of the form, its version, its text's and
+        statements file's sha256, the privacy policy version with its words' sha256, the terms of use
+        version with theirs (or nulls), the statement, the event and the mechanism. No IP address (D19).
+      required: [form, formVersion, statement, mechanism, privacyPolicyVersion]
       properties:
         form:
           $ref: '#/components/schemas/ConsentForm'
@@ -1278,11 +1282,21 @@ components:
           $ref: '#/components/schemas/ConsentType'
         mechanism:
           $ref: '#/components/schemas/ConsentMechanism'
+        privacyPolicyVersion:
+          type: string
+          description: |
+            D122, the privacy policy version the page showed; must be the one in force. Required: a grant
+            without it answers `409 legal_document_not_in_force` (a page from an older release reloads).
+        termsVersion:
+          type: string
+          description: |
+            D122, the terms of use version the page showed. Required on a sign-up version that asks for
+            them (missing answers `409 legal_document_not_in_force`); ignored on other forms.
 
     DpaVersion:
       type: object
       description: A version of the data-subject-facing Data Processing Agreement (D20, D22).
-      required: [id, status, materiality, contentHash, version]
+      required: [id, status, contentHash, version]
       properties:
         id:
           type: string
@@ -1295,9 +1309,9 @@ components:
           enum: [draft, published]
           description: Published versions are immutable.
         materiality:
-          type: string
-          enum: [minor, material]
-          description: '`material` means re-consent is required.'
+          type: [string, 'null']
+          enum: [minor, material, null]
+          description: "D20's classification of a repo version; `null` on a version an admin published (D125)."
         documentUrl:
           type: string
           description: 'The DPA text (kept in the repo, `libs/legal/dpa/<id>.md`).'
@@ -1383,15 +1397,7 @@ components:
             Pages draw the boxes from this, outside the document: nothing in `text` adds, removes or
             changes a box. Lists every statement in `statements`, once each.
           items:
-            type: object
-            required: [statement, label]
-            additionalProperties: false
-            properties:
-              statement:
-                $ref: '#/components/schemas/ConsentType'
-              label:
-                type: string
-                minLength: 1
+            $ref: '#/components/schemas/ConsentBox'
         statementsHash:
           type: string
           minLength: 64
@@ -1404,6 +1410,171 @@ components:
           oneOf:
             - $ref: '#/components/schemas/TestimonyFormFeatures'
             - $ref: '#/components/schemas/SocialSharingFormFeatures'
+
+    ConsentBox:
+      type: object
+      description: One box and the exact words beside it, from the version's statements data (D114).
+      required: [statement, label, step]
+      additionalProperties: false
+      properties:
+        statement:
+          $ref: '#/components/schemas/ConsentType'
+        label:
+          type: string
+          minLength: 1
+        step:
+          description: |
+            Where the box sits, as data (D122): on the testimony form `start` (before a story starts, Art 9)
+            or `submit` (when it's submitted, `publish`); `null` where the version doesn't say.
+          oneOf:
+            - type: string
+              enum: [start, submit]
+            - type: 'null'
+
+    LegalDocumentName:
+      type: string
+      description: 'D121: the two legal documents, `privacy` (the privacy policy) and `terms` (the terms of use).'
+      enum: [privacy, terms]
+
+    LegalDocumentVersion:
+      type: object
+      description: One version of a legal document, without its words (D125).
+      required: [id, number, publishedAt, contentHash]
+      properties:
+        id:
+          type: string
+          description: The version's record id, which a grant names (`privacyPolicyVersion`, `termsVersion`).
+        number:
+          type: integer
+          minimum: 1
+          description: 1, 2, 3..., in publishing order (`/privacy/versions/{number}`).
+        publishedAt:
+          type: string
+          format: date-time
+        contentHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of the version's Markdown (UTF-8, line ends as `\n`).
+
+    LegalDocument:
+      type: object
+      description: |
+        A legal document (D121, D125): the version in force with its Markdown, which the site renders, and
+        every version that counts, newest first.
+      required: [document, current, versions]
+      additionalProperties: false
+      properties:
+        document:
+          $ref: '#/components/schemas/LegalDocumentName'
+        current:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/LegalDocumentVersion'
+                - type: object
+                  required: [text]
+                  properties:
+                    text:
+                      type: string
+                      description: Markdown.
+              unevaluatedProperties: false
+            - type: 'null'
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/LegalDocumentVersion'
+
+    LegalDocumentVersionText:
+      description: One version of a legal document with its Markdown, and whether it is the one in force.
+      allOf:
+        - $ref: '#/components/schemas/LegalDocumentVersion'
+        - type: object
+          required: [document, text, current]
+          properties:
+            document:
+              $ref: '#/components/schemas/LegalDocumentName'
+            text:
+              type: string
+              description: Markdown.
+            current:
+              type: boolean
+      unevaluatedProperties: false
+
+    AdminLegalDocumentVersion:
+      type: object
+      description: A version as api-admin lists it, with who published it.
+      required: [number, publishedAt, publishedBy, source, devPlaceholder]
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        publishedAt:
+          type: string
+          format: date-time
+        publishedBy:
+          type: [string, 'null']
+          description: The publishing admin's user record id (Clerk holds names, D16); `null` for repo versions.
+        source:
+          type: string
+          enum: [admin, repo]
+        devPlaceholder:
+          type: boolean
+          description: Dev's placeholder (D75), which counts only in dev.
+
+    AdminLegalDocumentVersionList:
+      type: object
+      required: [document, current, data]
+      additionalProperties: false
+      properties:
+        document:
+          $ref: '#/components/schemas/LegalDocumentName'
+        current:
+          description: The version in force with its Markdown, which the editor starts from; `null` before the first.
+          oneOf:
+            - type: object
+              required: [number, text]
+              additionalProperties: false
+              properties:
+                number:
+                  type: integer
+                  minimum: 1
+                text:
+                  type: string
+            - type: 'null'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminLegalDocumentVersion'
+
+    PublishLegalDocument:
+      type: object
+      description: |
+        Command `PublishLegalDocument` (D125): the next version of one legal document, its Markdown as the admin
+        wrote it, in force at once. The database numbers it and keeps it for ever, unchanged.
+      required: [text, basedOn]
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 200000
+          description: Markdown (headings, paragraphs, bold, italic, lists, links, tables, code; no HTML). Line ends are stored as `\n`.
+        basedOn:
+          type: [integer, 'null']
+          minimum: 1
+          description: The number of the version in force the admin edited; `null` for the first version (`409 document_changed` if another is in force now).
+
+    PublishedLegalDocument:
+      type: object
+      required: [number, publishedAt]
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        publishedAt:
+          type: string
+          format: date-time
 
     TestimonyFormFeatures:
       type: object
@@ -1466,26 +1637,6 @@ components:
         allowPaidPromotion:
           type: boolean
           description: Used in paid adverts promoting He Is Real Today.
-
-    CreateDpaDraft:
-      type: object
-      description: Creates a `draft`. The document lives in the repo; the server computes `contentHash` from it.
-      required: [id, materiality]
-      properties:
-        id:
-          type: string
-          pattern: '^v[0-9]+$'
-          example: v2
-        materiality:
-          type: string
-          enum: [minor, material]
-        changeSummary:
-          type: string
-        supersedes:
-          type: string
-        effectiveFrom:
-          type: string
-          format: date-time
 
     Account:
       type: object

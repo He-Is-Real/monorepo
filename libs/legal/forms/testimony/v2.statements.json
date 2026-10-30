@@ -1,0 +1,14 @@
+{
+  "statements": [
+    {
+      "key": "special_category_religious",
+      "label": "I agree to He Is Real Today storing and processing my story, including what it says about my faith, so that it can be reviewed and, if I choose, published.",
+      "step": "start"
+    },
+    {
+      "key": "publish",
+      "label": "Publish my story on heisreal.today once a moderator has approved it.",
+      "step": "submit"
+    }
+  ]
+}

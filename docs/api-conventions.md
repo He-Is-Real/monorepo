@@ -9,9 +9,9 @@ brackets).
 
 | Service           | Serves                                                                                                                                                | Auth                                | In the database                                  |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
-| `api-public-read` | Anonymous public queries: published stories, tags, the published DPA and consent forms                                                                | None                                | Its own login; sees only public tables           |
+| `api-public-read` | Anonymous public queries: published stories, tags, the legal documents (privacy policy, terms of use, every version) and consent forms                | None                                | Its own login; sees only public tables           |
 | `api-user`        | **Everything that needs to know who you are**: own stories, account, consents, favourites, feed, and the person's commands; Clerk and Stripe webhooks | Clerk JWT (webhooks: signature)     | Runs as the person, with their Clerk token (D27) |
-| `api-admin`       | Moderation, roles, tags, DPA versions                                                                                                                 | Clerk JWT, role Moderator or higher | Its own login                                    |
+| `api-admin`       | Moderation, roles, tags, publishing the privacy policy and terms of use (D121)                                                                        | Clerk JWT, role Moderator or higher | Its own login                                    |
 
 - **Anything personal goes to `api-user`; anything public goes to `api-public-read`.**
   `api-public-read` has no auth code at all.

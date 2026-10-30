@@ -52,11 +52,15 @@ FOR $c IN $consents {
   LET $user = type::record('user', $c.user);
   LET $form = <record> $c.form;
   LET $now = fn::consent::current($user, $c.type);
-  IF $now.event != 'granted' OR $now.form != $form OR !fn::consent::valid($now) {
+  IF $now.event != 'granted' OR $now.form != $form OR !fn::consent::valid($now)
+    OR $now.dpaVersion != type::record('dpaVersion', $c.dpa)
+    OR ($c.terms AND $now.termsVersion != type::record('termsVersion', $c.terms)) {
     CREATE consent CONTENT {
       subject: $user, type: $c.type, event: 'granted', form: $form,
       dpaVersion: type::record('dpaVersion', $c.dpa),
-      mechanism: 'web_form_submission', evidenceHash: $c.evidenceHash, evidenceVersion: 3
+      termsVersion: IF $c.terms { type::record('termsVersion', $c.terms) } ELSE { NONE },
+      mechanism: 'web_form_submission', evidenceHash: $c.evidenceHash,
+      evidenceVersion: $c.evidenceVersion
     } RETURN NONE;
   };
 };
@@ -159,23 +163,27 @@ async function runQuery(
 }
 
 /**
- * The statements each fixture person grants, per form (D73: sign-up, with 18+, which is asked
- * there only, D93; D67: testimony). They don't tick the optional social sharing form, so no
+ * The statements each fixture person grants on the forms in force: every box of the sign-up
+ * version (D73: 18+, which is asked there only, D93; account_data; and since D122 the terms of
+ * use) and the testimony form's (D67). They don't tick the optional social sharing form, so no
  * dummy story may be shared beyond the dev site.
  */
-export const FIXTURE_STATEMENTS = {
-  signup: ['age_18plus', 'account_data'],
-  testimony: ['special_category_religious', 'publish'],
-} as const;
+export const FIXTURE_FORMS = ['signup', 'testimony'] as const;
 
+// D122: grants bind the privacy policy in force, and on a sign-up version asking for them the
+// terms of use in force, as the API does.
 const FORMS_IN_FORCE = /* surql */ `
 LET $s = fn::form::latest('signup');
 LET $t = fn::form::latest('testimony');
+LET $d = fn::legal::dpa_in_force();
+LET $terms = IF $s.coversTerms = true { fn::legal::terms_in_force() } ELSE { NONE };
 RETURN [
   { kind: 'signup', form: $s.id, textHash: $s.textHash, statementsHash: $s.statementsHash,
-    dpa: $s.dpaVersion, dpaHash: $s.dpaVersion.contentHash },
+    statements: fn::form::statements($s.id),
+    dpa: $d, dpaHash: $d.contentHash, terms: $terms, termsHash: $terms.contentHash },
   { kind: 'testimony', form: $t.id, textHash: $t.textHash, statementsHash: $t.statementsHash,
-    dpa: $t.dpaVersion, dpaHash: $t.dpaVersion.contentHash }
+    statements: fn::form::statements($t.id),
+    dpa: $d, dpaHash: $d.contentHash }
 ];
 `;
 
@@ -185,7 +193,11 @@ export interface FixtureConsent {
   /** e.g. testimonyFormVersion:v1 */
   form: string;
   dpa: string;
+  /** The terms of use version, on a sign-up version asking for them (D122). */
+  terms: string | null;
   evidenceHash: string;
+  /** 4, as the API (D125, libs/consent's evidence.ts). */
+  evidenceVersion: 4;
 }
 
 /** Every fixture person's grants on the forms in force, as the API would record them. */
@@ -195,12 +207,15 @@ export async function fixtureConsents(
 ): Promise<FixtureConsent[]> {
   const results = await runQuery(db, FORMS_IN_FORCE);
   const forms = results[results.length - 1] as {
-    kind: 'signup' | 'testimony';
+    kind: (typeof FIXTURE_FORMS)[number];
     form?: string;
     textHash?: string;
     statementsHash?: string;
+    statements?: string[];
     dpa?: string;
     dpaHash?: string;
+    terms?: string | null;
+    termsHash?: string | null;
   }[];
   const key = (id: string) => id.slice(id.indexOf(':') + 1);
   return forms.flatMap((f) => {
@@ -208,14 +223,17 @@ export async function fixtureConsents(
       return []; // the reset refuses
     const version = key(f.form);
     const dpa = key(f.dpa);
+    const terms = f.terms ? key(f.terms) : null;
     return people.flatMap((user) =>
-      FIXTURE_STATEMENTS[f.kind].map((type) => ({
+      (f.statements ?? []).map((type) => ({
         user,
         type,
         form: f.form as string,
         dpa,
+        terms,
+        evidenceVersion: 4 as const,
         evidenceHash: evidenceHash({
-          // Evidence v3 (D114), as the API records it.
+          // Evidence v4 (D125), as the API.
           form: {
             kind: f.kind,
             version,
@@ -224,6 +242,9 @@ export async function fixtureConsents(
           },
           dpaVersion: dpa,
           dpaContentHash: f.dpaHash as string,
+          terms: terms
+            ? { version: terms, contentHash: f.termsHash as string }
+            : null,
           type,
           event: 'granted',
           mechanism: 'web_form_submission',

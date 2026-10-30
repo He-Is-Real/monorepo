@@ -60,7 +60,9 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
   data, each with the exact words beside it), outside the document, so nothing in its words can
   add, remove or break a box. If a box the page asks for is missing, nothing can be ticked.
 - Ticking records one grant per box through api-user (`POST /v1/account/consents`, the version
-  shown, an `Idempotency-Key` per box kept for retries), only once every box is ticked.
+  shown, an `Idempotency-Key` per box kept for retries), only once every box is ticked. Each grant
+  also names the privacy policy (and, on sign-up, the terms of use) the page showed; if one was
+  published meanwhile, api-user answers `409` and the page asks to reload (D122).
 
 ## Personal parts of pages (hearts)
 
@@ -86,3 +88,18 @@ from the hearts uses `personalApiUser`: a token is sent only if its `sub` is the
 work started for (Clerk's `getToken()` answers for whoever is signed in when it resolves). The
 e2e fixture tokens are shaped like session tokens for that reason (`e2e.<payload>.fixture`). In e2e each test can give its browser its own
 stub session (localStorage `e2e-session`), so parallel tests never share hearts.
+
+## Legal documents (D121, D125)
+
+- `/privacy` and `/terms` read the document from api-public-read on the server, per request, and
+  show the version in force in the site's own formatting, with its number and the earlier
+  versions; `/privacy/versions/<n>` and `/terms/versions/<n>` show any version. Until one is
+  published (or if api-public-read can't answer) they say so.
+- Every legal text (those pages, the consent pages, the submit flow and the admin preview) goes
+  through one renderer, `src/lib/markdown.ts` (markdown-it, raw HTML off, links only to https:,
+  mailto: and this site): headings, lists, tables, links, bold and inline `code`.
+- `/admin/legal` (Admins): choose a document, edit its text in a plain text box with a live
+  preview and a formatting cheat-sheet, and publish it after a confirmation as the next version.
+  If another admin published meanwhile, api-admin answers `409` and the page asks to reload. It
+  calls api-admin from the browser through the same client as api-user (`src/lib/api-user.ts`,
+  with `API_ADMIN_URL`), so the token boundary above is unchanged.

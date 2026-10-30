@@ -144,6 +144,7 @@ describe('GET /v1/account, the account bootstrap', () => {
         formVersion: 'v3',
         statement: 'special_category_religious',
         mechanism: 'reconsent_prompt',
+        privacyPolicyVersion: 'v1',
       }),
     });
     expect(await contract.check('POST', res)).toEqual([]);

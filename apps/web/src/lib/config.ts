@@ -90,6 +90,22 @@ export function indexingAllowed(): boolean {
 }
 
 /**
+ * api-admin's origin (`API_ADMIN_URL`, set by OpenTofu), for staff pages' own calls from the
+ * browser with the person's Clerk token (D31), through the same client as api-user's. Like
+ * `apiUserUrl()`: https, or http for localhost only; otherwise undefined.
+ */
+export function apiAdminUrl(): string | undefined {
+  const raw = process.env['API_ADMIN_URL']?.trim().replace(/\/+$/, '');
+  if (!raw) return undefined;
+  const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(raw);
+  if (validOrigin(raw) && (raw.startsWith('https://') || local)) return raw;
+  console.error(
+    'API_ADMIN_URL is not an https origin without a path (http only for localhost); ignoring it',
+  );
+  return undefined;
+}
+
+/**
  * api-user's origin (`API_USER_URL`, set by OpenTofu), for the browser's own calls with the
  * person's Clerk token (D31, D83). web's server never calls it (D32): it only hands the address
  * to client components. https, or http for localhost only (local and e2e), since the token

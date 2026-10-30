@@ -114,6 +114,11 @@ locals {
   form_statements        = { for k in local.form_kinds : k => { for f in local.statement_files[k] : trimsuffix(f, ".statements.json") => jsondecode(file("${local.forms_dir}/${k}/${f}")) } }
   form_statements_sha256 = { for k in local.form_kinds : k => { for f in local.statement_files[k] : trimsuffix(f, ".statements.json") => filesha256("${local.forms_dir}/${k}/${f}") } }
 
+  # The terms of use's repo versions (libs/legal/terms/<id>.md: dev's placeholder), for data
+  # 0007. Admin-published versions live only in the database.
+  terms_dir  = "${dirname(var.dpa_dir)}/terms"
+  terms_text = { for f in fileset(local.terms_dir, "*.md") : trimsuffix(f, ".md") => file("${local.terms_dir}/${f}") }
+
   params = {
     clerk_jwt_public_key   = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
     dev_consent_relaxed    = var.dev_consent_relaxed
@@ -124,6 +129,7 @@ locals {
     form_text              = local.form_text
     form_statements        = local.form_statements
     form_statements_sha256 = local.form_statements_sha256
+    terms_text             = local.terms_text
     environment            = var.environment
     identity_hash          = var.identity_hash
     seed_dev_story         = var.seed_dev_story
