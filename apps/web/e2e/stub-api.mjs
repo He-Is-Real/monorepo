@@ -330,13 +330,17 @@ playStory('play-test-down', {
   title: 'Play test: the API is down',
   media: clip('video', '44444444-4444-4444-8444-444444444444', 1080, 1350),
 });
-// Prefetch check (card-playback.e2e.ts): one video story per device project that runs it, listed
-// only under `tag=prefetch-test`. GET /__test/reads?slug= says how often its story was read.
+// Prefetch check (card-playback.e2e.ts): each run makes its own video story (POST /__test/story,
+// `prefetch-test-…`), listed only under `tag=prefetch-test`, so no two tests (or repeats) ever
+// share its read count. GET /__test/reads?slug= says how often its story was read.
 const PREFETCH_TEST = 'prefetch-test';
-for (const name of ['phone-320', 'desktop-1280']) {
-  playStory(`prefetch-test-${name}`, {
+const prefetchStory = (slug) => {
+  // A UUID-shaped media id of the story's own (the player's links name it).
+  const h = createHash('sha256').update(slug).digest('hex');
+  const id = `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+  playStory(slug, {
     primaryFormat: 'video',
-    title: `Prefetch test (${name})`,
+    title: `Prefetch test ${slug}`,
     tags: [
       {
         slug: PREFETCH_TEST,
@@ -345,14 +349,9 @@ for (const name of ['phone-320', 'desktop-1280']) {
         version: 1,
       },
     ],
-    media: clip(
-      'video',
-      `55555555-5555-4555-8555-${name === 'phone-320' ? '000000000320' : '000000001280'}`,
-      1920,
-      1080,
-    ),
+    media: clip('video', id, 1920, 1080),
   });
-}
+};
 // The NEW badge (new-badge.e2e.ts, D72): stories listed only under `tag=new-test`, dated around
 // the e2e servers' pinned clock (E2E_NOW in servers.ts, 2026-10-25T12:00:00Z). New means less
 // than 7 days old, so exactly 7 days isn't, and one second less is.
@@ -699,9 +698,15 @@ const handler = (mode) => (req, res) => {
   }
   const url = new URL(req.url ?? '/', 'http://stub');
   const hook = /^\/__test\/(hide|show)$/.exec(url.pathname);
-  // A test's own story (favourites.e2e.ts): `heart-tmp-…`, listed nowhere, public on every port.
+  // A test's own story: `heart-tmp-…` (favourites.e2e.ts), listed nowhere, or `prefetch-test-…`
+  // (card-playback.e2e.ts), listed under its tag; public on every port.
   if (url.pathname === '/__test/story' && req.method === 'POST') {
     const slug = url.searchParams.get('slug') ?? '';
+    if (/^prefetch-test-[a-z0-9-]{1,50}$/.test(slug)) {
+      prefetchStory(slug);
+      res.writeHead(204);
+      return res.end();
+    }
     if (!/^heart-tmp-[a-z0-9-]{1,50}$/.test(slug))
       return problem(res, 400, 'validation_failed');
     stories[slug] = {

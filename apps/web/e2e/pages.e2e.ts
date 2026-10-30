@@ -14,10 +14,16 @@ import { STUB_URL, WEB_DOWN_URL } from './servers';
 
 const cards = (page: Page) => page.locator('main ul.masonry > li');
 
+/**
+ * Brings the end of browse's list into view, as a reader scrolling down does: its last card,
+ * instantly. Loading more watches for the end coming near (D55), so the list sees this however
+ * late its JavaScript starts. Jumping to the page's very end instead (the footer, smoothly)
+ * could pass the end between two frames under load and never be seen (#119).
+ */
 async function scrollToEnd(page: Page) {
-  await page.evaluate(() =>
-    window.scrollTo(0, document.documentElement.scrollHeight),
-  );
+  await cards(page)
+    .last()
+    .evaluate((li) => li.scrollIntoView({ block: 'end', behavior: 'instant' }));
 }
 
 for (const scheme of ['light', 'dark'] as const) {

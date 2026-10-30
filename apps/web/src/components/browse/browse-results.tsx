@@ -178,7 +178,11 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
 
   const autoLeft = autoLoadsLeft(loaded.pages);
 
-  // Near the end: load the next page, while automatic loads are left.
+  // Near the end: load the next page, while automatic loads are left. An observer only acts for
+  // the list it was made for: once a load has moved on (the ref), its sightings are of the
+  // shorter list still on screen, e.g. Back's scroll restoring to the end of the first page
+  // while that page's second one is arriving (#119).
+  const pages = loaded.pages;
   useEffect(() => {
     const el = sentinel.current;
     if (!el || !loaded.cursor || autoLeft === 0 || status !== 'idle') return;
@@ -186,7 +190,7 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
       (entries) => {
         if (
           entries.some((e) => e.isIntersecting) &&
-          autoLoadsLeft(current.current.pages) > 0
+          current.current.pages === pages
         )
           void load(false);
       },
@@ -194,7 +198,7 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [loaded.cursor, autoLeft, status, load]);
+  }, [loaded.cursor, autoLeft, status, load, pages]);
 
   // Measured heights replace the predicted spans (multi-column layouts only use them).
   useLayoutEffect(() => {
