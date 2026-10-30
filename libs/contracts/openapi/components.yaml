@@ -631,8 +631,10 @@ components:
       description: |
         The submitter's own view (read as the person, D27), including lifecycle and moderation feedback.
         No consent object: a story stores no consent (D86); the person's consent is
-        `GET /v1/account/consents`. Draft media isn't signed yet (`playbackUrl` and `thumbnailUrl`
-        are `null` until the upload PR), and a written story's `image` is `null` until images.
+        `GET /v1/account/consents`. A video or audio story's `media` holds its uploaded file once
+        `/upload-url` has put one on it (M2 plan PR 7), but isn't signed for the person yet
+        (`playbackUrl` and `thumbnailUrl` are `null`; a preview of your own upload comes later),
+        and a written story's `image` is `null` until images.
       required:
         [id, version, status, title, primaryFormat, createdAt, updatedAt]
       properties:

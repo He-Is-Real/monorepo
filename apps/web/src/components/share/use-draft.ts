@@ -17,6 +17,7 @@ import {
   sameField,
   type ShareApi,
   type StoryFields,
+  type StoryFormat,
 } from './share-api';
 
 /**
@@ -55,6 +56,8 @@ interface Stored {
    * what changed since then goes in a PATCH afterwards. Cleared once it's answered.
    */
   createSent: StoryFields | null;
+  /** The story's format (video and audio, M2 plan PR 7); missing = written (older tabs). */
+  format?: StoryFormat;
 }
 
 interface Conflict {
@@ -68,6 +71,10 @@ interface Conflict {
 export interface Draft {
   draftId: string | null;
   version: number | null;
+  /** Written, video or audio: chosen at the start, or the loaded draft's. */
+  format: StoryFormat;
+  /** The format of a draft not created yet (Choose). */
+  setFormat: (format: StoryFormat) => void;
   fields: StoryFields;
   status: SaveStatus;
   error: string | null;
@@ -181,7 +188,9 @@ export function settle(
 
 const dirty = (s: Stored) =>
   Object.keys(mergePatch(s.local, s.saved)).length > 0;
-const canCreate = (f: StoryFields) => !!f.title.trim() && !!f.body.trim();
+/** A written story needs its title and text; a video or audio story its title (D53). */
+const canCreate = (f: StoryFields, format: StoryFormat = 'written') =>
+  !!f.title.trim() && (format !== 'written' || !!f.body.trim());
 
 /** `owner`: the signed-in person's Clerk user id. */
 export function useDraft(api: ShareApi | null, owner: string): Draft {
@@ -223,7 +232,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     const stored = readStored(owner, null);
     if (stored && !state.current.draftId) {
       commit(stored);
-      setStatus(canCreate(stored.local) ? 'unsaved' : 'idle');
+      setStatus(canCreate(stored.local, stored.format) ? 'unsaved' : 'idle');
     }
   }, [commit, owner]);
 
@@ -233,7 +242,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
       if (!alive.current) return false;
       const s = state.current;
       if (!s.draftId) {
-        if (!canCreate(s.local)) {
+        if (!canCreate(s.local, s.format)) {
           setStatus(
             s.local.title || s.local.body || s.local.description
               ? 'unsaved'
@@ -249,7 +258,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         setStatus('saving');
         let created;
         try {
-          created = await api.create(sent, createKey);
+          created = await api.create(sent, createKey, s.format ?? 'written');
         } catch (err) {
           if (!alive.current) return false;
           // A definite refusal (e.g. the draft limit): the next try is a new create, with
@@ -270,12 +279,13 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
           local: state.current.local,
           createKey: null,
           createSent: null,
+          format: s.format,
         });
         continue;
       }
       // A draft's title or text can't be empty: while the person is clearing one to rewrite
       // it, keep it on this device rather than send a save the server would refuse.
-      if (!canCreate(s.local)) {
+      if (!canCreate(s.local, s.format)) {
         setStatus('unsaved');
         return false;
       }
@@ -414,12 +424,13 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
           local: server,
           createKey: null,
           createSent: null,
+          format: story.primaryFormat,
         });
         setStatus('saved');
         return true;
       }
       // Text from before a reload: carry on from it, through the same check as a 412.
-      commit({ ...stored, draftId: id });
+      commit({ ...stored, draftId: id, format: story.primaryFormat });
       if (stored.version !== story.version) {
         const { clashes, local } = rebase(stored.saved, stored.local, server);
         if (clashes.length) {
@@ -508,6 +519,13 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     [owner],
   );
 
+  const setFormat = useCallback(
+    (format: StoryFormat) => {
+      if (!state.current.draftId) commit({ ...state.current, format });
+    },
+    [commit],
+  );
+
   const setVersion = useCallback(
     (version: number) => commit({ ...state.current, version }),
     [commit],
@@ -524,6 +542,8 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
   return {
     draftId: state.current.draftId,
     version: state.current.version,
+    format: state.current.format ?? 'written',
+    setFormat,
     fields: state.current.local,
     status,
     error,
