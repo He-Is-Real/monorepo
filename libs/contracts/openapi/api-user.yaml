@@ -698,6 +698,42 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
+    delete:
+      tags: [Submission]
+      operationId: deleteStory
+      summary: Delete my draft, withdrawn or rejected story
+      description: |
+        Command `DeleteStory` (D71): the person deletes their own story while it's a `draft`,
+        `withdrawn` or `rejected`, in their own session (D27). It goes everywhere in the same
+        transaction: the story, its `publicStory` and `hiddenStory` rows, its moderation reviews and
+        other people's hearts on it. The database's story permission refuses any other status
+        (`pending`, `in_review`, `approved`, `changes_requested`: `409 story_not_deletable`, withdraw
+        it first) and anyone else's story (`404`, as if it didn't exist). Needs no consent (Art 17).
+
+        Its video or audio at Bunny is deleted straight after the database commits: only the videos
+        api-user made for this story (its upload grants, D80), never seeded or shared media. If Bunny
+        can't be reached the video is left as an orphan for the clean-up sweep (media-runbook.md);
+        the answer is still `204`. Its upload grants stay, so the upload limits still count them for
+        7 days (D113). A retry after a lost answer gets `404`: it's gone.
+      x-required-role: User
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+
   /v1/stories/{id}/upload-url:
     post:
       tags: [Submission]
@@ -841,7 +877,14 @@ paths:
       tags: [Submission]
       operationId: withdrawStory
       summary: Withdraw my story
-      description: Command `WithdrawStory`. Deletes its `publicStory` row in the same transaction.
+      description: |
+        Command `WithdrawStory`: a story waiting for review, in review, sent back for changes or
+        published becomes `withdrawn`, in the person's own session (D27). Its `publicStory` row is
+        deleted in the same transaction, so it's gone from the site on the next request (D51). Its
+        content is untouched and it needs no consent. Anything else (a draft: delete it instead; a
+        rejected or already withdrawn story) answers `409 story_not_withdrawable`. A withdrawn story
+        stays withdrawn: publishing it again comes with M3's moderation (D61). Then it can be
+        deleted (`DELETE /v1/stories/{id}`).
       x-required-role: User
       x-milestone: M2
       parameters:

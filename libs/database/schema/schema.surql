@@ -237,9 +237,13 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
   FOR update WHERE (submitter = $auth.id AND $auth.gdprDeletedAt = NONE)
     OR $auth.id IN [service:api_admin, service:workflow],
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]   -- erasure
+    -- D71: the owner deletes their own draft, withdrawn or rejected story (DeleteStory), never
+    -- one in moderation's hands or published (pending, in_review, approved, changes_requested).
+    OR (submitter = $auth.id AND $auth.gdprDeletedAt = NONE
+        AND status IN ['draft', 'withdrawn', 'rejected'])
     -- D71: the nightly housekeeping Job deletes a draft nobody has touched for as long as the
-    -- testimony forms say (fn::story::drafts_expire_before), and nothing else; the same delete
-    -- as a person's own (events and cascade included).
+    -- testimony forms say (fn::story::draft_expired), and nothing else; the same delete as a
+    -- person's own (events and cascade included).
     OR ($auth.id = service:housekeeping AND fn::story::draft_expired(id));
 DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY;   -- owner can never be reassigned
 DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every command; ETag
