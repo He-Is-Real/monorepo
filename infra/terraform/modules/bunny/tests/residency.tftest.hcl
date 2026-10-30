@@ -55,3 +55,21 @@ run "stream_zone_must_be_the_librarys" {
   }
   expect_failures = [bunnynet_storage_zone.stream]
 }
+
+# Neither the secrets' region nor the images' storage region can leave the UK (D119's interim
+# guard). Stream's Frankfurt zone is fixed in main.tf, not a variable.
+run "secrets_only_in_london" {
+  command = plan
+  variables {
+    region = "europe-west1"
+  }
+  expect_failures = [var.region]
+}
+
+run "images_only_in_the_uk" {
+  command = plan
+  variables {
+    storage_region = "DE"
+  }
+  expect_failures = [var.storage_region]
+}

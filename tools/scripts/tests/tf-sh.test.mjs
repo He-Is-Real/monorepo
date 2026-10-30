@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -40,7 +41,8 @@ const stub = (name, body) => {
 };
 
 // tofu: `version -json`, `show -json` (from STUB_SHOW_JSON, or a failure that prints SECRET),
-// otherwise echoes its argv and the environment variables that matter.
+// otherwise echoes its argv and the environment variables that matter (`plan` then exits with
+// STUB_PLAN_EXIT).
 stub(
   'tofu',
   `
@@ -70,6 +72,7 @@ for (const k of [
   if (k in env) pick[k] = env[k];
 }
 console.log(JSON.stringify({ argv, env: pick }));
+if (cmd[0] === 'plan') process.exit(Number(env.STUB_PLAN_EXIT ?? 0));
 `,
 );
 
@@ -153,7 +156,7 @@ test('gcp defaults to tf-deployer locally', () => {
       'other@x.iam.gserviceaccount.com',
   });
   const call = tofuCall(result);
-  assert.deepEqual(call.argv, [
+  assert.deepEqual(call.argv.slice(0, 2), [
     `-chdir=${repo}/infra/terraform/live/dev/gcp`,
     'plan',
   ]);
@@ -392,6 +395,92 @@ test('plan-summary hides show errors', () => {
 
 test('plan-summary needs a plan file', () => {
   assert.equal(run(['gcp', 'plan-summary']).status, 64);
+});
+
+// The UK location check (tf-location-check.sh) on every plan
+
+const outside = JSON.stringify({
+  resource_changes: [
+    {
+      address: 'module.bunny.bunnynet_storage_zone.images',
+      mode: 'managed',
+      type: 'bunnynet_storage_zone',
+      change: {
+        actions: ['create'],
+        after: { region: 'NY', password: 'SECRET' },
+        after_sensitive: { password: true },
+      },
+    },
+  ],
+});
+
+test('plan saves to a scratch file when given none, checks it, then removes it', () => {
+  const result = run(['gcp', 'plan', '-input=false']);
+  const call = tofuCall(result);
+  const out = call.argv.at(-1);
+  assert.match(out, /^-out=.*\/tfplan$/);
+  assert.deepEqual(call.argv.slice(1, -1), ['plan', '-input=false']);
+  assert.match(result.stderr, /location-check: ok \(0 created or updated\)/);
+  assert.ok(!existsSync(dirname(out.slice('-out='.length))));
+});
+
+test("plan keeps tofu's exit code and the caller's plan file when the check passes", () => {
+  for (const args of [['-out=x'], ['-out', 'x']]) {
+    const result = run(['gcp', 'plan', '-detailed-exitcode', ...args], {
+      STUB_PLAN_EXIT: '2',
+    });
+    assert.equal(result.status, 2, result.all);
+    const call = JSON.parse(result.stdout.trim());
+    assert.deepEqual(call.argv.slice(1), [
+      'plan',
+      '-detailed-exitcode',
+      ...args,
+    ]);
+    assert.match(result.stderr, /location-check: ok/);
+  }
+});
+
+test('plan fails when anything is outside the UK, printing only addresses and locations', () => {
+  for (const root of ['gcp', 'bunny', 'bootstrap']) {
+    const result = run([root, 'plan', '-detailed-exitcode', '-out=x'], {
+      STUB_PLAN_EXIT: '2',
+      STUB_SHOW_JSON: outside,
+    });
+    assert.equal(result.status, 1, root);
+    assert.match(
+      result.stderr,
+      /location-check: module\.bunny\.bunnynet_storage_zone\.images: region=NY\n/,
+    );
+    assert.doesNotMatch(result.all, /SECRET/);
+  }
+});
+
+test("a failed plan isn't checked and keeps its exit code", () => {
+  const result = run(['gcp', 'plan'], {
+    STUB_PLAN_EXIT: '1',
+    STUB_SHOW_JSON: outside,
+  });
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stderr, /location-check/);
+});
+
+test('location-check checks a saved plan, bunny included, and hides show errors', () => {
+  assert.equal(
+    run(['bunny', 'location-check', 'tfplan'], { STUB_SHOW_JSON: plan }).stdout,
+    'location-check: ok (0 created or updated)\n',
+  );
+  const bad = run(['bunny', 'location-check', 'tfplan'], {
+    STUB_SHOW_JSON: outside,
+  });
+  assert.equal(bad.status, 1);
+  assert.doesNotMatch(bad.all, /SECRET/);
+  const failed = run(['bunny', 'location-check', 'tfplan'], {
+    STUB_SHOW_FAIL: '1',
+  });
+  assert.equal(failed.status, 1);
+  assert.doesNotMatch(failed.all, /SECRET/);
+  assert.match(failed.all, /location-check: could not read plan \(exit 1\)/);
+  assert.equal(run(['gcp', 'location-check']).status, 64);
 });
 
 // bunny-mask

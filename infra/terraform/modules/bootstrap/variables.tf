@@ -27,6 +27,11 @@ variable "region" {
   description = "Region for all resources (UK for GDPR)."
   type        = string
   default     = "europe-west2"
+
+  validation {
+    condition     = var.region == "europe-west2"
+    error_message = "Data stays in the UK: region must be europe-west2 (London)."
+  }
 }
 
 variable "github_repository" {

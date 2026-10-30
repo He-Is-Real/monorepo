@@ -3,6 +3,7 @@
 #
 #   tools/scripts/tf.sh <root> <tofu args...>       tofu -chdir=infra/terraform/live/dev/<root> ...
 #   tools/scripts/tf.sh <root> plan-summary <plan>  changed addresses, actions and a count only
+#   tools/scripts/tf.sh <root> location-check <plan> fails if it puts anything outside the UK
 #   tools/scripts/tf.sh bunny-cli <args...>         the bunny CLI with the account key, one process
 #   tools/scripts/tf.sh bunny-mask secrets|state    CI only: ::add-mask:: every Bunny key
 #   tools/scripts/tf.sh stripe-mask                 CI only: ::add-mask:: the Stripe API key
@@ -15,6 +16,9 @@
 #   - otherwise the root's CI identity: gcp, images, cluster, stripe as tf-deployer; bunny as
 #     tf-bunny; bootstrap always with your own credentials.
 # Impersonation needs `gcloud auth login --update-adc` and Token Creator on the account.
+#
+# Every `plan` (bunny's too) is checked by tf-location-check.sh, D119's interim UK guard: exit 1
+# if it creates or updates anything outside the UK. Without -out it plans to a scratch file.
 #
 # Refuses debug logs (TF_LOG*, RUNNER_DEBUG=1): they can print secrets into public CI logs.
 # Always unsets TF_ENCRYPTION, which would replace the encryption config in code.
@@ -30,7 +34,7 @@ deployer="tf-deployer@${project}.iam.gserviceaccount.com"
 tf_bunny="tf-bunny@${project}.iam.gserviceaccount.com"
 
 usage() {
-  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 die() {
@@ -219,6 +223,47 @@ if [ "$1" = plan-summary ]; then
     exit 1
   }
   exit 0
+fi
+
+# Prints only addresses, attribute paths and locations, so it's safe for bunny and public logs.
+location_check() {
+  local json status=0
+  json="$(tofu -chdir="$dir" show -json "$1" 2> /dev/null)" || status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "location-check: could not read plan (exit $status)"
+    return 1
+  fi
+  "$repo/tools/scripts/tf-location-check.sh" <<< "$json"
+}
+
+if [ "$1" = location-check ]; then
+  [ $# -eq 2 ] || usage_error "$root location-check <planfile>"
+  location_check "$2"
+  exit
+fi
+
+if [ "$1" = plan ]; then
+  # The caller's plan file (-out=x or -out x; tofu reads both relative to $dir), else a scratch one.
+  planfile=''
+  prev=''
+  for arg in "${@:2}"; do
+    case "$arg" in -out=* | --out=*) planfile="${arg#*=}" ;; esac
+    case "$prev" in -out | --out) planfile="$arg" ;; esac
+    prev="$arg"
+  done
+  args=("$@")
+  if [ -z "$planfile" ]; then
+    scratch="$(mktemp -d)"
+    trap 'rm -rf "$scratch"' EXIT
+    planfile="$scratch/tfplan"
+    args+=("-out=$planfile")
+  fi
+  status=0
+  tofu -chdir="$dir" "${args[@]}" || status=$?
+  # 0: planned (no changes, with -detailed-exitcode); 2: changes. Anything else is tofu's error.
+  [ "$status" -eq 0 ] || [ "$status" -eq 2 ] || exit "$status"
+  location_check "$planfile" >&2 || exit 1
+  exit "$status"
 fi
 
 if [ "$root" = bunny ]; then

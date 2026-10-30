@@ -12,6 +12,10 @@ name: OpenTofu plan
 # available on main, and tf-planner can't read the Stripe key. bootstrap is planned and applied
 # locally.
 #
+# Every plan also gets the UK location check (D119's interim guard): `tf.sh <root> plan` runs
+# tools/scripts/tf-location-check.sh on it and fails if anything created or updated is outside
+# the UK; the step summary shows its result.
+#
 # The cluster plan (D42) is a separate job. Its kustomization diffs are server-side dry runs,
 # which Kubernetes authorises like real writes, so it runs as tf-cluster-planner, which can
 # create/patch in the `database` namespace (modules/cluster/planner_rbac.tf). It runs only for
@@ -181,7 +185,7 @@ jobs:
           tools/scripts/tf.sh gcp init -input=false
           code=0
           tools/scripts/tf.sh gcp plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt" || code=$?
-          { echo "### dev/gcp"; echo '```'; grep -E '^(Plan:|No changes|Error)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### dev/gcp"; echo '```'; grep -E '^(Plan:|No changes|Error|location-check)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
 
   plan-images:
@@ -210,7 +214,7 @@ jobs:
           tools/scripts/tf.sh images init -input=false
           code=0
           tools/scripts/tf.sh images plan -input=false -lock=false -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt" || code=$?
-          { echo "### dev/images"; echo '```'; grep -E '^(Plan:|No changes|Error)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### dev/images"; echo '```'; grep -E '^(Plan:|No changes|Error|location-check)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
 
   plan-cluster:
@@ -239,5 +243,5 @@ jobs:
           tools/scripts/tf.sh cluster init -input=false
           code=0
           tools/scripts/tf.sh cluster plan -input=false -refresh=false -lock=false -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt" || code=$?
-          { echo "### dev/cluster"; echo '```'; grep -E '^(Plan:|No changes|Error)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### dev/cluster"; echo '```'; grep -E '^(Plan:|No changes|Error|location-check)' "$RUNNER_TEMP/plan.txt" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"

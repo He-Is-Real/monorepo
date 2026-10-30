@@ -45,12 +45,13 @@ Log in with `gcloud auth login --update-adc` (your Workspace forces re-authentic
 then) and `mise install` (OpenTofu at the `mise.toml` pin; `tf.sh` refuses any other version). Then run every root
 through **`tools/scripts/tf.sh <root> <tofu args>`**:
 
-| Command                                | Does                                                                            |
-| -------------------------------------- | ------------------------------------------------------------------------------- |
-| `tf.sh <root> init` / `plan` / `apply` | `tofu -chdir=infra/terraform/live/dev/<root> …`                                 |
-| `tf.sh <root> plan-summary <planfile>` | changed addresses, actions and a count only (what CI publishes; safe for bunny) |
-| `tf.sh bunny-cli <args>`               | the bunny CLI with the account key from Secret Manager, for that one process    |
-| `tf.sh bunny-mask secrets\|state`      | CI only: `::add-mask::` every Bunny key before tofu runs                        |
+| Command                                  | Does                                                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `tf.sh <root> init` / `plan` / `apply`   | `tofu -chdir=infra/terraform/live/dev/<root> …`; every `plan` also runs the UK location check (below) |
+| `tf.sh <root> plan-summary <planfile>`   | changed addresses, actions and a count only (what CI publishes; safe for bunny)                       |
+| `tf.sh <root> location-check <planfile>` | fails if the plan creates or updates anything outside the UK ("Where data lives"; safe for bunny)     |
+| `tf.sh bunny-cli <args>`                 | the bunny CLI with the account key from Secret Manager, for that one process                          |
+| `tf.sh bunny-mask secrets\|state`        | CI only: `::add-mask::` every Bunny key before tofu runs                                              |
 
 **Identity.** Locally `tf.sh` acts as the root's CI identity, so a local plan sees what CI sees:
 gcp, images and cluster as `tf-deployer`, bunny as `tf-bunny` (developers hold Token Creator on
@@ -600,9 +601,30 @@ exported payments), or a service such as Swiftaid that collects and claims it. N
 ## Where data lives (D101–D104, D119)
 
 Joel's rule: data stays in the UK wherever possible, written explicitly in OpenTofu, never left to
-a provider's default. Every Google Cloud resource we create names `europe-west2` (London). That,
-and review of each plan, is what keeps dev in the UK today: the organisation-wide enforcement
-below is postponed (D119).
+a provider's default. Every Google Cloud resource we create names `europe-west2` (London). While
+the organisation-wide enforcement below is postponed (D119), two cheap checks in this repository
+stand in for it (the interim guard):
+
+1. **Variables accept only the UK.** Every module variable that sets a place refuses anything else,
+   so a wrong value fails `tofu validate`, `tofu test` and every plan: `region` in `gcp`,
+   `bootstrap` and `bunny` (`europe-west2`), bunny's `storage_region` (`UK`, Bunny's London), and
+   `modules/org`'s `log_storage_location` (`europe-west2`) and `allowed_locations` (UK values only).
+2. **Every plan is checked** (`tools/scripts/tf-location-check.sh`, run by `tf.sh <root> plan` for
+   every root: PR plans, `tofu-apply.yml` before approval, the weekly drift job and local plans,
+   bootstrap's included). It fails when a resource the plan creates or updates has a `location`,
+   `region` or `zone` (any case, at any depth) other than `europe-west2`, `europe-west2-a/b/c` or
+   `EUROPE-WEST2`, or one known only after apply; a Pub/Sub topic whose
+   `message_storage_policy.allowed_persistence_regions` isn't exactly `["europe-west2"]`; or a
+   secret with automatic (global) replication. Exceptions are listed in the script, each with its
+   reason: genuinely global types (IAM, service accounts, project services, the VPC network and
+   firewall, the budget, Workload Identity, the log sink, quota settings), never checked; and
+   Bunny's own region names (`UK` for images; `DE` only for Stream's storage zone, D89; no
+   replication). It prints only resource addresses, attribute paths and the offending locations,
+   so it also runs on bunny's plans inside their masked path (its report goes to the private log
+   with the rest). Clerk (US, D6) isn't in OpenTofu, so neither check sees it.
+
+The checks don't cover a local `tf.sh <root> apply` without a saved plan (it plans again): plan
+with `-out`, then apply that file.
 
 | Data                                                    | Where                                     | Declared in                              |
 | ------------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
@@ -627,9 +649,10 @@ need organisation roles that only the organisation admin can grant, and that one
 hasn't been done, so `live/dev/bootstrap` no longer calls the module and a plain
 `tf.sh bootstrap plan` works with a developer's own login. Until the setup is done:
 
-- nothing at organisation level refuses a resource outside the UK, so a missing or wrong
-  location in OpenTofu would go through: check every new location-bound resource names
-  `europe-west2` (London) when reading its plan;
+- nothing at organisation level refuses a resource outside the UK: the interim guard above
+  catches what OpenTofu declares, but not something made outside OpenTofu, or a resource that is
+  regional by default without a location attribute; still glance at new resources' locations
+  when reading a plan;
 - a project created now gets its `_Required` audit-log bucket in `global` for good.
 
 **Gate:** the organisation admin's setup and turning `modules/org` back on (its README has the

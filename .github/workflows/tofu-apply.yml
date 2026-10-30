@@ -23,6 +23,11 @@ name: OpenTofu apply
 #     looks like a deploy.
 #   - Failed, rejected, stale or superseded stops every later stage (tools/scripts/tf-stage.sh);
 #     "no changes" and "not selected" stop nothing.
+#   - Every plan is checked for locations outside the UK (D119's interim guard): `tf.sh <root>
+#     plan` runs tools/scripts/tf-location-check.sh on the saved plan, and a plan that creates or
+#     updates anything outside the UK exits 1, so it fails and never reaches an approval. For
+#     bunny that happens inside the masked path, and the report (addresses and locations only)
+#     goes to the private log with the rest.
 #   - Every Release Images completion, success or failure, triggers a full run: it may replace
 #     a pending push run in the queue, so it must plan everything too.
 #   - "Dev behavioural tests" is dispatched once per deploy, after its final wave, and only by a

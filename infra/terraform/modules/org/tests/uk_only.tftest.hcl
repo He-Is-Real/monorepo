@@ -32,7 +32,7 @@ run "uk_only" {
 run "log_location_must_be_allowed" {
   command = plan
   variables {
-    log_storage_location = "europe-west1"
+    allowed_locations = ["europe-west2-a"]
   }
   expect_failures = [google_org_policy_policy.resource_locations]
 }
@@ -43,4 +43,22 @@ run "empty_list_refused" {
     allowed_locations = []
   }
   expect_failures = [var.allowed_locations]
+}
+
+# The variables themselves accept only UK values (D119's interim guard keeps them honest while
+# no root calls this module).
+run "only_uk_locations_allowed" {
+  command = plan
+  variables {
+    allowed_locations = ["in:gb-locations", "in:eu-locations"]
+  }
+  expect_failures = [var.allowed_locations]
+}
+
+run "logs_only_in_london" {
+  command = plan
+  variables {
+    log_storage_location = "europe-west1"
+  }
+  expect_failures = [var.log_storage_location]
 }
