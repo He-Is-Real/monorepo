@@ -25,13 +25,16 @@ export function StripeBuyButtonScript() {
 }
 
 /**
- * One Buy Button, framed on a card. Stripe draws a fixed 288 px iframe (one-off 243 px tall,
- * monthly 223 px; Stripe's own styling inside it is set in its Dashboard), light only: so the card
- * is the light theme's in either theme (`light`, global.css), and in dark mode the button sits on
- * it rather than as a white box on the dark page. Centred, and on phones the card runs edge to
- * edge, as the 288 px button fills a 320 px phone's column. The element reserves the taller
- * button's height so nothing moves when it arrives; its text shows only until Stripe's script
- * draws the button (Stripe's shadow DOM leaves it out), or if the script is blocked.
+ * One Buy Button, on a card that hugs it. Stripe draws a fixed 288 px iframe whatever room it is
+ * given (its script sets `width: 288px !important`, and its docs offer no size attribute; Stripe's
+ * own styling inside it is set in its Dashboard), so a wider card would leave the button looking
+ * shrunk in the middle of an empty box: the card is the button's width plus padding, centred.
+ * Stripe's iframe is light only, so the card is the light theme's in either theme (`light`,
+ * global.css), and in dark mode the button sits on it rather than as a white box on the dark page.
+ * On phones the card may use the column's side margin (its 1 rem gutter), with less padding,
+ * as the padded card is wider than a 320 px phone's 288 px column. The element reserves the button's size (the taller button's height) so nothing
+ * moves when it arrives; its text shows only until Stripe's script draws the button (Stripe's
+ * shadow DOM leaves it out), or if the script is blocked.
  */
 export function StripeBuyButton({
   buttonId,
@@ -41,14 +44,16 @@ export function StripeBuyButton({
   publishableKey: string;
 }) {
   return (
-    <div className="light -mx-4 border-y border-border bg-card px-4 py-6 sm:mx-0 sm:rounded-2xl sm:border-x">
-      <stripe-buy-button
-        buy-button-id={buttonId}
-        publishable-key={publishableKey}
-        className="flex min-h-[243px] items-center justify-center text-center text-sm text-muted-foreground"
-      >
-        Loading Stripe’s secure button…
-      </stripe-buy-button>
+    <div className="-mx-4 flex justify-center sm:mx-0">
+      <div className="light rounded-2xl border border-border bg-card px-3 py-6 sm:px-4">
+        <stripe-buy-button
+          buy-button-id={buttonId}
+          publishable-key={publishableKey}
+          className="flex min-h-[243px] w-72 items-center justify-center text-center text-sm text-muted-foreground"
+        >
+          Loading Stripe’s secure button…
+        </stripe-buy-button>
+      </div>
     </div>
   );
 }

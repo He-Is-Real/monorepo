@@ -58,6 +58,22 @@ async function expectShown(page: Page, id: string) {
   // Visible, at least 44 px, and wholly inside the viewport's width (Stripe's button is 288 px).
   await expectTarget(page, stripeButton(page, id));
   await expect(page.locator('stripe-buy-button')).toHaveCount(1);
+  // The card hugs Stripe's fixed-width button (no wide empty box around a small button), centred
+  // under the section's heading.
+  const button = await stripeButton(page, id).boundingBox();
+  const card = await page
+    .locator('stripe-buy-button')
+    .locator('xpath=..')
+    .boundingBox();
+  const heading = await page
+    .getByRole('region')
+    .getByRole('heading', { level: 2 })
+    .boundingBox();
+  if (!button || !card || !heading) throw new Error('not laid out');
+  expect(card.width).toBeLessThanOrEqual(button.width + 2 * 24);
+  const centre = (b: { x: number; width: number }) => b.x + b.width / 2;
+  expect(Math.abs(centre(card) - centre(button))).toBeLessThanOrEqual(1);
+  expect(Math.abs(centre(card) - centre(heading))).toBeLessThanOrEqual(1);
 }
 
 for (const scheme of ['light', 'dark'] as const) {
