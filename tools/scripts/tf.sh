@@ -231,8 +231,12 @@ fi
 
 # Prints only addresses, attribute paths and locations, so it's safe for bunny and public logs.
 # Anything but "ok" also goes to the step summary, so a dev warning is seen without the log.
+# The root's provider schema tells the check what an unknown value may hold; if tofu can't give
+# it, the check treats every unknown Google value as a finding.
 location_check() {
-  local json report status=0
+  local json report schema status=0
+  schema="$(mktemp)"
+  tofu -chdir="$dir" providers schema -json > "$schema" 2> /dev/null || : > "$schema"
   json="$(tofu -chdir="$dir" show -json "$1" 2> /dev/null)" || status=$?
   if [ "$status" -ne 0 ]; then
     report="location-check: could not read plan (exit $status)"
@@ -243,8 +247,9 @@ location_check() {
       status=1
     fi
   else
-    report="$("$repo/tools/scripts/tf-location-check.sh" "$environment" <<< "$json")" || status=$?
+    report="$("$repo/tools/scripts/tf-location-check.sh" "$environment" "$schema" <<< "$json")" || status=$?
   fi
+  rm -f "$schema"
   echo "$report"
   case "$report" in
   "location-check: ok "*) ;;

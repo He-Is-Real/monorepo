@@ -3,18 +3,26 @@
 # interim guard until the organisation's location policy, D102, is set up at launch).
 # Tests: tests/tf-location-check.test.mjs.
 #
-#   tofu show -json <plan> | tools/scripts/tf-location-check.sh <environment>
+#   tofu show -json <plan> | tools/scripts/tf-location-check.sh <environment> [<schema>]
 #
+# <schema> is the root's `tofu providers schema -json`, which tells the check what an unknown
+# value may hold (below); without it, any unknown value on a google_* resource is a finding.
 # `tf.sh <root> plan` runs it on every plan, CI's and laptops' alike, with the root's
 # environment (`tf.sh <root> location-check <plan>` on a saved one). For every resource the plan
 # creates or updates (replaces included), it reports:
 #   - any location attribute (any case, at any depth, list items included) that isn't
 #     europe-west2, europe-west2-a/b/c or EUROPE-WEST2 (Cloud Storage's spelling), including one
 #     known only after apply, or a container of them (Secret Manager replicas, Pub/Sub storage
-#     policy, Bunny replication) known only after apply. A location attribute is `location`,
+#     policy, Bunny replication) known only after apply. Compute's links to a zone or region
+#     (.../zones/<zone>, .../regions/<region>) count as their last part. A location attribute is `location`,
 #     `region` or `zone`; on google_* resources also any name ending in one of them, plural or
 #     with `_id` (location_id, node_locations, data_locations, storage_location, replica_zones,
 #     ...), except the names in not_places below;
+#   - on google_* resources, any value known only after apply (a dynamic block, a computed
+#     object) whose schema holds a location attribute anywhere inside it, or that the schema
+#     doesn't describe. This follows the provider's schema rather than a list of paths, so a new
+#     resource or block is covered from day one. derived_when_unknown below lists the unknown
+#     values Google can only derive from a location that is checked;
 #   - a google_spanner_instance whose config isn't regional-europe-west2;
 #   - a google_pubsub_topic whose message_storage_policy isn't exactly ["europe-west2"];
 #   - a google_secret_manager_secret with automatic replication (global), or one that may get it
@@ -59,13 +67,30 @@ not_places='[
   "supported_clone_regions", "disaster_recovery_supported_locations"
 ]'
 
+# Values Google derives from a location that is checked, so being unknown until apply hides
+# nothing: by resource type, the attribute path without list indexes. Known values are still
+# checked like any other.
+derived_when_unknown='{
+  "google_container_cluster": {
+    "node_locations": "GKE only takes zones inside the cluster location, which is checked",
+    "node_pool": "node pools run in zones inside the cluster location, which is checked",
+    "cluster_autoscaling.auto_provisioning_locations": "zones inside the cluster location, which is checked"
+  },
+  "google_sql_database_instance": {
+    "settings.location_preference": "Cloud SQL picks the zones inside the instance region, which is checked"
+  }
+}'
+
 # Bunny names its own regions. UK is London (images). DE (Frankfurt) only for the Stream
 # library's storage zone: Bunny sets Stream storage there and offers no other (D89). Zones are
 # never replicated (copies elsewhere can never be removed again). bunnynet_dns_record.zone and
 # bunnynet_storage_file.zone are a DNS zone and a storage zone, not places.
 # shellcheck disable=SC2016 # a jq program: its $names are jq's
 program='
-def uk: . == "europe-west2" or . == "EUROPE-WEST2" or test("^europe-west2-[abc]$");
+# A Compute link to a zone or region (https://www.googleapis.com/compute/v1/projects/p/zones/z,
+# projects/p/regions/r, zones/z) counts as its zone or region.
+def place: (capture("^(https://(www|compute)\\.googleapis\\.com/compute/[a-z0-9]+/)?(projects/[^/]+/)?(zones|regions)/(?<p>[^/]+)$").p) // .;
+def uk: place | . == "europe-west2" or . == "EUROPE-WEST2" or test("^europe-west2-[abc]$");
 # A location attribute of resource $rc (see the header).
 def is_loc_key($rc): type == "string" and (ascii_downcase as $k
   | if ($rc.type | startswith("google_")) then
@@ -87,6 +112,27 @@ def holds_locations($rc): is_loc_key($rc) or (type == "string" and (ascii_downca
   "allowed_persistence_regions", "replication_regions")))
   or ($rc.type == "google_secret_manager_secret" and . == "auto")
   or ($rc.type == "google_spanner_instance" and . == "config");
+# Every attribute and block name in a schema subtree, including the fields of object-typed attributes.
+def schema_names: (.. | objects | (.attributes, .block_types) | objects | keys[]),
+  (.. | arrays | select(length == 2 and .[0] == "object" and (.[1] | type) == "object") | .[1] | keys[]);
+# The schema of the unknown value at path $p in block $b: a block, or the attribute the path
+# enters (all of it: a superset of the unknown part); null if the schema does not describe it.
+def schema_at($b; $p): reduce $p[] as $k ({s: $b, attribute: false};
+  if .s == null or .attribute or ($k | type) == "number" then .
+  elif .s.block_types[$k] != null then .s = .s.block_types[$k].block
+  elif .s.attributes[$k] != null then .s = .s.attributes[$k] | .attribute = true
+  else .s = null end) | .s;
+# Why an unknown value at path $p may hide a location, or empty if it cannot.
+def unknown_risk($rc; $p):
+  if $derived[$rc.type][$p | map(strings) | join(".")] != null then empty
+  elif $p | leaf_key | holds_locations($rc) then "known after apply"
+  elif ($rc.type | startswith("google_") | not) then empty
+  elif $schema == null then "known after apply; no provider schema to rule out a location"
+  else schema_at($schema[$rc.type].block; $p) as $s
+    | if $s == null then "known after apply; not in the provider schema"
+      elif any($s | schema_names; is_loc_key($rc)) then "known after apply"
+      else empty end
+  end;
 def bunny_ok($rc; $key; $v):
   ($rc.type == "bunnynet_storage_zone" and ($key | ascii_downcase) == "region" and
     ($v == "UK" or ($v == "DE" and ($rc.address | test("(^|\\.)bunnynet_storage_zone\\.stream(\\[[0-9]+\\])?$")))))
@@ -108,8 +154,9 @@ def bunny_ok($rc; $key; $v):
         else "\($rc.address): \($p | show_path)=\($v)" end
     ),
     (
-      (.change.after_unknown // {}) | paths(. == true) | select(leaf_key | holds_locations($rc))
-      | "\($rc.address): \(show_path)=(known after apply)"
+      (.change.after_unknown // {}) | paths(. == true) as $p
+      | unknown_risk($rc; $p) as $why
+      | "\($rc.address): \($p | show_path)=(\($why))"
     ),
     (
       select($rc.type == "google_pubsub_topic")
@@ -141,11 +188,12 @@ def bunny_ok($rc; $key; $v):
 | ($changed | length), $bad[]
 '
 
-[ $# -eq 1 ] && [ -n "$1" ] || {
+[ $# -ge 1 ] && [ $# -le 2 ] && [ -n "$1" ] || {
   sed -n '6p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 environment="$1"
+schema_file="${2:-}"
 
 # Outside dev: the failure line and exit 1. In dev: a warning, and the plan goes on.
 finish() { # finish <problem> <failure line>
@@ -158,7 +206,16 @@ finish() { # finish <problem> <failure line>
 }
 
 # jq's own errors could quote the plan, so they're never shown.
-report="$(jq -r --argjson global "$global_types" --argjson not_places "$not_places" "$program" 2> /dev/null)" ||
+# The google_* resource schemas ({type: {block}}), or null without a readable schema. Too big
+# for an argument, so jq reads it from a pipe.
+google_schemas() {
+  [ -n "$schema_file" ] && jq -c '[.provider_schemas | to_entries[]
+    | select(.key | test("(^|/)hashicorp/google(-beta)?$")) | .value.resource_schemas | to_entries[]]
+    | if length == 0 then null else from_entries end' "$schema_file" 2> /dev/null || echo null
+}
+report="$(jq -r --argjson global "$global_types" --argjson not_places "$not_places" \
+  --argjson derived "$derived_when_unknown" \
+  --slurpfile schemas <(google_schemas) '$schemas[0] as $schema | '"$program" 2> /dev/null)" ||
   finish 'could not parse plan' 'could not parse plan'
 
 changed="$(head -n 1 <<< "$report")"

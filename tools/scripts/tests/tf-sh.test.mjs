@@ -41,6 +41,7 @@ const stub = (name, body) => {
 };
 
 // tofu: `version -json`, `show -json` (from STUB_SHOW_JSON, or a failure that prints SECRET),
+// `providers schema -json` (from STUB_SCHEMA_JSON, else a failure that prints SECRET),
 // otherwise echoes its argv and the environment variables that matter (`plan` then exits with
 // STUB_PLAN_EXIT).
 stub(
@@ -60,6 +61,15 @@ if (cmd[0] === 'show' && cmd.includes('-json') && (env.STUB_SHOW_JSON || env.STU
     process.exit(1);
   }
   process.stdout.write(env.STUB_SHOW_JSON);
+  process.exit(0);
+}
+if (cmd[0] === 'providers' && cmd[1] === 'schema') {
+  if (!env.STUB_SCHEMA_JSON) {
+    console.log('partial SECRET');
+    console.error('Error: SECRET');
+    process.exit(1);
+  }
+  process.stdout.write(env.STUB_SCHEMA_JSON);
   process.exit(0);
 }
 const pick = {};
@@ -501,6 +511,69 @@ test('location-check checks a saved plan, bunny included, warns in dev and hides
     /location-check: WARNING: could not read plan \(exit 1; dev: /,
   );
   assert.equal(run(['gcp', 'location-check']).status, 64);
+});
+
+test("location-check reads the root's provider schema, and fails closed without it", () => {
+  // A dynamic block on a Google resource: only the schema says whether it may hold a location.
+  const unknown = JSON.stringify({
+    resource_changes: [
+      {
+        address: 'google_sql_database_instance.db',
+        mode: 'managed',
+        type: 'google_sql_database_instance',
+        change: {
+          actions: ['create'],
+          after: { region: 'europe-west2' },
+          after_unknown: { settings: [{ backup_configuration: true }] },
+          after_sensitive: {},
+        },
+      },
+    ],
+  });
+  const schema = (backup) =>
+    JSON.stringify({
+      provider_schemas: {
+        'registry.opentofu.org/hashicorp/google': {
+          resource_schemas: {
+            google_sql_database_instance: {
+              block: {
+                attributes: { region: { type: 'string' } },
+                block_types: {
+                  settings: {
+                    nesting_mode: 'list',
+                    block: {
+                      block_types: {
+                        backup_configuration: {
+                          nesting_mode: 'list',
+                          block: { attributes: backup },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  const check = (env) =>
+    run(['gcp', 'location-check', 'tfplan'], {
+      STUB_SHOW_JSON: unknown,
+      ...env,
+    });
+  assert.equal(
+    check({ STUB_SCHEMA_JSON: schema({ enabled: { type: 'bool' } }) }).stdout,
+    'location-check: ok (1 created or updated)\n',
+  );
+  assert.match(
+    check({ STUB_SCHEMA_JSON: schema({ location: { type: 'string' } }) })
+      .stdout,
+    /db: settings\[0\]\.backup_configuration=\(known after apply\)\n.*WARNING: 1 outside the UK/,
+  );
+  const missing = check({});
+  assert.match(missing.stdout, /no provider schema to rule out a location/);
+  assert.doesNotMatch(missing.all, /SECRET/);
 });
 
 // bunny-mask

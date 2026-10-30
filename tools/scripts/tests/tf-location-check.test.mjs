@@ -4,19 +4,118 @@
 //   node --test tools/scripts/tests/
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const repo = fileURLToPath(new URL('../../..', import.meta.url));
 const script = join(repo, 'tools/scripts/tf-location-check.sh');
+const scratch = mkdtempSync(join(tmpdir(), 'tf-location-check-test-'));
+after(() => rmSync(scratch, { recursive: true, force: true }));
 
-// Outside dev (blocking) unless told otherwise.
-const check = (resourceChanges, environment = 'prod') => {
-  const result = spawnSync(script, [environment], {
-    encoding: 'utf8',
-    input: JSON.stringify({ resource_changes: resourceChanges }),
-  });
+// A `tofu providers schema -json` block: attribute names (string type) and nested blocks.
+const block = (attributes = [], blockTypes = {}) => ({
+  attributes: Object.fromEntries(
+    attributes.map((name) => [name, { type: 'string', optional: true }]),
+  ),
+  block_types: Object.fromEntries(
+    Object.entries(blockTypes).map(([name, b]) => [
+      name,
+      { nesting_mode: 'list', block: b },
+    ]),
+  ),
+});
+// Just enough of the google provider's schema for these tests, shaped like the real one.
+const googleSchema = {
+  google_storage_bucket: block(['name', 'location', 'self_link']),
+  google_secret_manager_secret: block(['secret_id'], {
+    replication: block([], {
+      auto: block([], { customer_managed_encryption: block(['kms_key_name']) }),
+      user_managed: block([], {
+        replicas: block(['location'], {
+          customer_managed_encryption: block(['kms_key_name']),
+        }),
+      }),
+    }),
+  }),
+  google_pubsub_topic: block(['name'], {
+    message_storage_policy: block(['allowed_persistence_regions']),
+  }),
+  google_app_engine_application: block(['location_id']),
+  google_spanner_instance: block(['config', 'name']),
+  google_redis_instance: block([
+    'region',
+    'location_id',
+    'alternative_location_id',
+    'current_location_id',
+  ]),
+  google_sql_database_instance: {
+    ...block(['name', 'region', 'self_link'], {
+      settings: block(['tier', 'time_zone'], {
+        backup_configuration: block(['enabled', 'location']),
+        ip_configuration: block(['ipv4_enabled']),
+        location_preference: block(['zone']),
+      }),
+    }),
+    // An attribute of object type: its field names count too.
+    attributes: {
+      name: { type: 'string' },
+      region: { type: 'string' },
+      self_link: { type: 'string', computed: true },
+      ip_address: {
+        type: ['list', ['object', { ip_address: 'string', type: 'string' }]],
+        computed: true,
+      },
+      replica_names: {
+        type: ['list', ['object', { name: 'string', zone: 'string' }]],
+        computed: true,
+      },
+    },
+  },
+  google_compute_region_disk: block(['name', 'region', 'replica_zones']),
+};
+const schemaFile = (resourceSchemas) => {
+  const file = join(
+    scratch,
+    `schema-${Math.random().toString(36).slice(2)}.json`,
+  );
+  writeFileSync(
+    file,
+    JSON.stringify({
+      format_version: '1.0',
+      provider_schemas: {
+        'registry.opentofu.org/hashicorp/google': {
+          resource_schemas: Object.fromEntries(
+            Object.entries(resourceSchemas).map(([type, b]) => [
+              type,
+              { version: 0, block: b },
+            ]),
+          ),
+        },
+      },
+    }),
+  );
+  return file;
+};
+const defaultSchema = schemaFile(googleSchema);
+
+// Outside dev (blocking) unless told otherwise; with the schema above unless `schema` says
+// otherwise (null: none given).
+const check = (
+  resourceChanges,
+  environment = 'prod',
+  schema = defaultSchema,
+) => {
+  const result = spawnSync(
+    script,
+    schema === null ? [environment] : [environment, schema],
+    {
+      encoding: 'utf8',
+      input: JSON.stringify({ resource_changes: resourceChanges }),
+    },
+  );
   return { ...result, all: result.stdout + result.stderr };
 };
 
@@ -515,4 +614,178 @@ test('London under those names passes, and names that are not places are ignored
     rc('bunnynet_pullzone.images', { routing: [{ zones: ['EU', 'US'] }] }),
   ]);
   assert.equal(result.status, 0, result.all);
+});
+
+test('an unknown block or attribute whose schema holds a location is a finding', () => {
+  // A dynamic backup_configuration: the plan says only that the block is unknown, so its
+  // `location` (us-central1 in the config) can't be seen.
+  const result = check([
+    rc(
+      'google_sql_database_instance.db',
+      { region: 'europe-west2', settings: [{ tier: 'db-f1-micro' }] },
+      {
+        after_unknown: {
+          settings: [{ backup_configuration: true }],
+          replica_names: true,
+        },
+      },
+    ),
+    rc(
+      'google_sql_database_instance.whole',
+      { region: 'europe-west2' },
+      { after_unknown: { settings: true } },
+    ),
+  ]);
+  assert.equal(result.status, 1, result.all);
+  assert.equal(
+    result.stdout,
+    [
+      'location-check: google_sql_database_instance.db: settings[0].backup_configuration=(known after apply)',
+      'location-check: google_sql_database_instance.db: replica_names=(known after apply)',
+      'location-check: google_sql_database_instance.whole: settings=(known after apply)',
+      'location-check: 3 outside the UK; fix them, or record an exception in tools/scripts/tf-location-check.sh',
+      '',
+    ].join('\n'),
+  );
+});
+
+test('unknown values whose schema holds no location pass', () => {
+  const result = check([
+    rc(
+      'google_sql_database_instance.db',
+      { region: 'europe-west2', settings: [{ tier: 'db-f1-micro' }] },
+      {
+        after_unknown: {
+          self_link: true,
+          ip_address: true,
+          settings: [{ ip_configuration: true }],
+        },
+      },
+    ),
+    rc(
+      'google_secret_manager_secret.cmek',
+      { replication: [{ auto: [{}] }] },
+      {
+        after_unknown: {
+          replication: [{ auto: [{ customer_managed_encryption: true }] }],
+        },
+      },
+    ),
+  ]);
+  // The `auto` block itself is a finding (global); its unknown encryption key is not.
+  assert.equal(
+    result.stdout,
+    [
+      'location-check: google_secret_manager_secret.cmek: replication.auto=global',
+      'location-check: 1 outside the UK; fix them, or record an exception in tools/scripts/tf-location-check.sh',
+      '',
+    ].join('\n'),
+  );
+});
+
+test('without the provider schema, unknown Google values fail closed outside dev', () => {
+  const plan = [
+    rc(
+      'google_sql_database_instance.db',
+      { region: 'europe-west2' },
+      { after_unknown: { self_link: true } },
+    ),
+    rc('google_storage_bucket.known', { location: 'EUROPE-WEST2' }),
+    rc('bunnynet_pullzone.p', { name: 'p' }, { after_unknown: { id: true } }),
+  ];
+  const expected = [
+    'location-check: google_sql_database_instance.db: self_link=(known after apply; no provider schema to rule out a location)',
+  ];
+  for (const schema of [null, join(scratch, 'missing.json'), schemaFile({})]) {
+    const result = check(plan, 'prod', schema);
+    assert.equal(result.status, 1, `${schema}: ${result.all}`);
+    assert.equal(
+      result.stdout,
+      [
+        ...expected,
+        'location-check: 1 outside the UK; fix them, or record an exception in tools/scripts/tf-location-check.sh',
+        '',
+      ].join('\n'),
+      String(schema),
+    );
+  }
+  const unreadable = join(scratch, 'unreadable.json');
+  writeFileSync(unreadable, '{"provider_schemas": SECRET');
+  const garbled = check(plan, 'prod', unreadable);
+  assert.equal(garbled.status, 1);
+  assert.doesNotMatch(garbled.all, /SECRET/);
+  const dev = check(plan, 'dev', null);
+  assert.equal(dev.status, 0);
+  assert.match(dev.stdout, /no provider schema to rule out a location/);
+  assert.match(dev.stdout, /WARNING: 1 outside the UK/);
+});
+
+test('Compute zone and region links are compared by their last segment', () => {
+  const link = 'https://www.googleapis.com/compute/v1/projects/p';
+  const result = check([
+    rc('google_compute_region_disk.ok', {
+      region: `${link}/regions/europe-west2`,
+      replica_zones: [
+        `${link}/zones/europe-west2-a`,
+        'projects/p/zones/europe-west2-b',
+      ],
+    }),
+    rc('google_compute_region_disk.bad', {
+      region: 'europe-west2',
+      replica_zones: [
+        `${link}/zones/europe-west2-a`,
+        `${link}/zones/us-central1-a`,
+      ],
+    }),
+    rc('google_storage_bucket.not_a_link', {
+      location: 'projects/p/buckets/zones/europe-west2',
+    }),
+  ]);
+  assert.equal(result.status, 1, result.all);
+  assert.equal(
+    result.stdout,
+    [
+      `location-check: google_compute_region_disk.bad: replica_zones[1]=${link}/zones/us-central1-a`,
+      'location-check: google_storage_bucket.not_a_link: location=projects/p/buckets/zones/europe-west2',
+      'location-check: 2 outside the UK; fix them, or record an exception in tools/scripts/tf-location-check.sh',
+      '',
+    ].join('\n'),
+  );
+});
+
+test("unknown GKE zones pass: Google picks them inside the cluster's checked location", () => {
+  const unknown = {
+    node_locations: true,
+    node_pool: true,
+    cluster_autoscaling: [{ auto_provisioning_locations: true }],
+  };
+  const ok = check(
+    [
+      rc(
+        'google_container_cluster.c',
+        { location: 'europe-west2', cluster_autoscaling: [{}] },
+        { after_unknown: unknown },
+      ),
+    ],
+    'prod',
+    schemaFile({
+      google_container_cluster: block(['location', 'node_locations'], {
+        node_pool: block(['node_locations']),
+        cluster_autoscaling: block(['auto_provisioning_locations']),
+      }),
+    }),
+  );
+  assert.equal(ok.stdout, 'location-check: ok (1 created or updated)\n');
+  // The cluster's own location and known zones are still checked.
+  const bad = check([
+    rc(
+      'google_container_cluster.c',
+      { node_locations: ['us-east1-b'] },
+      { after_unknown: { location: true } },
+    ),
+  ]);
+  assert.match(
+    bad.stdout,
+    /c: node_locations\[0\]=us-east1-b\n.*c: location=\(known after apply\)/s,
+  );
 });

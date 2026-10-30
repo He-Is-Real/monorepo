@@ -640,7 +640,13 @@ interim guard). **In dev the guard warns and never blocks; in any other environm
    isn't `regional-europe-west2`; a Pub/Sub topic whose
    `message_storage_policy.allowed_persistence_regions` isn't exactly `["europe-west2"]`; or a
    secret with automatic (global) replication, or one that may get it (known only after apply).
-   Names that look like places but aren't (time zones, DNS zones, Cloud Storage paths such as
+   Compute's zone and region links (`.../zones/europe-west2-a`) count as their last part. On
+   Google resources, any other value known only after apply (a dynamic block, a computed object)
+   is a finding when the provider's schema (`tofu providers schema -json`, which `tf.sh` reads
+   for the root) has a location attribute anywhere inside it; without the schema, every unknown
+   Google value is one. So a Cloud SQL instance must state its backup location. A few unknown
+   values Google can only pick inside a location that is checked (GKE's node zones, Cloud SQL's
+   zone) are listed in the script. Names that look like places but aren't (time zones, DNS zones, Cloud Storage paths such as
    `source_location`) are listed in the script. Exceptions are listed in the script, each with its
    reason: genuinely global types (IAM, service accounts, project services, the VPC network and
    firewall, the budget, Workload Identity, the log sink, quota settings), never checked; and
