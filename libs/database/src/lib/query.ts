@@ -189,6 +189,5 @@ export type UploadLimit = 'size' | 'duration' | 'hourly' | 'weekly';
 export function uploadLimitOf(err: unknown): UploadLimit | undefined {
   const message = err instanceof Error ? err.message : String(err);
   return /\blimit_upload_(size|duration|hourly|weekly):/.exec(message)?.[1] as
-    | UploadLimit
-    | undefined;
+    UploadLimit | undefined;
 }
