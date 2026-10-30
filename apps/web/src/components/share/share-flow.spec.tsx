@@ -26,8 +26,8 @@ const form = (boxes: ShareForm['boxes']): ShareForm => ({
       ],
     },
   ],
-  dpaVersion: 'dev_placeholder',
-  dpaBlocks: [
+  privacyVersion: 'dev_placeholder',
+  privacyBlocks: [
     { kind: 'paragraph', content: [{ kind: 'text', text: 'Privacy words' }] },
   ],
 });

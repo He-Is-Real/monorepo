@@ -377,10 +377,11 @@ function SignedInFlow({
               legal={legal}
               grant={async () => {
                 if (!legal.testimony) return;
-                // The version shown, whose box and privacy document were on screen.
+                // The version shown, whose box and privacy policy were on screen.
                 await calls.grant(
                   'testimony',
                   legal.testimony.version,
+                  legal.testimony.privacyVersion,
                   'special_category_religious',
                 );
                 await refreshConsents();
@@ -449,7 +450,7 @@ function boxFor(
   return form?.boxes.find((b) => b.statement === statement);
 }
 
-/** A form's words, or its privacy document's: a document to read, in a box of its own. */
+/** A form's words, or the privacy policy's: a document to read, in a box of its own. */
 function LegalDocument({
   label,
   blocks,
@@ -718,10 +719,10 @@ export function ConsentStep({
       <LegalDocument label="The form" blocks={form.blocks} />
       <details className="mt-4 rounded-xl border border-border p-4">
         <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-link">
-          Read the privacy document
+          Read the privacy policy
         </summary>
-        <div className="mt-3" data-dpa-version={form.dpaVersion}>
-          <LegalBlocks below={2} blocks={form.dpaBlocks} />
+        <div className="mt-3" data-privacy-document={form.privacyVersion}>
+          <LegalBlocks below={2} blocks={form.privacyBlocks} />
         </div>
       </details>
       <div className="mt-6">
@@ -1160,6 +1161,7 @@ export function ReviewStep({
         await calls.grant(
           'testimony',
           legal.testimony.version,
+          legal.testimony.privacyVersion,
           'publish',
           keys.current.publish,
         );
@@ -1168,6 +1170,7 @@ export function ReviewStep({
         await calls.grant(
           'social',
           legal.social.version,
+          legal.social.privacyVersion,
           'share_socials',
           keys.current.social,
         );
@@ -1361,13 +1364,15 @@ export function ReviewStep({
               <div className="mt-2">
                 <LegalBlocks below={2} blocks={legal.social.blocks} />
               </div>
-              {legal.social.dpaVersion !== legal.testimony?.dpaVersion && (
-                // The privacy document this version links, when it isn't the one already shown.
+              {legal.social.privacyVersion !==
+                legal.testimony?.privacyVersion && (
+                // The privacy policy, when it isn't the one already shown (one was published
+                // between the two reads).
                 <div
                   className="mt-4"
-                  data-dpa-version={legal.social.dpaVersion}
+                  data-privacy-document={legal.social.privacyVersion}
                 >
-                  <LegalBlocks below={2} blocks={legal.social.dpaBlocks} />
+                  <LegalBlocks below={2} blocks={legal.social.privacyBlocks} />
                 </div>
               )}
             </details>

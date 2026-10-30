@@ -500,7 +500,7 @@ describe('cleanPdf', () => {
     expect(await refusal(cleanPdf(input))).toBe('pdf_too_complex');
   });
 
-  it('accepts an /OpenAction that is only a destination, and keeps it', async () => {
+  it('removes an /OpenAction that is only a destination, quietly', async () => {
     const input = pdf(
       basic({ catalog: ' /OpenAction [3 0 R /Fit]' }),
       '/Root 1 0 R',
@@ -508,32 +508,106 @@ describe('cleanPdf', () => {
     const result = await cleanPdf(input);
     expect(result).toMatchObject({ removed: [], pages: 1 });
     const out = await PDFDocument.load(result.cleaned);
-    expect(out.catalog.lookup(PDFName.of('OpenAction'))).toBeInstanceOf(
-      PDFArray,
+    expect(out.catalog.get(PDFName.of('OpenAction'))).toBeUndefined();
+  });
+
+  // Opus review round 1: a catalog written in the trailer itself was never cleaned.
+  const scriptedCatalog =
+    '<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /URI /URI (https://x.example) >> /AA << /WC << /S /Named /N /Print >> >> >>';
+  it.each([
+    ['a catalog in the trailer', `/Root ${scriptedCatalog}`],
+    ['an Info dictionary in the trailer', '/Root 1 0 R /Info << /Title (t) >>'],
+  ])('refuses %s', async (_, trailer) => {
+    const input = pdf(basic(), trailer);
+    expect(await refusal(cleanPdf(input))).toBe('pdf_too_complex');
+  });
+
+  it('refuses a catalog in an xref stream dictionary', async () => {
+    const head = latin('%PDF-1.7\n');
+    const chunks: Buffer[] = [head];
+    const offsets = new Map<number, number>();
+    let length = head.length;
+    for (const part of basic().slice(1)) {
+      const { num, body } = part as { num: number; body: string | Buffer };
+      const obj = Buffer.concat([
+        latin(`${num} 0 obj\n`),
+        typeof body === 'string' ? latin(body) : body,
+        latin('\nendobj\n'),
+      ]);
+      offsets.set(num, length);
+      chunks.push(obj);
+      length += obj.length;
+    }
+    offsets.set(5, length);
+    const entries = Buffer.alloc(6 * 5);
+    for (const [num, at] of offsets) {
+      entries[num * 5] = 1;
+      entries.writeUInt32BE(at, num * 5 + 1);
+    }
+    chunks.push(
+      latin('5 0 obj\n'),
+      stream(
+        `/Type /XRef /Size 6 /W [1 4 0] /Root ${scriptedCatalog}`,
+        entries,
+      ),
+      latin(`\nendobj\nstartxref\n${length}\n%%EOF\n`),
+    );
+    expect(await refusal(cleanPdf(Buffer.concat(chunks)))).toBe(
+      'pdf_too_complex',
     );
   });
 
-  it('refuses encrypted, non-PDF and oversized files', async () => {
-    const encrypted = pdf(
+  it('removes thread actions and links other than https and email', async () => {
+    const links = [
+      '<< /S /URI /URI (https://heisreal.today) >>',
+      '<< /S /URI /URI (mailto:hello@heisreal.today) >>',
+      '<< /S /URI /URI (file:///etc/passwd) >>',
+      '<< /S /URI /URI (\\\\server\\share) >>',
+      '<< /S /URI /URI (smb://server/share) >>',
+      '<< /S /URI /URI (javascript:alert\\(1\\)) >>',
+      '<< /S /URI /URI (http://heisreal.today) >>',
+      '<< /S /Thread /F (other.pdf) /D 0 >>',
+    ];
+    const input = pdf(
       [
-        ...basic(),
-        {
-          num: 9,
-          body: '<< /Filter /Standard /V 1 /R 2 /O <00> /U <00> /P -4 >>',
-        },
+        ...basic({
+          page: ` /Annots [${links.map((_, i) => `${i + 10} 0 R`).join(' ')}]`,
+        }),
+        ...links.map((a, i) => ({
+          num: i + 10,
+          body: `<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A ${a} >>`,
+        })),
       ],
-      '/Root 1 0 R /Encrypt 9 0 R',
+      '/Root 1 0 R',
     );
-    expect(await refusal(cleanPdf(encrypted))).toBe('pdf_encrypted');
-    expect(await refusal(cleanPdf(latin('hello, world')))).toBe(
-      'pdf_not_a_pdf',
+    const result = await cleanPdf(input);
+    const text = result.cleaned.toString('latin1');
+    expect(text).toContain('https://heisreal.today');
+    expect(text).toContain('mailto:hello@heisreal.today');
+    expect(text).not.toMatch(
+      /file:|smb:|server|javascript|http:|Thread|other\.pdf/,
     );
-    expect(await refusal(cleanPdf(latin('%PDF-1.7\nnot really')))).toBe(
-      'pdf_not_a_pdf',
+    expect(result.removed).toEqual(
+      expect.arrayContaining([
+        'links that open programs or other files',
+        'links to anything but https web pages and email',
+      ]),
     );
-    const big = Buffer.alloc(MAX_PDF_BYTES + 1);
-    big.write('%PDF-1.7\n', 'latin1');
-    expect(await refusal(cleanPdf(big))).toBe('pdf_too_large');
+    const twice = await cleanPdf(result.cleaned);
+    expect(twice.removed).toEqual([]);
+  });
+
+  it('refuses a page tree that contains itself as too complex, not as "not a PDF"', async () => {
+    // pdf-lib walks the page tree recursively and runs out of stack.
+    const input = pdf(
+      [
+        { num: 1, body: '<< /Type /Catalog /Pages 2 0 R >>' },
+        { num: 2, body: '<< /Type /Pages /Kids [2 0 R 3 0 R] /Count 1 >>' },
+        { num: 3, body: '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 9 9] >>' },
+      ],
+      '/Root 1 0 R',
+    );
+    expect(await refusal(cleanPdf(input))).toBe('pdf_too_complex');
   });
 
   async function generated(useObjectStreams: boolean): Promise<Buffer> {

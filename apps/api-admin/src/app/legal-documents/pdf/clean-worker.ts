@@ -20,9 +20,11 @@ import {
   PDFArray,
   PDFDict,
   PDFDocument,
+  PDFHexString,
   PDFName,
   PDFRef,
   PDFStream,
+  PDFString,
 } from 'pdf-lib';
 import type { PDFContext, PDFObject } from 'pdf-lib';
 
@@ -677,6 +679,7 @@ const N = {
   Type: name('Type'),
   Next: name('Next'),
   OpenAction: name('OpenAction'),
+  URI: name('URI'),
   Font: name('Font'),
   Image: name('Image'),
   Form: name('Form'),
@@ -693,16 +696,21 @@ const LABEL = {
   xfa: 'XFA form data',
   launch: 'links that open programs or other files',
   submit: 'actions that send or import form data',
+  uri: 'links to anything but https web pages and email',
 };
 
 const byName = (entries: [string, string][]) =>
   new Map(entries.map(([key, label]) => [name(key), label]));
-/** Action types (`/S`) that are removed; GoTo and URI (and other harmless ones) stay. */
+/**
+ * Action types (`/S`) that are removed; GoTo, Named and URI to https or email (`allowedUri`)
+ * stay.
+ */
 const FORBIDDEN_ACTIONS = byName([
   ['JavaScript', LABEL.js],
   ['Launch', LABEL.launch],
   ['GoToE', LABEL.launch],
   ['GoToR', LABEL.launch],
+  ['Thread', LABEL.launch],
   ['SubmitForm', LABEL.submit],
   ['ImportData', LABEL.submit],
   ['Rendition', LABEL.media],
@@ -737,6 +745,19 @@ const dictOf = (obj: PDFObject | undefined): PDFDict | undefined =>
 const resolve = (ctx: PDFContext, obj: PDFObject | undefined) =>
   obj instanceof PDFRef ? ctx.lookup(obj) : obj;
 
+/**
+ * Only https web pages and email (Opus review round 1): file:, smb:, javascript:, http: and the
+ * rest go. Tabs and line breaks are ignored and leading spaces dropped, as URL parsers do.
+ */
+function allowedUri(uri: PDFObject | undefined): boolean {
+  if (!(uri instanceof PDFString || uri instanceof PDFHexString)) return false;
+  const text = uri.decodeText().replace(/[\t\n\r]/g, '');
+  let start = 0;
+  while (start < text.length && text.charCodeAt(start) <= 0x20) start++;
+  const scheme = text.slice(start, start + 7).toLowerCase();
+  return scheme.startsWith('https:') || scheme === 'mailto:';
+}
+
 /** Why this object must go, if it must: a forbidden action or annotation, or an embedded file. */
 function forbidden(
   ctx: PDFContext,
@@ -747,6 +768,8 @@ function forbidden(
   const s = resolve(ctx, dict.get(N.S));
   if (s instanceof PDFName && FORBIDDEN_ACTIONS.has(s))
     return FORBIDDEN_ACTIONS.get(s);
+  if (s === N.URI && !allowedUri(resolve(ctx, dict.get(N.URI))))
+    return LABEL.uri;
   const subtype = resolve(ctx, dict.get(N.Subtype));
   if (subtype instanceof PDFName && FORBIDDEN_SUBTYPES.has(subtype)) {
     return FORBIDDEN_SUBTYPES.get(subtype);
@@ -802,10 +825,12 @@ class Cleaner {
         this.removed.add(stripped);
         continue;
       }
-      if (key === N.OpenAction && dictOf(target)) {
-        // An action (`<< /S … >>`); a destination (array, name or string) stays.
+      if (key === N.OpenAction) {
+        // Always removed, so the re-check can refuse the name anywhere. Only an action
+        // (`<< /S … >>`) is reported; a destination (where the PDF opens) goes quietly.
         dict.delete(key);
-        this.removed.add(forbidden(this.ctx, target) ?? LABEL.open);
+        if (dictOf(target))
+          this.removed.add(forbidden(this.ctx, target) ?? LABEL.open);
         continue;
       }
       if (key === N.Next) {
@@ -897,6 +922,11 @@ const ACTIVE_NAMES = new Set([
   'SubmitForm',
   'ImportData',
   'Rendition',
+  // Removed wherever they are keys, so never left as names either (Opus review round 1).
+  'AA',
+  'JS',
+  'EF',
+  'OpenAction',
 ]);
 const ACTIVE_KEYS = new Set([
   'JavaScript',
@@ -905,6 +935,7 @@ const ACTIVE_KEYS = new Set([
   'EF',
   'EmbeddedFiles',
   'XFA',
+  'OpenAction',
 ]);
 const FORBIDDEN_S = new Set(
   [...FORBIDDEN_ACTIONS.keys()].map((n) => n.decodeText()),
@@ -935,12 +966,16 @@ function findActive(ctx: PDFContext): string | undefined {
     if (!dict) continue;
     for (const [key, value] of dict.entries()) {
       const k = nameText(key);
-      const target = resolve(ctx, value);
       if (ACTIVE_KEYS.has(k)) return `/${k}`;
-      if (k === 'OpenAction' && dictOf(target)) return 'an /OpenAction action';
       if (value instanceof PDFName) {
         if (k === 'S' && FORBIDDEN_S.has(nameText(value)))
           return `/${nameText(value)}`;
+        if (
+          k === 'S' &&
+          nameText(value) === 'URI' &&
+          !allowedUri(resolve(ctx, dict.get(N.URI)))
+        )
+          return 'a link to something other than https or email';
         if (k === 'Subtype' && FORBIDDEN_SUBTYPE_NAMES.has(nameText(value))) {
           return `/${nameText(value)}`;
         }
@@ -954,20 +989,37 @@ function findActive(ctx: PDFContext): string | undefined {
 async function load(
   bytes: Uint8Array,
 ): Promise<{ doc: PDFDocument; pages: number }> {
+  let doc: PDFDocument;
   try {
-    const doc = await PDFDocument.load(bytes, {
+    doc = await PDFDocument.load(bytes, {
       updateMetadata: false,
       throwOnInvalidObject: true,
     });
+  } catch (err) {
+    throw loadRefusal(err);
+  }
+  // The cleaner and the re-check walk indirect objects only, so a catalog or Info dictionary
+  // written in the trailer itself (or an xref stream's dictionary) would never be cleaned
+  // (Opus review round 1).
+  const { Root, Info } = doc.context.trailerInfo;
+  if (!(Root instanceof PDFRef)) throw refuse.unchecked();
+  if (Info !== undefined && !(Info instanceof PDFRef)) throw refuse.unchecked();
+  try {
     // A missing catalog or page tree fails here rather than in load().
     return { doc, pages: doc.getPageCount() };
   } catch (err) {
-    // pdf-lib 1.17 throws a plain Error for encryption.
-    if (/\bis encrypted\b/.test(String((err as Error | undefined)?.message))) {
-      throw refuse.encrypted();
-    }
-    throw refuse.unreadable();
+    throw loadRefusal(err);
   }
+}
+
+function loadRefusal(err: unknown): PdfRefusal {
+  // pdf-lib 1.17 throws a plain Error for encryption.
+  if (/\bis encrypted\b/.test(String((err as Error | undefined)?.message))) {
+    return refuse.encrypted();
+  }
+  // pdf-lib recurses (the page tree, nested objects): out of stack means too deep, not damaged.
+  if (err instanceof RangeError) return refuse.tooComplex();
+  return refuse.unreadable();
 }
 
 export interface CleanResult {

@@ -266,8 +266,8 @@ test.describe('behaviour', () => {
     await page.goto(SHARE);
     await page.getByRole('button', { name: 'Write my story' }).click();
     await step(page, 'Your story and your data');
-    // The privacy document is there to read.
-    await page.getByText('Read the privacy document', { exact: true }).click();
+    // The privacy policy is there to read.
+    await page.getByText('Read the privacy policy', { exact: true }).click();
     await expect(
       page.getByText(/What the real document will cover/),
     ).toBeVisible();
