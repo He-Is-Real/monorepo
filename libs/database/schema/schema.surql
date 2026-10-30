@@ -940,7 +940,16 @@ DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
   }).filter(|$r| $r != NONE AND ($r.problem != NONE OR $r.mediaChanged));
 };
 
--- ---------------------------------------------------------------- dpaVersion (D20)
+-- ---------------------------------------------------------------- dpaVersion (D20): the privacy policy
+-- Since D121 (Joel, 2026-10-30: "isn't privacy consent button and privacy policy and terms of use
+-- just the same document? but one needs an approve button") this table is the privacy policy:
+-- every consent binds the version in force (the privacy document of D20 and D75 is the same
+-- record, so nothing in the ledger moves). Each version has two parts, published together: its
+-- PDF of record (the cleaned copy api-admin made, D123: pdfSha256, pdfSize, pdfPath in the legal
+-- documents bucket, kept for ever) and the web text the site renders (text, contentHash). An admin
+-- publishes a version through api-admin (PublishPrivacyPolicy: source 'admin', publishedBy,
+-- changeSummary as the change note, `material` when it requires re-acceptance, the original
+-- upload kept privately: original*). The repo's versions (dev's placeholder) have source NONE.
 DEFINE TABLE OVERWRITE dpaVersion SCHEMAFULL PERMISSIONS        -- id = dpaVersion:v1
   FOR select WHERE status = 'published' OR $auth.id = service:api_admin,
   FOR create, update WHERE $auth.id = service:api_admin,
@@ -959,10 +968,75 @@ DEFINE FIELD OVERWRITE effectiveFrom ON dpaVersion TYPE option<datetime>;
 DEFINE FIELD OVERWRITE version       ON dpaVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE createdAt     ON dpaVersion TYPE datetime VALUE $before OR time::now() READONLY;
 -- Published versions are immutable. Events fire for every user, including EDITOR system users
--- (who could still REMOVE EVENT; see D13).
+-- (who could still REMOVE EVENT; see D13). One exit: a repo version published before PDFs
+-- existed gets its PDF of record once, from the migration only (a system user: $auth = NONE;
+-- dev's placeholder, data 0007). api-admin, which may update drafts, never can.
 DEFINE EVENT OVERWRITE dpa_immutable ON dpaVersion
   WHEN $event IN ['UPDATE', 'DELETE'] AND $before.status = 'published'
-  THEN { THROW 'published DPA versions are immutable' };
+  THEN {
+    IF $event = 'DELETE' OR $auth != NONE OR $before.source != NONE OR $before.pdfSha256 != NONE
+      OR array::union(object::keys($before), object::keys($after))
+        .filter(|$k| $k NOT IN ['pdfSha256', 'pdfSize', 'pdfPath', 'version'])
+        .any(|$k| $after[$k] != $before[$k] AND !($before[$k] = NONE AND $after[$k] = false)) {
+      THROW 'published DPA versions are immutable';
+    };
+  };
+-- D121, D123: the PDF of record and, for an admin's version, the original upload kept privately.
+DEFINE FIELD OVERWRITE pdfSha256      ON dpaVersion TYPE option<string>
+  ASSERT $value = NONE OR string::matches($value, '^[0-9a-f]{64}$');
+DEFINE FIELD OVERWRITE pdfSize        ON dpaVersion TYPE option<int>
+  ASSERT $value = NONE OR ($value > 0 AND $value <= 10485760);
+DEFINE FIELD OVERWRITE pdfPath        ON dpaVersion TYPE option<string>;
+DEFINE FIELD OVERWRITE originalSha256 ON dpaVersion TYPE option<string>
+  ASSERT $value = NONE OR string::matches($value, '^[0-9a-f]{64}$');
+DEFINE FIELD OVERWRITE originalSize   ON dpaVersion TYPE option<int>
+  ASSERT $value = NONE OR ($value > 0 AND $value <= 10485760);
+DEFINE FIELD OVERWRITE originalPath   ON dpaVersion TYPE option<string>
+  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
+-- 'admin' when published through api-admin; NONE for the repo's versions.
+DEFINE FIELD OVERWRITE source         ON dpaVersion TYPE option<string> ASSERT $value = NONE OR $value = 'admin';
+DEFINE FIELD OVERWRITE publishedBy    ON dpaVersion TYPE option<record<user>>
+  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
+DEFINE EVENT OVERWRITE dpa_document ON dpaVersion
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    fn::legal::check_document('privacy', $after);
+    IF $after.source = 'admin' AND ($after.status != 'published' OR $after.changeSummary = NONE
+        OR $after.kind != 'standard' OR $after.text = NONE
+        OR crypto::sha256($after.text) != $after.contentHash) {
+      THROW 'a privacy policy version an admin publishes is published at once, with its words and a change note';
+    };
+  };
+-- Which privacy policy is in force decides what a new grant binds to (D121), so every write
+-- bumps legalFence, like a form version's.
+DEFINE EVENT OVERWRITE dpa_legal_fence ON dpaVersion
+  WHEN true THEN { fn::fence::legal() };
+-- D121, D123: a legal document's PDF of record comes whole (sha256, size, its write-once path
+-- legal/<document>/<id>/<sha256>.pdf), and so does its original upload
+-- (originals/<document>/<id>/<sha256>.pdf, in the private originals bucket). A version an admin
+-- publishes has both and names who published it; a repo version names nobody and has no original.
+DEFINE FUNCTION OVERWRITE fn::legal::check_document($document: string, $f: any) {
+  LET $id = <string> record::id($f.id);
+  LET $pdf = [$f.pdfSha256, $f.pdfSize, $f.pdfPath].filter(|$v| $v != NONE);
+  LET $original = [$f.originalSha256, $f.originalSize, $f.originalPath].filter(|$v| $v != NONE);
+  IF (array::len($pdf) != 0 AND array::len($pdf) != 3)
+    OR (array::len($original) != 0 AND array::len($original) != 3) {
+    THROW 'a legal document’s PDF, and its original, come with their sha256, size and path';
+  };
+  IF $f.pdfSha256 != NONE AND $f.pdfPath != 'legal/' + $document + '/' + $id + '/' + $f.pdfSha256 + '.pdf' {
+    THROW 'a legal document’s PDF lives at legal/<document>/<id>/<pdfSha256>.pdf';
+  };
+  IF $f.originalSha256 != NONE
+    AND $f.originalPath != 'originals/' + $document + '/' + $id + '/' + $f.originalSha256 + '.pdf' {
+    THROW 'a legal document’s original lives at originals/<document>/<id>/<originalSha256>.pdf';
+  };
+  IF $f.source = 'admin' AND ($f.pdfSha256 = NONE OR $f.originalSha256 = NONE OR $f.publishedBy = NONE) {
+    THROW 'a legal document version an admin publishes has its PDF, its original and who published it';
+  };
+  IF $f.source = NONE AND ($f.publishedBy != NONE OR $f.originalSha256 != NONE) {
+    THROW 'only a version an admin published names who published it and keeps an original';
+  };
+};
 -- The document's words, copied from libs/legal/dpa/<id>.md by dpa-sync.surql (D84): what a
 -- person read is kept beside the ledger, and api-public-read serves it. NONE on a version
 -- published before the copy existed (published versions are frozen).
@@ -998,10 +1072,111 @@ DEFINE FUNCTION OVERWRITE fn::legal::dpa_in_force() {
   RETURN array::last($rows.filter(|$d| fn::legal::counts($d.id))).id;
 };
 
+-- When a privacy policy version took effect: effectiveFrom, else createdAt (as above).
+DEFINE FUNCTION OVERWRITE fn::legal::since($dpa: option<record<dpaVersion>>) {
+  IF $dpa = NONE { RETURN NONE };
+  LET $d = (SELECT effectiveFrom, createdAt FROM ONLY $dpa);
+  RETURN $d.effectiveFrom ?? $d.createdAt;
+};
+-- D93 for the privacy policy (D122): whether someone who agreed under $dpa must accept again
+-- before anything new, because a `material` version (the admin's "requires re-acceptance") that
+-- counts and is in effect took effect after it. It gates what a new sign-up version and a testimony
+-- version requiring acceptance gate (fn::consent::signup_accepted, may_draft); nothing stops
+-- counting and no story is hidden. Accepting again binds the grant to the version in force.
+DEFINE FUNCTION OVERWRITE fn::legal::requires_reacceptance($dpa: option<record<dpaVersion>>) {
+  LET $since = fn::legal::since($dpa);
+  LET $later = (SELECT id, effectiveFrom ?? createdAt AS since FROM dpaVersion
+    WHERE status = 'published' AND kind = 'standard' AND materiality = 'material'
+      AND (effectiveFrom = NONE OR effectiveFrom <= time::now()));
+  RETURN $later.any(|$d| ($since = NONE OR $d.since > $since) AND fn::legal::counts($d.id));
+};
+
+-- D122: whether a grant may name privacy policy $dpa on form version $form: the form's own link,
+-- or a standard version that counts and took effect no earlier (the API binds the one in force).
+DEFINE FUNCTION OVERWRITE fn::legal::covers_form($dpa: option<record<dpaVersion>>, $form: any) {
+  IF $dpa = NONE OR $form = NONE { RETURN false };
+  LET $own = (SELECT VALUE dpaVersion FROM ONLY $form);
+  IF $dpa = $own { RETURN true };
+  RETURN (SELECT VALUE kind FROM ONLY $dpa) = 'standard' AND fn::legal::counts($dpa)
+    AND fn::legal::since($dpa) >= fn::legal::since($own);
+};
+
+-- ---------------------------------------------------------------- termsVersion (D121)
+-- The terms of use, the second legal document: versions published by an admin through api-admin
+-- (PublishTerms) or, for dev's placeholder, by data 0007. Each has its PDF of record and the web
+-- text /terms renders, like the privacy policy. The sign-up form's "I agree to the terms of use"
+-- box (terms_of_use, D122) binds the version in force. Kept for ever and never changed: only
+-- api-admin creates rows, and terms_kept refuses any update or delete, system users included.
+DEFINE TABLE OVERWRITE termsVersion SCHEMAFULL PERMISSIONS     -- id = termsVersion:v1
+  FOR select FULL,
+  FOR create WHERE $auth.id = service:api_admin,
+  FOR update, delete NONE;
+DEFINE FIELD OVERWRITE text           ON termsVersion TYPE string
+  ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 200000;
+DEFINE FIELD OVERWRITE textHash       ON termsVersion TYPE string ASSERT string::len($value) = 64;
+DEFINE FIELD OVERWRITE pdfSha256      ON termsVersion TYPE string ASSERT string::matches($value, '^[0-9a-f]{64}$');
+DEFINE FIELD OVERWRITE pdfSize        ON termsVersion TYPE int ASSERT $value > 0 AND $value <= 10485760;
+DEFINE FIELD OVERWRITE pdfPath        ON termsVersion TYPE string;
+DEFINE FIELD OVERWRITE originalSha256 ON termsVersion TYPE option<string>
+  ASSERT $value = NONE OR string::matches($value, '^[0-9a-f]{64}$');
+DEFINE FIELD OVERWRITE originalSize   ON termsVersion TYPE option<int>
+  ASSERT $value = NONE OR ($value > 0 AND $value <= 10485760);
+DEFINE FIELD OVERWRITE originalPath   ON termsVersion TYPE option<string>
+  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
+DEFINE FIELD OVERWRITE changeNote     ON termsVersion TYPE option<string>
+  ASSERT $value = NONE OR (string::len(string::trim($value)) > 0 AND string::len($value) <= 500);
+-- D93, D122: people who accepted an older version accept this one at their next sign-in.
+DEFINE FIELD OVERWRITE requiresReacceptance ON termsVersion TYPE bool DEFAULT false;
+DEFINE FIELD OVERWRITE source         ON termsVersion TYPE option<string> ASSERT $value = NONE OR $value = 'admin';
+DEFINE FIELD OVERWRITE publishedBy    ON termsVersion TYPE option<record<user>>
+  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
+-- D75: dev's placeholder terms, counted only while dev's placeholder setting is on.
+DEFINE FIELD OVERWRITE devPlaceholder ON termsVersion TYPE bool DEFAULT ALWAYS false;
+DEFINE FIELD OVERWRITE publishedAt    ON termsVersion TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE FIELD OVERWRITE version        ON termsVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
+DEFINE EVENT OVERWRITE terms_kept ON termsVersion
+  WHEN true THEN {
+    IF $event != 'CREATE' {
+      THROW 'terms of use versions are kept for ever, unchanged: publish a new version instead';
+    };
+    fn::legal::check_document('terms', $after);
+    IF crypto::sha256($after.text) != $after.textHash {
+      THROW 'a terms of use version’s textHash is the sha256 of its words';
+    };
+    IF $after.source = 'admin' AND $after.changeNote = NONE {
+      THROW 'a terms of use version an admin publishes has a change note';
+    };
+    IF $after.devPlaceholder = true AND !fn::legal::dev_placeholders() {
+      THROW 'the placeholder terms of use are for dev only (D75)';
+    };
+    fn::fence::legal();
+  };
+-- Whether a terms version counts: it exists, and isn't a dev placeholder outside dev (D75).
+DEFINE FUNCTION OVERWRITE fn::legal::terms_counts($t: option<record<termsVersion>>) {
+  IF $t = NONE { RETURN false };
+  LET $r = (SELECT devPlaceholder FROM ONLY $t);
+  RETURN $r != NONE AND ($r.devPlaceholder != true OR fn::legal::dev_placeholders());
+};
+-- The terms of use in force: the newest (by publishedAt, then id) that counts; NONE while none.
+DEFINE FUNCTION OVERWRITE fn::legal::terms_in_force() {
+  LET $rows = (SELECT id, publishedAt FROM termsVersion ORDER BY publishedAt ASC, id ASC);
+  RETURN array::last($rows.filter(|$t| fn::legal::terms_counts($t.id))).id;
+};
+-- D93 for the terms (D122): a version requiring re-acceptance that counts was published after
+-- the one the person accepted ($t; NONE: never accepted any).
+DEFINE FUNCTION OVERWRITE fn::legal::terms_requires_reacceptance($t: option<record<termsVersion>>) {
+  LET $since = IF $t = NONE { NONE } ELSE { (SELECT VALUE publishedAt FROM ONLY $t) };
+  LET $later = (SELECT id, publishedAt FROM termsVersion WHERE requiresReacceptance = true);
+  RETURN $later.any(|$r| ($since = NONE OR $r.publishedAt > $since) AND fn::legal::terms_counts($r.id));
+};
+
 -- ---------------------------------------------------------------- consent forms (D73, D74, D84, D93)
 -- Every version of the three forms a person ticks. id = <table>:v1, the version.
---   signupFormVersion: after Clerk's sign-up (D73): "I am 18 or over" and "store my account and
---     favourites" (account_data). 18+ is asked here only (D93): testimony relies on it.
+--   signupFormVersion: after Clerk's sign-up (D73): "I am 18 or over", account_data and, from v2
+--     (D122), "I agree to the terms of use". 18+ is asked here only (D93): testimony relies on it.
+-- D122 (Joel, 2026-10-30): a form version is a consent moment's boxes (statements data) and a short
+-- introduction (its text), never a document: the documents are the privacy policy (dpaVersion)
+-- and the terms of use (termsVersion), and every grant binds the ones in force.
 --   testimonyFormVersion: Art 9 at the start of a draft (D67), and publishing on heisreal.today
 --     at submit (when the version covers it). Nothing about other sites.
 --   socialSharingFormVersion: optional, separate (D93): may the media team also share the story
@@ -1029,13 +1204,16 @@ DEFINE FIELD OVERWRITE dpaVersion  ON signupFormVersion TYPE record<dpaVersion>;
 -- D114: the version's boxes (statements) and the exact words shown beside each, as structured
 -- data, never read from its text: libs/legal/forms/<kind>/<id>.statements.json, copied in by
 -- form-sync.surql with the file's sha256 (statementsHash, which evidence v3 covers).
-DEFINE FIELD OVERWRITE statements     ON signupFormVersion TYPE option<array<{ key: string, label: string }>>;
+DEFINE FIELD OVERWRITE statements     ON signupFormVersion TYPE option<array<{ key: string, label: string, step: option<string> }>>;
 DEFINE FIELD OVERWRITE statementsHash ON signupFormVersion TYPE option<string>
   ASSERT $value = NONE OR string::len($value) = 64;
 DEFINE FIELD OVERWRITE publishedAt ON signupFormVersion TYPE option<datetime>   -- set by the server
   VALUE IF $this.status != 'draft' { $before OR time::now() } ELSE { NONE };
 DEFINE FIELD OVERWRITE version     ON signupFormVersion TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE createdAt   ON signupFormVersion TYPE datetime VALUE $before OR time::now() READONLY;
+-- D122: the version asks "I agree to the terms of use" (terms_of_use), bound to the terms in
+-- force. DEFAULT ALWAYS false: older versions read "no" (and stay retirable, as the columns below).
+DEFINE FIELD OVERWRITE coversTerms ON signupFormVersion TYPE bool DEFAULT ALWAYS false;
 DEFINE EVENT OVERWRITE signupFormVersion_lifecycle ON signupFormVersion
   WHEN true THEN { fn::form::check_change($event, $before, $after); fn::fence::legal() };
 
@@ -1051,7 +1229,7 @@ DEFINE FIELD OVERWRITE dpaVersion  ON testimonyFormVersion TYPE record<dpaVersio
 -- D114: the version's boxes (statements) and the exact words shown beside each, as structured
 -- data, never read from its text: libs/legal/forms/<kind>/<id>.statements.json, copied in by
 -- form-sync.surql with the file's sha256 (statementsHash, which evidence v3 covers).
-DEFINE FIELD OVERWRITE statements     ON testimonyFormVersion TYPE option<array<{ key: string, label: string }>>;
+DEFINE FIELD OVERWRITE statements     ON testimonyFormVersion TYPE option<array<{ key: string, label: string, step: option<string> }>>;
 DEFINE FIELD OVERWRITE statementsHash ON testimonyFormVersion TYPE option<string>
   ASSERT $value = NONE OR string::len($value) = 64;
 DEFINE FIELD OVERWRITE publishedAt ON testimonyFormVersion TYPE option<datetime>
@@ -1084,7 +1262,7 @@ DEFINE FIELD OVERWRITE dpaVersion  ON socialSharingFormVersion TYPE record<dpaVe
 -- D114: the version's boxes (statements) and the exact words shown beside each, as structured
 -- data, never read from its text: libs/legal/forms/<kind>/<id>.statements.json, copied in by
 -- form-sync.surql with the file's sha256 (statementsHash, which evidence v3 covers).
-DEFINE FIELD OVERWRITE statements     ON socialSharingFormVersion TYPE option<array<{ key: string, label: string }>>;
+DEFINE FIELD OVERWRITE statements     ON socialSharingFormVersion TYPE option<array<{ key: string, label: string, step: option<string> }>>;
 DEFINE FIELD OVERWRITE statementsHash ON socialSharingFormVersion TYPE option<string>
   ASSERT $value = NONE OR string::len($value) = 64;
 DEFINE FIELD OVERWRITE publishedAt ON socialSharingFormVersion TYPE option<datetime>
@@ -1172,25 +1350,29 @@ DEFINE FUNCTION OVERWRITE fn::form::latest($kind: string) {
   } ELSE { [] };
   RETURN array::last($rows.filter(|$f| fn::legal::counts($f.dpaVersion)));
 };
--- The statements a form can ever have, by its table (D93, D109): 18+ and account_data on the
--- sign-up form only; Art 9 and publish on the testimony form; share_socials on the social
+-- The statements a form can ever have, by its table (D93, D109): 18+, account_data and (D122)
+-- terms_of_use on the sign-up form only; Art 9 and publish on the testimony form; share_socials on the social
 -- sharing form. No ledger row, grant or withdrawal, may pair a statement with another form's
 -- version (consent_form): testimony is implicitly adult through the account's sign-up consent.
 DEFINE FUNCTION OVERWRITE fn::form::kind_statements($form: any) {
   IF $form = NONE { RETURN [] };
-  IF record::tb($form) = 'signupFormVersion' { RETURN ['age_18plus', 'account_data'] };
+  IF record::tb($form) = 'signupFormVersion' { RETURN ['age_18plus', 'account_data', 'terms_of_use'] };
   IF record::tb($form) = 'testimonyFormVersion' { RETURN ['special_category_religious', 'publish'] };
   IF record::tb($form) = 'socialSharingFormVersion' { RETURN ['share_socials'] };
   RETURN [];
 };
 -- The statements (boxes) a form version must have, each one consent type (D93), from its table
--- and, for a testimony version, whether it covers publishing: `publish` only then. Its
--- statements data (D114) must list exactly these (fn::form::check_statements).
-DEFINE FUNCTION OVERWRITE fn::form::required_statements($table: string, $coversPublicPublishing: any) {
-  IF $table = 'signupFormVersion' { RETURN ['age_18plus', 'account_data'] };
+-- and what it covers ($covers): for a testimony version, publishing (`publish` only then); for a
+-- sign-up version, the terms of use (`terms_of_use` only then, D122). Its statements data (D114)
+-- must list exactly these (fn::form::check_statements).
+DEFINE FUNCTION OVERWRITE fn::form::required_statements($table: string, $covers: any) {
+  IF $table = 'signupFormVersion' {
+    RETURN array::concat(['age_18plus', 'account_data'],
+      IF $covers = true { ['terms_of_use'] } ELSE { [] });
+  };
   IF $table = 'testimonyFormVersion' {
     RETURN array::concat(['special_category_religious'],
-      IF $coversPublicPublishing = true { ['publish'] } ELSE { [] });
+      IF $covers = true { ['publish'] } ELSE { [] });
   };
   IF $table = 'socialSharingFormVersion' { RETURN ['share_socials'] };
   RETURN [];
@@ -1199,10 +1381,7 @@ DEFINE FUNCTION OVERWRITE fn::form::required_statements($table: string, $coversP
 -- only counts for a statement its version has (fn::consent::valid).
 DEFINE FUNCTION OVERWRITE fn::form::statements($form: any) {
   IF $form = NONE { RETURN [] };
-  RETURN fn::form::required_statements(record::tb($form),
-    IF record::tb($form) = 'testimonyFormVersion' {
-      (SELECT VALUE coversPublicPublishing FROM ONLY $form)
-    } ELSE { NONE });
+  RETURN fn::form::required_statements(record::tb($form), fn::form::covers($form));
 };
 -- D114: a version's statements data lists every statement it must have, once each, and no
 -- other, each with words to show beside its box, and comes with its file's sha256. The pages
@@ -1212,7 +1391,8 @@ DEFINE FUNCTION OVERWRITE fn::form::check_statements($table: string, $f: any) {
     THROW 'a form version’s statements come with their file’s sha256 (statementsHash), and the other way round';
   };
   LET $keys = $f.statements.map(|$s| $s.key);
-  LET $required = fn::form::required_statements($table, $f.coversPublicPublishing);
+  LET $required = fn::form::required_statements($table,
+    IF $table = 'signupFormVersion' { $f.coversTerms } ELSE { $f.coversPublicPublishing });
   IF array::len($keys) != array::len(array::distinct($keys))
     OR array::len($keys) != array::len($required)
     OR $required.any(|$k| $k NOT IN $keys) {
@@ -1221,6 +1401,21 @@ DEFINE FUNCTION OVERWRITE fn::form::check_statements($table: string, $f: any) {
   IF $f.statements.any(|$s| string::len(string::trim($s.label)) = 0) {
     THROW 'every statement of a form version has words to show beside its box (D114)';
   };
+  -- Where the box sits, as data (D122: no form's words place a box): optional; on the testimony
+  -- form, Art 9 before a story starts and `publish` when it's submitted.
+  IF $f.statements.any(|$s| $s.step != NONE AND !(
+      ($table = 'testimonyFormVersion' AND $s.key = 'special_category_religious' AND $s.step = 'start')
+      OR ($table = 'testimonyFormVersion' AND $s.key = 'publish' AND $s.step = 'submit'))) {
+    THROW 'a box’s step is start (Art 9) or submit (publish), on the testimony form only (D122)';
+  };
+};
+-- What a form version covers beyond its fixed boxes: publishing (testimony) or the terms of use
+-- (sign-up, D122). NONE for the social sharing form.
+DEFINE FUNCTION OVERWRITE fn::form::covers($form: any) {
+  IF $form = NONE { RETURN NONE };
+  IF record::tb($form) = 'testimonyFormVersion' { RETURN (SELECT VALUE coversPublicPublishing FROM ONLY $form) };
+  IF record::tb($form) = 'signupFormVersion' { RETURN (SELECT VALUE coversTerms FROM ONLY $form) };
+  RETURN NONE;
 };
 -- D93: whether a person whose testimony version is $form (NONE: a grant from before forms) must
 -- accept the version in force before a new draft or submission: theirs isn't the one in force,
@@ -1244,8 +1439,14 @@ DEFINE TABLE OVERWRITE consent SCHEMAFULL PERMISSIONS
   FOR update, delete NONE;                                              -- plus the append-only event
 DEFINE FIELD OVERWRITE subject      ON consent TYPE record<user> REFERENCE;  -- user:x<~consent lists a person's events
 DEFINE FIELD OVERWRITE type         ON consent TYPE string   -- the statement (box) ticked
-  ASSERT $value IN ['special_category_religious', 'publish', 'share_socials', 'age_18plus', 'account_data'];
+  ASSERT $value IN ['special_category_religious', 'publish', 'share_socials', 'age_18plus', 'account_data',
+    'terms_of_use'];
+-- The privacy policy the event binds (D121): since D122 the version in force when it was given
+-- (the API's check, 409), or one of D20's earlier rules for older rows (the form's own link).
 DEFINE FIELD OVERWRITE dpaVersion   ON consent TYPE record<dpaVersion>;
+-- D122: the terms of use in force, on every event on a sign-up version that asks for them
+-- (coversTerms): the box "I agree to the terms of use" and its neighbours, given together.
+DEFINE FIELD OVERWRITE termsVersion ON consent TYPE option<record<termsVersion>>;
 -- D84: the form version the person saw (its statement is `type`). NONE only on rows from before
 -- forms (evidence v1), on legacy imports, and on a withdrawal of such a grant (consent_form).
 DEFINE FIELD OVERWRITE form         ON consent TYPE option<record<signupFormVersion | testimonyFormVersion | socialSharingFormVersion>>;
@@ -1254,9 +1455,11 @@ DEFINE FIELD OVERWRITE mechanism    ON consent TYPE string
   ASSERT $value IN ['web_form_submission', 'account_settings', 'reconsent_prompt', 'legacy_import'];
 DEFINE FIELD OVERWRITE evidenceHash ON consent TYPE string ASSERT string::len($value) = 64;  -- sha256(presented text + checkbox states)
 -- Which evidence format evidenceHash follows (libs/consent/src/lib/evidence.ts), so it can be
--- recomputed: 3 (D114: it also covers the form version's statements data, the words beside each
--- box), set by the API on every event since; NONE on older rows: v2 with a form, v1 without.
-DEFINE FIELD OVERWRITE evidenceVersion ON consent TYPE option<int> ASSERT $value = NONE OR $value = 3;
+-- recomputed: 4 (D122: the statements data, the privacy policy version with its words' and its
+-- PDF's sha256 and, on a sign-up version asking for them, the terms version with theirs), on
+-- every event whose privacy policy has a PDF of record (consent_evidence_v4); 3 (D114: v2 plus
+-- the statements data) before; NONE on older rows: v2 with a form, v1 without.
+DEFINE FIELD OVERWRITE evidenceVersion ON consent TYPE option<int> ASSERT $value = NONE OR $value IN [3, 4];
 DEFINE FIELD OVERWRITE legacyGivenAt ON consent TYPE option<datetime>;  -- D22: original date, legacy imports only
 DEFINE FIELD OVERWRITE occurredAt   ON consent TYPE datetime VALUE time::now() READONLY;   -- server time only
 DEFINE INDEX OVERWRITE consent_latest ON consent FIELDS subject, type, occurredAt;  -- D18: "latest event" lookup
@@ -1264,7 +1467,7 @@ DEFINE INDEX OVERWRITE consent_latest ON consent FIELDS subject, type, occurredA
 -- events of one type (a handful of rows); array::last avoids the LIMIT bug above.
 DEFINE FUNCTION OVERWRITE fn::consent::current($user: option<record<user>>, $type: string) {
   IF $user = NONE { RETURN NONE };
-  RETURN array::last((SELECT type, event, dpaVersion, form, occurredAt FROM consent
+  RETURN array::last((SELECT type, event, dpaVersion, termsVersion, form, occurredAt FROM consent
     WHERE subject = $user AND type = $type ORDER BY occurredAt ASC));
 };
 -- D84, D93: whether a latest ledger event ($c, from fn::consent::current) is a grant that counts:
@@ -1294,18 +1497,26 @@ DEFINE FUNCTION OVERWRITE fn::consent::granted($user: option<record<user>>, $typ
     OR array::len(array::filter($types, |$t| fn::consent::valid(fn::consent::current($user, $t))))
       = array::len($types));
 };
--- D73: whether the person has accepted the sign-up form in force: both of its boxes granted on
--- the latest sign-up version. Sign-in (api-user's account bootstrap) asks for it, and a new
+-- D73: whether the person has accepted the sign-up form in force: every box granted on the latest
+-- sign-up version, under a privacy policy (and terms) no version requiring re-acceptance came
+-- after (D122). Sign-in (api-user's account bootstrap) asks for it, and a new
 -- draft or submission needs it (fn::consent::may_draft). Their earlier sign-up grants keep
 -- counting for everything else (D93: 18+ for publishing stays met).
 DEFINE FUNCTION OVERWRITE fn::consent::signup_accepted($user: option<record<user>>) {
   IF $user = NONE { RETURN false };
   IF fn::consent::relaxed() { RETURN true };
-  LET $latest = fn::form::latest('signup').id;
+  LET $latest = fn::form::latest('signup');
   LET $data = fn::consent::current($user, 'account_data');
   LET $age = fn::consent::current($user, 'age_18plus');
-  RETURN $latest != NONE AND $data.event = 'granted' AND $data.form = $latest
-    AND $age.event = 'granted' AND $age.form = $latest;
+  LET $terms = fn::consent::current($user, 'terms_of_use');
+  RETURN $latest != NONE AND $data.event = 'granted' AND $data.form = $latest.id
+    AND $age.event = 'granted' AND $age.form = $latest.id
+    -- D122: a material privacy policy published since asks again (D93), and so does a terms
+    -- version requiring re-acceptance, when the sign-up form asks for the terms.
+    AND !fn::legal::requires_reacceptance($data.dpaVersion)
+    AND !fn::legal::requires_reacceptance($age.dpaVersion)
+    AND ($latest.coversTerms != true OR ($terms.event = 'granted' AND $terms.form = $latest.id
+      AND !fn::legal::terms_requires_reacceptance($terms.termsVersion)));
 };
 -- D85: testimony consent is per account. The person's testimony version is the form version of
 -- their current Art 9 grant (given at the start of a draft, D67): accepting a newer version moves
@@ -1327,8 +1538,15 @@ DEFINE FUNCTION OVERWRITE fn::consent::testimony_status($user: option<record<use
   RETURN {
     version: $mine, latest: $latest,
     updateAvailable: $granted AND $latest != NONE AND $mine != $latest,
-    acceptanceRequired: $granted AND fn::form::requires_acceptance($mine)
+    acceptanceRequired: $granted AND fn::consent::testimony_requires_acceptance($user)
   };
+};
+-- D93: the account must accept the testimony form in force (its Art 9 box) before a new draft or
+-- submission: a testimony version requiring it came after theirs, or (D122) a material privacy
+-- policy came after the one their Art 9 grant bound.
+DEFINE FUNCTION OVERWRITE fn::consent::testimony_requires_acceptance($user: option<record<user>>) {
+  RETURN fn::form::requires_acceptance(fn::consent::testimony_version($user))
+    OR fn::legal::requires_reacceptance(fn::consent::current($user, 'special_category_religious').dpaVersion);
 };
 -- D67, D93: whether the person may start a new draft: Art 9 consent that counts, the sign-up
 -- form in force accepted (18+ lives there), and no newer testimony version requiring acceptance
@@ -1338,7 +1556,7 @@ DEFINE FUNCTION OVERWRITE fn::consent::may_draft($user: option<record<user>>) {
   RETURN $user != NONE AND (fn::consent::relaxed()
     OR (fn::consent::granted($user, ['special_category_religious'])
       AND fn::consent::signup_accepted($user)
-      AND !fn::form::requires_acceptance(fn::consent::testimony_version($user))));
+      AND !fn::consent::testimony_requires_acceptance($user)));
 };
 -- D93: submitting is new too: may_draft, and publish consent that counts.
 DEFINE FUNCTION OVERWRITE fn::consent::may_submit($user: option<record<user>>) {
@@ -1420,7 +1638,8 @@ DEFINE EVENT OVERWRITE consent_append_only ON consent
                                 AND $before.subject.gdprDeletedAt < time::now() - 2192d))
   THEN { THROW 'consent ledger is append-only (retention pruning: erased > 6 years ago only)' };
 -- D84: a grant names the form version the person saw, which must be published (not a draft or
--- retired) and count, have that statement, and link the same privacy document. Withdrawals bind
+-- retired) and count, and have that statement; since D122 it names the privacy policy in force
+-- (and, on a sign-up version asking for them, the terms of use in force). Withdrawals bind
 -- to the form of the grant they withdraw (NONE for a v1 grant: withdrawing is always possible,
 -- Art 7(3)). D109: no row, grant or withdrawal, pairs a statement with another form's version
 -- (fn::form::kind_statements): 18+ is never tied to a testimony or social sharing version, so
@@ -1440,13 +1659,36 @@ DEFINE EVENT OVERWRITE consent_form ON consent
       IF $after.event = 'granted' AND $after.type NOT IN fn::form::statements($after.form) {
         THROW 'that statement isn’t on this form version';
       };
-      IF $after.dpaVersion != (SELECT VALUE dpaVersion FROM ONLY $after.form) {
-        THROW 'consent names the privacy document its form version links';
+      -- D122: the privacy policy in force (the API's check), never one older than the form's
+      -- own link or one that doesn't count.
+      IF $after.event = 'granted' AND !fn::legal::covers_form($after.dpaVersion, $after.form) {
+        THROW 'consent names the privacy policy in force (D122)';
+      };
+      -- D122: on a sign-up version asking for the terms, every grant names the terms in force,
+      -- and no other row names any.
+      IF fn::form::covers($after.form) = true AND record::tb($after.form) = 'signupFormVersion' {
+        IF $after.event = 'granted' AND !fn::legal::terms_counts($after.termsVersion) {
+          THROW 'consent on this sign-up version names the terms of use in force (D122)';
+        };
+      } ELSE IF $after.termsVersion != NONE {
+        THROW 'only consent on a sign-up version asking for the terms names them (D122)';
       };
       IF $after.event = 'granted' AND !((SELECT VALUE status FROM ONLY $after.form) = 'published'
            AND fn::form::counts($after.form)) {
         THROW 'consent can only be given on a published form version (D84)';
       };
+    };
+  };
+-- D122: evidence v4 covers the privacy policy's PDF of record (and the terms', when named), so
+-- only a row whose privacy policy has one can claim v4, and a grant under one must.
+DEFINE EVENT OVERWRITE consent_evidence_v4 ON consent
+  WHEN $event = 'CREATE' THEN {
+    LET $pdf = (SELECT VALUE pdfSha256 FROM ONLY $after.dpaVersion);
+    IF $after.evidenceVersion = 4 AND $pdf = NONE {
+      THROW 'evidence v4 covers the privacy policy’s PDF of record, and this one has none';
+    };
+    IF $after.event = 'granted' AND $after.form != NONE AND $pdf != NONE AND $after.evidenceVersion != 4 {
+      THROW 'a grant under a privacy policy with a PDF of record uses evidence v4 (D122)';
     };
   };
 DEFINE EVENT OVERWRITE consent_published_dpa ON consent
@@ -1498,6 +1740,7 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
   'LockStory', 'ReleaseStory', 'ApproveStory', 'RejectStory', 'RequestStoryChanges', 'EscalateStory',
   'AssignRole', 'LinkLegacyUser', 'CreateTag', 'UpdateTag', 'DeleteTag',
   'CreateDpaDraft', 'PublishDpa', 'UpdateSubmissionSettings', 'UpdateSubmitterLimits',
+  'PublishPrivacyPolicy', 'PublishTerms',
   -- workflow (M7)
   'ProcessMedia',
   -- the database itself (story_media_availability), in the writer's transaction
@@ -1506,7 +1749,7 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
 DEFINE FIELD OVERWRITE actor      ON auditLog TYPE option<record<user>>;  -- NONE = system/job
 DEFINE FIELD OVERWRITE actorRole  ON auditLog TYPE option<string>         -- snapshot of the Clerk claim (D1)
   ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];
-DEFINE FIELD OVERWRITE entity     ON auditLog TYPE option<record>;        -- story, user, tag, dpaVersion...
+DEFINE FIELD OVERWRITE entity     ON auditLog TYPE option<record>;        -- story, user, tag, dpaVersion, termsVersion...
 DEFINE FIELD OVERWRITE storyVersion ON auditLog TYPE option<int>;         -- the version acted on (D29)
 DEFINE FIELD OVERWRITE fromStatus ON auditLog TYPE option<string>
   ASSERT $value = NONE OR $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn'];
@@ -1514,7 +1757,7 @@ DEFINE FIELD OVERWRITE toStatus   ON auditLog TYPE option<string>
   ASSERT $value = NONE OR $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn'];
 DEFINE FIELD OVERWRITE consentType ON auditLog TYPE option<string>
   ASSERT $value = NONE OR $value IN ['special_category_religious', 'publish', 'share_socials', 'age_18plus',
-    'account_data'];
+    'account_data', 'terms_of_use'];
 DEFINE FIELD OVERWRITE dpaVersion ON auditLog TYPE option<record<dpaVersion>>;
 DEFINE FIELD OVERWRITE role       ON auditLog TYPE option<string>         -- AssignRole: the role given
   ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];

@@ -127,6 +127,7 @@
     ]
   },
   "dependencies": {
+    "@google-cloud/storage": "^8.4.0",
     "@heisreal/database": "workspace:*",
     "@heisreal/health": "workspace:*",
     "@heisreal/http": "workspace:*",

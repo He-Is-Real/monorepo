@@ -48,6 +48,8 @@ tags:
     description: 'Tag taxonomy writes.'
   - name: DPA
     description: 'Data Processing Agreement versions (GDPR).'
+  - name: LegalDocuments
+    description: 'The privacy policy and terms of use: their versions, previews and publishing (D121, D123).'
 
 paths:
   /health:
@@ -559,6 +561,142 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+
+  # ------------------------------------------------------------------ legal documents (D121, D123)
+  /v1/admin/legal-documents/{document}/versions:
+    parameters:
+      - name: document
+        in: path
+        required: true
+        schema:
+          $ref: './components.yaml#/components/schemas/LegalDocumentName'
+    get:
+      tags: [LegalDocuments]
+      operationId: listAdminLegalDocumentVersions
+      summary: Every published version of one legal document, with who published it
+      description: 'Newest first. Read-only: no route edits or deletes a version.'
+      x-required-role: Admin
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The versions, and the one in force with its web text.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/AdminLegalDocumentVersionList'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    post:
+      tags: [LegalDocuments]
+      operationId: publishLegalDocument
+      summary: Publish a new version of one legal document, its PDF and web text together
+      description: |
+        Command `PublishLegalDocument`. Cleans the uploaded PDF (D123: at most 10 MB; refused if it can't be read,
+        is encrypted or is too complex; scripts, actions, embedded files and XFA are removed), refuses a cleaned
+        copy or text whose SHA-256 isn't what the preview showed, stores the cleaned copy (the record) and the
+        original (kept privately) once each, then writes the version (next `v<n>`, in force at once) and an
+        audit row with the admin, in one transaction. The first version of a document may be published here
+        (`basedOn` empty). Creates with a natural key take no `Idempotency-Key` (D29): a PDF already published
+        as this document is `409 already_published`; another version published meanwhile is
+        `409 document_changed`.
+      x-required-role: Admin
+      x-milestone: M2
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: './components.yaml#/components/schemas/PublishLegalDocument'
+      responses:
+        '201':
+          description: Published.
+          headers:
+            Location:
+              $ref: './components.yaml#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '413':
+          description: The PDF is larger than 10 MB.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './components.yaml#/components/schemas/Problem'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/admin/legal-documents/{document}/previews:
+    parameters:
+      - name: document
+        in: path
+        required: true
+        schema:
+          $ref: './components.yaml#/components/schemas/LegalDocumentName'
+    post:
+      tags: [LegalDocuments]
+      operationId: previewLegalDocument
+      summary: The cleaned copy of an uploaded PDF, for the admin's preview
+      description: Cleans the PDF as a publish would (D123) and returns the copy, its SHA-256 and what was removed. Stores nothing.
+      x-required-role: Admin
+      x-milestone: M2
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: './components.yaml#/components/schemas/LegalDocumentUpload'
+      responses:
+        '200':
+          description: The cleaned copy.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/LegalDocumentPreview'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '413':
+          description: The PDF is larger than 10 MB.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './components.yaml#/components/schemas/Problem'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   # ------------------------------------------------------------------ DPA (D20)
   /v1/admin/dpa:

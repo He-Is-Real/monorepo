@@ -934,7 +934,8 @@ components:
         A consent type, which is also a statement (a box) on a consent form (D84, D93): the sign-up form has
         `age_18plus` and `account_data` (D73: "store my account and favourites"); the testimony form has
         `special_category_religious` and, if it covers publishing on heisreal.today, `publish`; the optional
-        social sharing form has `share_socials`.
+        social sharing form has `share_socials`. From sign-up v2 (D122) the sign-up form also has
+        `terms_of_use` ("I agree to the terms of use"), bound to the terms of use in force.
       enum:
         [
           special_category_religious,
@@ -942,6 +943,7 @@ components:
           share_socials,
           age_18plus,
           account_data,
+          terms_of_use,
         ]
 
     SiteVideoKey:
@@ -1096,10 +1098,13 @@ components:
       description: |
         One ledger event: one statement ticked on the form version shown (D84). The version must be the one
         in force (`GET /v1/legal/forms/{form}` on api-public-read); the database refuses anything but a
-        published version. The privacy document is the one the form version links. The server sets
-        `occurredAt` and computes the evidence hash (`heisreal-consent-evidence/v3`, D114): sha256 of the form,
-        its version, its text's sha256 and its statements file's sha256 (the words beside each box), the DPA
-        version and its text's sha256, the statement, the event and the mechanism. No IP address (D19).
+        published version. D122: the event binds the privacy policy in force and, on a sign-up version that
+        asks for them, the terms of use in force (`GET /v1/legal/documents/{document}`); a page that showed
+        others gets `409 legal_document_not_in_force`. The server sets `occurredAt` and computes the evidence
+        hash (`heisreal-consent-evidence/v4` when the privacy policy has a PDF of record, else v3): sha256 of
+        the form, its version, its text's and statements file's sha256, the privacy policy version with its
+        words' and PDF's sha256, the terms of use version with theirs (or nulls), the statement, the event
+        and the mechanism. No IP address (D19).
       required: [form, formVersion, statement, mechanism]
       properties:
         form:
@@ -1111,6 +1116,12 @@ components:
           $ref: '#/components/schemas/ConsentType'
         mechanism:
           $ref: '#/components/schemas/ConsentMechanism'
+        privacyPolicyVersion:
+          type: string
+          description: D122, the privacy policy version the page showed; must be the one in force.
+        termsVersion:
+          type: string
+          description: D122, on a sign-up version asking for them, the terms of use version the page showed.
 
     DpaVersion:
       type: object
@@ -1216,15 +1227,7 @@ components:
             Pages draw the boxes from this, outside the document: nothing in `text` adds, removes or
             changes a box. Lists every statement in `statements`, once each.
           items:
-            type: object
-            required: [statement, label]
-            additionalProperties: false
-            properties:
-              statement:
-                $ref: '#/components/schemas/ConsentType'
-              label:
-                type: string
-                minLength: 1
+            $ref: '#/components/schemas/ConsentBox'
         statementsHash:
           type: string
           minLength: 64
@@ -1237,6 +1240,223 @@ components:
           oneOf:
             - $ref: '#/components/schemas/TestimonyFormFeatures'
             - $ref: '#/components/schemas/SocialSharingFormFeatures'
+
+    ConsentBox:
+      type: object
+      description: One box and the exact words beside it, from the version's statements data (D114).
+      required: [statement, label, step]
+      additionalProperties: false
+      properties:
+        statement:
+          $ref: '#/components/schemas/ConsentType'
+        label:
+          type: string
+          minLength: 1
+        step:
+          description: |
+            Where the box sits, as data (D122): on the testimony form `start` (before a story starts, Art 9)
+            or `submit` (when it's submitted, `publish`); `null` where the version doesn't say.
+          oneOf:
+            - type: string
+              enum: [start, submit]
+            - type: 'null'
+
+    LegalDocumentName:
+      type: string
+      description: 'D121: the two legal documents, `privacy` (the privacy policy) and `terms` (the terms of use).'
+      enum: [privacy, terms]
+
+    LegalDocumentPdf:
+      type: object
+      description: A version's PDF of record (D123, the cleaned copy), kept for ever.
+      required: [sha256, size]
+      additionalProperties: false
+      properties:
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        size:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+          description: Bytes.
+
+    LegalDocumentVersion:
+      type: object
+      description: One version of a legal document, without its words.
+      required: [id, publishedAt, changeNote, textHash, pdf]
+      properties:
+        id:
+          type: string
+          example: v2
+        publishedAt:
+          type: string
+          format: date-time
+        changeNote:
+          type: [string, 'null']
+          description: What changed, as the admin who published it said.
+        textHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: SHA-256 of the web text.
+        pdf:
+          oneOf:
+            - $ref: '#/components/schemas/LegalDocumentPdf'
+            - type: 'null'
+
+    LegalDocument:
+      type: object
+      description: |
+        A legal document (D121): the version in force with the words the site renders, and every version that
+        counts, newest first, each with its PDF of record.
+      required: [document, current, versions]
+      properties:
+        document:
+          $ref: '#/components/schemas/LegalDocumentName'
+        current:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/LegalDocumentVersion'
+                - type: object
+                  required: [text]
+                  properties:
+                    text:
+                      type: string
+                      description: Markdown.
+            - type: 'null'
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/LegalDocumentVersion'
+
+    AdminLegalDocumentVersion:
+      description: A version as api-admin lists it, with who published it and its original upload.
+      allOf:
+        - $ref: '#/components/schemas/LegalDocumentVersion'
+        - type: object
+          required: [publishedBy, source, requiresReacceptance, original]
+          properties:
+            publishedBy:
+              type: [string, 'null']
+              description: The publishing admin's user record id (Clerk holds names, D16); `null` for repo versions.
+            source:
+              type: string
+              enum: [admin, repo]
+            requiresReacceptance:
+              type: boolean
+            original:
+              description: The upload as received (D123), kept privately, never served.
+              oneOf:
+                - $ref: '#/components/schemas/LegalDocumentPdf'
+                - type: 'null'
+
+    AdminLegalDocumentVersionList:
+      type: object
+      required: [document, current, data]
+      properties:
+        document:
+          $ref: '#/components/schemas/LegalDocumentName'
+        current:
+          oneOf:
+            - type: object
+              required: [id, text]
+              properties:
+                id:
+                  type: string
+                text:
+                  type: string
+            - type: 'null'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminLegalDocumentVersion'
+
+    LegalDocumentPreview:
+      type: object
+      description: |
+        D123: the cleaned copy of an upload, the one that would be published: its SHA-256 (a publish must
+        name it), what cleaning removed, and the bytes (base64) for the admin's preview. Nothing is stored.
+      required:
+        [
+          document,
+          pdfSha256,
+          pdfSize,
+          originalSha256,
+          originalSize,
+          removed,
+          pages,
+          pdfBase64,
+        ]
+      properties:
+        document:
+          $ref: '#/components/schemas/LegalDocumentName'
+        pdfSha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        pdfSize:
+          type: integer
+        originalSha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        originalSize:
+          type: integer
+        removed:
+          type: array
+          items:
+            type: string
+          description: What cleaning took out, in plain words (e.g. "JavaScript actions").
+        pages:
+          type: integer
+        pdfBase64:
+          type: string
+
+    LegalDocumentUpload:
+      type: object
+      required: [pdf]
+      properties:
+        pdf:
+          type: string
+          format: binary
+          description: The PDF as exported, at most 10 MB.
+
+    PublishLegalDocument:
+      type: object
+      description: |
+        Command `PublishLegalDocument` (multipart/form-data): a new version of one legal document, its PDF of
+        record (the cleaned copy of `pdf`) and its web text published together.
+      required: [pdf, text, textSha256, pdfSha256, changeNote, basedOn]
+      properties:
+        pdf:
+          type: string
+          format: binary
+          description: The PDF as uploaded (the server cleans it again; the same upload gives the same copy).
+        text:
+          type: string
+          maxLength: 200000
+          description: The web text (Markdown) the site renders. The admin makes sure it says what the PDF says.
+        textSha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: The SHA-256 of `text` the preview showed (UTF-8, line ends as `\n`).
+        pdfSha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: The SHA-256 of the cleaned copy the preview showed.
+        changeNote:
+          type: string
+          minLength: 1
+          maxLength: 500
+        requiresReacceptance:
+          type: string
+          enum: ['true', 'false']
+          description: |
+            D122, D93's rules: a privacy policy that requires it asks everyone again before a new story or at
+            their next sign-in; terms that require it ask again at the next sign-in. Nothing stops counting
+            and no story is hidden.
+        basedOn:
+          type: string
+          description: The version in force the preview was made against; empty for the first version (`409 document_changed` if that changed).
 
     TestimonyFormFeatures:
       type: object

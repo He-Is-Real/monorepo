@@ -7,8 +7,8 @@
 //   the sign-up form and needs no testimony re-acceptance, so pages carry on as usual (sessions
 //   starting `unaccepted` haven't accepted the sign-up form: the site sends them to the step).
 //   Tests of the consent step and banner answer it themselves (consent.e2e.ts).
-// - `POST /v1/account/consents`, one box ticked on a form version: only dev's v1 of each form is
-//   in force (stub-api.mjs serves the same), with the real service's checks: the version in
+// - `POST /v1/account/consents`, one box ticked on a form version: only dev's v2 of each form is
+//   in force, under dev's placeholder privacy policy (and on sign-up the terms) in force (D122) (stub-api.mjs serves the same), with the real service's checks: the version in
 //   force (409), a statement on that form (409), an `Idempotency-Key` (400; the same key with
 //   another body 422, the same body answers as before). No state but the keys, which are
 //   random per test.
@@ -18,6 +18,13 @@
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
 //   so a story hidden there leaves the list too.
+// - api-admin's legal document routes (D121, D123), on the same port for the stub (web's
+//   API_ADMIN_URL points here; the real ones are two services): `GET /v1/admin/legal-documents/
+//   {privacy|terms}/versions`, `POST …/previews` (the "cleaned" copy: the stub keeps the bytes)
+//   and `POST …/versions`, Admin and above only (sessions starting `admin` are Admins; everyone
+//   else 403). Each document starts with dev's placeholder version; a publish is checked like the
+//   real one (a PDF signature, the preview's hashes, the version in force it was based on) and
+//   kept per session.
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -26,7 +33,9 @@
 // starting `no-consent` has lost the sign-up consent since the page loaded (its account answer
 // still says accepted): hearting answers 403 `consent_required` (D73).
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { resolve } from 'node:path';
 
 const port = Number(process.env.STUB_USER_PORT ?? 4313);
 const publicUrl = process.env.STUB_PUBLIC_URL ?? 'http://127.0.0.1:4310';
@@ -65,9 +74,9 @@ const ID = /^[A-Za-z0-9_]{1,64}$/;
 const hearts = new Map();
 let clock = 0;
 
-/** The statements of each form's version in force, v1 (D84, D93). */
+/** The statements of each form's version in force, v2 (D84, D93, D122). */
 const FORMS = {
-  signup: ['age_18plus', 'account_data'],
+  signup: ['age_18plus', 'account_data', 'terms_of_use'],
   testimony: ['special_category_religious', 'publish'],
   social: ['share_socials'],
 };
@@ -87,6 +96,136 @@ const send = (res, status, body) => {
   });
   res.end(JSON.stringify(body));
 };
+
+const readBytes = (req) =>
+  new Promise((done) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => done(Buffer.concat(chunks)));
+  });
+
+// --- api-admin: the legal documents (D121, D123) --------------------------------------------
+const LEGAL = resolve(import.meta.dirname, '../../../libs/legal');
+const sha256 = (data) => createHash('sha256').update(data).digest('hex');
+/** Dev's placeholder version of a document, as api-admin lists it. */
+function devVersions(document) {
+  const dir = document === 'privacy' ? 'dpa' : 'terms';
+  const pdf = readFileSync(`${LEGAL}/${dir}/dev_placeholder.pdf`);
+  const text = readFileSync(`${LEGAL}/${dir}/dev_placeholder.md`, 'utf8');
+  return [
+    {
+      id: 'dev_placeholder',
+      publishedAt: '2026-10-25T12:00:00.000Z',
+      publishedBy: null,
+      source: 'repo',
+      changeNote: 'Dev-only placeholder (D75)',
+      requiresReacceptance: document === 'privacy',
+      textHash: sha256(text),
+      pdf: { sha256: sha256(pdf), size: pdf.length },
+      original: null,
+      text,
+    },
+  ];
+}
+/** Session → document → versions (newest first). */
+const adminState = new Map();
+const versionsFor = (session, document) => {
+  if (!adminState.has(session)) adminState.set(session, new Map());
+  const docs = adminState.get(session);
+  if (!docs.has(document)) docs.set(document, devVersions(document));
+  return docs.get(document);
+};
+const listOf = (document, versions) => ({
+  document,
+  current: versions.length
+    ? { id: versions[0].id, text: versions[0].text }
+    : null,
+  data: versions.map(({ text: _t, ...v }) => v),
+});
+const invalid = (res, pointer, code) => {
+  res.writeHead(400, {
+    'content-type': 'application/problem+json',
+    'cache-control': 'no-store',
+  });
+  res.end(
+    JSON.stringify({
+      type: 'about:blank',
+      title: 'Validation failed',
+      status: 400,
+      code: 'validation_failed',
+      errors: [{ pointer, code, message: code }],
+    }),
+  );
+};
+/** The multipart fields of a request, or null. */
+async function formOf(req) {
+  const bytes = await readBytes(req);
+  try {
+    return await new Response(bytes, {
+      headers: { 'content-type': req.headers['content-type'] ?? '' },
+    }).formData();
+  } catch {
+    return null;
+  }
+}
+/** The uploaded PDF's bytes, if it looks like one. */
+async function pdfOf(fields) {
+  const pdf = fields?.get('pdf');
+  if (!(pdf instanceof Blob)) return null;
+  const file = Buffer.from(await pdf.arrayBuffer());
+  return file.subarray(0, 5).toString('latin1') === '%PDF-' ? file : null;
+}
+
+/** `POST …/previews`: the stub's "cleaned" copy is the upload itself. */
+async function previewDocument(req, res, document) {
+  const file = await pdfOf(await formOf(req));
+  if (!file) return invalid(res, '/pdf', 'pdf_not_a_pdf');
+  res.setHeader('cache-control', 'private, no-store');
+  return send(res, 200, {
+    document,
+    pdfSha256: sha256(file),
+    pdfSize: file.length,
+    originalSha256: sha256(file),
+    originalSize: file.length,
+    removed: [],
+    pages: 1,
+    pdfBase64: file.toString('base64'),
+  });
+}
+
+/** `POST …/versions` (PublishLegalDocument), checked like api-admin. */
+async function publishDocument(req, res, session, document) {
+  const fields = await formOf(req);
+  const file = await pdfOf(fields);
+  if (!file) return invalid(res, '/pdf', 'pdf_not_a_pdf');
+  // Browsers send multipart text with CRLF line ends: as api-admin, hash it with LF.
+  const text = String(fields.get('text') ?? '').replace(/\r\n?/g, '\n');
+  const note = String(fields.get('changeNote') ?? '').trim();
+  if (!text.trim()) return invalid(res, '/text', 'invalid_text');
+  if (!note) return invalid(res, '/changeNote', 'invalid_change_note');
+  if (fields.get('pdfSha256') !== sha256(file))
+    return invalid(res, '/pdfSha256', 'preview_mismatch');
+  if (fields.get('textSha256') !== sha256(text))
+    return invalid(res, '/textSha256', 'preview_mismatch');
+  const versions = versionsFor(session, document);
+  if (String(fields.get('basedOn') ?? '') !== (versions[0]?.id ?? ''))
+    return problem(res, 409, 'Conflict', 'document_changed');
+  const id = `v${versions.length + 1}`;
+  versions.unshift({
+    id,
+    publishedAt: new Date().toISOString(),
+    publishedBy: 'e2efixture',
+    source: 'admin',
+    changeNote: note,
+    requiresReacceptance: fields.get('requiresReacceptance') === 'true',
+    textHash: sha256(text),
+    pdf: { sha256: sha256(file), size: file.length },
+    original: { sha256: sha256(file), size: file.length },
+    text,
+  });
+  res.setHeader('location', `/v1/admin/legal-documents/${document}/versions`);
+  return send(res, 201, { id, version: 1 });
+}
 
 const readBody = (req) =>
   new Promise((done) => {
@@ -120,18 +259,34 @@ async function grant(req, res, onGranted) {
   } catch {
     return problem(res, 400, 'Bad request', 'validation_failed');
   }
-  const { form, formVersion, statement, mechanism } = body ?? {};
+  const {
+    form,
+    formVersion,
+    statement,
+    mechanism,
+    privacyPolicyVersion,
+    termsVersion,
+    ...rest
+  } = body ?? {};
   if (
     !(form in FORMS) ||
     typeof formVersion !== 'string' ||
     typeof statement !== 'string' ||
     !MECHANISMS.includes(mechanism) ||
-    Object.keys(body).length !== 4
+    Object.keys(rest).length !== 0
   ) {
     return problem(res, 400, 'Bad request', 'validation_failed');
   }
-  if (formVersion !== 'v1') {
+  if (formVersion !== 'v2') {
     return problem(res, 409, 'Conflict', 'form_version_not_in_force');
+  }
+  // D122: the documents shown must be the ones in force (dev's placeholders).
+  if (
+    (privacyPolicyVersion !== undefined &&
+      privacyPolicyVersion !== 'dev_placeholder') ||
+    (termsVersion !== undefined && termsVersion !== 'dev_placeholder')
+  ) {
+    return problem(res, 409, 'Conflict', 'legal_document_not_in_force');
   }
   if (!FORMS[form].includes(statement)) {
     return problem(res, 409, 'Conflict', 'statement_not_on_form');
@@ -789,11 +944,30 @@ createServer(async (req, res) => {
 
   if (path === '/v1/account' && req.method === 'GET') {
     if (!signedIn()) return;
-    // The sign-up consent is accepted, except for the `unaccepted…` sessions.
+    // The sign-up consent is accepted, except for the `unaccepted…` sessions; `admin…`
+    // sessions are Admins.
     return cached(req, res, {
       ...ACCOUNT,
+      role: token.startsWith('admin') ? 'Admin' : 'User',
       signupConsent: { accepted: shareSession(token).signup },
     });
+  }
+  const admin =
+    /^\/v1\/admin\/legal-documents\/([^/]+)\/(versions|previews)$/.exec(path);
+  if (admin && (req.method === 'GET' || req.method === 'POST')) {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    const [, document, what] = admin;
+    if (document !== 'privacy' && document !== 'terms')
+      return problem(res, 404, 'Not found', 'not_found');
+    if (what === 'previews' && req.method === 'POST')
+      return void previewDocument(req, res, document);
+    if (what === 'versions' && req.method === 'POST')
+      return void publishDocument(req, res, token, document);
+    if (what === 'versions')
+      return cached(req, res, listOf(document, versionsFor(token, document)));
+    return problem(res, 404, 'Not found', 'not_found');
   }
   if (path === '/v1/account/consents' && req.method === 'POST') {
     if (!signedIn()) return;

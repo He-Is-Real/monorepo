@@ -114,6 +114,22 @@ locals {
   form_statements        = { for k in local.form_kinds : k => { for f in local.statement_files[k] : trimsuffix(f, ".statements.json") => jsondecode(file("${local.forms_dir}/${k}/${f}")) } }
   form_statements_sha256 = { for k in local.form_kinds : k => { for f in local.statement_files[k] : trimsuffix(f, ".statements.json") => filesha256("${local.forms_dir}/${k}/${f}") } }
 
+  # D121: the legal documents' repo files: the privacy policy's PDFs of record beside its texts
+  # (libs/legal/dpa/<id>.pdf) and the terms of use (libs/legal/terms/<id>.md and .pdf), for
+  # data 0007 and dpa-sync. Sizes from the base64 length.
+  terms_dir = "${dirname(var.dpa_dir)}/terms"
+  dpa_pdf = { for f in fileset(var.dpa_dir, "*.pdf") : trimsuffix(f, ".pdf") => {
+    pdfSha256 = filesha256("${var.dpa_dir}/${f}")
+    pdfSize = (length(filebase64("${var.dpa_dir}/${f}")) / 4 * 3
+    -(endswith(filebase64("${var.dpa_dir}/${f}"), "==") ? 2 : endswith(filebase64("${var.dpa_dir}/${f}"), "=") ? 1 : 0))
+  } }
+  terms_text = { for f in fileset(local.terms_dir, "*.md") : trimsuffix(f, ".md") => file("${local.terms_dir}/${f}") }
+  terms_pdf = { for f in fileset(local.terms_dir, "*.pdf") : trimsuffix(f, ".pdf") => {
+    pdfSha256 = filesha256("${local.terms_dir}/${f}")
+    pdfSize = (length(filebase64("${local.terms_dir}/${f}")) / 4 * 3
+    -(endswith(filebase64("${local.terms_dir}/${f}"), "==") ? 2 : endswith(filebase64("${local.terms_dir}/${f}"), "=") ? 1 : 0))
+  } }
+
   params = {
     clerk_jwt_public_key   = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
     dev_consent_relaxed    = var.dev_consent_relaxed
@@ -124,6 +140,9 @@ locals {
     form_text              = local.form_text
     form_statements        = local.form_statements
     form_statements_sha256 = local.form_statements_sha256
+    dpa_pdf                = local.dpa_pdf
+    terms_text             = local.terms_text
+    terms_pdf              = local.terms_pdf
     environment            = var.environment
     identity_hash          = var.identity_hash
     seed_dev_story         = var.seed_dev_story

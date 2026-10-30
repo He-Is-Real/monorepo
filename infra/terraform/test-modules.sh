@@ -10,7 +10,10 @@
 #     auth keys; only api-user may read the two upload keys (M2, D80).
 #   gcp: api-public-read gets the BUNNY_* settings only when api_public_read_media is set,
 #     web_site_url is an https origin, and api-user/api-admin get their own identity, database
-#     login, Clerk settings and web's origins.
+#     login, Clerk settings and web's origins; the legal documents and originals buckets are
+#     private, in London, kept 100 years (unlocked only in dev), api-admin may only create there,
+#     api-public-read may only read the documents (never the originals), and dev gets a
+#     placeholder privacy policy and terms, named by their hash.
 #   bootstrap: the _Default sink writes to the London log bucket with Google's filter (D101).
 #   org: only London locations are allowed, and new projects' logs start in London (D102, D104;
 #     no root calls it until the organisation admin's setup, D119).

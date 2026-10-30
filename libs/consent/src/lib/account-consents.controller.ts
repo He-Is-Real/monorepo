@@ -76,6 +76,30 @@ export function parseGrantConsent(body: unknown): GrantConsentInput {
       message: `one of ${CONSENT_MECHANISMS.join(', ')}`,
     });
   }
+  // D122: the privacy policy (and terms of use) versions the page showed, optional.
+  for (const name of ['privacyPolicyVersion', 'termsVersion']) {
+    const v = b[name];
+    if (v !== undefined && (typeof v !== 'string' || !FORM_VERSION.test(v))) {
+      errors.push({ pointer: `/${name}`, message: 'a version id, e.g. v1' });
+    }
+  }
+  const unknown = Object.keys(b).find(
+    (k) =>
+      ![
+        'form',
+        'formVersion',
+        'statement',
+        'mechanism',
+        'privacyPolicyVersion',
+        'termsVersion',
+      ].includes(k),
+  );
+  if (unknown) {
+    errors.push({
+      pointer: `/${unknown}`,
+      message: 'not a field of this command',
+    });
+  }
   if (errors.length) {
     throw new BadRequestException({ code: 'validation_failed', errors });
   }
@@ -84,6 +108,12 @@ export function parseGrantConsent(body: unknown): GrantConsentInput {
     formVersion: b['formVersion'] as string,
     statement: b['statement'] as ConsentType,
     mechanism: b['mechanism'] as GrantConsentInput['mechanism'],
+    ...(typeof b['privacyPolicyVersion'] === 'string'
+      ? { privacyPolicyVersion: b['privacyPolicyVersion'] }
+      : {}),
+    ...(typeof b['termsVersion'] === 'string'
+      ? { termsVersion: b['termsVersion'] }
+      : {}),
   };
 }
 

@@ -121,6 +121,8 @@ const independentV1 = (r: {
 
 /** Where each statement is ticked (D73, D67, D93). */
 const FORM_OF = STATEMENT_FORM;
+/** The statements v1 of the forms asks for: every type but the terms box (D122, from v2). */
+const V1_TYPES = CONSENT_TYPES.filter((t) => t !== 'terms_of_use');
 const FORM_TABLE: Record<GrantConsentInput['form'], string> = {
   signup: 'signupFormVersion',
   testimony: 'testimonyFormVersion',
@@ -212,7 +214,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
     beforeAll(() => publishDpa(t, 'v1'));
 
     it('grants each statement on its form in the person’s own session, with evidence v3 and no IP', async () => {
-      for (const type of CONSENT_TYPES) {
+      for (const type of V1_TYPES) {
         expect(await grant('user_ann', type)).toEqual({
           id: expect.stringMatching(/^\w+$/),
           status: 201,
@@ -225,7 +227,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
            form.statementsHash AS statementsHash
            FROM consent WHERE subject = user:ann ORDER BY occurredAt`,
       );
-      expect(stored).toHaveLength(CONSENT_TYPES.length);
+      expect(stored).toHaveLength(V1_TYPES.length);
       for (const row of stored) {
         const { dpaHash, formHash, statementsHash, ...fields } = row;
         expect(Object.keys(fields).sort()).toEqual([
@@ -338,15 +340,27 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
     it('derives the current state, the sign-up and testimony status from the latest events (D17, D73, D85)', async () => {
       const state = await as('user_ann', (s) => ledger.state(s));
       expect(state.current).toEqual(
-        CONSENT_TYPES.map((type) => ({
-          type,
-          granted: true,
-          form: FORM_OF[type],
-          formVersion: 'v1',
-          dpaVersion: 'v1',
-          occurredAt: expect.any(String),
-          counts: true,
-        })),
+        CONSENT_TYPES.map((type) =>
+          type === 'terms_of_use'
+            ? {
+                type,
+                granted: false,
+                form: null,
+                formVersion: null,
+                dpaVersion: null,
+                occurredAt: null,
+                counts: false,
+              }
+            : {
+                type,
+                granted: true,
+                form: FORM_OF[type],
+                formVersion: 'v1',
+                dpaVersion: 'v1',
+                occurredAt: expect.any(String),
+                counts: true,
+              },
+        ),
       );
       expect(state.signup).toEqual({ accepted: true, latestVersion: 'v1' });
       expect(state.testimony).toEqual({
@@ -564,7 +578,11 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       );
       // Ann's v1 grants still count, and the banner offers v2.
       const before = await as('user_ann', (s) => ledger.state(s));
-      expect(before.current.every((c) => c.counts)).toBe(true);
+      expect(
+        before.current
+          .filter((c) => c.type !== 'terms_of_use')
+          .every((c) => c.counts),
+      ).toBe(true);
       expect(before.testimony).toMatchObject({
         version: 'v1',
         latestVersion: 'v2',
@@ -674,6 +692,142 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       );
       const state = await as('user_bob', (s) => ledger.state(s));
       expect(state.history.filter((e) => e.formVersion === 'v3')).toEqual([]);
+    });
+  });
+
+  describe('the documents in force: privacy policy and terms of use (D121, D122)', () => {
+    const pdf = (c: string) => c.repeat(64);
+
+    beforeAll(async () => {
+      // An admin publishes a privacy policy and the terms (as PublishPrivacyPolicy and
+      // PublishTerms do), then a sign-up version asking for the terms.
+      await run(
+        admin,
+        `CREATE dpaVersion:p2 CONTENT {
+           kind: 'standard', status: 'published', materiality: 'minor',
+           documentPath: $ppath, contentHash: crypto::sha256('policy p2'), text: 'policy p2',
+           changeSummary: 'Clearer', effectiveFrom: time::now(),
+           pdfSha256: $p, pdfSize: 10, pdfPath: $ppath,
+           originalSha256: $o, originalSize: 12, originalPath: $opath,
+           source: 'admin', publishedBy: user:moderator };
+         CREATE termsVersion:t1 CONTENT {
+           text: 'terms t1', textHash: crypto::sha256('terms t1'), changeNote: 'First',
+           pdfSha256: $t, pdfSize: 9, pdfPath: $tpath,
+           originalSha256: $o, originalSize: 12, originalPath: $topath,
+           source: 'admin', publishedBy: user:moderator };`,
+        {
+          p: pdf('a'),
+          ppath: `legal/privacy/p2/${pdf('a')}.pdf`,
+          t: pdf('b'),
+          tpath: `legal/terms/t1/${pdf('b')}.pdf`,
+          o: pdf('c'),
+          opath: `originals/privacy/p2/${pdf('c')}.pdf`,
+          topath: `originals/terms/t1/${pdf('c')}.pdf`,
+        },
+      );
+      await publishForm(t, 'signup', 'withterms', {
+        dpa: 'v1',
+        coversTerms: true,
+      });
+    });
+
+    it('each sign-up box binds the privacy policy and terms in force, with evidence v4 covering their PDFs', async () => {
+      for (const statement of [
+        'age_18plus',
+        'account_data',
+        'terms_of_use',
+      ] as const) {
+        await as('user_cat', (s) =>
+          ledger.grant(s, {
+            form: 'signup',
+            formVersion: 'withterms',
+            statement,
+            mechanism: 'web_form_submission',
+            privacyPolicyVersion: 'p2',
+            termsVersion: 't1',
+          }),
+        );
+      }
+      const stored = await rows<Record<string, string | number>>(
+        await t.migrator(),
+        `SELECT type, event, mechanism, evidenceHash, evidenceVersion,
+           record::id(dpaVersion) AS dpa, record::id(termsVersion) AS terms,
+           form.textHash AS formHash, form.statementsHash AS statementsHash, occurredAt
+         FROM consent WHERE subject = user:cat AND form = signupFormVersion:withterms
+         ORDER BY occurredAt`,
+      );
+      expect(
+        stored.map((r) => [
+          r['type'],
+          r['dpa'],
+          r['terms'],
+          r['evidenceVersion'],
+        ]),
+      ).toEqual([
+        ['age_18plus', 'p2', 't1', 4],
+        ['account_data', 'p2', 't1', 4],
+        ['terms_of_use', 'p2', 't1', 4],
+      ]);
+      for (const r of stored) {
+        expect(r['evidenceHash']).toBe(
+          createHash('sha256')
+            .update(
+              JSON.stringify([
+                'heisreal-consent-evidence/v4',
+                'signup',
+                'withterms',
+                r['formHash'],
+                r['statementsHash'],
+                'p2',
+                createHash('sha256').update('policy p2').digest('hex'),
+                pdf('a'),
+                't1',
+                createHash('sha256').update('terms t1').digest('hex'),
+                pdf('b'),
+                r['type'],
+                r['event'],
+                r['mechanism'],
+              ]),
+            )
+            .digest('hex'),
+        );
+      }
+      expect((await as('user_cat', (s) => ledger.state(s))).signup).toEqual({
+        accepted: true,
+        latestVersion: 'withterms',
+      });
+      // Withdrawing binds the grant's documents and keeps v4; the whole history verifies.
+      await as('user_cat', (s) => ledger.withdraw(s, 'terms_of_use'));
+      const checks = await as('user_cat', (s) => ledger.verifyEvidence(s));
+      expect(checks.filter((c) => c.format === 'v4')).toHaveLength(4);
+      expect(checks.every((c) => c.verified)).toBe(true);
+    });
+
+    it('a page that showed another privacy policy or terms gets 409, and nothing is recorded', async () => {
+      for (const shown of [
+        { privacyPolicyVersion: 'v1' },
+        { termsVersion: 'other' },
+      ]) {
+        expect(
+          await conflict(
+            as('user_vee', (s) =>
+              ledger.grant(s, {
+                form: 'signup',
+                formVersion: 'withterms',
+                statement: 'age_18plus',
+                mechanism: 'web_form_submission',
+                ...shown,
+              }),
+            ),
+          ),
+        ).toBe('legal_document_not_in_force');
+      }
+      expect(
+        await rows(
+          await t.migrator(),
+          `SELECT VALUE id FROM consent WHERE subject = user:vee AND form = signupFormVersion:withterms`,
+        ),
+      ).toEqual([]);
     });
   });
 

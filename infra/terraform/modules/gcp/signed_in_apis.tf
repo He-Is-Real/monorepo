@@ -132,6 +132,18 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
           value = env.value
         }
       }
+      # api-admin uploads new privacy policy and terms versions: the cleaned PDF of record and the
+      # original upload (create-only; legal_documents.tf).
+      dynamic "env" {
+        for_each = each.key == "api-admin" ? {
+          LEGAL_DOCUMENTS_BUCKET = google_storage_bucket.legal["documents"].name
+          LEGAL_ORIGINALS_BUCKET = google_storage_bucket.legal["originals"].name
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
 
       # As for api-public-read: ready = the port is open, which happens only after the app has
       # connected to the database and passed its start-up checks (roles, consent policy).

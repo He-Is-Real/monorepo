@@ -617,6 +617,38 @@ retried`, on both RocksDB and the in-memory engine.
       that start more stories per person mark their people trusted (`trustSubmitters`), and
       `buildWorld` makes Ann and Bob trusted.
 
+### M2 legal documents (D121–D123; Joel, 2026-10-30)
+
+37. **The privacy policy and the terms of use: versioned PDFs of record.** The privacy policy
+    stays in `dpaVersion` (every existing consent keeps pointing at its version); the terms of use
+    are the new `termsVersion`. A published version has its web text (`text`, `contentHash` /
+    `textHash`), its PDF of record (`pdfSha256`, `pdfSize`, `pdfPath`: the cleaned copy, D123) and,
+    for an admin upload, the original's hash, size and path (`originalPath` readable by api-admin
+    only), `source = 'admin'`, `publishedBy` (api-admin only) and a `changeNote`.
+    `fn::legal::check_document` checks every one: the path is
+    `legal/<privacy|terms>/<id>/<sha256>.pdf`, the text hash matches, an admin version is
+    published with words and a change note. **Who writes:** api-admin creates admin versions
+    (`PublishPrivacyPolicy`, `PublishTerms`, each with its `audit` row in the same transaction);
+    nobody updates or deletes a published one (`dpa_immutable`, `terms_kept`, system users
+    included), except that the migration (`$auth = NONE`) may attach a PDF once to a version kept in
+    the repo (`dpa-sync.surql`, data 0007 for dev's placeholders; `devPlaceholder` terms only in
+    dev). Every write bumps `legalFence`, so a grant racing a publish retries under the new version.
+    **In force:** `fn::legal::dpa_in_force`, `fn::legal::terms_in_force` (the newest published
+    version that counts). **Grants (D122):** a grant names the privacy policy in force
+    (`fn::legal::covers_form`: the form's own, or a later standard version that counts) and a
+    sign-up grant the terms in force (`consent.termsVersion`, `terms_of_use` only on sign-up v2,
+    `coversTerms`); the API also checks both in the grant's transaction
+    (`409 legal_document_not_in_force`). Evidence v4 (`consent_evidence_v4`) covers both
+    documents' versions and PDF hashes. **Asking again (D93):**
+    `fn::legal::requires_reacceptance` (a later privacy policy marked `material`) and
+    `fn::legal::terms_requires_reacceptance` make `fn::consent::signup_accepted` false and
+    `fn::consent::testimony_requires_acceptance` true (only new drafts and submissions wait); no
+    story is ever hidden. **Storage (OpenTofu, `legal_documents.tf`):** two London buckets, write-once
+    (`ifGenerationMatch: 0`, api-admin `objectCreator` only, api-public-read `objectViewer` on the
+    documents bucket only), no versioning, 100-year retention, locked outside dev (D124). Tests:
+    `libs/database/integration/legal-documents.int-spec.ts`,
+    `apps/api-admin/integration/legal-documents.int-spec.ts`.
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.

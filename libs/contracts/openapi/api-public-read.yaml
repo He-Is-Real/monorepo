@@ -40,7 +40,7 @@ tags:
   - name: Tags
     description: 'The tag taxonomy.'
   - name: Legal
-    description: 'Published Data Processing Agreement versions.'
+    description: 'The legal documents (privacy policy, terms of use) with their PDFs of record, and the consent forms.'
   - name: Site
     description: 'Media that is part of the site itself, not stories.'
 
@@ -348,6 +348,104 @@ paths:
             application/json:
               schema:
                 $ref: './components.yaml#/components/schemas/ConsentFormVersion'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/legal/documents/{document}:
+    get:
+      tags: [Legal]
+      operationId: getLegalDocument
+      summary: A legal document in force, with its words, and every version with its PDF
+      description: |
+        D121: the privacy policy (`privacy`, the privacy document of D20 and D75) or the terms of use
+        (`terms`). The version in force with the words `/privacy` and `/terms` render, and every version that
+        counts, newest first (their "Previous versions"), each with its PDF of record. Dev's placeholders in
+        dev only (D75).
+      x-milestone: M2
+      parameters:
+        - name: document
+          in: path
+          required: true
+          schema:
+            $ref: './components.yaml#/components/schemas/LegalDocumentName'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The document.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/LegalDocument'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/legal/documents/{document}/versions/{file}:
+    get:
+      tags: [Legal]
+      operationId: getLegalDocumentPdf
+      summary: One version's PDF of record
+      description: |
+        The PDF exactly as stored (the cleaned copy, D123), checked against its SHA-256 before it's sent:
+        `Content-Type: application/pdf`, `Content-Disposition: inline` with a fixed file name,
+        `X-Content-Type-Options: nosniff`. A URL always names the same bytes: with shared caching on (D51,
+        never in dev) it may be kept a year, else `no-store`.
+      x-milestone: M2
+      parameters:
+        - name: document
+          in: path
+          required: true
+          schema:
+            $ref: './components.yaml#/components/schemas/LegalDocumentName'
+        - name: file
+          in: path
+          required: true
+          description: '`<version id>.pdf`, e.g. `v2.pdf`.'
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9_-]{0,63}\.pdf$'
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The PDF.
+          headers:
+            ETag:
+              description: The PDF's SHA-256, quoted (strong).
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store, 'public, max-age=31536000, immutable']
+            Content-Disposition:
+              schema:
+                type: string
+                example: inline; filename="heisreal-privacy-policy-v2.pdf"
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '400':

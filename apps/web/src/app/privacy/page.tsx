@@ -1,5 +1,9 @@
+import { connection } from 'next/server';
+import { LegalBlocks } from '@/components/consent/legal-blocks';
+import { DocumentVersions } from '@/components/page/document-versions';
 import { DraftNotice } from '@/components/page/draft-notice';
 import { NarrowColumn } from '@/components/page/page-header';
+import { getLegalDocument, parseLegalText } from '@/lib/legal';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -98,22 +102,49 @@ const COLUMNS = ['Name', 'Set by', 'What it’s for', 'How long'];
 const cell =
   'max-sm:block max-sm:py-1 max-sm:before:block max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:text-foreground max-sm:before:content-[attr(data-label)] sm:px-4 sm:py-3';
 
-export default function PrivacyPage() {
+/**
+ * The privacy policy (D121): the version in force, as the site renders its web text, with its
+ * PDF of record and the previous versions, read per request from api-public-read (D32). Every
+ * consent binds the version in force (D122). Until one is published (or if it can't be read),
+ * the page's own placeholder words. The cookies and storage section is the site's own, below.
+ */
+export default async function PrivacyPage() {
+  await connection();
+  const policy = await getLegalDocument('privacy');
+  const current = policy?.current ?? null;
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
       <NarrowColumn>
-        <DraftNotice>
-          This is a placeholder. The real privacy policy, covering the stories
-          people share and how we look after them, comes before the site goes
-          live.
-        </DraftNotice>
+        {!current && (
+          <DraftNotice>
+            This is a placeholder. The real privacy policy, covering the stories
+            people share and how we look after them, comes before the site goes
+            live.
+          </DraftNotice>
+        )}
         <h1 className="mb-6 text-[2rem] leading-tight font-normal sm:text-[2.75rem]">
           Privacy policy
         </h1>
-        <p className="mb-12 text-secondary-text">
-          He Is Real Today is a UK-based not-for-profit. We follow UK data
-          protection law, and we only collect what we need to run the site.
-        </p>
+        {current && policy ? (
+          <section
+            aria-label="The privacy policy"
+            data-legal-version={current.id}
+            className="mb-12 space-y-6"
+          >
+            <LegalBlocks blocks={parseLegalText(current.text)} />
+            <DocumentVersions
+              document="privacy"
+              version={current.id}
+              pdf={current.pdf}
+              previous={policy.versions.filter((v) => v.id !== current.id)}
+            />
+          </section>
+        ) : (
+          <p className="mb-12 text-secondary-text">
+            He Is Real Today is a UK-based not-for-profit. We follow UK data
+            protection law, and we only collect what we need to run the site.
+          </p>
+        )}
 
         <section
           id="cookies"

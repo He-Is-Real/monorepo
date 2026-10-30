@@ -9,11 +9,23 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { runQuery, SURREAL } from '@heisreal/database';
 import { ProblemException } from '@heisreal/http';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
-import { representationETag, sendCached } from '../caching';
+import {
+  collectionETag,
+  ifNoneMatchHits,
+  publicCacheControl,
+  representationETag,
+  sendCached,
+} from '../caching';
+import {
+  DOCUMENT_PDFS,
+  type DocumentPdfs,
+  documentPdfsFromEnv,
+} from './document-pdfs';
 
 /**
  * The feature columns of the social sharing form (D93, `socialSharingFormVersion`): the
@@ -32,6 +44,67 @@ export const SOCIAL_FEATURES = [
 ] as const;
 
 const VERSION_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const PDF_FILE = /^([a-z0-9][a-z0-9_-]{0,63})\.pdf$/;
+/** CACHE_PUBLIC's long form for a PDF: its URL always names the same bytes. */
+const CACHE_IMMUTABLE = 'public, max-age=31536000, immutable';
+
+/**
+ * D121: the two legal documents, each with its own versions. Every version that counts (the
+ * privacy policy's: published standard versions, dev's placeholder in dev only, D75; the terms':
+ * every version, dev's placeholder in dev only), newest first, with the one in force.
+ */
+const DOCUMENT_VERSIONS = {
+  privacy: `
+    SELECT id, effectiveFrom ?? createdAt AS publishedAt, createdAt, changeSummary AS changeNote,
+        contentHash AS textHash, pdfSha256, pdfSize
+      FROM dpaVersion
+      WHERE status = 'published' AND kind = 'standard' AND fn::legal::counts(id)
+        AND (effectiveFrom = NONE OR effectiveFrom <= time::now())
+      ORDER BY publishedAt DESC, createdAt DESC, id DESC;
+    LET $c = fn::legal::dpa_in_force();
+    RETURN IF $c = NONE { NONE } ELSE { (SELECT id, text FROM ONLY $c) };`,
+  terms: `
+    SELECT id, publishedAt, changeNote, textHash, pdfSha256, pdfSize
+      FROM termsVersion WHERE fn::legal::terms_counts(id)
+      ORDER BY publishedAt DESC, id DESC;
+    LET $c = fn::legal::terms_in_force();
+    RETURN IF $c = NONE { NONE } ELSE { (SELECT id, text FROM ONLY $c) };`,
+} as const;
+type DocumentName = keyof typeof DOCUMENT_VERSIONS;
+const isDocument = (d: string): d is DocumentName =>
+  Object.hasOwn(DOCUMENT_VERSIONS, d);
+/** A document version's PDF of record, if it has one and counts. */
+const DOCUMENT_PDF = {
+  privacy: `SELECT pdfSha256, pdfPath FROM type::record('dpaVersion', $version)
+    WHERE status = 'published' AND kind = 'standard' AND fn::legal::counts(id) AND pdfSha256 != NONE;`,
+  terms: `SELECT pdfSha256, pdfPath FROM type::record('termsVersion', $version)
+    WHERE fn::legal::terms_counts(id);`,
+} as const;
+
+/** `LegalDocumentPdf`, or null for a version published without one. */
+const pdfOf = (r: Record<string, unknown>) =>
+  typeof r['pdfSha256'] === 'string'
+    ? { sha256: r['pdfSha256'], size: r['pdfSize'] }
+    : null;
+
+const noQuery = (query: Record<string, unknown>) => {
+  const name = Object.keys(query)[0];
+  if (name !== undefined) {
+    throw new ProblemException(
+      HttpStatus.BAD_REQUEST,
+      'validation_failed',
+      'Validation failed',
+      undefined,
+      [
+        {
+          pointer: `/${name}`,
+          code: 'unknown_parameter',
+          message: 'This route takes no query parameters.',
+        },
+      ],
+    );
+  }
+};
 const FORMS = {
   signup: 'signupFormVersion',
   testimony: 'testimonyFormVersion',
@@ -101,7 +174,125 @@ function dpaVersion(r: DpaRow) {
  */
 @Controller('v1/legal')
 export class LegalController {
-  constructor(@Inject(SURREAL) private readonly db: Surreal) {}
+  constructor(
+    @Inject(SURREAL) private readonly db: Surreal,
+    @Inject(DOCUMENT_PDFS) private readonly pdfs: DocumentPdfs | null,
+  ) {}
+
+  /**
+   * D121: one legal document (`privacy`, the privacy policy; `terms`, the terms of use): the
+   * version in force with the words the site renders, and every version anyone may read, newest
+   * first, each with its PDF of record (/privacy and /terms: "Download this version (PDF)" and
+   * "Previous versions"; the consent pages bind the versions in force).
+   */
+  @Get('documents/:document')
+  async getDocument(
+    @Param('document') document: string,
+    @Query() query: Record<string, unknown>,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    noQuery(query);
+    if (!isDocument(document)) throw notFound('That legal document');
+    const results = (await runQuery(
+      this.db,
+      DOCUMENT_VERSIONS[document],
+    )) as unknown[];
+    const rows = results[0] as Record<string, unknown>[];
+    const current = results[results.length - 1] as {
+      id: string;
+      text: string;
+    } | null;
+    const versions = rows.map((r) => ({
+      id: key(String(r['id'])),
+      publishedAt: new Date(String(r['publishedAt'])).toISOString(),
+      changeNote: (r['changeNote'] as string | undefined) ?? null,
+      textHash: r['textHash'],
+      pdf: pdfOf(r),
+    }));
+    const currentId = current ? key(String(current.id)) : null;
+    const body = {
+      document,
+      current:
+        current && typeof current.text === 'string'
+          ? {
+              ...(versions.find((v) => v.id === currentId) ?? {
+                id: currentId,
+              }),
+              text: current.text,
+            }
+          : null,
+      versions,
+    };
+    return sendCached(res, ifNoneMatch, body, collectionETag(body));
+  }
+
+  /**
+   * One version's PDF of record, as stored: inline, under a fixed file name, never sniffed, its
+   * strong ETag the PDF's sha256, checked against the recorded sha256 before it's sent. The URL
+   * always names the same bytes, so with shared caching on (D51, never in dev) caches may keep it
+   * a year.
+   */
+  @Get('documents/:document/versions/:file')
+  async getDocumentPdf(
+    @Param('document') document: string,
+    @Param('file') file: string,
+    @Query() query: Record<string, unknown>,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ) {
+    noQuery(query);
+    const version = PDF_FILE.exec(file)?.[1];
+    if (!isDocument(document) || !version) throw notFound('That PDF');
+    const results = (await runQuery(this.db, DOCUMENT_PDF[document], {
+      version,
+    })) as unknown[];
+    const [row] = results[results.length - 1] as {
+      pdfSha256: string;
+      pdfPath: string;
+    }[];
+    if (!row) throw notFound('That PDF');
+    if (!this.pdfs) {
+      throw new ProblemException(
+        HttpStatus.SERVICE_UNAVAILABLE,
+        'pdf_unavailable',
+        'Service Unavailable',
+      );
+    }
+    const etag = `"${row.pdfSha256}"`;
+    const cacheControl =
+      publicCacheControl() === 'no-store' ? 'no-store' : CACHE_IMMUTABLE;
+    if (ifNoneMatchHits(ifNoneMatch, etag)) {
+      res
+        .status(HttpStatus.NOT_MODIFIED)
+        .setHeader('ETag', etag)
+        .setHeader('Cache-Control', cacheControl)
+        .end();
+      return;
+    }
+    const bytes = await this.pdfs.read(row.pdfPath);
+    if (
+      !bytes ||
+      createHash('sha256').update(bytes).digest('hex') !== row.pdfSha256
+    ) {
+      // The row says the PDF is kept for ever: a missing or different object is our fault.
+      throw new Error(
+        `${document} ${version}: the stored PDF is ${bytes ? 'not the one recorded' : 'missing'}`,
+      );
+    }
+    res
+      .status(HttpStatus.OK)
+      .setHeader('Content-Type', 'application/pdf')
+      .setHeader(
+        'Content-Disposition',
+        `inline; filename="heisreal-${document === 'privacy' ? 'privacy-policy' : 'terms-of-use'}-${version}.pdf"`,
+      )
+      .setHeader('X-Content-Type-Options', 'nosniff')
+      .setHeader('ETag', etag)
+      .setHeader('Cache-Control', cacheControl)
+      .setHeader('Content-Length', String(bytes.length))
+      .end(bytes);
+  }
 
   @Get('dpa')
   async getDpa(
@@ -201,10 +392,14 @@ export class LegalController {
       statements: f['required'],
       // D114: the boxes, in order, with the exact words beside each (the version's
       // statements file); the page draws them from here, never from `text`.
-      boxes: (boxes as { key: string; label: string }[]).map((b) => ({
-        statement: b.key,
-        label: b.label,
-      })),
+      boxes: (boxes as { key: string; label: string; step?: string }[]).map(
+        (b) => ({
+          statement: b.key,
+          label: b.label,
+          // Where the box sits (testimony: start or submit), from the statements data too.
+          step: b.step ?? null,
+        }),
+      ),
       statementsHash: f['statementsHash'],
       version: f['version'],
       ...(form === 'testimony'
@@ -230,5 +425,10 @@ export class LegalController {
   }
 }
 
-@Module({ controllers: [LegalController] })
+@Module({
+  controllers: [LegalController],
+  providers: [
+    { provide: DOCUMENT_PDFS, useFactory: () => documentPdfsFromEnv() },
+  ],
+})
 export class LegalModule {}

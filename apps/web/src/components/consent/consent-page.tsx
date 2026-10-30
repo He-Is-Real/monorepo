@@ -88,8 +88,14 @@ export async function ConsentPage({
         boxes: boxes as ConsentBox[],
         mechanism,
         blocks: parseLegalText(result.form.text),
-        dpaVersion: result.dpa.id,
-        dpaBlocks: parseLegalText(result.dpa.text),
+        privacy: {
+          version: result.privacy.current.id,
+          blocks: parseLegalText(result.privacy.current.text),
+          pdf: result.privacy.current.pdf,
+        },
+        terms: result.terms
+          ? { version: result.terms.current.id, pdf: result.terms.current.pdf }
+          : null,
         returnTo,
         apiUserUrl: apiUserUrl(),
       };

@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { enlargeText as enlarge, expectNoHorizontalOverflow } from './helpers';
+import { WEB_SIGNED_IN_URL } from './servers';
 
 // T7 (WCAG 1.4.4): with text at 200% on the smallest phone, every page still fits without
 // sideways scrolling and nothing is cut off. A reader's text-size setting scales rem, and so
@@ -86,3 +89,26 @@ for (const path of PAGES) {
     expect(clipped, 'headings cut off').toEqual([]);
   });
 }
+
+test('200% text: /admin/legal with a preview open fits on a 320 px phone', async ({
+  page,
+}) => {
+  await enlarge(page);
+  // An admin (stub-api-user.mjs: sessions starting `admin` are Admins), signed in.
+  await page.addInitScript(() =>
+    window.localStorage.setItem('e2e-session', 'admin-text-zoom'),
+  );
+  await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
+  await page.getByLabel('The PDF (at most 10 MB)').setInputFiles({
+    name: 'policy.pdf',
+    mimeType: 'application/pdf',
+    buffer: readFileSync(
+      resolve(__dirname, '../../../libs/legal/dpa/dev_placeholder.pdf'),
+    ),
+  });
+  await page.getByRole('button', { name: 'Preview' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Publish this version' }),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});

@@ -12,10 +12,12 @@
 // - STUB_SLOW_PORT: dev, but each site video's answer waits until the test releases its key
 //   (`POST /__test/release-site-video/{key}`; site-videos.e2e.ts: the page doesn't wait for it).
 //
-// The legal routes (`/v1/legal/forms/{form}`, `/v1/legal/dpa`) serve dev's placeholder forms (with
-// their boxes from the statements files, D114) and privacy document, read from libs/legal as the
-// database copies them (D75); on the Go live port
-// none is published (404), as anywhere but dev.
+// The legal routes serve dev's placeholders, read from libs/legal as the database copies them
+// (D75): the forms in force (`/v1/legal/forms/{form}`, v2: a short introduction and the boxes from
+// the statements files, D114, D122), the privacy document (`/v1/legal/dpa`) and the two legal
+// documents (`/v1/legal/documents/{privacy|terms}`, D121) with their PDFs of record
+// (`…/versions/{id}.pdf`): the privacy policy has an earlier version too, so its "Previous
+// versions" can be seen. On the Go live port none is published (404), as anywhere but dev.
 //
 // The founder's videos (`/v1/site-videos/founder-intro` and `/next-steps`) are set on the dev
 // port and not on the Go live port (404), so About's and Next Steps' players and their
@@ -523,14 +525,14 @@ const DPA = {
   version: 1,
 };
 const form = (name, statements, features) => {
-  const text = words(`forms/${name}/v1.md`);
+  const text = words(`forms/${name}/v2.md`);
   // D114: the boxes, from the version's statements file, never from its words.
-  const statementsFile = words(`forms/${name}/v1.statements.json`);
+  const statementsFile = words(`forms/${name}/v2.statements.json`);
   return {
     form: name,
-    id: 'v1',
+    id: 'v2',
     status: 'published',
-    publishedAt: '2026-10-25T12:00:00.000Z',
+    publishedAt: '2026-10-30T12:00:00.000Z',
     dpaVersion: 'dev_placeholder',
     textHash: sha256(text),
     text,
@@ -538,14 +540,55 @@ const form = (name, statements, features) => {
     boxes: JSON.parse(statementsFile).statements.map((b) => ({
       statement: b.key,
       label: b.label,
+      step: b.step ?? null,
     })),
     statementsHash: sha256(statementsFile),
     version: 1,
     ...(features ? { features } : {}),
   };
 };
+// D121: the two legal documents, each a list of versions, newest first, the first in force.
+const pdfFile = (file) => readFileSync(`${LEGAL}/${file}`);
+const pdfOf = (file) => {
+  const bytes = pdfFile(file);
+  return { sha256: sha256(bytes), size: bytes.length };
+};
+const DOCUMENTS = {
+  privacy: [
+    {
+      id: 'dev_placeholder',
+      publishedAt: '2026-10-25T12:00:00.000Z',
+      changeNote: 'Dev-only placeholder (D75)',
+      text: DPA_TEXT,
+      file: 'dpa/dev_placeholder.pdf',
+    },
+    {
+      id: 'v0',
+      publishedAt: '2026-10-21T12:00:00.000Z',
+      changeNote: 'An earlier stand-in',
+      text: 'An earlier stand-in.',
+      file: 'dpa/dev_placeholder.pdf',
+    },
+  ],
+  terms: [
+    {
+      id: 'dev_placeholder',
+      publishedAt: '2026-10-30T12:00:00.000Z',
+      changeNote: 'Dev-only placeholder (D75)',
+      text: words('terms/dev_placeholder.md'),
+      file: 'terms/dev_placeholder.pdf',
+    },
+  ],
+};
+const versionOf = (v) => ({
+  id: v.id,
+  publishedAt: v.publishedAt,
+  changeNote: v.changeNote,
+  textHash: sha256(v.text),
+  pdf: pdfOf(v.file),
+});
 const FORMS = {
-  signup: form('signup', ['age_18plus', 'account_data']),
+  signup: form('signup', ['age_18plus', 'account_data', 'terms_of_use']),
   testimony: form('testimony', ['special_category_religious', 'publish'], {
     requiresAcceptanceForNewSubmissions: false,
     coversPublicPublishing: true,
@@ -563,9 +606,37 @@ const FORMS = {
   }),
 };
 
-/** `GET /v1/legal/forms/{form}` and `GET /v1/legal/dpa`: dev's versions, none when live. */
+/**
+ * `GET /v1/legal/forms/{form}`, `GET /v1/legal/dpa` and the legal documents with their PDFs:
+ * dev's versions, none when live.
+ */
 function legal(mode, url, res) {
   const notPublished = () => problem(res, 404, 'not_found');
+  const [, document, rest] =
+    /^\/v1\/legal\/documents\/([^/]+)(\/.*)?$/.exec(url.pathname) ?? [];
+  if (document) {
+    const versions = DOCUMENTS[document];
+    if (!versions || mode === 'live') return notPublished();
+    if (!rest) {
+      return json(res, 200, {
+        document,
+        current: { ...versionOf(versions[0]), text: versions[0].text },
+        versions: versions.map(versionOf),
+      });
+    }
+    const id = /^\/versions\/([a-z0-9][a-z0-9_-]{0,63})\.pdf$/.exec(rest)?.[1];
+    const v = versions.find((x) => x.id === id);
+    if (!v) return notPublished();
+    const bytes = pdfFile(v.file);
+    res.writeHead(200, {
+      'content-type': 'application/pdf',
+      'content-disposition': `inline; filename="heisreal-${document === 'privacy' ? 'privacy-policy' : 'terms-of-use'}-${v.id}.pdf"`,
+      'x-content-type-options': 'nosniff',
+      etag: `"${sha256(bytes)}"`,
+      'cache-control': 'no-store',
+    });
+    return res.end(bytes);
+  }
   if (url.pathname === '/v1/legal/dpa') {
     const version = url.searchParams.get('version');
     if (mode === 'live' || (version !== null && version !== DPA.id))
@@ -576,7 +647,7 @@ function legal(mode, url, res) {
     });
   }
   const name = /^\/v1\/legal\/forms\/([^/]+)$/.exec(url.pathname)?.[1];
-  if (!name || !(name in FORMS)) return problem(res, 400, 'validation_failed');
+  if (!name || !(name in FORMS)) return problem(res, 404, 'not_found');
   if (mode === 'live') return notPublished();
   return json(res, 200, FORMS[name]);
 }

@@ -60,7 +60,9 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
   data, each with the exact words beside it), outside the document, so nothing in its words can
   add, remove or break a box. If a box the page asks for is missing, nothing can be ticked.
 - Ticking records one grant per box through api-user (`POST /v1/account/consents`, the version
-  shown, an `Idempotency-Key` per box kept for retries), only once every box is ticked.
+  shown, an `Idempotency-Key` per box kept for retries), only once every box is ticked. Each grant
+  also names the privacy policy (and, on sign-up, the terms of use) the page showed; if one was
+  published meanwhile, api-user answers `409` and the page asks to reload (D122).
 
 ## Personal parts of pages (hearts)
 
@@ -86,3 +88,17 @@ from the hearts uses `personalApiUser`: a token is sent only if its `sub` is the
 work started for (Clerk's `getToken()` answers for whoever is signed in when it resolves). The
 e2e fixture tokens are shaped like session tokens for that reason (`e2e.<payload>.fixture`). In e2e each test can give its browser its own
 stub session (localStorage `e2e-session`), so parallel tests never share hearts.
+
+## Legal documents (D121)
+
+- `/privacy` and `/terms` read the document from api-public-read on the server and show the words
+  in force, "Download this version (PDF)" and the previous versions. Until one is published (or if
+  api-public-read can't answer) they show their own placeholder words.
+- The PDF links are same-site: `/legal/{privacy|terms}/{version}.pdf`
+  (`src/app/legal/[document]/[file]/route.ts`) fetches the PDF from api-public-read on the server
+  and sends it inline, never sniffed. Nothing from the visitor's request is forwarded. It is
+  per request and uncached in dev (D51); before Go live, consider caching published versions,
+  since their bytes never change.
+- `/admin/legal` (Admins): choose a document, upload the PDF and its words, preview the cleaned
+  copy, publish. It calls api-admin from the browser through the same client as api-user
+  (`src/lib/api-user.ts`, with `API_ADMIN_URL`), so the token boundary above is unchanged.

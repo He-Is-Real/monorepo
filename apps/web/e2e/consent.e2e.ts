@@ -15,7 +15,7 @@ import { STUB_USER_URL, WEB_LIVE_URL, WEB_SIGNED_IN_URL } from './servers';
 // The consent prompts after sign-in, on the signed-in server (E2E_FIXTURES; the browser calls
 // the stub api-user with the fixtures' token):
 // - D73, the sign-up step: someone who hasn't accepted the sign-up form in force is taken to
-//   /consent/sign-up, ticks both boxes of the published form (dev's v1, served by the stub
+//   /consent/sign-up, ticks both boxes of the published form (dev's v2, served by the stub
 //   api-public-read from libs/legal), and goes back to where they were. Nothing is recorded
 //   until both are ticked; each box is one grant on the version shown.
 // - D85, the banner: someone whose testimony version was replaced by one requiring acceptance
@@ -83,7 +83,8 @@ function recordGrants(page: Page) {
 
 const box = (page: Page, name: RegExp) => page.getByRole('checkbox', { name });
 const AGE = /I am 18 or over/;
-const ACCOUNT_DATA = /Store my account and the stories I save/;
+const ACCOUNT_DATA = /Store my account activity and preferences/;
+const TERMS = /I agree to the terms of use/;
 /** Ticks a box by clicking its words, as a person does (the boxes' group, not the document). */
 const tick = (page: Page, words: RegExp) =>
   page.locator('form fieldset').getByText(words).click();
@@ -92,7 +93,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });
 
-    test('the sign-up step fits, with its two boxes unticked', async ({
+    test('the sign-up step fits, with its three boxes unticked', async ({
       page,
     }, info) => {
       await answerAccount(page, { signup: false });
@@ -105,9 +106,8 @@ for (const scheme of ['light', 'dark'] as const) {
       ).toBeVisible();
       await expect(box(page, AGE)).not.toBeChecked();
       await expect(box(page, ACCOUNT_DATA)).not.toBeChecked();
-      await page
-        .getByText('Read the privacy document', { exact: true })
-        .click();
+      await expect(box(page, TERMS)).not.toBeChecked();
+      await page.getByText('Read the privacy policy', { exact: true }).click();
       await expect(page.locator('[data-privacy-document]')).toContainText(
         'Privacy document: development placeholder',
       );
@@ -171,21 +171,33 @@ test.describe('behaviour', () => {
     );
     const agree = page.getByRole('button', { name: 'Agree and continue' });
 
-    // Nothing is recorded until both boxes are ticked.
+    // Nothing is recorded until every box is ticked.
     await agree.click();
-    await expect(page.getByText('Tick both boxes to continue.')).toBeVisible();
+    await expect(
+      page.getByText('Tick all the boxes to continue.'),
+    ).toBeVisible();
     await expect(box(page, AGE)).toBeFocused();
     await tick(page, AGE);
     await agree.click();
-    await expect(page.getByText('Tick both boxes to continue.')).toBeVisible();
+    await expect(
+      page.getByText('Tick all the boxes to continue.'),
+    ).toBeVisible();
     await expect(box(page, ACCOUNT_DATA)).toBeFocused();
     expect(grants).toEqual([]);
 
     await tick(page, ACCOUNT_DATA);
+    await agree.click();
+    await expect(
+      page.getByText('Tick all the boxes to continue.'),
+    ).toBeVisible();
+    await expect(box(page, TERMS)).toBeFocused();
+    expect(grants).toEqual([]);
+
+    await tick(page, TERMS);
     const answered = page.waitForResponse(
       (r) =>
         isGrant(r.request()) &&
-        r.request().postDataJSON().statement === 'account_data',
+        r.request().postDataJSON().statement === 'terms_of_use',
     );
     await agree.click();
     const last = await answered;
@@ -193,28 +205,25 @@ test.describe('behaviour', () => {
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/stories?tag=healing`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-    // One grant per box, on the version shown, each with its own key.
-    expect(grants.map((g) => g.body)).toEqual([
-      {
+    // One grant per box, on the version shown, each with its own key, each naming the privacy
+    // policy and terms of use the page showed (D122).
+    expect(grants.map((g) => g.body)).toEqual(
+      ['age_18plus', 'account_data', 'terms_of_use'].map((statement) => ({
         form: 'signup',
-        formVersion: 'v1',
-        statement: 'age_18plus',
+        formVersion: 'v2',
+        statement,
         mechanism: 'web_form_submission',
-      },
-      {
-        form: 'signup',
-        formVersion: 'v1',
-        statement: 'account_data',
-        mechanism: 'web_form_submission',
-      },
-    ]);
-    expect(new Set(grants.map((g) => g.key)).size).toBe(2);
+        privacyPolicyVersion: 'dev_placeholder',
+        termsVersion: 'dev_placeholder',
+      })),
+    );
+    expect(new Set(grants.map((g) => g.key)).size).toBe(3);
 
     // Accepted: moving around the site doesn't ask again.
     await page.getByRole('link', { name: 'He Is Real Today, home' }).click();
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    expect(grants).toHaveLength(2);
+    expect(grants).toHaveLength(3);
   });
 
   test('accepting before the account check answers: its late “not accepted” doesn’t send the person back', async ({
@@ -248,9 +257,10 @@ test.describe('behaviour', () => {
     );
     await tick(page, AGE);
     await tick(page, ACCOUNT_DATA);
+    await tick(page, TERMS);
     await page.getByRole('button', { name: 'Agree and continue' }).click();
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/about`);
-    expect(grants).toHaveLength(2);
+    expect(grants).toHaveLength(3);
 
     const late = page.waitForResponse(
       (r) => r.url() === ACCOUNT_URL && r.request().method() === 'GET',
@@ -264,7 +274,7 @@ test.describe('behaviour', () => {
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/about`);
     await expect(page.getByRole('checkbox')).toHaveCount(0);
-    expect(grants).toHaveLength(2);
+    expect(grants).toHaveLength(3);
   });
 
   test('D114: the boxes and their words come from the statements data, outside the document', async ({
@@ -274,7 +284,7 @@ test.describe('behaviour', () => {
       readFileSync(
         resolve(
           __dirname,
-          '../../../libs/legal/forms/signup/v1.statements.json',
+          '../../../libs/legal/forms/signup/v2.statements.json',
         ),
         'utf8',
       ),
@@ -282,8 +292,12 @@ test.describe('behaviour', () => {
     await answerAccount(page, { signup: false });
     await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
     const document = page.locator('[data-legal-document]');
-    await expect(document).toContainText('Sign-up consent, version 1');
-    // The document is only words: no box is inside it.
+    // D122: a short introduction, never a document listing the boxes.
+    await expect(document).toContainText('Before you use your account');
+    for (const { label } of file.statements) {
+      await expect(document).not.toContainText(label);
+    }
+    // The introduction is only words: no box is inside it.
     await expect(document.getByRole('checkbox')).toHaveCount(0);
     // The boxes, in the file's order, each named by exactly its words.
     const boxes = page.locator('form fieldset').getByRole('checkbox');
@@ -317,6 +331,7 @@ test.describe('behaviour', () => {
     );
     await tick(page, AGE);
     await tick(page, ACCOUNT_DATA);
+    await tick(page, TERMS);
     await page.getByRole('button', { name: 'Agree and continue' }).click();
     await expect(page.locator('main').getByRole('alert')).toContainText(
       'We couldn’t save your answer',
@@ -334,37 +349,51 @@ test.describe('behaviour', () => {
     expect(keyOf('account_data').size).toBe(1);
   });
 
-  test('a form updated while the person reads it asks them to read the new one', async ({
-    page,
-  }) => {
-    await answerAccount(page, { signup: false });
-    const origin = new URL(WEB_SIGNED_IN_URL).origin;
-    await page.route(CONSENTS_URL, (route) =>
-      route.request().method() === 'POST'
-        ? route.fulfill({
-            status: 409,
-            contentType: 'application/problem+json',
-            headers: { 'access-control-allow-origin': origin },
-            body: JSON.stringify({
-              type: 'about:blank',
-              title: 'Conflict',
-              status: 409,
-              code: 'form_version_not_in_force',
-            }),
-          })
-        : route.fallback(),
-    );
-    await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
-    await tick(page, AGE);
-    await tick(page, ACCOUNT_DATA);
-    await page.getByRole('button', { name: 'Agree and continue' }).click();
-    await expect(page.locator('main').getByRole('alert')).toContainText(
+  for (const [code, what, message] of [
+    [
+      'form_version_not_in_force',
+      'a form',
       'This form was updated while you were reading it.',
-    );
-    await expect(
-      page.getByRole('link', { name: 'Reload the page' }),
-    ).toBeVisible();
-  });
+    ],
+    [
+      'legal_document_not_in_force',
+      'the privacy policy or terms',
+      'Our privacy policy or terms of use were updated while you were reading.',
+    ],
+  ]) {
+    test(`${what} updated while the person reads asks them to read the new one`, async ({
+      page,
+    }) => {
+      await answerAccount(page, { signup: false });
+      const origin = new URL(WEB_SIGNED_IN_URL).origin;
+      await page.route(CONSENTS_URL, (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({
+              status: 409,
+              contentType: 'application/problem+json',
+              headers: { 'access-control-allow-origin': origin },
+              body: JSON.stringify({
+                type: 'about:blank',
+                title: 'Conflict',
+                status: 409,
+                code,
+              }),
+            })
+          : route.fallback(),
+      );
+      await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
+      await tick(page, AGE);
+      await tick(page, ACCOUNT_DATA);
+      await tick(page, TERMS);
+      await page.getByRole('button', { name: 'Agree and continue' }).click();
+      await expect(page.locator('main').getByRole('alert')).toContainText(
+        message,
+      );
+      await expect(
+        page.getByRole('link', { name: 'Reload the page' }),
+      ).toBeVisible();
+    });
+  }
 
   test('declining: a plain explanation and Sign out, adults only, and the legal pages stay open', async ({
     page,
@@ -421,11 +450,12 @@ test.describe('behaviour', () => {
       `${WEB_SIGNED_IN_URL}/consent/testimony?redirect_url=%2Fstories`,
     );
     await expect(banner).toHaveCount(0);
-    // One box, the Art 9 one; publishing is asked again at the next submission.
+    // One box, the Art 9 one; publishing is asked again at the next submission, which the
+    // introduction says in its own words (D122: it never lists the boxes).
     await expect(page.getByRole('checkbox')).toHaveCount(1);
-    await expect(
-      page.getByText('Publish my story on heisreal.today'),
-    ).toBeVisible();
+    await expect(page.locator('[data-legal-document]')).toContainText(
+      'explicit consent before we store anything',
+    );
     await tick(
       page,
       /I agree to He Is Real Today storing and processing my story/,
@@ -443,9 +473,10 @@ test.describe('behaviour', () => {
     expect(grants.map((g) => g.body)).toEqual([
       {
         form: 'testimony',
-        formVersion: 'v1',
+        formVersion: 'v2',
         statement: 'special_category_religious',
         mechanism: 'reconsent_prompt',
+        privacyPolicyVersion: 'dev_placeholder',
       },
     ]);
   });

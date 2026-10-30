@@ -18,6 +18,12 @@ export interface EvidenceInput {
   };
   dpaVersion: string;
   dpaContentHash: string;
+  /**
+   * D122: the privacy policy version's PDF of record (its sha256); present for evidence v4. With
+   * it, on a sign-up version that asks for them, the terms of use version shown.
+   */
+  dpaPdfSha256?: string;
+  terms?: { version: string; textHash: string; pdfSha256: string };
   /** The statement: a consent type. */
   type: string;
   event: 'granted' | 'withdrawn';
@@ -29,6 +35,10 @@ export interface EvidenceInput {
  * presented and chosen. Every text is identified by its own sha256 (the form's `textHash`, the
  * DPA's `contentHash`, both computed from libs/legal), so the hash can be recomputed later from
  * the repo, or the copies in the database, and the ledger alone.
+ *   - v4 (D122, every event whose privacy policy has a PDF of record): v3 plus the privacy
+ *     policy's PDF hash and, on a sign-up version asking for them, the terms of use version with
+ *     its words' and PDF's hashes (null otherwise), so the ledger proves the documents in force
+ *     (consent.evidenceVersion = 4);
  *   - v3 (D114, every event since the boxes became structured data): v2 plus the version's
  *     statements hash, so the words beside the box ticked are proven too (consent.evidenceVersion
  *     = 3);
@@ -38,38 +48,56 @@ export interface EvidenceInput {
  *     type, the event and the mechanism.
  */
 export function evidenceHash(e: EvidenceInput): string {
-  const canonical = e.form?.statementsHash
-    ? [
-        'heisreal-consent-evidence/v3',
-        e.form.kind,
-        e.form.version,
-        e.form.textHash,
-        e.form.statementsHash,
-        e.dpaVersion,
-        e.dpaContentHash,
-        e.type,
-        e.event,
-        e.mechanism,
-      ]
-    : e.form
+  const canonical =
+    e.form?.statementsHash && e.dpaPdfSha256
       ? [
-          'heisreal-consent-evidence/v2',
+          'heisreal-consent-evidence/v4',
           e.form.kind,
           e.form.version,
           e.form.textHash,
+          e.form.statementsHash,
           e.dpaVersion,
           e.dpaContentHash,
+          e.dpaPdfSha256,
+          e.terms?.version ?? null,
+          e.terms?.textHash ?? null,
+          e.terms?.pdfSha256 ?? null,
           e.type,
           e.event,
           e.mechanism,
         ]
-      : [
-          'heisreal-consent-evidence/v1',
-          e.dpaVersion,
-          e.dpaContentHash,
-          e.type,
-          e.event,
-          e.mechanism,
-        ];
+      : e.form?.statementsHash
+        ? [
+            'heisreal-consent-evidence/v3',
+            e.form.kind,
+            e.form.version,
+            e.form.textHash,
+            e.form.statementsHash,
+            e.dpaVersion,
+            e.dpaContentHash,
+            e.type,
+            e.event,
+            e.mechanism,
+          ]
+        : e.form
+          ? [
+              'heisreal-consent-evidence/v2',
+              e.form.kind,
+              e.form.version,
+              e.form.textHash,
+              e.dpaVersion,
+              e.dpaContentHash,
+              e.type,
+              e.event,
+              e.mechanism,
+            ]
+          : [
+              'heisreal-consent-evidence/v1',
+              e.dpaVersion,
+              e.dpaContentHash,
+              e.type,
+              e.event,
+              e.mechanism,
+            ];
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
