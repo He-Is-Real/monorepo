@@ -11,8 +11,9 @@ import { fileURLToPath } from 'node:url';
 const repo = fileURLToPath(new URL('../../..', import.meta.url));
 const script = join(repo, 'tools/scripts/tf-location-check.sh');
 
-const check = (resourceChanges) => {
-  const result = spawnSync(script, [], {
+// Outside dev (blocking) unless told otherwise.
+const check = (resourceChanges, environment = 'prod') => {
+  const result = spawnSync(script, [environment], {
     encoding: 'utf8',
     input: JSON.stringify({ resource_changes: resourceChanges }),
   });
@@ -236,7 +237,7 @@ test("Bunny: images in London, only Stream's zone in Frankfurt, nothing replicat
 
 test('an empty plan passes and an unreadable one fails', () => {
   assert.equal(check([]).stdout, 'location-check: ok (0 created or updated)\n');
-  const result = spawnSync(script, [], {
+  const result = spawnSync(script, ['prod'], {
     encoding: 'utf8',
     input: 'not json SECRET',
   });
@@ -245,4 +246,41 @@ test('an empty plan passes and an unreadable one fails', () => {
     result.stdout + result.stderr,
     'location-check: could not parse plan\n',
   );
+});
+
+test('dev reports the same findings but never blocks', () => {
+  const result = check(
+    [
+      rc('google_storage_bucket.eu', { location: 'EU', name: 'SECRET' }),
+      rc('google_pubsub_topic.t', { message_storage_policy: [] }),
+    ],
+    'dev',
+  );
+  assert.equal(result.status, 0, result.all);
+  assert.equal(
+    result.stdout,
+    [
+      'location-check: google_storage_bucket.eu: location=EU',
+      'location-check: google_pubsub_topic.t: message_storage_policy.allowed_persistence_regions=(not declared)',
+      'location-check: WARNING: 2 outside the UK (dev: reported only; outside dev this fails the plan)',
+      '',
+    ].join('\n'),
+  );
+  assert.doesNotMatch(result.all, /SECRET/);
+  const unreadable = spawnSync(script, ['dev'], {
+    encoding: 'utf8',
+    input: 'not json SECRET',
+  });
+  assert.equal(unreadable.status, 0);
+  assert.match(unreadable.stdout, /WARNING: could not parse plan \(dev: /);
+  assert.doesNotMatch(unreadable.stdout + unreadable.stderr, /SECRET/);
+});
+
+test('every environment but dev blocks, and one must be named', () => {
+  const outside = [rc('google_storage_bucket.us', { location: 'US' })];
+  for (const environment of ['prod', 'staging', 'Dev', 'dev2']) {
+    assert.equal(check(outside, environment).status, 1, environment);
+  }
+  assert.equal(spawnSync(script, [], { input: '{}' }).status, 64);
+  assert.equal(spawnSync(script, [''], { input: '{}' }).status, 64);
 });

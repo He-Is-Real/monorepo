@@ -3,7 +3,7 @@
 #
 #   tools/scripts/tf.sh <root> <tofu args...>       tofu -chdir=infra/terraform/live/dev/<root> ...
 #   tools/scripts/tf.sh <root> plan-summary <plan>  changed addresses, actions and a count only
-#   tools/scripts/tf.sh <root> location-check <plan> fails if it puts anything outside the UK
+#   tools/scripts/tf.sh <root> location-check <plan> reports anything outside the UK (blocks outside dev)
 #   tools/scripts/tf.sh bunny-cli <args...>         the bunny CLI with the account key, one process
 #   tools/scripts/tf.sh bunny-mask secrets|state    CI only: ::add-mask:: every Bunny key
 #   tools/scripts/tf.sh stripe-mask                 CI only: ::add-mask:: the Stripe API key
@@ -17,8 +17,10 @@
 #     tf-bunny; bootstrap always with your own credentials.
 # Impersonation needs `gcloud auth login --update-adc` and Token Creator on the account.
 #
-# Every `plan` (bunny's too) is checked by tf-location-check.sh, D119's interim UK guard: exit 1
-# if it creates or updates anything outside the UK. Without -out it plans to a scratch file.
+# Every `plan` (bunny's too) is checked by tf-location-check.sh, D119's interim UK guard, for the
+# root's environment (live/<environment>/<root>): in dev a finding is a warning and the exit code
+# stays tofu's; in any other environment it exits 1. Findings also go to the GitHub step summary.
+# Without -out it plans to a scratch file.
 #
 # Refuses debug logs (TF_LOG*, RUNNER_DEBUG=1): they can print secrets into public CI logs.
 # Always unsets TF_ENCRYPTION, which would replace the encryption config in code.
@@ -137,6 +139,8 @@ if [ "$target" = stripe-mask ]; then
 fi
 
 dir="$repo/infra/terraform/live/dev/$root"
+# The root's environment, from its path: the location check blocks everywhere but dev.
+environment="$(basename "$(dirname "$dir")")"
 
 # Same OpenTofu everywhere: mise.toml is the pin.
 expected="$(sed -n 's/^opentofu = "\(.*\)"/\1/p' "$repo/mise.toml")"
@@ -226,14 +230,31 @@ if [ "$1" = plan-summary ]; then
 fi
 
 # Prints only addresses, attribute paths and locations, so it's safe for bunny and public logs.
+# Anything but "ok" also goes to the step summary, so a dev warning is seen without the log.
 location_check() {
-  local json status=0
+  local json report status=0
   json="$(tofu -chdir="$dir" show -json "$1" 2> /dev/null)" || status=$?
   if [ "$status" -ne 0 ]; then
-    echo "location-check: could not read plan (exit $status)"
-    return 1
+    report="location-check: could not read plan (exit $status)"
+    if [ "$environment" = dev ]; then
+      report="location-check: WARNING: could not read plan (exit $status; dev: reported only; outside dev this fails the plan)"
+      status=0
+    else
+      status=1
+    fi
+  else
+    report="$("$repo/tools/scripts/tf-location-check.sh" "$environment" <<< "$json")" || status=$?
   fi
-  "$repo/tools/scripts/tf-location-check.sh" <<< "$json"
+  echo "$report"
+  case "$report" in
+  "location-check: ok "*) ;;
+  *)
+    # shellcheck disable=SC2016 # literal Markdown fences
+    [ -z "${GITHUB_STEP_SUMMARY:-}" ] ||
+      printf '**UK location check (%s, %s):**\n```\n%s\n```\n' "$root" "$environment" "$report" >> "$GITHUB_STEP_SUMMARY"
+    ;;
+  esac
+  return "$status"
 }
 
 if [ "$1" = location-check ]; then

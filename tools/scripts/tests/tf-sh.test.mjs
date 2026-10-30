@@ -440,19 +440,35 @@ test("plan keeps tofu's exit code and the caller's plan file when the check pass
   }
 });
 
-test('plan fails when anything is outside the UK, printing only addresses and locations', () => {
+// Every root tf.sh plans today is under live/dev, so plans warn; blocking outside dev is
+// tf-location-check.test.mjs's (tf.sh passes it the root's environment from its path).
+test("in dev, a plan outside the UK warns in the log and step summary and keeps tofu's exit code", () => {
   for (const root of ['gcp', 'bunny', 'bootstrap']) {
+    const summary = join(stubs, `summary-${root}.md`);
+    writeFileSync(summary, '');
     const result = run([root, 'plan', '-detailed-exitcode', '-out=x'], {
       STUB_PLAN_EXIT: '2',
       STUB_SHOW_JSON: outside,
+      GITHUB_STEP_SUMMARY: summary,
     });
-    assert.equal(result.status, 1, root);
+    assert.equal(result.status, 2, root);
     assert.match(
       result.stderr,
-      /location-check: module\.bunny\.bunnynet_storage_zone\.images: region=NY\n/,
+      /location-check: module\.bunny\.bunnynet_storage_zone\.images: region=NY\nlocation-check: WARNING: 1 outside the UK \(dev: /,
     );
-    assert.doesNotMatch(result.all, /SECRET/);
+    const written = readFileSync(summary, 'utf8');
+    assert.match(written, new RegExp(`UK location check \\(${root}, dev\\)`));
+    assert.match(written, /images: region=NY/);
+    assert.doesNotMatch(result.all + written, /SECRET/);
   }
+});
+
+test('a plan inside the UK writes nothing to the step summary', () => {
+  const summary = join(stubs, 'summary-ok.md');
+  writeFileSync(summary, '');
+  const result = run(['gcp', 'plan'], { GITHUB_STEP_SUMMARY: summary });
+  assert.equal(result.status, 0, result.all);
+  assert.equal(readFileSync(summary, 'utf8'), '');
 });
 
 test("a failed plan isn't checked and keeps its exit code", () => {
@@ -464,7 +480,7 @@ test("a failed plan isn't checked and keeps its exit code", () => {
   assert.doesNotMatch(result.stderr, /location-check/);
 });
 
-test('location-check checks a saved plan, bunny included, and hides show errors', () => {
+test('location-check checks a saved plan, bunny included, warns in dev and hides show errors', () => {
   assert.equal(
     run(['bunny', 'location-check', 'tfplan'], { STUB_SHOW_JSON: plan }).stdout,
     'location-check: ok (0 created or updated)\n',
@@ -472,14 +488,18 @@ test('location-check checks a saved plan, bunny included, and hides show errors'
   const bad = run(['bunny', 'location-check', 'tfplan'], {
     STUB_SHOW_JSON: outside,
   });
-  assert.equal(bad.status, 1);
+  assert.equal(bad.status, 0);
+  assert.match(bad.stdout, /WARNING: 1 outside the UK/);
   assert.doesNotMatch(bad.all, /SECRET/);
   const failed = run(['bunny', 'location-check', 'tfplan'], {
     STUB_SHOW_FAIL: '1',
   });
-  assert.equal(failed.status, 1);
+  assert.equal(failed.status, 0);
   assert.doesNotMatch(failed.all, /SECRET/);
-  assert.match(failed.all, /location-check: could not read plan \(exit 1\)/);
+  assert.match(
+    failed.all,
+    /location-check: WARNING: could not read plan \(exit 1; dev: /,
+  );
   assert.equal(run(['gcp', 'location-check']).status, 64);
 });
 

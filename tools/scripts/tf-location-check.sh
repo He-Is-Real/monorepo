@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Refuses a plan that would put something outside the UK (D119's interim guard, while the
-# organisation's location policy, D102, is postponed). Tests: tests/tf-location-check.test.mjs.
+# Reports, and outside dev refuses, a plan that would put something outside the UK (D119's
+# interim guard until the organisation's location policy, D102, is set up at launch).
+# Tests: tests/tf-location-check.test.mjs.
 #
-#   tofu show -json <plan> | tools/scripts/tf-location-check.sh
+#   tofu show -json <plan> | tools/scripts/tf-location-check.sh <environment>
 #
-# `tf.sh <root> plan` runs it on every plan, CI's and laptops' alike (`tf.sh <root>
-# location-check <plan>` on a saved one). For every resource the plan creates or updates (replaces
-# included), it fails on:
+# `tf.sh <root> plan` runs it on every plan, CI's and laptops' alike, with the root's
+# environment (`tf.sh <root> location-check <plan>` on a saved one). For every resource the plan
+# creates or updates (replaces included), it reports:
 #   - any `location`, `region` or `zone` attribute (any case, at any depth, list items included)
 #     that isn't europe-west2, europe-west2-a/b/c or EUROPE-WEST2 (Cloud Storage's spelling),
 #     including one known only after apply;
@@ -14,7 +15,11 @@
 #   - a google_secret_manager_secret with automatic replication (global).
 # Exceptions are the two lists below. CI logs are public: it prints only resource addresses,
 # attribute paths and the offending locations ("(sensitive)" for a sensitive one), never other
-# values. Exit codes: 0 all in the UK, 1 anything outside it or an unreadable plan.
+# values.
+#
+# dev only warns (Joel, 2026-10-30: regional restrictions mustn't slow dev down); any other
+# environment blocks. Exit codes: 0 all in the UK, or dev; 1 a finding or an unreadable plan
+# outside dev; 64 usage.
 set -euo pipefail
 
 # Genuinely global: Google doesn't store data for them in a region, so they're never checked.
@@ -41,6 +46,7 @@ global_types='{
 # library's storage zone: Bunny sets Stream storage there and offers no other (D89). Zones are
 # never replicated (copies elsewhere can never be removed again). bunnynet_dns_record.zone and
 # bunnynet_storage_file.zone are a DNS zone and a storage zone, not places.
+# shellcheck disable=SC2016 # a jq program: its $names are jq's
 program='
 def uk: . == "europe-west2" or . == "EUROPE-WEST2" or test("^europe-west2-[abc]$");
 def is_loc_key: type == "string" and (ascii_downcase | IN("location", "region", "zone"));
@@ -90,18 +96,36 @@ def bunny_ok($rc; $key; $v):
       | "\($rc.address): replication_regions=\($after.replication_regions | join(","))"
     )
   ] as $bad
-| ($bad[] | "location-check: \(.)"),
-  if ($bad | length) > 0 then
-    "location-check: \($bad | length) outside the UK; fix them, or record an exception in tools/scripts/tf-location-check.sh"
-  else
-    "location-check: ok (\($changed | length) created or updated)"
-  end
+| ($changed | length), $bad[]
 '
 
-# jq's own errors could quote the plan, so they're never shown.
-report="$(jq -r --argjson global "$global_types" "$program" 2> /dev/null)" || {
-  echo 'location-check: could not parse plan'
+[ $# -eq 1 ] && [ -n "$1" ] || {
+  sed -n '6p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 64
+}
+environment="$1"
+
+# Outside dev: the failure line and exit 1. In dev: a warning, and the plan goes on.
+finish() { # finish <problem> <failure line>
+  if [ "$environment" = dev ]; then
+    echo "location-check: WARNING: $1 (dev: reported only; outside dev this fails the plan)"
+    exit 0
+  fi
+  echo "location-check: $2"
   exit 1
 }
-echo "$report"
-[[ "$report" == *$'\n'"location-check: ok "* || "$report" == "location-check: ok "* ]]
+
+# jq's own errors could quote the plan, so they're never shown.
+report="$(jq -r --argjson global "$global_types" "$program" 2> /dev/null)" ||
+  finish 'could not parse plan' 'could not parse plan'
+
+changed="$(head -n 1 <<< "$report")"
+bad="$(tail -n +2 <<< "$report")"
+if [ -z "$bad" ]; then
+  echo "location-check: ok ($changed created or updated)"
+  exit 0
+fi
+while IFS= read -r line; do echo "location-check: $line"; done <<< "$bad"
+count="$(wc -l <<< "$bad" | tr -d ' ')"
+finish "$count outside the UK" \
+  "$count outside the UK; fix them, or record an exception in tools/scripts/tf-location-check.sh"
