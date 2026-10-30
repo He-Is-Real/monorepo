@@ -147,6 +147,13 @@ test('create, delete, replace, read, import or move → approval', () => {
   const moved = webUpdate();
   moved.previous_address = 'module.gcp.google_cloud_run_v2_service.old';
   assert.equal(decide('dev', plan(moved)).auto, false);
+  // An import or move with nothing else to change is a no-op, and still not an image update.
+  const noopImport = structuredClone(noop);
+  noopImport.change.importing = { id: 'projects/heisreal-dev/roles/x' };
+  assert.equal(decide('dev', plan(webUpdate(), noopImport)).auto, false);
+  const noopMove = structuredClone(noop);
+  noopMove.previous_address = 'module.gcp.google_project_iam_member.old';
+  assert.equal(decide('dev', plan(webUpdate(), noopMove)).auto, false);
 });
 
 test('anything but Cloud Run → approval: IAM, secrets, the database, Bunny, Stripe', () => {

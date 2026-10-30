@@ -11,9 +11,10 @@
 // `auto` only if all of these hold, so anything unexpected waits for an approval:
 //   - the environment is `dev`. Production never applies on its own, whatever the plan says;
 //   - the plan applies cleanly (not errored, applyable, nothing deferred);
+//   - no resource is imported or moved, not even as a no-op;
 //   - every resource change is a no-op, or an in-place `update` of a managed
 //     google_cloud_run_v2_service or google_cloud_run_v2_job in project heisreal-dev
-//     (no create, delete, replace, read, import or move);
+//     (no create, delete, replace or read);
 //   - in each update, the only changed attributes are its containers' `image`s, each now a digest
 //     from our own `apps` repository; any other attribute changes nothing or is one Google
 //     computes after every update (etag, generation, revisions, conditions, ...);
@@ -107,14 +108,15 @@ export function decide(environment, plan) {
   const images = [];
   for (const rc of plan?.resource_changes ?? []) {
     const actions = rc.change?.actions ?? [];
-    if (actions.length === 1 && actions[0] === 'no-op') continue;
     const where = rc.address ?? 'a resource';
+    // Before the no-op skip: an import or move changes state even when nothing else changes.
+    if (rc.change?.importing || rc.previous_address)
+      return manual(`${where}: imported or moved`);
+    if (actions.length === 1 && actions[0] === 'no-op') continue;
     if (actions.length !== 1 || actions[0] !== 'update')
       return manual(`${where}: ${actions.join(', ') || 'no action'}`);
     if (rc.mode !== 'managed' || !TYPES.has(rc.type))
       return manual(`${where}: not a Cloud Run service or job`);
-    if (rc.change.importing || rc.previous_address)
-      return manual(`${where}: imported or moved`);
     const { before, after, after_unknown: unknown } = rc.change;
     if (before?.project !== PROJECT || after?.project !== PROJECT)
       return manual(`${where}: not in ${PROJECT}`);
