@@ -58,9 +58,12 @@ run "sandbox_donations" {
       stripe_billing_portal_configuration.donors.login_page.enabled &&
       stripe_billing_portal_configuration.donors.features.subscription_cancel.enabled &&
       stripe_billing_portal_configuration.donors.features.subscription_cancel.mode == "at_period_end" &&
-      stripe_billing_portal_configuration.donors.features.subscription_update.products[0].adjustable_quantity.maximum == 999
+      stripe_billing_portal_configuration.donors.features.subscription_update.default_allowed_updates == tolist(["quantity"]) &&
+      # Not set until the provider reads it back (stripe/terraform-provider-stripe#53, #54):
+      # setting it fails every apply.
+      stripe_billing_portal_configuration.donors.features.subscription_update.products == null
     )
-    error_message = "Monthly donors can change their gift (1 to 999) or stop it (at the end of the month paid) from Stripe's portal."
+    error_message = "Monthly donors can change how many £1s they give, or stop (at the end of the month paid), from Stripe's portal; the portal sets no products while the provider can't read them back."
   }
 }
 

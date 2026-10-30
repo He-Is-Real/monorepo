@@ -533,6 +533,23 @@ sends no Content-Security-Policy yet; when one comes, it needs `script-src` and 
 | First setup: the buttons (once) | Dashboard (sandbox) → Payment Links → open each link → **Buy button** → Copy code. From each snippet keep `buy-button-id` (and the `publishable-key`, the same in both), put them and the portal URL in `web_donations` in `live/dev/gcp/main.tf`, and apply gcp                                                                                                                              |
 | Rotate the key                  | create a new restricted key as above, add it as a new version (same command), roll the old one in the Dashboard                                                                                                                                                                                                                                                                               |
 
+**The donor portal sets no per-product limits (provider bug).** Stripe's provider 0.3.0 never
+asks Stripe to include the portal's `features.subscription_update.products` (Stripe leaves that
+field out unless asked), so an apply that sets it always ends "Provider produced inconsistent
+result after apply" and taints the portal (stripe/terraform-provider-stripe#53 and #54, open).
+So `modules/stripe` leaves `products` out: donors can still change their quantity or stop.
+Dev's portal (`bpc_1UWDW6QXwDT04lZZmPiB1gcP`, the account's default) kept the 1–999 limits from
+its first apply, which set them before failing; OpenTofu doesn't see or change them. A new
+environment's portal won't have them. Once a provider release expands the field, put `products`
+back (the limits `var.monthly` gives) and plan: it converges everywhere.
+
+**After that first failed apply (dev, once).** The portal exists in Stripe but its state is
+tainted, and a plan would deactivate it (it's the account's default) and make another. Clear the
+taint before the next stripe plan (`tofu-apply.yml`), as a developer:
+`tools/scripts/tf.sh stripe untaint module.stripe.stripe_billing_portal_configuration.donors`.
+The next plan should then say "No changes" for the portal (`modules/stripe/tests/link-lifecycle.sh`
+checks both cases). Nothing to clean up in Stripe: there is one portal configuration.
+
 **Changing an amount** (the one-off minimum or starting amount, or the monthly unit) makes a new
 price, since Stripe's prices can't change, and so a **new Payment Link**: a link's price can't be
 swapped in place (`replace_triggered_by` in `modules/stripe`; tested offline by

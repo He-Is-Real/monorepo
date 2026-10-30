@@ -16,7 +16,8 @@
 #     no root calls it until the organisation admin's setup, D119).
 #   stripe: what donors can give (D116) and that dev refuses a live key; then, with the real
 #     provider planning offline against a written state (stripe/tests/link-lifecycle.sh), that
-#     a new price replaces its Payment Link and that anything deactivated in the Dashboard is drift.
+#     a new price replaces its Payment Link, that anything deactivated in the Dashboard is drift,
+#     and that the donor portal converges while the provider can't read its products.
 set -euo pipefail
 cd "$(dirname "$0")/modules"
 for tests in */tests; do
