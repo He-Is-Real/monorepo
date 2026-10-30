@@ -99,15 +99,15 @@ are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes
 
 ## CI
 
-| Workflow                    | When                                                      | Identity                                                                                          | Changes the cloud?                              |
-| --------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `tofu-plan.yml`             | automatically on PRs touching infra                       | `tf-planner` (gcp, images; read-only); `tf-cluster-planner` (cluster, `cluster-plan` env)         | Dry-run writes in `database`                    |
-| `tofu-apply.yml`            | every push to `main`, every Release Images run, dispatch  | `tf-deployer` (gcp, cluster, images), `tf-bunny` (bunny): only this workflow and drift, on `main` | Yes, after an approval in the `dev` environment |
-| `tofu-drift.yml`            | weekly (Monday 06:17 UTC) and dispatch                    | `tf-deployer` (gcp, cluster), `tf-planner` (bootstrap), `tf-bunny` (bunny)                        | No                                              |
-| `images.yml`                | pushes to `main` that affect a service ("Release Images") | `ci-image-pusher`: only `main` pushes                                                             | Pushes to `apps`                                |
-| `snapshot-images.yml`       | **manual** Run workflow, any branch                       | `ci-snapshot-pusher`: only that workflow                                                          | Pushes to `apps-scratch`                        |
-| `reset-dev-data.yml`        | **manual** Run workflow, `main` (D50)                     | `ci-dev-seeder`: only this and `dev-behavioural-tests.yml`, dispatched on `main`                  | Starts the dev-seed Job (dummy data, no apply)  |
-| `dev-behavioural-tests.yml` | **manual** Run workflow, `main` (D50)                     | `ci-dev-seeder` for the reset job; the test job has no identity                                   | Resets dev data, then tests the dev URLs        |
+| Workflow                    | When                                                       | Identity                                                                                          | Changes the cloud?                              |
+| --------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `tofu-plan.yml`             | automatically on PRs touching infra                        | `tf-planner` (gcp, images; read-only); `tf-cluster-planner` (cluster, `cluster-plan` env)         | Dry-run writes in `database`                    |
+| `tofu-apply.yml`            | every Release Images run (one per merge), dispatch         | `tf-deployer` (gcp, cluster, images), `tf-bunny` (bunny): only this workflow and drift, on `main` | Yes, after an approval in the `dev` environment |
+| `tofu-drift.yml`            | weekly (Monday 06:17 UTC) and dispatch                     | `tf-deployer` (gcp, cluster), `tf-planner` (bootstrap), `tf-bunny` (bunny)                        | No                                              |
+| `images.yml`                | every push to `main` ("Release Images"; builds if changed) | `ci-image-pusher`: only `main` pushes                                                             | Pushes to `apps`                                |
+| `snapshot-images.yml`       | **manual** Run workflow, any branch                        | `ci-snapshot-pusher`: only that workflow                                                          | Pushes to `apps-scratch`                        |
+| `reset-dev-data.yml`        | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder`: only this and `dev-behavioural-tests.yml`, dispatched on `main`                  | Starts the dev-seed Job (dummy data, no apply)  |
+| `dev-behavioural-tests.yml` | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder` for the reset job; the test job has no identity                                   | Resets dev data, then tests the dev URLs        |
 
 All keyless (Workload Identity Federation, limited to this repository's ID; forks get nothing).
 The repository is public, so **Actions logs, summaries and artifacts are world-readable**
@@ -123,14 +123,31 @@ touches (`tools/scripts/tf-roots.sh`) are planned with `-refresh=false -lock=fal
 can't take the lock or read secret values). **bunny is never planned on a PR** (tf-bunny is
 available only on `main`); bootstrap is planned and applied locally.
 
+**Approve the cluster plan straight away.** A PR that touches the cluster root waits at the
+`cluster-plan` gate until someone approves it (the approval only lets the planner send dry runs;
+nothing changes). Builders, and Claude for Joel, approve it as soon as the PR is open instead of
+when the review starts: it used to wait 10 minutes or more on a quarter of infra PRs (pipeline
+speed review, P3).
+
 **`tofu-apply.yml` (merge → plan → approve → apply).**
 
+- **One run per merge.** Release Images runs on every push to `main` (it skips the build when no
+  service changed: under a minute), and its completion, success or failure, starts the run. There's
+  no push trigger, so a merge no longer starts a second run that holds the queue or plans before
+  the images exist.
 - **One run at a time** (concurrency group `tofu-apply`, never cancelled in progress). GitHub keeps
   at most one pending run and drops older pending ones, which loses nothing because:
 - **every run plans every root** at `main` HEAD, resolved once by the first job (gcp, cluster and
   bunny; images only when dispatched with `images`; never bootstrap). Unchanged roots say "No
-  changes" and skip their apply. Every Release Images completion, success or failure, triggers a
-  full run, so a new image in `apps` is planned as soon as it exists.
+  changes" and skip their apply. If `main` moved past the merge that started the run, the first
+  job waits for the new HEAD's Release Images (`tools/scripts/gh-wait-run.sh`); unless it
+  succeeded, nothing plans (re-run Release Images: its completion starts a new run).
+- **The CI gate.** No apply runs unless `ci.yml` passed on `main` for the target commit. The `ci`
+  job waits for it beside the plans and the first approval, so the wait mostly overlaps them; every
+  apply job and wave 1's stages need it (`tools/scripts/tests/tf-apply-order.test.mjs`). If CI
+  failed (say a flaky test), nothing applies and the run is red: re-run CI's failed jobs, and once
+  it's green dispatch "OpenTofu apply". If CI was cancelled because `main` moved on, the newer
+  run deploys.
 - **Two approval waves.** Wave 1: gcp and bunny plan in parallel; if either changes, `approve-1`
   waits for one approval in `dev`, then both apply their saved plans, **bunny first**: gcp applies
   once bunny applied or had no changes (bunny grants gcp's services access to keys they read at
@@ -150,8 +167,8 @@ available only on `main`); bootstrap is planned and applied locally.
   otherwise nothing is needed: the newer run plans `main` HEAD.
 - **Failed, rejected, stale or superseded stops every later stage** (`tools/scripts/tf-stage.sh`;
   the `stage-*` jobs write each root's result to the summary). A rejected wave 1 skips wave 2.
-- **To recover from anything** (a failed, rejected or superseded run, or an image built while a
-  run was in flight): Actions → "OpenTofu apply" → Run workflow. It plans everything again.
+- **To recover from anything** (a failed, rejected or superseded run, or a CI run re-run green):
+  Actions → "OpenTofu apply" → Run workflow. It plans everything again.
 
 **`tofu-drift.yml`** runs a full-refresh plan without the lock; any change fails the job and the
 summary lists the addresses. bootstrap is included read-only (as `tf-planner`); images never (its

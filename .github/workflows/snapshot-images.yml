@@ -19,6 +19,7 @@ jobs:
     # A called workflow can only lower what its caller grants.
     permissions:
       contents: read
+      actions: read # asked for by _images.yml (its changed_only check; off here)
       id-token: write
     uses: ./.github/workflows/_images.yml
     with:

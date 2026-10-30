@@ -46,6 +46,8 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['json', { outputFile: `${root}test-output/e2e/results.json` }],
+    // Splits `--shard` runs evenly (CI's shards); nothing otherwise.
+    ['./shard-balance.ts'],
     // CI runs the suite in shards (ci.yml); their blob reports merge into one HTML report.
     ...(process.env['CI']
       ? ([['blob', { outputDir: `${root}test-output/e2e/blob` }]] as const)
