@@ -342,25 +342,3 @@ variable "ci_dev_seeder_email" {
   type        = string
   default     = ""
 }
-
-variable "legal_documents_retention_locked" {
-  description = "Lock the 100-year retention policy of the legal documents bucket (the privacy policy and terms PDFs of record). Irreversible: once locked, the policy can't be shortened or removed, and a bucket can't be deleted until every object is 100 years old. Dev stays unlocked; every other environment must lock it (refused otherwise), before Real stories (D124)."
-  type        = bool
-  default     = false
-  nullable    = false
-  validation {
-    condition     = var.legal_documents_retention_locked || var.environment == "dev"
-    error_message = "legal_documents_retention_locked must be true outside dev: the privacy policy and terms people agreed to must be kept forever."
-  }
-}
-
-variable "dev_legal_placeholders" {
-  description = "Upload the placeholder privacy policy (libs/legal/dpa/dev_placeholder.pdf) and terms (libs/legal/terms/dev_placeholder.pdf) to the legal documents bucket as legal/<privacy|terms>/dev_placeholder/<sha256>.pdf. Dev only: refused unless environment is dev."
-  type        = bool
-  default     = false
-  nullable    = false
-  validation {
-    condition     = !var.dev_legal_placeholders || var.environment == "dev"
-    error_message = "dev_legal_placeholders can only be set in dev."
-  }
-}

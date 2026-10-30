@@ -25,23 +25,22 @@ test('serves dev’s placeholder privacy policy, terms of use and consent forms 
   const dpa = await request.get(`${API_URL}/v1/legal/dpa`);
   expect(dpa.status()).toBe(200);
   const { current } = await dpa.json();
-  expect(current).toMatchObject({ id: 'dev_placeholder', status: 'published' });
-  expect(current.text).toContain('NOT LEGAL TEXT');
-  // D121: the two legal documents, each in force with its PDF of record.
-  for (const document of ['privacy', 'terms']) {
+  expect(current).toMatchObject({ id: 'dev_policy', status: 'published' });
+  // D121, D125: the two legal documents, numbered, each in force with its Markdown, and every
+  // version still readable by its number.
+  for (const [document, number, id] of [
+    ['privacy', 2, 'dev_policy'],
+    ['terms', 1, 'dev_placeholder'],
+  ] as const) {
     const res = await request.get(`${API_URL}/v1/legal/documents/${document}`);
     expect(res.status(), document).toBe(200);
     const body = await res.json();
-    expect(body.current, document).toMatchObject({ id: 'dev_placeholder' });
-    expect(body.current.pdf?.sha256, document).toMatch(/^[0-9a-f]{64}$/);
-    const pdf = await request.get(
-      `${API_URL}/v1/legal/documents/${document}/versions/dev_placeholder.pdf`,
+    expect(body.current, document).toMatchObject({ id, number });
+    expect(body.current.text, document).toContain('placeholder');
+    const first = await request.get(
+      `${API_URL}/v1/legal/documents/${document}/versions/1`,
     );
-    expect([document, pdf.status(), pdf.headers()['content-type']]).toEqual([
-      document,
-      200,
-      'application/pdf',
-    ]);
+    expect([document, first.status()]).toEqual([document, 200]);
   }
   for (const form of ['signup', 'testimony', 'social']) {
     const res = await request.get(`${API_URL}/v1/legal/forms/${form}`);

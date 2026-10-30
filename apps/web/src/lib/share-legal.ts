@@ -1,10 +1,5 @@
-import {
-  type ConsentBox,
-  type ConsentFormName,
-  getConsentForm,
-  type LegalBlock,
-  parseLegalText,
-} from './legal';
+import { type ConsentBox, type ConsentFormName, getConsentForm } from './legal';
+import { renderLegalMarkdown } from './markdown';
 
 // The consent forms the submit flow asks on (D67, D84, D93), read server-side from api-public-read
 // (D32) through lib/legal: each form version in force with the privacy policy in force, which
@@ -16,11 +11,14 @@ export interface ShareForm {
   version: string;
   /** Its boxes and the words beside each, from the version's statements data (D114). */
   boxes: ConsentBox[];
-  /** The form's words: a document to read, never the source of a box. */
-  blocks: LegalBlock[];
-  /** The privacy policy in force, which the grant names (D122), and its words. */
+  /**
+   * The form's words, rendered (lib/markdown.ts, under the flow's h2 steps): a document to
+   * read, never the source of a box.
+   */
+  html: string;
+  /** The privacy policy in force, which the grant names (D122), and its words, rendered. */
   privacyVersion: string;
-  privacyBlocks: LegalBlock[];
+  privacyHtml: string;
 }
 
 /** What the submit flow shows: `null` for a form that isn't published or can't be read. */
@@ -35,9 +33,11 @@ async function shareForm(form: ConsentFormName): Promise<ShareForm | null> {
   return {
     version: result.form.id,
     boxes: result.form.boxes,
-    blocks: parseLegalText(result.form.text),
+    html: renderLegalMarkdown(result.form.text, { topLevel: 3 }),
     privacyVersion: result.privacy.current.id,
-    privacyBlocks: parseLegalText(result.privacy.current.text),
+    privacyHtml: renderLegalMarkdown(result.privacy.current.text, {
+      topLevel: 3,
+    }),
   };
 }
 

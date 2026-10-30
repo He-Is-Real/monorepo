@@ -19,8 +19,9 @@ export function generateMetadata(): Metadata {
 }
 
 /**
- * /admin/legal (D121, D123): the privacy policy's and the terms of use's versions, and
- * publishing a new one (the first one too) with its PDF of record and its web text. For Admin and above (D1): the page asks api-admin from the
+ * /admin/legal (D121, D125): the privacy policy's and the terms of use's versions, and
+ * publishing a new one (the first one too): its text, edited with a live preview. For Admin and
+ * above (D1): the page asks api-admin from the
  * browser with the person's own token (D31), and api-admin refuses anyone else; web's server
  * renders the same shell for everyone (D32) and only hands over api-admin's address.
  */
@@ -33,9 +34,9 @@ export default async function AdminLegalPage() {
           Legal documents
         </h1>
         <p className="mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
-          The privacy policy and the terms of use each have their own versions.
-          Publish a new one with its PDF and the words the site shows; earlier
-          versions stay here, unchanged, for ever.
+          The privacy policy and the terms of use each have their own numbered
+          versions. Edit the text, check the preview, and publish it as the next
+          version; earlier versions stay, unchanged, for ever.
         </p>
         <noscript>
           <p className="mb-6 rounded-2xl border border-border bg-card p-6">

@@ -9,7 +9,7 @@ brackets).
 
 | Service           | Serves                                                                                                                                                | Auth                                | In the database                                  |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
-| `api-public-read` | Anonymous public queries: published stories, tags, the legal documents (privacy policy, terms of use, their PDFs) and consent forms                   | None                                | Its own login; sees only public tables           |
+| `api-public-read` | Anonymous public queries: published stories, tags, the legal documents (privacy policy, terms of use, every version) and consent forms                | None                                | Its own login; sees only public tables           |
 | `api-user`        | **Everything that needs to know who you are**: own stories, account, consents, favourites, feed, and the person's commands; Clerk and Stripe webhooks | Clerk JWT (webhooks: signature)     | Runs as the person, with their Clerk token (D27) |
 | `api-admin`       | Moderation, roles, tags, publishing the privacy policy and terms of use (D121)                                                                        | Clerk JWT, role Moderator or higher | Its own login                                    |
 
@@ -17,9 +17,7 @@ brackets).
   `api-public-read` has no auth code at all.
 - **`web` calls only `api-public-read`, and only on the server, to prerender** pages for crawlers,
   share cards and a fast first load (D32). It never calls `api-user` or `api-admin`, and holds no
-  database access, secrets or user tokens. The legal documents' PDFs reach the browser the same
-  way: web's `/legal/{privacy|terms}/{version}.pdf` fetches them from api-public-read on the
-  server (D121).
+  database access, secrets or user tokens.
 - **The browser calls `api-user` and `api-admin` directly** with the Clerk token (D31). Signed-in
   pages are browser-side components. Each API allows CORS from the `web` origin only.
 - **web's one client for api-user is `apps/web/src/lib/api-user.ts`, browser only** (D83). It asks

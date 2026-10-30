@@ -109,7 +109,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(box(page, TERMS)).not.toBeChecked();
       await page.getByText('Read the privacy policy', { exact: true }).click();
       await expect(page.locator('[data-privacy-document]')).toContainText(
-        'Privacy document: development placeholder',
+        'Cookies and storage',
       );
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
@@ -213,7 +213,7 @@ test.describe('behaviour', () => {
         formVersion: 'v2',
         statement,
         mechanism: 'web_form_submission',
-        privacyPolicyVersion: 'dev_placeholder',
+        privacyPolicyVersion: 'dev_policy',
         termsVersion: 'dev_placeholder',
       })),
     );
@@ -476,7 +476,7 @@ test.describe('behaviour', () => {
         formVersion: 'v2',
         statement: 'special_category_religious',
         mechanism: 'reconsent_prompt',
-        privacyPolicyVersion: 'dev_placeholder',
+        privacyPolicyVersion: 'dev_policy',
       },
     ]);
   });

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   Body,
   Controller,
@@ -12,10 +11,7 @@ import {
   Post,
   Req,
   Res,
-  UploadedFile,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ifNoneMatches,
   NoConsentRequired,
@@ -32,14 +28,6 @@ import { ProblemException } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
-import {
-  type DocumentStore,
-  documentStoreFromEnv,
-  RECORDS_STORE,
-} from './document-store';
-
-/** The largest PDF an admin can upload (multer answers 413 above it). */
-export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
 /** D121: the two legal documents and the table each one's versions live in. */
 const DOCUMENTS = {
@@ -50,27 +38,14 @@ type DocumentName = keyof typeof DOCUMENTS;
 const isDocument = (d: string): d is DocumentName =>
   Object.hasOwn(DOCUMENTS, d);
 
-const SHA256 = /^[0-9a-f]{64}$/;
-const VERSION = /^v([0-9]{1,6})$/;
-/** The web text's limit, as the schema's (characters). */
+/** The text's limit, as the schema's (characters). */
 const MAX_TEXT = 200_000;
-const MAX_NOTE = 500;
 
 /** `table:id` → `id`. */
 const key = (id: string) => {
   const k = id.slice(id.indexOf(':') + 1);
   return k.startsWith('⟨') && k.endsWith('⟩') ? k.slice(1, -1) : k;
 };
-const sha256 = (data: Buffer | string) =>
-  createHash('sha256').update(data).digest('hex');
-
-/** What multer gives for the uploaded `pdf` part (memory storage). */
-interface UploadedPdf {
-  buffer: Buffer;
-  size: number;
-  /** The file's name on the admin's computer. */
-  originalname: string;
-}
 
 /** A field error, as RFC 9457 `errors[]` (D30). */
 const invalid = (pointer: string, code: string, message: string) =>
@@ -82,9 +57,6 @@ const invalid = (pointer: string, code: string, message: string) =>
     [{ pointer, code, message }],
   );
 
-const conflict = (code: string, detail: string) =>
-  new ProblemException(HttpStatus.CONFLICT, code, 'Conflict', detail);
-
 const notFound = () =>
   new ProblemException(
     HttpStatus.NOT_FOUND,
@@ -94,68 +66,42 @@ const notFound = () =>
   );
 
 /**
- * What a refused publish answers (409), or null for any other error (a 5XX). The transaction's
- * own refusals name their code; a transaction conflict means another admin published this
- * document at the same moment (both wrote the legal fence), which is the same as
- * `document_changed`: reload and preview again.
+ * What a refused publish answers (409), or null for any other error (a 5XX). The transaction
+ * names `document_changed` when the version in force isn't the one the admin edited; a
+ * transaction conflict or the unique version number means another admin published this
+ * document at the same moment: the same answer, reload and edit again.
  */
 export function publishRefusal(err: unknown): ProblemException | null {
   const message = err instanceof Error ? err.message : String(err);
-  if (message.includes('already_published')) {
-    return conflict(
-      'already_published',
-      'This PDF is already a version of this document.',
-    );
-  }
-  if (message.includes('document_changed') || isTransactionConflict(err)) {
-    return conflict(
+  if (
+    message.includes('document_changed') ||
+    /dpa_number|terms_number/.test(message) ||
+    isTransactionConflict(err)
+  ) {
+    return new ProblemException(
+      HttpStatus.CONFLICT,
       'document_changed',
-      'Another version of this document was published meanwhile: reload and preview again.',
+      'Conflict',
+      'Another version of this document was published meanwhile: reload, then make your changes again.',
     );
   }
   return null;
 }
 
-/**
- * The PDF part's bytes, exactly as uploaded: they are the record, never read or changed (D123;
- * Joel, 2026-10-30: "we trust the admins, they are vetted people - they upload pdf and that is it"
- * and "just check the file ending - we trust admins to know what a pdf is and have it named
- * correctly"). The only check is the file's name, so a wrong file gets a plain answer.
- */
-function uploaded(pdf: UploadedPdf | undefined): Buffer {
-  if (!pdf) throw invalid('/pdf', 'required', 'Attach the PDF.');
-  if (!/\.pdf$/i.test(pdf.originalname)) {
-    throw invalid(
-      '/pdf',
-      'pdf_not_a_pdf',
-      'Choose a PDF: the file’s name must end in .pdf.',
-    );
-  }
-  return pdf.buffer;
-}
-
-/** The fields `PublishLegalDocument` takes beside the PDF (multipart/form-data). */
+/** `PublishLegalDocument`'s body. */
 export interface PublishInput {
+  /** The new version's Markdown. */
   text: string;
-  textSha256: string;
-  pdfSha256: string;
-  changeNote: string;
-  requiresReacceptance: boolean;
-  /** The version in force the preview was made against; null for the first version. */
-  basedOn: string | null;
+  /** The number of the version in force the admin edited; null for the first version. */
+  basedOn: number | null;
 }
 
 function parsePublish(body: unknown): PublishInput {
-  const b = (body ?? {}) as Record<string, unknown>;
-  const allowed = [
-    'text',
-    'textSha256',
-    'pdfSha256',
-    'changeNote',
-    'requiresReacceptance',
-    'basedOn',
-  ];
-  const unknown = Object.keys(b).find((k) => !allowed.includes(k));
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw invalid('', 'invalid_body', 'A JSON object.');
+  }
+  const b = body as Record<string, unknown>;
+  const unknown = Object.keys(b).find((k) => k !== 'text' && k !== 'basedOn');
   if (unknown) {
     throw invalid(
       `/${unknown}`,
@@ -163,69 +109,30 @@ function parsePublish(body: unknown): PublishInput {
       'Not a field of this command.',
     );
   }
-  const str = (name: string) => {
-    const v = b[name];
-    if (typeof v !== 'string') {
-      throw invalid(`/${name}`, 'required', 'Required, once.');
-    }
-    return v;
-  };
-  // Browsers send multipart text with CRLF line ends: the words are hashed with LF.
-  const text = str('text').replace(/\r\n?/g, '\n');
+  if (typeof b['text'] !== 'string') {
+    throw invalid('/text', 'required', 'Required.');
+  }
+  // One line ending, so the sha256 doesn't depend on the admin's browser or system.
+  const text = b['text'].replace(/\r\n?/g, '\n');
   if (text.trim() === '' || text.length > MAX_TEXT) {
     throw invalid(
       '/text',
       'invalid_text',
-      `The web text is required, at most ${MAX_TEXT} characters.`,
+      `The text is required, at most ${MAX_TEXT} characters.`,
     );
   }
-  const changeNote = str('changeNote').trim();
-  if (changeNote === '' || changeNote.length > MAX_NOTE) {
+  const based = b['basedOn'];
+  if (
+    based !== null &&
+    !(typeof based === 'number' && Number.isInteger(based) && based > 0)
+  ) {
     throw invalid(
-      '/changeNote',
-      'invalid_change_note',
-      `Say what changed, in at most ${MAX_NOTE} characters.`,
+      '/basedOn',
+      'invalid_version',
+      'The version number edited, or null for the first version.',
     );
   }
-  const textSha256 = str('textSha256');
-  const pdfSha256 = str('pdfSha256');
-  for (const [name, value] of [
-    ['textSha256', textSha256],
-    ['pdfSha256', pdfSha256],
-  ]) {
-    if (!SHA256.test(value)) {
-      throw invalid(`/${name}`, 'invalid_hash', 'A lowercase hex sha256.');
-    }
-  }
-  const flag = b['requiresReacceptance'] ?? 'false';
-  if (flag !== 'true' && flag !== 'false') {
-    throw invalid(
-      '/requiresReacceptance',
-      'invalid_flag',
-      '`true` or `false`.',
-    );
-  }
-  const based = str('basedOn');
-  if (based !== '' && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(based)) {
-    throw invalid('/basedOn', 'invalid_version', 'A version id, or empty.');
-  }
-  return {
-    text,
-    textSha256,
-    pdfSha256,
-    changeNote,
-    requiresReacceptance: flag === 'true',
-    basedOn: based === '' ? null : based,
-  };
-}
-
-/** The next version id of a document: `v<n+1>` for the highest `v<n>` there is. */
-function nextVersion(ids: string[]): string {
-  const n = ids
-    .map((id) => VERSION.exec(id)?.[1])
-    .filter((m): m is string => m !== undefined)
-    .map(Number);
-  return `v${Math.max(0, ...n) + 1}`;
+  return { text, basedOn: based };
 }
 
 /** The version in force, by document (SurrealQL). */
@@ -236,37 +143,33 @@ const IN_FORCE: Record<DocumentName, string> = {
 
 /** The new version's row, by document (SurrealQL object; $-variables from publish). */
 const NEW_ROW: Record<DocumentName, string> = {
-  // D121: a privacy policy version is a standard, published dpaVersion; D122: `material` when it
-  // requires re-acceptance (D93's rules, fn::legal::requires_reacceptance).
-  privacy: `{ kind: 'standard', status: 'published',
-    materiality: IF $requires { 'material' } ELSE { 'minor' },
-    documentPath: $path, contentHash: crypto::sha256($text), text: $text,
-    changeSummary: $note, effectiveFrom: time::now(),
-    pdfSha256: $sha, pdfSize: $size, pdfPath: $path,
-    source: 'admin', publishedBy: $user }`,
-  terms: `{ text: $text, textHash: crypto::sha256($text), changeNote: $note,
-    requiresReacceptance: $requires,
-    pdfSha256: $sha, pdfSize: $size, pdfPath: $path,
-    source: 'admin', publishedBy: $user }`,
+  // D121, D125: a privacy policy version is a standard dpaVersion, published at once.
+  privacy: `{ kind: 'standard', status: 'published', contentHash: crypto::sha256($text),
+    text: $text, source: 'admin', publishedBy: $user }`,
+  terms: `{ text: $text, contentHash: crypto::sha256($text), source: 'admin',
+    publishedBy: $user }`,
 };
 
-const UPLOAD = FileInterceptor('pdf', {
-  limits: {
-    fileSize: MAX_PDF_BYTES,
-    files: 1,
-    fields: 6,
-    fieldSize: MAX_TEXT * 4,
-    parts: 7,
-  },
-});
+/** Every published version of a document, newest first, and the one in force with its words. */
+const VERSIONS: Record<DocumentName, string> = {
+  privacy: `SELECT number, effectiveFrom ?? createdAt AS publishedAt, publishedBy, source,
+      devPlaceholder
+     FROM dpaVersion WHERE status = 'published' AND kind = 'standard' AND number != NONE
+     ORDER BY number DESC;
+   LET $c = fn::legal::dpa_in_force();
+   RETURN IF $c = NONE { NONE } ELSE { (SELECT number, text FROM ONLY $c) };`,
+  terms: `SELECT number, publishedAt, publishedBy, source, devPlaceholder
+     FROM termsVersion ORDER BY number DESC;
+   LET $c = fn::legal::terms_in_force();
+   RETURN IF $c = NONE { NONE } ELSE { (SELECT number, text FROM ONLY $c) };`,
+};
 
 /**
- * api-admin.yaml, tag LegalDocuments (D121, D123; Joel, 2026-10-30): the privacy policy and the
- * terms of use, each with its own versions, for Admin and above (D1). A new version has two
- * parts, published together: its PDF of record (the admin's upload as it is, stored once in the
- * records bucket at legal/<document>/<id>/<sha256>.pdf, kept for ever) and the web text the site
- * renders. The first version may be published here too. Nothing here edits or deletes a version: the database refuses that
- * anyway.
+ * api-admin.yaml, tag LegalDocuments (D121, D125; Joel, 2026-10-30): the privacy policy and the
+ * terms of use, each with its own numbered versions, for Admin and above (D1). A version is the
+ * Markdown the site renders: an admin edits the version in force at /admin/legal and publishes
+ * the result as the next version, live at once. The first version may be published here too.
+ * Nothing here edits or deletes a version: the database refuses that anyway.
  */
 @Controller('v1/admin/legal-documents')
 export class LegalDocumentsController {
@@ -275,7 +178,6 @@ export class LegalDocumentsController {
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     private readonly people: PersonSessions,
-    @Inject(RECORDS_STORE) private readonly records: DocumentStore | null,
   ) {}
 
   @Get(':document/versions')
@@ -289,45 +191,25 @@ export class LegalDocumentsController {
     @Headers('if-none-match') ifNoneMatch?: string,
   ) {
     if (!isDocument(document)) throw notFound();
-    const results = (await runQuery(
-      this.db,
-      document === 'privacy'
-        ? `SELECT id, effectiveFrom ?? createdAt AS publishedAt, createdAt, publishedBy, source,
-              changeSummary AS changeNote, materiality = 'material' AS requiresReacceptance,
-              contentHash AS textHash, pdfSha256, pdfSize
-             FROM dpaVersion WHERE status = 'published' AND kind = 'standard'
-             ORDER BY publishedAt DESC, createdAt DESC, id DESC;
-           LET $c = fn::legal::dpa_in_force();
-           RETURN IF $c = NONE { NONE } ELSE { (SELECT id, text FROM ONLY $c) };`
-        : `SELECT id, publishedAt, publishedBy, source, changeNote, requiresReacceptance,
-              textHash, pdfSha256, pdfSize
-             FROM termsVersion ORDER BY publishedAt DESC, id DESC;
-           LET $c = fn::legal::terms_in_force();
-           RETURN IF $c = NONE { NONE } ELSE { (SELECT id, text FROM ONLY $c) };`,
-    )) as unknown[];
+    const results = (await runQuery(this.db, VERSIONS[document])) as unknown[];
     const rows = results[0] as Record<string, unknown>[];
     const current = results[results.length - 1] as {
-      id: string;
-      text: string;
+      number: number;
+      text: string | null;
     } | null;
     const body = {
       document,
-      current: current
-        ? { id: key(String(current.id)), text: current.text ?? '' }
-        : null,
+      current:
+        current && typeof current.text === 'string'
+          ? { number: current.number, text: current.text }
+          : null,
       data: rows.map((r) => ({
-        id: key(String(r['id'])),
+        number: r['number'],
         publishedAt: new Date(String(r['publishedAt'])).toISOString(),
         // Their user record's id (Clerk holds names, D16).
         publishedBy: r['publishedBy'] ? key(String(r['publishedBy'])) : null,
         source: r['source'] === 'admin' ? 'admin' : 'repo',
-        changeNote: r['changeNote'] ?? null,
-        requiresReacceptance: r['requiresReacceptance'] === true,
-        textHash: r['textHash'],
-        pdf:
-          typeof r['pdfSha256'] === 'string'
-            ? { sha256: r['pdfSha256'], size: r['pdfSize'] }
-            : null,
+        devPlaceholder: r['devPlaceholder'] === true,
       })),
     };
     const etag = weakETag(body);
@@ -341,110 +223,39 @@ export class LegalDocumentsController {
   }
 
   /**
-   * An upload's sha256 and size (D123), for the admin's preview: the publish must name the same
-   * hash. The browser shows the file itself. Nothing is stored.
-   */
-  @Post(':document/previews')
-  @RequiresRole('Admin')
-  @NoConsentRequired(
-    'previewing a legal document is staff work on reference data, not the admin’s own data',
-  )
-  @UseInterceptors(UPLOAD)
-  async preview(
-    @Param('document') document: string,
-    @Res({ passthrough: true }) res: Response,
-    @UploadedFile() pdf: UploadedPdf | undefined,
-  ) {
-    if (!isDocument(document)) throw notFound();
-    const file = uploaded(pdf);
-    res.status(HttpStatus.OK);
-    res.setHeader('Cache-Control', 'private, no-store');
-    return { document, pdfSha256: sha256(file), pdfSize: file.length };
-  }
-
-  /**
-   * PublishLegalDocument: the PDF (multipart part `pdf`, stored as uploaded) and the web text, with the hashes the preview showed (a
-   * mismatch is refused: what's published is what was previewed), a change note, "requires
-   * re-acceptance" (D93's rules, D122), and `basedOn`, the version in force the preview was made
-   * against (empty for the first version; 409 `document_changed` if another is in force now). A
-   * PDF already published as this document is 409 `already_published`, checked before the
-   * upload and again in the transaction. The PDF is stored before the version is written, so a
-   * version never names a missing PDF; a publish that then fails leaves only an unused object.
+   * PublishLegalDocument: the new version's Markdown and `basedOn`, the number of the version
+   * in force the admin edited (null for the first version; 409 `document_changed` if another is
+   * in force now). One transaction writes the version and its audit row; the database numbers
+   * it. It is in force the moment it commits.
    */
   @Post(':document/versions')
   @RequiresRole('Admin')
   @NoConsentRequired(
     'publishing a legal document is staff work on reference data, not the admin’s own data',
   )
-  @UseInterceptors(UPLOAD)
   async publish(
     @Param('document') document: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-    @UploadedFile() pdf: UploadedPdf | undefined,
     @Body() body: unknown,
   ) {
     if (!isDocument(document)) throw notFound();
     const input = parsePublish(body);
-    const file = uploaded(pdf);
-    const pdfSha256 = sha256(file);
-    if (pdfSha256 !== input.pdfSha256) {
-      throw invalid(
-        '/pdfSha256',
-        'preview_mismatch',
-        'The PDF isn’t the one previewed.',
-      );
-    }
-    if (sha256(input.text) !== input.textSha256) {
-      throw invalid(
-        '/textSha256',
-        'preview_mismatch',
-        'The web text isn’t the one previewed.',
-      );
-    }
-    if (!this.records) {
-      throw new ProblemException(
-        HttpStatus.SERVICE_UNAVAILABLE,
-        'storage_unavailable',
-        'Service Unavailable',
-      );
-    }
     const { role } = await this.people.authenticate(req);
     // Who publishes: the admin's own user record, from their own database session (D27).
     const user = await this.people.run(req, async ({ user }) => user);
-    const table = DOCUMENTS[document];
-    const [ids, same] = (await runQuery(
-      this.db,
-      `SELECT VALUE <string> record::id(id) FROM ${table};
-       SELECT VALUE <string> record::id(id) FROM ${table} WHERE pdfSha256 = $sha;`,
-      { sha: pdfSha256 },
-    )) as [string[], string[]];
-    if (same.length > 0) {
-      throw conflict(
-        'already_published',
-        `This PDF is already ${document} version ${same[0]}.`,
-      );
-    }
-    const version = nextVersion(ids);
-    const pdfPath = `legal/${document}/${version}/${pdfSha256}.pdf`;
-    await this.records.create(pdfPath, file);
     let results: unknown[];
     try {
       results = (await runQuery(
         this.db,
         `BEGIN TRANSACTION;
          LET $c = ${IN_FORCE[document]};
-         IF ($c = NONE AND $based) OR ($c != NONE AND (!$based OR <string> record::id($c) != $based)) {
+         LET $n = IF $c = NONE { NONE } ELSE { (SELECT VALUE number FROM ONLY $c) };
+         IF $n != $based {
            THROW 'document_changed: another version of this document is in force now';
          };
-         IF record::exists(type::record($table, $version)) {
-           THROW 'document_changed: that version id was taken meanwhile';
-         };
-         IF array::len((SELECT VALUE id FROM type::table($table) WHERE pdfSha256 = $sha)) > 0 {
-           THROW 'already_published: this PDF is already a version of this document';
-         };
-         LET $row = (CREATE ONLY type::record($table, $version) CONTENT ${NEW_ROW[document]}
-           RETURN id, version);
+         LET $row = (CREATE ONLY type::table($table) CONTENT ${NEW_ROW[document]}
+           RETURN id, number, ${document === 'privacy' ? 'createdAt' : 'publishedAt'} AS publishedAt);
          IF $row = NONE { THROW 'the document version was not written' };
          LET $audit = (CREATE ONLY auditLog CONTENT {
              service: 'api-admin', action: $action, actor: $user, actorRole: $role,
@@ -455,42 +266,32 @@ export class LegalDocumentsController {
          $row;
          COMMIT TRANSACTION;`,
         {
-          table,
-          version,
-          based: input.basedOn,
+          table: DOCUMENTS[document],
+          based: input.basedOn ?? undefined,
           user,
           role,
           action:
             document === 'privacy' ? 'PublishPrivacyPolicy' : 'PublishTerms',
-          note: input.changeNote,
           text: input.text,
-          requires: input.requiresReacceptance,
-          sha: pdfSha256,
-          size: file.length,
-          path: pdfPath,
         },
       )) as unknown[];
     } catch (err) {
       throw publishRefusal(err) ?? err;
     }
-    const row = requireWritten<{ id: string; version: number }>(
-      results[results.length - 2],
-      'document version',
-    );
-    this.logger.log(`Published ${document} ${version} (${pdfSha256})`);
+    const row = requireWritten<{
+      id: string;
+      number: number;
+      publishedAt: string;
+    }>(results[results.length - 2], 'document version');
+    this.logger.log(`Published ${document} version ${row.number}`);
     res.status(HttpStatus.CREATED);
     res.setHeader('Location', `/v1/admin/legal-documents/${document}/versions`);
-    return { id: key(String(row.id)), version: row.version };
+    return {
+      number: row.number,
+      publishedAt: new Date(String(row.publishedAt)).toISOString(),
+    };
   }
 }
 
-@Module({
-  controllers: [LegalDocumentsController],
-  providers: [
-    {
-      provide: RECORDS_STORE,
-      useFactory: () => documentStoreFromEnv('LEGAL_DOCUMENTS_BUCKET'),
-    },
-  ],
-})
+@Module({ controllers: [LegalDocumentsController] })
 export class LegalDocumentsModule {}

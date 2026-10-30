@@ -17,7 +17,7 @@ import {
   newIdempotencyKey,
   StaleVersion,
 } from '@/lib/api-user';
-import { LegalBlocks } from '@/components/consent/legal-blocks';
+import { LegalHtml } from '@/components/legal/legal-html';
 import type { ConsentBox, ConsentStatement } from '@/lib/legal';
 import type { ShareForm, ShareLegal } from '@/lib/share-legal';
 import { signInHref } from '@/lib/return-path';
@@ -453,17 +453,17 @@ function boxFor(
 /** A form's words, or the privacy policy's: a document to read, in a box of its own. */
 function LegalDocument({
   label,
-  blocks,
+  html,
 }: {
   label: string;
-  blocks: ShareForm['blocks'];
+  html: ShareForm['html'];
 }) {
   return (
     <section
       aria-label={label}
       className="max-h-[60svh] overflow-y-auto rounded-xl border border-border p-4"
     >
-      <LegalBlocks below={2} blocks={blocks} />
+      <LegalHtml html={html} />
     </section>
   );
 }
@@ -717,13 +717,13 @@ export function ConsentStep({
     >
       <StepHeading heading={heading}>Your story and your data</StepHeading>
       {/* The form's words: a document to read. The box below is the page's own (D114). */}
-      <LegalDocument label="The form" blocks={form.blocks} />
+      <LegalDocument label="The form" html={form.html} />
       <details className="mt-4 rounded-xl border border-border p-4">
         <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-link">
           Read the privacy policy
         </summary>
         <div className="mt-3" data-privacy-document={form.privacyVersion}>
-          <LegalBlocks below={2} blocks={form.privacyBlocks} />
+          <LegalHtml html={form.privacyHtml} />
         </div>
       </details>
       <div className="mt-6">
@@ -1376,7 +1376,7 @@ export function ReviewStep({
                 What sharing beyond heisreal.today means
               </summary>
               <div className="mt-2">
-                <LegalBlocks below={2} blocks={legal.social.blocks} />
+                <LegalHtml html={legal.social.html} />
               </div>
               {legal.social.privacyVersion !==
                 legal.testimony?.privacyVersion && (
@@ -1386,7 +1386,7 @@ export function ReviewStep({
                   className="mt-4"
                   data-privacy-document={legal.social.privacyVersion}
                 >
-                  <LegalBlocks below={2} blocks={legal.social.privacyBlocks} />
+                  <LegalHtml html={legal.social.privacyHtml} />
                 </div>
               )}
             </details>

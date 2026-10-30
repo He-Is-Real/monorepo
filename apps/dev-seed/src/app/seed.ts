@@ -180,11 +180,10 @@ LET $terms = IF $s.coversTerms = true { fn::legal::terms_in_force() } ELSE { NON
 RETURN [
   { kind: 'signup', form: $s.id, textHash: $s.textHash, statementsHash: $s.statementsHash,
     statements: fn::form::statements($s.id),
-    dpa: $d, dpaHash: $d.contentHash, dpaPdf: $d.pdfSha256,
-    terms: $terms, termsHash: $terms.textHash, termsPdf: $terms.pdfSha256 },
+    dpa: $d, dpaHash: $d.contentHash, terms: $terms, termsHash: $terms.contentHash },
   { kind: 'testimony', form: $t.id, textHash: $t.textHash, statementsHash: $t.statementsHash,
     statements: fn::form::statements($t.id),
-    dpa: $d, dpaHash: $d.contentHash, dpaPdf: $d.pdfSha256 }
+    dpa: $d, dpaHash: $d.contentHash }
 ];
 `;
 
@@ -197,8 +196,8 @@ export interface FixtureConsent {
   /** The terms of use version, on a sign-up version asking for them (D122). */
   terms: string | null;
   evidenceHash: string;
-  /** 4 when the privacy policy has a PDF of record (D122), else 3 (libs/consent's evidence.ts). */
-  evidenceVersion: 3 | 4;
+  /** 4, as the API (D125, libs/consent's evidence.ts). */
+  evidenceVersion: 4;
 }
 
 /** Every fixture person's grants on the forms in force, as the API would record them. */
@@ -215,10 +214,8 @@ export async function fixtureConsents(
     statements?: string[];
     dpa?: string;
     dpaHash?: string;
-    dpaPdf?: string | null;
     terms?: string | null;
     termsHash?: string | null;
-    termsPdf?: string | null;
   }[];
   const key = (id: string) => id.slice(id.indexOf(':') + 1);
   return forms.flatMap((f) => {
@@ -227,7 +224,6 @@ export async function fixtureConsents(
     const version = key(f.form);
     const dpa = key(f.dpa);
     const terms = f.terms ? key(f.terms) : null;
-    const v4 = !!f.dpaPdf;
     return people.flatMap((user) =>
       (f.statements ?? []).map((type) => ({
         user,
@@ -235,9 +231,9 @@ export async function fixtureConsents(
         form: f.form as string,
         dpa,
         terms,
-        evidenceVersion: v4 ? (4 as const) : (3 as const),
+        evidenceVersion: 4 as const,
         evidenceHash: evidenceHash({
-          // Evidence v4 (D122) when the privacy policy has a PDF, else v3 (D114), as the API.
+          // Evidence v4 (D125), as the API.
           form: {
             kind: f.kind,
             version,
@@ -246,20 +242,9 @@ export async function fixtureConsents(
           },
           dpaVersion: dpa,
           dpaContentHash: f.dpaHash as string,
-          ...(v4
-            ? {
-                dpaPdfSha256: f.dpaPdf as string,
-                ...(terms
-                  ? {
-                      terms: {
-                        version: terms,
-                        textHash: f.termsHash as string,
-                        pdfSha256: f.termsPdf as string,
-                      },
-                    }
-                  : {}),
-              }
-            : {}),
+          terms: terms
+            ? { version: terms, contentHash: f.termsHash as string }
+            : null,
           type,
           event: 'granted',
           mechanism: 'web_form_submission',

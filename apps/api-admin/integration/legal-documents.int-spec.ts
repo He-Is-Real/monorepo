@@ -13,19 +13,13 @@ import {
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
-import {
-  type DocumentStore,
-  RECORDS_STORE,
-} from '../src/app/legal-documents/document-store';
 
 /**
- * The legal documents (D121, D123; Joel, 2026-10-30) through api-admin's real AppModule on its
- * own login (D13) and a real SurrealDB 3.2.4, as /admin/legal calls them: preview, publish (the
- * first version, then the next), the versions list. The admin's upload is the record, stored
- * and bound exactly as uploaded (D123: admins are trusted, nothing is scanned or rewritten).
- * Only the bucket is a stand-in (it keeps what it's given, write-once, like the real one): what's
- * checked is what api-admin decides and what the database keeps. Every answer is checked
- * against api-admin.yaml.
+ * The legal documents (D121, D125; Joel, 2026-10-30) through api-admin's real AppModule on its
+ * own login (D13) and a real SurrealDB 3.2.4, as /admin/legal calls them: publish (the first
+ * version, then the next, on the version edited), the versions list. A version is the Markdown
+ * the site renders, numbered by the database and kept for ever. Every answer is checked against
+ * api-admin.yaml.
  */
 describe('legal documents (api-admin)', () => {
   const contract = new Contract('api-admin.yaml');
@@ -34,87 +28,24 @@ describe('legal documents (api-admin)', () => {
   let migrator: Surreal;
   let app: INestApplication;
   let url: string;
-  /** The bucket: path → bytes. */
-  const records = new Map<string, Buffer>();
-  const bucket: DocumentStore = {
-    async create(path, bytes) {
-      if (!records.has(path)) records.set(path, Buffer.from(bytes));
-    },
-  };
 
-  const sha256 = (data: Buffer | string) =>
-    createHash('sha256').update(data).digest('hex');
+  const sha256 = (text: string) =>
+    createHash('sha256').update(text).digest('hex');
   const as = (clerkUserId: string, role = 'Admin') => ({
     authorization: `Bearer ${clerk.token(clerkUserId, { role })}`,
   });
 
-  /**
-   * A PDF's bytes (the same words make the same bytes). api-admin never reads them: only the
-   * file's name must end in .pdf (Joel, 2026-10-30).
-   */
-  const pdf = async (words: string) =>
-    Buffer.from(`%PDF-1.7\n% ${words}\n%%EOF\n`, 'latin1');
-
-  const upload = (
-    file: Buffer,
-    fields: Record<string, string> = {},
-    name = 'policy.pdf',
-  ) => {
-    const body = new FormData();
-    for (const [k, v] of Object.entries(fields)) body.append(k, v);
-    body.append(
-      'pdf',
-      new Blob([new Uint8Array(file)], { type: 'application/pdf' }),
-      name,
-    );
-    return body;
-  };
-  async function preview(
-    document: string,
-    file: Buffer,
-    who = as('user_admin'),
-    name = 'policy.pdf',
-  ) {
-    const res = await fetch(
-      `${url}/v1/admin/legal-documents/${document}/previews`,
-      {
-        method: 'POST',
-        headers: who,
-        body: upload(file, {}, name),
-      },
-    );
-    expect(await contract.check('POST', res)).toEqual([]);
-    return res;
-  }
-  /** Previews `file`, then publishes it with `text` (the admin page's two steps). */
   async function publish(
     document: string,
-    file: Buffer,
-    fields: Record<string, string> = {},
-    who = as('user_admin'),
-    name = 'policy.pdf',
+    body: Record<string, unknown>,
+    who: Record<string, string> = as('user_admin'),
   ) {
-    const shown = (await (await preview(document, file, who, name)).json()) as {
-      pdfSha256?: string;
-    };
-    const text = fields['text'] ?? `# ${document}\n\nThe words.\n`;
     const res = await fetch(
       `${url}/v1/admin/legal-documents/${document}/versions`,
       {
         method: 'POST',
-        headers: who,
-        body: upload(
-          file,
-          {
-            text,
-            textSha256: sha256(text),
-            pdfSha256: shown.pdfSha256 ?? sha256(file),
-            changeNote: 'First version',
-            basedOn: '',
-            ...fields,
-          },
-          name,
-        ),
+        headers: { ...who, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
       },
     );
     expect(await contract.check('POST', res)).toEqual([]);
@@ -126,18 +57,18 @@ describe('legal documents (api-admin)', () => {
   ) => {
     const res = await fetch(
       `${url}/v1/admin/legal-documents/${document}/versions`,
-      {
-        headers: who,
-      },
+      { headers: who },
     );
     expect(await contract.check('GET', res)).toEqual([]);
     return res;
   };
+  const code = async (res: Response) =>
+    ((await res.json()) as { code: string }).code;
   const audit = () =>
     rows<Record<string, unknown>>(
       migrator,
       `SELECT action, service, actorRole, record::id(actor) AS actor,
-         <string> entity AS entity, createdAt FROM auditLog
+         record::tb(entity) AS entity, createdAt FROM auditLog
        WHERE action IN ['PublishPrivacyPolicy', 'PublishTerms'] ORDER BY createdAt`,
     ).then((r) =>
       r.map((row) => {
@@ -166,8 +97,6 @@ describe('legal documents (api-admin)', () => {
           authorizedParties: clerk.authorizedParty,
         }),
       )
-      .overrideProvider(RECORDS_STORE)
-      .useValue(bucket)
       .overrideProvider(SECRET_MANAGER_CLIENT)
       .useValue({})
       .overrideProvider(SECRETS_PROJECT)
@@ -182,189 +111,126 @@ describe('legal documents (api-admin)', () => {
     await t?.close();
   });
 
-  it('previews the upload as it is: its hash and size, nothing stored', async () => {
-    const file = await pdf('Terms of use, version 1');
-    const res = await preview('terms', file);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      document: 'terms',
-      pdfSha256: sha256(file),
-      pdfSize: file.length,
-    });
-    expect(records.size).toBe(0);
-  });
-
-  it('publishes the first terms of use: the upload, byte for byte, is the record; audited', async () => {
-    const file = await pdf('Terms of use, version 1');
-    const res = await publish('terms', file, { changeNote: 'First terms' });
+  it('publishes the first terms of use as version 1, in force at once, audited', async () => {
+    const text = '# Terms\r\n\r\nThe **first** words.\r\n';
+    const res = await publish('terms', { text, basedOn: null });
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual({ id: 'v1', version: 1 });
+    expect(await res.json()).toMatchObject({ number: 1 });
 
     const [row] = await rows<Record<string, unknown>>(
       migrator,
-      `SELECT * FROM termsVersion:v1`,
+      `SELECT * FROM termsVersion WHERE number = 1`,
     );
-    expect(records.get(String(row['pdfPath']))?.equals(file)).toBe(true);
-    expect(row['pdfSha256']).toBe(sha256(file));
-    expect(row['pdfSize']).toBe(file.length);
-    expect(row['pdfPath']).toBe(`legal/terms/v1/${sha256(file)}.pdf`);
-    // One copy only: nothing else is stored (Joel, 2026-10-30).
-    expect([...records.keys()]).toEqual([row['pdfPath']]);
+    // One line ending: the words kept are the ones hashed.
+    const kept = '# Terms\n\nThe **first** words.\n';
     expect(row).toMatchObject({
+      text: kept,
+      contentHash: sha256(kept),
       source: 'admin',
-      changeNote: 'First terms',
-      requiresReacceptance: false,
       publishedBy: 'user:admin',
     });
-    expect(await rows(migrator, `RETURN fn::legal::terms_in_force()`)).toEqual([
-      'termsVersion:v1',
-    ]);
+    expect(
+      await rows(migrator, `RETURN fn::legal::terms_in_force().number`),
+    ).toEqual([1]);
     expect(await audit()).toEqual([
       {
         action: 'PublishTerms',
         service: 'api-admin',
         actorRole: 'Admin',
         actor: 'admin',
-        entity: 'termsVersion:v1',
+        entity: 'termsVersion',
       },
     ]);
   });
 
-  it('publishes the next privacy policy version on top of the one in force; the old one stays listed', async () => {
-    const first = await publish('privacy', await pdf('Privacy policy 1'), {
-      changeNote: 'First policy',
+  it('publishes the next privacy policy version on the one in force; the old one stays listed', async () => {
+    const first = await publish('privacy', {
+      text: '# Privacy\n\nVersion one.\n',
+      basedOn: null,
     });
-    // dpaVersion:v1 is the repo's draft (data 0001), so the first published one is v2.
-    expect(await first.json()).toEqual({ id: 'v2', version: 1 });
-    const next = await publish('privacy', await pdf('Privacy policy 2'), {
-      changeNote: 'Clearer words',
-      requiresReacceptance: 'true',
-      basedOn: 'v2',
+    expect(first.status).toBe(201);
+    // dpaVersion:v1, the repo's never-published draft (data 0001), takes no number.
+    expect(await first.json()).toMatchObject({ number: 1 });
+    const before = (await (await list('privacy')).json()) as {
+      current: { number: number; text: string };
+    };
+    // The editor starts from the version in force.
+    expect(before.current).toEqual({
+      number: 1,
+      text: '# Privacy\n\nVersion one.\n',
+    });
+    const next = await publish('privacy', {
+      text: '# Privacy\n\nVersion two.\n',
+      basedOn: 1,
     });
     expect(next.status).toBe(201);
     const listed = (await (await list('privacy')).json()) as {
-      current: { id: string };
+      current: { number: number; text: string };
       data: Record<string, unknown>[];
     };
-    expect(listed.current.id).toBe('v3');
+    expect(listed.current.number).toBe(2);
     expect(
-      listed.data.map((v) => [
-        v['id'],
-        v['changeNote'],
-        v['requiresReacceptance'],
-        v['publishedBy'],
-      ]),
+      listed.data.map((v) => [v['number'], v['source'], v['publishedBy']]),
     ).toEqual([
-      ['v3', 'Clearer words', true, 'admin'],
-      ['v2', 'First policy', false, 'admin'],
+      [2, 'admin', 'admin'],
+      [1, 'admin', 'admin'],
     ]);
-    expect(
-      await rows(migrator, `SELECT VALUE materiality FROM dpaVersion:v3`),
-    ).toEqual(['material']);
-  });
-
-  it('publishes only what was previewed, against the version in force, and each PDF once', async () => {
-    const file = await pdf('Privacy policy 3');
-    for (const fields of [
-      { textSha256: sha256('something else'), basedOn: 'v3' } as Record<
-        string,
-        string
-      >,
-      { pdfSha256: sha256('another file'), basedOn: 'v3' },
-    ]) {
-      const res = await publish('privacy', file, fields);
-      expect(res.status).toBe(400);
-      expect(
-        ((await res.json()) as { errors: { code: string }[] }).errors[0].code,
-      ).toBe('preview_mismatch');
-    }
-    const stale = await publish('privacy', file, { basedOn: 'v2' });
-    expect(stale.status).toBe(409);
-    expect(((await stale.json()) as { code: string }).code).toBe(
-      'document_changed',
-    );
-    const first = await publish('privacy', file, { basedOn: '' });
-    expect(((await first.json()) as { code: string }).code).toBe(
-      'document_changed',
-    );
-    const again = await publish('privacy', await pdf('Privacy policy 2'), {
-      basedOn: 'v3',
-    });
-    expect(again.status).toBe(409);
-    expect(((await again.json()) as { code: string }).code).toBe(
-      'already_published',
-    );
-  });
-
-  it('two admins publishing on the same version at once: one is published, the other gets 409 document_changed', async () => {
-    const [a, b] = await Promise.all([
-      publish('terms', await pdf('Terms by one admin'), { basedOn: 'v1' }),
-      publish('terms', await pdf('Terms by another admin'), { basedOn: 'v1' }),
-    ]);
-    expect([a.status, b.status].sort()).toEqual([201, 409]);
-    const loser = a.status === 409 ? a : b;
-    expect(((await loser.json()) as { code: string }).code).toBe(
-      'document_changed',
-    );
+    // Version 1 is kept, word for word.
     expect(
       await rows(
         migrator,
-        `SELECT VALUE record::id(id) FROM termsVersion ORDER BY id`,
+        `SELECT VALUE text FROM dpaVersion WHERE number = 1`,
       ),
-    ).toEqual(['v1', 'v2']);
+    ).toEqual(['# Privacy\n\nVersion one.\n']);
   });
 
-  it('refuses a file whose name doesn’t end in .pdf, storing and writing nothing', async () => {
-    const before = [records.size, (await audit()).length];
-    const res = await publish(
-      'terms',
-      await pdf('Terms as a Word file'),
-      { basedOn: 'v2' },
-      as('user_admin'),
-      'terms.docx',
-    );
-    expect(res.status).toBe(400);
-    expect(
-      ((await res.json()) as { errors: { code: string }[] }).errors[0].code,
-    ).toBe('pdf_not_a_pdf');
-    expect([records.size, (await audit()).length]).toEqual(before);
+  it('refuses a stale edit with 409 document_changed, writing nothing', async () => {
+    const before = (await audit()).length;
+    const stale = await publish('privacy', { text: 'Old base', basedOn: 1 });
+    expect(stale.status).toBe(409);
+    expect(await code(stale)).toBe('document_changed');
+    const first = await publish('privacy', { text: 'No base', basedOn: null });
+    expect(await code(first)).toBe('document_changed');
+    expect((await audit()).length).toBe(before);
   });
 
-  it('never reads the file: any bytes named .pdf (in any case) are published as they are', async () => {
-    const file = Buffer.from('Not what a PDF starts with', 'latin1');
-    const res = await publish(
-      'terms',
-      file,
-      { basedOn: 'v2', changeNote: 'Named in capitals' },
-      as('user_admin'),
-      'TERMS.PDF',
-    );
-    expect(res.status).toBe(201);
-    const { id } = (await res.json()) as { id: string };
-    const [path] = await rows<string>(
-      migrator,
-      `SELECT VALUE pdfPath FROM type::record('termsVersion', $id)`,
-      { id },
-    );
-    expect(records.get(path)?.equals(file)).toBe(true);
-  });
-
-  it('refuses a PDF over 10 MB before reading it', async () => {
-    const big = Buffer.concat([
-      await pdf('Big'),
-      Buffer.alloc(10 * 1024 * 1024 + 1, 0x20),
+  it('two admins publishing on the same version at once: one is published, the other gets 409', async () => {
+    const [a, b] = await Promise.all([
+      publish('terms', { text: 'Terms by one admin', basedOn: 1 }),
+      publish('terms', { text: 'Terms by another admin', basedOn: 1 }),
     ]);
-    const res = await preview('terms', big);
-    expect(res.status).toBe(413);
+    expect([a.status, b.status].sort()).toEqual([201, 409]);
+    const loser = a.status === 409 ? a : b;
+    expect(await code(loser)).toBe('document_changed');
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE number FROM termsVersion ORDER BY number`,
+      ),
+    ).toEqual([1, 2]);
   });
 
-  it('is for Admin and above (D1): a moderator can neither list, preview nor publish', async () => {
+  it('refuses empty text and unknown fields', async () => {
+    for (const body of [
+      { text: '   ', basedOn: 2 },
+      { text: 'Words', basedOn: 2, note: 'x' },
+      { text: 'Words', basedOn: 'v2' },
+    ]) {
+      const res = await publish('terms', body);
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('is for Admin and above (D1): a moderator can neither list nor publish', async () => {
     const moderator = as('user_moderator', 'Moderator');
     expect((await list('terms', moderator)).status).toBe(403);
-    expect((await preview('terms', await pdf('No'), moderator)).status).toBe(
-      403,
-    );
+    expect(
+      (await publish('terms', { text: 'No', basedOn: 2 }, moderator)).status,
+    ).toBe(403);
     expect((await list('terms', {})).status).toBe(401);
     expect((await list('nonsense')).status).toBe(404);
+    expect(
+      await rows(migrator, `SELECT VALUE number FROM termsVersion`),
+    ).toHaveLength(2);
   });
 });

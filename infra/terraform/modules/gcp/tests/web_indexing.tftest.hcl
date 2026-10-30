@@ -147,11 +147,9 @@ run "indexing_refused_in_dev" {
 run "indexing_needs_a_site_url" {
   command = plan
   variables {
-    project_id  = "heisreal-prod"
-    environment = "prod"
-    # Required outside dev (legal_documents.tf).
-    legal_documents_retention_locked = true
-    web_indexing                     = true
+    project_id   = "heisreal-prod"
+    environment  = "prod"
+    web_indexing = true
   }
   expect_failures = [var.web_indexing]
 }
@@ -159,12 +157,10 @@ run "indexing_needs_a_site_url" {
 run "indexing_allowed_outside_dev" {
   command = plan
   variables {
-    project_id  = "heisreal-prod"
-    environment = "prod"
-    # Required outside dev (legal_documents.tf).
-    legal_documents_retention_locked = true
-    web_indexing                     = true
-    web_site_url                     = "https://www.heisreal.today"
+    project_id   = "heisreal-prod"
+    environment  = "prod"
+    web_indexing = true
+    web_site_url = "https://www.heisreal.today"
   }
 
   assert {

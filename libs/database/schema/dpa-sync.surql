@@ -9,15 +9,12 @@
 --   * a seeded version, draft or published, whose file is missing fails the migration: the text
 --     consent was (or will be) given against must stay in the repo. Only a version that isn't
 --     seeded yet may lack a file.
---   * D121: a privacy policy version an admin published (source 'admin') has no file: its words
---     and PDF are in its row and the bucket, kept for ever. It is skipped. A repo version's PDF
---     of record, libs/legal/dpa/<id>.pdf, is frozen with it once set ($dpa_pdf: { <id>:
---     { pdfSha256, pdfSize } }): a version whose PDF file is missing or changed fails the
---     migration.
+--   * D125: a privacy policy version an admin published (source 'admin') has no file: its words
+--     are in its row, kept for ever. It is skipped.
 -- With $sync_check = true (the runner's check before the schema step) it only validates: the
 -- previous schema may not define `text` yet, so it writes nothing.
 -- 3.2.4: FOR over a subquery fails ("Cannot execute statement using value"); over a LET works.
-LET $versions = (SELECT id, status, contentHash, text, pdfSha256, pdfSize FROM dpaVersion WHERE source != 'admin');
+LET $versions = (SELECT id, status, contentHash, text FROM dpaVersion WHERE source != 'admin');
 FOR $d IN $versions {
   LET $h = $dpa_sha256[record::id($d.id)];
   LET $t = $dpa_text[record::id($d.id)];
@@ -32,12 +29,6 @@ FOR $d IN $versions {
       IF $sync_check != true { UPDATE $d.id SET contentHash = $h, text = $t; };
     } ELSE {
       THROW <string> $d.id + ' is published, but its file in libs/legal/dpa has changed: publish a new version instead';
-    };
-  };
-  IF $d.pdfSha256 != NONE {
-    LET $pdf = $dpa_pdf[record::id($d.id)];
-    IF $pdf = NONE OR $pdf.pdfSha256 != $d.pdfSha256 OR $pdf.pdfSize != $d.pdfSize {
-      THROW <string> $d.id + ': its PDF of record, libs/legal/dpa/' + record::id($d.id) + '.pdf, is missing or has changed: restore it';
     };
   };
 };

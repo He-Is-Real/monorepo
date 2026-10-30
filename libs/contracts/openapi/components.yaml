@@ -1101,10 +1101,9 @@ components:
         published version. D122: the event binds the privacy policy in force and, on a sign-up version that
         asks for them, the terms of use in force (`GET /v1/legal/documents/{document}`); a page that showed
         others gets `409 legal_document_not_in_force`. The server sets `occurredAt` and computes the evidence
-        hash (`heisreal-consent-evidence/v4` when the privacy policy has a PDF of record, else v3): sha256 of
-        the form, its version, its text's and statements file's sha256, the privacy policy version with its
-        words' and PDF's sha256, the terms of use version with theirs (or nulls), the statement, the event
-        and the mechanism. No IP address (D19).
+        hash (`heisreal-consent-evidence/v4`, D125): sha256 of the form, its version, its text's and
+        statements file's sha256, the privacy policy version with its words' sha256, the terms of use
+        version with theirs (or nulls), the statement, the event and the mechanism. No IP address (D19).
       required: [form, formVersion, statement, mechanism]
       properties:
         form:
@@ -1126,7 +1125,7 @@ components:
     DpaVersion:
       type: object
       description: A version of the data-subject-facing Data Processing Agreement (D20, D22).
-      required: [id, status, materiality, contentHash, version]
+      required: [id, status, contentHash, version]
       properties:
         id:
           type: string
@@ -1139,9 +1138,9 @@ components:
           enum: [draft, published]
           description: Published versions are immutable.
         materiality:
-          type: string
-          enum: [minor, material]
-          description: '`material` means re-consent is required.'
+          type: [string, 'null']
+          enum: [minor, material, null]
+          description: "D20's classification of a repo version; `null` on a version an admin published (D125)."
         documentUrl:
           type: string
           description: 'The DPA text (kept in the repo, `libs/legal/dpa/<id>.md`).'
@@ -1266,51 +1265,33 @@ components:
       description: 'D121: the two legal documents, `privacy` (the privacy policy) and `terms` (the terms of use).'
       enum: [privacy, terms]
 
-    LegalDocumentPdf:
-      type: object
-      description: A version's PDF of record (D123, as the admin uploaded it), kept for ever.
-      required: [sha256, size]
-      additionalProperties: false
-      properties:
-        sha256:
-          type: string
-          pattern: '^[0-9a-f]{64}$'
-        size:
-          type: integer
-          minimum: 1
-          maximum: 10485760
-          description: Bytes.
-
     LegalDocumentVersion:
       type: object
-      description: One version of a legal document, without its words.
-      required: [id, publishedAt, changeNote, textHash, pdf]
+      description: One version of a legal document, without its words (D125).
+      required: [id, number, publishedAt, contentHash]
       properties:
         id:
           type: string
-          example: v2
+          description: The version's record id, which a grant names (`privacyPolicyVersion`, `termsVersion`).
+        number:
+          type: integer
+          minimum: 1
+          description: 1, 2, 3..., in publishing order (`/privacy/versions/{number}`).
         publishedAt:
           type: string
           format: date-time
-        changeNote:
-          type: [string, 'null']
-          description: What changed, as the admin who published it said.
-        textHash:
+        contentHash:
           type: string
-          minLength: 64
-          maxLength: 64
-          description: SHA-256 of the web text.
-        pdf:
-          oneOf:
-            - $ref: '#/components/schemas/LegalDocumentPdf'
-            - type: 'null'
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of the version's Markdown (UTF-8, line ends as `\n`).
 
     LegalDocument:
       type: object
       description: |
-        A legal document (D121): the version in force with the words the site renders, and every version that
-        counts, newest first, each with its PDF of record.
+        A legal document (D121, D125): the version in force with its Markdown, which the site renders, and
+        every version that counts, newest first.
       required: [document, current, versions]
+      additionalProperties: false
       properties:
         document:
           $ref: '#/components/schemas/LegalDocumentName'
@@ -1324,41 +1305,68 @@ components:
                     text:
                       type: string
                       description: Markdown.
+              unevaluatedProperties: false
             - type: 'null'
         versions:
           type: array
           items:
             $ref: '#/components/schemas/LegalDocumentVersion'
 
-    AdminLegalDocumentVersion:
-      description: A version as api-admin lists it, with who published it.
+    LegalDocumentVersionText:
+      description: One version of a legal document with its Markdown, and whether it is the one in force.
       allOf:
         - $ref: '#/components/schemas/LegalDocumentVersion'
         - type: object
-          required: [publishedBy, source, requiresReacceptance]
+          required: [document, text, current]
           properties:
-            publishedBy:
-              type: [string, 'null']
-              description: The publishing admin's user record id (Clerk holds names, D16); `null` for repo versions.
-            source:
+            document:
+              $ref: '#/components/schemas/LegalDocumentName'
+            text:
               type: string
-              enum: [admin, repo]
-            requiresReacceptance:
+              description: Markdown.
+            current:
               type: boolean
+      unevaluatedProperties: false
+
+    AdminLegalDocumentVersion:
+      type: object
+      description: A version as api-admin lists it, with who published it.
+      required: [number, publishedAt, publishedBy, source, devPlaceholder]
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        publishedAt:
+          type: string
+          format: date-time
+        publishedBy:
+          type: [string, 'null']
+          description: The publishing admin's user record id (Clerk holds names, D16); `null` for repo versions.
+        source:
+          type: string
+          enum: [admin, repo]
+        devPlaceholder:
+          type: boolean
+          description: Dev's placeholder (D75), which counts only in dev.
 
     AdminLegalDocumentVersionList:
       type: object
       required: [document, current, data]
+      additionalProperties: false
       properties:
         document:
           $ref: '#/components/schemas/LegalDocumentName'
         current:
+          description: The version in force with its Markdown, which the editor starts from; `null` before the first.
           oneOf:
             - type: object
-              required: [id, text]
+              required: [number, text]
+              additionalProperties: false
               properties:
-                id:
-                  type: string
+                number:
+                  type: integer
+                  minimum: 1
                 text:
                   type: string
             - type: 'null'
@@ -1367,68 +1375,35 @@ components:
           items:
             $ref: '#/components/schemas/AdminLegalDocumentVersion'
 
-    LegalDocumentPreview:
-      type: object
-      description: |
-        D123: an upload's SHA-256 (a publish must name it) and size, for the admin's preview; the browser shows
-        the file itself. The upload is the record as it is (admins are trusted). Nothing is stored.
-      required: [document, pdfSha256, pdfSize]
-      additionalProperties: false
-      properties:
-        document:
-          $ref: '#/components/schemas/LegalDocumentName'
-        pdfSha256:
-          type: string
-          pattern: '^[0-9a-f]{64}$'
-        pdfSize:
-          type: integer
-
-    LegalDocumentUpload:
-      type: object
-      required: [pdf]
-      properties:
-        pdf:
-          type: string
-          format: binary
-          description: The PDF as exported, at most 10 MB.
-
     PublishLegalDocument:
       type: object
       description: |
-        Command `PublishLegalDocument` (multipart/form-data): a new version of one legal document, its PDF of
-        record (`pdf`, stored as uploaded) and its web text published together.
-      required: [pdf, text, textSha256, pdfSha256, changeNote, basedOn]
+        Command `PublishLegalDocument` (D125): the next version of one legal document, its Markdown as the admin
+        wrote it, in force at once. The database numbers it and keeps it for ever, unchanged.
+      required: [text, basedOn]
+      additionalProperties: false
       properties:
-        pdf:
-          type: string
-          format: binary
-          description: The PDF, at most 10 MB, its file name ending in `.pdf` (any case; the bytes are never read). Stored and served exactly as uploaded.
         text:
           type: string
-          maxLength: 200000
-          description: The web text (Markdown) the site renders. The admin makes sure it says what the PDF says.
-        textSha256:
-          type: string
-          pattern: '^[0-9a-f]{64}$'
-          description: The SHA-256 of `text` the preview showed (UTF-8, line ends as `\n`).
-        pdfSha256:
-          type: string
-          pattern: '^[0-9a-f]{64}$'
-          description: The SHA-256 of the PDF the preview showed.
-        changeNote:
-          type: string
           minLength: 1
-          maxLength: 500
-        requiresReacceptance:
-          type: string
-          enum: ['true', 'false']
-          description: |
-            D122, D93's rules: a privacy policy that requires it asks everyone again before a new story or at
-            their next sign-in; terms that require it ask again at the next sign-in. Nothing stops counting
-            and no story is hidden.
+          maxLength: 200000
+          description: Markdown (headings, paragraphs, bold, italic, lists, links, tables, code; no HTML). Line ends are stored as `\n`.
         basedOn:
+          type: [integer, 'null']
+          minimum: 1
+          description: The number of the version in force the admin edited; `null` for the first version (`409 document_changed` if another is in force now).
+
+    PublishedLegalDocument:
+      type: object
+      required: [number, publishedAt]
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        publishedAt:
           type: string
-          description: The version in force the preview was made against; empty for the first version (`409 document_changed` if that changed).
+          format: date-time
 
     TestimonyFormFeatures:
       type: object
@@ -1491,26 +1466,6 @@ components:
         allowPaidPromotion:
           type: boolean
           description: Used in paid adverts promoting He Is Real Today.
-
-    CreateDpaDraft:
-      type: object
-      description: Creates a `draft`. The document lives in the repo; the server computes `contentHash` from it.
-      required: [id, materiality]
-      properties:
-        id:
-          type: string
-          pattern: '^v[0-9]+$'
-          example: v2
-        materiality:
-          type: string
-          enum: [minor, material]
-        changeSummary:
-          type: string
-        supersedes:
-          type: string
-        effectiveFrom:
-          type: string
-          format: date-time
 
     Account:
       type: object

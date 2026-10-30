@@ -248,8 +248,6 @@ control.
   **tf-deployer could grant itself access to Bunny through its service-account roles. That's
   accepted (D57).** It would take a change to code on `main` and an approved apply.
 - **Backups bucket:** only the backup job (create-only) and developers (restores).
-- **Legal documents bucket:** api-admin creates; api-public-read reads; nobody may delete
-  (retention policy). See "Legal documents bucket".
 - **`dev/bunny/`:** readable by developers and `tf-bunny`, and by Google-managed service agents
   acting for their own services; its state is encrypted with `tofu-bunny`, which only developers
   and `tf-bunny` can use. Object names stay listable for the other CI identities, contents don't.
@@ -265,45 +263,6 @@ startup init creates only with `dev_seed_login`; its password is `surreal-dev-se
 Starting the Job is an operation, not an infrastructure change: no apply. `ci-dev-seeder` may
 start it from "Reset dev data" and "Dev behavioural tests" on `main`, nothing else. Media were
 uploaded once by a developer (`apps/dev-seed/README.md`); the Job never talks to Bunny.
-
-## Legal documents bucket
-
-The privacy policy and the terms of use are kept as PDFs, every version forever, because people
-agreed to a specific text and we must be able to show it again. One bucket,
-**`<project>-legal-documents`** (`modules/gcp/legal_documents.tf`): when an admin publishes a new
-version, api-admin stores the PDF exactly as uploaded at
-`legal/<document>/<versionId>/<sha256>.pdf`, document `privacy` or `terms` (D123: admins are
-trusted, so nothing is scanned, rewritten or copied). That file is what people are shown and the
-one that counts.
-
-- **London** (`EUROPE-WEST2`), private (uniform access, public access prevention enforced).
-- **Write-once paths:** a new text is a new object, never an overwrite.
-- **No object versioning, on purpose:** in a versioned bucket a retained live object can still be
-  made noncurrent (replaced at its path), so a path could end up holding different bytes from the
-  version's recorded hash. Without versioning the retention policy alone refuses every delete and
-  overwrite of the live object.
-- **Retention: 100 years** (GCS's maximum), so nobody, developers and project owners included,
-  can delete or overwrite an object.
-  **Unlocked in dev** (`legal_documents_retention_locked = false`), so the policy can still be
-  removed there. Locking is irreversible; every other environment refuses to plan unless it's
-  locked, and it must be locked before Real stories (decision D124).
-
-Who can do what (bucket-level grants only, nothing else on the bucket):
-
-- **api-admin** may only create objects (`objectCreator`: no delete, so no overwrite; the app also
-  writes with `ifGenerationMatch=0`). It gets `LEGAL_DOCUMENTS_BUCKET`.
-- **api-public-read** may only read (`objectViewer`) and streams the PDFs to the browser. It gets
-  `LEGAL_DOCUMENTS_BUCKET`.
-- **web** gets `API_ADMIN_URL` for the browser's own calls to api-admin (uploads); web's server
-  never calls it.
-
-**Dev seeds:** `dev_legal_placeholders` (dev only) uploads `libs/legal/dpa/dev_placeholder.pdf` as
-`legal/privacy/dev_placeholder/<sha256>.pdf` and `libs/legal/terms/dev_placeholder.pdf` as
-`legal/terms/dev_placeholder/<sha256>.pdf`, so dev has a privacy policy and terms of record. A
-changed file becomes a new object; OpenTofu forgets the old one rather than deleting it (retention
-would refuse the delete).
-
-Tested in `modules/gcp/tests/legal_documents.tftest.hcl`.
 
 ## Encryption
 
@@ -712,7 +671,6 @@ exactly what was checked.
 | Data                                                    | Where                                     | Declared in                              |
 | ------------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
 | SurrealDB (GKE disk), backups, OpenTofu state, KMS keys | London                                    | `gcp`, `bootstrap`                       |
-| Privacy policy and terms PDFs (both legal buckets)      | London                                    | `gcp`                                    |
 | Cloud Run services and jobs, Artifact Registry images   | London                                    | `gcp`                                    |
 | Secrets (Secret Manager)                                | London only (user-managed replication)    | `gcp`, `bootstrap`, `bunny`              |
 | Our services' logs (`_Default` sink, 30 days, D101)     | London (`default-europe-west2`)           | `modules/bootstrap/logging.tf`           |

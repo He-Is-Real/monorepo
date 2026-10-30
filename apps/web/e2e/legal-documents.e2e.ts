@@ -1,6 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
 import {
   expectAllTargets,
@@ -9,19 +7,17 @@ import {
 } from './helpers';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
-// The legal documents (D121, D123; Joel, 2026-10-30: "isn't privacy consent button and privacy
-// policy and terms of use just the same document? but one needs an approve button"), on every
-// device:
-// - /privacy and /terms keep the site's own view of the words in force, with "Download this
-//   version (PDF)" and, folded away, the previous versions with theirs (plain links: the browser
-//   shows the PDF itself, no pop-up);
-// - the sign-up step's terms box links the terms of use, outside the box's own words;
-// - /admin/legal, for Admins: choose a document, upload a PDF and its words, preview them (the
-//   PDF exactly as uploaded, D123), publish; the new version is in force and the old ones stay
-//   listed. The stub api-admin (stub-api-user.mjs) keeps each test's versions apart by its session.
-
-const LEGAL = resolve(__dirname, '../../../libs/legal');
-const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+// The legal documents (D121, D125; Joel, 2026-10-30: "I like the current way policy is displayed
+// with site formatting, keep this and make an easy method for admins to modify and version
+// this"), on every device:
+// - /privacy and /terms show the version in force as Markdown in the site's own formatting
+//   (inline `code` as real code), with its number, and link the earlier versions, each kept at
+//   /privacy/versions/<n>;
+// - the sign-up step's terms box links the terms of use in force, outside the box's own words;
+// - /admin/legal, for Admins: edit the text with a live preview, confirm, publish; the new
+//   version is in force and the old ones stay listed. A publish based on a version that's no
+//   longer in force asks to reload. The stub api-admin (stub-api-user.mjs) keeps each test's
+//   versions apart by its session.
 
 async function useSession(page: Page, session: string) {
   await page.addInitScript(
@@ -31,89 +27,61 @@ async function useSession(page: Page, session: string) {
 }
 
 test.describe('the privacy policy and terms of use pages', () => {
-  test('/privacy: the words in force, this version’s PDF, and the previous versions with theirs', async ({
+  test('/privacy: the version in force in the site’s formatting, inline code as code, and the earlier version', async ({
     page,
   }) => {
     await page.goto('/privacy');
     const policy = page.locator('[data-legal-version]');
-    await expect(policy).toHaveAttribute(
-      'data-legal-version',
-      'dev_placeholder',
+    await expect(policy).toHaveAttribute('data-legal-version', '2');
+    await expect(page.locator('[data-version-line]')).toContainText(
+      'Version 2, published',
     );
-    await expect(policy).toContainText(
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Cookies and storage' }),
+    ).toBeVisible();
+    // Joel's bug: text in backticks is shown as code, not as plain words.
+    const code = policy.locator('code', { hasText: 'theme' }).first();
+    await expect(code).toBeVisible();
+    expect(
+      await code.evaluate((el) => getComputedStyle(el).fontFamily),
+    ).toMatch(/mono/i);
+
+    const earlier = page.locator('[data-document-versions="privacy"] li');
+    await expect(earlier).toHaveCount(1);
+    const link = earlier.getByRole('link', { name: /^Version 1, published/ });
+    await expect(link).toHaveAttribute('href', '/privacy/versions/1');
+    await expectTarget(page, link);
+    await expectNoHorizontalOverflow(page);
+    await expectAllTargets(page);
+
+    await link.click();
+    await expect(page).toHaveURL(/\/privacy\/versions\/1$/);
+    await expect(page.locator('[data-legal-version]')).toContainText(
       'Privacy document: development placeholder',
     );
-    // The site's own cookies section stays below it.
-    await expect(
-      page.getByRole('heading', { name: 'Cookies and storage' }),
-    ).toBeVisible();
-
-    const download = page.getByRole('link', {
-      name: 'Download this version (PDF)',
-    });
-    await expect(download).toHaveAttribute(
-      'href',
-      '/legal/privacy/dev_placeholder.pdf',
+    await expect(page.getByRole('note')).toContainText(
+      'Read the current privacy policy (version 2)',
     );
-    await expectTarget(page, download);
-
-    const previous = page.locator('[data-previous-versions]');
-    await expect(previous).toBeHidden();
-    await page.getByText('Previous versions').click();
-    await expect(previous.locator('li')).toHaveCount(1);
-    await expect(
-      previous.getByRole('link', { name: 'Download version 0 (PDF)' }),
-    ).toHaveAttribute('href', '/legal/privacy/v0.pdf');
-
     await expectNoHorizontalOverflow(page);
-    await expectAllTargets(page);
   });
 
-  test('/terms: the words in force and their PDF', async ({ page }) => {
+  test('/terms: the version in force; an unknown version is a 404', async ({
+    page,
+  }) => {
     await page.goto('/terms');
     await expect(page.locator('[data-legal-version]')).toContainText(
-      'Terms of use: development placeholder',
+      'The real terms come before the site goes live.',
     );
-    await expect(
-      page.getByRole('link', { name: 'Download this version (PDF)' }),
-    ).toHaveAttribute('href', '/legal/terms/dev_placeholder.pdf');
-    // Only one version so far: no "Previous versions".
-    await expect(page.getByText('Previous versions')).toHaveCount(0);
+    // Only one version so far: no other versions listed.
+    await expect(page.locator('[data-document-versions]')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
     await expectAllTargets(page);
-  });
-
-  test('a PDF link gives exactly the PDF of record, inline and never sniffed; anything else is a 404', async ({
-    request,
-  }) => {
-    for (const [document, file, name] of [
-      ['privacy', 'dpa/dev_placeholder.pdf', 'privacy-policy'],
-      ['terms', 'terms/dev_placeholder.pdf', 'terms-of-use'],
-    ]) {
-      const res = await request.get(`/legal/${document}/dev_placeholder.pdf`);
-      expect([document, res.status()]).toEqual([document, 200]);
-      expect(res.headers()['content-type']).toBe('application/pdf');
-      expect(res.headers()['x-content-type-options']).toBe('nosniff');
-      expect(res.headers()['content-disposition']).toBe(
-        `inline; filename="heisreal-${name}-dev_placeholder.pdf"`,
-      );
-      expect(sha256(Buffer.from(await res.body()))).toBe(
-        sha256(readFileSync(`${LEGAL}/${file}`)),
-      );
-    }
-    for (const path of [
-      'privacy/v9.pdf',
-      'privacy/dev_placeholder',
-      'other/v1.pdf',
-      'privacy/..%2Fv1.pdf',
-    ]) {
-      const res = await request.get(`/legal/${path}`);
-      expect([path, res.status()]).toEqual([path, 404]);
-    }
+    const missing = await page.goto('/terms/versions/9');
+    expect(missing?.status()).toBe(404);
   });
 });
 
-test('the sign-up step’s terms box links the terms of use, outside its words', async ({
+test('the sign-up step’s terms box links the terms of use in force, outside its words', async ({
   page,
 }) => {
   await useSession(page, `unaccepted-${randomUUID().slice(0, 8)}`);
@@ -123,23 +91,25 @@ test('the sign-up step’s terms box links the terms of use, outside its words',
   });
   await expect(terms).not.toBeChecked();
   const link = page.getByRole('link', {
-    name: 'Read the terms of use (opens in a new tab)',
+    name: 'Read the terms of use, version 1 (opens in a new tab)',
   });
-  await expect(link).toHaveAttribute('href', '/terms');
+  await expect(link).toHaveAttribute('href', '/terms/versions/1');
   await expect(link).toHaveAttribute('data-terms-version', 'dev_placeholder');
   await expectTarget(page, link);
-  // The privacy policy, with its PDF, folded away.
+  // The privacy policy, folded away, in the same formatting as /privacy.
   await page.getByText('Read the privacy policy', { exact: true }).click();
+  const privacy = page.locator('[data-privacy-document="dev_policy"]');
   await expect(
-    page.locator('[data-privacy-document]').getByRole('link', {
-      name: 'Download this version (PDF)',
-    }),
-  ).toHaveAttribute('href', '/legal/privacy/dev_placeholder.pdf');
+    privacy.locator('code', { hasText: 'theme' }).first(),
+  ).toBeVisible();
+  await expect(
+    privacy.getByRole('link', { name: /^Version 2, on its own page/ }),
+  ).toHaveAttribute('href', '/privacy/versions/2');
   await expectNoHorizontalOverflow(page);
 });
 
 test.describe('/admin/legal', () => {
-  test('an admin publishes a new privacy policy: the upload previewed as it is, in force, the old one still listed', async ({
+  test('an admin edits the privacy policy with a live preview, confirms, and publishes version 3', async ({
     page,
   }) => {
     await useSession(page, `admin-${randomUUID().slice(0, 8)}`);
@@ -151,40 +121,32 @@ test.describe('/admin/legal', () => {
       page.getByRole('radio', { name: /^Privacy policy/ }),
     ).toBeChecked();
     const versions = page.locator('[data-versions="privacy"] > li');
-    await expect(versions).toHaveCount(1);
+    await expect(versions).toHaveCount(2);
     await expect(versions.nth(0).locator('[data-current]')).toBeVisible();
+    // The editor starts from the version in force.
+    const box = page.getByLabel('The text');
+    await expect(box).toHaveValue(/## Cookies and storage/);
     await expectNoHorizontalOverflow(page);
     await expectAllTargets(page);
 
-    const file = readFileSync(`${LEGAL}/terms/dev_placeholder.pdf`);
-    await page.getByLabel('The PDF (at most 10 MB)').setInputFiles({
-      name: 'privacy-v2.pdf',
-      mimeType: 'application/pdf',
-      buffer: file,
-    });
-    await page
-      .getByLabel('The words the site shows (Markdown)')
-      .fill('# Privacy policy\n\nShorter words.\n');
-    await page.getByRole('button', { name: 'Preview' }).click();
+    await box.fill('## Your data\n\nShorter words, with `a_name`.\n');
     const preview = page.locator('[data-preview]');
-    await expect(preview.locator('object[type="application/pdf"]')).toHaveCount(
-      1,
-    );
-    await expect(preview.locator('[data-preview-pdf-sha256]')).toHaveText(
-      sha256(file),
-    );
-    await expect(preview.locator('[data-preview-text]')).toContainText(
-      'Shorter words.',
-    );
+    await expect(
+      preview.getByRole('heading', { name: 'Your data' }),
+    ).toBeVisible();
+    await expect(preview.locator('code')).toHaveText('a_name');
 
-    await page.getByLabel('What changed').fill('Shorter words');
-    await page.getByRole('button', { name: 'Publish this version' }).click();
+    await page.getByRole('button', { name: 'Publish as version 3' }).click();
+    const confirm = page.getByRole('alertdialog');
+    await expect(confirm).toContainText('Publish this text as version 3');
+    await confirm
+      .getByRole('button', { name: 'Yes, publish version 3' })
+      .click();
     await expect(page.locator('[data-publish-status="done"]')).toHaveText(
-      'Published version 2. It’s in force now.',
+      'Published version 3. It’s in force now.',
     );
-    await expect(versions).toHaveCount(2);
-    await expect(versions.nth(0)).toContainText('Version 2');
-    await expect(versions.nth(0)).toContainText('Shorter words');
+    await expect(versions).toHaveCount(3);
+    await expect(versions.nth(0)).toContainText('Version 3');
     await expect(versions.nth(0).locator('[data-current]')).toBeVisible();
     await expect(versions.nth(1).locator('[data-current]')).toHaveCount(0);
 
@@ -195,6 +157,39 @@ test.describe('/admin/legal', () => {
     ).toBeChecked();
     await expect(page.locator('[data-versions="terms"] > li')).toHaveCount(1);
     await expectNoHorizontalOverflow(page);
+  });
+
+  test('a stale publish (another admin published meanwhile) is refused and asks to reload', async ({
+    browser,
+  }) => {
+    const session = `admin-${randomUUID().slice(0, 8)}`;
+    const open = async () => {
+      const page = await (await browser.newContext()).newPage();
+      await useSession(page, session);
+      await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
+      await expect(page.getByLabel('The text')).toHaveValue(/Cookies/);
+      return page;
+    };
+    const mine = await open();
+    const theirs = await open();
+    for (const [page, words] of [
+      [theirs, 'Theirs.'],
+      [mine, 'Mine.'],
+    ] as const) {
+      await page.getByLabel('The text').fill(words);
+      await page.getByRole('button', { name: 'Publish as version 3' }).click();
+      await page
+        .getByRole('button', { name: 'Yes, publish version 3' })
+        .click();
+    }
+    await expect(theirs.locator('[data-publish-status="done"]')).toBeVisible();
+    const stale = mine.locator('[data-publish-status="stale"]');
+    await expect(stale).toContainText('Someone else published a new version');
+    await stale.getByRole('button', { name: 'Reload' }).click();
+    await expect(mine.getByLabel('The text')).toHaveValue('Theirs.');
+    await expect(
+      mine.getByRole('button', { name: 'Publish as version 4' }),
+    ).toBeVisible();
   });
 
   test('the first publication: an admin who hasn’t accepted sign-up (nothing to accept yet) stays on the page and publishes', async ({
@@ -213,47 +208,17 @@ test.describe('/admin/legal', () => {
     await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
     await expect(page.getByText('No version is published yet.')).toBeVisible();
 
-    const file = readFileSync(`${LEGAL}/dpa/dev_placeholder.pdf`);
-    await page.getByLabel('The PDF (at most 10 MB)').setInputFiles({
-      name: 'privacy-v1.pdf',
-      mimeType: 'application/pdf',
-      buffer: file,
-    });
     await page
-      .getByLabel('The words the site shows (Markdown)')
-      .fill('# Privacy policy\n\nThe first one.\n');
-    await page.getByRole('button', { name: 'Preview' }).click();
-    await expect(page.locator('[data-preview-pdf-sha256]')).toHaveText(
-      sha256(file),
-    );
-    await page.getByLabel('What changed').fill('First version');
-    await page.getByRole('button', { name: 'Publish this version' }).click();
+      .getByLabel('The text')
+      .fill('## Privacy policy\n\nThe first one.\n');
+    await page.getByRole('button', { name: 'Publish as version 1' }).click();
+    await page.getByRole('button', { name: 'Yes, publish version 1' }).click();
     await expect(page.locator('[data-publish-status="done"]')).toHaveText(
       'Published version 1. It’s in force now.',
     );
     // Still on the publishing page: never sent to the sign-up step.
     expect(new URL(page.url()).pathname).toBe('/admin/legal');
     await expect(page.locator('[data-versions="privacy"] > li')).toHaveCount(1);
-  });
-
-  test('a file whose name doesn’t end in .pdf is refused with a plain message', async ({
-    page,
-  }) => {
-    await useSession(page, `admin-${randomUUID().slice(0, 8)}`);
-    await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
-    await page.getByLabel('The PDF (at most 10 MB)').setInputFiles({
-      name: 'privacy.docx',
-      mimeType: 'application/octet-stream',
-      buffer: readFileSync(`${LEGAL}/dpa/dev_placeholder.pdf`),
-    });
-    await page
-      .getByLabel('The words the site shows (Markdown)')
-      .fill('# Privacy policy\n\nWords.\n');
-    await page.getByRole('button', { name: 'Preview' }).click();
-    await expect(
-      page.getByText('Choose a PDF: the file’s name must end in .pdf.'),
-    ).toBeVisible();
-    await expect(page.locator('[data-preview]')).toHaveCount(0);
   });
 
   test('only for admins: anyone else is told so and sees no versions', async ({

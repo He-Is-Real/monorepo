@@ -1,6 +1,5 @@
-# Terms of use: development placeholder (NOT LEGAL TEXT)
-
-> **Development only.** This is a placeholder. The real terms come before the site goes live.
+> **This is a placeholder.** The real terms come before the site goes live. Development only
+> (D75).
 
 This is the development version of He Is Real Today. Everything on it is test content: the
 stories are made up, and nobody shared them.

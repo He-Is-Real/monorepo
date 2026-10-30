@@ -1,88 +1,59 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import Link from 'next/link';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
-import { LegalBlocks } from '@/components/consent/legal-blocks';
+import { LegalMarkdown } from '@/components/legal/legal-markdown';
 import { Button } from '@/components/ui/button';
 import { ApiUserProblem, apiUser, NotSignedIn } from '@/lib/api-user';
 import {
-  documentPdfHref,
+  DOCUMENT_TITLES,
+  documentVersionHref,
   type LegalDocumentName,
-  parseLegalText,
 } from '@/lib/legal-text';
 import { usePersonalSession } from '@/lib/personal-session';
 
-const DOCUMENTS: {
-  document: LegalDocumentName;
-  name: string;
-  about: string;
-}[] = [
+const DOCUMENTS: { document: LegalDocumentName; about: string }[] = [
   {
     document: 'privacy',
-    name: 'Privacy policy',
     about:
       'What we keep, why, and people’s rights. Every consent names the version in force.',
   },
   {
     document: 'terms',
-    name: 'Terms of use',
     about:
       'The terms people agree to with the sign-up box “I agree to the terms of use”.',
   },
 ];
 
-/** What "requires re-acceptance" does, per document (D93's rules, D122). */
-const REACCEPTANCE: Record<LegalDocumentName, string> = {
-  privacy:
-    'Requires re-acceptance: everyone accepts the sign-up form again at their next sign-in, and accepts the story form again before starting or submitting a new story. Their stories stay on the site either way.',
-  terms:
-    'Requires re-acceptance: everyone ticks “I agree to the terms of use” again at their next sign-in.',
-};
-
-const MAX_PDF = 10 * 1024 * 1024;
+/** The text's limit, as api-admin's (characters). */
+const MAX_TEXT = 200_000;
 const ADMIN_ROLES = new Set(['Admin', 'SuperAdmin']);
 
 /** The contract's `AdminLegalDocumentVersionList`. */
 interface VersionList {
   document: LegalDocumentName;
-  current: { id: string; text: string } | null;
+  current: { number: number; text: string } | null;
   data: {
-    id: string;
+    number: number;
     publishedAt: string;
     publishedBy: string | null;
     source: 'admin' | 'repo';
-    changeNote: string | null;
-    requiresReacceptance: boolean;
-    pdf: { sha256: string; size: number } | null;
+    devPlaceholder: boolean;
   }[];
-}
-
-/** The contract's `LegalDocumentPreview`. */
-interface ServerPreview {
-  pdfSha256: string;
-  pdfSize: number;
 }
 
 type Loaded =
   | { status: 'loading' }
   | { status: 'failed'; message: string }
   | { status: 'ready'; list: VersionList };
-
-interface Preview {
-  file: File;
-  /** An object URL of the chosen file: exactly what would be published (D123). */
-  url: string;
-  server: ServerPreview;
-  text: string;
-  textSha256: string;
-}
-
-const hex = (buffer: ArrayBuffer) =>
-  [...new Uint8Array(buffer)]
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-const sha256 = async (data: BufferSource) =>
-  hex(await crypto.subtle.digest('SHA-256', data));
 
 const date = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', {
@@ -94,11 +65,6 @@ const date = (iso: string) =>
     timeZone: 'UTC',
   }).format(new Date(iso)) + ' UTC';
 
-const size = (bytes: number) =>
-  bytes < 1024 * 1024
-    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
-    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-
 const problemText = (err: unknown) => {
   if (err instanceof ApiUserProblem) {
     const field = err.problem.errors?.[0]?.message;
@@ -108,20 +74,31 @@ const problemText = (err: unknown) => {
   return 'api-admin couldn’t be reached. Try again in a moment.';
 };
 
-const INPUT =
-  'min-h-11 w-full rounded-lg border border-input bg-input-background px-3 py-2 text-base text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none';
 /** A button whose words may wrap (200% text on a 320 px phone): full width there. */
 const WRAPPING_BUTTON =
   'h-auto min-h-11 w-full px-5 py-2 whitespace-normal sm:w-auto';
 
+/** The marks the text box understands: what lib/markdown.ts renders. */
+const CHEAT_SHEET: [string, string][] = [
+  ['## Heading', 'A section heading (### for a smaller one)'],
+  ['**bold**', 'Bold words'],
+  ['`code`', 'A name or value, in code style'],
+  ['- item', 'A bulleted list (1. for a numbered one)'],
+  ['[words](https://…)', 'A link (https:, mailto: or a page on this site)'],
+  ['> note', 'A highlighted note'],
+  [
+    '| A | B |\n| --- | --- |\n| 1 | 2 |',
+    'A table: a header row, a line of dashes, then rows',
+  ],
+];
+
 /**
- * The legal documents for staff (D121, D123), Admin and above (api-admin checks it too). Choose
- * the privacy policy or the terms of use; its versions are listed newest first, read-only, each
- * with its PDF. To publish a new one (the first one too): choose the PDF and write (or paste) the
- * words the site shows, preview both (the PDF as uploaded, which is what's published, shown by
- * the browser itself, with the hash api-admin computed; the words as the site renders them),
- * then publish with a change note. What's published is exactly what
- * was previewed: the hashes go with it, and api-admin refuses anything else.
+ * The legal documents for staff (D121, D125), Admin and above (api-admin checks it too). Choose
+ * the privacy policy or the terms of use, edit the version in force in a plain text box with a
+ * live preview in the site's own style (the same renderer as /privacy and /terms), and publish
+ * it, after a confirmation, as the next version, in force at once. If another admin published
+ * meanwhile, api-admin refuses (409) and the page asks to reload. Earlier versions are listed,
+ * each linking to its public page.
  */
 export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
   const session = usePersonalSession();
@@ -130,7 +107,7 @@ export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
   const [document, setDocument] = useState<LegalDocumentName>('privacy');
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   /** The version just published, said until another document is chosen. */
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<number | null>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const load = useRef(0);
   const id = useId();
@@ -242,7 +219,7 @@ export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
               </span>
               <span className="min-w-0">
                 <span className="block font-medium text-foreground">
-                  {d.name}
+                  {DOCUMENT_TITLES[d.document]}
                 </span>
                 <span className="block text-sm text-secondary-text">
                   {d.about}
@@ -253,7 +230,7 @@ export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
         </div>
       </fieldset>
 
-      {notice && (
+      {notice !== null && (
         <p
           ref={noticeRef}
           tabIndex={-1}
@@ -261,7 +238,7 @@ export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
           className="rounded-xl border border-primary px-4 py-3"
           data-publish-status="done"
         >
-          Published version {notice.replace(/^v/, '')}. It’s in force now.
+          Published version {notice}. It’s in force now.
         </p>
       )}
       {loaded.status === 'loading' && (
@@ -279,26 +256,26 @@ export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
         loaded.list.document === document &&
         client && (
           <>
-            <PublishVersion
-              key={`${document} ${loaded.list.current?.id ?? ''}`}
+            <EditVersion
+              key={`${document} ${loaded.list.current?.number ?? 0}`}
               document={document}
               list={loaded.list}
-              preview={async (file) => {
-                const body = new FormData();
-                body.append('pdf', file, file.name);
-                const res = await client.command<ServerPreview>(
-                  `/v1/admin/legal-documents/${document}/previews`,
-                  { method: 'POST', form: body },
-                );
-                if (!res.data) throw new Error('No answer');
-                return res.data;
+              reload={() => {
+                setNotice(null);
+                refresh(document);
               }}
-              publish={async (body) => {
-                const res = await client.command<{ id: string }>(
+              publish={async (text) => {
+                const res = await client.command<{ number: number }>(
                   `/v1/admin/legal-documents/${document}/versions`,
-                  { method: 'POST', form: body },
+                  {
+                    method: 'POST',
+                    body: {
+                      text,
+                      basedOn: loaded.list.current?.number ?? null,
+                    },
+                  },
                 );
-                setNotice(res.data?.id ?? '');
+                setNotice(res.data?.number ?? null);
                 refresh(document);
               }}
             />
@@ -330,15 +307,18 @@ function Versions({
         <ol className="space-y-3" data-versions={document}>
           {list.data.map((v) => (
             <li
-              key={v.id}
-              data-version={v.id}
+              key={v.number}
+              data-version={v.number}
               className="rounded-xl border border-border bg-card px-4 py-3 [overflow-wrap:anywhere]"
             >
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-semibold text-foreground">
-                  Version {v.id.replace(/^v/, '')}
-                </span>
-                {list.current?.id === v.id && (
+                <Link
+                  href={documentVersionHref(document, v.number)}
+                  className="inline-flex min-h-11 items-center font-semibold text-foreground underline-offset-4 hover:underline"
+                >
+                  Version {v.number}
+                </Link>
+                {list.current?.number === v.number && (
                   <span
                     className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground"
                     data-current=""
@@ -352,23 +332,8 @@ function Versions({
                 {v.source === 'admin'
                   ? ` by user ${v.publishedBy ?? 'unknown'}`
                   : ', from the repository'}
-                {v.requiresReacceptance ? '. Requires re-acceptance.' : ''}
+                {v.devPlaceholder ? ' (development placeholder)' : ''}
               </p>
-              {v.changeNote && (
-                <p className="mt-1 text-foreground">{v.changeNote}</p>
-              )}
-              {v.pdf ? (
-                <a
-                  href={documentPdfHref(document, v.id)}
-                  target="_blank"
-                  rel="noopener"
-                  className="inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:underline"
-                >
-                  PDF ({size(v.pdf.size)}), opens in a new tab
-                </a>
-              ) : (
-                <p className="text-sm text-secondary-text">No PDF.</p>
-              )}
             </li>
           ))}
         </ol>
@@ -377,92 +342,71 @@ function Versions({
   );
 }
 
-function PublishVersion({
+type Status =
+  | { kind: 'idle' }
+  | { kind: 'confirm' }
+  | { kind: 'busy' }
+  | { kind: 'error'; message: string }
+  /** Another admin published meanwhile (409): reload, then edit again. */
+  | { kind: 'stale' };
+
+function EditVersion({
   document,
   list,
-  preview: askPreview,
+  reload,
   publish,
 }: {
   document: LegalDocumentName;
   list: VersionList;
-  preview: (file: File) => Promise<ServerPreview>;
-  publish: (body: FormData) => Promise<void>;
+  reload: () => void;
+  publish: (text: string) => Promise<void>;
 }) {
   const id = useId();
-  const [file, setFile] = useState<File | null>(null);
-  const [text, setText] = useState(list.current?.text ?? '');
-  const [note, setNote] = useState('');
-  const [requires, setRequires] = useState(false);
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [status, setStatus] = useState<
-    { kind: 'idle' } | { kind: 'error'; message: string } | { kind: 'busy' }
-  >({ kind: 'idle' });
-  const alert = useRef<HTMLParagraphElement>(null);
+  const title = DOCUMENT_TITLES[document].toLowerCase();
+  const start = list.current?.text ?? '';
+  const [text, setText] = useState(start);
+  const shown = useDeferredValue(text);
+  const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const alert = useRef<HTMLDivElement>(null);
+  const confirm = useRef<HTMLDivElement>(null);
+  const next = (list.data[0]?.number ?? 0) + 1;
+  const words = text.replace(/\r\n?/g, '\n');
 
   useEffect(() => {
-    if (status.kind === 'error') alert.current?.focus();
+    if (status.kind === 'error' || status.kind === 'stale')
+      alert.current?.focus();
+    if (status.kind === 'confirm') confirm.current?.focus();
   }, [status]);
-  // Free the preview's object URL when it's replaced or the form goes.
-  useEffect(
-    () => () => {
-      if (preview) URL.revokeObjectURL(preview.url);
-    },
-    [preview],
-  );
 
-  async function makePreview(event: React.FormEvent) {
+  function askConfirm(event: React.FormEvent) {
     event.preventDefault();
-    if (!file) {
-      setStatus({ kind: 'error', message: 'Choose the PDF.' });
-      return;
-    }
-    if (file.size > MAX_PDF) {
-      setStatus({ kind: 'error', message: 'The PDF is larger than 10 MB.' });
-      return;
-    }
-    const words = text.replace(/\r\n?/g, '\n');
     if (words.trim() === '') {
-      setStatus({ kind: 'error', message: 'Write the words the site shows.' });
-      return;
-    }
-    setStatus({ kind: 'busy' });
-    try {
-      const server = await askPreview(file);
-      setPreview({
-        file,
-        url: URL.createObjectURL(file),
-        server,
-        text: words,
-        textSha256: await sha256(new TextEncoder().encode(words)),
+      setStatus({ kind: 'error', message: `Write the ${title}.` });
+    } else if (words.length > MAX_TEXT) {
+      setStatus({
+        kind: 'error',
+        message: `The text is longer than ${MAX_TEXT.toLocaleString('en-GB')} characters.`,
       });
-      setStatus({ kind: 'idle' });
-    } catch (err) {
-      setStatus({ kind: 'error', message: problemText(err) });
+    } else if (words === start) {
+      setStatus({
+        kind: 'error',
+        message: 'Nothing has changed since the version in force.',
+      });
+    } else {
+      setStatus({ kind: 'confirm' });
     }
   }
 
   async function doPublish() {
-    if (!preview) return;
-    if (note.trim() === '') {
-      setStatus({
-        kind: 'error',
-        message: 'Say what changed (the change note).',
-      });
-      return;
-    }
     setStatus({ kind: 'busy' });
-    const body = new FormData();
-    body.append('text', preview.text);
-    body.append('textSha256', preview.textSha256);
-    body.append('pdfSha256', preview.server.pdfSha256);
-    body.append('changeNote', note.trim());
-    body.append('requiresReacceptance', requires ? 'true' : 'false');
-    body.append('basedOn', list.current?.id ?? '');
-    body.append('pdf', preview.file, preview.file.name);
     try {
-      await publish(body);
+      await publish(words);
     } catch (err) {
-      setStatus({ kind: 'error', message: problemText(err) });
+      setStatus(
+        err instanceof ApiUserProblem && err.status === 409
+          ? { kind: 'stale' }
+          : { kind: 'error', message: problemText(err) },
+      );
     }
   }
 
@@ -472,159 +416,117 @@ function PublishVersion({
         id={`${id}-heading`}
         className="text-2xl font-normal sm:text-[1.75rem]"
       >
-        {list.current ? 'Publish a new version' : 'Publish the first version'}
+        {list.current
+          ? `Edit the ${title} (version ${list.current.number} is in force)`
+          : `Write the first ${title}`}
       </h2>
-      <form onSubmit={makePreview} className="space-y-5" noValidate>
-        <div>
-          <label
-            htmlFor={`${id}-pdf`}
-            className="mb-1 block font-medium text-foreground"
-          >
-            The PDF (at most 10 MB)
-          </label>
-          <input
-            id={`${id}-pdf`}
-            type="file"
-            accept="application/pdf,.pdf"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              setPreview(null);
-            }}
-            className="block min-h-11 w-full text-base file:mr-3 file:min-h-11 file:rounded-md file:border file:border-border file:bg-card file:px-4"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor={`${id}-text`}
-            className="mb-1 block font-medium text-foreground"
-          >
-            The words the site shows (Markdown)
-          </label>
-          <p className="mb-2 text-sm text-secondary-text">
-            Make sure they say what the PDF says.
-          </p>
-          <textarea
-            id={`${id}-text`}
-            value={text}
-            rows={12}
-            onChange={(e) => {
-              setText(e.target.value);
-              setPreview(null);
-            }}
-            className={`${INPUT} font-mono text-sm`}
-          />
-        </div>
-        <Button
-          type="submit"
-          className={WRAPPING_BUTTON}
-          disabled={status.kind === 'busy' && !preview}
-        >
-          Preview
-        </Button>
-      </form>
-
-      {preview && (
-        <div
-          className="space-y-6 rounded-2xl border border-border bg-card p-4 sm:p-6"
-          data-preview=""
-        >
-          <h3 className="text-xl font-semibold text-foreground">Preview</h3>
-          <div>
-            <p className="mb-2 font-medium text-foreground">
-              The PDF, as it will be kept
-            </p>
-            <object
-              data={preview.url}
-              type="application/pdf"
-              aria-label="The PDF to publish"
-              className="h-[70vh] min-h-80 w-full rounded-lg border border-border"
-            >
-              <p className="p-4">
-                This browser can’t show the PDF here.{' '}
-                <a
-                  href={preview.url}
-                  target="_blank"
-                  rel="noopener"
-                  className="text-link underline"
-                >
-                  Open it in a new tab
-                </a>
-                .
-              </p>
-            </object>
-            <a
-              href={preview.url}
-              target="_blank"
-              rel="noopener"
-              className="mt-2 inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:underline"
-            >
-              Open the PDF in a new tab
-            </a>
-            <p className="text-sm break-all text-secondary-text">
-              SHA-256{' '}
-              <code data-preview-pdf-sha256="">{preview.server.pdfSha256}</code>
-            </p>
-          </div>
-          <div>
-            <p className="mb-2 font-medium text-foreground">
-              The words, as the site shows them
-            </p>
-            <div
-              className="rounded-xl border border-border px-4 py-3"
-              data-preview-text=""
-            >
-              <LegalBlocks blocks={parseLegalText(preview.text)} />
-            </div>
-          </div>
-          <div>
+      <form onSubmit={askConfirm} className="space-y-5" noValidate>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="min-w-0">
             <label
-              htmlFor={`${id}-note`}
+              htmlFor={`${id}-text`}
               className="mb-1 block font-medium text-foreground"
             >
-              What changed (shown with the version)
+              The text
             </label>
-            <input
-              id={`${id}-note`}
-              value={note}
-              maxLength={500}
-              onChange={(e) => setNote(e.target.value)}
-              className={INPUT}
+            <details className="mb-2 text-sm text-secondary-text">
+              <summary className="inline-flex min-h-11 cursor-pointer items-center font-medium text-foreground">
+                How to format it
+              </summary>
+              <dl
+                className="mt-2 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[auto_1fr]"
+                data-cheat-sheet=""
+              >
+                {CHEAT_SHEET.map(([mark, meaning]) => (
+                  <div key={mark} className="contents">
+                    <dt>
+                      <code className="font-mono whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
+                        {mark}
+                      </code>
+                    </dt>
+                    <dd className="max-sm:mb-2">{meaning}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-2">Leave a blank line between paragraphs.</p>
+            </details>
+            <textarea
+              id={`${id}-text`}
+              value={text}
+              rows={24}
+              spellCheck
+              onChange={(e) => {
+                setText(e.target.value);
+                if (status.kind !== 'busy') setStatus({ kind: 'idle' });
+              }}
+              className="min-h-11 w-full rounded-lg border border-input bg-input-background px-3 py-2 font-mono text-sm text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             />
           </div>
-          <label className="flex min-h-11 cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              checked={requires}
-              onChange={(e) => setRequires(e.target.checked)}
-              className="peer sr-only"
-            />
-            <span
-              aria-hidden="true"
-              className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border-2 border-input bg-input-background text-primary-foreground peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 [&>svg]:invisible peer-checked:[&>svg]:visible"
+          <div className="min-w-0">
+            <p
+              className="mb-1 font-medium text-foreground"
+              id={`${id}-preview`}
             >
-              <svg
-                viewBox="0 0 24 24"
-                className="size-4 fill-none stroke-current"
-                strokeWidth="3"
-              >
-                <path d="M5 12l5 5 9-10" />
-              </svg>
-            </span>
-            <span>{REACCEPTANCE[document]}</span>
-          </label>
+              Preview, as the site shows it
+            </p>
+            <div
+              role="region"
+              aria-labelledby={`${id}-preview`}
+              className="rounded-xl border border-border bg-background px-4 py-4 sm:px-6"
+              data-preview=""
+            >
+              <LegalMarkdown text={shown} />
+            </div>
+          </div>
+        </div>
+        {status.kind !== 'confirm' && (
           <Button
-            type="button"
+            type="submit"
             className={WRAPPING_BUTTON}
-            disabled={status.kind === 'busy'}
-            onClick={doPublish}
+            disabled={status.kind === 'busy' || status.kind === 'stale'}
           >
-            {status.kind === 'busy' ? 'Publishing…' : 'Publish this version'}
+            {status.kind === 'busy'
+              ? 'Publishing…'
+              : `Publish as version ${next}`}
           </Button>
+        )}
+      </form>
+
+      {status.kind === 'confirm' && (
+        <div
+          ref={confirm}
+          tabIndex={-1}
+          role="alertdialog"
+          aria-labelledby={`${id}-confirm`}
+          className="space-y-4 rounded-2xl border border-primary bg-card p-4 sm:p-6"
+          data-confirm=""
+        >
+          <p id={`${id}-confirm`} className="text-foreground">
+            Publish this text as version {next} of the {title}? It is in force
+            the moment you publish, and can’t be changed or removed afterwards.
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button
+              type="button"
+              className={WRAPPING_BUTTON}
+              onClick={doPublish}
+            >
+              Yes, publish version {next}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={WRAPPING_BUTTON}
+              onClick={() => setStatus({ kind: 'idle' })}
+            >
+              Cancel
+            </Button>
+          </div>
         </div>
       )}
 
       {status.kind === 'error' && (
-        <p
+        <div
           ref={alert}
           tabIndex={-1}
           role="alert"
@@ -632,7 +534,25 @@ function PublishVersion({
           data-publish-status="error"
         >
           {status.message}
-        </p>
+        </div>
+      )}
+      {status.kind === 'stale' && (
+        <div
+          ref={alert}
+          tabIndex={-1}
+          role="alert"
+          className="space-y-3 rounded-xl border border-destructive px-4 py-3"
+          data-publish-status="stale"
+        >
+          <p>
+            Someone else published a new version of the {title} while you were
+            editing, so yours wasn’t published. Reload to see theirs, then make
+            your changes again. Copy your text first if you want to keep it.
+          </p>
+          <Button type="button" className={WRAPPING_BUTTON} onClick={reload}>
+            Reload
+          </Button>
+        </div>
       )}
     </section>
   );

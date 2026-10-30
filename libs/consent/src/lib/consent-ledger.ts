@@ -262,9 +262,9 @@ export class ConsentLedger {
     const [found] = (await runQuery(
       person,
       `SELECT id, type, event, mechanism, evidenceHash, evidenceVersion, dpaVersion, occurredAt,
-         dpaVersion.contentHash AS dpaHash, dpaVersion.pdfSha256 AS dpaPdf, form,
+         dpaVersion.contentHash AS dpaHash, form,
          form.textHash AS formHash, form.statementsHash AS statementsHash,
-         termsVersion, termsVersion.textHash AS termsHash, termsVersion.pdfSha256 AS termsPdf
+         termsVersion, termsVersion.contentHash AS termsHash
        FROM consent WHERE subject = $auth ORDER BY occurredAt ASC`,
     )) as [
       {
@@ -279,10 +279,8 @@ export class ConsentLedger {
         formHash?: string | null;
         evidenceVersion?: number | null;
         statementsHash?: string | null;
-        dpaPdf?: string | null;
         termsVersion?: string | null;
         termsHash?: string | null;
-        termsPdf?: string | null;
       }[],
     ];
     return found.map((r) => {
@@ -301,19 +299,15 @@ export class ConsentLedger {
           : undefined,
         dpaVersion: recordKey(r.dpaVersion),
         dpaContentHash: r.dpaHash,
-        // v4 (D122): the documents' PDFs; a v4 row without them can't verify.
+        // v4 (D125): the terms of use named, or none.
         ...(v4
           ? {
-              dpaPdfSha256: r.dpaPdf ?? 'missing',
-              ...(r.termsVersion
+              terms: r.termsVersion
                 ? {
-                    terms: {
-                      version: recordKey(r.termsVersion),
-                      textHash: r.termsHash ?? 'missing',
-                      pdfSha256: r.termsPdf ?? 'missing',
-                    },
+                    version: recordKey(r.termsVersion),
+                    contentHash: r.termsHash ?? 'missing',
                   }
-                : {}),
+                : null,
             }
           : {}),
         type: r.type,
@@ -388,8 +382,8 @@ export class ConsentLedger {
        RETURN IF $f = NONE { NONE } ELSE {
          { id: $f.id, textHash: $f.textHash, statementsHash: $f.statementsHash,
            coversTerms: $f.coversTerms = true, statements: fn::form::statements($f.id),
-           dpaVersion: $d, dpaHash: $d.contentHash, dpaPdf: $d.pdfSha256,
-           termsVersion: $t, termsHash: $t.textHash, termsPdf: $t.pdfSha256 }
+           dpaVersion: $d, dpaHash: $d.contentHash,
+           termsVersion: $t, termsHash: $t.contentHash }
        };`,
       { form: input.form },
     );
@@ -401,10 +395,8 @@ export class ConsentLedger {
       statements: string[];
       dpaVersion?: string | null;
       dpaHash?: string | null;
-      dpaPdf?: string | null;
       termsVersion?: string | null;
       termsHash?: string | null;
-      termsPdf?: string | null;
     } | null;
     if (!inForce || recordKey(inForce.id) !== input.formVersion) {
       throw new ConsentConflictError(
@@ -448,7 +440,6 @@ export class ConsentLedger {
       inForce.coversTerms &&
       (!terms ||
         !inForce.termsHash ||
-        !inForce.termsPdf ||
         (input.termsVersion !== undefined && input.termsVersion !== terms))
     ) {
       throw new ConsentConflictError(
@@ -458,7 +449,6 @@ export class ConsentLedger {
           : 'No terms of use are published yet, so the sign-up form can’t be accepted',
       );
     }
-    const v4 = !!inForce.dpaPdf;
     return {
       status: 201,
       // Checked again in the transaction: a form version, privacy policy or terms published
@@ -478,7 +468,7 @@ export class ConsentLedger {
         terms: inForce.coversTerms ? terms : null,
         form: `${FORM_TABLES[input.form]}:${input.formVersion}`,
         mechanism: input.mechanism,
-        evidence_version: v4 ? 4 : 3,
+        evidence_version: 4,
         hash: evidenceHash({
           form: {
             kind: input.form,
@@ -488,20 +478,10 @@ export class ConsentLedger {
           },
           dpaVersion: dpa,
           dpaContentHash: inForce.dpaHash,
-          ...(v4
-            ? {
-                dpaPdfSha256: inForce.dpaPdf as string,
-                ...(inForce.coversTerms && terms
-                  ? {
-                      terms: {
-                        version: terms,
-                        textHash: inForce.termsHash as string,
-                        pdfSha256: inForce.termsPdf as string,
-                      },
-                    }
-                  : {}),
-              }
-            : {}),
+          terms:
+            inForce.coversTerms && terms
+              ? { version: terms, contentHash: inForce.termsHash as string }
+              : null,
           type: input.statement,
           event: 'granted',
           mechanism: input.mechanism,
@@ -518,30 +498,19 @@ export class ConsentLedger {
       person,
       `LET $latest = fn::consent::current($auth, $type);
        RETURN { latest: $latest, contentHash: $latest.dpaVersion.contentHash,
-         dpaPdf: $latest.dpaVersion.pdfSha256, textHash: $latest.form.textHash,
-         statementsHash: $latest.form.statementsHash, terms: $latest.termsVersion,
-         termsHash: $latest.termsVersion.textHash, termsPdf: $latest.termsVersion.pdfSha256 };`,
+         textHash: $latest.form.textHash, statementsHash: $latest.form.statementsHash,
+         terms: $latest.termsVersion, termsHash: $latest.termsVersion.contentHash };`,
       { type },
     );
-    const {
-      latest,
-      contentHash,
-      dpaPdf,
-      textHash,
-      statementsHash,
-      terms,
-      termsHash,
-      termsPdf,
-    } = results[results.length - 1] as {
-      latest: RawSnapshot | null;
-      contentHash: string | null;
-      textHash: string | null;
-      statementsHash?: string | null;
-      dpaPdf?: string | null;
-      terms?: string | null;
-      termsHash?: string | null;
-      termsPdf?: string | null;
-    };
+    const { latest, contentHash, textHash, statementsHash, terms, termsHash } =
+      results[results.length - 1] as {
+        latest: RawSnapshot | null;
+        contentHash: string | null;
+        textHash: string | null;
+        statementsHash?: string | null;
+        terms?: string | null;
+        termsHash?: string | null;
+      };
     if (!latest || !contentHash) {
       throw new ConsentConflictError(
         'consent_not_granted',
@@ -570,9 +539,8 @@ export class ConsentLedger {
         terms: terms ? recordKey(terms) : null,
         form: latest.form ?? null,
         mechanism,
-        // D114: v3 when the withdrawn grant's form version has statements data; v4 (D122) when
-        // its privacy policy also has a PDF of record.
-        evidence_version: ref && statementsHash ? (dpaPdf ? 4 : 3) : null,
+        // D114, D125: v4 when the withdrawn grant's form version has statements data.
+        evidence_version: ref && statementsHash ? 4 : null,
         hash: evidenceHash({
           form: ref
             ? {
@@ -584,18 +552,14 @@ export class ConsentLedger {
             : undefined,
           dpaVersion: dpa,
           dpaContentHash: contentHash,
-          ...(ref && statementsHash && dpaPdf
+          ...(ref && statementsHash
             ? {
-                dpaPdfSha256: dpaPdf,
-                ...(terms
+                terms: terms
                   ? {
-                      terms: {
-                        version: recordKey(terms),
-                        textHash: termsHash ?? 'missing',
-                        pdfSha256: termsPdf ?? 'missing',
-                      },
+                      version: recordKey(terms),
+                      contentHash: termsHash ?? 'missing',
                     }
-                  : {}),
+                  : null,
               }
             : {}),
           type,

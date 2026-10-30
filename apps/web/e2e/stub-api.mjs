@@ -15,9 +15,8 @@
 // The legal routes serve dev's placeholders, read from libs/legal as the database copies them
 // (D75): the forms in force (`/v1/legal/forms/{form}`, v2: a short introduction and the boxes from
 // the statements files, D114, D122), the privacy document (`/v1/legal/dpa`) and the two legal
-// documents (`/v1/legal/documents/{privacy|terms}`, D121) with their PDFs of record
-// (`…/versions/{id}.pdf`): the privacy policy has an earlier version too, so its "Previous
-// versions" can be seen. On the Go live port none is published (404), as anywhere but dev.
+// documents (`/v1/legal/documents/{privacy|terms}` and `…/versions/{number}`, D121, D125): the
+// privacy policy has an earlier version too, so its "Previous versions" can be seen. On the Go live port none is published (404), as anywhere but dev.
 //
 // The founder's videos (`/v1/site-videos/founder-intro` and `/next-steps`) are set on the dev
 // port and not on the Go live port (404), so About's and Next Steps' players and their
@@ -533,7 +532,7 @@ const form = (name, statements, features) => {
     id: 'v2',
     status: 'published',
     publishedAt: '2026-10-30T12:00:00.000Z',
-    dpaVersion: 'dev_placeholder',
+    dpaVersion: 'dev_policy',
     textHash: sha256(text),
     text,
     statements,
@@ -547,45 +546,37 @@ const form = (name, statements, features) => {
     ...(features ? { features } : {}),
   };
 };
-// D121: the two legal documents, each a list of versions, newest first, the first in force.
-const pdfFile = (file) => readFileSync(`${LEGAL}/${file}`);
-const pdfOf = (file) => {
-  const bytes = pdfFile(file);
-  return { sha256: sha256(bytes), size: bytes.length };
-};
+// D121, D125: the two legal documents, each a list of numbered versions, newest first, the first
+// in force, as data 0007 seeds them in dev.
 const DOCUMENTS = {
   privacy: [
     {
-      id: 'dev_placeholder',
-      publishedAt: '2026-10-25T12:00:00.000Z',
-      changeNote: 'Dev-only placeholder (D75)',
-      text: DPA_TEXT,
-      file: 'dpa/dev_placeholder.pdf',
+      id: 'dev_policy',
+      number: 2,
+      publishedAt: '2026-10-30T12:00:00.000Z',
+      text: words('dpa/dev_policy.md'),
     },
     {
-      id: 'v0',
-      publishedAt: '2026-10-21T12:00:00.000Z',
-      changeNote: 'An earlier stand-in',
-      text: 'An earlier stand-in.',
-      file: 'dpa/dev_placeholder.pdf',
+      id: 'dev_placeholder',
+      number: 1,
+      publishedAt: '2026-10-25T12:00:00.000Z',
+      text: DPA_TEXT,
     },
   ],
   terms: [
     {
       id: 'dev_placeholder',
+      number: 1,
       publishedAt: '2026-10-30T12:00:00.000Z',
-      changeNote: 'Dev-only placeholder (D75)',
       text: words('terms/dev_placeholder.md'),
-      file: 'terms/dev_placeholder.pdf',
     },
   ],
 };
 const versionOf = (v) => ({
   id: v.id,
+  number: v.number,
   publishedAt: v.publishedAt,
-  changeNote: v.changeNote,
-  textHash: sha256(v.text),
-  pdf: pdfOf(v.file),
+  contentHash: sha256(v.text),
 });
 const FORMS = {
   signup: form('signup', ['age_18plus', 'account_data', 'terms_of_use']),
@@ -607,7 +598,7 @@ const FORMS = {
 };
 
 /**
- * `GET /v1/legal/forms/{form}`, `GET /v1/legal/dpa` and the legal documents with their PDFs:
+ * `GET /v1/legal/forms/{form}`, `GET /v1/legal/dpa` and the legal documents and their versions:
  * dev's versions, none when live.
  */
 function legal(mode, url, res) {
@@ -624,18 +615,15 @@ function legal(mode, url, res) {
         versions: versions.map(versionOf),
       });
     }
-    const id = /^\/versions\/([a-z0-9][a-z0-9_-]{0,63})\.pdf$/.exec(rest)?.[1];
-    const v = versions.find((x) => x.id === id);
+    const number = Number(/^\/versions\/([1-9][0-9]{0,8})$/.exec(rest)?.[1]);
+    const v = versions.find((x) => x.number === number);
     if (!v) return notPublished();
-    const bytes = pdfFile(v.file);
-    res.writeHead(200, {
-      'content-type': 'application/pdf',
-      'content-disposition': `inline; filename="heisreal-${document === 'privacy' ? 'privacy-policy' : 'terms-of-use'}-${v.id}.pdf"`,
-      'x-content-type-options': 'nosniff',
-      etag: `"${sha256(bytes)}"`,
-      'cache-control': 'no-store',
+    return json(res, 200, {
+      document,
+      ...versionOf(v),
+      text: v.text,
+      current: v === versions[0],
     });
-    return res.end(bytes);
   }
   if (url.pathname === '/v1/legal/dpa') {
     const version = url.searchParams.get('version');

@@ -42,6 +42,12 @@ const FIXED_VECTOR_V2 =
  */
 const FIXED_VECTOR_V3 =
   '83ea9be09161a7257bdbdd4fc065b1b551619d30b13318720b9720cbdbfb3418';
+/**
+ * D125: sha256 of ["heisreal-consent-evidence/v4","testimony","v1","aaa…","ddd…","v1","bbb…",
+ * null,null,"publish","granted","web_form_submission"]: v3 plus the terms of use (none here).
+ */
+const FIXED_VECTOR_V4 =
+  '320c1723a4373128fe99eea9505421862bb5ee72657d12ddc861d015b78f4d1d';
 /** The v1 format's fixed vector (rows from before forms keep verifying against it). */
 const FIXED_VECTOR_V1 =
   '742fa2d7efa880025031ba5410d3e85f63e1179b49f8680fe126e34001db62e0';
@@ -93,6 +99,30 @@ const independentV3 = (r: {
         r.statementsHash,
         r.dpa,
         r.dpaHash,
+        r.type,
+        r.event,
+        r.mechanism,
+      ]),
+    )
+    .digest('hex');
+const independentV4 = (
+  r: Parameters<typeof independentV3>[0] & {
+    terms: string | null;
+    termsHash: string | null;
+  },
+) =>
+  createHash('sha256')
+    .update(
+      JSON.stringify([
+        'heisreal-consent-evidence/v4',
+        r.form,
+        r.formVersion,
+        r.formHash,
+        r.statementsHash,
+        r.dpa,
+        r.dpaHash,
+        r.terms,
+        r.termsHash,
         r.type,
         r.event,
         r.mechanism,
@@ -213,7 +243,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
   describe('once v1 of the DPA and the three forms are published', () => {
     beforeAll(() => publishDpa(t, 'v1'));
 
-    it('grants each statement on its form in the person’s own session, with evidence v3 and no IP', async () => {
+    it('grants each statement on its form in the person’s own session, with evidence v4 and no IP', async () => {
       for (const type of V1_TYPES) {
         expect(await grant('user_ann', type)).toEqual({
           id: expect.stringMatching(/^\w+$/),
@@ -244,10 +274,12 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
         ]); // D19: no ipAddress, nothing else
         const type = String(row['type']) as ConsentType;
         expect(row['form']).toBe(`${FORM_TABLE[FORM_OF[type]]}:v1`);
-        expect(row['evidenceVersion']).toBe(3);
+        expect(row['evidenceVersion']).toBe(4);
         expect(String(statementsHash)).toMatch(/^[0-9a-f]{64}$/);
         expect(row['evidenceHash']).toBe(
-          independentV3({
+          independentV4({
+            terms: null,
+            termsHash: null,
             form: FORM_OF[type],
             formVersion: 'v1',
             formHash: String(formHash),
@@ -295,6 +327,28 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       expect(
         independentV3({ ...base, statementsHash: 'e'.repeat(64) }),
       ).not.toBe(FIXED_VECTOR_V3);
+      // D125: v4 adds the terms of use (none on this form).
+      const v4 = { ...base, statementsHash, terms: null, termsHash: null };
+      expect(independentV4(v4)).toBe(FIXED_VECTOR_V4);
+      expect(
+        evidenceHash({
+          form: {
+            kind: 'testimony',
+            version: 'v1',
+            textHash: base.formHash,
+            statementsHash,
+          },
+          dpaVersion: 'v1',
+          dpaContentHash: base.dpaHash,
+          terms: null,
+          type: 'publish',
+          event: 'granted',
+          mechanism: 'web_form_submission',
+        }),
+      ).toBe(FIXED_VECTOR_V4);
+      expect(
+        independentV4({ ...v4, terms: 't1', termsHash: 'c'.repeat(64) }),
+      ).not.toBe(FIXED_VECTOR_V4);
       // The ledger's own function, both formats.
       expect(
         evidenceHash({
@@ -440,7 +494,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       );
     });
 
-    it('still counts, can be withdrawn, and the whole history verifies (v1 and v3 rows)', async () => {
+    it('still counts, can be withdrawn, and the whole history verifies (v1 and v4 rows)', async () => {
       expect(await as('user_vee', (s) => asAdmin.callerHas(s, ART9))).toBe(
         true,
       );
@@ -452,10 +506,10 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       expect(checks.map((c) => [c.format, c.verified])).toEqual([
         ['v1', true],
         ['v1', true], // the withdrawal binds to the v1 grant it follows
-        ['v3', true],
+        ['v4', true],
       ]);
       const ann = await as('user_ann', (s) => ledger.verifyEvidence(s));
-      expect(ann.every((c) => c.format === 'v3' && c.verified)).toBe(true);
+      expect(ann.every((c) => c.format === 'v4' && c.verified)).toBe(true);
     });
 
     it('a row from before D114 (no evidenceVersion) keeps verifying as v2', async () => {
@@ -484,6 +538,37 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       );
       const checks = await as('user_vee', (s) => ledger.verifyEvidence(s));
       expect(checks.at(-1)).toMatchObject({ format: 'v2', verified: true });
+    });
+
+    it('a row from before D125 (evidence v3) keeps verifying as v3', async () => {
+      const [{ formHash, statementsHash, dpaHash }] = await rows<
+        Record<string, string>
+      >(
+        await t.migrator(),
+        `SELECT textHash AS formHash, statementsHash, dpaVersion.contentHash AS dpaHash
+           FROM ONLY testimonyFormVersion:v1`,
+      );
+      await run(
+        await t.migrator(),
+        `CREATE consent CONTENT { subject: user:vee, type: 'publish', event: 'granted',
+           dpaVersion: dpaVersion:v1, form: testimonyFormVersion:v1,
+           mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: 3 }`,
+        {
+          h: independentV3({
+            form: 'testimony',
+            formVersion: 'v1',
+            formHash,
+            statementsHash,
+            dpa: 'v1',
+            dpaHash,
+            type: 'publish',
+            event: 'granted',
+            mechanism: 'web_form_submission',
+          }),
+        },
+      );
+      const checks = await as('user_vee', (s) => ledger.verifyEvidence(s));
+      expect(checks.at(-1)).toMatchObject({ format: 'v3', verified: true });
     });
 
     it('a tampered hash doesn’t verify', async () => {
@@ -695,30 +780,18 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
     });
   });
 
-  describe('the documents in force: privacy policy and terms of use (D121, D122)', () => {
-    const pdf = (c: string) => c.repeat(64);
-
+  describe('the documents in force: privacy policy and terms of use (D121, D122, D125)', () => {
     beforeAll(async () => {
       // An admin publishes a privacy policy and the terms (as PublishPrivacyPolicy and
       // PublishTerms do), then a sign-up version asking for the terms.
       await run(
         admin,
         `CREATE dpaVersion:p2 CONTENT {
-           kind: 'standard', status: 'published', materiality: 'minor',
-           documentPath: $ppath, contentHash: crypto::sha256('policy p2'), text: 'policy p2',
-           changeSummary: 'Clearer', effectiveFrom: time::now(),
-           pdfSha256: $p, pdfSize: 10, pdfPath: $ppath,
-           source: 'admin', publishedBy: user:moderator };
+           kind: 'standard', status: 'published', contentHash: crypto::sha256('policy p2'),
+           text: 'policy p2', source: 'admin', publishedBy: user:moderator };
          CREATE termsVersion:t1 CONTENT {
-           text: 'terms t1', textHash: crypto::sha256('terms t1'), changeNote: 'First',
-           pdfSha256: $t, pdfSize: 9, pdfPath: $tpath,
+           text: 'terms t1', contentHash: crypto::sha256('terms t1'),
            source: 'admin', publishedBy: user:moderator };`,
-        {
-          p: pdf('a'),
-          ppath: `legal/privacy/p2/${pdf('a')}.pdf`,
-          t: pdf('b'),
-          tpath: `legal/terms/t1/${pdf('b')}.pdf`,
-        },
       );
       await publishForm(t, 'signup', 'withterms', {
         dpa: 'v1',
@@ -726,7 +799,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       });
     });
 
-    it('each sign-up box binds the privacy policy and terms in force, with evidence v4 covering their PDFs', async () => {
+    it('each sign-up box binds the privacy policy and terms in force, with evidence v4 covering the terms', async () => {
       for (const statement of [
         'age_18plus',
         'account_data',
@@ -775,10 +848,8 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
                 r['statementsHash'],
                 'p2',
                 createHash('sha256').update('policy p2').digest('hex'),
-                pdf('a'),
                 't1',
                 createHash('sha256').update('terms t1').digest('hex'),
-                pdf('b'),
                 r['type'],
                 r['event'],
                 r['mechanism'],

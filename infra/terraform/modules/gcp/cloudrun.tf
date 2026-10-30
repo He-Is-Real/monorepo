@@ -100,11 +100,6 @@ resource "google_cloud_run_v2_service" "api_public_read" {
         name  = "CORS_ALLOWED_ORIGINS"
         value = join(",", var.web_origins)
       }
-      # The privacy policy and terms PDFs it streams to the browser (read-only; legal_documents.tf).
-      env {
-        name  = "LEGAL_DOCUMENTS_BUCKET"
-        value = google_storage_bucket.legal_documents.name
-      }
       # D52: signs Bunny media links. Secret names, never values: the service reads
       # the keys from Secret Manager at startup (bunny root grants the access).
       dynamic "env" {

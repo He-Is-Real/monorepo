@@ -4,7 +4,7 @@ info:
   version: 1.0.0-draft
   description: |
     **Moderation and admin.** The moderation queue and decisions, flag triage, role assignment, tag
-    curation, and DPA versions. Its own service and database login (D13, D33). No featured or
+    curation, and the legal documents' versions (the privacy policy, D20's DPA, and the terms of use). Its own service and database login (D13, D33). No featured or
     pinned stories (Joel, 2026-10-23: unfair to everyone else).
 
     - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
@@ -46,10 +46,8 @@ tags:
     description: 'Users and roles.'
   - name: Tags
     description: 'Tag taxonomy writes.'
-  - name: DPA
-    description: 'Data Processing Agreement versions (GDPR).'
   - name: LegalDocuments
-    description: 'The privacy policy and terms of use: their versions, previews and publishing (D121, D123).'
+    description: 'The privacy policy and terms of use: their numbered versions and publishing (D121, D125).'
 
 paths:
   /health:
@@ -562,7 +560,7 @@ paths:
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
 
-  # ------------------------------------------------------------------ legal documents (D121, D123)
+  # ------------------------------------------------------------------ legal documents (D121, D125)
   /v1/admin/legal-documents/{document}/versions:
     parameters:
       - name: document
@@ -581,7 +579,7 @@ paths:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: The versions, and the one in force with its web text.
+          description: The versions, and the one in force with its Markdown.
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -604,22 +602,19 @@ paths:
     post:
       tags: [LegalDocuments]
       operationId: publishLegalDocument
-      summary: Publish a new version of one legal document, its PDF and web text together
+      summary: Publish the next version of one legal document
       description: |
-        Command `PublishLegalDocument`. The uploaded PDF is the record, stored exactly as uploaded (D123: admins
-        are trusted, the file is never read or rewritten; at most 10 MB, and a file whose name doesn't end in `.pdf`
-        is `400 pdf_not_a_pdf`). Refuses a PDF or text whose SHA-256 isn't what the preview showed, stores the PDF
-        once, then writes the version (next `v<n>`, in force at once) and an audit row with the admin, in one
-        transaction. The first version of a document may be published here
-        (`basedOn` empty). Creates with a natural key take no `Idempotency-Key` (D29): a PDF already published
-        as this document is `409 already_published`; another version published meanwhile is
-        `409 document_changed`.
+        Command `PublishLegalDocument` (D125). Writes the version (numbered by the database, the next one,
+        in force at once) and an audit row with the admin, in one transaction. The first version of a
+        document may be published here (`basedOn: null`). Creates with a natural key take no
+        `Idempotency-Key` (D29): a `basedOn` that isn't the version in force now (another admin published
+        meanwhile) is `409 document_changed`, and nothing is written.
       x-required-role: Admin
       x-milestone: M2
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
               $ref: './components.yaml#/components/schemas/PublishLegalDocument'
       responses:
@@ -631,7 +626,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: './components.yaml#/components/schemas/CommandResult'
+                $ref: './components.yaml#/components/schemas/PublishedLegalDocument'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
@@ -642,163 +637,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotFound'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
-        '413':
-          description: The PDF is larger than 10 MB.
-          content:
-            application/problem+json:
-              schema:
-                $ref: './components.yaml#/components/schemas/Problem'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
-
-  /v1/admin/legal-documents/{document}/previews:
-    parameters:
-      - name: document
-        in: path
-        required: true
-        schema:
-          $ref: './components.yaml#/components/schemas/LegalDocumentName'
-    post:
-      tags: [LegalDocuments]
-      operationId: previewLegalDocument
-      summary: An uploaded PDF's SHA-256 and size, for the admin's preview
-      description: Checks the upload as a publish would (D123, at most 10 MB and a name ending in `.pdf`) and returns its SHA-256, which the publish must name. Stores nothing.
-      x-required-role: Admin
-      x-milestone: M2
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              $ref: './components.yaml#/components/schemas/LegalDocumentUpload'
-      responses:
-        '200':
-          description: The upload's SHA-256 and size.
-          headers:
-            Cache-Control:
-              $ref: './components.yaml#/components/headers/CacheControlPrivate'
-          content:
-            application/json:
-              schema:
-                $ref: './components.yaml#/components/schemas/LegalDocumentPreview'
-        '400':
-          $ref: './components.yaml#/components/responses/BadRequest'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '413':
-          description: The PDF is larger than 10 MB.
-          content:
-            application/problem+json:
-              schema:
-                $ref: './components.yaml#/components/schemas/Problem'
-        '5XX':
-          $ref: './components.yaml#/components/responses/ServerError'
-
-  # ------------------------------------------------------------------ DPA (D20)
-  /v1/admin/dpa:
-    get:
-      tags: [DPA]
-      operationId: listDpaVersions
-      summary: All DPA versions, drafts included
-      x-required-role: SuperAdmin
-      x-milestone: M5
-      parameters:
-        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
-      responses:
-        '200':
-          description: Versions, newest first.
-          headers:
-            ETag:
-              $ref: './components.yaml#/components/headers/CollectionETag'
-            Cache-Control:
-              $ref: './components.yaml#/components/headers/CacheControlPrivate'
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data]
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: './components.yaml#/components/schemas/DpaVersion'
-        '304':
-          $ref: './components.yaml#/components/responses/NotModified'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-    post:
-      tags: [DPA]
-      operationId: createDpaDraft
-      summary: Create a draft DPA version
-      description: CRUD create. Nobody can consent to a draft (D20); publishing is a separate command.
-      x-required-role: SuperAdmin
-      x-milestone: M5
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: './components.yaml#/components/schemas/CreateDpaDraft'
-      responses:
-        '201':
-          description: Draft created.
-          headers:
-            Location:
-              $ref: './components.yaml#/components/headers/Location'
-            ETag:
-              $ref: './components.yaml#/components/headers/ETag'
-          content:
-            application/json:
-              schema:
-                $ref: './components.yaml#/components/schemas/CommandResult'
-        '400':
-          $ref: './components.yaml#/components/responses/BadRequest'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-
-  /v1/admin/dpa/{version}/publish:
-    post:
-      tags: [DPA]
-      operationId: publishDpa
-      summary: Publish a draft DPA version
-      description: |
-        Command `PublishDpa`. A published version is immutable (enforced by the database). A `material`
-        change starts the re-consent fan-out (`dpa-change-notify`, worker tier, M7).
-      x-required-role: SuperAdmin
-      x-milestone: M5
-      parameters:
-        - name: version
-          in: path
-          required: true
-          description: DPA version ID (e.g. `v2`).
-          schema:
-            type: string
-        - $ref: './components.yaml#/components/parameters/ifMatch'
-      responses:
-        '200':
-          $ref: './components.yaml#/components/responses/CommandApplied'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-        '412':
-          $ref: './components.yaml#/components/responses/PreconditionFailed'
-        '428':
-          $ref: './components.yaml#/components/responses/PreconditionRequired'
 
 components:
   securitySchemes:

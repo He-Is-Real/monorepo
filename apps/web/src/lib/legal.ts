@@ -39,18 +39,14 @@ export interface ConsentFormVersion {
   boxes: ConsentBox[];
 }
 
-/** `LegalDocumentPdf`: a version's PDF of record (D121, D123). */
-export interface LegalDocumentPdf {
-  sha256: string;
-  size: number;
-}
-
-/** `LegalDocumentVersion`: one version of a legal document, without its words. */
+/** `LegalDocumentVersion`: one version of a legal document, without its words (D125). */
 export interface LegalDocumentVersion {
+  /** The record id a grant names. */
   id: string;
+  /** 1, 2, 3..., in publishing order. */
+  number: number;
   publishedAt: string;
-  changeNote: string | null;
-  pdf: LegalDocumentPdf | null;
+  contentHash: string;
 }
 
 /** `LegalDocument`: the version in force with its words, and every version, newest first. */
@@ -59,6 +55,13 @@ export interface LegalDocument {
   current: (LegalDocumentVersion & { text: string }) | null;
   versions: LegalDocumentVersion[];
 }
+
+/** `LegalDocumentVersionText`: one version with its words, and whether it's in force. */
+export type LegalDocumentVersionText = LegalDocumentVersion & {
+  document: LegalDocumentName;
+  text: string;
+  current: boolean;
+};
 
 /** What a consent page shows: the form version in force and the documents in force (D122). */
 export type LegalResult =
@@ -117,10 +120,9 @@ const isVersion = (v: unknown): v is LegalDocumentVersion => {
   return (
     !!r &&
     typeof r.id === 'string' &&
+    typeof r.number === 'number' &&
     typeof r.publishedAt === 'string' &&
-    (r.changeNote === null || typeof r.changeNote === 'string') &&
-    (r.pdf === null ||
-      (typeof r.pdf?.sha256 === 'string' && typeof r.pdf.size === 'number'))
+    typeof r.contentHash === 'string'
   );
 };
 
@@ -141,7 +143,7 @@ const isDocument = (
 
 /**
  * A legal document (`GET /v1/legal/documents/{document}`, D121): the version in force with its
- * words, and every version. `null` when it can't be read (the page then shows its own words).
+ * words, and every version. `null` when it can't be read.
  */
 export async function getLegalDocument(
   document: LegalDocumentName,
@@ -155,6 +157,29 @@ export async function getLegalDocument(
     );
     return null;
   }
+}
+
+/**
+ * One version of a legal document by its number (`GET /v1/legal/documents/{document}/versions/
+ * {number}`, D125). `null` when there's no such version; throws when it can't be read.
+ */
+export async function getLegalDocumentVersion(
+  document: LegalDocumentName,
+  number: number,
+): Promise<LegalDocumentVersionText | null> {
+  const v = (await read(
+    `/v1/legal/documents/${document}/versions/${number}`,
+  )) as Partial<LegalDocumentVersionText> | null;
+  if (v === null) return null;
+  if (
+    !isVersion({ ...v }) ||
+    v.document !== document ||
+    typeof v.text !== 'string' ||
+    typeof v.current !== 'boolean'
+  ) {
+    throw new Error('unexpected answer');
+  }
+  return v as LegalDocumentVersionText;
 }
 
 /**

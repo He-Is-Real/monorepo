@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import { ApiUserProblem } from '@/lib/api-user';
+import { renderLegalMarkdown } from '@/lib/markdown';
 import type { ShareForm, ShareLegal } from '@/lib/share-legal';
 import { EMPTY_FIELDS, type SubmissionLimits } from './share-api';
 import { ConsentStep, Limits, ReviewStep } from './share-flow';
@@ -20,23 +21,14 @@ const form = (boxes: ShareForm['boxes']): ShareForm => ({
   version: 'v1',
   boxes,
   // The words even mention the statement as a list item: never turned into a box.
-  blocks: [
+  html: renderLegalMarkdown(
+    '# Your story\n\n- `special_category_religious`\n',
     {
-      kind: 'heading',
-      level: 1,
-      content: [{ kind: 'text', text: 'Your story' }],
+      topLevel: 3,
     },
-    {
-      kind: 'list',
-      items: [
-        { content: [{ kind: 'code', text: 'special_category_religious' }] },
-      ],
-    },
-  ],
+  ),
   privacyVersion: 'dev_placeholder',
-  privacyBlocks: [
-    { kind: 'paragraph', content: [{ kind: 'text', text: 'Privacy words' }] },
-  ],
+  privacyHtml: renderLegalMarkdown('Privacy words'),
 });
 const ART9 = {
   statement: 'special_category_religious' as const,

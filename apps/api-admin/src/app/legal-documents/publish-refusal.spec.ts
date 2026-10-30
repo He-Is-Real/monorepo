@@ -24,9 +24,14 @@ describe('publishRefusal', () => {
     expect(codeOf(new Error('An error occurred: document_changed: …'))).toBe(
       'document_changed',
     );
-    expect(codeOf(new Error('An error occurred: already_published: …'))).toBe(
-      'already_published',
-    );
+    // Both took the next number: the unique index refuses the second.
+    expect(
+      codeOf(
+        new Error(
+          'Database index `dpa_number` already contains 3, with record `dpaVersion:x`',
+        ),
+      ),
+    ).toBe('document_changed');
     expect(publishRefusal(new Error('the database is down'))).toBeNull();
   });
 });

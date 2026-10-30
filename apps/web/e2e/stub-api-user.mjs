@@ -18,13 +18,12 @@
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
 //   so a story hidden there leaves the list too.
-// - api-admin's legal document routes (D121, D123), on the same port for the stub (web's
+// - api-admin's legal document routes (D121, D125), on the same port for the stub (web's
 //   API_ADMIN_URL points here; the real ones are two services): `GET /v1/admin/legal-documents/
-//   {privacy|terms}/versions`, `POST …/previews` (the upload's hash)
-//   and `POST …/versions`, Admin and above only (sessions starting `admin` are Admins; everyone
-//   else 403). Each document starts with dev's placeholder version; a publish is checked like the
-//   real one (a file name ending in .pdf, the preview's hashes, the version in force it was based on) and
-//   kept per session. A session seeded with `noLegalDocuments` starts with none (a fresh
+//   {privacy|terms}/versions` and `POST …/versions`, Admin and above only (sessions starting
+//   `admin` are Admins; everyone else 403). Each document starts with dev's placeholder versions;
+//   a publish is checked like the real one (its text, and 409 unless the version it was based on
+//   is still in force) and kept per session. A session seeded with `noLegalDocuments` starts with none (a fresh
 //   environment's first publication).
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
@@ -105,28 +104,24 @@ const readBytes = (req) =>
     req.on('end', () => done(Buffer.concat(chunks)));
   });
 
-// --- api-admin: the legal documents (D121, D123) --------------------------------------------
+// --- api-admin: the legal documents (D121, D125) --------------------------------------------
 const LEGAL = resolve(import.meta.dirname, '../../../libs/legal');
-const sha256 = (data) => createHash('sha256').update(data).digest('hex');
-/** Dev's placeholder version of a document, as api-admin lists it. */
-function devVersions(document) {
-  const dir = document === 'privacy' ? 'dpa' : 'terms';
-  const pdf = readFileSync(`${LEGAL}/${dir}/dev_placeholder.pdf`);
-  const text = readFileSync(`${LEGAL}/${dir}/dev_placeholder.md`, 'utf8');
-  return [
-    {
-      id: 'dev_placeholder',
-      publishedAt: '2026-10-25T12:00:00.000Z',
-      publishedBy: null,
-      source: 'repo',
-      changeNote: 'Dev-only placeholder (D75)',
-      requiresReacceptance: document === 'privacy',
-      textHash: sha256(text),
-      pdf: { sha256: sha256(pdf), size: pdf.length },
-      text,
-    },
-  ];
-}
+const repoVersion = (number, file, publishedAt) => ({
+  number,
+  publishedAt,
+  publishedBy: null,
+  source: 'repo',
+  devPlaceholder: true,
+  text: readFileSync(`${LEGAL}/${file}`, 'utf8'),
+});
+/** Dev's placeholder versions of a document (data 0007), as api-admin lists them. */
+const devVersions = (document) =>
+  document === 'privacy'
+    ? [
+        repoVersion(2, 'dpa/dev_policy.md', '2026-10-30T12:00:00.000Z'),
+        repoVersion(1, 'dpa/dev_placeholder.md', '2026-10-25T12:00:00.000Z'),
+      ]
+    : [repoVersion(1, 'terms/dev_placeholder.md', '2026-10-30T12:00:00.000Z')];
 /** Session → document → versions (newest first). */
 const adminState = new Map();
 const versionsFor = (session, document) => {
@@ -138,7 +133,7 @@ const versionsFor = (session, document) => {
 const listOf = (document, versions) => ({
   document,
   current: versions.length
-    ? { id: versions[0].id, text: versions[0].text }
+    ? { number: versions[0].number, text: versions[0].text }
     : null,
   data: versions.map(({ text: _t, ...v }) => v),
 });
@@ -157,68 +152,29 @@ const invalid = (res, pointer, code, message = code) => {
     }),
   );
 };
-/** The multipart fields of a request, or null. */
-async function formOf(req) {
-  const bytes = await readBytes(req);
-  try {
-    return await new Response(bytes, {
-      headers: { 'content-type': req.headers['content-type'] ?? '' },
-    }).formData();
-  } catch {
-    return null;
-  }
-}
-const NOT_A_PDF = 'Choose a PDF: the file’s name must end in .pdf.';
-/** The uploaded PDF's bytes, if its file name ends in .pdf (the bytes are never checked). */
-async function pdfOf(fields) {
-  const pdf = fields?.get('pdf');
-  if (!(pdf instanceof File) || !/\.pdf$/i.test(pdf.name)) return null;
-  return Buffer.from(await pdf.arrayBuffer());
-}
-
-/** `POST …/previews`: the upload's hash and size, as api-admin answers. */
-async function previewDocument(req, res, document) {
-  const file = await pdfOf(await formOf(req));
-  if (!file) return invalid(res, '/pdf', 'pdf_not_a_pdf', NOT_A_PDF);
-  res.setHeader('cache-control', 'private, no-store');
-  return send(res, 200, {
-    document,
-    pdfSha256: sha256(file),
-    pdfSize: file.length,
-  });
-}
 
 /** `POST …/versions` (PublishLegalDocument), checked like api-admin. */
 async function publishDocument(req, res, session, document) {
-  const fields = await formOf(req);
-  const file = await pdfOf(fields);
-  if (!file) return invalid(res, '/pdf', 'pdf_not_a_pdf', NOT_A_PDF);
-  // Browsers send multipart text with CRLF line ends: as api-admin, hash it with LF.
-  const text = String(fields.get('text') ?? '').replace(/\r\n?/g, '\n');
-  const note = String(fields.get('changeNote') ?? '').trim();
+  const body = await readJson(req);
+  const text =
+    typeof body?.text === 'string' ? body.text.replace(/\r\n?/g, '\n') : '';
   if (!text.trim()) return invalid(res, '/text', 'invalid_text');
-  if (!note) return invalid(res, '/changeNote', 'invalid_change_note');
-  if (fields.get('pdfSha256') !== sha256(file))
-    return invalid(res, '/pdfSha256', 'preview_mismatch');
-  if (fields.get('textSha256') !== sha256(text))
-    return invalid(res, '/textSha256', 'preview_mismatch');
   const versions = versionsFor(session, document);
-  if (String(fields.get('basedOn') ?? '') !== (versions[0]?.id ?? ''))
+  // Another admin published meanwhile: the version edited isn't in force now.
+  if ((body.basedOn ?? null) !== (versions[0]?.number ?? null))
     return problem(res, 409, 'Conflict', 'document_changed');
-  const id = `v${versions.length + 1}`;
+  const number = (versions[0]?.number ?? 0) + 1;
+  const publishedAt = new Date().toISOString();
   versions.unshift({
-    id,
-    publishedAt: new Date().toISOString(),
+    number,
+    publishedAt,
     publishedBy: 'e2efixture',
     source: 'admin',
-    changeNote: note,
-    requiresReacceptance: fields.get('requiresReacceptance') === 'true',
-    textHash: sha256(text),
-    pdf: { sha256: sha256(file), size: file.length },
+    devPlaceholder: false,
     text,
   });
   res.setHeader('location', `/v1/admin/legal-documents/${document}/versions`);
-  return send(res, 201, { id, version: 1 });
+  return send(res, 201, { number, publishedAt });
 }
 
 const readBody = (req) =>
@@ -277,7 +233,7 @@ async function grant(req, res, onGranted) {
   // D122: the documents shown must be the ones in force (dev's placeholders).
   if (
     (privacyPolicyVersion !== undefined &&
-      privacyPolicyVersion !== 'dev_placeholder') ||
+      privacyPolicyVersion !== 'dev_policy') ||
     (termsVersion !== undefined && termsVersion !== 'dev_placeholder')
   ) {
     return problem(res, 409, 'Conflict', 'legal_document_not_in_force');
@@ -956,8 +912,9 @@ createServer(async (req, res) => {
       signupConsent: { accepted: shareSession(token).signup },
     });
   }
-  const admin =
-    /^\/v1\/admin\/legal-documents\/([^/]+)\/(versions|previews)$/.exec(path);
+  const admin = /^\/v1\/admin\/legal-documents\/([^/]+)\/(versions)$/.exec(
+    path,
+  );
   if (admin && (req.method === 'GET' || req.method === 'POST')) {
     if (!signedIn()) return;
     if (!token.startsWith('admin'))
@@ -965,8 +922,6 @@ createServer(async (req, res) => {
     const [, document, what] = admin;
     if (document !== 'privacy' && document !== 'terms')
       return problem(res, 404, 'Not found', 'not_found');
-    if (what === 'previews' && req.method === 'POST')
-      return void previewDocument(req, res, document);
     if (what === 'versions' && req.method === 'POST')
       return void publishDocument(req, res, token, document);
     if (what === 'versions')

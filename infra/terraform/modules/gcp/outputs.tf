@@ -66,8 +66,3 @@ output "dev_seed_job" {
   description = "D49: the dev-seed Cloud Run Job (gcloud run jobs execute <name> --region <region> --wait), or null outside dev."
   value       = var.dev_seed ? google_cloud_run_v2_job.dev_seed[0].name : null
 }
-
-output "legal_documents_bucket" {
-  description = "The privacy policy and terms PDFs of record, as the admins uploaded them (legal_documents.tf)."
-  value       = google_storage_bucket.legal_documents.name
-}

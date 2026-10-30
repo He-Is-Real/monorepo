@@ -1,4 +1,4 @@
-# Dev GCP infrastructure: network, registry, GKE Autopilot, secrets, backups, legal documents,
+# Dev GCP infrastructure: network, registry, GKE Autopilot, secrets, backups,
 # and Cloud Run (api-public-read, api-user, api-admin and web, running the images
 # chosen in images.auto.tfvars).
 
@@ -163,10 +163,6 @@ module "gcp" {
   # with ci-dev-seeder, the Job exists but no CI identity may start it.
   dev_seed            = true
   ci_dev_seeder_email = try(local.bootstrap.ci_dev_seeder_email, "")
-
-  # A placeholder privacy policy and terms PDF in the legal documents bucket (dev only). Both
-  # legal buckets' retention stays unlocked here (legal_documents_retention_locked's default).
-  dev_legal_placeholders = true
 }
 
 # --- Adopt the SurrealDB secrets created by hand on 2026-09-27 ---------------

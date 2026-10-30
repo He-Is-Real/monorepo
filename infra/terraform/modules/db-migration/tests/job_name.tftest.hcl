@@ -45,12 +45,8 @@ run "repo_bundle" {
     error_message = "D84: each legal text and its sha256 reach the runner; no dev placeholders (D75) by default."
   }
   assert {
-    # dev's privacy policy PDF is frozen (dpa-sync), so its size is too.
-    condition = (output.params.dpa_pdf["dev_placeholder"].pdfSha256 == filesha256("../../../../libs/legal/dpa/dev_placeholder.pdf")
-      && output.params.dpa_pdf["dev_placeholder"].pdfSize == 8761
-      && output.params.terms_text["dev_placeholder"] == file("../../../../libs/legal/terms/dev_placeholder.md")
-    && output.params.terms_pdf["dev_placeholder"].pdfSha256 == filesha256("../../../../libs/legal/terms/dev_placeholder.pdf"))
-    error_message = "D121: the legal documents' words and PDFs reach the runner with their sha256 and size in bytes."
+    condition     = output.params.terms_text["dev_placeholder"] == file("../../../../libs/legal/terms/dev_placeholder.md")
+    error_message = "The terms of use's repo versions reach the runner (data 0007)."
   }
   assert {
     condition = (output.params.dpa_sha256["v1"] == filesha256("../../../../libs/legal/dpa/v1.md")

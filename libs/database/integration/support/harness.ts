@@ -57,12 +57,8 @@ export interface MigrationParams {
   form_statements: Record<FormKind, Record<string, FormStatements>>;
   /** The same files' sha256. */
   form_statements_sha256: Record<FormKind, Record<string, string>>;
-  /** D121: the repo privacy policy versions' PDFs of record, { <id>: { pdfSha256, pdfSize } }. */
-  dpa_pdf: Record<string, LegalPdf>;
   /** D121: { <id>: the words of libs/legal/terms/<id>.md } (data 0007). */
   terms_text: Record<string, string>;
-  /** D121: the repo terms versions' PDFs of record (libs/legal/terms/<id>.pdf). */
-  terms_pdf: Record<string, LegalPdf>;
   /** D75: dev's placeholder privacy document and forms; OpenTofu allows true in dev only. */
   dev_legal_placeholders: boolean;
   /** The identity config that must be verified first (GKE); null = don't check */
@@ -541,28 +537,6 @@ function texts(dir: string): Record<string, string> {
       .map((f) => [f.slice(0, -3), readFileSync(join(dir, f), 'utf8')]),
   );
 }
-/** One PDF in libs/legal, as OpenTofu describes it to the migration. */
-export interface LegalPdf {
-  pdfSha256: string;
-  pdfSize: number;
-}
-/** { <id>: { pdfSha256, pdfSize } } of the .pdf files in a libs/legal directory. */
-function pdfs(dir: string): Record<string, LegalPdf> {
-  return Object.fromEntries(
-    readdirSync(dir)
-      .filter((f) => f.endsWith('.pdf'))
-      .map((f) => {
-        const bytes = readFileSync(join(dir, f));
-        return [
-          f.slice(0, -4),
-          {
-            pdfSha256: createHash('sha256').update(bytes).digest('hex'),
-            pdfSize: bytes.length,
-          },
-        ];
-      }),
-  );
-}
 /** D114: a form version's statements file, `<id>.statements.json`. */
 export interface FormStatements {
   statements: { key: string; label: string; step?: string }[];
@@ -594,9 +568,7 @@ export function legalParams(): Pick<
   | 'form_text'
   | 'form_statements'
   | 'form_statements_sha256'
-  | 'dpa_pdf'
   | 'terms_text'
-  | 'terms_pdf'
 > {
   const dpa = { ...texts(join(LEGAL_DIR, 'dpa')), v1: 'dpa v1 placeholder' };
   const forms = Object.fromEntries(
@@ -606,9 +578,7 @@ export function legalParams(): Pick<
     FORM_KINDS.map((k) => [k, statementFiles(join(LEGAL_DIR, 'forms', k))]),
   ) as Record<FormKind, Record<string, string>>;
   return {
-    dpa_pdf: pdfs(join(LEGAL_DIR, 'dpa')),
     terms_text: texts(join(LEGAL_DIR, 'terms')),
-    terms_pdf: pdfs(join(LEGAL_DIR, 'terms')),
     dpa_sha256: hashes(dpa),
     dpa_text: dpa,
     form_sha256: Object.fromEntries(

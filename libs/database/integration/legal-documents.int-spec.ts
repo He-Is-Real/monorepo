@@ -12,43 +12,29 @@ import {
 import { approve, draft, submit } from './support/world';
 
 /**
- * D121–D123 (Joel, 2026-10-30): the two legal documents, the privacy policy (dpaVersion) and the
- * terms of use (termsVersion), each a line of versions with a PDF of record (as the admin uploaded it)
- * beside the web text, kept for ever. Every grant binds the privacy policy in force and, on a
- * sign-up version asking for them, the terms of use in force; a version requiring re-acceptance
- * asks again under D93's rules, and nothing ever hides a story. Evidence v4 covers the PDFs.
+ * D121, D122, D125 (Joel, 2026-10-30): the two legal documents, the privacy policy (dpaVersion)
+ * and the terms of use (termsVersion), each a line of numbered versions of Markdown the site
+ * renders, kept for ever, unchanged. Every grant binds the privacy policy in force and, on a
+ * sign-up version asking for them, the terms of use in force (evidence v4); a new version asks
+ * nobody to accept again by itself, and nothing ever hides a story.
  */
 
-const pdf = (c: string) => c.repeat(64);
-
 /** api-admin's publish of a privacy policy version (PublishPrivacyPolicy's row). */
-const policy = (id: string, material: boolean, c: string) => ({
+const policy = (words: string) => ({
   kind: 'standard',
   status: 'published',
-  materiality: material ? 'material' : 'minor',
-  documentPath: `legal/privacy/${id}/${pdf(c)}.pdf`,
-  contentHash: sha256(`policy ${id}`),
-  text: `policy ${id}`,
-  changeSummary: `Policy ${id}`,
-  effectiveFrom: new Date(),
-  pdfSha256: pdf(c),
-  pdfSize: 1000,
-  pdfPath: `legal/privacy/${id}/${pdf(c)}.pdf`,
+  contentHash: sha256(words),
+  text: words,
   source: 'admin',
 });
 /** api-admin's publish of a terms of use version (PublishTerms's row). */
-const terms = (id: string, requires: boolean, c: string) => ({
-  text: `terms ${id}`,
-  textHash: sha256(`terms ${id}`),
-  changeNote: `Terms ${id}`,
-  requiresReacceptance: requires,
-  pdfSha256: pdf(c),
-  pdfSize: 900,
-  pdfPath: `legal/terms/${id}/${pdf(c)}.pdf`,
+const terms = (words: string) => ({
+  text: words,
+  contentHash: sha256(words),
   source: 'admin',
 });
 
-describe('the legal documents (D121–D123)', () => {
+describe('the legal documents (D121, D125)', () => {
   let t: TestDatabase;
   let admin: Surreal;
   let migrator: Surreal;
@@ -59,6 +45,14 @@ describe('the legal documents (D121–D123)', () => {
       `CREATE type::record($table, $id) CONTENT object::extend($content, { publishedBy: user:ada })`,
       { table, id, content },
     );
+  const number = async (table: string, id: string) =>
+    (
+      await rows<number>(
+        migrator,
+        `SELECT VALUE number FROM type::record($table, $id)`,
+        { table, id },
+      )
+    )[0];
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -70,16 +64,23 @@ describe('the legal documents (D121–D123)', () => {
   });
   afterAll(() => t?.close());
 
-  describe('kept for ever, unchanged', () => {
-    it('api-admin publishes a privacy policy version with its PDF; nobody changes or deletes it', async () => {
-      expect(
-        await publish('dpaVersion', 'p2', policy('p2', false, 'a')),
-      ).toEqual({ ok: true, result: expect.anything() });
+  describe('numbered, kept for ever, unchanged', () => {
+    it('numbers privacy policy versions in publishing order; the highest is in force', async () => {
+      expect(await number('dpaVersion', 'v1')).toBe(1);
+      expect((await publish('dpaVersion', 'p2', policy('Policy two'))).ok).toBe(
+        true,
+      );
+      expect(await number('dpaVersion', 'p2')).toBe(2);
+      expect(await rows(migrator, `RETURN fn::legal::dpa_in_force()`)).toEqual([
+        'dpaVersion:p2',
+      ]);
+    });
+
+    it('nobody changes or deletes a published privacy policy version, the migration included', async () => {
       for (const change of [
-        `pdfSha256 = '${pdf('b')}'`,
-        `text = 'other words'`,
-        `changeSummary = 'rewritten'`,
+        `text = 'other words', contentHash = '${sha256('other words')}'`,
         `publishedBy = user:ann`,
+        `number = 7`,
         `materiality = 'material'`,
       ]) {
         for (const db of [admin, migrator]) {
@@ -94,14 +95,11 @@ describe('the legal documents (D121–D123)', () => {
       for (const db of [admin, migrator])
         await outcome(db, `DELETE dpaVersion:p2`);
       expect(
-        await rows(
-          migrator,
-          `SELECT VALUE [pdfSha256, text] FROM dpaVersion:p2`,
-        ),
-      ).toEqual([[pdf('a'), 'policy p2']]);
+        await rows(migrator, `SELECT VALUE [number, text] FROM dpaVersion:p2`),
+      ).toEqual([[2, 'Policy two']]);
     });
 
-    it('a terms version: only api-admin creates one, and nobody changes or deletes it', async () => {
+    it('a terms version: only api-admin creates one, numbered; nobody changes or deletes it', async () => {
       for (const db of [
         await t.service('api_user'),
         publicRead,
@@ -111,13 +109,14 @@ describe('the legal documents (D121–D123)', () => {
           await rows(
             db,
             `CREATE termsVersion:sneaky CONTENT object::extend($c, { publishedBy: user:ada })`,
-            { c: terms('sneaky', false, 'c') },
+            { c: terms('Sneaky') },
           ),
         ).toEqual([]);
       }
-      expect(
-        (await publish('termsVersion', 't1', terms('t1', false, 'c'))).ok,
-      ).toBe(true);
+      expect((await publish('termsVersion', 't1', terms('Terms one'))).ok).toBe(
+        true,
+      );
+      expect(await number('termsVersion', 't1')).toBe(1);
       for (const db of [admin, migrator]) {
         await outcome(db, `UPDATE termsVersion:t1 SET text = 'x'`);
         await outcome(db, `DELETE termsVersion:t1`);
@@ -125,36 +124,16 @@ describe('the legal documents (D121–D123)', () => {
       expect(
         await rows(
           migrator,
-          `SELECT VALUE [text, pdfSha256] FROM termsVersion:t1`,
+          `SELECT VALUE [text, number] FROM termsVersion:t1`,
         ),
-      ).toEqual([['terms t1', pdf('c')]]);
+      ).toEqual([['Terms one', 1]]);
     });
 
-    it('an admin version comes whole: its PDF at its path, who published it and a note', async () => {
-      const broken: [string, object][] = [
-        [
-          'a PDF elsewhere',
-          { ...policy('p9', false, '1'), pdfPath: 'elsewhere.pdf' },
-        ],
-        [
-          'no PDF',
-          {
-            ...policy('p9', false, '1'),
-            pdfSha256: undefined,
-            pdfSize: undefined,
-            pdfPath: undefined,
-          },
-        ],
-        [
-          'no change note',
-          { ...policy('p9', false, '1'), changeSummary: undefined },
-        ],
-        [
-          'words that aren’t its hash',
-          { ...policy('p9', false, '1'), text: 'not it' },
-        ],
-      ];
-      for (const [what, content] of broken) {
+    it('an admin version comes whole: its words, their hash and who published it', async () => {
+      for (const [what, content] of [
+        ['words that aren’t its hash', { ...policy('Words'), text: 'not it' }],
+        ['a draft', { ...policy('Words'), status: 'draft' }],
+      ] as const) {
         expect([what, (await publish('dpaVersion', 'p9', content)).ok]).toEqual(
           [what, false],
         );
@@ -162,29 +141,30 @@ describe('the legal documents (D121–D123)', () => {
       expect(
         (
           await outcome(admin, `CREATE termsVersion:t9 CONTENT $c`, {
-            c: terms('t9', false, '2'),
+            c: terms('No publisher'),
           })
         ).ok,
-      ).toBe(false); // no publisher
+      ).toBe(false);
     });
 
-    it('only the migration gives a repo version its PDF, once; api-admin never can', async () => {
-      const path = `legal/privacy/v1/${pdf('9')}.pdf`;
-      const set = `UPDATE dpaVersion:v1 SET pdfSha256 = $p, pdfSize = 10, pdfPath = $path`;
-      expect((await outcome(admin, set, { p: pdf('9'), path })).ok).toBe(false);
-      expect(
-        await rows(migrator, `SELECT VALUE pdfSha256 FROM dpaVersion:v1`),
-      ).toEqual([undefined]);
-      expect((await outcome(migrator, set, { p: pdf('9'), path })).ok).toBe(
-        true,
+    it('only the migration numbers a repo version published before numbers, once', async () => {
+      // As a published version from before D125 is: no number (the field didn't exist). Made
+      // without the field's rules, which the next migration puts back.
+      await run(
+        migrator,
+        `REMOVE FIELD number ON dpaVersion;
+         CREATE dpaVersion:old CONTENT object::extend($c, { publishedBy: user:ada,
+           effectiveFrom: d'2026-01-01' });`,
+        { c: policy('Old') },
       );
+      await t.migrate(t.params());
+      expect(await number('dpaVersion', 'old')).toBeUndefined();
+      const give = `UPDATE dpaVersion:old SET number = NONE WHERE number = NONE`;
+      expect((await outcome(admin, give)).ok).toBe(false);
+      expect((await outcome(migrator, give)).ok).toBe(true);
+      expect(await number('dpaVersion', 'old')).toBe(3);
       expect(
-        (
-          await outcome(migrator, set, {
-            p: pdf('8'),
-            path: `legal/privacy/v1/${pdf('8')}.pdf`,
-          })
-        ).ok,
+        (await outcome(migrator, `UPDATE dpaVersion:old SET text = 'New'`)).ok,
       ).toBe(false);
     });
 
@@ -192,15 +172,15 @@ describe('the legal documents (D121–D123)', () => {
       expect(
         await rows(
           publicRead,
-          `SELECT VALUE [pdfSha256, publishedBy] FROM dpaVersion:p2`,
+          `SELECT VALUE [number, publishedBy] FROM dpaVersion:p2`,
         ),
-      ).toEqual([[pdf('a'), undefined]]);
+      ).toEqual([[2, undefined]]);
       expect(
         await rows(
           publicRead,
-          `SELECT VALUE [pdfSha256, publishedBy] FROM termsVersion:t1`,
+          `SELECT VALUE [number, publishedBy] FROM termsVersion:t1`,
         ),
-      ).toEqual([[pdf('c'), undefined]]);
+      ).toEqual([[1, undefined]]);
       expect(
         await rows(
           admin,
@@ -210,7 +190,7 @@ describe('the legal documents (D121–D123)', () => {
     });
   });
 
-  describe('consent binds the documents in force, and asks again under D93 (D122)', () => {
+  describe('consent binds the documents in force (D122)', () => {
     const person = (id: string) => t.person(`user_${id}`);
     /** A grant as the API makes it: the documents in force, evidence v4. */
     const grant = async (who: string, type: string, form: string) =>
@@ -240,13 +220,11 @@ describe('the legal documents (D121–D123)', () => {
 
     beforeAll(async () => {
       await publishForm(t, 'signup', 'withterms', { coversTerms: true });
-      for (const who of ['ann', 'bo']) {
-        for (const type of ['age_18plus', 'account_data', 'terms_of_use']) {
-          await grant(who, type, 'signupFormVersion:withterms');
-        }
-        for (const type of ['special_category_religious', 'publish']) {
-          await grant(who, type, 'testimonyFormVersion:v1');
-        }
+      for (const type of ['age_18plus', 'account_data', 'terms_of_use']) {
+        await grant('ann', type, 'signupFormVersion:withterms');
+      }
+      for (const type of ['special_category_religious', 'publish']) {
+        await grant('ann', type, 'testimonyFormVersion:v1');
       }
       await draft(await person('ann'), 'ann_live');
       await submit(await person('ann'), 'ann_live');
@@ -262,9 +240,9 @@ describe('the legal documents (D121–D123)', () => {
              ORDER BY type`,
         ),
       ).toEqual([
-        ['account_data', 'p2', 't1'],
-        ['age_18plus', 'p2', 't1'],
-        ['terms_of_use', 'p2', 't1'],
+        ['account_data', 'old', 't1'],
+        ['age_18plus', 'old', 't1'],
+        ['terms_of_use', 'old', 't1'],
       ]);
       expect(await state('ann')).toEqual({
         signup: true,
@@ -300,97 +278,45 @@ describe('the legal documents (D121–D123)', () => {
       ).toBe(false);
     });
 
-    it('evidence v4 only where the privacy policy has a PDF, and always then', async () => {
-      const ann = await person('ann');
+    it('naming the terms needs evidence v4, which covers them', async () => {
       expect(
         await outcome(
-          ann,
-          `CREATE consent CONTENT { subject: $auth, type: 'publish', event: 'granted',
-             form: testimonyFormVersion:v1, dpaVersion: fn::legal::dpa_in_force(),
+          await person('ann'),
+          `CREATE consent CONTENT { subject: $auth, type: 'terms_of_use', event: 'granted',
+             form: signupFormVersion:withterms, dpaVersion: fn::legal::dpa_in_force(),
+             termsVersion: fn::legal::terms_in_force(),
              mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: 3 }`,
           { h: sha256('v3') },
         ),
       ).toEqual({ ok: false, error: expect.stringContaining('evidence v4') });
     });
 
-    it('a minor privacy policy asks nobody again; new grants bind it', async () => {
+    it('a new version asks nobody again; stories stay public; new grants bind it', async () => {
       expect(
-        (await publish('dpaVersion', 'p3', policy('p3', false, '3'))).ok,
+        (await publish('dpaVersion', 'p4', policy('Policy four'))).ok,
       ).toBe(true);
+      expect((await publish('termsVersion', 't2', terms('Terms two'))).ok).toBe(
+        true,
+      );
       expect(await state('ann')).toEqual({
         signup: true,
         testimony: false,
-        public: true,
-      });
-    });
-
-    it('a privacy policy requiring re-acceptance: sign-up and new stories wait, stories stay public', async () => {
-      expect(
-        (await publish('dpaVersion', 'p4', policy('p4', true, '4'))).ok,
-      ).toBe(true);
-      expect(await state('ann')).toEqual({
-        signup: false,
-        testimony: true,
         public: true,
       });
       expect(
         await rows(publicRead, 'SELECT VALUE id FROM publicStory:ann_live'),
       ).toEqual(['publicStory:ann_live']);
-      expect(await draft(await person('ann'), 'ann_blocked')).toEqual([]);
-      // Accepting again binds the version in force and settles it.
-      for (const type of ['age_18plus', 'account_data', 'terms_of_use']) {
-        await grant('ann', type, 'signupFormVersion:withterms');
-      }
-      await grant(
-        'ann',
-        'special_category_religious',
-        'testimonyFormVersion:v1',
-      );
-      expect(await state('ann')).toEqual({
-        signup: true,
-        testimony: false,
-        public: true,
-      });
-      expect(await draft(await person('ann'), 'ann_next')).toHaveLength(1);
-    });
-
-    it('terms requiring re-acceptance ask again at sign-in only; terms that don’t ask nobody', async () => {
-      // Bo agreed before the privacy policy requiring re-acceptance (above): settle him first.
       for (const type of ['age_18plus', 'account_data', 'terms_of_use']) {
         await grant('bo', type, 'signupFormVersion:withterms');
       }
-      await grant(
-        'bo',
-        'special_category_religious',
-        'testimonyFormVersion:v1',
-      );
-      expect(await state('bo')).toEqual({
-        signup: true,
-        testimony: false,
-        public: true,
-      });
       expect(
-        (await publish('termsVersion', 't2', terms('t2', false, '5'))).ok,
-      ).toBe(true);
-      expect(await state('bo')).toEqual({
-        signup: true,
-        testimony: false,
-        public: true,
-      });
-      expect(
-        (await publish('termsVersion', 't3', terms('t3', true, '6'))).ok,
-      ).toBe(true);
-      expect(await state('bo')).toEqual({
-        signup: false,
-        testimony: false,
-        public: true,
-      });
-      await grant('bo', 'terms_of_use', 'signupFormVersion:withterms');
-      expect(await state('bo')).toEqual({
-        signup: true,
-        testimony: false,
-        public: true,
-      });
+        await rows(
+          migrator,
+          `SELECT VALUE [record::id(dpaVersion), record::id(termsVersion)]
+             FROM consent WHERE subject = user:bo AND type = 'terms_of_use'`,
+        ),
+      ).toEqual([['p4', 't2']]);
+      expect(await state('bo')).toMatchObject({ signup: true });
     });
   });
 });

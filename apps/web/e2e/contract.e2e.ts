@@ -102,30 +102,34 @@ test('the legal routes fit the contract: dev’s forms, privacy document and leg
     expect(body.form).toBe(form);
   }
   expect((await check(request, '/v1/legal/forms/other')).status).toBe(404);
-  // D121: the two legal documents, each with its PDF of record.
-  for (const document of ['privacy', 'terms']) {
+  // D121, D125: the two legal documents, each with its numbered versions.
+  for (const [document, id, number] of [
+    ['privacy', 'dev_policy', 2],
+    ['terms', 'dev_placeholder', 1],
+  ] as const) {
     const { status, body } = await check(
       request,
       `/v1/legal/documents/${document}`,
     );
-    expect([document, status, body.current.id]).toEqual([
+    expect([document, status, body.current.id, body.current.number]).toEqual([
       document,
       200,
-      'dev_placeholder',
+      id,
+      number,
     ]);
-    const pdf = await request.get(
-      `${STUB}/v1/legal/documents/${document}/versions/dev_placeholder.pdf`,
+    const version = await check(
+      request,
+      `/v1/legal/documents/${document}/versions/1`,
     );
-    expect([document, pdf.status(), pdf.headers()['content-type']]).toEqual([
+    expect([document, version.status, version.body.number]).toEqual([
       document,
       200,
-      'application/pdf',
+      1,
     ]);
   }
   expect((await check(request, '/v1/legal/documents/other')).status).toBe(404);
   expect(
-    (await check(request, '/v1/legal/documents/privacy/versions/v9.pdf'))
-      .status,
+    (await check(request, '/v1/legal/documents/privacy/versions/9')).status,
   ).toBe(404);
   expect((await check(request, '/v1/legal/dpa')).status).toBe(200);
   expect(
@@ -218,7 +222,7 @@ test('the stub api-user’s consent grants fit the contract', async ({
     formVersion: 'v2',
     statement: 'age_18plus',
     mechanism: 'web_form_submission',
-    privacyPolicyVersion: 'dev_placeholder',
+    privacyPolicyVersion: 'dev_policy',
     termsVersion: 'dev_placeholder',
   };
   const first = await post(grant, signedIn('first-grant'));
@@ -383,7 +387,7 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
           formVersion: 'v2',
           statement: 'special_category_religious',
           mechanism: 'web_form_submission',
-          privacyPolicyVersion: 'dev_placeholder',
+          privacyPolicyVersion: 'dev_policy',
         },
         headers: { 'idempotency-key': key() },
       })
@@ -444,7 +448,7 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
       formVersion: 'v2',
       statement: 'publish',
       mechanism: 'web_form_submission',
-      privacyPolicyVersion: 'dev_placeholder',
+      privacyPolicyVersion: 'dev_policy',
     },
     headers: { 'idempotency-key': key() },
   });

@@ -19,11 +19,10 @@ export interface EvidenceInput {
   dpaVersion: string;
   dpaContentHash: string;
   /**
-   * D122: the privacy policy version's PDF of record (its sha256); present for evidence v4. With
-   * it, on a sign-up version that asks for them, the terms of use version shown.
+   * Evidence v4 (D125): set (null when the form version doesn't ask for them) on every event
+   * with a form's statements data since; the terms of use version shown, with its words' sha256.
    */
-  dpaPdfSha256?: string;
-  terms?: { version: string; textHash: string; pdfSha256: string };
+  terms?: { version: string; contentHash: string } | null;
   /** The statement: a consent type. */
   type: string;
   event: 'granted' | 'withdrawn';
@@ -35,10 +34,9 @@ export interface EvidenceInput {
  * presented and chosen. Every text is identified by its own sha256 (the form's `textHash`, the
  * DPA's `contentHash`, both computed from libs/legal), so the hash can be recomputed later from
  * the repo, or the copies in the database, and the ledger alone.
- *   - v4 (D122, every event whose privacy policy has a PDF of record): v3 plus the privacy
- *     policy's PDF hash and, on a sign-up version asking for them, the terms of use version with
- *     its words' and PDF's hashes (null otherwise), so the ledger proves the documents in force
- *     (consent.evidenceVersion = 4);
+ *   - v4 (D125, every event with statements data since): v3 plus, on a sign-up version asking
+ *     for them, the terms of use version with its words' sha256 (null otherwise), so the ledger
+ *     proves both documents in force (consent.evidenceVersion = 4);
  *   - v3 (D114, every event since the boxes became structured data): v2 plus the version's
  *     statements hash, so the words beside the box ticked are proven too (consent.evidenceVersion
  *     = 3);
@@ -49,7 +47,7 @@ export interface EvidenceInput {
  */
 export function evidenceHash(e: EvidenceInput): string {
   const canonical =
-    e.form?.statementsHash && e.dpaPdfSha256
+    e.form?.statementsHash && e.terms !== undefined
       ? [
           'heisreal-consent-evidence/v4',
           e.form.kind,
@@ -58,10 +56,8 @@ export function evidenceHash(e: EvidenceInput): string {
           e.form.statementsHash,
           e.dpaVersion,
           e.dpaContentHash,
-          e.dpaPdfSha256,
           e.terms?.version ?? null,
-          e.terms?.textHash ?? null,
-          e.terms?.pdfSha256 ?? null,
+          e.terms?.contentHash ?? null,
           e.type,
           e.event,
           e.mechanism,

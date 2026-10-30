@@ -821,13 +821,13 @@ describe('dev placeholder privacy document and forms (D75)', () => {
     let t: TestDatabase;
     const placeholders = (on: boolean) =>
       t.migrate(t.params({ environment: 'dev', dev_legal_placeholders: on }));
-    // As the API grants since D122: on dev's v2, under the privacy policy in force (with its
-    // PDF, so evidence v4) and, on the sign-up form, the terms of use in force.
+    // As the API grants since D122: on dev's v2, under the privacy policy in force and, on the
+    // sign-up form, the terms of use in force (evidence v4, D125).
     const devGrant = (db: Surreal, type: string, form: string) =>
       run(
         db,
         `CREATE consent CONTENT { subject: $auth, type: $type, event: 'granted',
-           dpaVersion: dpaVersion:dev_placeholder, form: <record> $form,
+           dpaVersion: dpaVersion:dev_policy, form: <record> $form,
            termsVersion: IF string::starts_with($form, 'signupFormVersion') { termsVersion:dev_placeholder } ELSE { NONE },
            mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: 4 }`,
         { type, form, h: sha256(`${type} ${form}`) },
@@ -847,46 +847,36 @@ describe('dev placeholder privacy document and forms (D75)', () => {
     });
     afterAll(() => t?.close());
 
-    it('publishes the privacy policy and terms of use with their PDFs, and v2 of the three forms: boxes as data, a short introduction', async () => {
+    it('publishes the privacy policy and terms of use, numbered, and v2 of the three forms: boxes as data, a short introduction', async () => {
       const legal = legalParams();
       const svc = await t.service('api_public_read');
-      // D121: dev's placeholder privacy document is the privacy policy's first version, now
-      // with its PDF of record (data 0007); the terms of use's first version beside it.
+      // D121, D125: dev's placeholder privacy document is the privacy policy's version 1, the
+      // words /privacy showed before D125 its version 2, in force (data 0007); the terms of
+      // use's version 1 beside them.
       expect(
         await rows(
           svc,
           `RETURN [fn::legal::dpa_in_force(), fn::legal::terms_in_force()]`,
         ),
-      ).toEqual(['dpaVersion:dev_placeholder', 'termsVersion:dev_placeholder']);
-      const policyPdf = legal.dpa_pdf['dev_placeholder'];
-      const termsPdf = legal.terms_pdf['dev_placeholder'];
+      ).toEqual(['dpaVersion:dev_policy', 'termsVersion:dev_placeholder']);
       expect(
         await rows(
           svc,
-          `SELECT text, contentHash, pdfSha256, pdfSize, pdfPath, publishedBy
-             FROM ONLY dpaVersion:dev_placeholder`,
+          `SELECT VALUE [record::id(id), number, text = $texts[record::id(id)],
+              contentHash = $hashes[record::id(id)], publishedBy]
+             FROM dpaVersion WHERE number != NONE ORDER BY number`,
+          { texts: legal.dpa_text, hashes: legal.dpa_sha256 },
         ),
       ).toEqual([
-        {
-          text: legal.dpa_text['dev_placeholder'],
-          contentHash: legal.dpa_sha256['dev_placeholder'],
-          pdfSha256: policyPdf.pdfSha256,
-          pdfSize: policyPdf.pdfSize,
-          pdfPath: `legal/privacy/dev_placeholder/${policyPdf.pdfSha256}.pdf`,
-        },
+        ['dev_placeholder', 1, true, true, undefined],
+        ['dev_policy', 2, true, true, undefined],
       ]);
       expect(
         await rows(
           svc,
-          `SELECT text, pdfSha256, pdfPath FROM ONLY termsVersion:dev_placeholder`,
+          `SELECT text, number FROM ONLY termsVersion:dev_placeholder`,
         ),
-      ).toEqual([
-        {
-          text: legal.terms_text['dev_placeholder'],
-          pdfSha256: termsPdf.pdfSha256,
-          pdfPath: `legal/terms/dev_placeholder/${termsPdf.pdfSha256}.pdf`,
-        },
-      ]);
+      ).toEqual([{ text: legal.terms_text['dev_placeholder'], number: 1 }]);
       const table = {
         signup: 'signupFormVersion',
         testimony: 'testimonyFormVersion',
@@ -902,7 +892,7 @@ describe('dev placeholder privacy document and forms (D75)', () => {
           id: `${table[kind]}:v2`,
           status: 'published',
           text: legal.form_text[kind]['v2'],
-          dpaVersion: 'dpaVersion:dev_placeholder',
+          dpaVersion: 'dpaVersion:dev_policy',
           // D114: its boxes, from its statements file.
           statements: legal.form_statements[kind]['v2'].statements,
           statementsHash: legal.form_statements_sha256[kind]['v2'],
@@ -965,7 +955,7 @@ describe('dev placeholder privacy document and forms (D75)', () => {
           await outcome(
             cy,
             `CREATE consent CONTENT { subject: $auth, type: 'terms_of_use', event: 'granted',
-               dpaVersion: dpaVersion:dev_placeholder, form: signupFormVersion:v2,
+               dpaVersion: dpaVersion:dev_policy, form: signupFormVersion:v2,
                mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: 4 }`,
             { h: sha256('no terms') },
           )

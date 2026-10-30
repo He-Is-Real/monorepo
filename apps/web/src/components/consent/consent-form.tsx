@@ -13,7 +13,7 @@ import {
   useAccountState,
 } from '@/components/auth/account-bootstrap';
 import { dismissTestimonyBanner } from '@/components/consent/consent-prompts';
-import { LegalBlocks } from '@/components/consent/legal-blocks';
+import { LegalHtml } from '@/components/legal/legal-html';
 import { Button } from '@/components/ui/button';
 import {
   ApiUserProblem,
@@ -25,10 +25,8 @@ import type {
   ConsentBox,
   ConsentFormName,
   ConsentStatement,
-  LegalBlock,
-  LegalDocumentPdf,
 } from '@/lib/legal';
-import { documentPdfHref } from '@/lib/legal-text';
+import { documentVersionHref } from '@/lib/legal-text';
 import {
   personalApiUser,
   personalToken,
@@ -48,16 +46,19 @@ export interface ConsentAsk {
   boxes: ConsentBox[];
   /** `GrantConsent.mechanism`. */
   mechanism: 'web_form_submission' | 'reconsent_prompt';
-  /** The form version's short introduction (D122). */
-  blocks: LegalBlock[];
-  /** The privacy policy in force (D121), which every grant binds, with its words and PDF. */
+  /** The form version's short introduction (D122), rendered by the server (lib/markdown.ts). */
+  html: string;
+  /**
+   * The privacy policy in force (D121), which every grant binds: its record id, its number and
+   * its words, rendered by the server.
+   */
   privacy: {
     version: string;
-    blocks: LegalBlock[];
-    pdf: LegalDocumentPdf | null;
+    number: number;
+    html: string;
   };
   /** The terms of use in force, when the version has the terms box (D122). */
-  terms: { version: string; pdf: LegalDocumentPdf | null } | null;
+  terms: { version: string; number: number } | null;
   /** A same-site path to go on to afterwards (return-path.ts). */
   returnTo: string;
   /** api-user's origin (config.ts); none: nothing can be recorded. */
@@ -156,7 +157,7 @@ function PersonsConsentForm({
   formVersion,
   boxes: asked,
   mechanism,
-  blocks,
+  html,
   privacy,
   terms,
   returnTo,
@@ -299,7 +300,7 @@ function PersonsConsentForm({
         data-legal-document={formVersion}
         className="rounded-2xl border border-border bg-card px-5 py-4"
       >
-        <LegalBlocks blocks={blocks} />
+        <LegalHtml html={html} />
       </section>
 
       <details className="group rounded-2xl border border-border bg-card">
@@ -318,15 +319,15 @@ function PersonsConsentForm({
           data-privacy-document={privacy.version}
           className="space-y-4 border-t border-border px-5 py-4"
         >
-          <LegalBlocks blocks={privacy.blocks} />
-          {privacy.pdf && (
-            <a
-              href={documentPdfHref('privacy', privacy.version)}
-              className="inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
-            >
-              Download this version (PDF)
-            </a>
-          )}
+          <LegalHtml html={privacy.html} />
+          <a
+            href={documentVersionHref('privacy', privacy.number)}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
+          >
+            Version {privacy.number}, on its own page (opens in a new tab)
+          </a>
         </div>
       </details>
 
@@ -386,13 +387,14 @@ function PersonsConsentForm({
               <div key={statement} className="space-y-1">
                 {box}
                 <a
-                  href="/terms"
+                  href={documentVersionHref('terms', terms.number)}
                   target="_blank"
                   rel="noopener"
                   data-terms-version={terms.version}
                   className="ml-4 inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
                 >
-                  Read the terms of use (opens in a new tab)
+                  Read the terms of use, version {terms.number} (opens in a new
+                  tab)
                 </a>
               </div>
             ) : (

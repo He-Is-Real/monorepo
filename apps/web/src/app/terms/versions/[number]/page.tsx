@@ -1,0 +1,26 @@
+import { DocumentVersion } from '@/components/legal/legal-routes';
+import { pageMetadata } from '@/lib/seo';
+
+/** Per request: URLs come from SITE_URL (seo.ts). */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ number: string }>;
+}) {
+  const { number } = await params;
+  return pageMetadata({
+    title: `Terms of use, version ${number}`,
+    description: `Version ${number} of the terms of use of He Is Real Today, as it was published.`,
+    path: `/terms/versions/${number}`,
+  });
+}
+
+/** One version of the terms of use, kept for ever (D125). */
+export default async function TermsVersionPage({
+  params,
+}: {
+  params: Promise<{ number: string }>;
+}) {
+  const { number } = await params;
+  return <DocumentVersion document="terms" number={number} />;
+}

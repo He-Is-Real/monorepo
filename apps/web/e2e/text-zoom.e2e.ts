@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { enlargeText as enlarge, expectNoHorizontalOverflow } from './helpers';
 import { WEB_SIGNED_IN_URL } from './servers';
@@ -90,7 +88,7 @@ for (const path of PAGES) {
   });
 }
 
-test('200% text: /admin/legal with a preview open fits on a 320 px phone', async ({
+test('200% text: /admin/legal with its preview and confirmation fits on a 320 px phone', async ({
   page,
 }) => {
   await enlarge(page);
@@ -99,16 +97,13 @@ test('200% text: /admin/legal with a preview open fits on a 320 px phone', async
     window.localStorage.setItem('e2e-session', 'admin-text-zoom'),
   );
   await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
-  await page.getByLabel('The PDF (at most 10 MB)').setInputFiles({
-    name: 'policy.pdf',
-    mimeType: 'application/pdf',
-    buffer: readFileSync(
-      resolve(__dirname, '../../../libs/legal/dpa/dev_placeholder.pdf'),
-    ),
-  });
-  await page.getByRole('button', { name: 'Preview' }).click();
-  await expect(
-    page.getByRole('button', { name: 'Publish this version' }),
-  ).toBeVisible();
+  // The editor and its preview, with a table and a long code name, and the confirmation.
+  await page
+    .getByLabel('The text')
+    .fill(
+      '## Storage\n\n| Name | Set by |\n| --- | --- |\n| `bunny_stream_settings_long_name` | This site |\n',
+    );
+  await page.getByRole('button', { name: /^Publish as version/ }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });

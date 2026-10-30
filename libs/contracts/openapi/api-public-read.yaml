@@ -40,7 +40,7 @@ tags:
   - name: Tags
     description: 'The tag taxonomy.'
   - name: Legal
-    description: 'The legal documents (privacy policy, terms of use) with their PDFs of record, and the consent forms.'
+    description: 'The legal documents (privacy policy, terms of use) with their numbered versions, and the consent forms.'
   - name: Site
     description: 'Media that is part of the site itself, not stories.'
 
@@ -361,12 +361,11 @@ paths:
     get:
       tags: [Legal]
       operationId: getLegalDocument
-      summary: A legal document in force, with its words, and every version with its PDF
+      summary: A legal document in force, with its words, and every version
       description: |
-        D121: the privacy policy (`privacy`, the privacy document of D20 and D75) or the terms of use
-        (`terms`). The version in force with the words `/privacy` and `/terms` render, and every version that
-        counts, newest first (their "Previous versions"), each with its PDF of record. Dev's placeholders in
-        dev only (D75).
+        D121, D125: the privacy policy (`privacy`, the privacy document of D20 and D75) or the terms of use
+        (`terms`). The version in force with the Markdown `/privacy` and `/terms` render, and every version
+        that counts, newest first (their "Previous versions"). Dev's placeholders in dev only (D75).
       x-milestone: M2
       parameters:
         - name: document
@@ -396,16 +395,14 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
-  /v1/legal/documents/{document}/versions/{file}:
+  /v1/legal/documents/{document}/versions/{number}:
     get:
       tags: [Legal]
-      operationId: getLegalDocumentPdf
-      summary: One version's PDF of record
+      operationId: getLegalDocumentVersion
+      summary: One version of a legal document, with its words
       description: |
-        The PDF exactly as stored (the admin's upload, D123), checked against its SHA-256 before it's sent:
-        `Content-Type: application/pdf`, `Content-Disposition: inline` with a fixed file name,
-        `X-Content-Type-Options: nosniff`. A URL always names the same bytes: with shared caching on (D51,
-        never in dev) it may be kept a year, else `no-store`.
+        D125: any version that counts, by its number, with its Markdown (`/privacy/versions/{number}`,
+        `/terms/versions/{number}`): versions are kept for ever, so a person can read what they agreed to.
       x-milestone: M2
       parameters:
         - name: document
@@ -413,39 +410,25 @@ paths:
           required: true
           schema:
             $ref: './components.yaml#/components/schemas/LegalDocumentName'
-        - name: file
+        - name: number
           in: path
           required: true
-          description: '`<version id>.pdf`, e.g. `v2.pdf`.'
           schema:
-            type: string
-            pattern: '^[a-z0-9][a-z0-9_-]{0,63}\.pdf$'
+            type: integer
+            minimum: 1
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: The PDF.
+          description: The version.
           headers:
             ETag:
-              description: The PDF's SHA-256, quoted (strong).
-              schema:
-                type: string
+              $ref: './components.yaml#/components/headers/RepresentationETag'
             Cache-Control:
-              schema:
-                type: string
-                enum: [no-store, 'public, max-age=31536000, immutable']
-            Content-Disposition:
-              schema:
-                type: string
-                example: inline; filename="heisreal-privacy-policy-v2.pdf"
-            X-Content-Type-Options:
-              schema:
-                type: string
-                enum: [nosniff]
+              $ref: './components.yaml#/components/headers/CacheControlPublic'
           content:
-            application/pdf:
+            application/json:
               schema:
-                type: string
-                format: binary
+                $ref: './components.yaml#/components/schemas/LegalDocumentVersionText'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '400':

@@ -79,18 +79,16 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
         ),
       ]).toEqual([id, [true, true]]);
     }
-    // Every grant's evidence is the API's v4 hash of what it names (D122: the privacy policy in
-    // force with its PDF, and on the sign-up form the terms in force with theirs), computed
-    // independently.
+    // Every grant's evidence is the API's v4 hash of what it names (D125: the privacy policy in
+    // force, and on the sign-up form the terms in force), computed independently.
     const ledger = await rows<Record<string, string>>(
       migrator,
       `SELECT type, event, mechanism, evidenceHash, record::tb(form) AS table,
          record::id(form) AS version, form.textHash AS textHash,
          form.statementsHash AS statementsHash, evidenceVersion,
          record::id(dpaVersion) AS dpa, dpaVersion.contentHash AS dpaHash,
-         dpaVersion.pdfSha256 AS dpaPdf,
          IF termsVersion = NONE { NONE } ELSE { record::id(termsVersion) } AS terms,
-         termsVersion.textHash AS termsHash, termsVersion.pdfSha256 AS termsPdf
+         termsVersion.contentHash AS termsHash
        FROM consent`,
     );
     expect(ledger).toHaveLength(people.length * 5);
@@ -109,7 +107,7 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
       const signup = r['table'] === 'signupFormVersion';
       expect([r['type'], r['dpa'], r['terms'] ?? null]).toEqual([
         r['type'],
-        'dev_placeholder',
+        'dev_policy',
         signup ? 'dev_placeholder' : null,
       ]);
       expect(r['evidenceHash']).toBe(
@@ -123,10 +121,8 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
               r['statementsHash'],
               r['dpa'],
               r['dpaHash'],
-              r['dpaPdf'],
               signup ? r['terms'] : null,
               signup ? r['termsHash'] : null,
-              signup ? r['termsPdf'] : null,
               r['type'],
               r['event'],
               r['mechanism'],

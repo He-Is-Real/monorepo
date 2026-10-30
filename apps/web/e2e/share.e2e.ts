@@ -269,7 +269,7 @@ test.describe('behaviour', () => {
     // The privacy policy is there to read.
     await page.getByText('Read the privacy policy', { exact: true }).click();
     await expect(
-      page.getByText(/What the real document will cover/),
+      page.getByRole('heading', { name: 'Cookies and storage' }),
     ).toBeVisible();
     await page.getByRole('button', { name: 'I agree, continue' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(

@@ -129,7 +129,8 @@ test('privacy: heading, policy, text and table share the column', async ({
   await expectAligned(page, column, {
     policy: page.locator('[data-legal-version]'),
     heading: page.getByRole('heading', { level: 1 }),
-    'first paragraph': page.locator('main p').nth(1),
+    'version line': page.locator('[data-version-line]'),
+    'first paragraph': page.locator('[data-legal-text] > p').first(),
     'cookies heading': page.getByRole('heading', {
       name: 'Cookies and storage',
     }),

@@ -117,6 +117,9 @@
           "^production",
           "{workspaceRoot}/libs/database/integration/support/**/*",
           "{workspaceRoot}/libs/database/schema/**/*",
+          "{workspaceRoot}/libs/legal/dpa/**/*",
+          "{workspaceRoot}/libs/legal/forms/**/*",
+          "{workspaceRoot}/libs/legal/terms/**/*",
           "{workspaceRoot}/libs/contracts/openapi/**/*",
           "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
           {
@@ -142,7 +145,6 @@
     ]
   },
   "dependencies": {
-    "@google-cloud/storage": "^8.4.0",
     "@heisreal/auth": "workspace:*",
     "@heisreal/consent": "workspace:*",
     "@heisreal/database": "workspace:*",

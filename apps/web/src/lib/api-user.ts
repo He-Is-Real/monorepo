@@ -21,8 +21,7 @@
  *   ({@link ifMatch}); non-idempotent `POST`s send an `Idempotency-Key`
  *   ({@link newIdempotencyKey}), kept and reused when retrying the same command (D29).
  * - **api-admin too:** staff pages (`/admin/legal`) call api-admin with this same client at
- *   api-admin's origin (`API_ADMIN_URL`): the same token, the same rules (D31). A multipart
- *   command (a PDF upload) passes `form` instead of `body`.
+ *   api-admin's origin (`API_ADMIN_URL`): the same token, the same rules (D31).
  */
 
 /** Clerk's `getToken()`: the current session token, or null when signed out. */
@@ -103,8 +102,6 @@ export interface CommandOptions {
   idempotencyKey?: string;
   /** `PATCH` bodies are JSON Merge Patch (D28). */
   mergePatch?: boolean;
-  /** A multipart/form-data body instead of JSON (the browser sets its Content-Type). */
-  form?: FormData;
 }
 
 export interface ApiUser {
@@ -132,7 +129,7 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
     method: string,
     path: string,
     set: (headers: Headers) => void,
-    body?: string | FormData,
+    body?: string,
   ): Promise<ApiUserResponse<T>> {
     const token = await getToken();
     if (!token) throw new NotSignedIn('Not signed in');
@@ -198,7 +195,7 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
           if (o.version !== undefined) h.set('If-Match', ifMatch(o.version));
           if (o.idempotencyKey) h.set('Idempotency-Key', o.idempotencyKey);
         },
-        o.form ?? (o.body === undefined ? undefined : JSON.stringify(o.body)),
+        o.body === undefined ? undefined : JSON.stringify(o.body),
       ),
   };
 }

@@ -170,11 +170,16 @@ test.describe('behaviour', () => {
       .getByRole('link', { name: 'How we use cookies' })
       .click();
     await expect(page).toHaveURL(/\/privacy#cookies$/);
-    const section = page.locator('#cookies');
+    // The policy's "## Cookies and storage {#cookies}" heading, then its table.
     await expect(
-      section.getByRole('heading', { name: 'Cookies and storage' }),
-    ).toBeInViewport();
-    await expect(section.getByRole('rowheader')).toContainText([
+      page.getByRole('heading', { name: 'Cookies and storage' }),
+    ).toHaveAttribute('id', 'cookies');
+    await expect(page.locator('#cookies')).toBeInViewport();
+    await expect(
+      page
+        .getByRole('table', { name: 'Cookies and storage' })
+        .getByRole('rowheader'),
+    ).toContainText([
       'theme',
       '__client_uat',
       '__session',
