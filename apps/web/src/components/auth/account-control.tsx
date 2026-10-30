@@ -76,7 +76,7 @@ function useForgetOthersShareStorage(
  * avatar, first name, ▾): a compact button no wider than the header's account slot
  * (site-header.tsx), so it never pushes the header onto a second row. The first name shows
  * from 640 px and truncates to fit; phones get the avatar only.
- * It opens a panel with the full name, My favourites and Sign out. Presentational, so the e2e suite can render
+ * It opens a panel with the full name, My profile, My favourites and Sign out. Presentational, so the e2e suite can render
  * it without a Clerk session (site-header.tsx, E2E_FIXTURES). `signOut` wraps the Sign out
  * button (Clerk's SignOutButton in the app).
  */
@@ -130,6 +130,22 @@ export function SignedInAccount({
             Signed in as{' '}
             <span className="font-medium text-foreground">{name}</span>
           </p>
+          <a
+            href="/account"
+            className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="size-4 fill-none stroke-current"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+            </svg>
+            My profile
+          </a>
           <a
             href="/account/favourites"
             className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"

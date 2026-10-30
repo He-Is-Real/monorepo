@@ -452,6 +452,31 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     openDrafts: { max: 3, open: 3 },
     submissions: { per7Days: 1, nextAvailableAt: expect.any(String) },
   });
+
+  // The profile (M2 plan PR 8): withdraw the submitted story, delete it and a draft.
+  const withdraw = (story: string, version?: number) =>
+    call('POST', `/v1/stories/${story}/withdraw`, {
+      headers: version ? { 'if-match': `"${version}"` } : {},
+    });
+  const remove = (story: string, version?: number) =>
+    call('DELETE', `/v1/stories/${story}`, {
+      headers: version ? { 'if-match': `"${version}"` } : {},
+    });
+  expect((await remove(id, 3)).status).toBe(409); // pending: withdraw it first
+  expect((await withdraw(id)).status).toBe(428);
+  expect((await withdraw(id, 2)).status).toBe(412);
+  expect((await withdraw(id, 3)).status).toBe(200);
+  expect((await withdraw(id, 4)).status).toBe(409);
+  expect((await remove(id, 4)).status).toBe(204);
+  expect((await remove(id, 4)).status).toBe(404);
+  expect((await withdraw(short.body.id, 1)).status).toBe(409); // a draft
+  expect((await remove(short.body.id, 1)).status).toBe(204);
+  const withdrawConsent = (type: string) =>
+    call('POST', `/v1/account/consents/${type}/withdraw`, {
+      headers: { 'idempotency-key': key() },
+    });
+  expect((await withdrawConsent('share_socials')).status).toBe(409);
+  expect((await withdrawConsent('publish')).status).toBe(202);
 });
 
 test('the stub api-user’s uploads fit the contract, answers and errors (M2 plan PR 7)', async ({

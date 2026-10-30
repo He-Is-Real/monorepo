@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpStatus,
@@ -310,6 +311,46 @@ export class StoriesController {
     res.status(HttpStatus.OK);
     res.setHeader('ETag', `"${result.version}"`);
     return result;
+  }
+
+  @Post('v1/stories/:id/withdraw')
+  @NoConsentRequired(
+    'withdrawing a story must work without consent, like withdrawing consent (Art 7(3))',
+  )
+  async withdrawStory(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param('id') id: string,
+    @Headers('if-match') ifMatch?: string,
+  ): Promise<CommandResult> {
+    const sid = storyId(id);
+    const version = ifMatchOf(ifMatch);
+    const result = await this.people.run(req, ({ session }) =>
+      new StoryStore(session).withdraw(sid, version),
+    );
+    res.status(HttpStatus.OK);
+    res.setHeader('ETag', `"${result.version}"`);
+    return result;
+  }
+
+  @Delete('v1/stories/:id')
+  @NoConsentRequired(
+    'deleting your own story needs no consent (your right to erasure, Art 17)',
+  )
+  async deleteStory(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param('id') id: string,
+    @Headers('if-match') ifMatch?: string,
+  ): Promise<void> {
+    const sid = storyId(id);
+    const version = ifMatchOf(ifMatch);
+    const { videos } = await this.people.run(req, ({ session }) =>
+      new StoryStore(session).delete(sid, version),
+    );
+    // Only once the delete has committed: its media at Bunny (D71; media-runbook.md).
+    await this.uploads.discardDeleted(videos);
+    res.status(HttpStatus.NO_CONTENT);
   }
 
   @Post('v1/stories/:id/upload-url')

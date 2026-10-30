@@ -20,6 +20,9 @@
 //   `PATCH`. A test can make the next PATCHes fail or hold them (`POST /__e2e/sessions/<id>/tus`)
 //   and read what arrived (`GET /__e2e/sessions/<id>/uploads`); submit needs the file to have
 //   arrived, as api-user asks Bunny.
+// - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
+//   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
+//   carry its `status`, `slug` and moderator's `rejectionFeedback`.
 // - Hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and `GET /v1/account/favourites`
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
@@ -393,7 +396,7 @@ function storyMine(id, st) {
   return {
     id,
     version: st.version,
-    slug: `story-${id}`,
+    slug: st.slug ?? `story-${id}`,
     status: st.status,
     title: st.title,
     description: st.description,
@@ -415,7 +418,7 @@ function storyMine(id, st) {
       : [],
     image: null,
     tags: st.tagSlugs.map((slug) => TAGS.find((t) => t.slug === slug)),
-    rejectionFeedback: null,
+    rejectionFeedback: st.rejectionFeedback ?? null,
     submittedAt: st.submittedAt,
     approvedAt: null,
     createdAt: st.createdAt,
@@ -679,6 +682,53 @@ async function handleShare(req, res, path, url, s) {
     });
   }
   const edit = /^\/v1\/stories\/([^/]+)$/.exec(path);
+  const withdraw = /^\/v1\/stories\/([^/]+)\/withdraw$/.exec(path);
+  // DeleteStory (D71) and WithdrawStory (M2 plan PR 8): the same statuses as api-user.
+  if (
+    (edit && req.method === 'DELETE') ||
+    (withdraw && req.method === 'POST')
+  ) {
+    const id = (edit ?? withdraw)[1];
+    const st = s.stories.get(id);
+    if (!st) return shareProblem(res, 404, 'Not found');
+    const v = ifMatchOf(req);
+    if (v === undefined)
+      return shareProblem(
+        res,
+        428,
+        'Precondition required',
+        'if_match_required',
+      );
+    if (v !== st.version)
+      return shareProblem(res, 412, 'Precondition failed', 'stale_version');
+    if (edit) {
+      if (!['draft', 'withdrawn', 'rejected'].includes(st.status))
+        return shareProblem(res, 409, 'Conflict', 'story_not_deletable', {
+          detail:
+            'Only a draft, or a story that was withdrawn or not accepted, can be deleted. Withdraw it first.',
+        });
+      s.stories.delete(id);
+      return sendJson(res, 204, undefined);
+    }
+    if (
+      !['pending', 'in_review', 'approved', 'changes_requested'].includes(
+        st.status,
+      )
+    )
+      return shareProblem(res, 409, 'Conflict', 'story_not_withdrawable', {
+        detail:
+          'Only a story waiting for review, in review or published can be withdrawn',
+      });
+    st.status = 'withdrawn';
+    st.version += 1;
+    st.updatedAt = new Date().toISOString();
+    return sendJson(
+      res,
+      200,
+      { id, version: st.version },
+      { etag: `"${st.version}"` },
+    );
+  }
   if (edit && req.method === 'PATCH') {
     if (!s.granted.has('special_category_religious'))
       return shareProblem(res, 403, 'Forbidden', 'consent_required');
@@ -1098,6 +1148,30 @@ createServer(async (req, res) => {
       )
         s.signup = true;
     });
+  }
+  const withdrawConsent = /^\/v1\/account\/consents\/([^/]+)\/withdraw$/.exec(
+    path,
+  );
+  if (withdrawConsent && req.method === 'POST') {
+    if (!signedIn()) return;
+    const s = shareSession(token);
+    const type = withdrawConsent[1];
+    if (!CONSENT_TYPES.includes(type))
+      return problem(res, 400, 'Bad request', 'validation_failed');
+    const key = req.headers['idempotency-key'];
+    if (typeof key !== 'string' || key.length < 16 || key.length > 128)
+      return problem(res, 400, 'Bad request', 'idempotency_key_required');
+    const earlier = replies.get(key);
+    if (earlier) return send(res, 202, earlier.answer);
+    // Withdrawing again re-affirms it; never granted is 409 (api-user.yaml).
+    if (!s.granted.has(type) && !s.withdrawn?.has(type))
+      return problem(res, 409, 'Conflict', 'consent_not_granted');
+    s.granted.delete(type);
+    (s.withdrawn ??= new Set()).add(type);
+    events += 1;
+    const answer = { id: `stubconsent${events}`, version: null };
+    replies.set(key, { text: '', answer });
+    return send(res, 202, answer);
   }
   if (path === '/v1/account/favourites' && req.method === 'GET') {
     const mine = signedIn();

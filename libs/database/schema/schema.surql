@@ -233,7 +233,11 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
     AND fn::consent::may_draft(submitter),         -- with Art 9 consent on the forms in force (D93)
   FOR update WHERE (submitter = $auth.id AND $auth.gdprDeletedAt = NONE)
     OR $auth.id IN [service:api_admin, service:workflow],
-  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
+  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]   -- erasure
+    -- D71: the owner deletes their own draft, withdrawn or rejected story (DeleteStory), never
+    -- one in moderation's hands or published (pending, in_review, approved, changes_requested).
+    OR (submitter = $auth.id AND $auth.gdprDeletedAt = NONE
+        AND status IN ['draft', 'withdrawn', 'rejected']);
 DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY;   -- owner can never be reassigned
 DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every command; ETag
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
