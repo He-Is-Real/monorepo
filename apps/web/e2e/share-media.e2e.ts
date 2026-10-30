@@ -424,7 +424,7 @@ test.describe('behaviour', () => {
     ]);
   });
 
-  test('leaving the step while the upload link is on its way starts no upload (Codex #133 round 3)', async ({
+  test('leaving the step while the upload link is on its way starts no upload, and a late “nothing to resume” asks for no new video (Codex #133 rounds 3 and 4)', async ({
     page,
     request,
   }, info) => {
@@ -436,39 +436,82 @@ test.describe('behaviour', () => {
     page.on('request', (r) => {
       if (r.method() === 'POST' && r.url().endsWith('/tusupload')) creations++;
     });
-    // The link's answer waits until the person has pressed Back.
+    // Each held answer waits until its request has arrived and the person has pressed Back.
+    let arrived!: () => void;
     let release!: () => void;
-    const held = new Promise<void>((r) => (release = r));
-    let first = true;
+    let calls = 0;
+    const hold = () => {
+      const arrival = new Promise<void>((r) => (arrived = r));
+      const held = new Promise<void>((r) => (release = r));
+      return { arrival, held };
+    };
+    let now = hold();
     await page.route(
       `${STUB_USER_URL}/v1/stories/*/upload-url`,
       async (route) => {
-        if (!first) return route.fallback();
-        first = false;
-        const res = await route.fetch();
-        await held;
-        return route.fulfill({ response: res });
+        calls++;
+        const { held } = now;
+        if (calls === 1) {
+          // The first request for a link.
+          arrived();
+          const res = await route.fetch();
+          await held;
+          return route.fulfill({ response: res });
+        }
+        if (calls === 2) {
+          // Its replay: a link about to run out, so the next choice asks to resume.
+          const res = await route.fetch();
+          const json = await res.json();
+          json.expiresAt = new Date(Date.now() + 60_000).toISOString();
+          return route.fulfill({ response: res, json });
+        }
+        if (calls === 3) {
+          // The resume, answered (after Back) as if the video had finished elsewhere.
+          arrived();
+          await held;
+          return route.fulfill({
+            status: 409,
+            contentType: 'application/problem+json',
+            json: {
+              type: 'about:blank',
+              title: 'Conflict',
+              status: 409,
+              code: 'nothing_to_resume',
+            },
+          });
+        }
+        return route.fallback();
       },
     );
-    await page.getByLabel('Choose a file').setInputFiles(path);
-    await expect(page.getByText(/^Getting “clip\.mp4” ready/)).toBeVisible();
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await step(page, 'Prepare your story');
-    const answered = page.waitForResponse(/\/upload-url$/);
-    release();
-    await answered;
+    const leaveWhileHeld = async () => {
+      await page.getByLabel('Choose a file').setInputFiles(path);
+      await now.arrival;
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
+      await step(page, 'Prepare your story');
+      const answered = page.waitForResponse(/\/upload-url$/);
+      release();
+      await answered;
+      await page.getByRole('button', { name: 'Upload my video' }).click();
+      await step(page, 'Upload your video');
+    };
+    await leaveWhileHeld();
+    expect(creations).toBe(0);
 
-    // Coming back, the same file goes up once, with the same video.
-    await page.getByRole('button', { name: 'Upload my video' }).click();
-    await step(page, 'Upload your video');
+    // Coming back, the same file goes up with the same video; this time the upload stops.
+    await me.tus({ fail: 1 });
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(alert(page, 'The upload stopped')).toBeVisible();
+
+    // Choosing it again asks to resume; Back, then the late “nothing to resume”.
+    now = hold();
+    await leaveWhileHeld();
+
+    // No new video was asked for: the same one carries on and finishes.
     await page.getByLabel('Choose a file').setInputFiles(path);
     await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
-    const { requests, videos } = await me.uploads();
-    expect([creations, requests, videos.length, videos[0].done]).toEqual([
-      1,
-      2,
-      1,
-      true,
+    const { videos } = await me.uploads();
+    expect(videos.map((v) => ({ deleted: v.deleted, done: v.done }))).toEqual([
+      { deleted: false, done: true },
     ]);
   });
 

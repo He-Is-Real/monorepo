@@ -328,6 +328,8 @@ export function UploadPanel({
       request: UploadRequest,
       gone: () => boolean,
     ): Promise<UploadTarget | null> => {
+      // Left behind (Back, another account, a newer run): ask for nothing, keep nothing.
+      if (gone()) return null;
       let ready = first;
       for (let again = false; ; again = true) {
         const kept = readAttempt(owner, ready.draftId);
@@ -409,6 +411,7 @@ export function UploadPanel({
           remember(ready.draftId, { ...k, target });
           return { target, draftId: ready.draftId };
         } catch (err) {
+          if (gone()) return null;
           // Nothing left to carry on (it finished, or the video was replaced elsewhere): a
           // new upload below. (A resume writes nothing, so it needs no kept key.)
           if (!(
