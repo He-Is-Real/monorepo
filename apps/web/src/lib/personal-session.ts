@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useSyncExternalStore } from 'react';
-import type { GetToken } from '@/lib/api-user';
+import { apiUser, type GetToken, NotSignedIn } from '@/lib/api-user';
 
 /**
  * Who is looking, for the personal parts of pages outside the header (hearts, "My favourites";
@@ -80,3 +80,32 @@ export function usePersonalSession(): PersonalSession {
     () => UNKNOWN,
   );
 }
+
+/** A session token's `sub` (its payload, read but not verified: api-user verifies), or null. */
+export function subjectOf(token: string): string | null {
+  const payload = token.split('.')[1];
+  if (!payload) return null;
+  try {
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    const sub = (JSON.parse(json) as { sub?: unknown }).sub;
+    return typeof sub === 'string' ? sub : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * api-user for one person only (Codex, #117 round 4; Favourites and Share): Clerk's
+ * `getToken()` answers for whoever is signed in when it resolves, so a token is used only if it
+ * is this person's (its `sub` is their Clerk user id). Otherwise nothing is sent: `NotSignedIn`.
+ * Work started for one person can never act in another's account.
+ */
+export const personalApiUser = (
+  s: Extract<PersonalSession, { status: 'signed-in' }>,
+) =>
+  apiUser(s.apiUserUrl, async () => {
+    const token = await s.getToken();
+    if (token !== null && subjectOf(token) !== s.userId)
+      throw new NotSignedIn('Someone else is signed in now');
+    return token;
+  });

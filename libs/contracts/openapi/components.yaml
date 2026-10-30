@@ -267,6 +267,17 @@ components:
           type: string
           description: Stable machine-readable code
           example: validation_failed
+        limit:
+          type: integer
+          description: |
+            `story_text_too_long` and `too_many_tags` only: the limit in force that the story is over
+            (characters, or themes).
+        availableAt:
+          type: string
+          format: date-time
+          description: |
+            `weekly_submission_limit_reached` only (D94): when the person may next submit a story for
+            review, 7 days after their latest submission.
         errors:
           type: array
           description: Field errors (validation failures only).
@@ -614,38 +625,13 @@ components:
         version:
           $ref: '#/components/schemas/Version'
 
-    ConsentSnapshot:
-      type: [object, 'null']
-      description: The latest ledger event of one consent type; `null` if there is none.
-      properties:
-        event:
-          type: string
-          enum: [granted, withdrawn]
-        dpaVersion:
-          type: string
-          example: v1
-        occurredAt:
-          type: string
-          format: date-time
-
-    StoryConsent:
-      type: object
-      description: |
-        Derived from the submitter's current ledger state, never stored on the story (D17): every story
-        of a person follows their latest consent.
-      properties:
-        religious:
-          $ref: '#/components/schemas/ConsentSnapshot'
-        publish:
-          $ref: '#/components/schemas/ConsentSnapshot'
-        share:
-          $ref: '#/components/schemas/ConsentSnapshot'
-        age18plus:
-          $ref: '#/components/schemas/ConsentSnapshot'
-
     StoryMine:
       type: object
-      description: The submitter's own view (read as the person, D27), including lifecycle and moderation feedback.
+      description: |
+        The submitter's own view (read as the person, D27), including lifecycle and moderation feedback.
+        No consent object: a story stores no consent (D86); the person's consent is
+        `GET /v1/account/consents`. Draft media isn't signed yet (`playbackUrl` and `thumbnailUrl`
+        are `null` until the upload PR), and a written story's `image` is `null` until images.
       required:
         [id, version, status, title, primaryFormat, createdAt, updatedAt]
       properties:
@@ -680,8 +666,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Tag'
-        consent:
-          $ref: '#/components/schemas/StoryConsent'
         rejectionFeedback:
           type: [string, 'null']
           description: Pastoral feedback after reject or request-changes.
@@ -755,22 +739,30 @@ components:
           maxLength: 5000
         body:
           type: string
-          maxLength: 10000
+          maxLength: 50000
           description: |
-            Required when `primaryFormat` is `written`. At most 10,000 characters (A3, the POC's limit).
-            A written story may be saved shorter, but needs at least 200 characters (not counting
-            leading and trailing spaces) to be submitted.
+            Required when `primaryFormat` is `written`. At most the settings' maximum (W3: default
+            10,000 characters, `GET /v1/account/limits`; 50,000 is the hard ceiling). A written story
+            may be saved shorter, but needs the settings' minimum (default 200, not counting leading and
+            trailing spaces) to be submitted.
         bylineName:
           type: [string, 'null']
           maxLength: 80
-          description: 'Name shown on the story; `null` = anonymous (D16).'
+          description: |
+            The optional first name shown on the story; `null` (or blank) = "Anonymous" (D16). There is
+            no email field: Clerk holds it.
         primaryFormat:
           $ref: '#/components/schemas/Format'
         tagSlugs:
           type: array
+          description: |
+            Tags from `GET /v1/tags` (api-user), no repeats, at most the settings' maximum (W3:
+            default 5; 20 is the hard ceiling). A draft may have none; `/submit` needs the settings'
+            minimum (default 1).
           items:
             type: string
-          maxItems: 5
+          maxItems: 20
+          uniqueItems: true
 
     StoryPatch:
       type: object
@@ -786,8 +778,8 @@ components:
           maxLength: 5000
         body:
           type: [string, 'null']
-          maxLength: 10000
-          description: At most 10,000 characters; a written story needs at least 200 to be submitted.
+          maxLength: 50000
+          description: At most the settings' maximum (W3, default 10,000); the minimum applies at submit.
         bylineName:
           type: [string, 'null']
           maxLength: 80
@@ -795,7 +787,61 @@ components:
           type: array
           items:
             type: string
-          maxItems: 5
+          maxItems: 20
+          uniqueItems: true
+
+    SubmissionLimits:
+      type: object
+      description: |
+        The limits that apply to the signed-in person (W3, D94, D112): the text and theme limits an admin
+        sets, and their own open-drafts and weekly-submission limits (the settings, or the admin's override
+        for them; `null` = no limit, e.g. a trusted submitter).
+      required: [storyText, tags, openDrafts, submissions]
+      properties:
+        storyText:
+          type: object
+          required: [min, max]
+          description: A written story's text in characters, trimmed (to submit / at most).
+          properties:
+            min:
+              type: integer
+              minimum: 1
+            max:
+              type: integer
+              minimum: 1
+        tags:
+          type: object
+          required: [min, max]
+          description: Themes per story (to submit / at most).
+          properties:
+            min:
+              type: integer
+              minimum: 0
+            max:
+              type: integer
+              minimum: 1
+        openDrafts:
+          type: object
+          required: [max, open]
+          properties:
+            max:
+              type: [integer, 'null']
+              minimum: 1
+            open:
+              type: integer
+              minimum: 0
+              description: Their stories in `draft` now.
+        submissions:
+          type: object
+          required: [per7Days, nextAvailableAt]
+          properties:
+            per7Days:
+              type: [integer, 'null']
+              minimum: 1
+            nextAvailableAt:
+              type: [string, 'null']
+              format: date-time
+              description: When they may next submit a story for review; `null` = now.
 
     UploadUrlRequest:
       type: object

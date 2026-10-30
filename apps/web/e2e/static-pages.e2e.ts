@@ -22,7 +22,7 @@ const PAGES = [
     h1: 'The Greatest Story Ever Told',
     cta: 'Explore next steps',
   },
-  { path: '/get-ready', h1: 'Get ready to share', cta: 'Read the FAQs' },
+  { path: '/get-ready', h1: 'Get ready to share', cta: 'Share your story' },
   { path: '/next-steps', h1: 'Next steps', cta: 'Send us a message' },
   { path: '/faqs', h1: 'Frequently asked questions', cta: 'Get in touch' },
   { path: '/contact', h1: 'Get in touch', cta: 'Email info@heisreal.today' },

@@ -2,6 +2,7 @@ import type { Surreal, SurrealTransaction } from 'surrealdb';
 import {
   consentEvent,
   createPeople,
+  trustSubmitters,
   grantAll,
   legalParams,
   outcome,
@@ -81,6 +82,8 @@ describe('consent forms (D84)', () => {
     admin = await t.service('api_admin');
     migrator = await t.migrator();
     await createPeople(t, { ann: 'user_ann', vee: 'user_vee' });
+    // These suites test consent, with more stories per person than D94 lets one start.
+    await trustSubmitters(t, 'ann', 'vee');
     await publishDpa(t, 'v1'); // and v1 of the three forms, linked to it
   });
   afterAll(() => t?.close());
@@ -365,6 +368,8 @@ describe('the sign-up form: only the latest version lets something new start (D7
     svc = await t.service('api_admin');
     publicRead = await t.service('api_public_read');
     await createPeople(t, { ann: 'user_ann', moderator: 'user_mod' });
+    // These suites test consent, with more stories per person than D94 lets one start.
+    await trustSubmitters(t, 'ann');
     await publishDpa(t, 'v1');
   });
   afterAll(() => t?.close());
@@ -448,6 +453,8 @@ describe('testimony versions: new ones gate new submissions, never published sto
       vee: 'user_vee',
       moderator: 'user_mod',
     });
+    // These suites test consent, with more stories per person than D94 lets one start.
+    await trustSubmitters(t, 'ann', 'bob', 'cy', 'vee');
     await publishDpa(t, 'v1');
     for (const user of ['ann', 'bob', 'cy']) {
       await grantAll(await t.person(`user_${user}`), 'v1');
@@ -685,6 +692,8 @@ describe('sharing beyond heisreal.today: the uploader’s social sharing version
       bob: 'user_bob',
       moderator: 'user_mod',
     });
+    // These suites test consent, with more stories per person than D94 lets one start.
+    await trustSubmitters(t, 'ann', 'bob');
     await publishDpa(t, 'v1'); // social v1 allows nothing
   });
   afterAll(() => t?.close());
@@ -822,6 +831,8 @@ describe('dev placeholder privacy document and forms (D75)', () => {
         params: { environment: 'dev', dev_legal_placeholders: true },
       });
       await createPeople(t, { ann: 'user_ann' });
+      // These suites test consent, with more stories per person than D94 lets one start.
+      await trustSubmitters(t, 'ann');
     });
     afterAll(() => t?.close());
 
@@ -905,6 +916,8 @@ describe('dev placeholder privacy document and forms (D75)', () => {
     it('switched off, a public story is hidden (its consent has no basis left); switched on, it comes back', async () => {
       await placeholders(true);
       await createPeople(t, { bo: 'user_bo', moderator: 'user_mod' });
+      // These suites test consent, with more stories per person than D94 lets one start.
+      await trustSubmitters(t, 'bo');
       const bo = await t.person('user_bo');
       await devGrant(bo, 'account_data', 'signupFormVersion:v1');
       await devGrant(bo, 'age_18plus', 'signupFormVersion:v1');

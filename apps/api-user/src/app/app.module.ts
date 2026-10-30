@@ -9,6 +9,7 @@ import { SecretsModule } from '@heisreal/secrets';
 import { MediaUrlsModule } from '@heisreal/story-cards';
 import { AccountModule } from './account/account.controller';
 import { FavouritesModule } from './favourites/favourites.controller';
+import { StoriesModule } from './stories/stories.controller';
 
 @Module({
   imports: [
@@ -27,6 +28,8 @@ import { FavouritesModule } from './favourites/favourites.controller';
     // api-public-read's (D52); without the BUNNY_* variables signing is off and links are null.
     MediaUrlsModule,
     FavouritesModule,
+    // M2 plan PR 4: the submit flow for written stories.
+    StoriesModule,
     HealthModule.forService('api-user'),
   ],
   // D30: every error as an RFC 9457 problem; unknown errors never say why.

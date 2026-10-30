@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { ApiUserProblem, apiUser, NotSignedIn } from '@/lib/api-user';
+import { ApiUserProblem, NotSignedIn } from '@/lib/api-user';
 import {
   onPersonalSession,
   type PersonalSession,
+  personalApiUser,
   personalSession,
   usePersonalSession,
 } from '@/lib/personal-session';
@@ -66,34 +67,6 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
-/** A session token's `sub` (its payload, read but not verified: api-user verifies), or null. */
-export function subjectOf(token: string): string | null {
-  const payload = token.split('.')[1];
-  if (!payload) return null;
-  try {
-    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-    const sub = (JSON.parse(json) as { sub?: unknown }).sub;
-    return typeof sub === 'string' ? sub : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * api-user for one person only (Codex, #117 round 4): Clerk's `getToken()` answers for whoever
- * is signed in when it resolves, so a token is used only if it is this person's (its `sub` is
- * their Clerk user id). Otherwise nothing is sent: `NotSignedIn`. Work started for one person
- * can never act in another's account.
- */
-export const personalApiUser = (
-  s: Extract<PersonalSession, { status: 'signed-in' }>,
-) =>
-  apiUser(s.apiUserUrl, async () => {
-    const token = await s.getToken();
-    if (token !== null && subjectOf(token) !== s.userId)
-      throw new NotSignedIn('Someone else is signed in now');
-    return token;
-  });
 const client = personalApiUser;
 
 /** A different person (or nobody) now: forget the last person's hearts. */

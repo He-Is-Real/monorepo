@@ -12,6 +12,8 @@
 //   force (409), a statement on that form (409), an `Idempotency-Key` (400; the same key with
 //   another body 422, the same body answers as before). No state but the keys, which are
 //   random per test.
+// - The submit flow (M2 plan PR 4): consent state, limits, tags, the person's stories, and
+//   create, edit and submit, per test session (see the section below).
 // - Hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and `GET /v1/account/favourites`
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
@@ -94,7 +96,7 @@ const readBody = (req) =>
   });
 
 /** `POST /v1/account/consents` (GrantConsent), checked like the real service. */
-async function grant(req, res) {
+async function grant(req, res, onGranted) {
   const text = await readBody(req);
   const key = req.headers['idempotency-key'];
   if (typeof key !== 'string' || key.length < 16 || key.length > 128) {
@@ -134,6 +136,7 @@ async function grant(req, res) {
   if (!FORMS[form].includes(statement)) {
     return problem(res, 409, 'Conflict', 'statement_not_on_form');
   }
+  onGranted?.(form, statement);
   events += 1;
   const answer = { id: `stubconsent${events}`, version: null };
   replies.set(key, { text, answer });
@@ -223,6 +226,520 @@ async function listFavourites(req, res, url, mine) {
   });
 }
 
+// --- The submit flow (M2 plan PR 4) ---------------------------------------------------------
+// Per test session (the fixture token's `session`): the person's consent, the limits (seedable
+// settings, W3), their stories, and CreateDraftStory / EditStory / SubmitStory, with the rules
+// the real service and database apply (consent, If-Match, Idempotency-Key, the text and theme
+// limits, the content lock and D94's limits). A test seeds its session with
+// `POST /__e2e/sessions/<session>` (not part of api-user).
+const WEEK_MS = 7 * 24 * 3600 * 1000;
+/** The settings' defaults (W3, D112: submissionSettings); a test may seed others. */
+const SETTINGS = {
+  storyTextMin: 200,
+  storyTextMax: 10000,
+  tagsMin: 1,
+  tagsMax: 5,
+  openDraftsMax: 3,
+  submissionsPer7Days: 1,
+};
+const TAGS = [
+  { slug: 'healing', name: 'Healing', category: 'theme', version: 1 },
+  { slug: 'faith', name: 'Faith', category: 'theme', version: 1 },
+  { slug: 'addiction', name: 'Addiction', category: 'journey', version: 1 },
+  { slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
+  { slug: 'loss', name: 'Loss', category: 'emotion', version: 1 },
+  { slug: 'hope', name: 'Hope', category: 'emotion', version: 1 },
+];
+const CONSENT_TYPES = [
+  'special_category_religious',
+  'publish',
+  'share_socials',
+  'age_18plus',
+  'account_data',
+];
+const FORM_OF = {
+  special_category_religious: 'testimony',
+  publish: 'testimony',
+  share_socials: 'social',
+  age_18plus: 'signup',
+  account_data: 'signup',
+};
+
+/** One person per session. `seed` (POST /__e2e/sessions/…) sets the starting state. */
+const sessions = new Map();
+let seq = 0;
+function newSession(id, seed = {}) {
+  const s = {
+    // Signed up unless a test says otherwise, so other pages carry on as usual.
+    signup: seed.signupAccepted ?? !id.startsWith('unaccepted'),
+    granted: new Set(seed.granted ?? []),
+    trusted: seed.trusted ?? false,
+    settings: { ...SETTINGS, ...(seed.settings ?? {}) },
+    stories: new Map(),
+    keys: new Map(),
+  };
+  for (const story of seed.stories ?? []) {
+    const now = new Date().toISOString();
+    s.stories.set(story.id, {
+      version: 1,
+      status: 'draft',
+      description: '',
+      bylineName: null,
+      tagSlugs: [],
+      submittedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      ...story,
+    });
+  }
+  return s;
+}
+
+const sendJson = (
+  res,
+  status,
+  body,
+  headers = {},
+  type = 'application/json',
+) => {
+  res.writeHead(status, {
+    ...(body === undefined ? {} : { 'content-type': type }),
+    'cache-control': 'private, no-store',
+    ...headers,
+  });
+  res.end(body === undefined ? undefined : JSON.stringify(body));
+};
+const shareProblem = (res, status, title, code, extra = {}) =>
+  sendJson(
+    res,
+    status,
+    {
+      type: 'about:blank',
+      title,
+      status,
+      ...(code ? { code } : {}),
+      ...extra,
+    },
+    {},
+    'application/problem+json',
+  );
+const weak = (body) =>
+  `W/"${createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 32)}"`;
+const collection = (req, res, body) => {
+  const etag = weak(body);
+  if (req.headers['if-none-match'] === etag)
+    return sendJson(res, 304, undefined, { etag });
+  return sendJson(res, 200, body, { etag });
+};
+const readJson = (req) =>
+  new Promise((resolve) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : undefined);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+const trimmed = (t) => [...(t ?? '').trim()].length;
+
+function consentState(s) {
+  const current = CONSENT_TYPES.map((type) => {
+    const granted = s.granted.has(type);
+    return {
+      type,
+      granted,
+      form: granted ? FORM_OF[type] : null,
+      formVersion: granted ? 'v1' : null,
+      dpaVersion: granted ? 'dev_placeholder' : null,
+      occurredAt: granted ? '2026-10-26T12:00:00.000Z' : null,
+      counts: granted,
+    };
+  });
+  const art9 = s.granted.has('special_category_religious');
+  return {
+    current,
+    signup: { accepted: s.signup, latestVersion: 'v1' },
+    testimony: {
+      version: art9 ? 'v1' : null,
+      latestVersion: 'v1',
+      updateAvailable: false,
+      acceptanceRequired: false,
+    },
+    history: [],
+  };
+}
+
+function storyMine(id, st) {
+  return {
+    id,
+    version: st.version,
+    slug: `story-${id}`,
+    status: st.status,
+    title: st.title,
+    description: st.description,
+    body: st.body ?? null,
+    bylineName: st.bylineName,
+    primaryFormat: st.primaryFormat ?? 'written',
+    media: [],
+    image: null,
+    tags: st.tagSlugs.map((slug) => TAGS.find((t) => t.slug === slug)),
+    rejectionFeedback: null,
+    submittedAt: st.submittedAt,
+    approvedAt: null,
+    createdAt: st.createdAt,
+    updatedAt: st.updatedAt,
+  };
+}
+
+/** The same field checks as api-user (story-input.ts): 400 with pointers, never the values. */
+/** GET /v1/account/limits: the session's settings, and its own limits (trusted: none). */
+function limitsOf(s) {
+  const open = [...s.stories.values()].filter(
+    (x) => x.status === 'draft',
+  ).length;
+  const recent = [...s.stories.values()]
+    .map((x) => (x.submittedAt ? Date.parse(x.submittedAt) : 0))
+    .filter((t) => t + WEEK_MS > Date.now())
+    .sort((a, b) => a - b);
+  const per7Days = s.trusted ? null : s.settings.submissionsPer7Days;
+  const next =
+    per7Days !== null && recent.length >= per7Days
+      ? new Date(recent[recent.length - per7Days] + WEEK_MS).toISOString()
+      : null;
+  return {
+    storyText: { min: s.settings.storyTextMin, max: s.settings.storyTextMax },
+    tags: { min: s.settings.tagsMin, max: s.settings.tagsMax },
+    openDrafts: { max: s.trusted ? null : s.settings.openDraftsMax, open },
+    submissions: { per7Days, nextAvailableAt: next },
+  };
+}
+
+// An edit over a maximum is refused only if it makes it worse (Joel, 2026-10-30: trimming a draft
+// that's over a newly lowered limit is saved); `current` is the stored story, none on create.
+function fieldErrors(b, allowed, s, current) {
+  const errors = [];
+  if (!b || typeof b !== 'object' || Array.isArray(b)) {
+    return [{ pointer: '', message: 'a JSON object' }];
+  }
+  for (const k of Object.keys(b)) {
+    if (!allowed.includes(k))
+      errors.push({ pointer: `/${k}`, message: 'not a field you can set' });
+  }
+  if (
+    'title' in b &&
+    (typeof b.title !== 'string' ||
+      !b.title.trim() ||
+      b.title.trim().length > 140)
+  )
+    errors.push({ pointer: '/title', message: '1–140 characters' });
+  if (
+    'description' in b &&
+    (typeof b.description !== 'string' || b.description.length > 5000)
+  )
+    errors.push({
+      pointer: '/description',
+      message: 'at most 5000 characters',
+    });
+  if (
+    'body' in b &&
+    b.body !== null &&
+    (typeof b.body !== 'string' ||
+      (b.body.length > s.settings.storyTextMax &&
+        b.body.length > (current?.body?.length ?? 0)))
+  )
+    errors.push({
+      pointer: '/body',
+      message: `at most ${s.settings.storyTextMax} characters`,
+    });
+  if (
+    'bylineName' in b &&
+    b.bylineName !== null &&
+    (typeof b.bylineName !== 'string' || b.bylineName.trim().length > 80)
+  )
+    errors.push({ pointer: '/bylineName', message: 'at most 80 characters' });
+  if (
+    'tagSlugs' in b &&
+    (!Array.isArray(b.tagSlugs) ||
+      (b.tagSlugs.length > s.settings.tagsMax &&
+        b.tagSlugs.length > (current?.tagSlugs.length ?? 0)) ||
+      new Set(b.tagSlugs).size !== b.tagSlugs.length ||
+      b.tagSlugs.some((t) => !TAGS.some((x) => x.slug === t)))
+  )
+    errors.push({ pointer: '/tagSlugs', message: 'too many or unknown tags' });
+  return errors;
+}
+
+/** Idempotency-Key (D29): replay the stored answer; 422 for the same key with another body. */
+function idempotent(s, req, res, body, run) {
+  const key = req.headers['idempotency-key'];
+  if (!key || key.length < 16 || key.length > 128)
+    return shareProblem(res, 400, 'Bad request', 'idempotency_key_required');
+  const hash = JSON.stringify([
+    req.method,
+    req.url,
+    body ?? null,
+    req.headers['if-match'] ?? null,
+  ]);
+  const stored = s.keys.get(key);
+  if (stored) {
+    if (stored.hash !== hash)
+      return shareProblem(
+        res,
+        422,
+        'Unprocessable entity',
+        'idempotency_key_reused',
+      );
+    return sendJson(res, stored.status, stored.body, stored.headers);
+  }
+  const answer = run();
+  if (answer.status < 300) s.keys.set(key, { hash, ...answer });
+  return sendJson(res, answer.status, answer.body, answer.headers);
+}
+
+const ifMatchOf = (req) => {
+  const raw = req.headers['if-match'];
+  if (raw === undefined) return undefined;
+  const m = /^"(\d+)"$/.exec(raw.trim());
+  return m ? Number(m[1]) : -1;
+};
+
+async function handleShare(req, res, path, url, s) {
+  if (path === '/v1/account/consents' && req.method === 'GET') {
+    return collection(req, res, consentState(s));
+  }
+  if (path === '/v1/account/limits' && req.method === 'GET') {
+    return collection(req, res, limitsOf(s));
+  }
+  if (path === '/v1/tags' && req.method === 'GET') {
+    return collection(req, res, { data: TAGS });
+  }
+  if (path === '/v1/account/stories' && req.method === 'GET') {
+    const status = url.searchParams.get('status');
+    const data = [...s.stories]
+      .filter(([, st]) => !status || st.status === status)
+      .reverse()
+      .map(([id, st]) => storyMine(id, st));
+    return collection(req, res, { data, nextCursor: null });
+  }
+  const mine = /^\/v1\/account\/stories\/([^/]+)$/.exec(path);
+  if (mine && req.method === 'GET') {
+    const st = s.stories.get(mine[1]);
+    if (!st) return shareProblem(res, 404, 'Not found');
+    const etag = `"${st.version}"`;
+    if (req.headers['if-none-match'] === etag)
+      return sendJson(res, 304, undefined, { etag });
+    return sendJson(res, 200, storyMine(mine[1], st), { etag });
+  }
+  if (path === '/v1/stories' && req.method === 'POST') {
+    // The guard: Art 9 on the forms in force (D93).
+    if (!s.granted.has('special_category_religious') || !s.signup)
+      return shareProblem(res, 403, 'Forbidden', 'consent_required');
+    const b = await readJson(req);
+    const errors = fieldErrors(
+      b,
+      [
+        'title',
+        'description',
+        'body',
+        'bylineName',
+        'primaryFormat',
+        'tagSlugs',
+      ],
+      s,
+    );
+    if (b && !('title' in b))
+      errors.push({ pointer: '/title', message: 'required' });
+    if (b && b.primaryFormat === 'written' && !trimmed(b.body))
+      errors.push({
+        pointer: '/body',
+        message: 'a written story needs its text',
+      });
+    if (errors.length)
+      return shareProblem(res, 400, 'Bad request', 'validation_failed', {
+        errors,
+      });
+    return idempotent(s, req, res, b, () => {
+      const open = [...s.stories.values()].filter(
+        (st) => st.status === 'draft',
+      ).length;
+      const max = limitsOf(s).openDrafts.max;
+      if (max !== null && open >= max) {
+        return {
+          status: 409,
+          body: {
+            type: 'about:blank',
+            title: 'Conflict',
+            status: 409,
+            code: 'draft_limit_reached',
+            detail:
+              'You already have as many drafts open as you can. Continue one of them, or submit one first.',
+          },
+          headers: { 'content-type': 'application/problem+json' },
+        };
+      }
+      const id = `e2e${++seq}`;
+      const now = new Date().toISOString();
+      s.stories.set(id, {
+        version: 1,
+        status: 'draft',
+        title: b.title.trim(),
+        description: (b.description ?? '').trim(),
+        body: b.body ?? null,
+        bylineName: b.bylineName?.trim() || null,
+        primaryFormat: b.primaryFormat,
+        tagSlugs: b.tagSlugs ?? [],
+        submittedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return {
+        status: 201,
+        body: { id, version: 1 },
+        headers: { location: `/v1/account/stories/${id}`, etag: '"1"' },
+      };
+    });
+  }
+  const edit = /^\/v1\/stories\/([^/]+)$/.exec(path);
+  if (edit && req.method === 'PATCH') {
+    if (!s.granted.has('special_category_religious'))
+      return shareProblem(res, 403, 'Forbidden', 'consent_required');
+    const st = s.stories.get(edit[1]);
+    if (!st) return shareProblem(res, 404, 'Not found');
+    const v = ifMatchOf(req);
+    if (v === undefined)
+      return shareProblem(
+        res,
+        428,
+        'Precondition required',
+        'if_match_required',
+      );
+    if (v !== st.version)
+      return shareProblem(res, 412, 'Precondition failed', 'stale_version');
+    if (!['draft', 'changes_requested'].includes(st.status))
+      return shareProblem(res, 409, 'Conflict', 'story_locked');
+    const b = await readJson(req);
+    const errors = fieldErrors(
+      b,
+      ['title', 'description', 'body', 'bylineName', 'tagSlugs'],
+      s,
+      st,
+    );
+    if (b && 'body' in b && !trimmed(b.body))
+      errors.push({
+        pointer: '/body',
+        message: 'a written story needs its text',
+      });
+    if (errors.length)
+      return shareProblem(res, 400, 'Bad request', 'validation_failed', {
+        errors,
+      });
+    if ('title' in b) st.title = b.title.trim();
+    if ('description' in b) st.description = b.description.trim();
+    if ('body' in b) st.body = b.body;
+    if ('bylineName' in b) st.bylineName = b.bylineName?.trim() || null;
+    if ('tagSlugs' in b) st.tagSlugs = b.tagSlugs;
+    st.version += 1;
+    st.updatedAt = new Date().toISOString();
+    return sendJson(
+      res,
+      200,
+      { id: edit[1], version: st.version },
+      { etag: `"${st.version}"` },
+    );
+  }
+  const submit = /^\/v1\/stories\/([^/]+)\/submit$/.exec(path);
+  if (submit && req.method === 'POST') {
+    const needed = ['special_category_religious', 'publish', 'age_18plus'];
+    if (!needed.every((t) => s.granted.has(t)) || !s.signup)
+      return shareProblem(res, 403, 'Forbidden', 'consent_required');
+    const st = s.stories.get(submit[1]);
+    if (!st) return shareProblem(res, 404, 'Not found');
+    const v = ifMatchOf(req);
+    if (v === undefined)
+      return shareProblem(
+        res,
+        428,
+        'Precondition required',
+        'if_match_required',
+      );
+    return idempotent(s, req, res, undefined, () => {
+      const p = (status, title, code, extra = {}) => ({
+        status,
+        body: { type: 'about:blank', title, status, code, ...extra },
+        headers: { 'content-type': 'application/problem+json' },
+      });
+      if (v !== st.version)
+        return p(412, 'Precondition failed', 'stale_version');
+      if (!['draft', 'changes_requested'].includes(st.status))
+        return p(409, 'Conflict', 'story_not_submittable');
+      // The minimum at submit; the maximum only when themes change (as api-user does).
+      const { tagsMin, storyTextMin } = s.settings;
+      if (st.tagSlugs.length < tagsMin)
+        return p(400, 'Bad request', 'tags_required', {
+          detail: `Choose at least ${tagsMin} themes before submitting`,
+          errors: [
+            {
+              pointer: '/tagSlugs',
+              message: `choose at least ${tagsMin}`,
+            },
+          ],
+        });
+      // Every limit in force applies at submit (Joel, 2026-10-30: no grandfathering).
+      const { storyTextMax, tagsMax } = s.settings;
+      if ((st.body ?? '').length > storyTextMax)
+        return p(400, 'Bad request', 'story_text_too_long', {
+          detail: `Your story is longer than the current limit of ${storyTextMax} characters. Shorten it, then submit.`,
+          limit: storyTextMax,
+          errors: [
+            { pointer: '/body', message: `at most ${storyTextMax} characters` },
+          ],
+        });
+      if (trimmed(st.body) < storyTextMin)
+        return p(400, 'Bad request', 'story_text_too_short', {
+          errors: [
+            {
+              pointer: '/body',
+              message: `at least ${storyTextMin} characters`,
+            },
+          ],
+        });
+      if (st.tagSlugs.length > tagsMax)
+        return p(400, 'Bad request', 'too_many_tags', {
+          detail: `Your story has more themes than the current limit of ${tagsMax}. Remove some, then submit.`,
+          limit: tagsMax,
+          errors: [
+            { pointer: '/tagSlugs', message: `at most ${tagsMax} themes` },
+          ],
+        });
+      const next = limitsOf(s).submissions.nextAvailableAt;
+      if (!st.submittedAt && next)
+        return p(409, 'Conflict', 'weekly_submission_limit_reached', {
+          detail:
+            'You’ve submitted as many stories for review as you can for now. Your draft is saved, so you can submit it later.',
+          availableAt: next,
+        });
+      st.status = 'pending';
+      st.submittedAt ??= new Date().toISOString();
+      st.version += 1;
+      return {
+        status: 200,
+        body: { id: submit[1], version: st.version },
+        headers: { etag: `"${st.version}"` },
+      };
+    });
+  }
+  return false;
+}
+
+/** The session's submit-flow state, made on first use. */
+const shareSession = (id) => {
+  if (!sessions.has(id)) sessions.set(id, newSession(id));
+  return sessions.get(id);
+};
+
 createServer(async (req, res) => {
   const origin = req.headers.origin;
   if (origin && origins.includes(origin)) {
@@ -253,6 +770,13 @@ createServer(async (req, res) => {
       JSON.stringify({ status: 'ok', service: 'api-user', db: 'up' }),
     );
   }
+  // Test set-up only (not part of api-user): a session's starting state for the submit flow.
+  const seed = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})$/.exec(path);
+  if (seed && req.method === 'POST') {
+    sessions.set(seed[1], newSession(seed[1], (await readJson(req)) ?? {}));
+    res.writeHead(204);
+    return res.end();
+  }
   const token = sessionOf(req.headers.authorization);
   const signedIn = () => {
     if (token === null) {
@@ -268,12 +792,21 @@ createServer(async (req, res) => {
     // The sign-up consent is accepted, except for the `unaccepted…` sessions.
     return cached(req, res, {
       ...ACCOUNT,
-      signupConsent: { accepted: !token.startsWith('unaccepted') },
+      signupConsent: { accepted: shareSession(token).signup },
     });
   }
   if (path === '/v1/account/consents' && req.method === 'POST') {
     if (!signedIn()) return;
-    return void grant(req, res);
+    const s = shareSession(token);
+    return void grant(req, res, (form, statement) => {
+      s.granted.add(statement);
+      if (
+        form === 'signup' &&
+        s.granted.has('age_18plus') &&
+        s.granted.has('account_data')
+      )
+        s.signup = true;
+    });
   }
   if (path === '/v1/account/favourites' && req.method === 'GET') {
     const mine = signedIn();
@@ -297,6 +830,10 @@ createServer(async (req, res) => {
     if (!mine.has(id)) mine.set(id, ++clock);
     res.writeHead(204);
     return res.end();
+  }
+  if (token !== null) {
+    const handled = await handleShare(req, res, path, url, shareSession(token));
+    if (handled !== false) return;
   }
   return problem(res, 404, 'Not found');
 }).listen(port, '127.0.0.1');

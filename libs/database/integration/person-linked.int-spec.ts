@@ -31,6 +31,9 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   moderationReview: 'linked', // story → submitter
   idempotencyKey: 'linked', // id[1] = user record
   favourite: 'linked', // person (hearts, M2); deleted at erasure
+  submitterLimits: 'linked', // user (D112: limits, trusted mark)
+  submissionLog: 'linked', // person (D113: recent submissions)
+  submissionSettings: 'none', // the limits an admin sets (W3, D112)
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
@@ -158,6 +161,31 @@ const LINKED: Record<string, LinkedCase> = {
       ),
     landed: (c) =>
       `SELECT VALUE id FROM idempotencyKey WHERE record::id(id)[1] = user:${c.p}`,
+  },
+  submitterLimits: {
+    writer: (c) => c.admin,
+    write: (c, db) =>
+      run(
+        db(c),
+        `UPSERT submitterLimits:${c.p} SET user = user:${c.p}, trusted = true,
+           changedBy = user:moderator`,
+      ),
+    landed: (c) => `SELECT VALUE id FROM submitterLimits:${c.p}`,
+  },
+  submissionLog: {
+    // Written by story_limits when the person first submits a story. livePerson's own
+    // submission is the first row; trusted, so a second one is allowed (and still logged).
+    setup: async (c) => {
+      await run(
+        c.migrator,
+        `UPSERT submitterLimits:${c.p} SET user = user:${c.p}, trusted = true`,
+      );
+      await draft(c.person, `${c.p}_log`);
+    },
+    writer: (c) => c.person,
+    write: (c, db) => submit(db(c), `${c.p}_log`),
+    landed: (c) =>
+      `RETURN (SELECT VALUE id FROM submissionLog WHERE person = user:${c.p} ORDER BY at ASC)[1..]`,
   },
 };
 

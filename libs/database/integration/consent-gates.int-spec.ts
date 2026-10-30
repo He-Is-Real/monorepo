@@ -2,6 +2,7 @@ import type { Surreal } from 'surrealdb';
 import {
   consentEvent,
   createPeople,
+  trustSubmitters,
   outcome,
   publishDpa,
   rows,
@@ -42,6 +43,8 @@ describe('consent gates on edit, submit, approve and publish', () => {
       wf: 'user_wf',
       moderator: 'user_mod',
     });
+    // These suites test consent, with more stories per person than D94 lets one start.
+    await trustSubmitters(t, 'codex', 'art9only', 'eve', 'wd', 'wf');
     await publishDpa(t, 'v1');
   });
   afterAll(() => t?.close());

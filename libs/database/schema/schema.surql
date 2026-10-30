@@ -244,14 +244,15 @@ DEFINE FIELD OVERWRITE title         ON story TYPE string
 DEFINE FIELD OVERWRITE description   ON story TYPE string ASSERT string::len($value) <= 5000
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE body          ON story TYPE option<string>   -- written stories
-  ASSERT $value = NONE OR string::len($value) <= 10000           -- A3: the POC's limit
+  -- A hard ceiling; the limit itself is a setting (W3: storyTextMax, story_text_limits).
+  ASSERT $value = NONE OR string::len($value) <= 50000
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE bylineName    ON story TYPE option<string>   -- story content chosen per story (D16); NONE = anonymous
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE primaryFormat ON story TYPE string ASSERT $value IN ['video', 'audio', 'written']
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE tagRefs       ON story TYPE array<record<tag>> DEFAULT []
-  ASSERT array::len($value) <= 5                              -- D15: no denormalised tags[]
+  ASSERT array::len($value) <= 20     -- D15: no denormalised tags[]; the limit is a setting (W3)
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 -- Status: the owner (submit/withdraw, checked by the events below) and api-admin (moderation).
 DEFINE FIELD OVERWRITE status        ON story TYPE string DEFAULT 'draft'
@@ -386,8 +387,8 @@ DEFINE FUNCTION OVERWRITE fn::text::trimmed_length($text: option<string>) {
 -- A draft is created before its upload (CreateDraftStory), so video and audio need their media
 -- item from submit on (pending, in_review, approved), and may lack it while editable or after
 -- (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its upload).
--- A written story needs at least 200 characters of text (trimmed) from submit on (Joel,
--- 2026-10-23, from the POC), so a short draft can still be saved while it's being written.
+-- A written story's minimum length (Joel, 2026-10-23, from the POC; a setting since W3) is
+-- checked when it's submitted (story_text_limits), so a short draft can still be saved.
 -- Used by the story_shape event and by data/0004 (the rows written before it).
 DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
   LET $media = $s.media ?? [];
@@ -408,9 +409,6 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
   IF $s.primaryFormat = 'written' {
     LET $length = fn::text::trimmed_length($s.body);
     IF $length = 0 { RETURN 'a written story needs its text' };
-    IF $length < 200 AND $s.status IN ['pending', 'in_review', 'approved'] {
-      RETURN 'a written story needs at least 200 characters before it is submitted';
-    };
     IF array::len($media) > 0 { RETURN 'a written story has no video or audio' };
   } ELSE {
     IF $s.image != NONE { RETURN 'only a written story can have an image' };
@@ -508,6 +506,106 @@ DEFINE EVENT OVERWRITE story_consent ON story
     IF $after.submitter = $auth AND $after.status = 'pending' AND $before.status != 'pending'
        AND !fn::consent::may_submit($after.submitter) {
       THROW 'submitting a story needs current Art 9 and publish consent on the testimony form in force, and the sign-up form in force (18+)';
+    };
+  };
+-- D94, D112 (founder, 2026-10-25/28): limits on what a person starts, from the settings an admin
+-- adjusts (submissionSettings, below) and the person's own overrides (submitterLimits): open
+-- drafts (default 3) and stories submitted for review in any rolling 7 days (default 1). A trusted
+-- submitter has neither. Only the person's own writes are limited ($auth = submitter): the
+-- migrator and dev-seed load data as themselves. A submission counts from its first submit, kept
+-- in submissionLog (D113) for 7 days whatever happens to the story since (withdrawn, rejected,
+-- deleted), so withdrawing or deleting and submitting again doesn't get round it; sending a story
+-- back after "changes requested" isn't a new one. Messages start with a code so api-user answers
+-- 409 with it (libs/database submissionLimitOf). Both checks read the person's other rows; every
+-- story write bumps their fence (story_fence), so two overlapping creates or submissions conflict
+-- at commit and the retry sees the other.
+-- The limits that apply to a person: their override where an admin set one, else the setting.
+-- Trusted: no open-drafts or weekly limit (NONE = unlimited); the upload limit still applies.
+-- Runs with the caller's permissions: a person reads the settings and their own override row.
+DEFINE FUNCTION OVERWRITE fn::limits::effective($user: option<record<user>>) {
+  LET $set = fn::settings::submission();
+  LET $o = IF $user = NONE { NONE } ELSE {
+    (SELECT * FROM ONLY type::record('submitterLimits', record::id($user)))
+  };
+  LET $trusted = $o.trusted = true;
+  RETURN {
+    trusted: $trusted,
+    openDraftsMax: IF $trusted { NONE } ELSE { $o.openDraftsMax ?? $set.openDraftsMax },
+    submissionsPer7Days: IF $trusted { NONE } ELSE { $o.submissionsPer7Days ?? $set.submissionsPer7Days },
+    uploadRequestsPerHour: $o.uploadRequestsPerHour ?? $set.uploadRequestsPerHour
+  };
+};
+-- When the person may next submit a story for review: 7 days after the submission that fills
+-- their allowance, or NONE if that's now (or they're unlimited). Their own session reads their
+-- own submissionLog.
+DEFINE FUNCTION OVERWRITE fn::story::next_submission_at($user: option<record<user>>) {
+  IF $user = NONE { RETURN NONE };
+  LET $max = fn::limits::effective($user).submissionsPer7Days;
+  IF $max = NONE { RETURN NONE };
+  LET $times = (SELECT VALUE at FROM submissionLog
+    WHERE person = $user AND at > time::now() - 7d ORDER BY at ASC);
+  IF array::len($times) < $max { RETURN NONE };
+  RETURN $times[array::len($times) - $max] + 7d;
+};
+DEFINE EVENT OVERWRITE story_limits ON story
+  WHEN $after.submitter = $auth
+   AND ($event = 'CREATE'
+        OR ($event = 'UPDATE' AND $after.status = 'pending' AND $before.status != 'pending'
+            AND $before.submittedAt = NONE))
+  THEN {
+    IF $event = 'CREATE' {
+      LET $max = fn::limits::effective($after.submitter).openDraftsMax;
+      LET $open = (SELECT VALUE id FROM story
+        WHERE submitter = $after.submitter AND status = 'draft' AND id != $after.id);
+      IF $max != NONE AND array::len($open) >= $max {
+        THROW 'limit_open_drafts: the person has as many open drafts as they may (D94)';
+      };
+    } ELSE {
+      IF fn::story::next_submission_at($after.submitter) != NONE {
+        THROW 'limit_weekly_submission: the person has submitted as many stories as they may in 7 days (D94)';
+      };
+      -- D113: the submission is recorded for 7 days; older entries of theirs go now.
+      DELETE submissionLog WHERE person = $after.submitter AND at <= time::now() - 7d;
+      CREATE submissionLog CONTENT { person: $after.submitter } RETURN NONE;
+    };
+  };
+-- W3 (Joel, 2026-10-28): the text and theme limits come from the settings an admin adjusts.
+-- No grandfathering (Joel, 2026-10-30: "make people stick to new rules even if they had
+-- progress under old rule"): every later action meets the limits in force, drafts started under
+-- older ones included. Which action checks what, by whoever writes:
+--   - a change of text or themes is refused only if it's over the maximum AND makes it worse
+--     (longer, more themes), so someone over a newly lowered maximum can still trim their draft;
+--   - submitting (entering pending, in_review or approved from an editable status, or created
+--     there by a system user) needs the minimum and maximum length, and at most the maximum
+--     number of themes, as they are now. The minimum number of themes is api-user's check at
+--     submit (tests and data loaded before it have none).
+-- Hard ceilings stay on the fields (body, tagRefs). Messages start with a code for api-user.
+DEFINE EVENT OVERWRITE story_text_limits ON story
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    LET $set = fn::settings::submission();
+    LET $len = string::len($after.body ?? '');
+    LET $tags = array::len($after.tagRefs ?? []);
+    LET $was_len = IF $event = 'CREATE' { 0 } ELSE { string::len($before.body ?? '') };
+    LET $was_tags = IF $event = 'CREATE' { 0 } ELSE { array::len($before.tagRefs ?? []) };
+    IF $len > $set.storyTextMax AND $len > $was_len {
+      THROW 'story_text_too_long: the story’s body is longer than the setting allows (W3)';
+    };
+    IF $tags > $set.tagsMax AND $tags > $was_tags {
+      THROW 'story_too_many_tags: a story has more themes than the setting allows (W3)';
+    };
+    IF $after.status IN ['pending', 'in_review', 'approved']
+       AND ($event = 'CREATE' OR $before.status NOT IN ['pending', 'in_review', 'approved']) {
+      IF $len > $set.storyTextMax {
+        THROW 'story_text_too_long: the story’s body is longer than the setting allows (W3)';
+      };
+      IF $tags > $set.tagsMax {
+        THROW 'story_too_many_tags: a story has more themes than the setting allows (W3)';
+      };
+      IF $after.primaryFormat = 'written' AND fn::text::trimmed_length($after.body) < $set.storyTextMin {
+        THROW 'a written story needs at least ' + <string> $set.storyTextMin
+          + ' characters before it is submitted';
+      };
     };
   };
 DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever approves (system users too)
@@ -1399,7 +1497,7 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
   -- api-admin (M3, M5)
   'LockStory', 'ReleaseStory', 'ApproveStory', 'RejectStory', 'RequestStoryChanges', 'EscalateStory',
   'AssignRole', 'LinkLegacyUser', 'CreateTag', 'UpdateTag', 'DeleteTag',
-  'CreateDpaDraft', 'PublishDpa',
+  'CreateDpaDraft', 'PublishDpa', 'UpdateSubmissionSettings', 'UpdateSubmitterLimits',
   -- workflow (M7)
   'ProcessMedia',
   -- the database itself (story_media_availability), in the writer's transaction
@@ -1470,7 +1568,7 @@ DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- pr
 -- A person's hearts: their private favourites list (founder, 2026-10-25). Only the person who
 -- hearted a story can read the row: no service login, and not the story's owner (who will see a
 -- count per story on their profile later, never who gave it: not built, see
--- docs/db-permissions.md item 34). One per person and story. A heart needs the sign-up form's
+-- docs/db-permissions.md item 35). One per person and story. A heart needs the sign-up form's
 -- consent ("store my account and favourites" and 18+, D73; any version that counts, D93) and a
 -- story that is public now (its publicStory row). A story that stops being public later keeps
 -- the heart, but lists read publicStory, so it no longer shows (C15). Person-linked twice: a new
@@ -1505,6 +1603,127 @@ DEFINE EVENT OVERWRITE favourite_rules ON favourite
 DEFINE EVENT OVERWRITE user_erasure_favourites ON user
   WHEN $event = 'UPDATE' AND $before.gdprDeletedAt = NONE AND $after.gdprDeletedAt != NONE
   THEN { DELETE favourite WHERE person = $after.id };
+
+-- ---------------------------------------------------------------- submissionSettings (W3, D112)
+-- The limits an admin adjusts (Joel, 2026-10-28: "adjustable from the admin account view"), one
+-- record, submissionSettings:current, created by data/0006 with today's values (the defaults
+-- here, so a missing field reads as them too):
+--   storyTextMin / storyTextMax: a written story's text, trimmed, to submit / at most (A3);
+--   tagsMin / tagsMax: themes to submit / at most;
+--   openDraftsMax, submissionsPer7Days: D94's limits per person (overridable per person);
+--   uploadRequestsPerHour: per person, for the upload PR (not enforced yet; overridable).
+-- Everyone reads it (the submit page shows the numbers); only api-admin's login, naming the admin
+-- in changedBy, and the migrator change it, never delete it. Every change is audit-logged. No
+-- admin route or page yet: they come with M3's admin screens.
+-- These are anti-spam and cost controls, not invariants (coordinator, Codex #118 round 2): a
+-- change applies to writes that start after it commits; a write already in flight may finish
+-- under the old values. No fence ties settings writes to story writes (it would touch every
+-- person on each change). Concurrent writes by the same person still conflict on their fence.
+DEFINE TABLE OVERWRITE submissionSettings SCHEMAFULL PERMISSIONS
+  FOR select FULL,
+  FOR create, update WHERE $auth.id = service:api_admin,
+  FOR delete NONE;
+DEFINE FIELD OVERWRITE storyTextMin  ON submissionSettings TYPE int DEFAULT 200 ASSERT $value >= 1;
+DEFINE FIELD OVERWRITE storyTextMax  ON submissionSettings TYPE int DEFAULT 10000
+  ASSERT $value >= 1 AND $value <= 50000;                    -- story.body's hard ceiling
+DEFINE FIELD OVERWRITE tagsMin       ON submissionSettings TYPE int DEFAULT 1 ASSERT $value >= 0;
+DEFINE FIELD OVERWRITE tagsMax       ON submissionSettings TYPE int DEFAULT 5
+  ASSERT $value >= 1 AND $value <= 20;                       -- story.tagRefs' hard ceiling
+DEFINE FIELD OVERWRITE openDraftsMax ON submissionSettings TYPE int DEFAULT 3
+  ASSERT $value >= 1 AND $value <= 1000;
+DEFINE FIELD OVERWRITE submissionsPer7Days ON submissionSettings TYPE int DEFAULT 1
+  ASSERT $value >= 1 AND $value <= 1000;
+DEFINE FIELD OVERWRITE uploadRequestsPerHour ON submissionSettings TYPE int DEFAULT 10
+  ASSERT $value >= 1 AND $value <= 10000;
+DEFINE FIELD OVERWRITE changedBy     ON submissionSettings TYPE option<record<user>>;
+DEFINE FIELD OVERWRITE version       ON submissionSettings TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
+DEFINE FIELD OVERWRITE updatedAt     ON submissionSettings TYPE datetime VALUE time::now();
+DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    IF $after.id != submissionSettings:current { THROW 'there is one settings record: submissionSettings:current' };
+    IF $after.storyTextMin > $after.storyTextMax { THROW 'storyTextMin is more than storyTextMax' };
+    IF $after.tagsMin > $after.tagsMax { THROW 'tagsMin is more than tagsMax' };
+    IF $after.changedBy = NONE AND $auth != NONE { THROW 'a settings change names the admin who made it (changedBy)' };
+    CREATE auditLog CONTENT {
+      service: fn::audit::service(), action: 'UpdateSubmissionSettings',
+      entity: $after.id, actor: $after.changedBy
+    };
+  };
+-- The settings in force, with the defaults for anything missing (also before data/0006 ran).
+DEFINE FUNCTION OVERWRITE fn::settings::submission() {
+  LET $s = (SELECT * FROM ONLY submissionSettings:current);
+  RETURN {
+    storyTextMin: $s.storyTextMin ?? 200, storyTextMax: $s.storyTextMax ?? 10000,
+    tagsMin: $s.tagsMin ?? 1, tagsMax: $s.tagsMax ?? 5,
+    openDraftsMax: $s.openDraftsMax ?? 3, submissionsPer7Days: $s.submissionsPer7Days ?? 1,
+    uploadRequestsPerHour: $s.uploadRequestsPerHour ?? 10
+  };
+};
+
+-- ---------------------------------------------------------------- submitterLimits (D94, D112)
+-- One person's limits, set by an admin (Joel, 2026-10-28: test accounts get values that don't
+-- interfere with testing). id = submitterLimits:<user id>. `trusted` (the whitelist: e.g. the
+-- church media team, pastors) lifts the open-drafts and weekly limits; each other field, when
+-- set, replaces that setting for this person (NONE = the setting). fn::limits::effective reads it.
+-- Only api-admin's login (naming the admin in changedBy) and system users (the migrator,
+-- dev-seed) write it; every change is audit-logged. An admin resets someone by updating the row
+-- (trusted false, overrides NONE), never by deleting it, so the reset is audited too; only
+-- erasure deletes it (api-user's login), with the person.
+-- `devSeed`: written by dev-seed for dev's test accounts, refused anywhere but dev.
+DEFINE TABLE OVERWRITE submitterLimits SCHEMAFULL PERMISSIONS
+  FOR select WHERE user = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
+  FOR create, update WHERE $auth.id = service:api_admin,
+  FOR delete WHERE $auth.id = service:api_user;                        -- erasure only
+DEFINE FIELD OVERWRITE user          ON submitterLimits TYPE record<user> READONLY
+  ASSERT record::id($value) = record::id($this.id);
+DEFINE FIELD OVERWRITE trusted       ON submitterLimits TYPE bool DEFAULT false;
+DEFINE FIELD OVERWRITE openDraftsMax ON submitterLimits TYPE option<int>
+  ASSERT $value = NONE OR ($value >= 1 AND $value <= 1000);
+DEFINE FIELD OVERWRITE submissionsPer7Days ON submitterLimits TYPE option<int>
+  ASSERT $value = NONE OR ($value >= 1 AND $value <= 1000);
+DEFINE FIELD OVERWRITE uploadRequestsPerHour ON submitterLimits TYPE option<int>
+  ASSERT $value = NONE OR ($value >= 1 AND $value <= 10000);
+DEFINE FIELD OVERWRITE devSeed       ON submitterLimits TYPE bool DEFAULT false;
+-- The admin who made this change (their own user record); NONE only from a system user.
+DEFINE FIELD OVERWRITE changedBy     ON submitterLimits TYPE option<record<user>>;
+DEFINE FIELD OVERWRITE updatedAt     ON submitterLimits TYPE datetime VALUE time::now();
+DEFINE EVENT OVERWRITE submitterLimits_fence ON submitterLimits
+  WHEN true THEN {
+    IF $event = 'DELETE' { fn::fence::bump($before.user) }
+    ELSE {
+      fn::person::live($after.user);
+      IF $after.changedBy = NONE AND $auth != NONE {
+        THROW 'a change to someone’s limits names the admin who made it (changedBy)';
+      };
+      IF $after.devSeed = true AND (SELECT VALUE environment FROM ONLY _setting:consent) != 'dev' {
+        THROW 'dev-seed’s test-account limits are for dev only (D112)';
+      };
+      CREATE auditLog CONTENT {
+        service: fn::audit::service(), action: 'UpdateSubmitterLimits',
+        entity: $after.user, actor: $after.changedBy
+      };
+    };
+  };
+
+-- ---------------------------------------------------------------- submissionLog (D113)
+-- Each person's submissions for review in the last 7 days (Joel, 2026-10-28: the weekly limit
+-- must hold when stories are deleted; his worry is people filling our video storage). One row per
+-- first submission, written by story_limits (events run elevated) and pruned there; no story
+-- link, so deleting a story leaves it. Person-linked: erasure deletes it. Nobody writes it
+-- directly; the person reads their own (fn::story::next_submission_at).
+DEFINE TABLE OVERWRITE submissionLog SCHEMAFULL PERMISSIONS
+  FOR select WHERE person = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
+  FOR create, update NONE,
+  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
+DEFINE FIELD OVERWRITE person ON submissionLog TYPE record<user> READONLY;
+DEFINE FIELD OVERWRITE at     ON submissionLog TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE INDEX OVERWRITE submissionLog_person ON submissionLog FIELDS person, at;
+DEFINE EVENT OVERWRITE submissionLog_fence ON submissionLog
+  WHEN true THEN {
+    IF $event = 'DELETE' { fn::fence::bump($before.person) }
+    ELSE { fn::person::live($after.person) };
+  };
 
 -- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),
 -- helped/concern edges + trust/quality fields (M6), embedOrigin (M8).

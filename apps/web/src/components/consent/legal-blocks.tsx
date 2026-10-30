@@ -30,14 +30,21 @@ const HEADING = [
 /**
  * A consent form's or the privacy document's words, as published (lib/legal.ts): a document to
  * read, nothing more (D114: the boxes are the page's own). The text's headings sit one level
- * below the page's own h1.
+ * below the page's own h1, or `below` levels down where the document sits under a section's
+ * heading (the submit flow's steps are h2, so its documents start at h3).
  */
-export function LegalBlocks({ blocks }: { blocks: LegalBlock[] }) {
+export function LegalBlocks({
+  blocks,
+  below = 1,
+}: {
+  blocks: LegalBlock[];
+  below?: number;
+}) {
   return (
     <div className="space-y-4 text-[1.0625rem] leading-relaxed text-secondary-text [overflow-wrap:anywhere]">
       {blocks.map((block, i) => {
         if (block.kind === 'heading') {
-          const level = Math.min(block.level + 1, 6);
+          const level = Math.min(block.level + below, 6);
           const Tag = `h${level}` as 'h2';
           return (
             <Tag key={i} className={`pt-2 text-balance ${HEADING[level]}`}>

@@ -97,13 +97,28 @@ export function requireWritten<T>(result: unknown, what: string): T {
   return rows[0] as T;
 }
 
-/** A written story's text limits (schema.surql `story.body`, fn::story::shape_problem). */
-export const STORY_TEXT = {
-  /** A3: the POC's limit. */
-  maxLength: 10_000,
-  /** Trimmed, from submit on (Joel, 2026-10-23, from the POC). */
-  minLengthToSubmit: 200,
+/**
+ * The hard ceilings on a story (schema.surql `story.body`, `story.tagRefs`). The limits themselves
+ * are settings an admin adjusts (W3: `submissionSettings`, read with `SUBMISSION_SETTINGS_SQL`).
+ */
+export const STORY_CEILINGS = {
+  textLength: 50_000,
+  tags: 20,
 } as const;
+
+/** The submission settings in force (W3, D112), with their defaults: `fn::settings::submission`. */
+export interface SubmissionSettings {
+  storyTextMin: number;
+  storyTextMax: number;
+  tagsMin: number;
+  tagsMax: number;
+  openDraftsMax: number;
+  submissionsPer7Days: number;
+  uploadRequestsPerHour: number;
+}
+
+/** The query that returns them (any session: everyone reads the settings). */
+export const SUBMISSION_SETTINGS_SQL = 'RETURN fn::settings::submission()';
 
 /**
  * A text's length without the spaces around it: the database's fn::text::trimmed_length, so API
@@ -124,12 +139,36 @@ export function isMediaNotReadyError(err: unknown): boolean {
 }
 
 /**
- * The database refused to submit a written story under 200 characters (fn::story::shape_problem).
- * api-user answers `400` with `code: story_text_too_short`.
+ * The database refused to submit a written story shorter than the setting's minimum
+ * (story_text_limits). api-user answers `400` with `code: story_text_too_short`.
  */
 export function isStoryTextTooShortError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return message.includes(
-    `a written story needs at least ${STORY_TEXT.minLengthToSubmit} characters`,
-  );
+  return /a written story needs at least \d+ characters/.test(message);
+}
+
+/**
+ * The database refused text longer, or more themes, than the settings allow (story_text_limits).
+ * api-user answers `400` for `/body` or `/tagSlugs`.
+ */
+export function storyLimitOf(err: unknown): 'text' | 'tags' | undefined {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/\bstory_text_too_long:/.test(message)) return 'text';
+  if (/\bstory_too_many_tags:/.test(message)) return 'tags';
+  return undefined;
+}
+
+/** D94's limits on what a person starts (schema.surql, story_limits). */
+export type SubmissionLimit = 'open_drafts' | 'weekly_submission';
+
+/**
+ * Which D94 limit the database refused a write for, if any: a fourth open draft
+ * (`limit_open_drafts:`) or a second submission in 7 days (`limit_weekly_submission:`).
+ * api-user answers `409` `draft_limit_reached` or `weekly_submission_limit_reached`.
+ */
+export function submissionLimitOf(err: unknown): SubmissionLimit | undefined {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/\blimit_open_drafts:/.test(message)) return 'open_drafts';
+  if (/\blimit_weekly_submission:/.test(message)) return 'weekly_submission';
+  return undefined;
 }

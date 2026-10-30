@@ -204,7 +204,7 @@ test.describe('phone menu', () => {
 
   for (const [from, link, to] of [
     ['/stories?tag=loss', 'Stories', /\/stories$/],
-    ['/get-ready', 'Share your story', /\/get-ready$/],
+    ['/share', 'Share your story', /\/share$/],
   ] as const) {
     test(`tapping “${link}” on ${from} closes the menu`, async ({ page }) => {
       await page.goto(from);
@@ -275,11 +275,20 @@ test.describe('behaviour', () => {
     await scrollToEnd(page);
     await expect(cards(page)).toHaveCount(30);
     await expect(page).toHaveURL(/pages=2/);
+    // Each card's story link, in order.
+    const links = () =>
+      cards(page).evaluateAll((lis) =>
+        lis.map((li) => li.querySelector('a')?.getAttribute('href')),
+      );
+    const loaded = (await links()).slice(0, 30);
     await cards(page).nth(20).getByRole('link').click();
     await expect(page).toHaveURL(/\/stories\/[a-z0-9-]+$/);
     await page.goBack();
-    await expect(page).toHaveURL(/pages=2/);
-    await expect(cards(page)).toHaveCount(30);
+    // The same 30 come back, in order, rather than the first page again. Back restores the
+    // scroll position near the end, so the list may go on to auto-load its third page (D55)
+    // at once: whether it has yet is timing, so neither the count nor `pages=` is pinned.
+    await expect(page).toHaveURL(/pages=[23]/);
+    await expect.poll(async () => (await links()).slice(0, 30)).toEqual(loaded);
   });
 
   test('a filter link narrows the list and keeps its state in the URL', async ({

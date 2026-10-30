@@ -3,10 +3,12 @@
 import { SignOutButton, useAuth, useUser } from '@clerk/react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Popover } from 'radix-ui';
+import { cloneElement, type ReactElement, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
 import { usePublishPersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
+import { forgetShareStorageExcept } from '@/lib/share-storage';
 
 /**
  * Sign in / sign out, and the signed-in person's name, all from Clerk in the browser (D32).
@@ -24,6 +26,7 @@ export function AccountControl({ apiUserUrl }: { apiUserUrl?: string }) {
     apiUserUrl,
     () => getToken(),
   );
+  useForgetOthersShareStorage(isLoaded, isSignedIn ? userId : null);
 
   // Same size while Clerk loads, so the header doesn't jump.
   if (!isLoaded) return <div className="h-11 w-20" aria-hidden="true" />;
@@ -39,9 +42,33 @@ export function AccountControl({ apiUserUrl }: { apiUserUrl?: string }) {
     <SignedInAccount
       name={name}
       shortName={user.firstName || name}
-      signOut={(button) => <SignOutButton>{button}</SignOutButton>}
+      signOut={(button) => (
+        <SignOutButton>
+          {cloneElement(button as ReactElement<{ onClick?: () => void }>, {
+            // Clerk's button runs this first, then signs out.
+            onClick: () => forgetShareStorageExcept(null),
+          })}
+        </SignOutButton>
+      )}
     />
   );
+}
+
+/**
+ * Whenever Clerk has loaded, forget what the submit flow kept in this tab for anyone but the
+ * person signed in now (everyone's when nobody is): their unsaved story text and unresolved
+ * submissions (share-storage.ts). It doesn't wait to see a sign-out happen: Clerk's sign-out
+ * leaves the page before reporting it, so the next page load does it. Sign out also does it
+ * on the click, before Clerk signs out.
+ */
+function useForgetOthersShareStorage(
+  isLoaded: boolean,
+  userId: string | null | undefined,
+) {
+  useEffect(() => {
+    if (!isLoaded) return;
+    forgetShareStorageExcept(userId ?? null);
+  }, [isLoaded, userId]);
 }
 
 /**
