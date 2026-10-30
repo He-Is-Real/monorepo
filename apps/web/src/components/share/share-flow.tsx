@@ -700,7 +700,8 @@ export function ConsentStep({
         } catch (err) {
           setProblem(
             err instanceof ApiUserProblem &&
-              err.code === 'form_version_not_in_force'
+              (err.code === 'form_version_not_in_force' ||
+                err.code === 'legal_document_not_in_force')
               ? 'The form has just been updated. Please reload the page to read the new version.'
               : err instanceof ApiUserUnavailable
                 ? 'We can’t reach our server right now. Please try again in a moment.'

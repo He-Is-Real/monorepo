@@ -380,9 +380,10 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
       await call('POST', '/v1/account/consents', {
         data: {
           form: 'testimony',
-          formVersion: 'v1',
+          formVersion: 'v2',
           statement: 'special_category_religious',
           mechanism: 'web_form_submission',
+          privacyPolicyVersion: 'dev_placeholder',
         },
         headers: { 'idempotency-key': key() },
       })
@@ -440,9 +441,10 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
   await call('POST', '/v1/account/consents', {
     data: {
       form: 'testimony',
-      formVersion: 'v1',
+      formVersion: 'v2',
       statement: 'publish',
       mechanism: 'web_form_submission',
+      privacyPolicyVersion: 'dev_placeholder',
     },
     headers: { 'idempotency-key': key() },
   });
