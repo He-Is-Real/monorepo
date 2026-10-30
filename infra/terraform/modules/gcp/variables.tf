@@ -8,8 +8,14 @@ variable "environment" {
 }
 
 variable "region" {
-  type    = string
-  default = "europe-west2"
+  description = "Region for every regional resource. London only (UK data; D119's interim guard)."
+  type        = string
+  default     = "europe-west2"
+
+  validation {
+    condition     = var.region == "europe-west2"
+    error_message = "Data stays in the UK: region must be europe-west2 (London)."
+  }
 }
 
 variable "network_cidrs" {

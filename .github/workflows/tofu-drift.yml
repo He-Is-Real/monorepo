@@ -10,6 +10,9 @@ name: OpenTofu drift
 #   bunny         tf-bunny, with masking, a private raw log and a summary only (public logs)
 #   images        never: its plan compares local build output
 #
+# Every plan also runs the UK location check on what the code would create or update (`tf.sh
+# <root> plan`, D119's interim guard): a warning in the step summary in dev.
+#
 # A Cloud Run image diff on gcp usually means a newer image is in `apps` than the one deployed
 # ("main" entries resolve to the newest); the next tofu-apply.yml run will plan it.
 

@@ -12,12 +12,22 @@ variable "region" {
   description = "GCP region for the Secret Manager replicas (UK for GDPR)."
   type        = string
   default     = "europe-west2"
+
+  validation {
+    condition     = var.region == "europe-west2"
+    error_message = "Data stays in the UK: region must be europe-west2 (London)."
+  }
 }
 
 variable "storage_region" {
   description = "Bunny storage main region. Create-time only (a change replaces the zone and its files). UK is offered on the Standard tier."
   type        = string
   default     = "UK"
+
+  validation {
+    condition     = var.storage_region == "UK"
+    error_message = "Images stay in the UK: storage_region must be UK (Bunny's London)."
+  }
 }
 
 variable "stream_storage_zone" {

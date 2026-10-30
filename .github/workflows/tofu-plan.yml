@@ -12,6 +12,10 @@ name: OpenTofu plan
 # available on main, and tf-planner can't read the Stripe key. bootstrap is planned and applied
 # locally.
 #
+# Every plan also gets the UK location check (D119's interim guard): `tf.sh <root> plan` runs
+# tools/scripts/tf-location-check.sh on it. In dev a finding is a warning in the step summary and
+# the plan goes on; outside dev it fails the plan.
+#
 # The cluster plan (D42) is a separate job. Its kustomization diffs are server-side dry runs,
 # which Kubernetes authorises like real writes, so it runs as tf-cluster-planner, which can
 # create/patch in the `database` namespace (modules/cluster/planner_rbac.tf). It runs only for

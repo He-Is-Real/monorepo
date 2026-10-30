@@ -58,3 +58,12 @@ run "logs_in_london" {
     error_message = "The _Default sink keeps Google's filter: everything except the audit logs."
   }
 }
+
+# Everything bootstrap creates is in London: no other region is accepted (D119's interim guard).
+run "region_only_london" {
+  command = plan
+  variables {
+    region = "europe-west1"
+  }
+  expect_failures = [var.region]
+}

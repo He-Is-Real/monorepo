@@ -36,6 +36,10 @@ name: OpenTofu apply
 #     looks like a deploy.
 #   - Failed CI, failed, rejected, stale or superseded stops every later stage
 #     (tools/scripts/tf-stage.sh); "no changes" and "not selected" stop nothing.
+#   - Every plan is checked for locations outside the UK (D119's interim guard): `tf.sh <root>
+#     plan` runs tools/scripts/tf-location-check.sh on the saved plan. In dev a finding is a
+#     warning in the step summary (addresses and locations only, bunny's too) and the plan goes
+#     on to approval; outside dev it fails the plan, which then never reaches an approval.
 #   - "Dev behavioural tests" is dispatched once per deploy, after its final wave (job
 #     `behavioural`).
 #

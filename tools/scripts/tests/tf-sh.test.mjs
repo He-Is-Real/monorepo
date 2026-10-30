@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -40,7 +41,9 @@ const stub = (name, body) => {
 };
 
 // tofu: `version -json`, `show -json` (from STUB_SHOW_JSON, or a failure that prints SECRET),
-// otherwise echoes its argv and the environment variables that matter.
+// `providers schema -json` (from STUB_SCHEMA_JSON, else a failure that prints SECRET),
+// otherwise echoes its argv and the environment variables that matter (`plan` then exits with
+// STUB_PLAN_EXIT).
 stub(
   'tofu',
   `
@@ -60,6 +63,15 @@ if (cmd[0] === 'show' && cmd.includes('-json') && (env.STUB_SHOW_JSON || env.STU
   process.stdout.write(env.STUB_SHOW_JSON);
   process.exit(0);
 }
+if (cmd[0] === 'providers' && cmd[1] === 'schema') {
+  if (!env.STUB_SCHEMA_JSON) {
+    console.log('partial SECRET');
+    console.error('Error: SECRET');
+    process.exit(1);
+  }
+  process.stdout.write(env.STUB_SCHEMA_JSON);
+  process.exit(0);
+}
 const pick = {};
 for (const k of [
   'GOOGLE_IMPERSONATE_SERVICE_ACCOUNT',
@@ -70,6 +82,7 @@ for (const k of [
   if (k in env) pick[k] = env[k];
 }
 console.log(JSON.stringify({ argv, env: pick }));
+if (cmd[0] === 'plan') process.exit(Number(env.STUB_PLAN_EXIT ?? 0));
 `,
 );
 
@@ -153,7 +166,7 @@ test('gcp defaults to tf-deployer locally', () => {
       'other@x.iam.gserviceaccount.com',
   });
   const call = tofuCall(result);
-  assert.deepEqual(call.argv, [
+  assert.deepEqual(call.argv.slice(0, 2), [
     `-chdir=${repo}/infra/terraform/live/dev/gcp`,
     'plan',
   ]);
@@ -392,6 +405,175 @@ test('plan-summary hides show errors', () => {
 
 test('plan-summary needs a plan file', () => {
   assert.equal(run(['gcp', 'plan-summary']).status, 64);
+});
+
+// The UK location check (tf-location-check.sh) on every plan
+
+const outside = JSON.stringify({
+  resource_changes: [
+    {
+      address: 'module.bunny.bunnynet_storage_zone.images',
+      mode: 'managed',
+      type: 'bunnynet_storage_zone',
+      change: {
+        actions: ['create'],
+        after: { region: 'NY', password: 'SECRET' },
+        after_sensitive: { password: true },
+      },
+    },
+  ],
+});
+
+test('plan saves to a scratch file when given none, checks it, then removes it', () => {
+  const result = run(['gcp', 'plan', '-input=false']);
+  const call = tofuCall(result);
+  const out = call.argv.at(-1);
+  assert.match(out, /^-out=.*\/tfplan$/);
+  assert.deepEqual(call.argv.slice(1, -1), ['plan', '-input=false']);
+  assert.match(result.stderr, /location-check: ok \(0 created or updated\)/);
+  assert.ok(!existsSync(dirname(out.slice('-out='.length))));
+});
+
+test("plan keeps tofu's exit code and the caller's plan file when the check passes", () => {
+  for (const args of [['-out=x'], ['-out', 'x']]) {
+    const result = run(['gcp', 'plan', '-detailed-exitcode', ...args], {
+      STUB_PLAN_EXIT: '2',
+    });
+    assert.equal(result.status, 2, result.all);
+    const call = JSON.parse(result.stdout.trim());
+    assert.deepEqual(call.argv.slice(1), [
+      'plan',
+      '-detailed-exitcode',
+      ...args,
+    ]);
+    assert.match(result.stderr, /location-check: ok/);
+  }
+});
+
+// Every root tf.sh plans today is under live/dev, so plans warn; blocking outside dev is
+// tf-location-check.test.mjs's (tf.sh passes it the root's environment from its path).
+test("in dev, a plan outside the UK warns in the log and step summary and keeps tofu's exit code", () => {
+  for (const root of ['gcp', 'bunny', 'bootstrap']) {
+    const summary = join(stubs, `summary-${root}.md`);
+    writeFileSync(summary, '');
+    const result = run([root, 'plan', '-detailed-exitcode', '-out=x'], {
+      STUB_PLAN_EXIT: '2',
+      STUB_SHOW_JSON: outside,
+      GITHUB_STEP_SUMMARY: summary,
+    });
+    assert.equal(result.status, 2, root);
+    assert.match(
+      result.stderr,
+      /location-check: module\.bunny\.bunnynet_storage_zone\.images: region=NY\nlocation-check: WARNING: 1 outside the UK \(dev: /,
+    );
+    const written = readFileSync(summary, 'utf8');
+    assert.match(written, new RegExp(`UK location check \\(${root}, dev\\)`));
+    assert.match(written, /images: region=NY/);
+    assert.doesNotMatch(result.all + written, /SECRET/);
+  }
+});
+
+test('a plan inside the UK writes nothing to the step summary', () => {
+  const summary = join(stubs, 'summary-ok.md');
+  writeFileSync(summary, '');
+  const result = run(['gcp', 'plan'], { GITHUB_STEP_SUMMARY: summary });
+  assert.equal(result.status, 0, result.all);
+  assert.equal(readFileSync(summary, 'utf8'), '');
+});
+
+test("a failed plan isn't checked and keeps its exit code", () => {
+  const result = run(['gcp', 'plan'], {
+    STUB_PLAN_EXIT: '1',
+    STUB_SHOW_JSON: outside,
+  });
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stderr, /location-check/);
+});
+
+test('location-check checks a saved plan, bunny included, warns in dev and hides show errors', () => {
+  assert.equal(
+    run(['bunny', 'location-check', 'tfplan'], { STUB_SHOW_JSON: plan }).stdout,
+    'location-check: ok (0 created or updated)\n',
+  );
+  const bad = run(['bunny', 'location-check', 'tfplan'], {
+    STUB_SHOW_JSON: outside,
+  });
+  assert.equal(bad.status, 0);
+  assert.match(bad.stdout, /WARNING: 1 outside the UK/);
+  assert.doesNotMatch(bad.all, /SECRET/);
+  const failed = run(['bunny', 'location-check', 'tfplan'], {
+    STUB_SHOW_FAIL: '1',
+  });
+  assert.equal(failed.status, 0);
+  assert.doesNotMatch(failed.all, /SECRET/);
+  assert.match(
+    failed.all,
+    /location-check: WARNING: could not read plan \(exit 1; dev: /,
+  );
+  assert.equal(run(['gcp', 'location-check']).status, 64);
+});
+
+test("location-check reads the root's provider schema, and fails closed without it", () => {
+  // A dynamic block on a Google resource: only the schema says whether it may hold a location.
+  const unknown = JSON.stringify({
+    resource_changes: [
+      {
+        address: 'google_sql_database_instance.db',
+        mode: 'managed',
+        type: 'google_sql_database_instance',
+        change: {
+          actions: ['create'],
+          after: { region: 'europe-west2' },
+          after_unknown: { settings: [{ backup_configuration: true }] },
+          after_sensitive: {},
+        },
+      },
+    ],
+  });
+  const schema = (backup) =>
+    JSON.stringify({
+      provider_schemas: {
+        'registry.opentofu.org/hashicorp/google': {
+          resource_schemas: {
+            google_sql_database_instance: {
+              block: {
+                attributes: { region: { type: 'string' } },
+                block_types: {
+                  settings: {
+                    nesting_mode: 'list',
+                    block: {
+                      block_types: {
+                        backup_configuration: {
+                          nesting_mode: 'list',
+                          block: { attributes: backup },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  const check = (env) =>
+    run(['gcp', 'location-check', 'tfplan'], {
+      STUB_SHOW_JSON: unknown,
+      ...env,
+    });
+  assert.equal(
+    check({ STUB_SCHEMA_JSON: schema({ enabled: { type: 'bool' } }) }).stdout,
+    'location-check: ok (1 created or updated)\n',
+  );
+  assert.match(
+    check({ STUB_SCHEMA_JSON: schema({ location: { type: 'string' } }) })
+      .stdout,
+    /db: settings\[0\]\.backup_configuration=\(known after apply\)\n.*WARNING: 1 outside the UK/,
+  );
+  const missing = check({});
+  assert.match(missing.stdout, /no provider schema to rule out a location/);
+  assert.doesNotMatch(missing.all, /SECRET/);
 });
 
 // bunny-mask
