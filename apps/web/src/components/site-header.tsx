@@ -6,7 +6,6 @@ import {
   FixtureSignedInAccount,
   FixtureSignedOutAccount,
 } from '@/components/auth/account-control';
-import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { ConsentPrompts } from '@/components/consent/consent-prompts';
 import { Logo } from '@/components/logo';
 import { MobileNav, NavLinks, SHARE_HREF } from '@/components/nav/site-nav';
@@ -104,10 +103,7 @@ async function HeaderAccount() {
     ) : (
       <FixtureSignedOutAccount />
     );
+  // Clerk itself is the site's one ClerkProvider (app/layout.tsx), there only with a key.
   if (!publishableKey) return null;
-  return (
-    <ClerkBrowser publishableKey={publishableKey}>
-      <AccountControl apiUserUrl={apiUser} />
-    </ClerkBrowser>
-  );
+  return <AccountControl apiUserUrl={apiUser} />;
 }

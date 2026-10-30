@@ -1,7 +1,6 @@
 'use client';
 
 import { SignIn } from '@clerk/react';
-import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import {
   SIGN_UP_CONSENT_PATH,
   withReturn,
@@ -13,26 +12,19 @@ import {
  * (D2); never Apple. Afterwards Clerk sends the person to `returnTo`, a path on this site
  * (return-path.ts). Hash routing keeps every step on /sign-in. Clerk's colours, font and corners
  * are the site's tokens, so it follows the light and dark themes. The page's "Welcome" is its
- * only h1, so Clerk's own h1 (each step's title) is hidden and the page labels the form.
+ * only h1, so Clerk's own h1 (each step's title) is hidden and the page labels the form. Clerk
+ * is the site's one ClerkProvider (app/layout.tsx, D115).
  */
-export function SignInPanel({
-  publishableKey,
-  returnTo,
-}: {
-  publishableKey: string;
-  returnTo: string;
-}) {
+export function SignInPanel({ returnTo }: { returnTo: string }) {
   return (
-    <ClerkBrowser publishableKey={publishableKey}>
-      <SignIn
-        routing="hash"
-        withSignUp
-        forceRedirectUrl={returnTo}
-        // A new account goes straight to the sign-up consent step (D73), then on to returnTo.
-        signUpForceRedirectUrl={withReturn(SIGN_UP_CONSENT_PATH, returnTo)}
-        appearance={APPEARANCE}
-      />
-    </ClerkBrowser>
+    <SignIn
+      routing="hash"
+      withSignUp
+      forceRedirectUrl={returnTo}
+      // A new account goes straight to the sign-up consent step (D73), then on to returnTo.
+      signUpForceRedirectUrl={withReturn(SIGN_UP_CONSENT_PATH, returnTo)}
+      appearance={APPEARANCE}
+    />
   );
 }
 

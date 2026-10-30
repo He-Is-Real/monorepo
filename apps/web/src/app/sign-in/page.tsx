@@ -25,7 +25,8 @@ export function generateMetadata(): Metadata {
 /**
  * Sign in or sign up (task 2.1; mockup public/signin.html, without Apple): Clerk's own sign-in
  * in the browser (D32), returning the person to the page they came from (`redirect_url`, a
- * path on this site only). Per request, for the deployment's Clerk key. Signing in needs
+ * path on this site only). Per request, for the deployment's Clerk key (without one, the
+ * layout has no ClerkProvider and the page says sign-in isn't available). Signing in needs
  * JavaScript, so without it the page says so. Space is kept for Clerk's card while it loads,
  * so the footer doesn't jump.
  */
@@ -64,7 +65,7 @@ export default async function SignInPage({
           {e2eFixtures() ? (
             <FixtureSignInPanel returnTo={returnTo} />
           ) : publishableKey ? (
-            <SignInPanel publishableKey={publishableKey} returnTo={returnTo} />
+            <SignInPanel returnTo={returnTo} />
           ) : (
             <p className="text-center text-secondary-text">
               Signing in isn’t available on this site yet.

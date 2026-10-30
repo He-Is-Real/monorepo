@@ -74,5 +74,33 @@ for (const viewport of [
       signupConsent: { accepted: false },
       testimonyConsent: { acceptanceRequired: false },
     });
+
+    // One Clerk session for the whole page (D115): the consent form sees the person the header
+    // shows, so it can be agreed to, not "You're signed out".
+    await expect(
+      page.getByRole('button', { name: 'Agree and continue' }),
+    ).toBeEnabled();
+    await expect(page.getByText('You’re signed out.')).toHaveCount(0);
+
+    // Signing out from the form goes home, signed out, and the next page load forgets what the
+    // submit flow kept in the tab (account-control.tsx).
+    await page.evaluate(() =>
+      sessionStorage.setItem('heisreal:share:user_x:new', '{}'),
+    );
+    await page
+      .getByRole('main')
+      .getByRole('button', { name: 'Sign out' })
+      .click();
+    await expect(page).toHaveURL(`${web}/`);
+    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(sessionStorage).filter((k) =>
+            k.startsWith('heisreal:share:'),
+          ),
+        ),
+      )
+      .toEqual([]);
   });
 }

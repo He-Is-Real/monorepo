@@ -12,7 +12,6 @@ import {
   confirmConsent,
   useAccountState,
 } from '@/components/auth/account-bootstrap';
-import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { dismissTestimonyBanner } from '@/components/consent/consent-prompts';
 import { LegalBlocks } from '@/components/consent/legal-blocks';
 import { Button } from '@/components/ui/button';
@@ -52,19 +51,11 @@ export interface ConsentAsk {
   apiUserUrl?: string;
 }
 
-/** The consent form with Clerk in the browser: the person's own token on every call (D31). */
-export function ClerkConsentForm({
-  publishableKey,
-  ...ask
-}: ConsentAsk & { publishableKey: string }) {
-  return (
-    <ClerkBrowser publishableKey={publishableKey}>
-      <ClerkSession {...ask} />
-    </ClerkBrowser>
-  );
-}
-
-function ClerkSession(ask: ConsentAsk) {
+/**
+ * The consent form with the site's Clerk session (app/layout.tsx, D115): the person's own token
+ * on every call (D31).
+ */
+export function ClerkConsentForm(ask: ConsentAsk) {
   const { isLoaded, isSignedIn, userId, getToken } = useAuth();
   return (
     <ConsentFormView

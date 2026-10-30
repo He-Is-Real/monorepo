@@ -5,8 +5,9 @@ import { apiUser, type GetToken, NotSignedIn } from '@/lib/api-user';
 
 /**
  * Who is looking, for the personal parts of pages outside the header (hearts, "My favourites";
- * D83). Clerk runs only inside the header's account control (site-header.tsx), so that control
- * publishes the person's state here and the rest of the page reads it. Browser only: web's
+ * D83). The header's account control (site-header.tsx) reads the site's Clerk session (D115) and
+ * publishes the person's state here, as the e2e fixtures do in Clerk's place, and the rest of
+ * the page reads it. Browser only: web's
  * server never knows (D32), so every page renders the same and these parts fill in afterwards.
  *
  * - `unknown`: nothing has said yet (the page is loading, Clerk is loading, or the site has no

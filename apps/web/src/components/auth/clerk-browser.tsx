@@ -3,6 +3,10 @@
 import { ClerkProvider } from '@clerk/react';
 
 /**
+ * The site's one Clerk setup (D115): app/layout.tsx wraps every page in it, so the header, the
+ * sign-in page, the consent forms and Share all read the same session through Clerk's own
+ * hooks and components.
+ *
  * Clerk runs in the browser only (D32): this client component loads Clerk's browser SDK with
  * the instance's publishable key (public). Clerk keeps its session in a cookie on this origin,
  * so the browser also sends it to web's server on same-origin requests: incidental, never used.
@@ -14,8 +18,7 @@ import { ClerkProvider } from '@clerk/react';
  * not strictly necessary under PECR; the site only stores what sign-in needs (#65 review).
  *
  * `localization`: the sign-in page hides Clerk's step titles (sign-in-panel.tsx), so a subtitle
- * that only makes sense under its title says the whole thing. Every provider passes the same
- * text, since Clerk shares one instance between them.
+ * that only makes sense under its title says the whole thing.
  */
 export function ClerkBrowser({
   publishableKey,

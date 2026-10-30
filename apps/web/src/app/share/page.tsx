@@ -60,11 +60,7 @@ export default async function SharePage() {
               legal={legal}
             />
           ) : publishableKey && apiUser ? (
-            <ShareWithClerk
-              publishableKey={publishableKey}
-              apiUserUrl={apiUser}
-              legal={legal}
-            />
+            <ShareWithClerk apiUserUrl={apiUser} legal={legal} />
           ) : (
             <p className="text-center text-secondary-text">
               Sharing isn’t available on this site yet.

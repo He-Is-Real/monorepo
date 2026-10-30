@@ -158,7 +158,6 @@ export function SignedInAccount({
 
 /**
  * "Sign in": a link to the sign-in page, which returns the person to this page afterwards.
- * A plain link (a full page load), so the sign-in page's Clerk starts afresh.
  */
 export function SignInLink() {
   const pathname = usePathname();
