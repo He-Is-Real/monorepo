@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
 import { expectNoHorizontalOverflow, expectTarget } from './helpers';
@@ -245,7 +246,7 @@ test.describe('keyboard and home', () => {
 
 // Codex, #77: player links are signed only for stories someone plays or opens, so nothing
 // prefetches a story's page (which reads the story, and so signs its links). The stub counts
-// each story's reads; one story per device project that runs this.
+// each story's reads; each run makes its own story, so repeats and workers never share a count.
 test.describe('signing on demand', () => {
   // eslint-disable-next-line no-empty-pattern
   test.beforeEach(({}, info) => {
@@ -258,9 +259,16 @@ test.describe('signing on demand', () => {
   test('a story is read only when its card is played, never ahead of it', async ({
     page,
     request,
-  }, info) => {
-    const slug = `prefetch-test-${info.project.name}`;
-    const title = `Prefetch test (${info.project.name})`;
+  }) => {
+    const slug = `prefetch-test-${randomUUID()}`;
+    const title = `Prefetch test ${slug}`;
+    expect(
+      (
+        await request.post(
+          `http://127.0.0.1:${STUB_PORT}/__test/story?slug=${slug}`,
+        )
+      ).status(),
+    ).toBe(204);
     const reads = async () =>
       (
         await (
@@ -269,7 +277,7 @@ test.describe('signing on demand', () => {
           )
         ).json()
       ).reads as number;
-    await page.goto('/stories?tag=prefetch-test');
+    await page.goto(`/stories?tag=prefetch-test&q=${slug}`);
     const link = page.getByRole('link', { name: title });
     await link.scrollIntoViewIfNeeded();
     await link.hover(); // Next prefetches links in view and on hover
