@@ -17,7 +17,6 @@ import { LegalBlocks } from '@/components/consent/legal-blocks';
 import { Button } from '@/components/ui/button';
 import {
   ApiUserProblem,
-  apiUser,
   type GetToken,
   NotSignedIn,
   newIdempotencyKey,
@@ -28,6 +27,7 @@ import type {
   ConsentStatement,
   LegalBlock,
 } from '@/lib/legal';
+import { personalApiUser, SomeoneElseSignedIn } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
 
 /** What a consent page asks for, from the server's read of the form in force (D32). */
@@ -98,6 +98,18 @@ type Saving =
   | { status: 'missing'; statements: ConsentStatement[] }
   | { status: 'error'; message: React.ReactNode };
 
+type ViewProps = ConsentAsk & {
+  /** undefined while Clerk loads. */
+  signedIn: boolean | undefined;
+  /** Clerk's user id for the signed-in person; null when signed out or loading. */
+  userId: string | null;
+  getToken: GetToken;
+  signOut: (button: React.ReactElement) => React.ReactNode;
+};
+
+/** How the signed-in person changed while the page was open, if they did. */
+type Changed = 'someone-else' | 'signed-out' | null;
+
 /**
  * The form's words, a document to read, and beside them its boxes, unticked (D73: nothing is
  * ticked for the person), drawn from the version's statements data (D114).
@@ -105,8 +117,27 @@ type Saving =
  * shown (`POST /v1/account/consents`), each with its own `Idempotency-Key`, kept for retries
  * so a retry after a half-finished save doesn't record a box twice (D29). Afterwards the page
  * goes on to `returnTo`.
+ *
+ * A consent is one person's (Art 9), so the form belongs to the person it was opened for: if
+ * someone else signs in on this browser while it is open (another tab, say), it starts again
+ * for them, boxes unticked and new keys, and says why; a save still running for the first
+ * person stops, and sends nothing with the second person's token (personalApiUser).
  */
-export function ConsentFormView({
+export function ConsentFormView(props: ViewProps) {
+  const { userId } = props;
+  const [shownFor, setShownFor] = useState(userId);
+  const [changed, setChanged] = useState<Changed>(null);
+  if (userId !== shownFor) {
+    setShownFor(userId);
+    // Clerk loading (null) and then naming the person is no change; leaving a person is.
+    if (shownFor !== null) setChanged(userId ? 'someone-else' : 'signed-out');
+    else if (userId && changed) setChanged('someone-else');
+  }
+  return <PersonsConsentForm key={userId ?? ''} {...props} changed={changed} />;
+}
+
+/** The form for one person (`userId`), for as long as they are the one signed in. */
+function PersonsConsentForm({
   form,
   formVersion,
   boxes: asked,
@@ -120,24 +151,27 @@ export function ConsentFormView({
   userId,
   getToken,
   signOut,
-}: ConsentAsk & {
-  /** undefined while Clerk loads. */
-  signedIn: boolean | undefined;
-  /** Clerk's user id for the signed-in person; null when signed out or loading. */
-  userId: string | null;
-  getToken: GetToken;
-  signOut: (button: React.ReactElement) => React.ReactNode;
-}) {
+  changed,
+}: ViewProps & { changed: Changed }) {
   const statements = asked.map((b) => b.statement);
   const router = useRouter();
   const pathname = usePathname();
-  const account = useAccountState();
+  const account = useAccountState(userId);
   const id = useId();
   const [ticked, setTicked] = useState<Set<ConsentStatement>>(new Set());
   const [saving, setSaving] = useState<Saving>({ status: 'idle' });
   const keys = useRef(new Map<ConsentStatement, string>());
   const inputs = useRef(new Map<ConsentStatement, HTMLInputElement>());
   const alert = useRef<HTMLDivElement>(null);
+  // False once this person's form is gone (someone else signed in, or the page moved on): a
+  // save still running then sends nothing more and does nothing more.
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
 
   // Someone who has already accepted the sign-up form in force goes straight on.
   const alreadyAccepted =
@@ -175,10 +209,27 @@ export function ConsentFormView({
       setSaving({ status: 'error', message: UNAVAILABLE });
       return;
     }
+    if (!userId) {
+      setSaving({
+        status: 'error',
+        message: messageFor(
+          new NotSignedIn('Not signed in'),
+          currentPath(pathname, returnTo),
+        ),
+      });
+      return;
+    }
     setSaving({ status: 'saving' });
     try {
-      const api = apiUser(apiUserUrl, getToken);
+      // This person's token only: if Clerk hands over someone else's, nothing is sent.
+      const api = personalApiUser({
+        status: 'signed-in',
+        userId,
+        apiUserUrl,
+        getToken,
+      });
       for (const statement of statements) {
+        if (!live.current) return;
         let key = keys.current.get(statement);
         if (!key) {
           key = newIdempotencyKey();
@@ -191,16 +242,22 @@ export function ConsentFormView({
         });
       }
     } catch (err) {
+      if (!live.current) return;
+      if (err instanceof SomeoneElseSignedIn) {
+        // Their ticks are never someone else's: cleared, with new keys for next time.
+        setTicked(new Set());
+        keys.current.clear();
+      }
       setSaving({
         status: 'error',
         message: messageFor(err, currentPath(pathname, returnTo)),
       });
       return;
     }
+    if (!live.current) return;
     // Accepted for the rest of this page load, even if the bootstrap's answer, sent before
     // this, arrives afterwards saying otherwise (account-bootstrap.ts).
-    if (userId)
-      confirmConsent(userId, form === 'signup' ? 'signup' : 'testimony');
+    confirmConsent(userId, form === 'signup' ? 'signup' : 'testimony');
     router.replace(returnTo);
   }
 
@@ -288,6 +345,14 @@ export function ConsentFormView({
           })}
         </fieldset>
 
+        {changed && saving.status !== 'error' && (
+          <div
+            role="alert"
+            className="rounded-xl border border-destructive px-4 py-3 text-foreground"
+          >
+            {changed === 'someone-else' ? SOMEONE_ELSE : SIGNED_OUT}
+          </div>
+        )}
         {missing.length > 0 && (
           <p id={errorId} className="font-medium text-destructive">
             {statements.length > 1
@@ -386,6 +451,22 @@ const UNAVAILABLE = (
   <>We couldn’t save your answer just now. Please try again in a moment.</>
 );
 
+const SOMEONE_ELSE = (
+  <>
+    The account signed in on this browser changed while this page was open. So
+    that each person’s answers stay their own, we cleared the boxes and saved
+    nothing to the account signed in now. Read the form and tick the boxes again
+    if you agree.
+  </>
+);
+
+const SIGNED_OUT = (
+  <>
+    You were signed out while this page was open, so we cleared the boxes and
+    saved nothing more.
+  </>
+);
+
 function currentPath(pathname: string, returnTo: string): string {
   return `${pathname}?redirect_url=${encodeURIComponent(returnTo)}`;
 }
@@ -410,6 +491,7 @@ function messageFor(err: unknown, here: string): React.ReactNode {
       </>
     );
   }
+  if (err instanceof SomeoneElseSignedIn) return SOMEONE_ELSE;
   if (
     err instanceof NotSignedIn ||
     (err instanceof ApiUserProblem && err.status === 401)
