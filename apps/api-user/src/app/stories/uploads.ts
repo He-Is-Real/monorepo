@@ -279,7 +279,7 @@ export class Uploads {
     let replaced: string | undefined;
     const prepare = async (): Promise<PreparedCommand> => {
       const draft = await this.checkDraft(person, id, ifMatch, input);
-      const availableAt = await this.nextAllowedAt(person);
+      const availableAt = await this.nextAllowedAt(person, input.format);
       if (availableAt) throw limitReached(availableAt);
       videoId ??= await bunny.createVideo(id);
       replaced = draft.videoId;
@@ -318,7 +318,7 @@ export class Uploads {
       if (definite(err)) {
         // The database answered: nothing was written, so the video made for it is nobody's.
         if (videoId) await this.discard(videoId, 'a refused upload');
-        throw await this.refusal(err, person);
+        throw await this.refusal(err, person, input.format);
       }
       // No answer (a lost connection, a timeout): the grant may have committed with the video
       // on the draft. Never delete it; look the key up again, which commits with the grant.
@@ -353,8 +353,8 @@ export class Uploads {
 
   /**
    * RequestUpload for an image (M2 plan PR 10), once per Idempotency-Key like a video's: its
-   * grant counts against the same upload limits, so a retry after a lost answer replays the same
-   * path. The path is picked here, never by the browser (D80), and the grant's event puts it on
+   * grant counts towards the hourly upload limit (never the weekly one: Joel, 2026-10-30), so a
+   * retry after a lost answer replays the same path. The path is picked here, never by the browser (D80), and the grant's event puts it on
    * the draft with its size and description. A replay signs the same path again only while it's
    * still the story's image and the story editable; the PUT is one use (`If-None-Match: *`), so
    * a file already there can't be replaced.
@@ -376,7 +376,8 @@ export class Uploads {
     const path = `stories/${id}/${randomBytes(16).toString('hex')}.webp`;
     const prepare = async (): Promise<PreparedCommand> => {
       await this.checkDraft(person, id, ifMatch, input);
-      const availableAt = await this.nextAllowedAt(person);
+      // Per hour only: pictures never count towards the weekly limit (Joel, 2026-10-30).
+      const availableAt = await this.nextAllowedAt(person, 'image');
       if (availableAt) throw limitReached(availableAt);
       return {
         status: 200,
@@ -410,7 +411,7 @@ export class Uploads {
       );
     } catch (err) {
       // Nothing was made at Bunny, so there's nothing to discard either way.
-      if (definite(err)) throw await this.refusal(err, person);
+      if (definite(err)) throw await this.refusal(err, person, 'image');
       outcome = await this.reconcile(
         scope,
         idempotency.requestHash,
@@ -625,10 +626,12 @@ export class Uploads {
 
   private async nextAllowedAt(
     person: SurrealQueryable,
+    format: UploadRequest['format'],
   ): Promise<string | undefined> {
     const [at] = (await runQuery(
       person,
-      'RETURN fn::upload::next_allowed_at($auth)',
+      'RETURN fn::upload::next_allowed_at($auth, $format)',
+      { format },
     )) as [string | null | undefined];
     return at ? new Date(at).toISOString() : undefined;
   }
@@ -674,11 +677,14 @@ export class Uploads {
   private async refusal(
     err: unknown,
     person: SurrealQueryable,
+    format: UploadRequest['format'],
   ): Promise<unknown> {
     if (err instanceof HttpException) return err;
     const limit = uploadLimitOf(err);
     if (limit === 'hourly' || limit === 'weekly') {
-      const at = await this.nextAllowedAt(person).catch(() => undefined);
+      const at = await this.nextAllowedAt(person, format).catch(
+        () => undefined,
+      );
       return limitReached(at ?? new Date(Date.now() + 3600_000).toISOString());
     }
     if (limit) {

@@ -552,6 +552,17 @@ describe('video and audio uploads', () => {
     expect(await grants('pia')).toEqual([
       link.pathname.slice('/test-zone/'.length),
     ]);
+
+    // Pictures count per hour, never towards the weekly limit (Joel, 2026-10-30: only video and
+    // audio files do): with one upload a week, the next picture is still allowed.
+    try {
+      await settings({ uploadsPer7Days: 1 });
+      const next = await upload('pia', id, 2, PICTURE);
+      expect(next.status).toBe(200);
+      expect(await grants('pia')).toHaveLength(2);
+    } finally {
+      await settings({ uploadsPer7Days: 5 });
+    }
   });
 
   it('a written story takes no upload', async () => {

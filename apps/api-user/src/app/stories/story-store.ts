@@ -466,7 +466,7 @@ export class StoryStore {
        RETURN fn::limits::effective($auth);
        RETURN count(SELECT id FROM story WHERE submitter = $auth AND status = 'draft');
        RETURN fn::story::next_submission_at($auth);
-       RETURN fn::upload::next_allowed_at($auth);`,
+       RETURN fn::upload::next_allowed_at($auth, 'video');`,
     )) as [
       SubmissionSettings,
       {

@@ -463,19 +463,23 @@ function limitsOf(s) {
   };
 }
 
-/** The upload half of the limits (D113): trusted has no weekly limit and the ceilings. */
-function uploadLimitsOf(s) {
+/**
+ * The upload half of the limits (D113): trusted has no weekly limit and the ceilings. Every grant
+ * counts per hour; only video and audio files per 7 days, so a picture checks the hour only.
+ */
+function uploadLimitsOf(s, format = 'video') {
   const now = Date.now();
-  const week = s.uploadTimes
-    .filter((t) => t + WEEK_MS > now)
-    .sort((a, b) => a - b);
-  const hour = week.filter((t) => t + 3600_000 > now);
+  const recent = s.uploadTimes
+    .filter((t) => t.at + WEEK_MS > now)
+    .sort((a, b) => a.at - b.at);
+  const hour = recent.filter((t) => t.at + 3600_000 > now).map((t) => t.at);
+  const week = recent.filter((t) => !t.image).map((t) => t.at);
   const perHour = s.settings.uploadRequestsPerHour;
   const per7Days = s.trusted ? null : s.settings.uploadsPer7Days;
   const byHour =
     hour.length >= perHour ? hour[hour.length - perHour] + 3600_000 : null;
   const byWeek =
-    per7Days !== null && week.length >= per7Days
+    format !== 'image' && per7Days !== null && week.length >= per7Days
       ? week[week.length - per7Days] + WEEK_MS
       : null;
   const next = Math.max(byHour ?? 0, byWeek ?? 0);
@@ -899,10 +903,12 @@ async function handleShare(req, res, path, url, s) {
           errors.push({ pointer: '/alt', message: 'a description' });
         if (errors.length)
           return p(400, 'Bad request', 'validation_failed', { errors });
-        if (limits.nextAvailableAt)
+        // Per hour only: pictures never count towards the weekly limit (Joel, 2026-10-30).
+        const hourly = uploadLimitsOf(s, 'image').nextAvailableAt;
+        if (hourly)
           return p(409, 'Conflict', 'upload_limit_reached', {
             detail: 'You’ve started as many uploads as you can for now.',
-            availableAt: limits.nextAvailableAt,
+            availableAt: hourly,
           });
         const path = `stories/${uploadUrl[1]}/${randomUUID().replace(/-/g, '')}.webp`;
         const url = `http://${req.headers.host}/__s3/${path}`;
@@ -911,7 +917,7 @@ async function handleShare(req, res, path, url, s) {
           size: b.fileSizeBytes,
           bytes: null,
         });
-        s.uploadTimes.push(Date.now());
+        s.uploadTimes.push({ at: Date.now(), image: true });
         st.image = {
           path,
           url,
@@ -1002,7 +1008,7 @@ async function handleShare(req, res, path, url, s) {
         done: false,
         deleted: false,
       });
-      s.uploadTimes.push(Date.now());
+      s.uploadTimes.push({ at: Date.now(), image: false });
       st.videoId = videoId;
       st.version += 1;
       st.updatedAt = new Date().toISOString();

@@ -187,6 +187,127 @@ test.describe('behaviour', () => {
     expect(await me.uploads()).toMatchObject({ requests: 0, images: [] });
   });
 
+  /** A written story with its text, on the Write step. */
+  async function written(page: Page) {
+    await toWrite(page);
+    await page.getByLabel('Title').fill('A picture of where it happened');
+    await page
+      .getByLabel('Your story')
+      .fill('It happened on a hill. '.repeat(10));
+  }
+  const choose = async (page: Page, width: number, height: number) =>
+    page.getByLabel(/^Choose (a|another) picture$/).setInputFiles({
+      name: `photo-${width}x${height}.png`,
+      mimeType: 'image/png',
+      buffer: await drawn(page, width, height, 'image/png'),
+    });
+  const isImageEdit = (r: { method(): string; postDataJSON(): unknown }) =>
+    r.method() === 'PATCH' &&
+    'image' in ((r.postDataJSON() as object | null) ?? {});
+
+  test('a failed upload is tried again at the same path; a replacement not yet added can be discarded; removing a granted picture takes it off the story (Codex #140, 2 and 3)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    // The first PUT arrives but its answer is lost; the next fails outright; the rest go through.
+    const puts: ('lose' | 'fail')[] = ['lose'];
+    await page.route(`${STUB_USER_URL}/__s3/**`, async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      const now = puts.shift();
+      if (now === 'fail') return route.fulfill({ status: 500 });
+      if (now !== 'lose') return route.fallback();
+      await route.fetch();
+      return route.abort('connectionreset');
+    });
+    const edits: unknown[] = [];
+    page.on('request', (r) => {
+      if (isImageEdit(r)) edits.push(r.postDataJSON());
+    });
+
+    await choose(page, 900, 1200);
+    await page.getByLabel('Describe the picture').fill('A green hill at dawn');
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
+    // Trying again replays the same grant: the same path, found there already (412).
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    const [first] = (await me.uploads()).images;
+    expect((await me.uploads()).images).toEqual([
+      expect.objectContaining({ path: first.path, bytes: expect.any(String) }),
+    ]);
+
+    // Another picture, not added yet: discarding it keeps the story's, with nothing sent.
+    await choose(page, 1280, 720);
+    await page
+      .getByRole('button', { name: 'Keep the earlier picture' })
+      .click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    const box = await page.locator('[data-picture-preview]').boundingBox();
+    expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(0.75, 1);
+    expect((await me.uploads()).images).toHaveLength(1);
+    expect(edits).toEqual([]);
+
+    // Added again, its PUT fails: it's on the draft, so removing it is an edit at the server.
+    puts.push('fail');
+    await choose(page, 1280, 720);
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
+    expect((await me.uploads()).images).toHaveLength(2);
+    const removed = page.waitForResponse(
+      (r) => isImageEdit(r.request()) && r.ok(),
+    );
+    await page.getByRole('button', { name: 'Remove picture' }).click();
+    await removed;
+    await expect(page.getByText('Picture removed.')).toBeVisible();
+    expect(edits).toEqual([{ image: null }]);
+  });
+
+  test('signing out while a description is being saved keeps nothing of the story in the tab (Codex #140, 1)', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request);
+    await written(page);
+    await choose(page, 900, 1200);
+    await page.getByLabel('Describe the picture').fill('A green hill at dawn');
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+
+    // Every save is held from here, so the text typed next is on this device only.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let arrived!: () => void;
+    const described = new Promise<void>((r) => (arrived = r));
+    await page.route(`${STUB_USER_URL}/v1/stories/*`, async (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback();
+      if (isImageEdit(route.request())) arrived();
+      const res = await route.fetch();
+      await held;
+      return route.fulfill({ response: res });
+    });
+    await page
+      .getByLabel('Your story')
+      .fill('Something private, never saved. '.repeat(8));
+    await page.getByLabel('Describe the picture').fill('The hill at sunrise');
+    await page.getByRole('button', { name: 'Save description' }).click();
+    await described;
+
+    // Signing out (as Clerk's does: Share's storage cleared, the flow gone), in the same page.
+    await page.evaluate(() => window.sessionStorage.clear());
+    await page.getByRole('link', { name: 'He Is Real Today, home' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    const answered = page.waitForEvent('requestfinished', isImageEdit);
+    release();
+    await answered;
+    // The answer's own handling runs in the tasks after it.
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+    expect(
+      await page.evaluate(() => JSON.stringify(window.sessionStorage)),
+    ).not.toMatch(/Something private|sunrise/);
+  });
+
   test('a video’s own thumbnail is offered once the video is chosen, and shown when reviewing', async ({
     page,
     request,

@@ -8,7 +8,13 @@ import {
 } from '@/lib/api-user';
 import type { ShareApi, StoryFormat, StoryPicture } from './share-api';
 import { formatBytes } from './upload-panel';
-import { type Attempt, useRuns, useUploadRequest } from './upload-request';
+import {
+  type Attempt,
+  forgetAttempt,
+  outcomeUnknown,
+  useRuns,
+  useUploadRequest,
+} from './upload-request';
 
 /**
  * A story's picture (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's
@@ -22,6 +28,14 @@ import { type Attempt, useRuns, useUploadRequest } from './upload-request';
  * same idempotent request as a video's: upload-request.ts), which puts the picture on the draft,
  * then PUTs the WebP straight to Bunny's storage with the presigned link. Replacing or removing
  * it never deletes the old file (an approved copy may still show it; the clean-up sweep does).
+ * The request is kept until the PUT succeeds or finds the file there (412): trying again after a
+ * failed or lost PUT replays it, for the same path with a fresh link, never a new grant.
+ *
+ * What the draft has at the server (`attached`) is tracked apart from what's shown: a picture whose
+ * grant went through is on the draft even while its PUT is still to succeed, so removing it is an
+ * edit; a replacement not yet granted is only on this device, so discarding it keeps the picture
+ * the story has. Every answer is used only by the run that asked, for the draft it asked about:
+ * after sign-out, another person, or another draft, nothing is kept or shown (Codex #140).
  */
 
 /** The longer side the browser re-encodes to, and the bounds api-user and the database check. */
@@ -41,10 +55,18 @@ interface Prepared {
   file: { name: string; size: number; lastModified: number };
 }
 
+/** A picture as shown: its link (none until it can be read back), and its size. */
+interface Shown {
+  url: string | null;
+  width: number;
+  height: number;
+}
+
 type Phase =
   | { at: 'idle' }
   | { at: 'reading' }
-  | { at: 'preview'; picture: Prepared }
+  /** `granted`: its grant went through (or may have), so it's on the draft. */
+  | { at: 'preview'; picture: Prepared; granted: boolean }
   | { at: 'sending'; picture: Prepared }
   | { at: 'done'; url: string | null; width: number; height: number };
 
@@ -174,17 +196,26 @@ export function ImagePanel({
   const noun = NOUN[format];
   const altRequired = format === 'written';
   const [phase, setPhase] = useState<Phase>({ at: 'idle' });
+  /** The picture on the draft at the server, as last known: what a removal takes off. */
+  const [attached, setAttached] = useState<Shown | null>(null);
   const [alt, setAlt] = useState('');
   const [savedAlt, setSavedAlt] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [altProblem, setAltProblem] = useState<string | null>(null);
-  const { begin, stop } = useRuns();
+  const { begin } = useRuns();
+  /** The blob: links this panel made, freed once nothing shows them and the draft hasn't them. */
+  const blobs = useRef(new Set<string>());
   const fileInput = useRef<HTMLInputElement>(null);
 
   // The picture the story already has (another tab, or before a reload).
   useEffect(() => {
     if (!earlier) return;
+    setAttached({
+      url: earlier.url,
+      width: earlier.width,
+      height: earlier.height,
+    });
     setPhase((p) =>
       p.at === 'idle'
         ? {
@@ -209,16 +240,30 @@ export function ImagePanel({
     );
   }, [phase.at, onState]);
 
-  // A blob: link is freed once nothing shows it.
+  // A blob: link is freed once nothing shows it and it isn't the draft's picture (which a
+  // discarded replacement goes back to).
   useEffect(() => {
-    const url =
+    const inUse = [
       phase.at === 'preview' || phase.at === 'sending'
         ? phase.picture.url
-        : null;
+        : phase.at === 'done'
+          ? phase.url
+          : null,
+      attached?.url,
+    ];
+    for (const url of blobs.current) {
+      if (inUse.includes(url)) continue;
+      blobs.current.delete(url);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
+  }, [phase, attached]);
+  useEffect(() => {
+    const made = blobs.current;
     return () => {
-      if (url) setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      for (const url of made)
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
     };
-  }, [phase]);
+  }, []);
 
   const request = useUploadRequest({
     calls,
@@ -228,12 +273,15 @@ export function ImagePanel({
     reload,
     setVersion,
     onProblem: setProblem,
-    // The kept request is sent again only for the very same picture and description.
+    // The kept request is sent again for the very same picture; a changed description is saved
+    // once it's added (Save description), not made into another grant.
     reuse: useCallback(
       (kept: Attempt, req) =>
-        JSON.stringify(kept.request) === JSON.stringify(req),
+        JSON.stringify({ ...kept.request, alt: undefined }) ===
+        JSON.stringify({ ...req, alt: undefined }),
       [],
     ),
+    keep: true,
   });
 
   async function choose(file: File | undefined) {
@@ -249,11 +297,12 @@ export function ImagePanel({
       setProblem(prepared);
       return;
     }
+    blobs.current.add(prepared.url);
     setAltProblem(null);
-    setPhase({ at: 'preview', picture: prepared });
+    setPhase({ at: 'preview', picture: prepared, granted: false });
   }
 
-  async function add(picture: Prepared) {
+  async function add(picture: Prepared, granted: boolean) {
     const description = alt.trim();
     if (altRequired && !description) {
       setAltProblem(
@@ -265,14 +314,17 @@ export function ImagePanel({
     setProblem(null);
     const gone = begin();
     setPhase({ at: 'sending', picture });
+    const back = (onDraft: boolean, reason: string | null) => {
+      setPhase({ at: 'preview', picture, granted: onDraft });
+      setProblem(reason);
+    };
+    // Left behind: signed out, another person, or (once it has one) another draft (Codex #140).
+    let left = gone;
     try {
       const ready = await prepareDraft();
       if (gone()) return;
-      if (typeof ready === 'string') {
-        setPhase({ at: 'preview', picture });
-        setProblem(ready);
-        return;
-      }
+      if (typeof ready === 'string') return back(granted, ready);
+      left = () => gone() || current().draftId !== ready.draftId;
       const target = await request(
         picture.file,
         ready,
@@ -286,10 +338,19 @@ export function ImagePanel({
         },
         gone,
       );
-      if (!target || gone()) {
-        if (!gone()) setPhase({ at: 'preview', picture });
+      if (left()) return;
+      // No target: `prepare`'s reason is already shown (onProblem).
+      if (!target) {
+        setPhase({ at: 'preview', picture, granted });
         return;
       }
+      // Granted: the picture is on the draft now, whether or not its file arrives.
+      const shown = {
+        url: picture.url,
+        width: picture.width,
+        height: picture.height,
+      };
+      setAttached(shown);
       const res = await fetch(target.uploadUrl, {
         method: target.method,
         // Exactly the two headers the link was signed for (the browser sets the length).
@@ -299,52 +360,78 @@ export function ImagePanel({
         },
         body: picture.blob,
       }).catch(() => null);
-      if (gone()) return;
-      // 412: this very file is there already (a replay of a request that went through).
+      if (left()) return;
+      // 412: this very file is there already (a replay of a request whose PUT went through).
+      // Otherwise the request stays kept, so trying again replays it for the same path.
       if (!res || (!res.ok && res.status !== 412)) {
-        setPhase({ at: 'preview', picture });
-        setProblem(
+        return back(
+          true,
           `Your ${noun} couldn’t be uploaded. Your story is saved; please try again.`,
         );
-        return;
       }
-      setSavedAlt(description);
-      setPhase({
-        at: 'done',
-        url: picture.url,
-        width: picture.width,
-        height: picture.height,
-      });
+      forgetAttempt(owner, 'image-request', ready.draftId);
+      // A replay keeps the description it was first sent with; a newer one is offered to save.
+      setSavedAlt(target.sent.alt?.trim() ?? '');
+      setPhase({ at: 'done', ...shown });
     } catch (err) {
-      if (gone()) return;
-      setPhase({ at: 'preview', picture });
-      setProblem(refusal(err, noun));
+      if (left()) return;
+      // No answer: it may have gone through, so it counts as on the draft.
+      back(granted || outcomeUnknown(err), refusal(err, noun));
     }
   }
 
-  /** EditStory on the picture: removed, or its description changed. */
-  async function edit(patch: { image: null | { alt: string | null } }) {
+  /**
+   * EditStory on the picture: removed, or its description changed. Its answer is used only by
+   * this run and for this draft: after sign-out, another person or another draft, nothing is
+   * kept (no version written to the tab, no draft read again) and nothing shown (Codex #140).
+   */
+  async function edit(
+    patch: { image: null | { alt: string | null } },
+    gone: () => boolean,
+  ): Promise<string | null> {
     const { draftId: id, version } = current();
-    if (!id || !version) return false;
+    if (!id || !version) return null;
+    const left = () => gone() || current().draftId !== id;
     try {
       const result = await calls.edit(id, version, patch);
+      if (left()) return null;
       setVersion(result.version);
-      return true;
+      return id;
     } catch (err) {
-      if (err instanceof StaleVersion) await reload(id);
+      if (left()) return null;
+      if (err instanceof StaleVersion) {
+        await reload(id).catch(() => false);
+        if (left()) return null;
+      }
       setProblem(
         err instanceof StaleVersion
           ? 'Your story was changed in another tab or window. Please try again.'
           : `Your ${noun} couldn’t be changed. Your story is saved; please try again.`,
       );
-      return false;
+      return null;
     }
   }
 
   async function remove() {
-    stop();
+    const gone = begin();
     setProblem(null);
-    if (phase.at === 'done' && !(await edit({ image: null }))) return;
+    setNotice(null);
+    if (fileInput.current) fileInput.current.value = '';
+    // A replacement not granted yet is only on this device: the story's picture stays.
+    if (phase.at === 'preview' && !phase.granted && attached) {
+      setAltProblem(null);
+      setAlt(savedAlt);
+      setPhase({ at: 'done', ...attached });
+      return;
+    }
+    // On the draft (added, or granted with its file still to arrive): taken off at the server
+    // first, at the draft's version.
+    if (phase.at === 'done' || (phase.at === 'preview' && phase.granted)) {
+      const id = await edit({ image: null }, gone);
+      if (!id) return;
+      forgetAttempt(owner, 'image-request', id);
+      setAttached(null);
+    }
     setPhase({ at: 'idle' });
     setAlt('');
     setSavedAlt('');
@@ -353,7 +440,6 @@ export function ImagePanel({
         ? 'Thumbnail removed. Your video shows the thumbnail our video host picks.'
         : `${noun[0].toUpperCase()}${noun.slice(1)} removed.`,
     );
-    if (fileInput.current) fileInput.current.value = '';
   }
 
   async function saveAlt() {
@@ -365,7 +451,8 @@ export function ImagePanel({
       return;
     }
     setAltProblem(null);
-    if (await edit({ image: { alt: description || null } })) {
+    const gone = begin();
+    if (await edit({ image: { alt: description || null } }, gone)) {
       setSavedAlt(description);
       setNotice('Description saved.');
     }
@@ -426,7 +513,9 @@ export function ImagePanel({
             type="button"
             className={primary}
             disabled={busy}
-            onClick={() => void add(phase.picture)}
+            onClick={() =>
+              void add(phase.picture, phase.at === 'preview' && phase.granted)
+            }
           >
             {phase.at === 'sending' ? 'Adding…' : `Add this ${noun}`}
           </button>
@@ -464,7 +553,9 @@ export function ImagePanel({
             disabled={busy}
             onClick={() => void remove()}
           >
-            Remove {noun}
+            {phase.at === 'preview' && !phase.granted && attached
+              ? `Keep the earlier ${noun}`
+              : `Remove ${noun}`}
           </button>
         )}
       </div>

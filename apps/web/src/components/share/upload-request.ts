@@ -18,7 +18,9 @@ import type { ShareApi, UploadRequest, UploadTarget } from './share-api';
  * choosing the same file again then sends the very same request, and api-user replays it (the
  * same file, nothing new counted), however the draft's version moved on meanwhile. A `412` means
  * the draft changed elsewhere: it's read again (the same check as a save's), and the request is
- * made at its new version.
+ * made at its new version. A picture's request (`keep`) is kept past its answer, until its PUT
+ * succeeds or finds the file there (`forgetAttempt`): a PUT that failed or whose answer was lost
+ * is retried by replaying it, which signs a fresh link for the same path and counts nothing new.
  */
 
 /** A new upload's request, until its answer settles it. */
@@ -74,6 +76,11 @@ function writeAttempt(
   }
 }
 
+/** Settles a kept request: its upload is done, or the draft no longer has what it asked for. */
+export function forgetAttempt(owner: string, slot: Slot, draftId: string) {
+  writeAttempt(owner, slot, draftId, null);
+}
+
 /** No answer, or a server error: it may have gone through, so its request is kept to replay. */
 export const outcomeUnknown = (err: unknown) =>
   err instanceof ApiUserUnavailable ||
@@ -107,7 +114,9 @@ export function useRuns() {
  * A new upload for the file, once per request: a kept one for this file that `reuse` accepts and
  * that never got a settled answer is sent again as it was (its key, version and body), else a new
  * one. After a `412` the draft is read again and the request made once more at its version.
- * Answers null when the run was left behind, or when `prepare` gave a reason (`onProblem`).
+ * Answers null when the run was left behind, or when `prepare` gave a reason (`onProblem`); else
+ * the target and the request that made it (a replay's, which may differ from `request` where
+ * `reuse` allows).
  */
 export function useUploadRequest({
   calls,
@@ -118,6 +127,7 @@ export function useUploadRequest({
   setVersion,
   onProblem,
   reuse,
+  keep = false,
 }: {
   calls: ShareApi;
   owner: string;
@@ -128,6 +138,8 @@ export function useUploadRequest({
   onProblem: (reason: string) => void;
   /** Whether a kept request may be sent again for this one. */
   reuse: (kept: Attempt, request: UploadRequest) => boolean;
+  /** Keep the request past its answer, until the caller settles it (`forgetAttempt`). */
+  keep?: boolean;
 }) {
   return useCallback(
     async (
@@ -135,7 +147,7 @@ export function useUploadRequest({
       first: { draftId: string; version: number },
       request: UploadRequest,
       gone: () => boolean,
-    ): Promise<UploadTarget | null> => {
+    ): Promise<(UploadTarget & { sent: UploadRequest }) | null> => {
       // Left behind (Back, another account, a newer run): ask for nothing, keep nothing.
       if (gone()) return null;
       let ready = first;
@@ -161,10 +173,10 @@ export function useUploadRequest({
             attempt.key,
           );
           if (gone()) return null;
-          writeAttempt(owner, slot, ready.draftId, null);
+          if (!keep) writeAttempt(owner, slot, ready.draftId, null);
           // A replay answers the version its request made; the draft may be past it since.
           if (target.version > ready.version) setVersion(target.version);
-          return target;
+          return { ...target, sent: attempt.request };
         } catch (err) {
           if (outcomeUnknown(err) || gone()) throw err;
           writeAttempt(owner, slot, ready.draftId, null);
@@ -182,6 +194,6 @@ export function useUploadRequest({
         }
       }
     },
-    [calls, owner, slot, prepare, reload, setVersion, onProblem, reuse],
+    [calls, owner, slot, prepare, reload, setVersion, onProblem, reuse, keep],
   );
 }

@@ -638,8 +638,10 @@ retried`, on both RocksDB and the in-memory engine.
     - **`story_media_granted`:** any write but a system user's that adds a Bunny id the story
       didn't have needs a grant naming this story (`media_not_granted:`). Workflow can't swap in
       another story's video either. Thumbnails stay workflow's and are checked at approval.
-    - **Limits** (`fn::limits::effective`, `fn::upload::next_allowed_at`): `uploadRequestsPerHour`
-      (everyone, overridable), `uploadsPer7Days` (overridable; none if trusted), `videoMaxBytes`,
+    - **Limits** (`fn::limits::effective`, `fn::upload::next_allowed_at($user, $format)`):
+      `uploadRequestsPerHour` (every grant, pictures too; everyone, overridable), `uploadsPer7Days`
+      (video and audio grants only: a picture neither counts nor is refused by it, Joel
+      2026-10-30; overridable; none if trusted), `videoMaxBytes`,
       `audioMaxBytes`, `mediaMaxSeconds` (trusted get the ceilings, `fn::settings::upload_ceilings`:
       10 GiB, 2 GiB, 3 hours, which also cap what an admin may set). Counted from grants, so
       replacing a file or deleting a story frees nothing.

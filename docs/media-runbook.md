@@ -122,7 +122,8 @@ Pictures (M2 plan PR 10) work like videos, but api-user **never deletes one**: a
 for changes still has its approved copy public, and that copy may show the old picture. So each of
 these leaves an orphan file in the images zone until the clean-up sweep (D40):
 
-- **Replaced:** a new picture for the same story (its grant row stays 7 days for the limits).
+- **Replaced:** a new picture for the same story (its grant row stays 7 days for the hourly
+  limit; pictures never count towards the weekly one, Joel 2026-10-30).
 - **Removed:** the person removes the picture (`PATCH` `image: null`), or a video's thumbnail
   (the video goes back to Bunny's own).
 - **Never uploaded:** the grant committed and the picture is on the draft, but the browser's PUT
@@ -130,7 +131,9 @@ these leaves an orphan file in the images zone until the clean-up sweep (D40):
   processing (M7) marks it `failed`, and approval waits for `ready` (A2). A picture whose PUT
   arrived after the person replaced it is an orphan too.
 - **Lost answers:** api-user lost the database's answer to the grant; the retry with the same
-  Idempotency-Key replays the same path, so nothing new is made.
+  Idempotency-Key replays the same path, so nothing new is made. The browser keeps the grant's
+  request until its PUT succeeds (or answers 412: the file is there), so a PUT that failed or
+  whose answer was lost is retried at the same path with a freshly signed link, never a new grant.
 
 Find orphans by listing a story's folder and comparing with `story.image.path` (and the
 `publicStory`'s), then delete the file and, if it's empty, the folder (the Edge Storage API,

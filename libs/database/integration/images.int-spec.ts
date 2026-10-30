@@ -226,7 +226,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     expect((await image('eve_w')).image).toBeUndefined();
   });
 
-  it('a new image replaces the old one, starts processing again and counts towards the upload limits', async () => {
+  it('a new image replaces the old one, starts processing again and counts per hour, never towards the weekly limit (Joel, 2026-10-30)', async () => {
     const gus = await person('gus');
     await draft(gus, 'gus_w');
     await grantImage(apiUser, {
@@ -249,25 +249,52 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       height: 1200,
       alt: 'A sunrise over the hills',
     });
-    // Both grants stay (the old file may still be on a public copy), and both count.
+    // Both grants stay (the old file may still be on a public copy).
     expect(
       await rows(
         gus,
         'SELECT VALUE format FROM uploadGrant WHERE person = $auth ORDER BY at',
       ),
     ).toEqual(['image', 'image']);
+    // The weekly limit is for video and audio files only: with one a week, gus's two pictures
+    // leave room for a video, then a picture is still allowed and a second video isn't.
     await draft(gus, 'gus_v', { primaryFormat: 'video', body: undefined });
     await run(
       migrator,
-      `UPSERT submitterLimits:gus CONTENT { user: user:gus, uploadsPer7Days: 2 }`,
+      `UPSERT submitterLimits:gus CONTENT { user: user:gus, uploadsPer7Days: 1 }`,
     );
+    const next = async (format: string) =>
+      (
+        await rows(gus, 'RETURN fn::upload::next_allowed_at($auth, $format)', {
+          format,
+        })
+      )[0];
+    expect((await next('video')) ?? null).toBeNull();
+    expect(
+      await grantUpload(apiUser, {
+        video: '0f0e0d0c-0b0a-4908-8706-000000000001',
+        story: 'gus_v',
+        person: 'gus',
+        version: 1,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await next('video')).toEqual(expect.any(String));
+    expect((await next('image')) ?? null).toBeNull();
+    expect(
+      await grantImage(apiUser, {
+        story: 'gus_w',
+        person: 'gus',
+        version: (await image('gus_w')).version,
+        name: hex(12),
+      }),
+    ).toMatchObject({ ok: true });
     expect(
       error(
         await grantUpload(apiUser, {
-          video: '0f0e0d0c-0b0a-4908-8706-000000000001',
+          video: '0f0e0d0c-0b0a-4908-8706-000000000002',
           story: 'gus_v',
           person: 'gus',
-          version: 1,
+          version: 2,
         }),
       ),
     ).toMatch(/limit_upload_weekly:/);

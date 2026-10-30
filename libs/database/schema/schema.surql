@@ -1662,8 +1662,10 @@ DEFINE EVENT OVERWRITE user_erasure_favourites ON user
 --   storyTextMin / storyTextMax: a written story's text, trimmed, to submit / at most (A3);
 --   tagsMin / tagsMax: themes to submit / at most;
 --   openDraftsMax, submissionsPer7Days: D94's limits per person (overridable per person);
---   uploadRequestsPerHour: new uploads per person in any rolling hour (overridable; trusted too);
---   uploadsPer7Days: new uploads per person in any rolling 7 days (overridable; none if trusted);
+--   uploadRequestsPerHour: new uploads (pictures too) per person in any rolling hour
+--     (overridable; trusted too);
+--   uploadsPer7Days: new video and audio files per person in any rolling 7 days, never pictures
+--     (overridable; none if trusted; Joel, 2026-10-30);
 --   videoMaxBytes / audioMaxBytes / mediaMaxSeconds: one file's size and length (A4: 4 GB and
 --     500 MB, 15 minutes; trusted submitters get the hard ceilings, fn::settings::upload_ceilings).
 --   The upload limits (D113, Joel 2026-10-28/30: stop people filling our video storage) are
@@ -1819,8 +1821,9 @@ DEFINE EVENT OVERWRITE submissionLog_fence ON submissionLog
 -- Images (M2 plan PR 10): id = uploadGrant:`stories/<story id>/<random>.webp`, the file's path in
 -- the images storage zone, which api-user picks (D80); the presigned PUT it signs binds that path,
 -- the type and the exact size (D68). width/height/alt: the picture's real size (D53, 1:3..3:1) and
--- its description, put on the story with it. Images count towards the same hourly and weekly
--- upload limits; their size and pixel bounds are fixed (fn::upload::image_limits).
+-- its description, put on the story with it. Images count towards the hourly upload limit only,
+-- never the weekly one (Joel, 2026-10-30: uploadsPer7Days is for video and audio files); their
+-- size and pixel bounds are fixed (fn::upload::image_limits).
 DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
   FOR select WHERE person = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
   FOR create WHERE $auth.id = service:api_user,
@@ -1843,17 +1846,21 @@ DEFINE FIELD OVERWRITE storyVersion    ON uploadGrant TYPE int READONLY;
 DEFINE FIELD OVERWRITE at              ON uploadGrant TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE INDEX OVERWRITE uploadGrant_person ON uploadGrant FIELDS person, at;
 DEFINE INDEX OVERWRITE uploadGrant_story  ON uploadGrant FIELDS story;
--- When the person may next start an upload: NONE if now, else when the hourly or weekly count
--- frees a place (the later of the two). Their own session reads their own grants.
-DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>>) {
+-- When the person may next start an upload of `$format` ('video', 'audio' or 'image'): NONE if
+-- now, else when the hourly count (every grant) or, for a video or audio file, the weekly count
+-- (video and audio grants only) frees a place (the later of the two). Their own session reads
+-- their own grants.
+DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>>, $format: string) {
   IF $user = NONE { RETURN NONE };
   LET $l = fn::limits::effective($user);
-  LET $week = (SELECT VALUE at FROM uploadGrant
+  LET $grants = (SELECT at, format FROM uploadGrant
     WHERE person = $user AND at > time::now() - 7d ORDER BY at ASC);
-  LET $hour = $week.filter(|$a| $a > time::now() - 1h);
+  LET $hour = $grants.filter(|$g| $g.at > time::now() - 1h).map(|$g| $g.at);
+  LET $week = $grants.filter(|$g| $g.format != 'image').map(|$g| $g.at);
   LET $byHour = IF array::len($hour) < $l.uploadRequestsPerHour { NONE }
     ELSE { $hour[array::len($hour) - $l.uploadRequestsPerHour] + 1h };
-  LET $byWeek = IF $l.uploadsPer7Days = NONE OR array::len($week) < $l.uploadsPer7Days { NONE }
+  LET $byWeek = IF $format = 'image' OR $l.uploadsPer7Days = NONE
+    OR array::len($week) < $l.uploadsPer7Days { NONE }
     ELSE { $week[array::len($week) - $l.uploadsPer7Days] + 7d };
   RETURN IF $byHour = NONE { $byWeek } ELSE IF $byWeek = NONE { $byHour }
     ELSE IF $byHour > $byWeek { $byHour } ELSE { $byWeek };
@@ -1911,13 +1918,15 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
           THROW 'limit_upload_duration: the file is longer than the person may upload (D113)';
         };
       };
-      -- Counted without this row; the fence above makes two overlapping grants conflict.
-      LET $week = (SELECT VALUE at FROM uploadGrant
+      -- Counted without this row; the fence above makes two overlapping grants conflict. Every
+      -- grant counts per hour; only video and audio files per 7 days (Joel, 2026-10-30).
+      LET $grants = (SELECT at, format FROM uploadGrant
         WHERE person = $after.person AND id != $after.id AND at > time::now() - 7d);
-      IF array::len($week.filter(|$a| $a > time::now() - 1h)) >= $l.uploadRequestsPerHour {
+      IF array::len($grants.filter(|$g| $g.at > time::now() - 1h)) >= $l.uploadRequestsPerHour {
         THROW 'limit_upload_hourly: the person has started as many uploads as they may in an hour (D113)';
       };
-      IF $l.uploadsPer7Days != NONE AND array::len($week) >= $l.uploadsPer7Days {
+      IF $after.format != 'image' AND $l.uploadsPer7Days != NONE
+        AND array::len($grants.filter(|$g| $g.format != 'image')) >= $l.uploadsPer7Days {
         THROW 'limit_upload_weekly: the person has started as many uploads as they may in 7 days (D113)';
       };
       -- The draft's one video or audio file, or its image, is now this one (D80). The story's
