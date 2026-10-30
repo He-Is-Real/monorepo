@@ -62,6 +62,23 @@ When processing records it `ready` again, the story comes back.
 
 Until M7 is built nothing marks media as not ready, so nothing is hidden.
 
+## Where uploads land
+
+People's uploads go straight from their browser to Bunny; our services never handle the bytes
+(M2). api-user creates each upload and signs a short-lived link for that one item. How it's
+signed and what each link enforces: [infra/terraform/README.md](../infra/terraform/README.md),
+"Uploads".
+
+| Upload       | Goes to                                                                  | Stored in                                            |
+| ------------ | ------------------------------------------------------------------------ | ---------------------------------------------------- |
+| Video, audio | Bunny Stream by TUS (`video.bunnycdn.com/tusupload`), one video per item | Frankfurt, Germany: the library's storage (D89)      |
+| Story image  | The images storage zone by S3 PUT (`uk-s3.storage.bunnycdn.com`)         | London: `heisreal-dev-image-store` in dev, no copies |
+
+No personal data goes into Bunny names: a video's title is the story id (D69) and an image's path
+is under the story's folder (D80). Deleting an image leaves its folder behind, so deletions remove
+the folder too. To check uploads still work against dev: `pnpm nx run dev-seed:upload-spike` (a
+developer, with gcloud ADC and ffmpeg; it deletes what it uploads).
+
 ## The Stream player
 
 Videos and audio play in Bunny's player, a frame from `player.mediadelivery.net`. Its look comes

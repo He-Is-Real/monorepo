@@ -325,9 +325,10 @@ encrypts its state and saved plans; CI gets `tf-bunny` only on `main`, in `tofu-
 Manager (`bunny-account-api-key`, container from the `bootstrap` root) and reaches the provider
 through an `ephemeral` read, so it's in neither state nor plans. The keys the apps will need are
 copied into Secret Manager with write-only versions; apps read them through `libs/secrets`.
-`bunny-stream-api-key` and `bunny-storage-password` (uploads) have no reader yet: grants come with
-M2 (api-user). `bunny-stream-token-key` and `bunny-images-token-key` (D52) are read by
-api-public-read only (`signing_key_readers`, a grant on each secret made by this root).
+`bunny-stream-api-key` and `bunny-storage-password` (uploads) are read by api-user alone
+(`upload_key_readers`, which accepts nothing but this project's api-user service account).
+`bunny-stream-token-key` and `bunny-images-token-key` (D52) are read by api-public-read and
+api-user (`signing_key_readers`). Each is a grant on one secret, made by this root.
 
 **The never-public guard.** Before every plan the root reads the IAM policies of the state bucket,
 the project, the `tofu` keyring and both keys, and every `bunny-*` secret, and refuses to plan if
@@ -373,17 +374,47 @@ the `bunny-*` secrets and `tofu-bunny`; and, as you, that nothing in the organis
 public. Policy Troubleshooter can't check these conditions: it doesn't fill in `resource.type`, so
 it reports them as granted.
 
-**Uploads (built in M2; services never handle media bytes, as in the prototype).** Video and
-audio: api-user creates the video (`POST video.bunnycdn.com/library/{libraryId}/videos` with the
-library key) and returns `libraryId`, `videoId`, `expirationTime` and
-`signature = sha256(libraryId + libraryKey + expirationTime + videoId)`; the browser uploads to
-`https://video.bunnycdn.com/tusupload` with those as headers. Images: api-user signs a
-short-lived S3 presigned PUT for `https://uk-s3.storage.bunnycdn.com/heisreal-dev-image-store/<key>`
-(SigV4; access key = zone name, secret = `bunny-storage-password`), which is why the zone is
-S3-compatible (create-time only). Bunny documents presigned URLs (S3 API in public preview since
-2026-07), but only shows GET; **before M2 relies on it, prove a presigned PUT** with one tiny
-file (then delete it), including whether signed `Content-Length`/`Content-Type` are enforced.
-If not, the options are in #39 ("Questions for Joel").
+**Uploads (M2; services never handle media bytes, as in the prototype).** Both direct uploads
+are **proven on dev** (2026-10-29): a real browser at web's dev origin uploads a 2-second clip by
+TUS and a ~20 KB WebP by presigned PUT, with links signed the way api-user will sign them
+(`apps/dev-seed/behavioural/upload-signing.ts`), checks they arrived and deletes them. Run it again
+with `pnpm nx run dev-seed:upload-spike` (your gcloud ADC and ffmpeg; it reads the two upload
+keys, so a developer runs it, not CI). It leaves nothing behind.
+
+- **Video and audio (Stream TUS).** api-user creates the video (`POST
+video.bunnycdn.com/library/{libraryId}/videos` with the library key; the title is the story id
+  only, D69) and returns `libraryId`, `videoId`, `expirationTime` and
+  `signature = sha256(libraryId + libraryKey + expirationTime + videoId)` (hex). The browser
+  POSTs to `https://video.bunnycdn.com/tusupload` with those as the `LibraryId`, `VideoId`,
+  `AuthorizationExpire` and `AuthorizationSignature` headers, reads `Location` and PATCHes the
+  bytes there. A wrong signature or a moved expiry answers 401, a past expiry 400. Bunny's CORS
+  lets web's origin send these headers and read `Location`. **Lands in Frankfurt** (the library's
+  storage zone, D89), encoded by Bunny.
+- **Images (S3 presigned PUT).** api-user signs a SigV4 query-string URL for
+  `https://uk-s3.storage.bunnycdn.com/heisreal-dev-image-store/<key>`: access key = zone name,
+  secret = `bunny-storage-password`, SigV4 region `uk`, `UNSIGNED-PAYLOAD`, and the signed
+  headers `content-type`, `content-length` and `if-none-match: *`. The browser PUTs with
+  `Content-Type` and `If-None-Match: *` (it sets `Content-Length` itself). **Lands in London**
+  (the zone's only region, no replication).
+
+What each presigned link enforces itself, and what api-user must check before it signs (D113,
+Joel 2026-10-28: "the main concern here is people spamming our video storage with tons of videos
+and spiking cloud costs"):
+
+| Bound         | Image (S3 PUT)                                                                                                                                                                                                                         | Video/audio (TUS)                                                                                                                                                                     |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where it goes | the key api-user picked (another key: 403)                                                                                                                                                                                             | the video api-user created (another: 401)                                                                                                                                             |
+| Size          | exact `Content-Length` (anything else: 403)                                                                                                                                                                                            | **not bound**: known only after upload, from Bunny's encoding result (D68)                                                                                                            |
+| Type          | exact `Content-Type` as declared (403 otherwise); the bytes aren't checked, so processing checks the real content                                                                                                                      | **not bound**: junk ends as an encoding failure, refused at submit (D68)                                                                                                              |
+| Expiry        | `X-Amz-Expires`, a few minutes (expired: 403; Bunny refuses over 7 days, 400)                                                                                                                                                          | `AuthorizationExpire` (past: 400, moved: 401); about an hour (D68)                                                                                                                    |
+| One use       | yes: a second PUT with the same link answers 412 (`If-None-Match: *` is signed; without it, a PUT is refused 403)                                                                                                                      | **no**: an unexpired signature can upload again to the same video (D68)                                                                                                               |
+| Per account   | **api-user, before signing**: the draft is the person's and still a draft (D80), and #118's limits model (admin-adjustable `submissionSettings`: 3 open drafts, 10 upload requests an hour, 1 submission a week; per-person overrides) | the same; and the video PR should keep **one video per draft item** (api-user reuses or deletes the draft's video before creating another), so repeated requests can't pile up videos |
+
+Two things the spike found for later PRs: deleting a folder's last object by S3 leaves the empty
+folder behind (Bunny's storage keeps it), so deletions (erasure, D82) also delete the story's
+folder through the Edge Storage API (`DELETE https://uk.storage.bunnycdn.com/<zone>/<folder>/`);
+and Playwright can't load `libs/secrets` (a Nest provider), so the spike reads the two keys with
+the Secret Manager client directly.
 
 **Media token auth (D52, M1 step 5).** Bunny refuses every media link without a valid `token`
 and `expires` (403): the Stream player (`view_token_authentication_required`), Stream's CDN files,
