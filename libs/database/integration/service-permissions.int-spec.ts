@@ -371,10 +371,12 @@ describe('service identities (D13 B)', () => {
       );
       const [updated] = await rows(
         db,
-        `UPDATE story:bob_pending SET media = [{ format: 'video', bunnyVideoId: 'vid-1' }] RETURN media`,
+        `UPDATE story:bob_pending SET media[0].processing = 'processing' RETURN media`,
       );
       expect(updated).toEqual({
-        media: [{ format: 'video', bunnyVideoId: 'vid-1' }],
+        media: [
+          { format: 'video', bunnyVideoId: 'vid-0', processing: 'processing' },
+        ],
       });
       expect(
         await rows(

@@ -165,11 +165,14 @@ describe('concurrent transactions are fenced per person', () => {
   it('workflow media write that overlaps erasure: the write never lands', async () => {
     const wes = await t.person('user_wes');
     await draft(wes, 'wes_story', { primaryFormat: 'video' });
+    // Their upload (as a grant puts it, D80), which workflow then processes.
+    await run(
+      migrator,
+      `UPDATE story:wes_story SET media = [{ format: 'video', bunnyVideoId: 'vid-wes' }]`,
+    );
     const processing = await begin(workflow);
     await processing
-      .query(
-        `UPDATE story:wes_story SET media = [{ format: 'video', bunnyVideoId: 'vid-wes' }]`,
-      )
+      .query(`UPDATE story:wes_story SET media[0].processing = 'processing'`)
       .collect();
     await run(apiUser, ERASE, {
       clerkUserId: 'user_wes',

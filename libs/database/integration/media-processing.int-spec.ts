@@ -59,8 +59,12 @@ describe('approval waits for media processing (A2)', () => {
   const published = (id: string) =>
     truth(`SELECT VALUE id FROM type::record('publicStory', $id)`, { id });
 
-  /** Pat creates a draft with these extra fields (SurrealQL object entries). */
-  const create = async (fields: string) => {
+  /**
+   * Pat creates a draft with these extra fields (SurrealQL object entries). `media` (a SurrealQL
+   * array) is then put on it as an upload would, by a system user: a person's session never
+   * writes media (D80), and these tests are about processing, not grants (uploads.int-spec.ts).
+   */
+  const create = async (fields: string, media?: string) => {
     seq += 1;
     const id = `proc_${seq}`;
     const result = await outcome(
@@ -72,10 +76,19 @@ describe('approval waits for media processing (A2)', () => {
       { id },
     );
     expect(result).toEqual({ ok: true, result: [`story:${id}`] });
+    if (media) {
+      await run(
+        migrator,
+        `UPDATE type::record('story', $id) SET media = ${media}`,
+        {
+          id,
+        },
+      );
+    }
     return id;
   };
-  const video = () => create(`primaryFormat: 'video', media: [${VIDEO}]`);
-  const audio = () => create(`primaryFormat: 'audio', media: [${AUDIO}]`);
+  const video = () => create(`primaryFormat: 'video'`, `[${VIDEO}]`);
+  const audio = () => create(`primaryFormat: 'audio'`, `[${AUDIO}]`);
   const written = () =>
     create(`primaryFormat: 'written', body: '${TEXT}', image: ${IMAGE}`);
   const update = (id: string, set: string, db: SurrealQueryable = pat) =>
@@ -105,14 +118,15 @@ describe('approval waits for media processing (A2)', () => {
 
   describe('who sets processing', () => {
     it('the person can’t: on create, their value is ignored', async () => {
+      // D80: the person's media is dropped altogether.
       const v = await create(
         `primaryFormat: 'video', media: [{ format: 'video', bunnyVideoId: 'v', processing: 'ready' }]`,
       );
+      expect(await processing(v)).toEqual({ media: [], image: undefined });
       const w = await create(
         `primaryFormat: 'written', body: 'x',
          image: { path: 'p', width: 10, height: 10, processing: 'ready' }`,
       );
-      expect(await processing(v)).toEqual({ media: [null], image: undefined });
       expect(await processing(w)).toEqual({ media: [], image: null });
     });
 
@@ -200,6 +214,8 @@ describe('approval waits for media processing (A2)', () => {
   });
 
   describe('a change sets processing back to not processed', () => {
+    // A video or audio file changes only by a new upload (D80), which starts processing again:
+    // uploads.int-spec.ts ("replacing the file"). The person can't change it at all.
     it.each([
       ['another upload', `media[0].bunnyVideoId = 'vid-2'`],
       [
@@ -207,15 +223,13 @@ describe('approval waits for media processing (A2)', () => {
         `media = [{ format: 'video', bunnyVideoId: 'vid-3' }]`,
       ],
       ['another size', `media[0].width = 720, media[0].height = 1280`],
-    ])('video: %s', async (_name, set) => {
+    ])('video: the person’s %s is ignored (D80)', async (_name, set) => {
       const id = await video();
       await processed(workflow, id);
-      expect(await processing(id)).toEqual({
-        media: ['ready'],
-        image: undefined,
-      });
+      const before = await story(id);
+      expect(before.media[0]).toMatchObject({ processing: 'ready' });
       expect(await update(id, set)).toMatchObject({ ok: true });
-      expect(await processing(id)).toEqual({ media: [null], image: undefined });
+      expect((await story(id)).media).toEqual(before.media);
     });
 
     it.each([
@@ -258,9 +272,11 @@ describe('approval waits for media processing (A2)', () => {
     it('a video replaced after processing can’t be approved until it is processed again', async () => {
       const id = await video();
       await processed(workflow, id);
+      // Another file uploaded to the draft (as a grant would put it, D80).
       await update(
         id,
         `media = [{ format: 'video', bunnyVideoId: 'unchecked' }]`,
+        migrator,
       );
       expect(await submit(pat, id)).toHaveLength(1);
       await refusedApproval(
@@ -394,8 +410,8 @@ describe('approval waits for media processing (A2)', () => {
         const id = await pending(
           () =>
             create(
-              `primaryFormat: 'audio',
-               media: [{ format: 'audio', bunnyVideoId: ${JSON.stringify(c.videoId)} }]`,
+              `primaryFormat: 'audio'`,
+              `[{ format: 'audio', bunnyVideoId: ${JSON.stringify(c.videoId)} }]`,
             ),
           `media[0].processing = 'ready', media[0].durationSeconds = 30,
            media[0].thumbnailPath = ${JSON.stringify(c.path)},
@@ -699,11 +715,13 @@ describe('approval waits for media processing (A2)', () => {
     it('different media stays hidden: a moderator must review it', async () => {
       const id = await live(video);
       await update(id, `media[0].processing = 'failed'`, workflow);
+      // Another Bunny id, which only a system user can still write (D80: anyone else needs a
+      // grant for this story, and a submitted story gets none).
       await update(
         id,
         `media = [{ format: 'video', bunnyVideoId: 'replacement', processing: 'ready',
                     width: 1080, height: 1920, durationSeconds: 60 }]`,
-        workflow,
+        migrator,
       );
       await expectHidden(id);
       const [row] = (await hidden()).filter(
@@ -765,8 +783,15 @@ describe('approval waits for media processing (A2)', () => {
       'media swapped %s never goes public unreviewed',
       async (_name, writes) => {
         const id = await live(video);
+        // A new Bunny id needs a grant for this story from anyone but a system user (D80).
         for (const set of writes)
-          expect(await update(id, set, workflow)).toMatchObject({ ok: true });
+          expect(
+            await update(
+              id,
+              set,
+              /bunnyVideoId/.test(set) ? migrator : workflow,
+            ),
+          ).toMatchObject({ ok: true });
         await processed(workflow, id);
         await expectHidden(id);
         const [row] = (await hidden()).filter(
@@ -983,10 +1008,15 @@ describe('approval waits for media processing (A2)', () => {
           cal,
           `CREATE type::record('story', $id) CONTENT {
              submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
-             primaryFormat: 'audio', media: [${AUDIO}] } RETURN VALUE id`,
+             primaryFormat: 'audio' } RETURN VALUE id`,
           { id },
         ),
       ).toMatchObject({ ok: true });
+      await run(
+        migrator,
+        `UPDATE type::record('story', $id) SET media = [${AUDIO}]`,
+        { id },
+      );
       await submit(cal, id);
       await processed(workflow, id);
       await approve(admin, id);
@@ -1020,7 +1050,7 @@ describe('approval waits for media processing (A2)', () => {
         id,
         `media = [{ format: 'video', bunnyVideoId: 'replacement-b', processing: 'ready',
                     width: 1080, height: 1920, durationSeconds: 60 }]`,
-        workflow,
+        migrator,
       );
       await expectHidden(id); // B differs from what was public: it waits for a moderator
       // A moderator reviews B and publishes it (ApproveStory's transaction).
@@ -1086,10 +1116,15 @@ describe('approval waits for media processing (A2)', () => {
           dee,
           `CREATE type::record('story', $id) CONTENT {
              submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
-             primaryFormat: 'audio', media: [${AUDIO}] } RETURN VALUE id`,
+             primaryFormat: 'audio' } RETURN VALUE id`,
           { id },
         ),
       ).toMatchObject({ ok: true });
+      await run(
+        migrator,
+        `UPDATE type::record('story', $id) SET media = [${AUDIO}]`,
+        { id },
+      );
       await submit(dee, id);
       await processed(workflow, id);
       await approve(admin, id);
@@ -1141,14 +1176,14 @@ describe('approval waits for media processing (A2)', () => {
       expect(await update(w, `image.processing = 'failed'`)).toMatchObject({
         ok: true,
       });
+      // D80: the person's media writes are dropped, whatever the status.
+      const media = (await story(v)).media;
       for (const set of [
         `media[0].durationSeconds = NONE`,
         `media = [{ format: 'video', bunnyVideoId: 'other' }]`,
       ]) {
-        expect(await update(v, set)).toEqual({
-          ok: false,
-          error: expect.stringContaining('locked after submission'),
-        });
+        expect(await update(v, set)).toMatchObject({ ok: true });
+        expect((await story(v)).media).toEqual(media);
       }
       expect(await update(w, `image.alt = 'Another alt'`)).toEqual({
         ok: false,
