@@ -49,6 +49,7 @@ UPSERT service:api_public_read SET secretHash = crypto::argon2::generate({{ .api
 UPSERT service:api_user        SET secretHash = crypto::argon2::generate({{ .api_user | toJson }});
 UPSERT service:api_admin       SET secretHash = crypto::argon2::generate({{ .api_admin | toJson }});
 UPSERT service:workflow        SET secretHash = crypto::argon2::generate({{ .workflow | toJson }});
+UPSERT service:housekeeping    SET secretHash = crypto::argon2::generate({{ .housekeeping | toJson }});
 
 DEFINE TABLE IF NOT EXISTS _identity SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD IF NOT EXISTS hash      ON _identity TYPE string;

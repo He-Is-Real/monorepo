@@ -675,6 +675,33 @@ retried`, on both RocksDB and the in-memory engine.
     `libs/database/integration/legal-documents.int-spec.ts`,
     `apps/api-admin/integration/legal-documents.int-spec.ts`.
 
+### M2 nightly housekeeping (D71; Joel, 2026-10-30)
+
+39. **`service:housekeeping`: the nightly Cloud Run Job's own login, for abandoned drafts and
+    orphaned videos.** A fifth service record, with its password in
+    `surreal-housekeeping-password`, written by SurrealDB's startup init like the others
+    (`infra/k8s/surrealdb/base/init.surql.tmpl`); the migrate Job waits for it.
+    - **Reads:** `story` (every row: its id, status, dates and media, to find expired drafts
+      and the Bunny ids still in use), `uploadGrant` (ids and dates) and `publicStory` (public
+      anyway). **Never a story's words:** `slug`, `title`, `description`, `body`, `bylineName`,
+      `image.alt` and `rejectionFeedback` have `FOR select WHERE $auth != service:housekeeping`,
+      so they read as absent to it. It can't read people, consent or audit rows.
+    - **Deletes:** a `story` only while it's a `draft` whose `updatedAt` is before
+      `fn::story::drafts_expire_before()`: the longest `draftRetentionMonths` of the published or
+      retired testimony forms (D71: "the form says so"; every form so far says 6), a month
+      counted as 31 days so nobody's draft goes earlier than promised; NONE, so nothing, while
+      no form is published. It's the same delete as a person's own (the owner's rule, added by
+      the profile PR): the story's events bump the person's fence and `story_erasure_cascade`
+      removes what hangs off it. Its upload grants stay for the upload limits (D113); the job
+      deletes the video at Bunny once nothing names it (`docs/media-runbook.md`).
+    - **Nothing else:** no create or update anywhere, no other delete.
+    - **`story.updatedAt`:** still the server's time on every write, except that a system user
+      (`$auth = NONE`: the migrator, dev's seed) may keep or supply one, so a migration doesn't
+      make a draft look touched and tests can age a draft.
+    - Tests: `apps/housekeeping/integration/housekeeping.int-spec.ts` (what it can read and
+      delete, and the chores end to end against a stand-in for Bunny); the generic per-service
+      suites (`schema`, `retention`, `migration`) include it through the harness's `SERVICES`.
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.

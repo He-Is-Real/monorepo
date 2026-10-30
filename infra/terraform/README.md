@@ -264,6 +264,34 @@ Starting the Job is an operation, not an infrastructure change: no apply. `ci-de
 start it from "Reset dev data" and "Dev behavioural tests" on `main`, nothing else. Media were
 uploaded once by a developer (`apps/dev-seed/README.md`); the Job never talks to Bunny.
 
+## Housekeeping
+
+The `housekeeping` Cloud Run Job (`modules/gcp/housekeeping.tf`, app `apps/housekeeping`) runs
+the nightly chores: abandoned drafts (D71) and orphaned story videos at Bunny
+([docs/media-runbook.md](../../docs/media-runbook.md), "Replaced and orphaned videos"). Cloud
+Scheduler starts it at 03:30 London time; both are in `europe-west2`, written out in OpenTofu.
+
+- **Identities.** `housekeeping` runs the Job: it reads `surreal-housekeeping-password` (granted
+  here) and `bunny-stream-api-key` (granted by the bunny root's `stream_key_readers`, which accepts
+  only this account), and signs in as `service:housekeeping`, whose permissions are in
+  [docs/db-permissions.md](../../docs/db-permissions.md) item 39. `housekeeping-scheduler` is
+  Scheduler's: `run.invoker` on this Job only, so it can start it (without overrides) and nothing
+  else. Scheduler calls the Cloud Run Admin API's `jobs.run` with an OAuth token (a Google API
+  takes OAuth, not an OIDC ID token).
+- **Settings** (`housekeeping` in the gcp module): `schedule`, `dry_run` (only logs what it would
+  delete; on in dev until a night's log looks right) and `max_deletions` (per chore per run,
+  1–500; default 50).
+- **Turning it on, in order:** (1) bootstrap, locally: enables `cloudscheduler.googleapis.com`
+  and gives tf-deployer `roles/cloudscheduler.admin`. (2) This module's gcp and cluster applies:
+  the two accounts, the database password, the Job and its trigger; the startup init writes the
+  `service:housekeeping` login, and the migrate Job waits for it. Until (3) the Job runs Google's
+  sample job. (3) A follow-up change, once Release Images has built `housekeeping`: select it in
+  `images.auto.tfvars` and add `stream_key_readers = ["serviceAccount:housekeeping@…"]` to the
+  bunny root. Not in the same apply as (2): `tofu-apply.yml` applies gcp and bunny side by side,
+  and a grant to an account that doesn't exist yet fails.
+- **Run it now:** `gcloud run jobs execute housekeeping --region europe-west2 --wait`; the logs are
+  one JSON line per chore with counts and ids only.
+
 ## Encryption
 
 State and saved plans are encrypted with Cloud KMS (`gcp_kms` key provider, `aes_gcm`, enforced:

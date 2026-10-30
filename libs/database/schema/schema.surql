@@ -107,7 +107,7 @@ DEFINE EVENT OVERWRITE _setting_reconcile ON _setting
 
 -- ---------------------------------------------------------------- identities (D13 B, D27 B)
 -- Services sign in as `service` records: service:api_public_read, :api_user, :api_admin,
--- :workflow. SurrealDB's startup init writes their argon2 secret hashes from the Secret Manager
+-- :workflow, :housekeeping (the nightly Cloud Run Job, apps/housekeeping). SurrealDB's startup init writes their argon2 secret hashes from the Secret Manager
 -- passwords (infra/k8s/surrealdb/base/init.surql.tmpl); the migrator never sees them. People
 -- reach SurrealDB only through api-user, in a session opened with their own Clerk token
 -- (DEFINE ACCESS clerk, access-clerk.surql). In-cluster system users remain: migrator (OWNER,
@@ -227,29 +227,44 @@ DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now
 -- by workflow only. A field write outside its scope is silently dropped (field PERMISSIONS,
 -- or the field's VALUE for `processing`), so check the stored state.
 DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:<ulid>
-  FOR select WHERE submitter = $auth.id OR $auth.id IN [service:api_admin, service:workflow],
+  -- housekeeping reads every story's status, dates and media ids (never its words: the content
+  -- fields below refuse it) to find abandoned drafts and orphaned Bunny videos.
+  FOR select WHERE submitter = $auth.id
+    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping],
   FOR create WHERE submitter = $auth.id AND status = 'draft'                -- own draft only,
     AND $auth.gdprDeletedAt = NONE                                          -- not erased, and only
     AND fn::consent::may_draft(submitter),         -- with Art 9 consent on the forms in force (D93)
   FOR update WHERE (submitter = $auth.id AND $auth.gdprDeletedAt = NONE)
     OR $auth.id IN [service:api_admin, service:workflow],
-  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
+  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]   -- erasure
+    -- D71: the nightly housekeeping Job deletes a draft nobody has touched for as long as the
+    -- testimony forms say (fn::story::drafts_expire_before), and nothing else; the same delete
+    -- as a person's own (events and cascade included).
+    OR ($auth.id = service:housekeeping AND status = 'draft'
+        AND fn::story::drafts_expire_before() != NONE
+        AND updatedAt < fn::story::drafts_expire_before());
 DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY;   -- owner can never be reassigned
 DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every command; ETag
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
+-- housekeeping never reads the words (select below): it needs only ids, status, dates and media.
 DEFINE FIELD OVERWRITE slug          ON story TYPE string           -- generated at create, unique
-  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
+    FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE title         ON story TYPE string
   ASSERT string::len($value) > 0 AND string::len($value) <= 140
-  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
+    FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE description   ON story TYPE string ASSERT string::len($value) <= 5000
-  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
+    FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE body          ON story TYPE option<string>   -- written stories
   -- A hard ceiling; the limit itself is a setting (W3: storyTextMax, story_text_limits).
   ASSERT $value = NONE OR string::len($value) <= 50000
-  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
+    FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE bylineName    ON story TYPE option<string>   -- story content chosen per story (D16); NONE = anonymous
-  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
+    FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE primaryFormat ON story TYPE string ASSERT $value IN ['video', 'audio', 'written']
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE tagRefs       ON story TYPE array<record<tag>> DEFAULT []
@@ -291,7 +306,8 @@ DEFINE FIELD OVERWRITE image.height  ON story TYPE int ASSERT $value > 0
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
   ASSERT $value = NONE OR string::len($value) <= 500
-  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
+    FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 -- A2: NONE = not processed yet (just uploaded or replaced); then 'processing', 'ready' or
 -- 'failed'. Only 'ready' can be approved and published (fn::story::approval_problem).
 DEFINE FIELD OVERWRITE image.processing ON story TYPE option<string>
@@ -356,14 +372,19 @@ DEFINE FIELD OVERWRITE consent ON story COMPUTED {
 DEFINE FIELD OVERWRITE submittedAt   ON story TYPE option<datetime>   -- set by the server on first submit
   VALUE IF $this.status = 'pending' { $before OR time::now() } ELSE { $before };
 DEFINE FIELD OVERWRITE createdAt     ON story TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE FIELD OVERWRITE updatedAt     ON story TYPE datetime VALUE time::now();
+-- The server time on every write. Only a system user ($auth = NONE: the migrator, dev's seed)
+-- may keep or supply another: so a migration doesn't make a draft look touched, and tests can
+-- age a draft for D71's 6-month expiry (housekeeping).
+DEFINE FIELD OVERWRITE updatedAt     ON story TYPE datetime
+  VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { time::now() };
 -- Moderation fields: only api-admin (D41; not workflow).
 DEFINE FIELD OVERWRITE lockedBy      ON story TYPE option<record<user>>
   PERMISSIONS FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
 DEFINE FIELD OVERWRITE lockedAt      ON story TYPE option<datetime>
   PERMISSIONS FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
 DEFINE FIELD OVERWRITE rejectionFeedback ON story TYPE option<string>
-  PERMISSIONS FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
+    FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
 DEFINE FIELD OVERWRITE approvedAt    ON story TYPE option<datetime>
   PERMISSIONS FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
 -- The content fields as one value, for comparing before/after.
@@ -1225,6 +1246,16 @@ DEFINE FIELD OVERWRITE coversPublicPublishing ON testimonyFormVersion TYPE bool 
 -- D71: untouched drafts are deleted after this many months (the form says so).
 DEFINE FIELD OVERWRITE draftRetentionMonths   ON testimonyFormVersion TYPE int
   ASSERT $value > 0 AND $value <= 120;
+-- D71: a draft last touched before this has expired, and housekeeping deletes it (story FOR
+-- delete). The longest retention any published or retired testimony form has promised, a month
+-- counted as 31 days, so nobody's draft goes earlier than their form said (every form so far: 6
+-- months, 186 days). NONE while no form is published: nothing expires.
+DEFINE FUNCTION OVERWRITE fn::story::drafts_expire_before() {
+  LET $months = math::max(SELECT VALUE draftRetentionMonths FROM testimonyFormVersion
+    WHERE status != 'draft');
+  IF $months = NONE OR $months < 1 { RETURN NONE };
+  RETURN time::now() - duration::from_days($months * 31);
+};
 DEFINE EVENT OVERWRITE testimonyFormVersion_lifecycle ON testimonyFormVersion
   WHEN true THEN { fn::form::check_change($event, $before, $after); fn::fence::legal() };
 
@@ -1965,8 +1996,10 @@ DEFINE EVENT OVERWRITE submissionLog_fence ON submissionLog
 -- storyVersion: the `If-Match` the command was given: the event refuses another (412).
 -- sizeBytes / durationSeconds: what the browser declared (the TUS link binds neither, D68); the
 -- limits are checked on them here and again at submit, with Bunny's own length once it has one.
+-- housekeeping reads them (ids and dates) so a video with a recent grant is never an orphan.
 DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
-  FOR select WHERE person = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
+  FOR select WHERE person = $auth.id
+    OR $auth.id IN [service:api_user, service:api_admin, service:housekeeping],
   FOR create WHERE $auth.id = service:api_user,
   FOR update NONE,
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
