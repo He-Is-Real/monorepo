@@ -8,6 +8,7 @@ import {
   ApiUserUnavailable,
   newIdempotencyKey,
 } from '@/lib/api-user';
+import { usePersonalSession } from '@/lib/personal-session';
 import { useOwnData, useOwnNotice } from './use-own-data';
 
 /** The contract's `ConsentState`, the part this shows. */
@@ -33,6 +34,14 @@ async function readSharing(api: ApiUser): Promise<boolean> {
  * nothing here grants it.
  */
 export function SocialSharingConsent() {
+  const session = usePersonalSession();
+  const owner = session.status === 'signed-in' ? session.userId : null;
+  // A fresh one for each person: someone signing in never inherits the last person's open
+  // confirmation, "Withdrawing…" or retry key, and a late answer only reaches the one that's gone.
+  return <SharingConsent key={owner ?? 'signed-out'} />;
+}
+
+function SharingConsent() {
   const own = useOwnData(readSharing);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
