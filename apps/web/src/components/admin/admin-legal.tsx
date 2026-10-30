@@ -61,10 +61,6 @@ interface VersionList {
 interface ServerPreview {
   pdfSha256: string;
   pdfSize: number;
-  originalSha256: string;
-  removed: string[];
-  pages: number;
-  pdfBase64: string;
 }
 
 type Loaded =
@@ -74,7 +70,7 @@ type Loaded =
 
 interface Preview {
   file: File;
-  /** An object URL of the cleaned copy: what would be published (D123). */
+  /** An object URL of the chosen file: exactly what would be published (D123). */
   url: string;
   server: ServerPreview;
   text: string;
@@ -122,9 +118,9 @@ const WRAPPING_BUTTON =
  * The legal documents for staff (D121, D123), Admin and above (api-admin checks it too). Choose
  * the privacy policy or the terms of use; its versions are listed newest first, read-only, each
  * with its PDF. To publish a new one (the first one too): choose the PDF and write (or paste) the
- * words the site shows, preview both (api-admin cleans the PDF and returns the cleaned copy,
- * which is what's published, shown by the browser itself, and what cleaning removed; the words
- * as the site renders them), then publish with a change note. What's published is exactly what
+ * words the site shows, preview both (the PDF as uploaded, which is what's published, shown by
+ * the browser itself, with the hash api-admin computed; the words as the site renders them),
+ * then publish with a change note. What's published is exactly what
  * was previewed: the hashes go with it, and api-admin refuses anything else.
  */
 export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
@@ -432,14 +428,9 @@ function PublishVersion({
     setStatus({ kind: 'busy' });
     try {
       const server = await askPreview(file);
-      const bytes = Uint8Array.from(atob(server.pdfBase64), (c) =>
-        c.charCodeAt(0),
-      );
       setPreview({
         file,
-        url: URL.createObjectURL(
-          new Blob([bytes], { type: 'application/pdf' }),
-        ),
+        url: URL.createObjectURL(file),
         server,
         text: words,
         textSha256: await sha256(new TextEncoder().encode(words)),
@@ -540,20 +531,8 @@ function PublishVersion({
           <h3 className="text-xl font-semibold text-foreground">Preview</h3>
           <div>
             <p className="mb-2 font-medium text-foreground">
-              The PDF, as it will be kept (cleaned)
+              The PDF, as it will be kept
             </p>
-            {preview.server.removed.length > 0 ? (
-              <p
-                className="mb-2 text-sm text-secondary-text"
-                data-preview-removed=""
-              >
-                Removed from the upload: {preview.server.removed.join('; ')}.
-              </p>
-            ) : (
-              <p className="mb-2 text-sm text-secondary-text">
-                Nothing needed removing.
-              </p>
-            )}
             <object
               data={preview.url}
               type="application/pdf"

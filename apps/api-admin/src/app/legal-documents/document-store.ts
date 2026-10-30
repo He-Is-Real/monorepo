@@ -1,10 +1,9 @@
 import { Storage } from '@google-cloud/storage';
 
 /**
- * Where the legal documents' PDFs are kept (D121, D123). Two buckets (OpenTofu's gcp root), both
- * write-once with a retention policy: the records (LEGAL_DOCUMENTS_BUCKET: the cleaned copies,
- * which api-public-read serves) and the originals (LEGAL_ORIGINALS_BUCKET: the uploads as
- * received, kept for reference and never served). api-admin may only create objects in either
+ * Where the legal documents' PDFs are kept (D121, D123): one bucket (OpenTofu's gcp root,
+ * LEGAL_DOCUMENTS_BUCKET), write-once with a retention policy, holding each version's PDF as the
+ * admin uploaded it, which api-public-read serves. api-admin may only create objects in it
  * (`roles/storage.objectCreator`: no read, overwrite or delete).
  */
 export interface DocumentStore {
@@ -16,7 +15,6 @@ export interface DocumentStore {
 }
 
 export const RECORDS_STORE = Symbol('RECORDS_STORE');
-export const ORIGINALS_STORE = Symbol('ORIGINALS_STORE');
 
 /** Google Cloud Storage, signed in with api-admin's own identity (ADC). */
 export class GcsDocumentStore implements DocumentStore {
@@ -44,7 +42,7 @@ export class GcsDocumentStore implements DocumentStore {
 
 /** A bucket from `name`, or `null` where none is configured (local runs): publishing is refused. */
 export function documentStoreFromEnv(
-  name: 'LEGAL_DOCUMENTS_BUCKET' | 'LEGAL_ORIGINALS_BUCKET',
+  name: 'LEGAL_DOCUMENTS_BUCKET',
   env: Record<string, string | undefined> = process.env,
 ): DocumentStore | null {
   const bucket = env[name]?.trim();

@@ -708,21 +708,16 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
            documentPath: $ppath, contentHash: crypto::sha256('policy p2'), text: 'policy p2',
            changeSummary: 'Clearer', effectiveFrom: time::now(),
            pdfSha256: $p, pdfSize: 10, pdfPath: $ppath,
-           originalSha256: $o, originalSize: 12, originalPath: $opath,
            source: 'admin', publishedBy: user:moderator };
          CREATE termsVersion:t1 CONTENT {
            text: 'terms t1', textHash: crypto::sha256('terms t1'), changeNote: 'First',
            pdfSha256: $t, pdfSize: 9, pdfPath: $tpath,
-           originalSha256: $o, originalSize: 12, originalPath: $topath,
            source: 'admin', publishedBy: user:moderator };`,
         {
           p: pdf('a'),
           ppath: `legal/privacy/p2/${pdf('a')}.pdf`,
           t: pdf('b'),
           tpath: `legal/terms/t1/${pdf('b')}.pdf`,
-          o: pdf('c'),
-          opath: `originals/privacy/p2/${pdf('c')}.pdf`,
-          topath: `originals/terms/t1/${pdf('c')}.pdf`,
         },
       );
       await publishForm(t, 'signup', 'withterms', {

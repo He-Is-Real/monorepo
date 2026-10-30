@@ -153,7 +153,6 @@
     "@nestjs/common": "^12.2.0",
     "@nestjs/core": "^12.2.0",
     "@nestjs/platform-express": "^12.2.0",
-    "pdf-lib": "^1.17.1",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.2",
     "tslib": "^2.3.0"

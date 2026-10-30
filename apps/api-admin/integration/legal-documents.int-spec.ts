@@ -11,22 +11,21 @@ import {
   TestDatabase,
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
-import { PDFDocument, PDFName, PDFString, StandardFonts } from 'pdf-lib';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import {
   type DocumentStore,
-  ORIGINALS_STORE,
   RECORDS_STORE,
 } from '../src/app/legal-documents/document-store';
 
 /**
  * The legal documents (D121, D123; Joel, 2026-10-30) through api-admin's real AppModule on its
- * own login (D13), a real SurrealDB 3.2.4 and the real PDF cleaner, as /admin/legal calls them:
- * preview (the cleaned copy), publish (the first version, then the next), the versions list.
- * Only the two buckets are stand-ins (they keep what they're given, write-once, like the real
- * ones): what's checked is what api-admin decides and what the database keeps. Every answer is
- * checked against api-admin.yaml.
+ * own login (D13) and a real SurrealDB 3.2.4, as /admin/legal calls them: preview, publish (the
+ * first version, then the next), the versions list. The admin's upload is the record, stored
+ * and bound exactly as uploaded (D123: admins are trusted, nothing is scanned or rewritten).
+ * Only the bucket is a stand-in (it keeps what it's given, write-once, like the real one): what's
+ * checked is what api-admin decides and what the database keeps. Every answer is checked
+ * against api-admin.yaml.
  */
 describe('legal documents (api-admin)', () => {
   const contract = new Contract('api-admin.yaml');
@@ -35,14 +34,13 @@ describe('legal documents (api-admin)', () => {
   let migrator: Surreal;
   let app: INestApplication;
   let url: string;
-  /** The buckets: path → bytes. */
+  /** The bucket: path → bytes. */
   const records = new Map<string, Buffer>();
-  const originals = new Map<string, Buffer>();
-  const bucket = (m: Map<string, Buffer>): DocumentStore => ({
+  const bucket: DocumentStore = {
     async create(path, bytes) {
-      if (!m.has(path)) m.set(path, Buffer.from(bytes));
+      if (!records.has(path)) records.set(path, Buffer.from(bytes));
     },
-  });
+  };
 
   const sha256 = (data: Buffer | string) =>
     createHash('sha256').update(data).digest('hex');
@@ -50,39 +48,24 @@ describe('legal documents (api-admin)', () => {
     authorization: `Bearer ${clerk.token(clerkUserId, { role })}`,
   });
 
-  /** A plain one-page PDF; fixed dates, so the same words make the same bytes. */
-  async function pdf(
-    words: string,
-    tweak?: (doc: PDFDocument) => void,
-  ): Promise<Buffer> {
-    const doc = await PDFDocument.create();
-    doc.setCreationDate(new Date('2026-10-30T00:00:00Z'));
-    doc.setModificationDate(new Date('2026-10-30T00:00:00Z'));
-    const page = doc.addPage([300, 300]);
-    page.drawText(words, {
-      x: 20,
-      y: 250,
-      size: 12,
-      font: await doc.embedFont(StandardFonts.Helvetica),
-    });
-    tweak?.(doc);
-    return Buffer.from(await doc.save({ useObjectStreams: false }));
-  }
-  const scripted = (words: string) =>
-    pdf(words, (doc) => {
-      doc.catalog.set(
-        PDFName.of('OpenAction'),
-        doc.context.obj({ S: 'JavaScript', JS: PDFString.of('app.alert(1)') }),
-      );
-    });
+  /**
+   * A PDF's bytes (the same words make the same bytes). api-admin never reads them: only the
+   * file's name must end in .pdf (Joel, 2026-10-30).
+   */
+  const pdf = async (words: string) =>
+    Buffer.from(`%PDF-1.7\n% ${words}\n%%EOF\n`, 'latin1');
 
-  const upload = (file: Buffer, fields: Record<string, string> = {}) => {
+  const upload = (
+    file: Buffer,
+    fields: Record<string, string> = {},
+    name = 'policy.pdf',
+  ) => {
     const body = new FormData();
     for (const [k, v] of Object.entries(fields)) body.append(k, v);
     body.append(
       'pdf',
       new Blob([new Uint8Array(file)], { type: 'application/pdf' }),
-      'policy.pdf',
+      name,
     );
     return body;
   };
@@ -90,13 +73,14 @@ describe('legal documents (api-admin)', () => {
     document: string,
     file: Buffer,
     who = as('user_admin'),
+    name = 'policy.pdf',
   ) {
     const res = await fetch(
       `${url}/v1/admin/legal-documents/${document}/previews`,
       {
         method: 'POST',
         headers: who,
-        body: upload(file),
+        body: upload(file, {}, name),
       },
     );
     expect(await contract.check('POST', res)).toEqual([]);
@@ -108,8 +92,9 @@ describe('legal documents (api-admin)', () => {
     file: Buffer,
     fields: Record<string, string> = {},
     who = as('user_admin'),
+    name = 'policy.pdf',
   ) {
-    const shown = (await (await preview(document, file, who)).json()) as {
+    const shown = (await (await preview(document, file, who, name)).json()) as {
       pdfSha256?: string;
     };
     const text = fields['text'] ?? `# ${document}\n\nThe words.\n`;
@@ -118,14 +103,18 @@ describe('legal documents (api-admin)', () => {
       {
         method: 'POST',
         headers: who,
-        body: upload(file, {
-          text,
-          textSha256: sha256(text),
-          pdfSha256: shown.pdfSha256 ?? sha256(file),
-          changeNote: 'First version',
-          basedOn: '',
-          ...fields,
-        }),
+        body: upload(
+          file,
+          {
+            text,
+            textSha256: sha256(text),
+            pdfSha256: shown.pdfSha256 ?? sha256(file),
+            changeNote: 'First version',
+            basedOn: '',
+            ...fields,
+          },
+          name,
+        ),
       },
     );
     expect(await contract.check('POST', res)).toEqual([]);
@@ -178,9 +167,7 @@ describe('legal documents (api-admin)', () => {
         }),
       )
       .overrideProvider(RECORDS_STORE)
-      .useValue(bucket(records))
-      .overrideProvider(ORIGINALS_STORE)
-      .useValue(bucket(originals))
+      .useValue(bucket)
       .overrideProvider(SECRET_MANAGER_CLIENT)
       .useValue({})
       .overrideProvider(SECRETS_PROJECT)
@@ -195,27 +182,20 @@ describe('legal documents (api-admin)', () => {
     await t?.close();
   });
 
-  it('previews the cleaned copy: scripts removed, nothing stored', async () => {
-    const file = await scripted('Terms of use, version 1');
+  it('previews the upload as it is: its hash and size, nothing stored', async () => {
+    const file = await pdf('Terms of use, version 1');
     const res = await preview('terms', file);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      pdfSha256: string;
-      originalSha256: string;
-      removed: string[];
-      pdfBase64: string;
-    };
-    expect(body.originalSha256).toBe(sha256(file));
-    expect(body.pdfSha256).not.toBe(sha256(file));
-    expect(body.removed.length).toBeGreaterThan(0);
-    const cleaned = Buffer.from(body.pdfBase64, 'base64');
-    expect(sha256(cleaned)).toBe(body.pdfSha256);
-    expect(cleaned.toString('latin1')).not.toMatch(/JavaScript/);
-    expect([records.size, originals.size]).toEqual([0, 0]);
+    expect(await res.json()).toEqual({
+      document: 'terms',
+      pdfSha256: sha256(file),
+      pdfSize: file.length,
+    });
+    expect(records.size).toBe(0);
   });
 
-  it('publishes the first terms of use: the cleaned copy is the record, the original kept privately, audited', async () => {
-    const file = await scripted('Terms of use, version 1');
+  it('publishes the first terms of use: the upload, byte for byte, is the record; audited', async () => {
+    const file = await pdf('Terms of use, version 1');
     const res = await publish('terms', file, { changeNote: 'First terms' });
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ id: 'v1', version: 1 });
@@ -224,12 +204,12 @@ describe('legal documents (api-admin)', () => {
       migrator,
       `SELECT * FROM termsVersion:v1`,
     );
-    const cleaned = records.get(String(row['pdfPath']));
-    expect(cleaned).toBeDefined();
-    expect(sha256(cleaned as Buffer)).toBe(row['pdfSha256']);
-    expect(row['pdfPath']).toBe(`legal/terms/v1/${row['pdfSha256']}.pdf`);
-    expect(originals.get(String(row['originalPath']))?.equals(file)).toBe(true);
-    expect(row['originalSha256']).toBe(sha256(file));
+    expect(records.get(String(row['pdfPath']))?.equals(file)).toBe(true);
+    expect(row['pdfSha256']).toBe(sha256(file));
+    expect(row['pdfSize']).toBe(file.length);
+    expect(row['pdfPath']).toBe(`legal/terms/v1/${sha256(file)}.pdf`);
+    // One copy only: nothing else is stored (Joel, 2026-10-30).
+    expect([...records.keys()]).toEqual([row['pdfPath']]);
     expect(row).toMatchObject({
       source: 'admin',
       changeNote: 'First terms',
@@ -334,32 +314,39 @@ describe('legal documents (api-admin)', () => {
     ).toEqual(['v1', 'v2']);
   });
 
-  it.each([
-    ['not a PDF', async () => Buffer.from('hello'), 'pdf_not_a_pdf'],
-    [
-      'encrypted',
-      async () =>
-        Buffer.from(
-          (await pdf('Locked'))
-            .toString('latin1')
-            .replace(
-              'trailer\n<<',
-              'trailer\n<<\n/Encrypt << /Filter /Standard /V 1 /R 2 /O <00> /U <00> /P -4 >>',
-            ),
-          'latin1',
-        ),
-      'pdf_encrypted',
-    ],
-  ])('refuses %s, storing and writing nothing', async (_, make, code) => {
-    const before = [records.size, originals.size, (await audit()).length];
-    const res = await publish('terms', await make(), { basedOn: 'v2' });
+  it('refuses a file whose name doesn’t end in .pdf, storing and writing nothing', async () => {
+    const before = [records.size, (await audit()).length];
+    const res = await publish(
+      'terms',
+      await pdf('Terms as a Word file'),
+      { basedOn: 'v2' },
+      as('user_admin'),
+      'terms.docx',
+    );
     expect(res.status).toBe(400);
     expect(
       ((await res.json()) as { errors: { code: string }[] }).errors[0].code,
-    ).toBe(code);
-    expect([records.size, originals.size, (await audit()).length]).toEqual(
-      before,
+    ).toBe('pdf_not_a_pdf');
+    expect([records.size, (await audit()).length]).toEqual(before);
+  });
+
+  it('never reads the file: any bytes named .pdf (in any case) are published as they are', async () => {
+    const file = Buffer.from('Not what a PDF starts with', 'latin1');
+    const res = await publish(
+      'terms',
+      file,
+      { basedOn: 'v2', changeNote: 'Named in capitals' },
+      as('user_admin'),
+      'TERMS.PDF',
     );
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+    const [path] = await rows<string>(
+      migrator,
+      `SELECT VALUE pdfPath FROM type::record('termsVersion', $id)`,
+      { id },
+    );
+    expect(records.get(path)?.equals(file)).toBe(true);
   });
 
   it('refuses a PDF over 10 MB before reading it', async () => {

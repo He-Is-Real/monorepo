@@ -248,9 +248,8 @@ control.
   **tf-deployer could grant itself access to Bunny through its service-account roles. That's
   accepted (D57).** It would take a change to code on `main` and an approved apply.
 - **Backups bucket:** only the backup job (create-only) and developers (restores).
-- **Legal documents and originals buckets:** api-admin creates in both; api-public-read reads
-  the cleaned documents only, never the originals; nobody may delete (retention policy). See
-  "Legal documents bucket".
+- **Legal documents bucket:** api-admin creates; api-public-read reads; nobody may delete
+  (retention policy). See "Legal documents bucket".
 - **`dev/bunny/`:** readable by developers and `tf-bunny`, and by Google-managed service agents
   acting for their own services; its state is encrypted with `tofu-bunny`, which only developers
   and `tf-bunny` can use. Object names stay listable for the other CI identities, contents don't.
@@ -270,18 +269,12 @@ uploaded once by a developer (`apps/dev-seed/README.md`); the Job never talks to
 ## Legal documents bucket
 
 The privacy policy and the terms of use are kept as PDFs, every version forever, because people
-agreed to a specific text and we must be able to show it again. Two buckets
-(`modules/gcp/legal_documents.tf`), set up the same way:
-
-- **`<project>-legal-documents`, the record.** When an admin uploads a new version, the server
-  cleans the PDF (strips scripts and other active content) and stores the cleaned copy at
-  `legal/<document>/<versionId>/<sha256>.pdf`, document `privacy` or `terms`. This is the copy
-  people are shown and the one that counts: it's safe to open in anyone's browser.
-- **`<project>-legal-originals`, the upload as received,** at
-  `originals/<document>/<versionId>/<sha256>.pdf`. Kept privately in case we ever need to show
-  exactly what was uploaded, but never served: it may still carry what the cleaning removed.
-
-Both:
+agreed to a specific text and we must be able to show it again. One bucket,
+**`<project>-legal-documents`** (`modules/gcp/legal_documents.tf`): when an admin publishes a new
+version, api-admin stores the PDF exactly as uploaded at
+`legal/<document>/<versionId>/<sha256>.pdf`, document `privacy` or `terms` (D123: admins are
+trusted, so nothing is scanned, rewritten or copied). That file is what people are shown and the
+one that counts.
 
 - **London** (`EUROPE-WEST2`), private (uniform access, public access prevention enforced).
 - **Write-once paths:** a new text is a new object, never an overwrite.
@@ -295,13 +288,12 @@ Both:
   removed there. Locking is irreversible; every other environment refuses to plan unless it's
   locked, and it must be locked before Real stories (decision D124).
 
-Who can do what (bucket-level grants only, nothing else on either bucket):
+Who can do what (bucket-level grants only, nothing else on the bucket):
 
-- **api-admin** may only create objects, in both (`objectCreator`: no delete, so no overwrite; the
-  app also writes with `ifGenerationMatch=0`). It gets `LEGAL_DOCUMENTS_BUCKET` and
-  `LEGAL_ORIGINALS_BUCKET`.
-- **api-public-read** may only read the record (`objectViewer` on legal-documents) and streams it
-  to the browser. It gets `LEGAL_DOCUMENTS_BUCKET` only, and nothing at all on the originals.
+- **api-admin** may only create objects (`objectCreator`: no delete, so no overwrite; the app also
+  writes with `ifGenerationMatch=0`). It gets `LEGAL_DOCUMENTS_BUCKET`.
+- **api-public-read** may only read (`objectViewer`) and streams the PDFs to the browser. It gets
+  `LEGAL_DOCUMENTS_BUCKET`.
 - **web** gets `API_ADMIN_URL` for the browser's own calls to api-admin (uploads); web's server
   never calls it.
 
@@ -309,7 +301,7 @@ Who can do what (bucket-level grants only, nothing else on either bucket):
 `legal/privacy/dev_placeholder/<sha256>.pdf` and `libs/legal/terms/dev_placeholder.pdf` as
 `legal/terms/dev_placeholder/<sha256>.pdf`, so dev has a privacy policy and terms of record. A
 changed file becomes a new object; OpenTofu forgets the old one rather than deleting it (retention
-would refuse the delete). Nothing is seeded into the originals bucket.
+would refuse the delete).
 
 Tested in `modules/gcp/tests/legal_documents.tftest.hcl`.
 

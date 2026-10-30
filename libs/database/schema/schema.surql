@@ -945,11 +945,11 @@ DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
 -- just the same document? but one needs an approve button") this table is the privacy policy:
 -- every consent binds the version in force (the privacy document of D20 and D75 is the same
 -- record, so nothing in the ledger moves). Each version has two parts, published together: its
--- PDF of record (the cleaned copy api-admin made, D123: pdfSha256, pdfSize, pdfPath in the legal
+-- PDF of record (the admin's upload as it is, D123: pdfSha256, pdfSize, pdfPath in the legal
 -- documents bucket, kept for ever) and the web text the site renders (text, contentHash). An admin
 -- publishes a version through api-admin (PublishPrivacyPolicy: source 'admin', publishedBy,
--- changeSummary as the change note, `material` when it requires re-acceptance, the original
--- upload kept privately: original*). The repo's versions (dev's placeholder) have source NONE.
+-- changeSummary as the change note, `material` when it requires re-acceptance). The repo's
+-- versions (dev's placeholder) have source NONE.
 DEFINE TABLE OVERWRITE dpaVersion SCHEMAFULL PERMISSIONS        -- id = dpaVersion:v1
   FOR select WHERE status = 'published' OR $auth.id = service:api_admin,
   FOR create, update WHERE $auth.id = service:api_admin,
@@ -981,18 +981,12 @@ DEFINE EVENT OVERWRITE dpa_immutable ON dpaVersion
       THROW 'published DPA versions are immutable';
     };
   };
--- D121, D123: the PDF of record and, for an admin's version, the original upload kept privately.
+-- D121, D123: the PDF of record.
 DEFINE FIELD OVERWRITE pdfSha256      ON dpaVersion TYPE option<string>
   ASSERT $value = NONE OR string::matches($value, '^[0-9a-f]{64}$');
 DEFINE FIELD OVERWRITE pdfSize        ON dpaVersion TYPE option<int>
   ASSERT $value = NONE OR ($value > 0 AND $value <= 10485760);
 DEFINE FIELD OVERWRITE pdfPath        ON dpaVersion TYPE option<string>;
-DEFINE FIELD OVERWRITE originalSha256 ON dpaVersion TYPE option<string>
-  ASSERT $value = NONE OR string::matches($value, '^[0-9a-f]{64}$');
-DEFINE FIELD OVERWRITE originalSize   ON dpaVersion TYPE option<int>
-  ASSERT $value = NONE OR ($value > 0 AND $value <= 10485760);
-DEFINE FIELD OVERWRITE originalPath   ON dpaVersion TYPE option<string>
-  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
 -- 'admin' when published through api-admin; NONE for the repo's versions.
 DEFINE FIELD OVERWRITE source         ON dpaVersion TYPE option<string> ASSERT $value = NONE OR $value = 'admin';
 DEFINE FIELD OVERWRITE publishedBy    ON dpaVersion TYPE option<record<user>>
@@ -1012,29 +1006,22 @@ DEFINE EVENT OVERWRITE dpa_document ON dpaVersion
 DEFINE EVENT OVERWRITE dpa_legal_fence ON dpaVersion
   WHEN true THEN { fn::fence::legal() };
 -- D121, D123: a legal document's PDF of record comes whole (sha256, size, its write-once path
--- legal/<document>/<id>/<sha256>.pdf), and so does its original upload
--- (originals/<document>/<id>/<sha256>.pdf, in the private originals bucket). A version an admin
--- publishes has both and names who published it; a repo version names nobody and has no original.
+-- legal/<document>/<id>/<sha256>.pdf). A version an admin publishes has it and names who
+-- published it; a repo version names nobody.
 DEFINE FUNCTION OVERWRITE fn::legal::check_document($document: string, $f: any) {
   LET $id = <string> record::id($f.id);
   LET $pdf = [$f.pdfSha256, $f.pdfSize, $f.pdfPath].filter(|$v| $v != NONE);
-  LET $original = [$f.originalSha256, $f.originalSize, $f.originalPath].filter(|$v| $v != NONE);
-  IF (array::len($pdf) != 0 AND array::len($pdf) != 3)
-    OR (array::len($original) != 0 AND array::len($original) != 3) {
-    THROW 'a legal document’s PDF, and its original, come with their sha256, size and path';
+  IF array::len($pdf) != 0 AND array::len($pdf) != 3 {
+    THROW 'a legal document’s PDF comes with its sha256, size and path';
   };
   IF $f.pdfSha256 != NONE AND $f.pdfPath != 'legal/' + $document + '/' + $id + '/' + $f.pdfSha256 + '.pdf' {
     THROW 'a legal document’s PDF lives at legal/<document>/<id>/<pdfSha256>.pdf';
   };
-  IF $f.originalSha256 != NONE
-    AND $f.originalPath != 'originals/' + $document + '/' + $id + '/' + $f.originalSha256 + '.pdf' {
-    THROW 'a legal document’s original lives at originals/<document>/<id>/<originalSha256>.pdf';
+  IF $f.source = 'admin' AND ($f.pdfSha256 = NONE OR $f.publishedBy = NONE) {
+    THROW 'a legal document version an admin publishes has its PDF and who published it';
   };
-  IF $f.source = 'admin' AND ($f.pdfSha256 = NONE OR $f.originalSha256 = NONE OR $f.publishedBy = NONE) {
-    THROW 'a legal document version an admin publishes has its PDF, its original and who published it';
-  };
-  IF $f.source = NONE AND ($f.publishedBy != NONE OR $f.originalSha256 != NONE) {
-    THROW 'only a version an admin published names who published it and keeps an original';
+  IF $f.source = NONE AND $f.publishedBy != NONE {
+    THROW 'only a version an admin published names who published it';
   };
 };
 -- The document's words, copied from libs/legal/dpa/<id>.md by dpa-sync.surql (D84): what a
@@ -1117,12 +1104,6 @@ DEFINE FIELD OVERWRITE textHash       ON termsVersion TYPE string ASSERT string:
 DEFINE FIELD OVERWRITE pdfSha256      ON termsVersion TYPE string ASSERT string::matches($value, '^[0-9a-f]{64}$');
 DEFINE FIELD OVERWRITE pdfSize        ON termsVersion TYPE int ASSERT $value > 0 AND $value <= 10485760;
 DEFINE FIELD OVERWRITE pdfPath        ON termsVersion TYPE string;
-DEFINE FIELD OVERWRITE originalSha256 ON termsVersion TYPE option<string>
-  ASSERT $value = NONE OR string::matches($value, '^[0-9a-f]{64}$');
-DEFINE FIELD OVERWRITE originalSize   ON termsVersion TYPE option<int>
-  ASSERT $value = NONE OR ($value > 0 AND $value <= 10485760);
-DEFINE FIELD OVERWRITE originalPath   ON termsVersion TYPE option<string>
-  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
 DEFINE FIELD OVERWRITE changeNote     ON termsVersion TYPE option<string>
   ASSERT $value = NONE OR (string::len(string::trim($value)) > 0 AND string::len($value) <= 500);
 -- D93, D122: people who accepted an older version accept this one at their next sign-in.

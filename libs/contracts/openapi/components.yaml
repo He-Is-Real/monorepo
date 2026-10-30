@@ -1268,7 +1268,7 @@ components:
 
     LegalDocumentPdf:
       type: object
-      description: A version's PDF of record (D123, the cleaned copy), kept for ever.
+      description: A version's PDF of record (D123, as the admin uploaded it), kept for ever.
       required: [sha256, size]
       additionalProperties: false
       properties:
@@ -1331,11 +1331,11 @@ components:
             $ref: '#/components/schemas/LegalDocumentVersion'
 
     AdminLegalDocumentVersion:
-      description: A version as api-admin lists it, with who published it and its original upload.
+      description: A version as api-admin lists it, with who published it.
       allOf:
         - $ref: '#/components/schemas/LegalDocumentVersion'
         - type: object
-          required: [publishedBy, source, requiresReacceptance, original]
+          required: [publishedBy, source, requiresReacceptance]
           properties:
             publishedBy:
               type: [string, 'null']
@@ -1345,11 +1345,6 @@ components:
               enum: [admin, repo]
             requiresReacceptance:
               type: boolean
-            original:
-              description: The upload as received (D123), kept privately, never served.
-              oneOf:
-                - $ref: '#/components/schemas/LegalDocumentPdf'
-                - type: 'null'
 
     AdminLegalDocumentVersionList:
       type: object
@@ -1375,19 +1370,10 @@ components:
     LegalDocumentPreview:
       type: object
       description: |
-        D123: the cleaned copy of an upload, the one that would be published: its SHA-256 (a publish must
-        name it), what cleaning removed, and the bytes (base64) for the admin's preview. Nothing is stored.
-      required:
-        [
-          document,
-          pdfSha256,
-          pdfSize,
-          originalSha256,
-          originalSize,
-          removed,
-          pages,
-          pdfBase64,
-        ]
+        D123: an upload's SHA-256 (a publish must name it) and size, for the admin's preview; the browser shows
+        the file itself. The upload is the record as it is (admins are trusted). Nothing is stored.
+      required: [document, pdfSha256, pdfSize]
+      additionalProperties: false
       properties:
         document:
           $ref: '#/components/schemas/LegalDocumentName'
@@ -1396,20 +1382,6 @@ components:
           pattern: '^[0-9a-f]{64}$'
         pdfSize:
           type: integer
-        originalSha256:
-          type: string
-          pattern: '^[0-9a-f]{64}$'
-        originalSize:
-          type: integer
-        removed:
-          type: array
-          items:
-            type: string
-          description: What cleaning took out, in plain words (e.g. "JavaScript actions").
-        pages:
-          type: integer
-        pdfBase64:
-          type: string
 
     LegalDocumentUpload:
       type: object
@@ -1424,13 +1396,13 @@ components:
       type: object
       description: |
         Command `PublishLegalDocument` (multipart/form-data): a new version of one legal document, its PDF of
-        record (the cleaned copy of `pdf`) and its web text published together.
+        record (`pdf`, stored as uploaded) and its web text published together.
       required: [pdf, text, textSha256, pdfSha256, changeNote, basedOn]
       properties:
         pdf:
           type: string
           format: binary
-          description: The PDF as uploaded (the server cleans it again; the same upload gives the same copy).
+          description: The PDF, at most 10 MB, its file name ending in `.pdf` (any case; the bytes are never read). Stored and served exactly as uploaded.
         text:
           type: string
           maxLength: 200000
@@ -1442,7 +1414,7 @@ components:
         pdfSha256:
           type: string
           pattern: '^[0-9a-f]{64}$'
-          description: The SHA-256 of the cleaned copy the preview showed.
+          description: The SHA-256 of the PDF the preview showed.
         changeNote:
           type: string
           minLength: 1

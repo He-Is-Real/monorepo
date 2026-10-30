@@ -606,11 +606,11 @@ paths:
       operationId: publishLegalDocument
       summary: Publish a new version of one legal document, its PDF and web text together
       description: |
-        Command `PublishLegalDocument`. Cleans the uploaded PDF (D123: at most 10 MB; refused if it can't be read,
-        is encrypted or is too complex; scripts, actions, embedded files and XFA are removed), refuses a cleaned
-        copy or text whose SHA-256 isn't what the preview showed, stores the cleaned copy (the record) and the
-        original (kept privately) once each, then writes the version (next `v<n>`, in force at once) and an
-        audit row with the admin, in one transaction. The first version of a document may be published here
+        Command `PublishLegalDocument`. The uploaded PDF is the record, stored exactly as uploaded (D123: admins
+        are trusted, the file is never read or rewritten; at most 10 MB, and a file whose name doesn't end in `.pdf`
+        is `400 pdf_not_a_pdf`). Refuses a PDF or text whose SHA-256 isn't what the preview showed, stores the PDF
+        once, then writes the version (next `v<n>`, in force at once) and an audit row with the admin, in one
+        transaction. The first version of a document may be published here
         (`basedOn` empty). Creates with a natural key take no `Idempotency-Key` (D29): a PDF already published
         as this document is `409 already_published`; another version published meanwhile is
         `409 document_changed`.
@@ -661,8 +661,8 @@ paths:
     post:
       tags: [LegalDocuments]
       operationId: previewLegalDocument
-      summary: The cleaned copy of an uploaded PDF, for the admin's preview
-      description: Cleans the PDF as a publish would (D123) and returns the copy, its SHA-256 and what was removed. Stores nothing.
+      summary: An uploaded PDF's SHA-256 and size, for the admin's preview
+      description: Checks the upload as a publish would (D123, at most 10 MB and a name ending in `.pdf`) and returns its SHA-256, which the publish must name. Stores nothing.
       x-required-role: Admin
       x-milestone: M2
       requestBody:
@@ -673,7 +673,7 @@ paths:
               $ref: './components.yaml#/components/schemas/LegalDocumentUpload'
       responses:
         '200':
-          description: The cleaned copy.
+          description: The upload's SHA-256 and size.
           headers:
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPrivate'

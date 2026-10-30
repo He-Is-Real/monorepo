@@ -13,7 +13,7 @@ import { approve, draft, submit } from './support/world';
 
 /**
  * D121–D123 (Joel, 2026-10-30): the two legal documents, the privacy policy (dpaVersion) and the
- * terms of use (termsVersion), each a line of versions with a PDF of record (the cleaned copy)
+ * terms of use (termsVersion), each a line of versions with a PDF of record (as the admin uploaded it)
  * beside the web text, kept for ever. Every grant binds the privacy policy in force and, on a
  * sign-up version asking for them, the terms of use in force; a version requiring re-acceptance
  * asks again under D93's rules, and nothing ever hides a story. Evidence v4 covers the PDFs.
@@ -34,9 +34,6 @@ const policy = (id: string, material: boolean, c: string) => ({
   pdfSha256: pdf(c),
   pdfSize: 1000,
   pdfPath: `legal/privacy/${id}/${pdf(c)}.pdf`,
-  originalSha256: pdf('e'),
-  originalSize: 1200,
-  originalPath: `originals/privacy/${id}/${pdf('e')}.pdf`,
   source: 'admin',
 });
 /** api-admin's publish of a terms of use version (PublishTerms's row). */
@@ -48,9 +45,6 @@ const terms = (id: string, requires: boolean, c: string) => ({
   pdfSha256: pdf(c),
   pdfSize: 900,
   pdfPath: `legal/terms/${id}/${pdf(c)}.pdf`,
-  originalSha256: pdf('d'),
-  originalSize: 950,
-  originalPath: `originals/terms/${id}/${pdf('d')}.pdf`,
   source: 'admin',
 });
 
@@ -136,19 +130,19 @@ describe('the legal documents (D121–D123)', () => {
       ).toEqual([['terms t1', pdf('c')]]);
     });
 
-    it('an admin version comes whole: its PDF at its path, its original, who published it and a note', async () => {
+    it('an admin version comes whole: its PDF at its path, who published it and a note', async () => {
       const broken: [string, object][] = [
         [
           'a PDF elsewhere',
           { ...policy('p9', false, '1'), pdfPath: 'elsewhere.pdf' },
         ],
         [
-          'no original',
+          'no PDF',
           {
             ...policy('p9', false, '1'),
-            originalSha256: undefined,
-            originalSize: undefined,
-            originalPath: undefined,
+            pdfSha256: undefined,
+            pdfSize: undefined,
+            pdfPath: undefined,
           },
         ],
         [
@@ -194,19 +188,19 @@ describe('the legal documents (D121–D123)', () => {
       ).toBe(false);
     });
 
-    it('the public reads the documents, but never who published them or where the originals are', async () => {
+    it('the public reads the documents, but never who published them', async () => {
       expect(
         await rows(
           publicRead,
-          `SELECT VALUE [pdfSha256, publishedBy, originalPath] FROM dpaVersion:p2`,
+          `SELECT VALUE [pdfSha256, publishedBy] FROM dpaVersion:p2`,
         ),
-      ).toEqual([[pdf('a'), undefined, undefined]]);
+      ).toEqual([[pdf('a'), undefined]]);
       expect(
         await rows(
           publicRead,
-          `SELECT VALUE [pdfSha256, publishedBy, originalPath] FROM termsVersion:t1`,
+          `SELECT VALUE [pdfSha256, publishedBy] FROM termsVersion:t1`,
         ),
-      ).toEqual([[pdf('c'), undefined, undefined]]);
+      ).toEqual([[pdf('c'), undefined]]);
       expect(
         await rows(
           admin,

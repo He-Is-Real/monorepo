@@ -16,9 +16,9 @@ import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 //   version (PDF)" and, folded away, the previous versions with theirs (plain links: the browser
 //   shows the PDF itself, no pop-up);
 // - the sign-up step's terms box links the terms of use, outside the box's own words;
-// - /admin/legal, for Admins: choose a document, upload a PDF and its words, preview the cleaned
-//   copy, publish; the new version is in force and the old ones stay listed. The stub api-admin
-//   (stub-api-user.mjs) keeps each test's versions apart by its session.
+// - /admin/legal, for Admins: choose a document, upload a PDF and its words, preview them (the
+//   PDF exactly as uploaded, D123), publish; the new version is in force and the old ones stay
+//   listed. The stub api-admin (stub-api-user.mjs) keeps each test's versions apart by its session.
 
 const LEGAL = resolve(__dirname, '../../../libs/legal');
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
@@ -139,7 +139,7 @@ test('the sign-up step’s terms box links the terms of use, outside its words',
 });
 
 test.describe('/admin/legal', () => {
-  test('an admin publishes a new privacy policy: the cleaned copy previewed, in force, the old one still listed', async ({
+  test('an admin publishes a new privacy policy: the upload previewed as it is, in force, the old one still listed', async ({
     page,
   }) => {
     await useSession(page, `admin-${randomUUID().slice(0, 8)}`);
@@ -234,6 +234,26 @@ test.describe('/admin/legal', () => {
     // Still on the publishing page: never sent to the sign-up step.
     expect(new URL(page.url()).pathname).toBe('/admin/legal');
     await expect(page.locator('[data-versions="privacy"] > li')).toHaveCount(1);
+  });
+
+  test('a file whose name doesn’t end in .pdf is refused with a plain message', async ({
+    page,
+  }) => {
+    await useSession(page, `admin-${randomUUID().slice(0, 8)}`);
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
+    await page.getByLabel('The PDF (at most 10 MB)').setInputFiles({
+      name: 'privacy.docx',
+      mimeType: 'application/octet-stream',
+      buffer: readFileSync(`${LEGAL}/dpa/dev_placeholder.pdf`),
+    });
+    await page
+      .getByLabel('The words the site shows (Markdown)')
+      .fill('# Privacy policy\n\nWords.\n');
+    await page.getByRole('button', { name: 'Preview' }).click();
+    await expect(
+      page.getByText('Choose a PDF: the file’s name must end in .pdf.'),
+    ).toBeVisible();
+    await expect(page.locator('[data-preview]')).toHaveCount(0);
   });
 
   test('only for admins: anyone else is told so and sees no versions', async ({

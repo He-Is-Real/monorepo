@@ -20,10 +20,10 @@
 //   so a story hidden there leaves the list too.
 // - api-admin's legal document routes (D121, D123), on the same port for the stub (web's
 //   API_ADMIN_URL points here; the real ones are two services): `GET /v1/admin/legal-documents/
-//   {privacy|terms}/versions`, `POST …/previews` (the "cleaned" copy: the stub keeps the bytes)
+//   {privacy|terms}/versions`, `POST …/previews` (the upload's hash)
 //   and `POST …/versions`, Admin and above only (sessions starting `admin` are Admins; everyone
 //   else 403). Each document starts with dev's placeholder version; a publish is checked like the
-//   real one (a PDF signature, the preview's hashes, the version in force it was based on) and
+//   real one (a file name ending in .pdf, the preview's hashes, the version in force it was based on) and
 //   kept per session. A session seeded with `noLegalDocuments` starts with none (a fresh
 //   environment's first publication).
 //
@@ -123,7 +123,6 @@ function devVersions(document) {
       requiresReacceptance: document === 'privacy',
       textHash: sha256(text),
       pdf: { sha256: sha256(pdf), size: pdf.length },
-      original: null,
       text,
     },
   ];
@@ -143,7 +142,7 @@ const listOf = (document, versions) => ({
     : null,
   data: versions.map(({ text: _t, ...v }) => v),
 });
-const invalid = (res, pointer, code) => {
+const invalid = (res, pointer, code, message = code) => {
   res.writeHead(400, {
     'content-type': 'application/problem+json',
     'cache-control': 'no-store',
@@ -154,7 +153,7 @@ const invalid = (res, pointer, code) => {
       title: 'Validation failed',
       status: 400,
       code: 'validation_failed',
-      errors: [{ pointer, code, message: code }],
+      errors: [{ pointer, code, message }],
     }),
   );
 };
@@ -169,28 +168,23 @@ async function formOf(req) {
     return null;
   }
 }
-/** The uploaded PDF's bytes, if it looks like one. */
+const NOT_A_PDF = 'Choose a PDF: the file’s name must end in .pdf.';
+/** The uploaded PDF's bytes, if its file name ends in .pdf (the bytes are never checked). */
 async function pdfOf(fields) {
   const pdf = fields?.get('pdf');
-  if (!(pdf instanceof Blob)) return null;
-  const file = Buffer.from(await pdf.arrayBuffer());
-  return file.subarray(0, 5).toString('latin1') === '%PDF-' ? file : null;
+  if (!(pdf instanceof File) || !/\.pdf$/i.test(pdf.name)) return null;
+  return Buffer.from(await pdf.arrayBuffer());
 }
 
-/** `POST …/previews`: the stub's "cleaned" copy is the upload itself. */
+/** `POST …/previews`: the upload's hash and size, as api-admin answers. */
 async function previewDocument(req, res, document) {
   const file = await pdfOf(await formOf(req));
-  if (!file) return invalid(res, '/pdf', 'pdf_not_a_pdf');
+  if (!file) return invalid(res, '/pdf', 'pdf_not_a_pdf', NOT_A_PDF);
   res.setHeader('cache-control', 'private, no-store');
   return send(res, 200, {
     document,
     pdfSha256: sha256(file),
     pdfSize: file.length,
-    originalSha256: sha256(file),
-    originalSize: file.length,
-    removed: [],
-    pages: 1,
-    pdfBase64: file.toString('base64'),
   });
 }
 
@@ -198,7 +192,7 @@ async function previewDocument(req, res, document) {
 async function publishDocument(req, res, session, document) {
   const fields = await formOf(req);
   const file = await pdfOf(fields);
-  if (!file) return invalid(res, '/pdf', 'pdf_not_a_pdf');
+  if (!file) return invalid(res, '/pdf', 'pdf_not_a_pdf', NOT_A_PDF);
   // Browsers send multipart text with CRLF line ends: as api-admin, hash it with LF.
   const text = String(fields.get('text') ?? '').replace(/\r\n?/g, '\n');
   const note = String(fields.get('changeNote') ?? '').trim();
@@ -221,7 +215,6 @@ async function publishDocument(req, res, session, document) {
     requiresReacceptance: fields.get('requiresReacceptance') === 'true',
     textHash: sha256(text),
     pdf: { sha256: sha256(file), size: file.length },
-    original: { sha256: sha256(file), size: file.length },
     text,
   });
   res.setHeader('location', `/v1/admin/legal-documents/${document}/versions`);

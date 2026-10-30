@@ -35,10 +35,11 @@ import type { Surreal } from 'surrealdb';
 import {
   type DocumentStore,
   documentStoreFromEnv,
-  ORIGINALS_STORE,
   RECORDS_STORE,
 } from './document-store';
-import { cleanPdf, MAX_PDF_BYTES, PdfRefused } from './pdf';
+
+/** The largest PDF an admin can upload (multer answers 413 above it). */
+export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
 /** D121: the two legal documents and the table each one's versions live in. */
 const DOCUMENTS = {
@@ -67,6 +68,8 @@ const sha256 = (data: Buffer | string) =>
 interface UploadedPdf {
   buffer: Buffer;
   size: number;
+  /** The file's name on the admin's computer. */
+  originalname: string;
 }
 
 /** A field error, as RFC 9457 `errors[]` (D30). */
@@ -113,15 +116,22 @@ export function publishRefusal(err: unknown): ProblemException | null {
   return null;
 }
 
-/** The PDF part, checked and cleaned (D123), or the refusal as a field error. */
-async function cleaned(pdf: UploadedPdf | undefined) {
+/**
+ * The PDF part's bytes, exactly as uploaded: they are the record, never read or changed (D123;
+ * Joel, 2026-10-30: "we trust the admins, they are vetted people - they upload pdf and that is it"
+ * and "just check the file ending - we trust admins to know what a pdf is and have it named
+ * correctly"). The only check is the file's name, so a wrong file gets a plain answer.
+ */
+function uploaded(pdf: UploadedPdf | undefined): Buffer {
   if (!pdf) throw invalid('/pdf', 'required', 'Attach the PDF.');
-  try {
-    return await cleanPdf(pdf.buffer);
-  } catch (err) {
-    if (err instanceof PdfRefused) throw invalid('/pdf', err.code, err.message);
-    throw err;
+  if (!/\.pdf$/i.test(pdf.originalname)) {
+    throw invalid(
+      '/pdf',
+      'pdf_not_a_pdf',
+      'Choose a PDF: the file’s name must end in .pdf.',
+    );
   }
+  return pdf.buffer;
 }
 
 /** The fields `PublishLegalDocument` takes beside the PDF (multipart/form-data). */
@@ -233,12 +243,10 @@ const NEW_ROW: Record<DocumentName, string> = {
     documentPath: $path, contentHash: crypto::sha256($text), text: $text,
     changeSummary: $note, effectiveFrom: time::now(),
     pdfSha256: $sha, pdfSize: $size, pdfPath: $path,
-    originalSha256: $osha, originalSize: $osize, originalPath: $opath,
     source: 'admin', publishedBy: $user }`,
   terms: `{ text: $text, textHash: crypto::sha256($text), changeNote: $note,
     requiresReacceptance: $requires,
     pdfSha256: $sha, pdfSize: $size, pdfPath: $path,
-    originalSha256: $osha, originalSize: $osize, originalPath: $opath,
     source: 'admin', publishedBy: $user }`,
 };
 
@@ -255,10 +263,9 @@ const UPLOAD = FileInterceptor('pdf', {
 /**
  * api-admin.yaml, tag LegalDocuments (D121, D123; Joel, 2026-10-30): the privacy policy and the
  * terms of use, each with its own versions, for Admin and above (D1). A new version has two
- * parts, published together: its PDF of record (the copy this service cleaned, stored once in
- * the records bucket at legal/<document>/<id>/<sha256>.pdf, kept for ever; the upload as received
- * kept privately in the originals bucket) and the web text the site renders. The first version
- * may be published here too. Nothing here edits or deletes a version: the database refuses that
+ * parts, published together: its PDF of record (the admin's upload as it is, stored once in the
+ * records bucket at legal/<document>/<id>/<sha256>.pdf, kept for ever) and the web text the site
+ * renders. The first version may be published here too. Nothing here edits or deletes a version: the database refuses that
  * anyway.
  */
 @Controller('v1/admin/legal-documents')
@@ -269,7 +276,6 @@ export class LegalDocumentsController {
     @Inject(SURREAL) private readonly db: Surreal,
     private readonly people: PersonSessions,
     @Inject(RECORDS_STORE) private readonly records: DocumentStore | null,
-    @Inject(ORIGINALS_STORE) private readonly originals: DocumentStore | null,
   ) {}
 
   @Get(':document/versions')
@@ -288,13 +294,13 @@ export class LegalDocumentsController {
       document === 'privacy'
         ? `SELECT id, effectiveFrom ?? createdAt AS publishedAt, createdAt, publishedBy, source,
               changeSummary AS changeNote, materiality = 'material' AS requiresReacceptance,
-              contentHash AS textHash, pdfSha256, pdfSize, originalSha256, originalSize
+              contentHash AS textHash, pdfSha256, pdfSize
              FROM dpaVersion WHERE status = 'published' AND kind = 'standard'
              ORDER BY publishedAt DESC, createdAt DESC, id DESC;
            LET $c = fn::legal::dpa_in_force();
            RETURN IF $c = NONE { NONE } ELSE { (SELECT id, text FROM ONLY $c) };`
         : `SELECT id, publishedAt, publishedBy, source, changeNote, requiresReacceptance,
-              textHash, pdfSha256, pdfSize, originalSha256, originalSize
+              textHash, pdfSha256, pdfSize
              FROM termsVersion ORDER BY publishedAt DESC, id DESC;
            LET $c = fn::legal::terms_in_force();
            RETURN IF $c = NONE { NONE } ELSE { (SELECT id, text FROM ONLY $c) };`,
@@ -322,10 +328,6 @@ export class LegalDocumentsController {
           typeof r['pdfSha256'] === 'string'
             ? { sha256: r['pdfSha256'], size: r['pdfSize'] }
             : null,
-        original:
-          typeof r['originalSha256'] === 'string'
-            ? { sha256: r['originalSha256'], size: r['originalSize'] }
-            : null,
       })),
     };
     const etag = weakETag(body);
@@ -339,8 +341,8 @@ export class LegalDocumentsController {
   }
 
   /**
-   * The cleaned copy of an upload (D123), for the admin's preview: what would be published, its
-   * sha256 (which the publish must name), and what cleaning removed. Nothing is stored.
+   * An upload's sha256 and size (D123), for the admin's preview: the publish must name the same
+   * hash. The browser shows the file itself. Nothing is stored.
    */
   @Post(':document/previews')
   @RequiresRole('Admin')
@@ -354,30 +356,20 @@ export class LegalDocumentsController {
     @UploadedFile() pdf: UploadedPdf | undefined,
   ) {
     if (!isDocument(document)) throw notFound();
-    const result = await cleaned(pdf);
+    const file = uploaded(pdf);
     res.status(HttpStatus.OK);
     res.setHeader('Cache-Control', 'private, no-store');
-    return {
-      document,
-      pdfSha256: sha256(result.cleaned),
-      pdfSize: result.cleaned.length,
-      originalSha256: sha256((pdf as UploadedPdf).buffer),
-      originalSize: (pdf as UploadedPdf).size,
-      removed: result.removed,
-      pages: result.pages,
-      pdfBase64: result.cleaned.toString('base64'),
-    };
+    return { document, pdfSha256: sha256(file), pdfSize: file.length };
   }
 
   /**
-   * PublishLegalDocument: the original PDF (multipart part `pdf`, cleaned again here: the same
-   * upload gives the same cleaned copy) and the web text, with the hashes the preview showed (a
+   * PublishLegalDocument: the PDF (multipart part `pdf`, stored as uploaded) and the web text, with the hashes the preview showed (a
    * mismatch is refused: what's published is what was previewed), a change note, "requires
    * re-acceptance" (D93's rules, D122), and `basedOn`, the version in force the preview was made
    * against (empty for the first version; 409 `document_changed` if another is in force now). A
    * PDF already published as this document is 409 `already_published`, checked before the
-   * upload and again in the transaction. Both PDFs are stored before the version is written, so
-   * a version never names a missing PDF; a publish that then fails leaves only unused objects.
+   * upload and again in the transaction. The PDF is stored before the version is written, so a
+   * version never names a missing PDF; a publish that then fails leaves only an unused object.
    */
   @Post(':document/versions')
   @RequiresRole('Admin')
@@ -394,9 +386,8 @@ export class LegalDocumentsController {
   ) {
     if (!isDocument(document)) throw notFound();
     const input = parsePublish(body);
-    const result = await cleaned(pdf);
-    const original = (pdf as UploadedPdf).buffer;
-    const pdfSha256 = sha256(result.cleaned);
+    const file = uploaded(pdf);
+    const pdfSha256 = sha256(file);
     if (pdfSha256 !== input.pdfSha256) {
       throw invalid(
         '/pdfSha256',
@@ -411,7 +402,7 @@ export class LegalDocumentsController {
         'The web text isn’t the one previewed.',
       );
     }
-    if (!this.records || !this.originals) {
+    if (!this.records) {
       throw new ProblemException(
         HttpStatus.SERVICE_UNAVAILABLE,
         'storage_unavailable',
@@ -435,11 +426,8 @@ export class LegalDocumentsController {
       );
     }
     const version = nextVersion(ids);
-    const originalSha256 = sha256(original);
     const pdfPath = `legal/${document}/${version}/${pdfSha256}.pdf`;
-    const originalPath = `originals/${document}/${version}/${originalSha256}.pdf`;
-    await this.originals.create(originalPath, original);
-    await this.records.create(pdfPath, result.cleaned);
+    await this.records.create(pdfPath, file);
     let results: unknown[];
     try {
       results = (await runQuery(
@@ -478,11 +466,8 @@ export class LegalDocumentsController {
           text: input.text,
           requires: input.requiresReacceptance,
           sha: pdfSha256,
-          size: result.cleaned.length,
+          size: file.length,
           path: pdfPath,
-          osha: originalSha256,
-          osize: original.length,
-          opath: originalPath,
         },
       )) as unknown[];
     } catch (err) {
@@ -505,10 +490,6 @@ export class LegalDocumentsController {
     {
       provide: RECORDS_STORE,
       useFactory: () => documentStoreFromEnv('LEGAL_DOCUMENTS_BUCKET'),
-    },
-    {
-      provide: ORIGINALS_STORE,
-      useFactory: () => documentStoreFromEnv('LEGAL_ORIGINALS_BUCKET'),
     },
   ],
 })

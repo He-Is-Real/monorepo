@@ -622,9 +622,8 @@ retried`, on both RocksDB and the in-memory engine.
 37. **The privacy policy and the terms of use: versioned PDFs of record.** The privacy policy
     stays in `dpaVersion` (every existing consent keeps pointing at its version); the terms of use
     are the new `termsVersion`. A published version has its web text (`text`, `contentHash` /
-    `textHash`), its PDF of record (`pdfSha256`, `pdfSize`, `pdfPath`: the cleaned copy, D123) and,
-    for an admin upload, the original's hash, size and path (`originalPath` readable by api-admin
-    only), `source = 'admin'`, `publishedBy` (api-admin only) and a `changeNote`.
+    `textHash`), its PDF of record (`pdfSha256`, `pdfSize`, `pdfPath`: the admin's upload as it is, D123),
+    `source = 'admin'`, `publishedBy` (api-admin only) and a `changeNote`.
     `fn::legal::check_document` checks every one: the path is
     `legal/<privacy|terms>/<id>/<sha256>.pdf`, the text hash matches, an admin version is
     published with words and a change note. **Who writes:** api-admin creates admin versions

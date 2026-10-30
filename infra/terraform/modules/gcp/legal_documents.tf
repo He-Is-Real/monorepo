@@ -1,25 +1,13 @@
 # The legal documents of record, the privacy policy and the terms of use, every version kept
-# forever: people agreed to a specific text, so it must stay readable. Two private London buckets:
-#   - legal-documents: the cleaned PDF of each version (the server strips scripts and the like
-#     from the upload), at legal/<document>/<versionId>/<sha256>.pdf, document privacy | terms.
-#     This is the record: api-admin writes it, api-public-read streams it.
-#   - legal-originals: the PDF exactly as uploaded, at originals/<document>/<versionId>/<sha256>.pdf,
-#     kept for reference only. api-admin writes it; nothing reads or serves it.
-# Nobody deletes or overwrites in either.
+# forever: people agreed to a specific text, so it must stay readable. One private London bucket
+# holding each version's PDF exactly as the admin uploaded it (D123; Joel, 2026-10-30: admins are
+# trusted, nothing is scanned, rewritten or copied), at legal/<document>/<versionId>/<sha256>.pdf,
+# document privacy | terms. api-admin writes it, api-public-read streams it; nobody deletes or
+# overwrites.
 
-locals {
-  # Both buckets are kept the same way; only the name differs.
-  legal_buckets = {
-    documents = "${var.project_id}-legal-documents"
-    originals = "${var.project_id}-legal-originals"
-  }
-}
-
-resource "google_storage_bucket" "legal" {
-  for_each = local.legal_buckets
-
+resource "google_storage_bucket" "legal_documents" {
   project                     = var.project_id
-  name                        = each.value
+  name                        = "${var.project_id}-legal-documents"
   location                    = "EUROPE-WEST2"
   storage_class               = "STANDARD"
   uniform_bucket_level_access = true
@@ -44,21 +32,18 @@ resource "google_storage_bucket" "legal" {
   }
 }
 
-# Bucket-level grants only, and nothing else on either bucket. objectCreator can't delete, so it
+# Bucket-level grants only, and nothing else on the bucket. objectCreator can't delete, so it
 # can't overwrite either (the app also writes with ifGenerationMatch=0); the retention policy
 # stops deletes and overwrites for everyone, developers included.
 resource "google_storage_bucket_iam_member" "legal_api_admin" {
-  for_each = google_storage_bucket.legal
-
-  bucket = each.value.name
+  bucket = google_storage_bucket.legal_documents.name
   role   = "roles/storage.objectCreator"
   member = google_service_account.signed_in_api["api-admin"].member
 }
 
-# Only the cleaned copies are readable. The originals are never served, so api-public-read gets
-# nothing on that bucket: an uploaded file may carry scripts we stripped from the record.
+# api-public-read streams the PDFs to the public.
 resource "google_storage_bucket_iam_member" "legal_documents_api_public_read" {
-  bucket = google_storage_bucket.legal["documents"].name
+  bucket = google_storage_bucket.legal_documents.name
   role   = "roles/storage.objectViewer"
   member = google_service_account.api_public_read.member
 }
@@ -77,7 +62,7 @@ locals {
 resource "google_storage_bucket_object" "dev_legal_placeholder" {
   for_each = local.dev_legal_placeholder_pdfs
 
-  bucket       = google_storage_bucket.legal["documents"].name
+  bucket       = google_storage_bucket.legal_documents.name
   name         = "legal/${each.key}/dev_placeholder/${filesha256(each.value)}.pdf"
   source       = each.value
   content_type = "application/pdf"

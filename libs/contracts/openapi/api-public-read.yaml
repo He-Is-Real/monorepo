@@ -402,7 +402,7 @@ paths:
       operationId: getLegalDocumentPdf
       summary: One version's PDF of record
       description: |
-        The PDF exactly as stored (the cleaned copy, D123), checked against its SHA-256 before it's sent:
+        The PDF exactly as stored (the admin's upload, D123), checked against its SHA-256 before it's sent:
         `Content-Type: application/pdf`, `Content-Disposition: inline` with a fixed file name,
         `X-Content-Type-Options: nosniff`. A URL always names the same bytes: with shared caching on (D51,
         never in dev) it may be kept a year, else `no-store`.

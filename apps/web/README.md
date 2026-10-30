@@ -99,6 +99,6 @@ stub session (localStorage `e2e-session`), so parallel tests never share hearts.
   and sends it inline, never sniffed. Nothing from the visitor's request is forwarded. It is
   per request and uncached in dev (D51); before Go live, consider caching published versions,
   since their bytes never change.
-- `/admin/legal` (Admins): choose a document, upload the PDF and its words, preview the cleaned
-  copy, publish. It calls api-admin from the browser through the same client as api-user
+- `/admin/legal` (Admins): choose a document, upload the PDF and its words, preview them (the PDF
+  exactly as uploaded), publish. It calls api-admin from the browser through the same client as api-user
   (`src/lib/api-user.ts`, with `API_ADMIN_URL`), so the token boundary above is unchanged.

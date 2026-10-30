@@ -7,8 +7,8 @@ once published: the migration (`libs/database/schema/dpa-sync.surql`, `form-sync
 migrate if a published version's file changes. Publish a new version instead.
 
 **The real privacy policy and terms aren't kept here.** An Admin publishes them at `/admin/legal`
-(api-admin): it numbers them `v<n>`, cleans the PDF (the cleaned copy is the record, D123) and
-stores both copies in the write-once legal buckets. Only dev's placeholders below are files.
+(api-admin): it numbers them `v<n>` and stores the PDF exactly as uploaded (the record, D123:
+admins are trusted, nothing is scanned or rewritten) in the write-once legal documents bucket. Only dev's placeholders below are files.
 
 | Path                                | What                                                                    |
 | ----------------------------------- | ----------------------------------------------------------------------- |

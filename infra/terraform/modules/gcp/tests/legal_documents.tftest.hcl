@@ -1,8 +1,8 @@
-# The privacy policy and terms of use of record: two private London buckets (the cleaned PDFs, and
-# the original uploads) kept for 100 years, unlocked only in dev; api-admin may only create in
-# both, api-public-read may only read the cleaned PDFs and gets nothing on the originals; dev gets
-# a placeholder privacy policy and terms, named by their hash; api-admin and api-public-read get
-# the bucket names, web gets api-admin's URL. Mock providers.
+# The privacy policy and terms of use of record: one private London bucket (the PDFs as the admins
+# uploaded them) kept for 100 years, unlocked only in dev; api-admin may only create in it,
+# api-public-read may only read it; dev gets a placeholder privacy policy and terms, named by
+# their hash; api-admin and api-public-read get the bucket name, web gets api-admin's URL. Mock
+# providers.
 
 mock_provider "google" {
   mock_resource "google_service_account" {
@@ -45,34 +45,27 @@ variables {
   EOT
 }
 
-run "private_london_buckets_kept_forever" {
+run "private_london_bucket_kept_forever" {
   command = plan
 
   assert {
     condition = (
-      google_storage_bucket.legal["documents"].name == "heisreal-dev-legal-documents" &&
-      google_storage_bucket.legal["originals"].name == "heisreal-dev-legal-originals" &&
-      length(google_storage_bucket.legal) == 2
+      google_storage_bucket.legal_documents.name == "heisreal-dev-legal-documents" &&
+      google_storage_bucket.legal_documents.location == "EUROPE-WEST2" &&
+      google_storage_bucket.legal_documents.uniform_bucket_level_access &&
+      google_storage_bucket.legal_documents.public_access_prevention == "enforced" &&
+      !google_storage_bucket.legal_documents.force_destroy &&
+      !google_storage_bucket.legal_documents.versioning[0].enabled
     )
-    error_message = "Exactly two legal buckets: the documents of record and the original uploads."
+    error_message = "The bucket is in London, private, not versioned (retention alone keeps the live object) and not force-destroyable."
   }
 
   assert {
-    condition = alltrue([for b in google_storage_bucket.legal :
-      b.location == "EUROPE-WEST2" &&
-      b.uniform_bucket_level_access &&
-      b.public_access_prevention == "enforced" &&
-      !b.force_destroy &&
-      !b.versioning[0].enabled
-    ])
-    error_message = "Both buckets are in London, private, not versioned (retention alone keeps the live object) and not force-destroyable."
-  }
-
-  assert {
-    condition = alltrue([for b in google_storage_bucket.legal :
-      b.retention_policy[0].retention_period == "3155760000" && !b.retention_policy[0].is_locked
-    ])
-    error_message = "Both buckets: 100-year retention, unlocked in dev by default."
+    condition = (
+      google_storage_bucket.legal_documents.retention_policy[0].retention_period == "3155760000" &&
+      !google_storage_bucket.legal_documents.retention_policy[0].is_locked
+    )
+    error_message = "100-year retention, unlocked in dev by default."
   }
 }
 
@@ -80,12 +73,12 @@ run "admin_creates_public_read_reads_only_the_documents" {
   command = plan
 
   assert {
-    condition = alltrue([for k, b in google_storage_bucket.legal :
-      google_storage_bucket_iam_member.legal_api_admin[k].bucket == b.name &&
-      google_storage_bucket_iam_member.legal_api_admin[k].role == "roles/storage.objectCreator" &&
-      google_storage_bucket_iam_member.legal_api_admin[k].member == "serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"
-    ])
-    error_message = "api-admin may only create objects, in both buckets."
+    condition = (
+      google_storage_bucket_iam_member.legal_api_admin.bucket == "heisreal-dev-legal-documents" &&
+      google_storage_bucket_iam_member.legal_api_admin.role == "roles/storage.objectCreator" &&
+      google_storage_bucket_iam_member.legal_api_admin.member == "serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"
+    )
+    error_message = "api-admin may only create objects."
   }
 
   assert {
@@ -95,18 +88,6 @@ run "admin_creates_public_read_reads_only_the_documents" {
       google_storage_bucket_iam_member.legal_documents_api_public_read.member == "serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com"
     )
     error_message = "api-public-read may only read the documents of record."
-  }
-
-  # Every grant this module makes on the originals bucket: api-admin's objectCreator, nothing else.
-  assert {
-    condition = (
-      [for m in concat(
-        values(google_storage_bucket_iam_member.legal_api_admin),
-        [google_storage_bucket_iam_member.legal_documents_api_public_read],
-      ) : "${m.member} ${m.role}" if m.bucket == "heisreal-dev-legal-originals"] ==
-      ["serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com roles/storage.objectCreator"]
-    )
-    error_message = "Only api-admin (objectCreator) is granted anything on the originals bucket; api-public-read can't read it."
   }
 }
 
@@ -132,19 +113,9 @@ run "bucket_names_and_admin_url_reach_the_services" {
   }
 
   assert {
-    condition = (
-      one([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
-      e.value if e.name == "LEGAL_ORIGINALS_BUCKET"]) == "heisreal-dev-legal-originals" &&
-      length([for e in google_cloud_run_v2_service.api_public_read.template[0].containers[0].env :
-      e if e.name == "LEGAL_ORIGINALS_BUCKET"]) == 0
-    )
-    error_message = "Only api-admin gets LEGAL_ORIGINALS_BUCKET."
-  }
-
-  assert {
     condition = length([for e in google_cloud_run_v2_service.signed_in_api["api-user"].template[0].containers[0].env :
-    e if contains(["LEGAL_DOCUMENTS_BUCKET", "LEGAL_ORIGINALS_BUCKET"], e.name)]) == 0
-    error_message = "api-user gets neither legal bucket."
+    e if e.name == "LEGAL_DOCUMENTS_BUCKET"]) == 0
+    error_message = "api-user doesn't get the legal bucket."
   }
 
   assert {
@@ -182,7 +153,7 @@ run "dev_gets_a_placeholder_privacy_policy_and_terms" {
   assert {
     condition = alltrue([for o in google_storage_bucket_object.dev_legal_placeholder :
     o.content_type == "application/pdf" && o.bucket == "heisreal-dev-legal-documents"])
-    error_message = "The placeholders are PDFs in the documents bucket, never the originals bucket."
+    error_message = "The placeholders are PDFs in the documents bucket."
   }
 }
 
@@ -203,8 +174,8 @@ run "locked_outside_dev" {
   }
 
   assert {
-    condition     = alltrue([for b in google_storage_bucket.legal : b.retention_policy[0].is_locked])
-    error_message = "Both buckets' retention is locked when legal_documents_retention_locked is set."
+    condition     = google_storage_bucket.legal_documents.retention_policy[0].is_locked
+    error_message = "The bucket's retention is locked when legal_documents_retention_locked is set."
   }
 }
 

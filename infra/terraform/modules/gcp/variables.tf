@@ -344,7 +344,7 @@ variable "ci_dev_seeder_email" {
 }
 
 variable "legal_documents_retention_locked" {
-  description = "Lock the 100-year retention policy of both legal buckets (the privacy policy and terms PDFs of record, and their original uploads). Irreversible: once locked, the policy can't be shortened or removed, and a bucket can't be deleted until every object is 100 years old. Dev stays unlocked; every other environment must lock it (refused otherwise), before Real stories (D124)."
+  description = "Lock the 100-year retention policy of the legal documents bucket (the privacy policy and terms PDFs of record). Irreversible: once locked, the policy can't be shortened or removed, and a bucket can't be deleted until every object is 100 years old. Dev stays unlocked; every other environment must lock it (refused otherwise), before Real stories (D124)."
   type        = bool
   default     = false
   nullable    = false

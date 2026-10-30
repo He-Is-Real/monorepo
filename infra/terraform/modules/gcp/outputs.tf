@@ -68,11 +68,6 @@ output "dev_seed_job" {
 }
 
 output "legal_documents_bucket" {
-  description = "The cleaned privacy policy and terms PDFs of record (legal_documents.tf)."
-  value       = google_storage_bucket.legal["documents"].name
-}
-
-output "legal_originals_bucket" {
-  description = "The original uploads of those PDFs, kept for reference and never served (legal_documents.tf)."
-  value       = google_storage_bucket.legal["originals"].name
+  description = "The privacy policy and terms PDFs of record, as the admins uploaded them (legal_documents.tf)."
+  value       = google_storage_bucket.legal_documents.name
 }
