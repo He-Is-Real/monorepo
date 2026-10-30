@@ -46,6 +46,17 @@ test.describe('/admin/limits', () => {
       'Enter a whole number from 1 to 10,240 (MB).',
     );
     await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    // More themes than there are would stop everyone submitting.
+    const fewest = page.getByLabel('Fewest themes a story needs');
+    await expect(page.locator('[data-limit="tagsMin"]')).toContainText(
+      'From 0 to 17.',
+    );
+    await fewest.fill('18');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect(page.locator('[data-limit="tagsMin"]')).toContainText(
+      'There are only 17 themes, so a story can’t need more.',
+    );
+    await fewest.fill('1');
 
     await video.fill('2048');
     await weekly.fill('2');

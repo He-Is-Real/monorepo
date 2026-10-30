@@ -1525,7 +1525,7 @@ components:
 
     AdminSubmissionSettings:
       type: object
-      required: [version, updatedAt, changedBy, settings, bounds]
+      required: [version, updatedAt, changedBy, settings, bounds, themeCount]
       additionalProperties: false
       properties:
         version:
@@ -1539,6 +1539,12 @@ components:
           description: The user record id of the last admin who saved them (Clerk holds names, D16); `null` if only the migrator has.
         settings:
           $ref: '#/components/schemas/SubmissionSettingsValues'
+        themeCount:
+          type: integer
+          minimum: 0
+          description: |
+            The themes there are. `tagsMin` can't be more (nobody could submit), so its bound's `max`
+            is this when there are fewer than 20.
         bounds:
           type: object
           description: What each limit may be set to, inclusive.

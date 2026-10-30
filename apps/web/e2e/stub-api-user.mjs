@@ -202,6 +202,8 @@ const SETTING_BOUNDS = {
   audioMaxBytes: { min: MIB, max: 2 * 1024 * MIB },
   mediaMaxSeconds: { min: 60, max: 10_800 },
 };
+/** The themes there are, as dev-seed's catalogue: tagsMin can't be more. */
+const THEME_COUNT = 17;
 /** Session → `{ version, changedBy, settings }`, starting from data 0006's values. */
 const settingsState = new Map();
 const settingsFor = (session) => {
@@ -242,7 +244,11 @@ function sendSettings(req, res, session) {
       updatedAt: '2026-10-30T12:00:00.000Z',
       changedBy: s.changedBy,
       settings: s.settings,
-      bounds: SETTING_BOUNDS,
+      bounds: {
+        ...SETTING_BOUNDS,
+        tagsMin: { min: 0, max: Math.min(20, THEME_COUNT) },
+      },
+      themeCount: THEME_COUNT,
     }),
   );
 }
@@ -263,6 +269,8 @@ async function saveSettings(req, res, session) {
     return invalid(res, '/storyTextMin', 'min_over_max');
   if (body.tagsMin > body.tagsMax)
     return invalid(res, '/tagsMin', 'min_over_max');
+  if (body.tagsMin > THEME_COUNT)
+    return invalid(res, '/tagsMin', 'over_theme_count');
   // Another admin saved meanwhile.
   if (ifMatch !== `"${s.version}"`)
     return problem(res, 412, 'Precondition failed', 'stale_version');

@@ -682,7 +682,8 @@ paths:
       summary: Save every submission limit
       description: |
         Command `UpdateSubmissionSettings`. The whole set, each within the bounds `GET` returns, each
-        minimum at most its maximum (`400` with the field otherwise). Saved only at the version read
+        minimum at most its maximum, and `tagsMin` at most the themes there are, checked as it saves
+        (`400` with the field otherwise). Saved only at the version read
         (`412 stale_version` if someone saved since, including at the same moment; `428` without
         `If-Match`). The database writes an `UpdateSubmissionSettings` audit row naming the admin and
         their role. New values apply to everyone's next action, drafts already started included

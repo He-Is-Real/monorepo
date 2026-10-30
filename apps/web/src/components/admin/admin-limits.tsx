@@ -29,6 +29,8 @@ interface Settings {
   version: number;
   settings: Values;
   bounds: Record<Field, { min: number; max: number }>;
+  /** The themes there are: tagsMin's bound is at most this. */
+  themeCount: number;
 }
 
 /** 1 MB as the page shows it: 1,048,576 bytes, so today's 4 GiB reads 4,096 MB. */
@@ -261,7 +263,9 @@ function LimitsForm({
         values[field] = settings.settings[field]; // unchanged: exactly as stored
       } else if (t === '' || !Number.isInteger(n) || n < min || n > max) {
         errs[field] =
-          `Enter a whole number from ${number(min)} to ${number(max)} (${unit}).`;
+          field === 'tagsMin' && Number.isInteger(n) && n > settings.themeCount
+            ? `There are only ${number(settings.themeCount)} themes, so a story can’t need more.`
+            : `Enter a whole number from ${number(min)} to ${number(max)} (${unit}).`;
       } else {
         values[field] = n * per;
       }

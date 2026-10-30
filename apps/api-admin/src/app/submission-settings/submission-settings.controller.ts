@@ -35,7 +35,9 @@ const MIB = 1_048_576;
  * typo guards on the counts), so a value the database would refuse is a field error here instead
  * of a 500. The media minima are one unit of what /admin/limits shows (1 MB, 1 minute): nothing
  * smaller can be typed there, and no real recording is smaller. Besides these, each minimum must
- * be at most its maximum (storyTextMin ≤ storyTextMax, tagsMin ≤ tagsMax), as the database checks.
+ * be at most its maximum (storyTextMin ≤ storyTextMax, tagsMin ≤ tagsMax), as the database checks,
+ * and tagsMin at most the themes there are (else nobody could submit), checked as it saves. The
+ * other limits can't lock everyone out: every count's minimum is 1, and text min ≤ max.
  */
 export const BOUNDS = {
   storyTextMin: { min: 1, max: 50_000 },
@@ -127,6 +129,19 @@ const stale = () =>
     'Someone else changed the limits since you read them: reload, then make your changes again.',
   );
 
+/** 400 on /tagsMin: a story would need more themes than exist, so nobody could submit. */
+const tooFewThemes = (themes: number) =>
+  invalid(
+    '/tagsMin',
+    'over_theme_count',
+    themes === 1
+      ? 'There is only 1 theme, so a story can’t need more.'
+      : `There are only ${themes} themes, so a story can’t need more.`,
+  );
+
+/** Every tag counts: a story may use any of them (api-user's checkTags). */
+const COUNT_THEMES = `count(SELECT VALUE id FROM tag)`;
+
 const missing = () =>
   new ProblemException(
     HttpStatus.NOT_FOUND,
@@ -160,10 +175,11 @@ export class SubmissionSettingsController {
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
   ) {
-    const [row] = (await runQuery(
+    const [row, themes] = (await runQuery(
       this.db,
-      `SELECT * OMIT id, changedByRole FROM ONLY submissionSettings:current`,
-    )) as (Record<string, unknown> | null)[];
+      `SELECT * OMIT id, changedByRole FROM ONLY submissionSettings:current;
+       RETURN ${COUNT_THEMES};`,
+    )) as [Record<string, unknown> | null, number];
     if (!row) throw missing();
     const etag = `"${Number(row['version'])}"`;
     res.setHeader('Cache-Control', 'private, no-store');
@@ -181,14 +197,23 @@ export class SubmissionSettingsController {
       settings: Object.fromEntries(
         FIELDS.map((f) => [f, Number(row[f])]),
       ) as SubmissionSettings,
-      bounds: BOUNDS,
+      // The real upper bound on tagsMin: the themes there are, if fewer than the schema's 20.
+      bounds: {
+        ...BOUNDS,
+        tagsMin: {
+          ...BOUNDS.tagsMin,
+          max: Math.min(BOUNDS.tagsMin.max, themes),
+        },
+      },
+      themeCount: themes,
     };
   }
 
   /**
    * UpdateSubmissionSettings: every limit, at the version read (If-Match; 412 if someone saved
    * since, 428 if missing). One transaction checks the version and writes; two admins saving
-   * at once conflict at commit, and the loser gets 412 too.
+   * at once conflict at commit, and the loser gets 412 too. The theme count is read in the same
+   * transaction, so tagsMin is checked against the themes there are as it saves.
    */
   @Put()
   @RequiresRole('Admin')
@@ -223,6 +248,8 @@ export class SubmissionSettingsController {
          LET $v = (SELECT VALUE version FROM ONLY submissionSettings:current);
          IF $v = NONE { THROW 'settings_cmd:not_found' };
          IF $v != $version { THROW 'settings_cmd:stale_version' };
+         LET $themes = ${COUNT_THEMES};
+         IF $settings.tagsMin > $themes { THROW 'settings_cmd:too_few_themes:' + <string>$themes };
          UPDATE ONLY submissionSettings:current
            MERGE object::extend($settings, { changedBy: $user, changedByRole: $role })
            RETURN version;
@@ -232,6 +259,8 @@ export class SubmissionSettingsController {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('settings_cmd:not_found')) throw missing();
+      const themes = /settings_cmd:too_few_themes:(\d+)/.exec(message);
+      if (themes) throw tooFewThemes(Number(themes[1]));
       if (
         message.includes('settings_cmd:stale_version') ||
         isTransactionConflict(err)

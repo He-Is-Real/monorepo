@@ -92,6 +92,13 @@ describe('submission settings (api-admin)', () => {
     });
     migrator = await t.migrator();
     await createPeople(t, { admin: 'user_admin', moderator: 'user_moderator' });
+    // A catalogue of 3 themes: tagsMin can't be more.
+    await rows(
+      migrator,
+      `CREATE tag:hope SET name = 'Hope', category = 'theme';
+       CREATE tag:faith SET name = 'Faith', category = 'theme';
+       CREATE tag:doubt SET name = 'Doubt', category = 'journey';`,
+    );
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
       .useValue(await t.service('api_admin'))
@@ -129,8 +136,11 @@ describe('submission settings (api-admin)', () => {
       changedBy: string | null;
       settings: typeof DEFAULTS;
       bounds: Record<string, { min: number; max: number }>;
+      themeCount: number;
     };
-    expect(body).toMatchObject({ version: 1, changedBy: null });
+    expect(body).toMatchObject({ version: 1, changedBy: null, themeCount: 3 });
+    // The real upper bound on the fewest themes: the 3 there are, not the schema's 20.
+    expect(body.bounds['tagsMin']).toEqual({ min: 0, max: 3 });
     expect(body.settings).toEqual(DEFAULTS);
     expect(body.bounds['videoMaxBytes']).toEqual({
       min: 1_048_576,
@@ -170,6 +180,8 @@ describe('submission settings (api-admin)', () => {
         '/storyTextMin',
       ],
       [{ ...DEFAULTS, tagsMin: 6, tagsMax: 5 }, '/tagsMin'],
+      // More themes than there are: nobody could submit.
+      [{ ...DEFAULTS, tagsMin: 4, tagsMax: 5 }, '/tagsMin'],
       [{ ...DEFAULTS, storyTextMax: 50_001 }, '/storyTextMax'],
       [{ ...DEFAULTS, openDraftsMax: 0 }, '/openDraftsMax'],
       [{ ...DEFAULTS, uploadsPer7Days: -1 }, '/uploadsPer7Days'],
@@ -187,6 +199,14 @@ describe('submission settings (api-admin)', () => {
       expect(p.code).toBe('validation_failed');
       expect(p.errors?.[0]?.pointer).toBe(pointer);
     }
+    const overThemes = await problem(
+      await save({ ...DEFAULTS, tagsMin: 4 }, '"2"'),
+    );
+    expect(overThemes.errors?.[0]).toMatchObject({
+      pointer: '/tagsMin',
+      code: 'over_theme_count',
+      message: 'There are only 3 themes, so a story can’t need more.',
+    });
     expect(await stored()).toEqual(before);
   });
 
