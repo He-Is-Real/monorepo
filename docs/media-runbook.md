@@ -103,8 +103,8 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
   - Bunny made it more than 48 hours ago. An upload in progress, a draft that has just been given
     it, and a grant with no known outcome (settled by the person's retry within the
     Idempotency-Key's 24 hours) are left alone;
-  - no story's media, no published story's media and no upload grant from the last 48 hours
-    names it.
+  - no story's media, no published story's media and no upload grant made or renewed (a resume
+    signed its link again) in the last 48 hours names it.
 
   It deletes at most 50 videos a night (`max_deletions`), oldest first; the rest wait for the
   next night. In dev it starts in a dry run: it logs what it would delete and deletes nothing.
@@ -113,7 +113,8 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
 
 - **Abandoned drafts** (D71): the same Job first deletes drafts nobody has touched for as long as
   the testimony forms promise (6 months, counted as 186 days), the way a person deletes their own
-  draft. Their videos are then orphans, and go in the same run once they're 48 hours old.
+  draft. Resuming an upload counts as touching the draft: api-user signs the link only once that
+  is recorded, and the two can't both win a race. Their videos are then orphans, and go in the same run once they're 48 hours old.
 - To look for orphans by hand: a story id with no story, or a video id that isn't the story's
   `media[0].bunnyVideoId`:
 

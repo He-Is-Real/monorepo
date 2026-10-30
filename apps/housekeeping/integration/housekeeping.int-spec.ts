@@ -1,13 +1,15 @@
 import {
   createPeople,
   grantAll,
+  outcome,
   publishDpa,
+  publishForm,
   rows,
   run,
   TestDatabase,
   trustSubmitters,
 } from '@heisreal/database/integration-testing';
-import type { Surreal } from 'surrealdb';
+import type { Surreal, SurrealTransaction } from 'surrealdb';
 import { CHORES } from '../src/app/chores';
 import type { LibraryVideo, StreamLibrary } from '../src/app/stream';
 import { runTasks, type TaskContext } from '../src/app/tasks';
@@ -49,6 +51,39 @@ const story = (
   ...extra,
 });
 
+/** As a system user may (the schema lets only those set it): when the story was last touched. */
+const touch = (
+  migrator: Surreal,
+  id: string,
+  daysAgo: number,
+  fields: Record<string, unknown> = {},
+) =>
+  run(
+    migrator,
+    `UPDATE type::record('story', $id) MERGE object::extend($fields, {
+       updatedAt: time::now() - type::duration($ago) })`,
+    { id, fields, ago: `${daysAgo}d` },
+  );
+const createDraft = (
+  person: Surreal,
+  id: string,
+  format: 'written' | 'video',
+) =>
+  run(
+    person,
+    `CREATE type::record('story', $id) CONTENT {
+       submitter: $auth, slug: $id, title: 'Story ' + $id, description: 'How I came to faith',
+       body: $body, primaryFormat: $format }`,
+    {
+      id,
+      format,
+      body:
+        format === 'written'
+          ? `Text of ${id}. ${'Filler words. '.repeat(20)}`
+          : undefined,
+    },
+  );
+
 describe('housekeeping: abandoned drafts and orphaned videos', () => {
   let t: TestDatabase;
   let migrator: Surreal;
@@ -60,36 +95,15 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
   const exists = async (id: string) =>
     (await rows(migrator, `SELECT id FROM type::record('story', $id)`, { id }))
       .length === 1;
-  /** As a system user may (the schema lets only those set it): when the story was last touched. */
   const touched = (
     id: string,
     daysAgo: number,
     fields: Record<string, unknown> = {},
-  ) =>
-    run(
-      migrator,
-      `UPDATE type::record('story', $id) MERGE object::extend($fields, {
-         updatedAt: time::now() - type::duration($ago) })`,
-      { id, fields, ago: `${daysAgo}d` },
-    );
+  ) => touch(migrator, id, daysAgo, fields);
   const media = (v: string) => ({
     media: [{ format: 'video', bunnyVideoId: v }],
   });
-  const draft = (person: Surreal, id: string, format: 'written' | 'video') =>
-    run(
-      person,
-      `CREATE type::record('story', $id) CONTENT {
-         submitter: $auth, slug: $id, title: 'Story ' + $id, description: 'How I came to faith',
-         body: $body, primaryFormat: $format }`,
-      {
-        id,
-        format,
-        body:
-          format === 'written'
-            ? `Text of ${id}. ${'Filler words. '.repeat(20)}`
-            : undefined,
-      },
-    );
+  const draft = createDraft;
   const sweep = (over: Partial<TaskContext> = {}) =>
     runTasks(
       CHORES,
@@ -305,5 +319,141 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
       }),
     ]);
     expect(library.deleted).toHaveLength(before);
+  });
+});
+
+/**
+ * The deletions racing what can make a draft no longer expired (Codex review, round 1). Each test
+ * interleaves two sessions deterministically, as libs/database's concurrency suite does: A begins
+ * and writes (uncommitted), B runs and commits, then A commits and fails with a retryable
+ * conflict. Exactly one of them wins, and the loser's retry sees the winner's write.
+ */
+describe('housekeeping racing a resumed upload or a form publication', () => {
+  const CONFLICT = /Transaction conflict.*can be retried/s;
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let housekeeping: Surreal;
+  let apiUser: Surreal;
+  let cat: Surreal;
+  const commit = async (tx: SurrealTransaction) => {
+    try {
+      await tx.commit();
+      return 'committed';
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  };
+  const exists = async (id: string) =>
+    (await rows(migrator, `SELECT id FROM type::record('story', $id)`, { id }))
+      .length === 1;
+  /** As the expired-drafts chore deletes one. */
+  const DELETE = `DELETE type::record('story', $id) WHERE fn::story::draft_expired(id) RETURN BEFORE`;
+  /** As api-user renews a grant before signing its link again (Uploads.request, resume). */
+  const RENEW = `RETURN fn::upload::renew(type::record('story', $id), user:cat, $video)`;
+  /** Cat's video draft with its upload granted, then left for 200 days: expired. */
+  async function abandonedVideoDraft(id: string): Promise<string> {
+    const video = guid();
+    await createDraft(cat, id, 'video');
+    const [{ version }] = await rows<{ version: number }>(
+      migrator,
+      `SELECT version FROM type::record('story', $id)`,
+      { id },
+    );
+    await run(
+      apiUser,
+      `CREATE type::record('uploadGrant', $video) CONTENT {
+         story: type::record('story', $id), person: user:cat, format: 'video',
+         contentType: 'video/mp4', sizeBytes: 1000000, durationSeconds: 60,
+         storyVersion: $version }`,
+      { video, id, version },
+    );
+    await touch(migrator, id, 200);
+    return video;
+  }
+  const sweep = (library: StreamLibrary) =>
+    runTasks(
+      CHORES,
+      {
+        db: housekeeping,
+        stream: library,
+        dryRun: false,
+        maxDeletions: 50,
+        now: NOW,
+      },
+      () => undefined,
+    );
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    housekeeping = await t.service('housekeeping');
+    apiUser = await t.service('api_user');
+    await createPeople(t, { cat: 'user_cat' });
+    await publishDpa(t, 'v1');
+    await trustSubmitters(t, 'cat');
+    cat = await t.person('user_cat');
+    await grantAll(cat);
+  });
+  afterAll(() => t?.close());
+
+  it('a resume that commits first keeps the draft and its video: the deletion conflicts, and its retry finds the draft touched', async () => {
+    const video = await abandonedVideoDraft('resumed_first');
+    const deleting = await housekeeping.beginTransaction();
+    expect(
+      await rows(deleting as unknown as Surreal, DELETE, {
+        id: 'resumed_first',
+      }),
+    ).toHaveLength(1); // uncommitted
+    const [renewed] = await run(apiUser, RENEW, { id: 'resumed_first', video });
+    expect(renewed).toBeTruthy(); // committed: api-user may sign the link
+    expect(await commit(deleting)).toMatch(CONFLICT);
+
+    // The next run (or the chore's own retry) leaves the draft, and so its video.
+    const library = new FakeLibrary([story(video, ago(240))]);
+    expect(await sweep(library)).toBe(0);
+    expect(await exists('resumed_first')).toBe(true);
+    expect(library.deleted).toEqual([]);
+  });
+
+  it('a deletion that commits first refuses the resume: its retry finds no draft, so no link is signed', async () => {
+    const video = await abandonedVideoDraft('deleted_first');
+    const renewing = await apiUser.beginTransaction();
+    const [renewed] = await run(renewing as unknown as Surreal, RENEW, {
+      id: 'deleted_first',
+      video,
+    });
+    expect(renewed).toBeTruthy(); // uncommitted
+    expect(
+      await rows(housekeeping, DELETE, { id: 'deleted_first' }),
+    ).toHaveLength(1);
+    expect(await commit(renewing)).toMatch(CONFLICT);
+
+    expect(
+      await outcome(apiUser, RENEW, { id: 'deleted_first', video }),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('nothing_to_resume'),
+    });
+    expect(await exists('deleted_first')).toBe(false);
+    const [grant] = await rows(
+      migrator,
+      `SELECT renewedAt FROM type::record('uploadGrant', $video)`,
+      { video },
+    );
+    expect(grant.renewedAt ?? null).toBeNull();
+  });
+
+  it('a form published with a longer retention while a deletion is open: the deletion conflicts, and its retry keeps the draft', async () => {
+    await createDraft(cat, 'outlived', 'written');
+    await touch(migrator, 'outlived', 200); // past 6 months, inside 12
+    const deleting = await housekeeping.beginTransaction();
+    expect(
+      await rows(deleting as unknown as Surreal, DELETE, { id: 'outlived' }),
+    ).toHaveLength(1); // uncommitted, on the 6 months it read
+    await publishForm(t, 'testimony', 'v2', { draftRetentionMonths: 12 });
+    expect(await commit(deleting)).toMatch(CONFLICT);
+
+    expect(await sweep(new FakeLibrary([]))).toBe(0);
+    expect(await exists('outlived')).toBe(true);
   });
 });

@@ -11,8 +11,8 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * - Bunny made it more than 48 hours ago, so an upload in progress, a draft that's just been
  *   given it, and an upload whose outcome api-user couldn't tell (settled by the person's retry
  *   within the idempotency key's 24 hours) are left alone;
- * - no story's and no published story's media names it, and no upload grant from the last 48
- *   hours does.
+ * - no story's and no published story's media names it, and no upload grant made or renewed (a
+ *   resume signed its link again) in the last 48 hours does.
  *
  * The database's answer is read in one transaction (a snapshot), after Bunny's list: a video
  * Bunny listed can only be given to a story later through a new upload, which makes a new video.
@@ -30,7 +30,8 @@ export async function referencedVideoIds(
      LET $stories = array::flatten(SELECT VALUE media.bunnyVideoId FROM story);
      LET $published = array::flatten(SELECT VALUE media.bunnyVideoId FROM publicStory);
      LET $granted = SELECT VALUE record::id(id) FROM uploadGrant
-       WHERE at > time::now() - ${MIN_AGE_HOURS}h;
+       WHERE at > time::now() - ${MIN_AGE_HOURS}h
+         OR (renewedAt != NONE AND renewedAt > time::now() - ${MIN_AGE_HOURS}h);
      RETURN array::distinct(array::concat($stories, $published, $granted));
      COMMIT TRANSACTION;`,
   );

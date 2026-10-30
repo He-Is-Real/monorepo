@@ -240,9 +240,7 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
     -- D71: the nightly housekeeping Job deletes a draft nobody has touched for as long as the
     -- testimony forms say (fn::story::drafts_expire_before), and nothing else; the same delete
     -- as a person's own (events and cascade included).
-    OR ($auth.id = service:housekeeping AND status = 'draft'
-        AND fn::story::drafts_expire_before() != NONE
-        AND updatedAt < fn::story::drafts_expire_before());
+    OR ($auth.id = service:housekeeping AND fn::story::draft_expired(id));
 DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY;   -- owner can never be reassigned
 DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every command; ETag
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
@@ -815,6 +813,9 @@ DEFINE EVENT OVERWRITE story_fence ON story                       -- create, edi
     IF $event = 'CREATE' OR ($event = 'UPDATE' AND $after.status = 'pending' AND $before.status != 'pending') {
       fn::fence::legal();
     };
+    -- D71: housekeeping's delete of an expired draft read the forms' retention
+    -- (fn::story::draft_expired); a form published meanwhile with a longer one conflicts.
+    IF $event = 'DELETE' AND $auth.id = service:housekeeping { fn::fence::legal() };
   };
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
   WHEN $event = 'DELETE'
@@ -1255,6 +1256,18 @@ DEFINE FUNCTION OVERWRITE fn::story::drafts_expire_before() {
     WHERE status != 'draft');
   IF $months = NONE OR $months < 1 { RETURN NONE };
   RETURN time::now() - duration::from_days($months * 31);
+};
+-- D71: whether `$story` is a draft nobody has touched since fn::story::drafts_expire_before():
+-- not edited (updatedAt) and no upload link signed for it again (uploadGrant.renewedAt, a resume).
+-- story FOR delete (housekeeping) and the chore both ask this. Both writes fence the person
+-- (story_fence, uploadGrant_renew), so a resume racing the delete conflicts and one of them loses.
+DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
+  LET $cutoff = fn::story::drafts_expire_before();
+  IF $cutoff = NONE { RETURN false };
+  LET $s = (SELECT status, updatedAt FROM ONLY $story);
+  IF $s = NONE OR $s.status != 'draft' OR $s.updatedAt >= $cutoff { RETURN false };
+  RETURN array::len(SELECT VALUE id FROM uploadGrant
+    WHERE story = $story AND renewedAt != NONE AND renewedAt >= $cutoff) = 0;
 };
 DEFINE EVENT OVERWRITE testimonyFormVersion_lifecycle ON testimonyFormVersion
   WHEN true THEN { fn::form::check_change($event, $before, $after); fn::fence::legal() };
@@ -1997,11 +2010,13 @@ DEFINE EVENT OVERWRITE submissionLog_fence ON submissionLog
 -- sizeBytes / durationSeconds: what the browser declared (the TUS link binds neither, D68); the
 -- limits are checked on them here and again at submit, with Bunny's own length once it has one.
 -- housekeeping reads them (ids and dates) so a video with a recent grant is never an orphan.
+-- renewedAt: when api-user last signed a link for it again (a resume, or a replayed request;
+-- fn::upload::renew), the only thing anyone may change. It counts as touching the draft (D71).
 DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
   FOR select WHERE person = $auth.id
     OR $auth.id IN [service:api_user, service:api_admin, service:housekeeping],
   FOR create WHERE $auth.id = service:api_user,
-  FOR update NONE,
+  FOR update WHERE $auth.id = service:api_user,
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
 DEFINE FIELD OVERWRITE story           ON uploadGrant TYPE record<story> READONLY;
 DEFINE FIELD OVERWRITE person          ON uploadGrant TYPE record<user> READONLY;
@@ -2014,6 +2029,8 @@ DEFINE FIELD OVERWRITE durationSeconds ON uploadGrant TYPE option<int> READONLY
   ASSERT $value = NONE OR $value > 0;
 DEFINE FIELD OVERWRITE storyVersion    ON uploadGrant TYPE int READONLY;
 DEFINE FIELD OVERWRITE at              ON uploadGrant TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE FIELD OVERWRITE renewedAt       ON uploadGrant TYPE option<datetime>   -- server time only
+  VALUE IF $value = NONE OR $value = $before { $before } ELSE { time::now() };
 DEFINE INDEX OVERWRITE uploadGrant_person ON uploadGrant FIELDS person, at;
 DEFINE INDEX OVERWRITE uploadGrant_story  ON uploadGrant FIELDS story;
 -- When the person may next start an upload: NONE if now, else when the hourly or weekly count
@@ -2070,6 +2087,26 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
         AND record::id(id) NOT IN (story.media ?? []).map(|$m| $m.bunnyVideoId);
     };
   };
+-- A resume (D71): the link is signed again only if this commits. The story must still be the
+-- person's, editable and showing this file. The fence bump makes it conflict with a draft's
+-- deletion (story_fence), so housekeeping never deletes a draft whose link was just signed, and
+-- a resume never signs a link for a draft that was just deleted.
+DEFINE EVENT OVERWRITE uploadGrant_renew ON uploadGrant
+  WHEN $event = 'UPDATE' THEN {
+    fn::person::live($after.person);
+    LET $s = (SELECT submitter, status, media FROM ONLY $after.story);
+    IF $s = NONE OR $s.submitter != $after.person
+      OR $s.media[0].bunnyVideoId != record::id($after.id) {
+      THROW 'nothing_to_resume: the story is gone or no longer shows this file';
+    };
+    IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
+  };
+-- api-user's login, before it signs a link for `$video` again: renews the grant (above). NONE
+-- if there is no such grant for this person's story.
+DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: record<user>, $video: string) {
+  RETURN (UPDATE type::record('uploadGrant', $video) SET renewedAt = time::now()
+    WHERE story = $story AND person = $person RETURN VALUE renewedAt)[0];
+};
 
 -- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),
 -- helped/concern edges + trust/quality fields (M6), embedOrigin (M8).
