@@ -8,11 +8,17 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { recordKey } from '@heisreal/consent';
 import {
   DatabaseQueryError,
-  retryOnConflict,
+  IdempotencyKeyReusedError,
+  type IdempotencyScope,
+  type IdempotentResponse,
+  type PreparedCommand,
+  runIdempotent,
   runQuery,
   uploadLimitOf,
+  WriteNotAppliedError,
 } from '@heisreal/database';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
 import type { BunnyStream, SignedUpload } from './bunny-stream';
@@ -177,29 +183,22 @@ export class Uploads {
     return this.bunny;
   }
 
-  /** RequestUpload on the person's draft `id` at version `ifMatch`. */
+  /**
+   * RequestUpload on the person's draft `id` at version `ifMatch`, once per Idempotency-Key (D29):
+   * a new file's grant is counted against the person's upload limits, so a retry after a lost
+   * answer replays the same video and version instead of starting (and counting) another.
+   */
   async request(
     person: SurrealQueryable,
     user: RecordId,
     id: string,
     ifMatch: number,
     input: UploadRequest,
+    idempotency: { key: string; requestHash: string },
   ): Promise<UploadTarget> {
     const bunny = this.stream();
-    const draft = await this.draft(person, id);
-    if (draft.version !== ifMatch) throw new StaleVersionException();
-    if (!EDITABLE.includes(draft.status)) throw locked();
-    if (draft.primaryFormat !== input.format) {
-      invalid([
-        {
-          pointer: '/format',
-          message: `this is a ${draft.primaryFormat} story`,
-        },
-      ]);
-    }
-    this.checkFile(input, await this.limits(person));
-
     if (input.resume) {
+      const draft = await this.checkDraft(person, id, ifMatch, input);
       // The same video again, for a new link (after a reload, or once the last one expired),
       // only while nothing has arrived for it: a finished file can't be uploaded over.
       const video = draft.videoId ? await bunny.video(draft.videoId) : null;
@@ -213,35 +212,139 @@ export class Uploads {
       return this.target(bunny, id, draft.version, draft.videoId);
     }
 
-    const availableAt = await this.nextAllowedAt(person);
-    if (availableAt) throw limitReached(availableAt);
-    const videoId = await bunny.createVideo(id);
-    let version: number;
+    const scope: IdempotencyScope = {
+      service: 'api-user',
+      owner: user,
+      key: idempotency.key,
+    };
+    // Made at Bunny once, on the first attempt that gets that far; a conflict's retry reuses it.
+    let videoId: string | undefined;
+    let replaced: string | undefined;
+    const prepare = async (): Promise<PreparedCommand> => {
+      const draft = await this.checkDraft(person, id, ifMatch, input);
+      const availableAt = await this.nextAllowedAt(person);
+      if (availableAt) throw limitReached(availableAt);
+      videoId ??= await bunny.createVideo(id);
+      replaced = draft.videoId;
+      return {
+        status: 200,
+        // The grant's event attaches the video; it's the story's only version step (D29).
+        statements: `LET $grant = (CREATE ONLY type::record('uploadGrant', $video) CONTENT {
+            story: type::record('story', $id), person: $person, format: $format,
+            contentType: $contentType, sizeBytes: $size, durationSeconds: $duration,
+            storyVersion: $version
+          } RETURN id, storyVersion);
+          IF $grant = NONE { THROW 'upload_refused: upload grant not written' };
+          LET $result = { id: $grant.id, version: $grant.storyVersion + 1 };`,
+        vars: {
+          video: videoId,
+          id,
+          person: user,
+          format: input.format,
+          contentType: input.contentType,
+          size: input.fileSizeBytes,
+          duration: input.durationSeconds,
+          version: ifMatch,
+        },
+      };
+    };
+
+    let outcome: { response: IdempotentResponse; replayed: boolean };
     try {
-      version = await retryOnConflict(() =>
-        this.grant(user, id, ifMatch, videoId, input),
+      outcome = await runIdempotent(
+        this.service,
+        scope,
+        idempotency.requestHash,
+        prepare,
       );
     } catch (err) {
-      await bunny
-        .deleteVideo(videoId)
-        .catch((e: unknown) =>
-          this.logger.warn(
-            `Couldn’t delete video ${videoId} after a refused upload (an orphan until the sweep): ${String(e)}`,
-          ),
-        );
-      throw await this.refusal(err, person);
+      if (definite(err)) {
+        // The database answered: nothing was written, so the video made for it is nobody's.
+        if (videoId) await this.discard(videoId, 'a refused upload');
+        throw await this.refusal(err, person);
+      }
+      // No answer (a lost connection, a timeout): the grant may have committed with the video
+      // on the draft. Never delete it; look the key up again, which commits with the grant.
+      outcome = await this.reconcile(
+        scope,
+        idempotency.requestHash,
+        videoId,
+        err,
+      );
     }
-    if (draft.videoId) {
-      // Replaced before anyone reviewed it: gone at once (M2 plan PR 7).
-      await bunny
-        .deleteVideo(draft.videoId)
-        .catch((e: unknown) =>
-          this.logger.warn(
-            `Couldn’t delete replaced video ${draft.videoId} (an orphan until the sweep): ${String(e)}`,
-          ),
-        );
+    const granted = recordKey(outcome.response.id);
+    const version = outcome.response.version ?? ifMatch + 1;
+    if (!outcome.replayed || granted === videoId) {
+      // This request's own grant: the draft's previous file was replaced before anyone
+      // reviewed it, so it goes at once (M2 plan PR 7).
+      if (replaced && replaced !== granted) {
+        await this.discard(replaced, 'a replaced video');
+      }
+    } else if (videoId && videoId !== granted) {
+      // Another attempt with this key had committed first (a racing retry): ours is unused.
+      await this.discard(videoId, 'an unused video');
     }
-    return this.target(bunny, id, version, videoId);
+    return this.target(bunny, id, version, granted);
+  }
+
+  /**
+   * After a write with no answer: the key's stored response if it committed (its grant and the
+   * video on the draft went with it), else `503`, keeping the video. Trying again with the same
+   * key then replays it, or makes the upload, without counting a second one.
+   */
+  private async reconcile(
+    scope: IdempotencyScope,
+    hash: string,
+    videoId: string | undefined,
+    cause: unknown,
+  ): Promise<{ response: IdempotentResponse; replayed: boolean }> {
+    try {
+      return await runIdempotent(this.service, scope, hash, async () => {
+        throw new OutcomeUnknown();
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Upload grant${videoId ? ` for video ${videoId}` : ''} has no known outcome; video kept (an orphan until the sweep if it never committed): ${String(cause)}`,
+      );
+      if (err instanceof IdempotencyKeyReusedError) throw err;
+      throw new ServiceUnavailableException({
+        code: 'upload_outcome_unknown',
+        message:
+          'We couldn’t confirm your upload started. Your story is saved; please try again.',
+      });
+    }
+  }
+
+  private async discard(videoId: string, what: string) {
+    await this.stream()
+      .deleteVideo(videoId)
+      .catch((e: unknown) =>
+        this.logger.warn(
+          `Couldn’t delete ${what} ${videoId} (an orphan until the sweep): ${String(e)}`,
+        ),
+      );
+  }
+
+  /** The draft at `ifMatch`, still editable and of the request's format. */
+  private async checkDraft(
+    person: SurrealQueryable,
+    id: string,
+    ifMatch: number,
+    input: UploadRequest,
+  ): Promise<DraftMedia> {
+    const draft = await this.draft(person, id);
+    if (draft.version !== ifMatch) throw new StaleVersionException();
+    if (!EDITABLE.includes(draft.status)) throw locked();
+    if (draft.primaryFormat !== input.format) {
+      invalid([
+        {
+          pointer: '/format',
+          message: `this is a ${draft.primaryFormat} story`,
+        },
+      ]);
+    }
+    this.checkFile(input, await this.limits(person));
+    return draft;
   }
 
   /**
@@ -360,37 +463,6 @@ export class Uploads {
     if (errors.length) invalid(errors, 'The file is over the limits');
   }
 
-  /** The grant, on api-user's own login; its event attaches the video (D80). */
-  private async grant(
-    user: RecordId,
-    id: string,
-    version: number,
-    videoId: string,
-    input: UploadRequest,
-  ): Promise<number> {
-    const [written] = (await runQuery(
-      this.service,
-      `CREATE type::record('uploadGrant', $video) CONTENT {
-         story: type::record('story', $id), person: $person, format: $format,
-         contentType: $contentType, sizeBytes: $size, durationSeconds: $duration,
-         storyVersion: $version
-       } RETURN VALUE storyVersion`,
-      {
-        video: videoId,
-        id,
-        person: user,
-        format: input.format,
-        contentType: input.contentType,
-        size: input.fileSizeBytes,
-        duration: input.durationSeconds,
-        version,
-      },
-    )) as [number[]];
-    if (written?.length !== 1) throw new Error('upload grant not written');
-    // The event's write is the story's only version step (D29).
-    return version + 1;
-  }
-
   private target(
     bunny: BunnyStream,
     id: string,
@@ -441,6 +513,23 @@ export class Uploads {
     }
     return err;
   }
+}
+
+/** Thrown by the reconciling lookup's command: it never writes. */
+class OutcomeUnknown extends Error {}
+
+/**
+ * The database answered, so the grant's write definitely didn't commit: a refusal (a THROW, a
+ * conflict, a key used for another request), or a check before it. Anything else (no answer)
+ * leaves it unknown.
+ */
+function definite(err: unknown): boolean {
+  return (
+    err instanceof HttpException ||
+    err instanceof DatabaseQueryError ||
+    err instanceof WriteNotAppliedError ||
+    err instanceof IdempotencyKeyReusedError
+  );
 }
 
 function locked() {

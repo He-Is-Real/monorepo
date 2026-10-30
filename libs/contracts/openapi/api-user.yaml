@@ -718,6 +718,13 @@ paths:
         rolling hour and 7 days (`409` `upload_limit_reached` with `availableAt`); a trusted
         submitter has only the hourly one, and the ceilings for size and length. The database
         enforces them too. `503` `uploads_unavailable` when uploads are off.
+
+        **Idempotency-Key (D29):** a new file's grant counts against those limits, so a retry
+        after a lost answer must send the same key (and the same `If-Match` and body): it replays
+        the same video and version, counting nothing new, even once the story has moved on. The
+        same key with another body is `422`. If api-user loses the database's answer itself, it
+        looks the key up again; `503` `upload_outcome_unknown` when it still can't tell, and the
+        same key then settles it. A `resume` writes nothing and stores no key.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -726,6 +733,7 @@ paths:
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
         - $ref: './components.yaml#/components/parameters/ifMatch'
+        - $ref: './components.yaml#/components/parameters/idempotencyKey'
       requestBody:
         required: true
         content:
@@ -754,6 +762,8 @@ paths:
           $ref: './components.yaml#/components/responses/Conflict'
         '412':
           $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '422':
+          $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
         '5XX':

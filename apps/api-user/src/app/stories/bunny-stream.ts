@@ -78,6 +78,8 @@ export class BunnyStreamApi implements BunnyStream {
           ...(body ? { 'Content-Type': 'application/json' } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
+        // The library key goes to Bunny's API only, never on to wherever a redirect points.
+        redirect: 'error',
         signal: AbortSignal.timeout(TIMEOUT_MS),
       },
     );

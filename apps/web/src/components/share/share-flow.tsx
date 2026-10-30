@@ -1110,6 +1110,7 @@ function MediaStep({
             hasEarlierFile={earlier}
             prepare={prepare}
             setVersion={draft.setVersion}
+            reload={draft.load}
             onState={setFile}
           />
         </div>

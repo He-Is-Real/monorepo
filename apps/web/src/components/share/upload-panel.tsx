@@ -5,6 +5,7 @@ import { Upload } from 'tus-js-client';
 import {
   ApiUserProblem,
   ApiUserUnavailable,
+  newIdempotencyKey,
   StaleVersion,
 } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
@@ -27,6 +28,14 @@ import type {
  * What's kept in this tab's storage, per person and draft: the file's name, size and date (to
  * know it again), whether it finished, and the current link (it lasts an hour). tus-js-client
  * keeps the upload's address per video and file in localStorage, removed once it finishes.
+ *
+ * A new upload's request (D29; Codex #133 round 1) is kept there too, with its Idempotency-Key,
+ * the version and body it was sent with, until its answer settles it. Its answer can be lost
+ * after api-user made the video, put it on the draft and counted it: choosing the same file
+ * again then sends the very same request, and api-user replays it (the same video, nothing new
+ * counted), however the draft's version moved on meanwhile. A `412` means the draft changed
+ * elsewhere: it's read again (the same check as a save's), and the request is made at its new
+ * version.
  */
 
 export type UploadFormat = 'video' | 'audio';
@@ -174,7 +183,44 @@ function writeKept(owner: string, draftId: string, kept: Kept | null) {
     // storage blocked: this tab keeps it on screen only
   }
 }
-const sameFile = (k: Kept | null, f: File) =>
+/** A new upload's request, until its answer settles it. */
+interface Attempt {
+  key: string;
+  version: number;
+  request: UploadRequest;
+  name: string;
+  size: number;
+  lastModified: number;
+}
+const attemptKey = (owner: string, draftId: string) =>
+  `${PREFIX}${owner}:upload-request:${draftId}`;
+function readAttempt(owner: string, draftId: string): Attempt | null {
+  try {
+    return JSON.parse(
+      window.sessionStorage.getItem(attemptKey(owner, draftId)) ?? 'null',
+    ) as Attempt | null;
+  } catch {
+    return null;
+  }
+}
+function writeAttempt(owner: string, draftId: string, a: Attempt | null) {
+  try {
+    if (a) {
+      window.sessionStorage.setItem(
+        attemptKey(owner, draftId),
+        JSON.stringify(a),
+      );
+    } else window.sessionStorage.removeItem(attemptKey(owner, draftId));
+  } catch {
+    // storage blocked: kept for this call only
+  }
+}
+/** No answer, or a server error: it may have gone through, so its request is kept to replay. */
+const outcomeUnknown = (err: unknown) =>
+  err instanceof ApiUserUnavailable ||
+  (err instanceof ApiUserProblem && err.status >= 500);
+
+const sameFile = (k: Kept | Attempt | null, f: File) =>
   !!k &&
   k.name === f.name &&
   k.size === f.size &&
@@ -196,6 +242,7 @@ export function UploadPanel({
   hasEarlierFile,
   prepare,
   setVersion,
+  reload,
   onState,
 }: {
   calls: ShareApi;
@@ -212,6 +259,8 @@ export function UploadPanel({
    */
   prepare: () => Promise<{ draftId: string; version: number } | string>;
   setVersion: (version: number) => void;
+  /** Reads the draft again after a `412` (as a save does); false once it can't be edited. */
+  reload: (draftId: string) => Promise<boolean>;
   onState: (state: FileState) => void;
 }) {
   const [phase, setPhase] = useState<Phase>({ at: 'idle' });
@@ -253,6 +302,62 @@ export function UploadPanel({
     [owner],
   );
 
+  /**
+   * A new video for the file, once per request: a kept one for this file that never got a
+   * settled answer is sent again as it was (its key, version and body), else a new one. After a
+   * `412` the draft is read again and the request made once more at its version.
+   */
+  const newUpload = useCallback(
+    async (
+      file: File,
+      first: { draftId: string; version: number },
+      request: UploadRequest,
+    ): Promise<UploadTarget | null> => {
+      let ready = first;
+      for (let again = false; ; again = true) {
+        const kept = readAttempt(owner, ready.draftId);
+        const attempt: Attempt =
+          kept && sameFile(kept, file) && kept.request.format === request.format
+            ? kept
+            : {
+                key: newIdempotencyKey(),
+                version: ready.version,
+                request,
+                name: file.name,
+                size: file.size,
+                lastModified: file.lastModified,
+              };
+        writeAttempt(owner, ready.draftId, attempt);
+        try {
+          const target = await calls.uploadUrl(
+            ready.draftId,
+            attempt.version,
+            attempt.request,
+            attempt.key,
+          );
+          writeAttempt(owner, ready.draftId, null);
+          // A replay answers the version its request made; the draft may be past it since.
+          if (target.version > ready.version) setVersion(target.version);
+          return target;
+        } catch (err) {
+          if (outcomeUnknown(err)) throw err;
+          writeAttempt(owner, ready.draftId, null);
+          if (!(err instanceof StaleVersion) || again) throw err;
+          // Changed elsewhere (another tab, or a request of this one whose answer was lost):
+          // read it again, then ask at its version.
+          if (!(await reload(ready.draftId))) throw err;
+          const now = await prepare();
+          if (typeof now === 'string') {
+            setProblem(now);
+            return null;
+          }
+          ready = now;
+        }
+      }
+    },
+    [calls, owner, prepare, reload, setVersion],
+  );
+
   /** A link for the file: the kept one while it lasts, else a new one for the same video. */
   const linkFor = useCallback(
     async (
@@ -285,7 +390,7 @@ export function UploadPanel({
           return { target, draftId: ready.draftId };
         } catch (err) {
           // Nothing left to carry on (it finished, or the video was replaced elsewhere): a
-          // new upload below.
+          // new upload below. (A resume writes nothing, so it needs no kept key.)
           if (!(
             err instanceof ApiUserProblem && err.code === 'nothing_to_resume'
           )) {
@@ -293,12 +398,8 @@ export function UploadPanel({
           }
         }
       }
-      const target = await calls.uploadUrl(
-        ready.draftId,
-        ready.version,
-        request,
-      );
-      setVersion(target.version);
+      const target = await newUpload(file, ready, request);
+      if (!target) return null;
       remember(ready.draftId, {
         name: file.name,
         size: file.size,
@@ -309,7 +410,7 @@ export function UploadPanel({
       });
       return { target, draftId: ready.draftId };
     },
-    [calls, format, owner, prepare, remember, setVersion],
+    [calls, format, newUpload, owner, prepare, remember],
   );
 
   const run = useCallback(
@@ -463,7 +564,12 @@ export function UploadPanel({
             className="sr-only"
             disabled={busy}
             aria-describedby="upload-limits"
-            onChange={(e) => void choose(e.target.files?.[0])}
+            onChange={(e) => {
+              const chosen = e.target.files?.[0];
+              // Emptied at once, so choosing the same file again (to try again) is a change.
+              e.target.value = '';
+              void choose(chosen);
+            }}
           />
         </label>
         <p id="upload-limits" className="text-sm text-secondary-text">

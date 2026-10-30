@@ -509,18 +509,32 @@ test('the stub api-user’s uploads fit the contract, answers and errors (M2 pla
     fileSizeBytes: 1000,
     durationSeconds: 3,
   };
-  const upload = (version: number | undefined, data: object = file) =>
+  let n = 0;
+  const upload = (
+    version: number | undefined,
+    data: object = file,
+    key = `contract-upl-${Date.now()}-${++n}-xxxx`,
+  ) =>
     call('POST', `/v1/stories/${id}/upload-url`, {
       data,
-      headers: version ? { 'if-match': `"${version}"` } : {},
+      headers: {
+        'idempotency-key': key,
+        ...(version ? { 'if-match': `"${version}"` } : {}),
+      },
     });
   expect((await upload(undefined)).status).toBe(428);
   expect((await upload(1, { ...file, fileSizeBytes: 5e9 })).status).toBe(400);
   expect((await upload(1, { ...file, resume: true })).body.code).toBe(
     'nothing_to_resume',
   );
-  const target = await upload(1);
+  const key = `contract-upload-${Date.now()}-xxxx`;
+  const target = await upload(1, file, key);
   expect(target).toMatchObject({ status: 200, body: { version: 2 } });
+  // The same key again (a lost answer's retry) replays it; another key at the old version is 412.
+  expect((await upload(1, file, key)).body).toEqual(target.body);
+  expect((await upload(1, { ...file, fileSizeBytes: 9 }, key)).status).toBe(
+    422,
+  );
   expect((await upload(1)).status).toBe(412);
   expect((await upload(2, { ...file, resume: true })).body.version).toBe(2);
   // The file hasn't arrived: submit says so.

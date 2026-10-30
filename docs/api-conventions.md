@@ -124,8 +124,9 @@ short-lived upload credentials.
   - `PUT`/`DELETE /v1/account/favourites/{storyId}` and `/v1/account/helped/{storyId}`: unversioned
     relationships that either exist or don't. The methods are idempotent, and repeating one gives the
     same result, so there is no lost update to prevent.
-- **`Idempotency-Key` is required on non-idempotent `POST`s:** create draft, submit, grant and
-  withdraw consent, concerns, and donations later. The `idempotencyKey` table stores key + user +
+- **`Idempotency-Key` is required on non-idempotent `POST`s:** create draft, submit, request an
+  upload (its grant counts against the person's upload limits), grant and withdraw consent,
+  concerns, and donations later. The `idempotencyKey` table stores key + user +
   request hash + the `{ id, version }` response for 24 hours (pruned nightly). A retry with the same
   body replays the stored response; the same key with a different body → `422`; no key → `400`.
 - Not needed on idempotent methods (`PUT`, `DELETE`) or on creates with a natural key (tags, DPA

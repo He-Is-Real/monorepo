@@ -251,11 +251,16 @@ export function shareApi(api: ApiUser) {
           { method: 'PATCH', body: patch, version, mergePatch: true },
         ),
       ),
-    /** RequestUpload (M2 plan PR 7): a TUS link for the draft's video (a new one, or `resume`). */
+    /**
+     * RequestUpload (M2 plan PR 7): a TUS link for the draft's video (a new one, or `resume`).
+     * A new one counts against the person's upload limits, so a retry after a lost answer sends
+     * the same Idempotency-Key, version and body, and gets the same video back (D29).
+     */
     uploadUrl: async (
       id: string,
       version: number,
       request: UploadRequest,
+      idempotencyKey = newIdempotencyKey(),
     ): Promise<UploadTarget> => {
       const { headers: signed, ...link } = (
         await api.command<
@@ -264,6 +269,7 @@ export function shareApi(api: ApiUser) {
           method: 'POST',
           body: request,
           version,
+          idempotencyKey,
         })
       ).data as Omit<UploadTarget, 'signed'> & {
         headers: Record<string, string>;

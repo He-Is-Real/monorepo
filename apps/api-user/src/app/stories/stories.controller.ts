@@ -320,13 +320,22 @@ export class StoriesController {
     @Param('id') id: string,
     @Body() body: unknown,
     @Headers('if-match') ifMatch?: string,
+    @Headers('idempotency-key') key?: string,
   ): Promise<UploadTarget> {
     const sid = storyId(id);
     const version = ifMatchOf(ifMatch);
+    const idempotencyKey = parseIdempotencyKey(key);
     const input = parseUploadRequest(body);
-    const target = await this.people.run(req, ({ session, user }) =>
-      this.uploads.request(session, user, sid, version, input),
-    );
+    const target = await this.people
+      .run(req, ({ session, user }) =>
+        this.uploads.request(session, user, sid, version, input, {
+          key: idempotencyKey,
+          requestHash: requestHash(['POST', 'upload-url', sid, version, input]),
+        }),
+      )
+      .catch((err: unknown) => {
+        throw reused(err);
+      });
     res.status(HttpStatus.OK);
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('ETag', `"${target.version}"`);

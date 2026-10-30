@@ -57,6 +57,35 @@ class FakeStream implements BunnyStream {
   }
 }
 
+/**
+ * Fault injection on api-user's own login: the next upload grant's write either commits and
+ * its answer is lost on the way back (`lost`), or never reaches the database (`unsent`). Both
+ * look the same to api-user: a connection that failed with no answer.
+ */
+const fault: { next?: 'lost' | 'unsent' } = {};
+function withFaults(db: Surreal): Surreal {
+  return new Proxy(db, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (prop !== 'query') {
+        return typeof value === 'function' ? value.bind(target) : value;
+      }
+      return (sql: string, vars?: Record<string, unknown>) => {
+        const mode = fault.next;
+        if (!mode || !/CREATE (ONLY )?type::record\('uploadGrant'/.test(sql)) {
+          return target.query(sql, vars);
+        }
+        fault.next = undefined;
+        const responses = async () => {
+          if (mode === 'lost') await target.query(sql, vars).json().responses();
+          throw new Error('WebSocket closed before the answer arrived');
+        };
+        return { json: () => ({ responses }) };
+      };
+    },
+  });
+}
+
 describe('video and audio uploads', () => {
   const contract = new Contract('api-user.yaml');
   const bunny = new FakeStream();
@@ -122,11 +151,21 @@ describe('video and audio uploads', () => {
     id: string,
     version: number,
     body: object = FILE,
+    idempotencyKey = key(),
   ) =>
     call('POST', `/v1/stories/${id}/upload-url`, who, {
       body,
-      headers: { 'if-match': `"${version}"` },
+      headers: {
+        'if-match': `"${version}"`,
+        'idempotency-key': idempotencyKey,
+      },
     });
+  const grants = async (who: string) =>
+    rows(
+      migrator,
+      `SELECT VALUE record::id(id) FROM uploadGrant WHERE person = type::record('user', $who)`,
+      { who },
+    );
   const submit = (who: string, id: string, version: number) =>
     call('POST', `/v1/stories/${id}/submit`, who, {
       headers: { 'if-match': `"${version}"`, 'idempotency-key': key() },
@@ -152,7 +191,7 @@ describe('video and audio uploads', () => {
     admin = await t.service('api_admin');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
-      .useValue(await t.service('api_user'))
+      .useValue(withFaults(await t.service('api_user')))
       .overrideProvider(CLERK_CONFIG)
       .useValue(
         parseClerkConfig({
@@ -357,6 +396,61 @@ describe('video and audio uploads', () => {
     expect([failed.status, failed.body.code]).toEqual([409, 'media_failed']);
     bunny.arrived(videoId, 120);
     expect((await submit('dan', id, 2)).status).toBe(200);
+  });
+
+  it('an upload whose database answer is lost keeps its video, and a retry with the same key replays it without counting another (Codex #133, 1)', async () => {
+    await person('fay');
+    const id = await draft('fay');
+    const k = key();
+    fault.next = 'lost';
+    const first = await upload('fay', id, 1, FILE, k);
+    // The grant committed: api-user finds it by the key and answers as if nothing was lost.
+    expect(first.status).toBe(200);
+    const videoId = first.body.headers.VideoId;
+    expect(first.body.version).toBe(2);
+    expect(bunny.videos.has(videoId)).toBe(true);
+    expect(bunny.deleted).not.toContain(videoId);
+    expect(await media(id)).toEqual([
+      [{ format: 'video', bunnyVideoId: videoId }],
+    ]);
+
+    // The browser never saw that answer either: its retry, same key, same version, replays it.
+    const count = bunny.videos.size;
+    const again = await upload('fay', id, 1, FILE, k);
+    expect([
+      again.status,
+      again.body.version,
+      again.body.headers.VideoId,
+    ]).toEqual([200, 2, videoId]);
+    expect(bunny.videos.size).toBe(count);
+    expect(await grants('fay')).toEqual([videoId]);
+    // The same key for another file is refused, not replayed.
+    const other = await upload('fay', id, 1, { ...FILE, fileSizeBytes: 9 }, k);
+    expect([other.status, other.body.code]).toEqual([
+      422,
+      'idempotency_key_reused',
+    ]);
+  });
+
+  it('a grant that never reached the database is not guessed at: 503, the video kept, and the retry goes through once (Codex #133, 1)', async () => {
+    await person('gus');
+    const id = await draft('gus');
+    const k = key();
+    fault.next = 'unsent';
+    const before = new Set(bunny.videos.keys());
+    const first = await upload('gus', id, 1, FILE, k);
+    expect([first.status, first.body.code]).toEqual([
+      503,
+      'upload_outcome_unknown',
+    ]);
+    // Its outcome was unknown, so its video stays (the sweep removes it if nothing names it).
+    const made = [...bunny.videos.keys()].filter((v) => !before.has(v));
+    expect(made).toHaveLength(1);
+    expect(await grants('gus')).toEqual([]);
+
+    const again = await upload('gus', id, 1, FILE, k);
+    expect([again.status, again.body.version]).toEqual([200, 2]);
+    expect(await grants('gus')).toEqual([again.body.headers.VideoId]);
   });
 
   it('a written story takes no upload', async () => {

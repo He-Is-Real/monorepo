@@ -90,7 +90,10 @@ through an upload grant (D80; the person's browser never names a video).
   count it.
 - **Orphans** (a video on Bunny that no story shows) happen when that delete fails (api-user
   logs `Couldn’t delete replaced video …`), when the database refused the grant after the video
-  was created and the delete after it failed (`… after a refused upload`), or when a person
+  was created and the delete after it failed (`… after a refused upload`), when api-user lost the
+  database's answer to the grant and couldn't tell whether it committed (`… has no known outcome;
+video kept`: never deleted then, since it may be the draft's file; the person's retry with the
+  same Idempotency-Key settles it), or when a person
   abandons a draft whose file never finished (Bunny keeps it at status 0, "created"). Until the
   sweep (D40, with account deletion) find them by title: a story id with no story, or a video id
   that isn't the story's `media[0].bunnyVideoId`:

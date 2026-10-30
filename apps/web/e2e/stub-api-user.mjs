@@ -830,82 +830,93 @@ async function handleShare(req, res, path, url, s) {
         'Precondition required',
         'if_match_required',
       );
-    if (v !== st.version)
-      return shareProblem(res, 412, 'Precondition failed', 'stale_version');
-    if (!['draft', 'changes_requested'].includes(st.status))
-      return shareProblem(res, 409, 'Conflict', 'story_locked');
     const b = (await readJson(req)) ?? {};
-    const limits = uploadLimitsOf(s);
-    const errors = [];
-    if (b.format !== st.primaryFormat)
-      errors.push({
-        pointer: '/format',
-        message: `this is a ${st.primaryFormat} story`,
+    // As api-user: the key is looked up first, so a retry after a lost answer replays the same
+    // video and version even once the story has moved on (D29; Codex #133 round 1).
+    return idempotent(s, req, res, b, () => {
+      const p = (status, title, code, extra = {}) => ({
+        status,
+        body: { type: 'about:blank', title, status, code, ...extra },
+        headers: { 'content-type': 'application/problem+json' },
       });
-    else if (!UPLOAD_TYPES[b.format].includes(b.contentType))
-      errors.push({ pointer: '/contentType', message: 'not a type we take' });
-    const max =
-      b.format === 'audio' ? limits.audioMaxBytes : limits.videoMaxBytes;
-    if (!(b.fileSizeBytes > 0) || b.fileSizeBytes > max)
-      errors.push({
-        pointer: '/fileSizeBytes',
-        message: `at most ${max} bytes`,
-      });
-    if (
-      b.durationSeconds !== undefined &&
-      b.durationSeconds > limits.maxDurationSeconds
-    )
-      errors.push({
-        pointer: '/durationSeconds',
-        message: `at most ${limits.maxDurationSeconds} seconds`,
-      });
-    if (errors.length)
-      return shareProblem(res, 400, 'Bad request', 'validation_failed', {
-        errors,
-      });
-    const sign = (videoId) => {
-      const expires = Math.floor(Date.now() / 1000) + 3600;
-      return {
-        id: uploadUrl[1],
-        version: st.version,
-        provider: 'bunny_tus',
-        uploadUrl: `http://${req.headers.host}/tusupload`,
-        method: 'POST',
-        headers: {
-          AuthorizationSignature: tusSignature(expires, videoId),
-          AuthorizationExpire: String(expires),
-          VideoId: videoId,
-          LibraryId: '42',
-        },
-        expiresAt: new Date(expires * 1000).toISOString(),
+      if (v !== st.version)
+        return p(412, 'Precondition failed', 'stale_version');
+      if (!['draft', 'changes_requested'].includes(st.status))
+        return p(409, 'Conflict', 'story_locked');
+      const limits = uploadLimitsOf(s);
+      const errors = [];
+      if (b.format !== st.primaryFormat)
+        errors.push({
+          pointer: '/format',
+          message: `this is a ${st.primaryFormat} story`,
+        });
+      else if (!UPLOAD_TYPES[b.format].includes(b.contentType))
+        errors.push({ pointer: '/contentType', message: 'not a type we take' });
+      const max =
+        b.format === 'audio' ? limits.audioMaxBytes : limits.videoMaxBytes;
+      if (!(b.fileSizeBytes > 0) || b.fileSizeBytes > max)
+        errors.push({
+          pointer: '/fileSizeBytes',
+          message: `at most ${max} bytes`,
+        });
+      if (
+        b.durationSeconds !== undefined &&
+        b.durationSeconds > limits.maxDurationSeconds
+      )
+        errors.push({
+          pointer: '/durationSeconds',
+          message: `at most ${limits.maxDurationSeconds} seconds`,
+        });
+      if (errors.length)
+        return p(400, 'Bad request', 'validation_failed', { errors });
+      const sign = (videoId) => {
+        const expires = Math.floor(Date.now() / 1000) + 3600;
+        return {
+          status: 200,
+          body: {
+            id: uploadUrl[1],
+            version: st.version,
+            provider: 'bunny_tus',
+            uploadUrl: `http://${req.headers.host}/tusupload`,
+            method: 'POST',
+            headers: {
+              AuthorizationSignature: tusSignature(expires, videoId),
+              AuthorizationExpire: String(expires),
+              VideoId: videoId,
+              LibraryId: '42',
+            },
+            expiresAt: new Date(expires * 1000).toISOString(),
+          },
+          headers: { etag: `"${st.version}"` },
+        };
       };
-    };
-    if (b.resume === true) {
-      const video = st.videoId && s.videos.get(st.videoId);
-      if (!video || video.done)
-        return shareProblem(res, 409, 'Conflict', 'nothing_to_resume');
-      return sendJson(res, 200, sign(st.videoId), { etag: `"${st.version}"` });
-    }
-    if (limits.nextAvailableAt)
-      return shareProblem(res, 409, 'Conflict', 'upload_limit_reached', {
-        detail: 'You’ve started as many uploads as you can for now.',
-        availableAt: limits.nextAvailableAt,
+      if (b.resume === true) {
+        const video = st.videoId && s.videos.get(st.videoId);
+        if (!video || video.done)
+          return p(409, 'Conflict', 'nothing_to_resume');
+        return sign(st.videoId);
+      }
+      if (limits.nextAvailableAt)
+        return p(409, 'Conflict', 'upload_limit_reached', {
+          detail: 'You’ve started as many uploads as you can for now.',
+          availableAt: limits.nextAvailableAt,
+        });
+      // One video per draft: the old one is deleted at once (api-user does it at Bunny).
+      if (st.videoId) s.videos.get(st.videoId).deleted = true;
+      const videoId = randomUUID();
+      s.videos.set(videoId, {
+        story: uploadUrl[1],
+        length: null,
+        received: 0,
+        done: false,
+        deleted: false,
       });
-    // One video per draft: the old one is deleted at once (api-user does it at Bunny).
-    if (st.videoId) s.videos.get(st.videoId).deleted = true;
-    const videoId = randomUUID();
-    s.videos.set(videoId, {
-      story: uploadUrl[1],
-      length: null,
-      received: 0,
-      done: false,
-      deleted: false,
+      s.uploadTimes.push(Date.now());
+      st.videoId = videoId;
+      st.version += 1;
+      st.updatedAt = new Date().toISOString();
+      return sign(videoId);
     });
-    s.uploadTimes.push(Date.now());
-    st.videoId = videoId;
-    st.version += 1;
-    st.updatedAt = new Date().toISOString();
-    return sendJson(res, 200, sign(videoId), { etag: `"${st.version}"` });
   }
   return false;
 }

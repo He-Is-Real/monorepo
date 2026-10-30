@@ -62,6 +62,20 @@ async function person(
       (await (
         await request.get(`${STUB_USER_URL}/__e2e/sessions/${id}/uploads`)
       ).json()) as { requests: number; videos: Video[] },
+    /** Another tab: a merge patch at the version it read. */
+    editElsewhere: async (id: string, version: number, patch: object) =>
+      expect(
+        (
+          await request.patch(`${STUB_USER_URL}/v1/stories/${id}`, {
+            headers: {
+              ...auth,
+              'content-type': 'application/merge-patch+json',
+              'if-match': `"${version}"`,
+            },
+            data: patch,
+          })
+        ).status(),
+      ).toBe(200),
     stories: async () =>
       (
         await (
@@ -72,6 +86,7 @@ async function person(
       ).data as {
         id: string;
         status: string;
+        description: string;
         primaryFormat: string;
         media: unknown[];
       }[],
@@ -316,5 +331,65 @@ test.describe('behaviour', () => {
     await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
     const { requests, videos } = await me.uploads();
     expect([requests, videos.length, videos[0].done]).toEqual([1, 1, true]);
+  });
+
+  test('an upload request whose answer is lost carries on when the file is chosen again, with the same video (Codex #133, 2)', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('My video');
+    const path = clip(info.outputPath('clip.mp4'));
+    // The first request reaches api-user, which makes the video and moves the draft on a
+    // version; its answer never arrives.
+    let dropped = false;
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/*/upload-url`,
+      async (route) => {
+        if (dropped) return route.fallback();
+        dropped = true;
+        await route.fetch();
+        return route.abort('connectionreset');
+      },
+    );
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(alert(page, 'can’t reach our server')).toBeVisible();
+    expect((await me.uploads()).videos).toHaveLength(1);
+
+    // Choosing it again sends the same request (same key, version and body): the same video.
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    const { requests, videos } = await me.uploads();
+    expect([requests, videos.length, videos[0].done]).toEqual([2, 1, true]);
+    // And the draft carries on at the version that request made: the next edit saves.
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    await page.locator('#story-description').fill('Saved after the replay');
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'saved',
+    );
+    expect(await me.stories()).toMatchObject([
+      { description: 'Saved after the replay', media: [{}] },
+    ]);
+  });
+
+  test('a draft changed in another tab is read again and the upload goes ahead (Codex #133, 2)', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('My video');
+    await expect(page).toHaveURL(/\/share\?draft=/);
+    const [story] = await me.stories();
+    await me.editElsewhere(story.id, 1, { description: 'From the other tab' });
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(clip(info.outputPath('clip.mp4')));
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    const { requests, videos } = await me.uploads();
+    expect([requests, videos.length]).toEqual([2, 1]);
   });
 });
