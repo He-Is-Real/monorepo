@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
 import {
+  enlargeText,
   expectAllTargets,
   expectNoHorizontalOverflow,
   expectTarget,
@@ -107,6 +108,19 @@ for (const scheme of ['light', 'dark'] as const) {
     });
   });
 }
+
+// WCAG 1.4.4: at 200% text on the smallest phone the card still hugs Stripe's 288 px button (its
+// width and side padding are px, like the button) and nothing scrolls sideways (Codex review of #142).
+test('200% text on the smallest phone: the card still fits', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'phone-320', 'the smallest phone');
+  await enlargeText(page);
+  await standInStripe(page);
+  await page.goto(`${WEB_LIVE_URL}/donate`);
+  await expectShown(page, STRIPE_E2E.oneOffButtonId);
+  await expectNoHorizontalOverflow(page);
+});
 
 test.describe('behaviour', () => {
   // eslint-disable-next-line no-empty-pattern

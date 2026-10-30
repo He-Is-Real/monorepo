@@ -45,11 +45,11 @@ export function StripeBuyButton({
 }) {
   return (
     <div className="-mx-4 flex justify-center sm:mx-0">
-      <div className="light rounded-2xl border border-border bg-card px-3 py-6 sm:px-4">
+      <div className="light rounded-2xl border border-border bg-card px-[12px] py-6 sm:px-4">
         <stripe-buy-button
           buy-button-id={buttonId}
           publishable-key={publishableKey}
-          className="flex min-h-[243px] w-72 items-center justify-center text-center text-sm text-muted-foreground"
+          className="flex min-h-[243px] w-[288px] items-center justify-center text-center text-sm text-muted-foreground"
         >
           Loading Stripe’s secure button…
         </stripe-buy-button>
