@@ -617,7 +617,8 @@ interim guard). **In dev the guard warns and never blocks; in any other environm
    bootstrap's included), for the root's environment, taken from its path (`live/<environment>/`)
    so it can't be forgotten. It reports a resource the plan creates or updates that has a `location`,
    `region` or `zone` (any case, at any depth) other than `europe-west2`, `europe-west2-a/b/c` or
-   `EUROPE-WEST2`, or one known only after apply; a Pub/Sub topic whose
+   `EUROPE-WEST2`, or one known only after apply (a container of locations too, such as a
+   secret's replicas); a Pub/Sub topic whose
    `message_storage_policy.allowed_persistence_regions` isn't exactly `["europe-west2"]`; or a
    secret with automatic (global) replication. Exceptions are listed in the script, each with its
    reason: genuinely global types (IAM, service accounts, project services, the VPC network and
@@ -629,8 +630,8 @@ interim guard). **In dev the guard warns and never blocks; in any other environm
    **Anywhere else** (prod at launch) it fails the plan (exit 1), so it never reaches an
    approval. Clerk (US, D6) isn't in OpenTofu, so neither check sees it.
 
-The checks don't cover a local `tf.sh <root> apply` without a saved plan (it plans again): plan
-with `-out`, then apply that file.
+Tip: a local `tf.sh <root> apply` without a plan file plans again and isn't location-checked;
+`tf.sh <root> plan -out=tfplan` followed by `tf.sh <root> apply tfplan` applies a checked plan.
 
 | Data                                                    | Where                                     | Declared in                              |
 | ------------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |

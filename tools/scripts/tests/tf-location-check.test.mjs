@@ -284,3 +284,104 @@ test('every environment but dev blocks, and one must be named', () => {
   assert.equal(spawnSync(script, [], { input: '{}' }).status, 64);
   assert.equal(spawnSync(script, [''], { input: '{}' }).status, 64);
 });
+
+test('an unknown container that holds locations is a finding (known after apply)', () => {
+  const result = check([
+    rc(
+      'google_secret_manager_secret.s',
+      { replication: [{ user_managed: [{}] }] },
+      {
+        after_unknown: {
+          replication: [{ user_managed: [{ replicas: true }] }],
+        },
+      },
+    ),
+    rc(
+      'google_secret_manager_secret.whole',
+      {},
+      { after_unknown: { replication: true } },
+    ),
+    rc(
+      'google_pubsub_topic.t',
+      {},
+      { after_unknown: { message_storage_policy: true } },
+    ),
+    rc(
+      'bunnynet_storage_zone.z',
+      { region: 'UK' },
+      { after_unknown: { replication_regions: true } },
+    ),
+    rc(
+      'bunnynet_pullzone.p',
+      { name: 'p' },
+      { after_unknown: { storagezone: true, zone_id: true } },
+    ),
+    rc(
+      'google_secret_manager_secret.cmek',
+      {
+        replication: [
+          { user_managed: [{ replicas: [{ location: 'europe-west2' }] }] },
+        ],
+      },
+      {
+        after_unknown: {
+          replication: [
+            {
+              user_managed: [
+                { replicas: [{ customer_managed_encryption: true }] },
+              ],
+            },
+          ],
+        },
+      },
+    ),
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stdout,
+    /secret\.s: replication\[0\]\.user_managed\[0\]\.replicas=\(known after apply\)/,
+  );
+  assert.match(
+    result.stdout,
+    /secret\.whole: replication=\(known after apply\)/,
+  );
+  assert.match(
+    result.stdout,
+    /topic\.t: message_storage_policy=\(known after apply\)/,
+  );
+  assert.match(
+    result.stdout,
+    /zone\.z: replication_regions=\(known after apply\)/,
+  );
+  assert.doesNotMatch(result.stdout, /pullzone|cmek/);
+});
+
+test('Pub/Sub and Bunny replication findings respect sensitivity', () => {
+  const result = check([
+    rc(
+      'google_pubsub_topic.t',
+      {
+        message_storage_policy: [
+          { allowed_persistence_regions: ['SECRET-region'] },
+        ],
+      },
+      {
+        after_sensitive: {
+          message_storage_policy: [{ allowed_persistence_regions: [true] }],
+        },
+      },
+    ),
+    rc(
+      'bunnynet_storage_zone.z',
+      { region: 'UK', replication_regions: ['SECRET-region'] },
+      { after_sensitive: { replication_regions: true } },
+    ),
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stdout,
+    /topic\.t: message_storage_policy\.allowed_persistence_regions=\(sensitive\)/,
+  );
+  assert.match(result.stdout, /zone\.z: replication_regions=\(sensitive\)/);
+  assert.doesNotMatch(result.all, /SECRET/);
+});

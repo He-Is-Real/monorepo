@@ -10,7 +10,8 @@
 # creates or updates (replaces included), it reports:
 #   - any `location`, `region` or `zone` attribute (any case, at any depth, list items included)
 #     that isn't europe-west2, europe-west2-a/b/c or EUROPE-WEST2 (Cloud Storage's spelling),
-#     including one known only after apply;
+#     including one known only after apply, or a container of them (Secret Manager replicas,
+#     Pub/Sub storage policy, Bunny replication) known only after apply;
 #   - a google_pubsub_topic whose message_storage_policy isn't exactly ["europe-west2"];
 #   - a google_secret_manager_secret with automatic replication (global).
 # Exceptions are the two lists below. CI logs are public: it prints only resource addresses,
@@ -54,6 +55,15 @@ def is_loc_key: type == "string" and (ascii_downcase | IN("location", "region", 
 def leaf_key: if (.[-1] | type) == "number" then .[-2] else .[-1] end;
 def show_path: map(if type == "number" then "[\(.)]" else ".\(.)" end) | join("") | ltrimstr(".");
 def sensitive($s; $p): any(range(0; ($p | length) + 1) as $i | (try ($s | getpath($p[:$i])) catch null); . == true);
+# Sensitive at $p, above it, or anywhere inside it.
+def sensitive_any($s; $p): sensitive($s; $p) or ([(try ($s | getpath($p)) catch null) | .. | select(. == true)] | length > 0);
+# An unknown value under one of these keys may hide a location: a location key itself, or a
+# container of them (Secret Manager replication, Pub/Sub storage policy, Bunny replication).
+# Unknown fields inside such a container that are not locations (e.g. a replica encryption key)
+# are not findings.
+def holds_locations: type == "string" and (ascii_downcase | IN("location", "region", "zone",
+  "replication", "replicas", "user_managed", "message_storage_policy",
+  "allowed_persistence_regions", "replication_regions"));
 def bunny_ok($rc; $key; $v):
   ($rc.type == "bunnynet_storage_zone" and ($key | ascii_downcase) == "region" and
     ($v == "UK" or ($v == "DE" and ($rc.address | test("(^|\\.)bunnynet_storage_zone\\.stream(\\[[0-9]+\\])?$")))))
@@ -75,7 +85,7 @@ def bunny_ok($rc; $key; $v):
         else "\($rc.address): \($p | show_path)=\($v)" end
     ),
     (
-      (.change.after_unknown // {}) | paths(. == true) | select(leaf_key | is_loc_key)
+      (.change.after_unknown // {}) | paths(. == true) | select(leaf_key | holds_locations)
       | "\($rc.address): \(show_path)=(known after apply)"
     ),
     (
@@ -83,7 +93,9 @@ def bunny_ok($rc; $key; $v):
       | ($after.message_storage_policy // []) as $m
       | select(($m | length) != 1 or $m[0].allowed_persistence_regions != ["europe-west2"])
       | "\($rc.address): message_storage_policy.allowed_persistence_regions=\(
-          $m[0].allowed_persistence_regions // [] | if length == 0 then "(not declared)" else join(",") end)"
+          if sensitive_any($sens; ["message_storage_policy"]) then "(sensitive)"
+          else $m[0].allowed_persistence_regions // [] | if length == 0 then "(not declared)" else join(",") end
+          end)"
     ),
     (
       select($rc.type == "google_secret_manager_secret")
@@ -93,7 +105,9 @@ def bunny_ok($rc; $key; $v):
     (
       select($rc.type == "bunnynet_storage_zone")
       | select(($after.replication_regions // []) | length > 0)
-      | "\($rc.address): replication_regions=\($after.replication_regions | join(","))"
+      | "\($rc.address): replication_regions=\(
+          if sensitive_any($sens; ["replication_regions"]) then "(sensitive)"
+          else $after.replication_regions | join(",") end)"
     )
   ] as $bad
 | ($changed | length), $bad[]
