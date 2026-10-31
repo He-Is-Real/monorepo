@@ -153,6 +153,21 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
   ]);
   let storyId: string | undefined;
   let videoId: string | undefined;
+  // This run's draft, from its create's answer: cleanup has it even if the upload request fails.
+  page.on('response', (r) => {
+    if (
+      r.request().method() === 'POST' &&
+      r.url() === `${API_USER_URL}/v1/stories` &&
+      r.status() === 201
+    ) {
+      void r
+        .json()
+        .then((b: { id?: string }) => {
+          storyId ??= b.id;
+        })
+        .catch(() => undefined);
+    }
+  });
   try {
     await signIn(page);
     // The test needs a submission to spend: say so plainly, before anything is uploaded.
@@ -192,7 +207,8 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
       id: string;
       headers: { VideoId: string };
     };
-    storyId = signed.id;
+    storyId ??= signed.id;
+    expect(signed.id).toBe(storyId);
     videoId = signed.headers.VideoId;
     await expect(page.getByText(/^Uploaded: story\.mp4/)).toBeVisible({
       timeout: 60_000,
@@ -249,35 +265,46 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
     // D50: nothing stays, pass or fail. As the person would: withdraw it if it was submitted,
     // then delete it, which deletes its video at Bunny (D71). The video goes directly too, in
     // case the story never got it or the delete failed.
-    if (storyId) {
-      const id = encodeURIComponent(storyId);
-      let mine = await asPerson(page, `/v1/account/stories/${id}`);
-      if (mine.status === 200 && mine.body.status === 'pending') {
-        const withdrawn = await asPerson(page, `/v1/stories/${id}/withdraw`, {
-          method: 'POST',
-          headers: { 'if-match': `"${mine.body.version}"` },
-        });
-        expect.soft(withdrawn.status, 'withdraw the story').toBe(200);
-        mine = await asPerson(page, `/v1/account/stories/${id}`);
+    try {
+      if (storyId) await removeStory(page, storyId);
+    } finally {
+      if (videoId) {
+        const res = await stream(`/videos/${videoId}`, 'DELETE');
+        expect.soft([200, 404], 'delete the video').toContain(res.status);
+        expect
+          .soft(
+            (await stream(`/videos/${videoId}`)).status,
+            'the video is gone',
+          )
+          .toBe(404);
       }
-      if (mine.status === 200) {
-        const deleted = await asPerson(page, `/v1/stories/${id}`, {
-          method: 'DELETE',
-          headers: { 'if-match': `"${mine.body.version}"` },
-        });
-        expect.soft(deleted.status, 'delete the story').toBe(204);
-      }
-      expect
-        .soft(
-          (await asPerson(page, `/v1/account/stories/${id}`)).status,
-          'the story is gone',
-        )
-        .toBe(404);
-    }
-    if (videoId) {
-      const res = await stream(`/videos/${videoId}`, 'DELETE');
-      expect.soft([200, 404], 'delete the video').toContain(res.status);
     }
   }
-  if (videoId) expect((await stream(`/videos/${videoId}`)).status).toBe(404);
 });
+
+/** Withdraws the story if it was submitted, then deletes it, as the person would (D71). */
+async function removeStory(page: Page, storyId: string) {
+  const id = encodeURIComponent(storyId);
+  let mine = await asPerson(page, `/v1/account/stories/${id}`);
+  if (mine.status === 200 && mine.body.status === 'pending') {
+    const withdrawn = await asPerson(page, `/v1/stories/${id}/withdraw`, {
+      method: 'POST',
+      headers: { 'if-match': `"${mine.body.version}"` },
+    });
+    expect.soft(withdrawn.status, 'withdraw the story').toBe(200);
+    mine = await asPerson(page, `/v1/account/stories/${id}`);
+  }
+  if (mine.status === 200) {
+    const deleted = await asPerson(page, `/v1/stories/${id}`, {
+      method: 'DELETE',
+      headers: { 'if-match': `"${mine.body.version}"` },
+    });
+    expect.soft(deleted.status, 'delete the story').toBe(204);
+  }
+  expect
+    .soft(
+      (await asPerson(page, `/v1/account/stories/${id}`)).status,
+      'the story is gone',
+    )
+    .toBe(404);
+}
