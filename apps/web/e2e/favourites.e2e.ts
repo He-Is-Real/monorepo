@@ -805,9 +805,7 @@ test('Show more favourites adds cards under the columns, the others staying put'
     expectStaggered(after, width);
     before.forEach((box, i) => {
       expect(after[i].x, `card ${i + 1}`).toBe(box.x);
-      expect(Math.abs(after[i].top - box.top), `card ${i + 1}`).toBeLessThan(
-        1,
-      );
+      expect(Math.abs(after[i].top - box.top), `card ${i + 1}`).toBeLessThan(1);
     });
   }).toPass();
   await expectNoHorizontalOverflow(page);
