@@ -93,21 +93,16 @@ existed), request changes so the person submits again.
 (`<video id>/original`, Frankfurt), so "Download my data" can link the person to their own file.
 Files uploaded before the switch have none. They go with the video, like its encodings.
 
-Bunny serves a kept original on the CDN only when the library's **`ExposeOriginals`** is on, a
-setting the OpenTofu provider (bunnynet 0.19.2) doesn't have. So once, after the bunny apply that
-turned on keeping originals, it's set with Bunny's API (a recorded exception to "everything through
-OpenTofu", like the Clerk settings):
-
-```sh
-tools/scripts/tf.sh bunny-cli api POST /videolibrary/<library id> --body '{"ExposeOriginals":true}'
-tools/scripts/tf.sh bunny-cli api GET /videolibrary/<library id> -o json | jq '{ExposeOriginals, KeepOriginalFiles, BlockNoneReferrer, AllowEarlyPlay}'
-```
-
-Expect `true, true, false, false`. Later applies don't turn it off (tested on a throwaway library,
-2026-10-31: an update sending the provider's fields left it on). Exposed still means signed:
-with token auth on, an unsigned or expired link to `/original` is `403`. Tested end to end on a
-throwaway library: with `ExposeOriginals` off, even a signed link answered `403`; with it on, a
-signed link opened with no referrer (`200`) and returned the uploaded bytes exactly.
+**Never turn on the library's `ExposeOriginals`** (not in the OpenTofu provider, so only Bunny's
+API or dashboard could). Bunny serves a kept original on the CDN only with it on, but then
+**anyone who can watch a video can download its original**: the player page hands every viewer a
+token for the whole video folder (`token_path=/<video id>/`), and that token opens
+`<video id>/original` too. Tested on a throwaway library, 2026-10-31: with `ExposeOriginals` on,
+the player's own token fetched the uploaded file byte for byte (`200`). With it off, even a link we
+signed for exactly `/original` answers `403`. An original is the file as the phone wrote it,
+location and device metadata included, and a published video's player is public. So until the
+export gets the original another way (an open question in the PR that added this), the export's
+`originalFileUrl` links answer `403`; the files are kept meanwhile.
 
 No personal data goes into Bunny names: a video's title is the story id (D69) and an image's path
 is under the story's folder (D80). Deleting an image leaves its folder behind, so deletions remove

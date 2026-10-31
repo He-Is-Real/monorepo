@@ -376,8 +376,9 @@ Optimizer, Origin Shield, Perma-Cache and WebSockets are all set off explicitly,
 in the dashboard shows up as drift. Original files are kept (Joel, 2026-10-31): "Download my data"
 links each person to the file they uploaded (`<video id>/original` on the Stream pull zone, signed
 like every Stream file); early play stays off. Bunny serves originals on the CDN only with the
-library's `ExposeOriginals` on, which the provider can't set: it's a one-off API call after the apply
-([docs/media-runbook.md](../../docs/media-runbook.md), "Originals"), not drift-checked. Requests
+library's `ExposeOriginals` on, which the provider can't set and which must stay **off**: the
+player's folder-wide token would then let any viewer download a video's original
+([docs/media-runbook.md](../../docs/media-runbook.md), "Originals"). Requests
 without a referrer are allowed (`direct_url_file_access_blocked = false`, 2026-10-31), so those links
 open from the address bar; the CDN token (D52) still guards every Stream file. (Automatic chapters and moments aren't in the
 provider; both are off by default and would switch transcribing on, which shows as drift.)

@@ -34,9 +34,9 @@ resource "bunnynet_stream_library" "media" {
   # O2 B (Joel, 2026-10-31): keep each upload as it arrived, so "Download my data" can give the
   # person their own file back (a signed link to <video id>/original, api-user's export). Only
   # videos uploaded after this is applied have one. Costs storage (Frankfurt, D89).
-  # Bunny serves them on the CDN only with the library's ExposeOriginals on, which
-  # this provider (0.19.2) doesn't have: a one-off API call after the apply
-  # (docs/media-runbook.md, "Originals"). Still signed: token auth covers them.
+  # Bunny serves them on the CDN only with the library's ExposeOriginals on (not
+  # in this provider, 0.19.2). Keep it OFF: the player's folder-wide token would
+  # then open <video id>/original for any viewer (docs/media-runbook.md, "Originals").
   original_files_keep               = true
   multi_audio_track_support_enabled = false
   early_play_enabled                = false # would serve unencoded originals as playback
