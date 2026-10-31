@@ -12,6 +12,7 @@ import {
   Req,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { PERSON_PASS_ISSUER } from '@heisreal/auth';
 import { runQuery, SURREAL } from '@heisreal/database';
 import { NoRoleRequired } from '@heisreal/roles';
 import { SecretsService } from '@heisreal/secrets';
@@ -110,7 +111,7 @@ export class ClerkWebhookController {
 /**
  * Erasure (M2 plan PR 11; D39, D40, D82): `Erasure` for "Delete my account" (AccountController,
  * also how a person withdraws all consent, plan 4e) and Clerk's webhook. Global; its Clerk client
- * also serves the data download (ExportModule).
+ * also serves the data download (ExportModule) and people's fresh passes (PersonSessions).
  */
 @Global()
 @Module({
@@ -122,9 +123,15 @@ export class ClerkWebhookController {
       inject: [SecretsService],
       useFactory: (secrets: SecretsService) => createClerkBackend(secrets),
     },
+    // Fresh passes for libs/auth's PersonSessions (decision T, option B); null without the key.
+    {
+      provide: PERSON_PASS_ISSUER,
+      inject: [CLERK_BACKEND],
+      useFactory: (clerk: ClerkBackend) => clerk.passIssuer(),
+    },
     // The images storage zone (M2 plan PR 10); null with image uploads off.
     { provide: IMAGE_DELETER, useExisting: BUNNY_STORAGE },
   ],
-  exports: [Erasure, CLERK_BACKEND],
+  exports: [Erasure, CLERK_BACKEND, PERSON_PASS_ISSUER],
 })
 export class ErasureModule {}

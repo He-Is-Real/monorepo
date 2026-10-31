@@ -20,6 +20,10 @@ export class PersonSessionRefusedError extends Error {
  *   {@link PersonSessionRefusedError}. The token's ns/db claims select the database.
  * - Always `invalidate()` then `closeSession()`: surrealdb.js 2.0.8 otherwise leaks the
  *   session's token-renewal timer.
+ * - The session lasts only as long as `token`: surrealdb.js 2.0.8 can't renew a token given to
+ *   `authenticate()`, so at its `exp` (60 s before, for one with over two minutes left) it
+ *   invalidates the session, even mid-query (#164). Pass a token that outlasts `work`:
+ *   `PersonSessions` (`libs/consent`) gets a fresh one from Clerk when the person's runs short.
  */
 export async function withPersonSession<T>(
   connection: Surreal,

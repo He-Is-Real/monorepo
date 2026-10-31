@@ -89,6 +89,8 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
       clerkUserId: verified.clerkUserId,
       token: verified.token,
       role: verified.role,
+      sessionId: verified.sessionId,
+      expiresAt: verified.expiresAt,
     };
   }
 
