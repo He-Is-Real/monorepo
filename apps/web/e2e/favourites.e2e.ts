@@ -684,6 +684,68 @@ test.describe('hearts', () => {
   });
 });
 
+// Joel, 2026-10-31: My favourites shows stories as browse does (the same masonry and cards):
+// each card at its media's own clamped shape (D53), a written story without a picture as text
+// only, and the cards stacked in staggered columns, not in even rows. Every device, as the
+// column count changes with the width. Stub: `aspect-test`'s stories (stub-api.mjs).
+test('My favourites keeps each card at its media’s shape, in browse’s masonry', async ({
+  page,
+  request,
+}, info) => {
+  const session = sessionFor(info, 'shapes');
+  await useSession(page, session);
+  const shapes = [
+    ['aspect_test_portrait', 'Aspect test: a 3:4 picture', 3 / 4],
+    ['aspect_test_vertical', 'Aspect test: a 9:16 video', 9 / 16],
+    ['aspect_test_landscape', 'Aspect test: a 16:9 video', 16 / 9],
+    ['aspect_test', 'Aspect test: the story', null],
+  ] as const;
+  await heartAtStub(
+    request,
+    session,
+    shapes.map(([id]) => id),
+  );
+  await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+  const list = page.locator('[data-favourites] ul.masonry');
+  await expect(list.locator('> li')).toHaveCount(shapes.length);
+  await expectNoHorizontalOverflow(page);
+
+  for (const [, title, aspect] of shapes) {
+    const card = list.locator('article').filter({
+      has: page.getByRole('heading', { name: title, exact: true }),
+    });
+    const media = card.locator('[data-card-media]');
+    if (aspect === null) {
+      // Text only: no picture or placeholder box.
+      await expect(media, title).toHaveCount(0);
+      continue;
+    }
+    await expect(media.locator('img'), title).toBeVisible();
+    const box = await media.boundingBox();
+    expect(box && box.width / box.height, title).toBeCloseTo(aspect, 1);
+  }
+
+  // Staggered: in each column, a card starts one gap (24 px, rounded up to the grid's 4 px
+  // rows) below the one above it, whatever the heights beside it.
+  const boxes = await list.locator('> li > article').evaluateAll((cards) =>
+    cards.map((c) => {
+      const r = c.getBoundingClientRect();
+      return { x: Math.round(r.x), top: r.top, bottom: r.bottom };
+    }),
+  );
+  const columns = new Set(boxes.map((b) => b.x));
+  const width = page.viewportSize()?.width ?? 0;
+  expect(columns.size).toBe(width >= 1024 ? 3 : width >= 640 ? 2 : 1);
+  for (const x of columns) {
+    const column = boxes.filter((b) => b.x === x).sort((a, b) => a.top - b.top);
+    for (let i = 1; i < column.length; i++) {
+      const gap = column[i].top - column[i - 1].bottom;
+      expect(gap).toBeGreaterThanOrEqual(23);
+      expect(gap).toBeLessThanOrEqual(29);
+    }
+  }
+});
+
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });

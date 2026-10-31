@@ -1,15 +1,8 @@
 'use client';
 
-import {
-  type CSSProperties,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadMoreStories } from '@/app/stories/actions';
-import { StoryCard } from '@/components/stories/story-card';
+import { StoryMasonry } from '@/components/stories/story-masonry';
 import { Button } from '@/components/ui/button';
 import type { StorySummary } from '@/lib/browse';
 import {
@@ -23,7 +16,6 @@ import {
   type ColumnHeights,
   GAP,
   layoutFor,
-  spanFor,
 } from '@/lib/masonry';
 
 /** How far before the end of the list the next page starts loading (D55: "near the end"). */
@@ -200,24 +192,6 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
     return () => observer.disconnect();
   }, [loaded.cursor, autoLeft, status, load, pages]);
 
-  // Measured heights replace the predicted spans (multi-column layouts only use them).
-  useLayoutEffect(() => {
-    const ul = list.current;
-    if (!ul || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const li = (entry.target as HTMLElement).parentElement;
-        li?.style.setProperty(
-          '--m',
-          String(spanFor(entry.target.getBoundingClientRect().height)),
-        );
-      }
-    });
-    for (const li of Array.from(ul.children))
-      if (li.firstElementChild) observer.observe(li.firstElementChild);
-    return () => observer.disconnect();
-  }, [loaded.cards]);
-
   // After "Show more stories", keyboard users carry on from the first new card.
   useEffect(() => {
     const from = focusFrom.current;
@@ -228,22 +202,11 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
 
   return (
     <>
-      <ul ref={list} className="masonry">
-        {loaded.cards.map((story, i) => {
-          const { col, span } = loaded.layouts[i];
-          const style = {
-            '--c2': col[2] + 1,
-            '--s2': span[2],
-            '--c3': col[3] + 1,
-            '--s3': span[3],
-          } as CSSProperties;
-          return (
-            <li key={story.id} style={style}>
-              <StoryCard story={story} eager={i < 3} />
-            </li>
-          );
-        })}
-      </ul>
+      <StoryMasonry
+        cards={loaded.cards}
+        layouts={loaded.layouts}
+        listRef={list}
+      />
       <div ref={sentinel} aria-hidden="true" />
       <p role="status" className="sr-only">
         {announcement}
