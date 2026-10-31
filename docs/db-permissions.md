@@ -639,7 +639,10 @@ retried`, on both RocksDB and the in-memory engine.
       `limit_upload_duration:`, `limit_upload_hourly:`, `limit_upload_weekly:`). It then sets the
       story's media to that one item (its version steps once; the media `VALUE` starts processing
       again) and prunes the person's grants older than 7 days that are no longer any story's media.
-      It bumps the person's fence, so two overlapping grants conflict at commit.
+      It bumps the person's fence, so two overlapping grants conflict at commit. An image grant
+      also carries `expectedImage`, the picture the person's page showed (NONE: none), and is
+      refused (`image_changed:`, api-user's `409`) if the story's `image.path` is another one,
+      whatever its version: another tab's picture is replaced only by the person's choice.
     - **Media fields:** `PERMISSIONS FOR update WHERE $auth = service:workflow`, and the media
       `VALUE` gives any session but workflow, api-user's (the grant's event) and system users their
       stored media back. So a person's write to media, on create or update, is dropped, whatever

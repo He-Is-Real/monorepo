@@ -62,6 +62,11 @@ export interface UploadRequest {
   width?: number;
   height?: number;
   alt?: string;
+  /**
+   * Images: the path of the picture the person's page showed when they chose theirs (null: none).
+   * The grant is refused (`409 image_changed`) if the story has another one by then (Codex #140 r3).
+   */
+  expectedImage?: string | null;
 }
 
 /** The contract's `UploadTarget`: a TUS link for a video or audio file, or an image's PUT. */
@@ -77,6 +82,8 @@ export type UploadTarget =
       version: number;
       provider: 'bunny_s3';
       method: 'PUT';
+      /** The picture's path, as `StoryMine.image.path`. */
+      path: string;
     });
 
 /**
@@ -123,6 +130,9 @@ function invalid(
   throw new BadRequestException({ code: 'validation_failed', message, errors });
 }
 
+/** An image's path as api-user names it: `stories/<story id>/<32 hex>.webp`. */
+const IMAGE_PATH = /^stories\/[A-Za-z0-9_-]{1,64}\/[0-9a-f]{32}\.webp$/;
+
 const posInt = (v: unknown) =>
   typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 
@@ -134,7 +144,15 @@ export function parseUploadRequest(body: unknown): UploadRequest {
   const errors: FieldError[] = [];
   const image = b['format'] === 'image';
   const known = image
-    ? ['format', 'contentType', 'fileSizeBytes', 'width', 'height', 'alt']
+    ? [
+        'format',
+        'contentType',
+        'fileSizeBytes',
+        'width',
+        'height',
+        'alt',
+        'expectedImage',
+      ]
     : ['format', 'contentType', 'fileSizeBytes', 'durationSeconds', 'resume'];
   for (const k of Object.keys(b)) {
     if (!known.includes(k))
@@ -177,6 +195,17 @@ export function parseUploadRequest(body: unknown): UploadRequest {
         message: `at most ${IMAGE_LIMITS.altMax} characters`,
       });
     }
+    const expected = b['expectedImage'];
+    if (
+      expected !== null &&
+      !(typeof expected === 'string' && IMAGE_PATH.test(expected))
+    ) {
+      errors.push({
+        pointer: '/expectedImage',
+        message:
+          'the path of the story’s picture as you were shown it, or null',
+      });
+    }
   }
   if (!posInt(b['fileSizeBytes'])) {
     errors.push({
@@ -205,6 +234,7 @@ export function parseUploadRequest(body: unknown): UploadRequest {
           width: b['width'] as number,
           height: b['height'] as number,
           alt: (b['alt'] as string | undefined)?.trim() || undefined,
+          expectedImage: b['expectedImage'] as string | null,
         }
       : {}),
   };
@@ -379,7 +409,10 @@ export class Uploads {
     };
     const path = `stories/${id}/${randomBytes(16).toString('hex')}.webp`;
     const prepare = async (): Promise<PreparedCommand> => {
-      await this.checkDraft(person, id, ifMatch, input);
+      const draft = await this.checkDraft(person, id, ifMatch, input);
+      // The database checks it again in the grant's write (image_changed).
+      if ((draft.imagePath ?? null) !== input.expectedImage)
+        throw imageChanged();
       // Per hour only: pictures never count towards the weekly limit (Joel, 2026-10-30).
       const availableAt = await this.nextAllowedAt(person, 'image');
       if (availableAt) throw limitReached(availableAt);
@@ -388,7 +421,7 @@ export class Uploads {
         statements: `LET $grant = (CREATE ONLY type::record('uploadGrant', $path) CONTENT {
             story: type::record('story', $id), person: $person, format: 'image',
             contentType: $contentType, sizeBytes: $size, width: $width, height: $height,
-            alt: $alt, storyVersion: $version
+            alt: $alt, expectedImage: $expected, storyVersion: $version
           } RETURN id, storyVersion);
           IF $grant = NONE { THROW 'upload_refused: upload grant not written' };
           LET $result = { id: $grant.id, version: $grant.storyVersion + 1 };`,
@@ -401,6 +434,7 @@ export class Uploads {
           width: input.width,
           height: input.height,
           alt: input.alt,
+          expected: input.expectedImage ?? undefined,
           version: ifMatch,
         },
       };
@@ -441,8 +475,26 @@ export class Uploads {
       version,
       provider: 'bunny_s3',
       method: 'PUT',
+      path: granted,
       ...images.sign(granted, input.fileSizeBytes),
     };
+  }
+
+  /**
+   * Whether the draft's picture's file has arrived (GetStory, for its owner; Codex #140 round 3):
+   * what the page counts as finished, never its own memory. null with image uploads off. An
+   * unclear answer counts as not arrived: the page offers to add it again.
+   */
+  async imageArrived(path: string): Promise<boolean | null> {
+    if (!this.images) return null;
+    try {
+      return await this.images.exists(path);
+    } catch (err) {
+      this.logger.warn(
+        `Couldn’t check whether picture ${path} arrived (counted as not): ${String(err)}`,
+      );
+      return false;
+    }
   }
 
   /**
@@ -744,6 +796,7 @@ export class Uploads {
     if (/story_cmd:stale_version/.test(message))
       return new StaleVersionException();
     if (/story_cmd:locked/.test(message)) return locked();
+    if (/image_changed:/.test(message)) return imageChanged();
     // The database's own checks of an image (its folder, type, size, shape).
     if (/upload_refused: an image/.test(message)) {
       return new BadRequestException({
@@ -819,6 +872,15 @@ function nothingToResume() {
     code: 'nothing_to_resume',
     message:
       'There’s no unfinished upload on this story to carry on with. Choose the file again to upload it.',
+  });
+}
+
+/** Another picture is on the story than the one the person's page showed (Codex #140 round 3). */
+function imageChanged() {
+  return new ConflictException({
+    code: 'image_changed',
+    message:
+      'Your story’s picture was changed in another tab or window. Look at the picture it has now, then choose whether to replace it.',
   });
 }
 

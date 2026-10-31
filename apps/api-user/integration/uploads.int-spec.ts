@@ -90,9 +90,23 @@ function withFaults(db: Surreal): Surreal {
   });
 }
 
+/** The images zone: signs as Bunny's does; a file is there once the test says it arrived. */
+class FakeImageStore extends BunnyImageStore {
+  readonly arrived = new Set<string>();
+  override async exists(path: string) {
+    return this.arrived.has(path);
+  }
+}
+
 describe('video and audio uploads', () => {
   const contract = new Contract('api-user.yaml');
   const bunny = new FakeStream();
+  const images = new FakeImageStore({
+    name: 'test-zone',
+    password: 'zone-password',
+    host: 'uk-s3.storage.bunnycdn.com',
+    region: 'uk',
+  });
   let t: TestDatabase;
   let clerk: TestClerk;
   let migrator: Surreal;
@@ -211,14 +225,7 @@ describe('video and audio uploads', () => {
       .overrideProvider(BUNNY_STREAM)
       .useValue(bunny)
       .overrideProvider(BUNNY_STORAGE)
-      .useValue(
-        new BunnyImageStore({
-          name: 'test-zone',
-          password: 'zone-password',
-          host: 'uk-s3.storage.bunnycdn.com',
-          region: 'uk',
-        }),
-      )
+      .useValue(images)
       .compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
@@ -502,7 +509,7 @@ describe('video and audio uploads', () => {
     expect(await grants('gus')).toEqual([again.body.headers.VideoId]);
   });
 
-  it('a picture: api-user names its path in the story’s folder, puts it on the draft and presigns a PUT binding it; a retry replays the same path', async () => {
+  it('a picture: api-user names its path in the story’s folder, puts it on the draft and presigns a PUT binding it; a retry replays the same path; the story says once its file arrived', async () => {
     await person('pia');
     const created = await call('POST', '/v1/stories', 'pia', {
       body: { title: 'Words', primaryFormat: 'written', body: 'x'.repeat(250) },
@@ -516,6 +523,7 @@ describe('video and audio uploads', () => {
       width: 900,
       height: 1200,
       alt: 'A hill at dawn',
+      expectedImage: null,
     };
     const k = key();
     const res = await upload('pia', id, 1, PICTURE, k);
@@ -534,25 +542,45 @@ describe('video and audio uploads', () => {
     expect(link.searchParams.get('X-Amz-SignedHeaders')).toBe(
       'content-length;content-type;host;if-none-match',
     );
-    const mine = await call('GET', `/v1/account/stories/${id}`, 'pia');
-    expect(mine.body.image).toEqual({
+    const path = link.pathname.slice('/test-zone/'.length);
+    expect(res.body.path).toBe(path);
+    const mine = async () =>
+      (await call('GET', `/v1/account/stories/${id}`, 'pia')).body.image;
+    expect(await mine()).toEqual({
       url: null,
       width: 900,
       height: 1200,
       alt: 'A hill at dawn',
+      path,
+      uploaded: false,
     });
+    // Not there yet: never a 304, since its arrival doesn't step the version.
+    const unchanged = await call('GET', `/v1/account/stories/${id}`, 'pia', {
+      headers: { 'if-none-match': '"2"' },
+    });
+    expect(unchanged.status).toBe(200);
+    images.arrived.add(path);
+    expect(await mine()).toMatchObject({ path, uploaded: true });
     // A lost answer's retry: the same path, nothing new counted.
     const again = await upload('pia', id, 1, PICTURE, k);
     expect(new URL(again.body.uploadUrl).pathname).toBe(link.pathname);
-    expect(await grants('pia')).toEqual([
-      link.pathname.slice('/test-zone/'.length),
-    ]);
+    expect(await grants('pia')).toEqual([path]);
+
+    // Asked for while the page showed no picture (another tab added this one): refused at the
+    // story's own version, nothing counted (Codex #140 round 3).
+    const stale = await upload('pia', id, 2, PICTURE);
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('image_changed');
+    expect(await grants('pia')).toEqual([path]);
 
     // Pictures count per hour, never towards the weekly limit (Joel, 2026-10-30: only video and
     // audio files do): with one upload a week, the next picture is still allowed.
     try {
       await settings({ uploadsPer7Days: 1 });
-      const next = await upload('pia', id, 2, PICTURE);
+      const next = await upload('pia', id, 2, {
+        ...PICTURE,
+        expectedImage: path,
+      });
       expect(next.status).toBe(200);
       expect(await grants('pia')).toHaveLength(2);
     } finally {

@@ -250,6 +250,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       person: 'gus',
       version: 3,
       name: hex(11),
+      expectedImage: `stories/gus_w/${hex(10)}.webp`,
     });
     expect((await image('gus_w')).image).toEqual({
       path: `stories/gus_w/${hex(11)}.webp`,
@@ -294,6 +295,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
         person: 'gus',
         version: (await image('gus_w')).version,
         name: hex(12),
+        expectedImage: `stories/gus_w/${hex(11)}.webp`,
       }),
     ).toMatchObject({ ok: true });
     expect(
@@ -306,5 +308,51 @@ describe('images: server-assigned, in the story’s own folder, only through a g
         }),
       ),
     ).toMatch(/limit_upload_weekly:/);
+  });
+
+  it('refuses a picture asked for while the story showed another one, whatever its version (Codex #140 round 3)', async () => {
+    const hal = await person('hal');
+    await draft(hal, 'hal_w');
+    const first = `stories/hal_w/${hex(20)}.webp`;
+    // A page that knew of no picture, while another tab put one on: refused, at the new version too.
+    await grantImage(apiUser, {
+      story: 'hal_w',
+      person: 'hal',
+      version: 1,
+      name: hex(20),
+      expectedImage: null,
+    });
+    const stale = {
+      story: 'hal_w',
+      person: 'hal',
+      version: 2,
+      name: hex(21),
+      expectedImage: null,
+    };
+    expect(error(await grantImage(apiUser, stale))).toMatch(/image_changed:/);
+    // Nothing changed, and nothing counted.
+    expect(await image('hal_w')).toMatchObject({
+      version: 2,
+      image: { path: first },
+    });
+    expect(
+      await rows(hal, 'SELECT VALUE id FROM uploadGrant WHERE person = $auth'),
+    ).toHaveLength(1);
+    // The person chose to replace the picture they were shown.
+    expect(
+      await grantImage(apiUser, { ...stale, expectedImage: first }),
+    ).toMatchObject({ ok: true });
+    // Taken off in another tab: a page that still shows it is refused.
+    await run(hal, `UPDATE story:hal_w SET image = NONE`);
+    expect(
+      error(
+        await grantImage(apiUser, {
+          ...stale,
+          version: 4,
+          name: hex(22),
+          expectedImage: `stories/hal_w/${hex(21)}.webp`,
+        }),
+      ),
+    ).toMatch(/image_changed:/);
   });
 });

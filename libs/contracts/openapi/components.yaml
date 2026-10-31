@@ -456,6 +456,27 @@ components:
             processed yet. Only on the submitter's and moderators' views: a published item is always
             `ready`, so public views leave it out. Set by processing only; a new upload starts again.
 
+    StoryMineImage:
+      description: The person's own picture on their story, with what the share flow needs to manage it.
+      allOf:
+        - $ref: '#/components/schemas/StoryImage'
+        - type: object
+          required: [path, uploaded]
+          properties:
+            path:
+              type: string
+              description: |
+                Its file's path in the images storage zone, `stories/<story id>/<32 hex>.webp`
+                (server-assigned, D80): what `UploadUrlRequest.expectedImage` names.
+              example: stories/01JB/0f1e2d3c4b5a69788796a5b4c3d2e1f0.webp
+            uploaded:
+              type: [boolean, 'null']
+              description: |
+                Whether its file has arrived in the storage zone: GetStory checks the zone itself
+                (`false` until the browser's `PUT` landed, or when the zone gave no clear answer).
+                Its arrival doesn't step the story's version, so GetStory never answers `304` while
+                it's `false`. `null` where it isn't checked: lists, and with image uploads off.
+
     StoryImage:
       type: object
       description: |
@@ -665,10 +686,11 @@ components:
             $ref: '#/components/schemas/MediaPlayback'
         image:
           description: |
-            A written story's image or an audio story's picture (D53; M2 plan PR 10), signed for its
-            owner (D52; `url` is `null` when signing is off); `null` when there is none.
+            The story's own picture (D53; M2 plan PR 10): a written story's image, an audio story's
+            picture or a video's own thumbnail, signed for its owner (D52; `url` is `null` when
+            signing is off); `null` when there is none.
           oneOf:
-            - $ref: '#/components/schemas/StoryImage'
+            - $ref: '#/components/schemas/StoryMineImage'
             - type: 'null'
         tags:
           type: array
@@ -922,8 +944,8 @@ components:
 
         **Images (M2 plan PR 10; D53):** `format: image`, `contentType: image/webp`, the WebP's exact
         `fileSizeBytes` (at most 5 MiB; the PUT binds it), its real `width` and `height` (200 to 4096
-        pixels each, within 1:3..3:1) and optionally `alt`, its description (never required, on any
-        story type: Joel, 2026-10-30). The browser re-encodes the picture to WebP
+        pixels each, within 1:3..3:1), `expectedImage` (the picture the page showed) and optionally
+        `alt`, its description (never required, on any story type: Joel, 2026-10-30). The browser re-encodes the picture to WebP
         without metadata (no EXIF or GPS), at most 2048 pixels on its longer side. No `resume` or
         `durationSeconds`.
       required: [format, contentType, fileSizeBytes]
@@ -956,6 +978,14 @@ components:
           type: string
           maxLength: 500
           description: Images only, optional on every story type; the person's short description of the picture.
+        expectedImage:
+          type: [string, 'null']
+          description: |
+            Images only, required: the `path` of the story's picture as the person's page showed it
+            when they chose theirs (`StoryMine.image.path`), or `null` if it showed none. If the
+            story's picture is another one by then (another tab or window put one on or took it
+            off), the request is `409` `image_changed`, whatever the story's version: replacing it
+            is the person's choice, made with the picture they now see.
         durationSeconds:
           type: integer
           minimum: 1
@@ -993,7 +1023,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/CommandResult'
         - type: object
-          required: [provider, uploadUrl, method, headers, expiresAt]
+          required: [provider, uploadUrl, method, headers, expiresAt, path]
           properties:
             provider:
               type: string
@@ -1022,6 +1052,9 @@ components:
               type: string
               format: date-time
               description: When the link stops working (a few minutes); ask again for a new picture after it.
+            path:
+              type: string
+              description: The picture's path, now the story's (`StoryMine.image.path`).
 
     UploadTargetTus:
       description: A video or audio file's TUS link (M2 plan PR 7).

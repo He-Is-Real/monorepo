@@ -27,6 +27,8 @@ export interface SignedImageUpload {
 export interface ImageStore {
   /** A PUT link for that path, that type and exactly that many bytes, once. */
   sign(path: string, sizeBytes: number, now?: number): SignedImageUpload;
+  /** Whether the file at that path has arrived; throws when the zone gives no clear answer. */
+  exists(path: string): Promise<boolean>;
 }
 
 export class BunnyImageStore implements ImageStore {
@@ -34,6 +36,22 @@ export class BunnyImageStore implements ImageStore {
 
   sign(path: string, sizeBytes: number, now = Date.now()): SignedImageUpload {
     return signImageUpload(this.zone, path, sizeBytes, now);
+  }
+
+  /**
+   * A presigned GET, as dev-seed's upload spike proves it (200 when there, 404 when not); the
+   * body isn't read. A file only arrives through its PUT (one use), so once there it's the
+   * picture the grant named.
+   */
+  async exists(path: string): Promise<boolean> {
+    const res = await fetch(
+      presignStorageUrl(this.zone, { method: 'GET', key: path, expiresIn: 60 }),
+      { signal: AbortSignal.timeout(5000) },
+    );
+    await res.body?.cancel().catch(() => undefined);
+    if (res.status === 200) return true;
+    if (res.status === 404) return false;
+    throw new Error(`The images zone answered ${res.status} for a picture`);
   }
 }
 

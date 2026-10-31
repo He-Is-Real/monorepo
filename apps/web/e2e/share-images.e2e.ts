@@ -36,11 +36,39 @@ async function person(page: Page, request: APIRequestContext) {
   await page.addInitScript((session) => {
     window.localStorage.setItem('e2e-session', session);
   }, id);
+  /** The stub's Authorization for this person, as another tab of theirs would send it. */
+  const auth = `Bearer e2e.${Buffer.from(
+    JSON.stringify({ sub: 'user_e2efixture', session: id }),
+  ).toString('base64url')}.fixture`;
   return {
-    /** The stub's Authorization for this person, as another tab of theirs would send it. */
-    auth: `Bearer e2e.${Buffer.from(
-      JSON.stringify({ sub: 'user_e2efixture', session: id }),
-    ).toString('base64url')}.fixture`,
+    /** Another tab of theirs puts a picture of that size on the story (its file never sent). */
+    otherTab: async (story: string, width: number, height: number) => {
+      const headers = { authorization: auth };
+      const now = await (
+        await request.get(`${STUB_USER_URL}/v1/account/stories/${story}`, {
+          headers,
+        })
+      ).json();
+      const added = await request.post(
+        `${STUB_USER_URL}/v1/stories/${story}/upload-url`,
+        {
+          headers: {
+            ...headers,
+            'if-match': `"${now.version}"`,
+            'idempotency-key': randomUUID(),
+          },
+          data: {
+            format: 'image',
+            contentType: 'image/webp',
+            fileSizeBytes: 1000,
+            width,
+            height,
+            expectedImage: now.image?.path ?? null,
+          },
+        },
+      );
+      expect(added.status()).toBe(200);
+    },
     uploads: async () =>
       (await (
         await request.get(`${STUB_USER_URL}/__e2e/sessions/${id}/uploads`)
@@ -282,30 +310,7 @@ test.describe('behaviour', () => {
         const id = /stories\/([^/]+)\/upload-url/.exec(
           route.request().url(),
         )?.[1];
-        const headers = { authorization: me.auth };
-        const story = await (
-          await request.get(`${STUB_USER_URL}/v1/account/stories/${id}`, {
-            headers,
-          })
-        ).json();
-        const added = await request.post(
-          `${STUB_USER_URL}/v1/stories/${id}/upload-url`,
-          {
-            headers: {
-              ...headers,
-              'if-match': `"${story.version}"`,
-              'idempotency-key': randomUUID(),
-            },
-            data: {
-              format: 'image',
-              contentType: 'image/webp',
-              fileSizeBytes: 1000,
-              width: 1280,
-              height: 720,
-            },
-          },
-        );
-        expect(added.status()).toBe(200);
+        await me.otherTab(id ?? '', 1280, 720);
         return route.fallback();
       },
     );
@@ -328,7 +333,7 @@ test.describe('behaviour', () => {
     expect(images[1].bytes).not.toBeNull();
   });
 
-  test('a picture whose answer was lost is found on the story before a replacement is discarded (Codex #140 round 2, 2)', async ({
+  test('a picture whose answer was lost is found on the story before a replacement is discarded, and counts as unfinished until its file arrives (Codex #140 round 2, 2; round 3, 2)', async ({
     page,
     request,
   }) => {
@@ -354,23 +359,100 @@ test.describe('behaviour', () => {
     await expect(alert(page, 'can’t reach our server')).toBeVisible();
     expect((await me.uploads()).images).toHaveLength(1);
 
-    // Another picture chosen, then discarded: the story is read, and its picture shown. (The
-    // page may have read the story already when the draft was made, and offer to keep it.)
+    // Another picture chosen, then discarded: the story is read, and its picture shown as it is,
+    // with its file never sent, so not finished.
     await choose(page, 1280, 720);
     await page
       .getByRole('button', { name: /^(Remove|Keep the earlier) picture$/ })
       .click();
-    await expect(
-      page.getByText('Your story still has the picture you added before.'),
-    ).toBeVisible();
+    await expect(page.getByText('didn’t finish uploading')).toBeVisible();
+    await expect(page.getByText('Picture added.')).toHaveCount(0);
     const box = await page.locator('[data-picture-preview]').boundingBox();
     expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(0.75, 1);
     expect(edits).toEqual([]);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(
+      page.getByText('Add the picture you chose, or remove it'),
+    ).toBeVisible();
 
     // Removing that one takes it off the story.
     await page.getByRole('button', { name: 'Remove picture' }).click();
     await expect(page.getByText('Picture removed.')).toBeVisible();
     expect(edits).toEqual([{ image: null }]);
+  });
+
+  test('a picture whose upload failed stays unfinished when a replacement is discarded, and is uploaded again at its own path (Codex #140 round 3, 2)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    let fail = true;
+    await page.route(`${STUB_USER_URL}/__s3/**`, async (route) => {
+      if (route.request().method() !== 'PUT' || !fail) return route.fallback();
+      fail = false;
+      return route.fulfill({ status: 500 });
+    });
+    await choose(page, 900, 1200);
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
+
+    // Another picture chosen, then the earlier one kept: its file never arrived, so it isn't
+    // finished, and Continue waits for it.
+    await choose(page, 1280, 720);
+    await page
+      .getByRole('button', { name: 'Keep the earlier picture' })
+      .click();
+    await expect(alert(page, 'didn’t finish uploading')).toBeVisible();
+    await expect(page.getByText('Picture added.')).toHaveCount(0);
+    const box = await page.locator('[data-picture-preview]').boundingBox();
+    expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(0.75, 1);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(
+      page.getByText('Add the picture you chose, or remove it'),
+    ).toBeVisible();
+
+    // Adding it again uploads it to the path its grant has, counting nothing new.
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    expect((await me.uploads()).images).toEqual([
+      expect.objectContaining({ bytes: expect.any(String) }),
+    ]);
+  });
+
+  test('a picture asked for once the page caught up with a change made elsewhere still never replaces another tab’s picture (Codex #140 round 3, 1)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    await choose(page, 900, 1200);
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+
+    // Another tab of theirs puts a 16:9 picture on in place of the one this tab shows. This tab
+    // then edits the title (its save finds the story moved on and catches up) and adds a picture.
+    const [first] = (await me.uploads()).images;
+    await me.otherTab(first.story, 1280, 720);
+    await page.getByLabel('Title').fill('Where it happened, on the hill');
+    await choose(page, 600, 1200);
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+
+    // The story's picture now is shown, and nothing more was granted.
+    await expect(alert(page, 'was changed in another tab')).toBeVisible();
+    const preview = page.locator('[data-picture-preview]');
+    const wide = await preview.boundingBox();
+    expect((wide?.width ?? 0) / (wide?.height ?? 1)).toBeCloseTo(16 / 9, 1);
+    expect((await me.uploads()).images).toHaveLength(2);
+
+    // Replacing it is the person's own choice.
+    await page.getByRole('button', { name: 'Replace with my picture' }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    const tall = await preview.boundingBox();
+    expect((tall?.width ?? 0) / (tall?.height ?? 1)).toBeCloseTo(0.5, 1);
+    const { images } = await me.uploads();
+    expect(images).toHaveLength(3);
+    expect(images[2].bytes).not.toBeNull();
   });
 
   test('signing out while a description is being saved keeps nothing of the story in the tab (Codex #140, 1)', async ({

@@ -26,7 +26,9 @@
 //   standing in for Bunny's S3 endpoint: it checks the signature, the type, the exact size and
 //   one use (412), keeps the bytes, and serves them back (GET) as the draft's signed image link.
 //   `GET /__e2e/sessions/<id>/uploads` reads them back (base64), so a test can check what left
-//   the browser. `PATCH` takes `image: null` (remove) and `image: { alt }`.
+//   the browser. `PATCH` takes `image: null` (remove) and `image: { alt }`. As api-user, a
+//   picture's request names the picture it replaces (`expectedImage`; `409 image_changed` if the
+//   story has another), and `GET` of one story says whether its picture's file arrived.
 // - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
 //   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
 //   carry its `status`, `slug` and moderator's `rejectionFeedback`.
@@ -508,7 +510,8 @@ function consentState(s) {
   };
 }
 
-function storyMine(id, st) {
+/** `uploaded`: whether the picture's file arrived, checked only when one story is read. */
+function storyMine(id, st, uploaded = () => null) {
   return {
     id,
     version: st.version,
@@ -538,6 +541,8 @@ function storyMine(id, st) {
           width: st.image.width,
           height: st.image.height,
           alt: st.image.alt ?? null,
+          path: st.image.path,
+          uploaded: uploaded(st.image.path),
         }
       : null,
     tags: st.tagSlugs.map((slug) => TAGS.find((t) => t.slug === slug)),
@@ -746,9 +751,14 @@ async function handleShare(req, res, path, url, s) {
     const st = s.stories.get(mine[1]);
     if (!st) return shareProblem(res, 404, 'Not found');
     const etag = `"${st.version}"`;
-    if (req.headers['if-none-match'] === etag)
+    // As api-user: a picture whose file hasn't arrived is never answered 304.
+    const arrived = (p) => !!s.images.get(p)?.bytes;
+    if (
+      req.headers['if-none-match'] === etag &&
+      (!st.image || arrived(st.image.path))
+    )
       return sendJson(res, 304, undefined, { etag });
-    return sendJson(res, 200, storyMine(mine[1], st), { etag });
+    return sendJson(res, 200, storyMine(mine[1], st, arrived), { etag });
   }
   if (path === '/v1/stories' && req.method === 'POST') {
     // The guard: Art 9 on the forms in force (D93).
@@ -1064,8 +1074,21 @@ async function handleShare(req, res, path, url, s) {
             pointer: '/width',
             message: 'a size and shape we take',
           });
+        const expected = b.expectedImage;
+        if (expected !== null && typeof expected !== 'string')
+          errors.push({
+            pointer: '/expectedImage',
+            message:
+              'the path of the story’s picture as you were shown it, or null',
+          });
         if (errors.length)
           return p(400, 'Bad request', 'validation_failed', { errors });
+        // Whatever the version: another tab's picture is replaced only by the person's choice.
+        if ((st.image?.path ?? null) !== expected)
+          return p(409, 'Conflict', 'image_changed', {
+            detail:
+              'Your story’s picture was changed in another tab or window.',
+          });
         // Per hour only: pictures never count towards the weekly limit (Joel, 2026-10-30).
         const hourly = uploadLimitsOf(s, 'image').nextAvailableAt;
         if (hourly)
@@ -1097,6 +1120,7 @@ async function handleShare(req, res, path, url, s) {
             id: uploadUrl[1],
             version: st.version,
             provider: 'bunny_s3',
+            path,
             uploadUrl: `${url}?X-Amz-Expires=${expires}&X-Amz-Signature=${s3Signature(path, b.fileSizeBytes, expires)}`,
             method: 'PUT',
             headers: { 'Content-Type': 'image/webp', 'If-None-Match': '*' },

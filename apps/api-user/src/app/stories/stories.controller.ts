@@ -235,10 +235,16 @@ export class StoriesController {
       new StoryStore(session, this.urls).get(storyId(id)),
     );
     if (!story) throw new NotFoundException();
+    // Whether the picture's file arrived: a fact from the storage zone, what the page counts as
+    // finished (Codex #140 round 3). Its arrival doesn't step the version, so a picture not
+    // there yet is never answered 304.
+    if (story.image) {
+      story.image.uploaded = await this.uploads.imageArrived(story.image.path);
+    }
     const etag = `"${story.version}"`;
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('ETag', etag);
-    if (ifNoneMatches(ifNoneMatch, etag)) {
+    if (ifNoneMatches(ifNoneMatch, etag) && story.image?.uploaded !== false) {
       res.status(HttpStatus.NOT_MODIFIED);
       return undefined;
     }

@@ -58,12 +58,16 @@ export interface MyStory {
   updatedAt: string;
 }
 
-/** The contract's `StoryImage`, as api-user gives it for the person's own draft. */
+/** The contract's `StoryMineImage`: the person's own picture on their draft. */
 export interface StoryPicture {
   url: string | null;
   width: number;
   height: number;
   alt: string | null;
+  /** Its file's path at the server: what tells two pictures apart (`expectedImage`). */
+  path: string;
+  /** Whether its file arrived (api-user checks the storage); null where it isn't checked. */
+  uploaded: boolean | null;
 }
 
 /** The contract's `ConsentState`, the parts the flow uses. */
@@ -109,6 +113,8 @@ export interface UploadTarget {
   method: 'POST' | 'PUT';
   signed: Record<string, string>;
   expiresAt: string;
+  /** An image's path, now the story's picture (`bunny_s3` only). */
+  path?: string;
 }
 
 /** The contract's `UploadUrlRequest`. */
@@ -122,6 +128,8 @@ export interface UploadRequest {
   width?: number;
   height?: number;
   alt?: string;
+  /** Images: the path of the picture the page showed (null: none); `409 image_changed` if not the story's. */
+  expectedImage?: string | null;
 }
 
 export interface CommandResult {
@@ -244,7 +252,8 @@ function uploadTarget(data: unknown): UploadTarget {
     !BUNNY_HEADERS[d.provider].every(
       (h) => typeof signed[h] === 'string' && !!signed[h],
     ) ||
-    !Object.values(signed).every((v) => typeof v === 'string')
+    !Object.values(signed).every((v) => typeof v === 'string') ||
+    (d.provider === 'bunny_s3' && (typeof d.path !== 'string' || !d.path))
   ) {
     throw new ApiUserUnavailable('api-user answered without the upload link');
   }
@@ -256,6 +265,7 @@ function uploadTarget(data: unknown): UploadTarget {
     method: d.method,
     signed: signed as Record<string, string>,
     expiresAt: d.expiresAt,
+    ...(d.provider === 'bunny_s3' ? { path: d.path } : {}),
   };
 }
 

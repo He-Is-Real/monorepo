@@ -2060,6 +2060,10 @@ DEFINE EVENT OVERWRITE submissionLog_fence ON submissionLog
 -- its description, put on the story with it. Images count towards the hourly upload limit only,
 -- never the weekly one (Joel, 2026-10-30: uploadsPer7Days is for video and audio files); their
 -- size and pixel bounds are fixed (fn::upload::image_limits).
+-- expectedImage: the path of the picture the person's page showed when they chose theirs (NONE:
+-- none). The event refuses the grant (image_changed) if the story's picture is another one by
+-- then, whatever its version: a picture another tab put on (or took off) is replaced only when
+-- the person chooses to, never by a request the page rebased onto a newer version (Codex #140 r3).
 DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
   FOR select WHERE person = $auth.id
     OR $auth.id IN [service:api_user, service:api_admin, service:housekeeping],
@@ -2079,6 +2083,7 @@ DEFINE FIELD OVERWRITE width           ON uploadGrant TYPE option<int> READONLY;
 DEFINE FIELD OVERWRITE height          ON uploadGrant TYPE option<int> READONLY;
 DEFINE FIELD OVERWRITE alt             ON uploadGrant TYPE option<string> READONLY
   ASSERT $value = NONE OR string::len($value) <= 500;
+DEFINE FIELD OVERWRITE expectedImage   ON uploadGrant TYPE option<string> READONLY;   -- images
 DEFINE FIELD OVERWRITE storyVersion    ON uploadGrant TYPE int READONLY;
 DEFINE FIELD OVERWRITE at              ON uploadGrant TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE FIELD OVERWRITE renewedAt       ON uploadGrant TYPE option<datetime>   -- server time only
@@ -2133,6 +2138,9 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
           THROW 'upload_refused: an image goes in its story’s own folder, under a name api-user picks';
         };
         IF $after.contentType != 'image/webp' { THROW 'upload_refused: an image is a WebP' };
+        IF $s.image.path != $after.expectedImage {
+          THROW 'image_changed: the story’s picture isn’t the one the person was shown';
+        };
         LET $il = fn::upload::image_limits();
         IF $after.sizeBytes > $il.maxBytes {
           THROW 'limit_upload_size: the image is bigger than we take (M2 plan PR 10)';

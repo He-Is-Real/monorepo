@@ -68,6 +68,13 @@ export interface StoryMine {
     width: number;
     height: number;
     alt: string | null;
+    /** Its file's path in the images zone: what RequestUpload's `expectedImage` names. */
+    path: string;
+    /**
+     * Whether its file has arrived (GetStory checks the storage zone; Codex #140 round 3). null
+     * where it isn't checked: a list, or with image uploads off.
+     */
+    uploaded: boolean | null;
   } | null;
   tags: Tag[];
   rejectionFeedback: string | null;
@@ -664,6 +671,8 @@ export class StoryStore {
             width: r.image.width,
             height: r.image.height,
             alt: r.image.alt ?? null,
+            path: r.image.path,
+            uploaded: null,
           }
         : null,
       tags: r.tagRefs.flatMap((ref) => byRef.get(ref) ?? []),
