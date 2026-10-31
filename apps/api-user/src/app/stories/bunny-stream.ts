@@ -60,12 +60,20 @@ export interface BunnyStream {
    * Makes the picture at `pictureUrl` (a short-lived signed link, which Bunny fetches itself) the
    * video's thumbnail. Repeating it is harmless: Bunny keeps the latest.
    */
-  setThumbnail(videoId: string, pictureUrl: string): Promise<void>;
+  setThumbnail(
+    videoId: string,
+    pictureUrl: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
   /**
    * Puts one of Bunny's own frames of the video back as its thumbnail, from `frameUrl` (that
-   * frame, signed on the Stream CDN).
+   * frame, signed on the Stream CDN). Both stop at `signal` as well as at their own timeout.
    */
-  resetThumbnail(videoId: string, frameUrl: string): Promise<void>;
+  resetThumbnail(
+    videoId: string,
+    frameUrl: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }
 
 /**
@@ -74,6 +82,12 @@ export interface BunnyStream {
  * 2026-10-31), so the first of those goes back.
  */
 export const BUNNY_FRAME = 'thumbnail_1.jpg';
+
+/** Each call's own timeout, and the caller's deadline if it has one. */
+function within(signal?: AbortSignal): AbortSignal {
+  const own = AbortSignal.timeout(TIMEOUT_MS);
+  return signal ? AbortSignal.any([own, signal]) : own;
+}
 
 const LIBRARY = /^[0-9]{1,12}$/;
 const SECRET = /^[A-Za-z0-9_-]{1,255}$/;
@@ -88,7 +102,12 @@ export class BunnyStreamApi implements BunnyStream {
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
-  private async call(method: string, path: string, body?: unknown) {
+  private async call(
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ) {
     const res = await this.fetcher(
       `${API}/library/${this.libraryId}/videos${path}`,
       {
@@ -101,7 +120,7 @@ export class BunnyStreamApi implements BunnyStream {
         body: body ? JSON.stringify(body) : undefined,
         // The library key goes to Bunny's API only, never on to wherever a redirect points.
         redirect: 'error',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: within(signal),
       },
     );
     return res;
@@ -134,27 +153,38 @@ export class BunnyStreamApi implements BunnyStream {
     };
   }
 
-  async setThumbnail(videoId: string, pictureUrl: string): Promise<void> {
+  async setThumbnail(
+    videoId: string,
+    pictureUrl: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (!VIDEO_ID.test(videoId)) throw new Error('Not a Bunny video id');
     const res = await this.call(
       'POST',
       `/${videoId}/thumbnail?thumbnailUrl=${encodeURIComponent(pictureUrl)}`,
+      undefined,
+      signal,
     );
     if (!res.ok) {
       throw new Error(`Bunny Stream set thumbnail answered ${res.status}`);
     }
   }
 
-  async resetThumbnail(videoId: string, frameUrl: string): Promise<void> {
+  async resetThumbnail(
+    videoId: string,
+    frameUrl: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (!VIDEO_ID.test(videoId)) throw new Error('Not a Bunny video id');
-    // Bunny can't fetch its own frame by link: the library refuses Stream files to requests
-    // without a referrer (direct_url_file_access_blocked, modules/bunny), and its fetcher sends
-    // none. So the frame (a small JPEG of the person's own video) is passed through as a stream,
-    // never held whole, with the player's origin as referrer, as the player itself fetches it.
+    // Bunny couldn't fetch its own frame by link while the library refused Stream files to
+    // requests without a referrer (its fetcher sends none; tested on dev, 2026-10-31). So the frame
+    // (a small JPEG of the person's own video) is passed through as a stream, never held whole,
+    // with the player's origin as referrer, as the player itself fetches it: that works whether
+    // or not the library blocks such requests (direct_url_file_access_blocked, modules/bunny).
     const frame = await this.fetcher(frameUrl, {
       headers: { Referer: 'https://player.mediadelivery.net/' },
       redirect: 'error',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: within(signal),
     });
     if (!frame.ok || !frame.body) {
       throw new Error(`Bunny's own frame answered ${frame.status}`);
@@ -171,7 +201,7 @@ export class BunnyStreamApi implements BunnyStream {
         body: frame.body,
         duplex: 'half',
         redirect: 'error',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: within(signal),
       } as RequestInit,
     );
     if (!res.ok) {

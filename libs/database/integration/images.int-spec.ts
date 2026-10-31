@@ -417,9 +417,11 @@ describe('images: server-assigned, in the story’s own folder, only through a g
 
 /**
  * O1 a (Joel, 2026-10-31): a video's own picture becomes its thumbnail at Bunny when the story is
- * submitted, and nobody approves the story before it has. api-user's login records it
- * (streamThumbnail) once Bunny answered OK; the record vouches only for the video and picture it
- * names, so another picture, or a removed one that Bunny still shows, keeps the story waiting.
+ * submitted, and nobody approves the story before it has. api-user's login claims the story's
+ * streamThumbnail row (pending, with a lease) before it asks Bunny, and confirms it, as the lease's
+ * owner, once Bunny answered OK. Only a confirmed row naming the story's current video and picture
+ * vouches for it; a pending one (Bunny failed, or the confirm never landed) or another picture
+ * keeps the story waiting, and the lease lets one submit at a time talk to Bunny about a story.
  */
 describe('a video’s own picture is its thumbnail at Bunny before anyone approves it (O1 a)', () => {
   let t: TestDatabase;
@@ -444,10 +446,30 @@ describe('a video’s own picture is its thumbnail at Bunny before anyone approv
   });
   afterAll(() => t?.close());
 
-  const SET = `UPSERT type::record('streamThumbnail', $id) SET story = type::record('story', $id),
-    videoId = $videoId, imagePath = $imagePath`;
-  const setAtBunny = (id: string, imagePath: string, videoId = VIDEO) =>
-    run(apiUser, SET, { id, videoId, imagePath });
+  // What api-user's submit writes (uploads.ts): the claim, then the owner's confirm.
+  const CLAIM = `UPSERT type::record('streamThumbnail', $id) SET story = type::record('story', $id),
+    videoId = $videoId, imagePath = $imagePath ?? NONE, state = 'pending',
+    leaseOwner = $owner, leaseUntil = time::now() + 30s RETURN NONE`;
+  const CONFIRM = `UPDATE type::record('streamThumbnail', $id)
+    SET state = 'confirmed', leaseOwner = NONE, leaseUntil = NONE
+    WHERE leaseOwner = $owner RETURN VALUE id`;
+  const claim = (
+    id: string,
+    imagePath: string | null,
+    owner: string,
+    videoId = VIDEO,
+    db: Surreal = apiUser,
+  ) => run(db, CLAIM, { id, videoId, imagePath, owner });
+  const confirm = (id: string, owner: string) =>
+    rows(apiUser, CONFIRM, { id, owner });
+  const setAtBunny = async (
+    id: string,
+    imagePath: string | null,
+    videoId = VIDEO,
+  ) => {
+    await claim(id, imagePath, `owner-${id}`, videoId);
+    expect(await confirm(id, `owner-${id}`)).toHaveLength(1);
+  };
   const approval = (id: string) =>
     approve(admin, id).then(
       () => 'approved',
@@ -456,7 +478,7 @@ describe('a video’s own picture is its thumbnail at Bunny before anyone approv
   const marks = () =>
     rows(migrator, `SELECT VALUE record::id(id) FROM streamThumbnail`);
 
-  it('waits for that picture on that video at Bunny, which only api-user’s login records', async () => {
+  it('waits for that picture on that video, confirmed at Bunny, which only api-user’s login records', async () => {
     await draft(vic, 'vic_v', { primaryFormat: 'video', body: undefined });
     await grantUpload(apiUser, {
       video: VIDEO,
@@ -478,20 +500,27 @@ describe('a video’s own picture is its thumbnail at Bunny before anyone approv
     );
 
     // Neither the person nor a moderator can record it.
-    const vars = { id: 'vic_v', videoId: VIDEO, imagePath: picture };
     for (const who of [vic, admin]) {
-      await run(who, SET, vars).catch(() => undefined);
+      await claim('vic_v', picture, 'x', VIDEO, who).catch(() => undefined);
     }
     expect(await marks()).toEqual([]);
     // A record is its own story's.
     await expect(
       run(
         apiUser,
-        `CREATE streamThumbnail:other SET story = story:vic_v, videoId = $videoId, imagePath = $imagePath`,
-        vars,
+        `CREATE streamThumbnail:other SET story = story:vic_v, videoId = $videoId,
+           state = 'pending', leaseOwner = 'x', leaseUntil = time::now() + 30s`,
+        { videoId: VIDEO },
       ),
     ).rejects.toThrow(/its id is its story’s/);
+    // Claimed but never confirmed (Bunny failed, or its OK was never recorded): not vouched for.
+    await claim('vic_v', picture, 'first');
+    expect(await approval('vic_v')).toMatch(/media_not_ready/);
     // Another video, or another picture, doesn't count.
+    await run(
+      migrator,
+      `UPDATE streamThumbnail:vic_v SET leaseUntil = time::now()`,
+    );
     await setAtBunny('vic_v', picture, '0f0e0d0c-0b0a-4908-8706-00000000a002');
     expect(await approval('vic_v')).toMatch(/media_not_ready/);
     await setAtBunny('vic_v', `stories/vic_v/${'2'.repeat(32)}.webp`);
@@ -499,6 +528,51 @@ describe('a video’s own picture is its thumbnail at Bunny before anyone approv
 
     await setAtBunny('vic_v', picture);
     expect(await approval('vic_v')).toBe('approved');
+  });
+
+  it('one submit at a time talks to Bunny: a held lease refuses another claim, only its owner confirms, and an expired one can be taken over', async () => {
+    const video = '0f0e0d0c-0b0a-4908-8706-00000000a004';
+    await draft(vic, 'vic_l', { primaryFormat: 'video', body: undefined });
+    await grantUpload(apiUser, {
+      video,
+      story: 'vic_l',
+      person: 'vic',
+      version: 1,
+    });
+    const p = `stories/vic_l/${'4'.repeat(32)}.webp`;
+    const q = `stories/vic_l/${'5'.repeat(32)}.webp`;
+    // A row is never written as confirmed without a claim.
+    await expect(
+      run(
+        apiUser,
+        `UPSERT streamThumbnail:vic_l SET story = story:vic_l, videoId = $video,
+           imagePath = $p, state = 'confirmed'`,
+        { video, p },
+      ),
+    ).rejects.toThrow(/only a claimed row is confirmed/);
+    await claim('vic_l', p, 'a', video);
+    // Another tab's submit, while the first is still at Bunny.
+    await expect(claim('vic_l', q, 'b', video)).rejects.toThrow(/lease_held/);
+    // Only the owner confirms.
+    expect(await confirm('vic_l', 'b')).toEqual([]);
+    expect(await confirm('vic_l', 'a')).toHaveLength(1);
+    expect(
+      await rows(
+        migrator,
+        `SELECT imagePath, state, leaseOwner FROM ONLY streamThumbnail:vic_l`,
+      ),
+    ).toEqual([{ imagePath: p, state: 'confirmed' }]);
+
+    // A holder that crashed: its lease runs out and the next submit takes over; the old owner
+    // can no longer confirm.
+    await claim('vic_l', q, 'c', video);
+    await run(
+      migrator,
+      `UPDATE streamThumbnail:vic_l SET leaseUntil = time::now() - 1s`,
+    );
+    await claim('vic_l', q, 'd', video);
+    expect(await confirm('vic_l', 'c')).toEqual([]);
+    expect(await confirm('vic_l', 'd')).toHaveLength(1);
   });
 
   it('a picture removed after it was set must be gone from Bunny too; deleting the story deletes the record', async () => {
@@ -522,12 +596,14 @@ describe('a video’s own picture is its thumbnail at Bunny before anyone approv
     await submit(vic, 'vic_r');
     await processed(workflow, 'vic_r');
     expect(await approval('vic_r')).toMatch(
-      /media_not_ready: Bunny still shows a picture the person removed/,
+      /media_not_ready: Bunny may still show a picture the person removed/,
     );
-    await run(apiUser, `DELETE streamThumbnail:vic_r`);
+    // Bunny's own frame back, but not confirmed yet: still waiting.
+    await claim('vic_r', null, 'reset', video);
+    expect(await approval('vic_r')).toMatch(/media_not_ready/);
+    expect(await confirm('vic_r', 'reset')).toHaveLength(1);
     expect(await approval('vic_r')).toBe('approved');
 
-    await setAtBunny('vic_r', picture, video);
     await run(migrator, `DELETE story:vic_r`);
     expect(await marks()).not.toContain('vic_r');
   });

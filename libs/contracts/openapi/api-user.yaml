@@ -970,7 +970,10 @@ paths:
         it the video's thumbnail at Bunny Stream (Bunny fetches it by a 10-minute signed link), so
         Bunny's own player shows it too; a picture removed since the last submit gives way to one of
         Bunny's own frames. api-admin can't approve the story until that succeeded. Bunny failing
-        after a few tries: `503` `thumbnail_unavailable`; the story is unchanged, submit again.
+        after a few tries: `503` `thumbnail_unavailable`; the story is unchanged, submit again. One
+        submit at a time talks to Bunny about a story: another submit of the same story meanwhile
+        (another tab) gets `409` `thumbnail_sync_in_progress` and changes nothing; try again in a
+        moment.
       x-required-role: User
       x-requires-consent:
         subject: caller

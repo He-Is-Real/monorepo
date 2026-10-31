@@ -937,18 +937,36 @@ retried`, on both RocksDB and the in-memory engine.
       transaction itself both ways, and replays).
 
 44. **A video's own picture is its thumbnail at Bunny before anyone approves it (O1 a, Joel
-    2026-10-31).** `streamThumbnail` (id = the story's id): the video and the picture api-user set
-    as the video's thumbnail at Bunny Stream, at submit, after Bunny answered OK. Only api-user's
-    login reads or writes it (the person's session and api-admin can't); the row needs its story's
-    submitter live (fence) and goes with the story (`story_erasure_cascade`). It is never on the
-    story itself: a write there would step the story's version, and media writes never touch
-    `story.image`. `story_approval_media` refuses approval (`media_not_ready`, any login; system
-    users load as given) unless, for a video with its own picture, the row names the story's
-    current video and picture, and for a video without one, no row names its video (a removed
-    picture Bunny still shows). Checked at approval only, not for already-published stories (the
-    person can't change a submitted story). Tests: `libs/database/integration/images.int-spec.ts`
-    (the rule), `person-linked.int-spec.ts`, `apps/api-user/integration/video-thumbnail.int-spec.ts`
-    (submit at Bunny, retries, `503 thumbnail_unavailable`, removal).
+    2026-10-31).** `streamThumbnail` (id = the story's id): what api-user last asked Bunny Stream
+    to show as the video's thumbnail, at submit: the story's picture, or (`imagePath` NONE) one of
+    Bunny's own frames after the person removed it. Only api-user's login reads or writes it (the
+    person's session and api-admin can't); the row needs its story's submitter live (fence) and
+    goes with the story (`story_erasure_cascade`). It is never on the story itself: a write there
+    would step the story's version, and media writes never touch `story.image`.
+    - **Pending, then confirmed.** api-user claims the row as `pending` (with the wanted video and
+      picture) _before_ asking Bunny, and confirms it once Bunny answered OK. A failed Bunny call,
+      or an OK whose confirm never landed, leaves it `pending`, which vouches for nothing: the
+      next submit sends the wanted state again, and a removed picture gets Bunny's frame back even
+      when the earlier picture's OK was never recorded.
+    - **One submit at a time (a lease).** The claim sets `leaseOwner` (a random id per request)
+      and `leaseUntil` (30 s); `streamThumbnail_lease` refuses another request's claim while it
+      runs (`409 thumbnail_sync_in_progress`; two claims racing: one loses at commit), only a
+      claimed row can become `confirmed`, as claimed, and api-user confirms with
+      `WHERE leaseOwner = <its id>`, clearing the lease in the same write. Every Bunny call of one
+      submit ends within 20 s, well inside the lease; a crashed holder's lease simply runs out. So
+      Bunny is never asked about a story by two submits at once, and a confirmed row is what Bunny
+      shows. A person who edits the picture during the call gets a row that doesn't match the
+      story (approval waits) and their submit fails on its version; their next submit re-syncs.
+    - **Approval.** `story_approval_media` refuses approval (`media_not_ready`, any login; system
+      users load as given) unless, for a video with its own picture, the row is `confirmed` and
+      names the story's current video and picture; for a video without one, no row names its
+      video, or a `confirmed` one does with Bunny's frame back. Checked at approval only, not for
+      already-published stories (the person can't change a submitted story).
+    - Tests: `libs/database/integration/images.int-spec.ts` (the rule, the lease, owner-only
+      confirm, takeover of an expired lease), `person-linked.int-spec.ts`,
+      `apps/api-user/integration/video-thumbnail.int-spec.ts` (submit at Bunny, retries,
+      `503 thumbnail_unavailable`, removal, Bunny's OK never recorded, a second tab's submit
+      refused while the first is at Bunny).
 
 ## Person-linked tables
 

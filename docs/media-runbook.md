@@ -93,6 +93,22 @@ existed), request changes so the person submits again.
 (`<video id>/original`, Frankfurt), so "Download my data" can link the person to their own file.
 Files uploaded before the switch have none. They go with the video, like its encodings.
 
+Bunny serves a kept original on the CDN only when the library's **`ExposeOriginals`** is on, a
+setting the OpenTofu provider (bunnynet 0.19.2) doesn't have. So once, after the bunny apply that
+turned on keeping originals, it's set with Bunny's API (a recorded exception to "everything through
+OpenTofu", like the Clerk settings):
+
+```sh
+tools/scripts/tf.sh bunny-cli api POST /videolibrary/<library id> --body '{"ExposeOriginals":true}'
+tools/scripts/tf.sh bunny-cli api GET /videolibrary/<library id> -o json | jq '{ExposeOriginals, KeepOriginalFiles, BlockNoneReferrer, AllowEarlyPlay}'
+```
+
+Expect `true, true, false, false`. Later applies don't turn it off (tested on a throwaway library,
+2026-10-31: an update sending the provider's fields left it on). Exposed still means signed:
+with token auth on, an unsigned or expired link to `/original` is `403`. Tested end to end on a
+throwaway library: with `ExposeOriginals` off, even a signed link answered `403`; with it on, a
+signed link opened with no referrer (`200`) and returned the uploaded bytes exactly.
+
 No personal data goes into Bunny names: a video's title is the story id (D69) and an image's path
 is under the story's folder (D80). Deleting an image leaves its folder behind, so deletions remove
 the folder too. To check uploads still work against dev: `pnpm nx run dev-seed:upload-spike` (a
