@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadMoreStories } from '@/app/stories/actions';
-import { StoryMasonry } from '@/components/stories/story-masonry';
+import {
+  continueLayout,
+  StoryMasonry,
+} from '@/components/stories/story-masonry';
 import { Button } from '@/components/ui/button';
 import type { StorySummary } from '@/lib/browse';
 import {
@@ -11,12 +14,7 @@ import {
   browseHref,
   parseBrowseSearch,
 } from '@/lib/browse-query';
-import {
-  type CardLayout,
-  type ColumnHeights,
-  GAP,
-  layoutFor,
-} from '@/lib/masonry';
+import { type CardLayout, type ColumnHeights, layoutFor } from '@/lib/masonry';
 
 /** How far before the end of the list the next page starts loading (D55: "near the end"). */
 const NEAR_END = '0px 0px 800px 0px';
@@ -27,13 +25,6 @@ interface Loaded {
   heights: ColumnHeights;
   cursor: string | null;
   pages: number;
-}
-
-/** The column count the stylesheet is using now (`.masonry` in global.css). */
-function currentColumns(): 1 | 2 | 3 {
-  if (window.matchMedia('(min-width: 1024px)').matches) return 3;
-  if (window.matchMedia('(min-width: 640px)').matches) return 2;
-  return 1;
 }
 
 /**
@@ -89,23 +80,6 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
     };
   }, []);
 
-  /** Column heights to continue from: measured for the columns on screen, predicted otherwise. */
-  const startHeights = useCallback((predicted: ColumnHeights) => {
-    const n = currentColumns();
-    const ul = list.current;
-    if (n === 1 || !ul) return predicted;
-    const top = ul.getBoundingClientRect().top;
-    const measured = Array(n).fill(0);
-    current.current.layouts.forEach((layout, i) => {
-      const li = ul.children[i] as HTMLElement | undefined;
-      if (!li) return;
-      const bottom = li.getBoundingClientRect().bottom - top + GAP;
-      const col = layout.col[n];
-      measured[col] = Math.max(measured[col], bottom);
-    });
-    return { ...predicted, [n]: measured };
-  }, []);
-
   const load = useCallback(
     async (byButton: boolean) => {
       const { cursor } = current.current;
@@ -126,7 +100,12 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
         return false;
       }
       const prev = current.current;
-      const next = layoutFor(result.page.data, startHeights(prev.heights));
+      const next = continueLayout(
+        list.current,
+        prev.layouts,
+        prev.heights,
+        result.page.data,
+      );
       const pages = prev.pages + 1;
       focusFrom.current = byButton ? prev.cards.length : null;
       // The ref first, so a load straight after this one continues from here.
@@ -144,7 +123,7 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
       window.history.replaceState(null, '', browseHref(filters, { pages }));
       return true;
     },
-    [filters, startHeights],
+    [filters],
   );
 
   // Back can restore an older render of this page from Next's router cache (the first page

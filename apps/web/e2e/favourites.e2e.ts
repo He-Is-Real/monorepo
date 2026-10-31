@@ -1,6 +1,7 @@
 import {
   type APIRequestContext,
   expect,
+  type Locator,
   type Page,
   type Request,
   test,
@@ -55,6 +56,41 @@ async function heartAtStub(
       headers: { authorization: `Bearer ${fixtureToken(session)}` },
     });
     expect(res.status()).toBe(204);
+  }
+}
+
+interface Box {
+  x: number;
+  top: number;
+  bottom: number;
+}
+
+/** Each card's column (left edge) and its top and bottom, from the top of the list. */
+async function masonryBoxes(list: Locator): Promise<Box[]> {
+  return list.locator('> li > article').evaluateAll((cards) => {
+    const top = cards[0]?.closest('ul')?.getBoundingClientRect().top ?? 0;
+    return cards.map((c) => {
+      const r = c.getBoundingClientRect();
+      return { x: Math.round(r.x), top: r.top - top, bottom: r.bottom - top };
+    });
+  });
+}
+
+/**
+ * Browse's masonry: the column count for the width, and in each column a card starting one
+ * gap (24 px, rounded up to the grid's 4 px rows) below the one above it, whatever the heights
+ * beside it.
+ */
+function expectStaggered(boxes: Box[], width: number) {
+  const columns = new Set(boxes.map((b) => b.x));
+  expect(columns.size).toBe(width >= 1024 ? 3 : width >= 640 ? 2 : 1);
+  for (const x of columns) {
+    const column = boxes.filter((b) => b.x === x).sort((a, b) => a.top - b.top);
+    for (let i = 1; i < column.length; i++) {
+      const gap = column[i].top - column[i - 1].bottom;
+      expect(gap).toBeGreaterThanOrEqual(23);
+      expect(gap).toBeLessThanOrEqual(29);
+    }
   }
 }
 
@@ -725,25 +761,56 @@ test('My favourites keeps each card at its media’s shape, in browse’s masonr
     expect(box && box.width / box.height, title).toBeCloseTo(aspect, 1);
   }
 
-  // Staggered: in each column, a card starts one gap (24 px, rounded up to the grid's 4 px
-  // rows) below the one above it, whatever the heights beside it.
-  const boxes = await list.locator('> li > article').evaluateAll((cards) =>
-    cards.map((c) => {
-      const r = c.getBoundingClientRect();
-      return { x: Math.round(r.x), top: r.top, bottom: r.bottom };
-    }),
-  );
-  const columns = new Set(boxes.map((b) => b.x));
+  // Staggered once the browser has measured the cards (the observer can report late).
   const width = page.viewportSize()?.width ?? 0;
-  expect(columns.size).toBe(width >= 1024 ? 3 : width >= 640 ? 2 : 1);
-  for (const x of columns) {
-    const column = boxes.filter((b) => b.x === x).sort((a, b) => a.top - b.top);
-    for (let i = 1; i < column.length; i++) {
-      const gap = column[i].top - column[i - 1].bottom;
-      expect(gap).toBeGreaterThanOrEqual(23);
-      expect(gap).toBeLessThanOrEqual(29);
-    }
-  }
+  await expect(async () =>
+    expectStaggered(await masonryBoxes(list), width),
+  ).toPass();
+});
+
+// Joel, 2026-10-31: "Show more favourites" adds cards as browse's next pages do: the cards on
+// screen stay where they are, and the new ones continue the staggered columns. A button only,
+// never loading on its own. 30 hearts: a page of 24, then 6.
+test('Show more favourites adds cards under the columns, the others staying put', async ({
+  page,
+  request,
+}, info) => {
+  const session = sessionFor(info, 'more');
+  await useSession(page, session);
+  const ids = Array.from(
+    { length: 30 },
+    (_, i) => `browse_${String(i + 1).padStart(2, '0')}`,
+  );
+  await heartAtStub(request, session, ids);
+  await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+  const list = page.locator('[data-favourites] ul.masonry');
+  const width = page.viewportSize()?.width ?? 0;
+  await expect(list.locator('> li')).toHaveCount(24);
+
+  let before: Box[] = [];
+  await expect(async () => {
+    before = await masonryBoxes(list);
+    expectStaggered(before, width);
+  }).toPass();
+
+  const more = page.getByRole('button', { name: 'Show more favourites' });
+  await more.scrollIntoViewIfNeeded();
+  await expect(list.locator('> li')).toHaveCount(24);
+  await more.click();
+  await expect(list.locator('> li')).toHaveCount(30);
+  await expect(more).toHaveCount(0);
+
+  await expect(async () => {
+    const after = await masonryBoxes(list);
+    expectStaggered(after, width);
+    before.forEach((box, i) => {
+      expect(after[i].x, `card ${i + 1}`).toBe(box.x);
+      expect(Math.abs(after[i].top - box.top), `card ${i + 1}`).toBeLessThan(
+        1,
+      );
+    });
+  }).toPass();
+  await expectNoHorizontalOverflow(page);
 });
 
 for (const scheme of ['light', 'dark'] as const) {
