@@ -657,7 +657,10 @@ function limitsOf(s) {
   return {
     storyText: { min: s.settings.storyTextMin, max: s.settings.storyTextMax },
     // Never more themes than there are (fn::settings::themes_needed).
-    tags: { min: Math.min(s.settings.tagsMin, THEME_COUNT), max: s.settings.tagsMax },
+    tags: {
+      min: Math.min(s.settings.tagsMin, THEME_COUNT),
+      max: s.settings.tagsMax,
+    },
     openDrafts: { max: s.trusted ? null : s.settings.openDraftsMax, open },
     submissions: { per7Days, nextAvailableAt: next },
     uploads: uploadLimitsOf(s),
