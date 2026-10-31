@@ -372,7 +372,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       );
     });
 
-    it('deletes only their own draft, withdrawn or rejected story (D71), never one in review or published', async () => {
+    it('deletes only their own draft, changes-requested, withdrawn or rejected story (D71), never one in review or published', async () => {
       const statuses = [
         'draft',
         'pending',
@@ -402,7 +402,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
             `SELECT VALUE status FROM story WHERE string::starts_with(record::id(id), 'ann_del_')`,
           )
         ).sort(),
-      ).toEqual(['approved', 'changes_requested', 'in_review', 'pending']);
+      ).toEqual(['approved', 'in_review', 'pending']);
       // Someone else's draft, never.
       expect(await rows(ann, 'DELETE story:bob_draft RETURN BEFORE')).toEqual(
         [],
