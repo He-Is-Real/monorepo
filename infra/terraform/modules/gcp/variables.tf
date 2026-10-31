@@ -19,7 +19,12 @@ variable "region" {
 }
 
 variable "network_cidrs" {
-  description = "Address plan. The run subnet must be at least /26 (Cloud Run Direct VPC egress)."
+  # The run subnet holds every Cloud Run service's and job's instances (Direct VPC egress). Cloud
+  # Run takes addresses in blocks of 16, keeps them for a while after instances stop, and needs
+  # room for old and new revisions side by side during a deploy, so /26 (64) ran out when a deploy
+  # updated three services and two jobs at once (2026-10-31). /24 gives 256. Grow it only by
+  # widening the same base address (an in-place expansion); shrinking would replace the subnet.
+  description = "Address plan. The run subnet is /24 (Cloud Run Direct VPC egress; at least /26)."
   type = object({
     gke      = string
     pods     = string
@@ -30,7 +35,7 @@ variable "network_cidrs" {
     gke      = "10.10.0.0/20"
     pods     = "10.20.0.0/17"
     services = "10.30.0.0/22"
-    run      = "10.10.16.0/26"
+    run      = "10.10.16.0/24"
   }
 }
 

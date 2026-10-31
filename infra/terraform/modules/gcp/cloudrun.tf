@@ -44,6 +44,10 @@ resource "google_cloud_run_v2_service" "api_public_read" {
   invoker_iam_disabled = var.api_public_read_public
 
   template {
+    # A new revision whenever the run subnet changes: a revision that failed to start for lack
+    # of addresses (2026-10-31) is retried on the new subnet instead of left failed.
+    labels = { run-subnet = replace(var.network_cidrs.run, "/[./]/", "-") }
+
     service_account = google_service_account.api_public_read.email
 
     scaling {
