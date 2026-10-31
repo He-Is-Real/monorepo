@@ -8,7 +8,13 @@ import {
   TestDatabase,
 } from './support/harness';
 import { PENDING_DELETION_DONE } from '../src/lib/erasure';
-import { draft, ERASE, grantImage, grantUpload } from './support/world';
+import {
+  draft,
+  ERASE,
+  grantImage,
+  grantUpload,
+  storyText,
+} from './support/world';
 
 /**
  * Images (M2 plan PR 10; D53, D65, D80): a written story's image or an audio story's picture is
@@ -558,5 +564,67 @@ describe('a deleted story’s picture folder is queued from the story, never its
     );
     await run(apiUser, PENDING_DELETION_DONE, { key: 'image-kit_w' });
     expect(await queued()).toEqual([]);
+  });
+
+  it('refuses a person or a service a story id whose folder is still queued, then allows it once done (Codex #140 round 6)', async () => {
+    const lea = await person('lea');
+    await draft(lea, 'lea_w');
+    await run(lea, `DELETE story:lea_w`);
+    await expect(draft(lea, 'lea_w')).rejects.toThrow(
+      /picture folder is still being deleted/,
+    );
+    // api-user's login makes no story (its create is filtered out, nothing written).
+    await run(
+      apiUser,
+      `CREATE story:lea_w CONTENT { submitter: user:lea, slug: 'lea_w2',
+         title: 'Story lea_w', description: 'How I came to faith',
+         primaryFormat: 'written' }`,
+    ).catch(() => undefined);
+    expect(await rows(migrator, `SELECT VALUE id FROM story:lea_w`)).toEqual(
+      [],
+    );
+    // Once its final pass has run, the row is gone and the id is free again.
+    await run(
+      migrator,
+      `UPDATE pendingDeletion:⟨image-lea_w⟩ SET finalPassAt = time::now() - 1s`,
+    );
+    await run(apiUser, PENDING_DELETION_DONE, { key: 'image-lea_w' });
+    expect(await queued()).toEqual([]);
+    expect(await draft(lea, 'lea_w')).toHaveLength(1);
+  });
+
+  it('a system user may recreate a queued id; its next delete pushes the final pass later (Codex #140 round 6)', async () => {
+    const max = await person('max');
+    await draft(max, 'max_w');
+    await run(max, `DELETE story:max_w`);
+    // The first final pass is close (as if its 15 minutes were nearly up) and its row was tried.
+    await run(
+      migrator,
+      `UPDATE pendingDeletion:⟨image-max_w⟩ SET finalPassAt = time::now() + 1m,
+         nextAttemptAt = time::now() + 1h, attempts = 2`,
+    );
+    // dev-seed resets with the same ids, as a system user.
+    await run(
+      migrator,
+      `CREATE story:max_w CONTENT { submitter: user:max, slug: 'max_w',
+         title: 'Story max_w', description: 'How I came to faith',
+         body: $body, primaryFormat: 'written' }`,
+      { body: storyText('max_w') },
+    );
+    expect(
+      await rows(migrator, `SELECT VALUE record::id(id) FROM story:max_w`),
+    ).toEqual(['max_w']);
+    await run(migrator, `DELETE story:max_w`);
+    const state = () =>
+      rows(
+        migrator,
+        `SELECT attempts, nextAttemptAt <= time::now() AS due,
+           finalPassAt > time::now() + 14m AS later
+         FROM pendingDeletion:⟨image-max_w⟩`,
+      );
+    expect(await state()).toEqual([{ attempts: 2, due: true, later: true }]);
+    // A delete before the new final pass keeps the row.
+    await run(apiUser, PENDING_DELETION_DONE, { key: 'image-max_w' });
+    expect(await state()).toEqual([{ attempts: 2, due: false, later: true }]);
   });
 });

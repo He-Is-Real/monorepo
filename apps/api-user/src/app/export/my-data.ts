@@ -48,7 +48,7 @@ RETURN {
   submissions: (SELECT at FROM submissionLog WHERE person = $auth ORDER BY at ASC),
   uploads: (SELECT record::id(id) AS id, record::id(story) AS story, format, contentType,
       sizeBytes, durationSeconds, at, renewedAt
-    FROM uploadGrant WHERE person = $auth ORDER BY at ASC),
+    FROM uploadGrant WHERE person = $auth ORDER BY at ASC, id ASC),
   keys: (SELECT record::id(id)[2] AS key, status, expiresAt FROM idempotencyKey
     WHERE record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth ORDER BY expiresAt ASC)
 };`;

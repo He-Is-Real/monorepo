@@ -162,6 +162,10 @@ round 4: an erasure built from grants missed those files).
   (`finalPassAt`); the database refuses to remove the row before then, and the first delete at
   or after it (housekeeping's next run, or api-user's after a later erasure) removes the row.
   A failed try still waits and counts as usual; dry runs and the per-run limit apply.
+- **Reused story ids** (Codex #140 round 6): while a folder's row is queued, the database refuses
+  to create a story with that id, except for a system user (dev-seed's reset reuses its ids). A
+  second delete of the same id moves the final pass to 15 minutes after it and makes the row due
+  again, so a recreated story's late upload is still caught.
 
 A story that never had a picture costs one delete answering 404; dev-seed's reset queues one per
 seeded story (their pictures live in `dev-seed/`, not in a story folder, so nothing of theirs is

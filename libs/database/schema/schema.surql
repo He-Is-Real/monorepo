@@ -916,13 +916,30 @@ DEFINE EVENT OVERWRITE story_erasure_cascade ON story
 -- (fn::erasure::final_pass_after): a PUT link signed just before the delete stays valid for
 -- 10 minutes, so the row isn't done until a delete after that (pendingDeletion FOR delete).
 -- A story without pictures costs one delete that answers 404.
+-- A repeat delete of the same id (Codex #140 round 6) moves the final pass to the later of the
+-- two and makes the row due now, so a link signed for the newer story is covered too.
+-- An id is never reused while its folder is still queued: the outstanding row would delete the
+-- new story's pictures, and an old final pass could let the row go before a new link expires.
+-- Ordinary stories get fresh ULIDs, so only a system user ($auth = NONE: the migrator, dev's
+-- seed, which resets with the same ids) may recreate one. That is safe: dev-seed's pictures live
+-- under `dev-seed/`, never `stories/<id>/`, and any real upload to a recreated story makes its
+-- next delete refresh the final pass, as above.
 DEFINE EVENT OVERWRITE story_picture_folder ON story
-  WHEN $event = 'DELETE'
+  WHEN $event IN ['CREATE', 'DELETE']
   THEN {
-    LET $key = fn::erasure::folder_key($before.id);
-    IF !record::exists(type::record('pendingDeletion', $key)) {
-      CREATE type::record('pendingDeletion', $key) CONTENT { kind: 'image',
-        ref: 'stories/' + <string> record::id($before.id) + '/',
+    LET $id = IF $event = 'CREATE' { $after.id } ELSE { $before.id };
+    LET $row = type::record('pendingDeletion', fn::erasure::folder_key($id));
+    IF $event = 'CREATE' {
+      IF $auth != NONE AND record::exists($row) {
+        THROW 'this story id’s picture folder is still being deleted';
+      };
+    } ELSE IF record::exists($row) {
+      LET $later = time::now() + fn::erasure::final_pass_after();
+      UPDATE $row SET finalPassAt = IF finalPassAt > $later { finalPassAt } ELSE { $later },
+        nextAttemptAt = time::now() RETURN NONE;
+    } ELSE {
+      CREATE $row CONTENT { kind: 'image',
+        ref: 'stories/' + <string> record::id($id) + '/',
         finalPassAt: time::now() + fn::erasure::final_pass_after() } RETURN NONE;
     };
   };
@@ -2356,7 +2373,8 @@ DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
 -- (fn::erasure::retry_after), so rows that keep failing go to the back and never hold up the
 -- others. finalPassAt (folders only): a picture's PUT link may still be used until then, so a
 -- delete before it leaves the row, due again at finalPassAt (pendingDeletion_done), and only a
--- delete from then on removes it. Only api-user and housekeeping read, delete or count tries on it;
+-- delete from then on removes it; a repeat delete of the id moves it later (story_picture_folder),
+-- which also refuses the id to anyone but a system user while the row is queued. Only api-user and housekeeping read, delete or count tries on it;
 -- only api-user's erasure writes rows itself (never an 'image' one).
 DEFINE TABLE OVERWRITE pendingDeletion SCHEMAFULL PERMISSIONS
   FOR select, update WHERE $auth.id IN [service:api_user, service:housekeeping],

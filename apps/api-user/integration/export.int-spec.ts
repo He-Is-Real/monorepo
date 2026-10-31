@@ -407,17 +407,20 @@ describe('download my data', () => {
     expect(file.consents.map((c: { id: string }) => c.id).sort()).toEqual(
       [...held['consents']].sort(),
     );
-    expect(file.favourites.map((f: { storyId: string }) => f.storyId)).toEqual(
-      held['hearts'],
-    );
+    // Same-millisecond rows may come in either order: compare what is there.
+    expect(
+      file.favourites.map((f: { storyId: string }) => f.storyId).sort(),
+    ).toEqual([...held['hearts']].sort());
     expect(file.submissions).toHaveLength(held['submissions'].length);
     expect(held['submissions']).toHaveLength(4);
     expect(
-      file.uploads.map(
-        (u: { bunnyVideoId: string | null; imagePath: string | null }) =>
-          u.bunnyVideoId ?? u.imagePath,
-      ),
-    ).toEqual(held['uploads']);
+      file.uploads
+        .map(
+          (u: { bunnyVideoId: string | null; imagePath: string | null }) =>
+            u.bunnyVideoId ?? u.imagePath,
+        )
+        .sort(),
+    ).toEqual([...held['uploads']].sort());
     // Ann's two pictures are uploads too, by their path.
     expect(
       file.uploads

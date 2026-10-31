@@ -826,6 +826,15 @@ retried`, on both RocksDB and the in-memory engine.
         before then leaves the row, due again at `finalPassAt` with its tries unchanged
         (`fn::erasure::pending_done`); the table's `FOR delete` refuses to remove it earlier,
         and no service may change `finalPassAt`. Housekeeping's next run is that final pass.
+      - **A story id is never reused while its folder is queued (Codex #140 round 6).** The same
+        event refuses to create a story whose `image-<id>` row is still outstanding, for every
+        writer with a login (people, every service); otherwise the old row would delete the new
+        story's pictures, and an old final pass could let the row go before a newer PUT link
+        expires. Ordinary stories get fresh ULIDs, so this never bites them. Only a system user
+        (`$auth = NONE`: the migrator, dev-seed's reset, which reuses ids) may recreate one. If
+        the event finds the row already there on a delete, it moves `finalPassAt` to the later
+        of the two final passes and makes the row due now, so a link signed for the newer story
+        is covered too. Once the row is done, the id is free again.
       - Only api-user's erasure creates rows itself, and never an `image` one; the event writes
         those. api-user deletes an erasure's rows straight after the commit (a folder's row
         stays for its final pass); a failure counts in `attempts` and waits (`nextAttemptAt`:
