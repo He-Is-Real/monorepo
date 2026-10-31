@@ -25,7 +25,8 @@
 //   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
 //   carry its `status`, `slug`, moderator's `rejectionFeedback` and whether it may be `shared`
 //   beyond heisreal.today (O4: chosen per story, granted with `storyId` and withdrawn with
-//   `POST /v1/account/consents/share_socials/withdraw` and `{ storyId }`). Erasure (PR 11):
+//   `POST /v1/account/consents/share_socials/withdraw` and `{ storyId }`, or granted with the
+//   submission: submit's `shareBeyondSite`, in the same idempotent command). Erasure (PR 11):
 //   `DELETE /v1/account`, and withdrawing the testimony or sign-up consent, erase the session:
 //   its token gets 401 afterwards.
 // - Download my data (M2 plan PR 12): `GET /v1/account/export`, the session's own stories,
@@ -1176,7 +1177,26 @@ async function handleShare(req, res, path, url, s) {
         'Precondition required',
         'if_match_required',
       );
-    return idempotent(s, req, res, undefined, () => {
+    // O4: the optional body's sharing beyond heisreal.today, granted with the submission (both
+    // or neither), on the social sharing version and privacy policy in force.
+    const body = await readJson(req);
+    const share = body?.shareBeyondSite;
+    if (
+      body === null ||
+      (body !== undefined &&
+        (typeof body !== 'object' ||
+          Object.keys(body).some((k) => k !== 'shareBeyondSite'))) ||
+      (share !== undefined &&
+        (share === null ||
+          typeof share !== 'object' ||
+          Object.keys(share).some(
+            (k) => k !== 'formVersion' && k !== 'privacyPolicyVersion',
+          ) ||
+          typeof share.formVersion !== 'string' ||
+          typeof share.privacyPolicyVersion !== 'string'))
+    )
+      return shareProblem(res, 400, 'Bad request', 'validation_failed');
+    return idempotent(s, req, res, body, () => {
       const p = (status, title, code, extra = {}) => ({
         status,
         body: { type: 'about:blank', title, status, code, ...extra },
@@ -1184,6 +1204,10 @@ async function handleShare(req, res, path, url, s) {
       });
       if (v !== st.version)
         return p(412, 'Precondition failed', 'stale_version');
+      if (share && share.formVersion !== 'v2')
+        return p(409, 'Conflict', 'form_version_not_in_force');
+      if (share && share.privacyPolicyVersion !== 'dev_policy')
+        return p(409, 'Conflict', 'legal_document_not_in_force');
       if (!['draft', 'changes_requested'].includes(st.status))
         return p(409, 'Conflict', 'story_not_submittable');
       // The minimum at submit; the maximum only when themes change (as api-user does).
@@ -1244,6 +1268,10 @@ async function handleShare(req, res, path, url, s) {
       st.status = 'pending';
       st.submittedAt ??= new Date().toISOString();
       st.version += 1;
+      if (share) {
+        st.shared = true;
+        s.sharingChosen.add(submit[1]);
+      }
       return {
         status: 200,
         body: { id: submit[1], version: st.version },

@@ -1299,6 +1299,32 @@ components:
           type: string
           pattern: '^[A-Za-z0-9_]{1,64}$'
 
+    SubmitStory:
+      type: object
+      description: |
+        O4: the optional body of `POST /v1/stories/{id}/submit`. `shareBeyondSite` is the box "share this
+        story beyond heisreal.today" ticked on Review, with the social sharing form version and the privacy
+        policy version shown beside it (D122: the grant binds the ones the page named; others are `409`
+        `form_version_not_in_force` or `legal_document_not_in_force`). The story's `share_socials` grant
+        (mechanism `web_form_submission`, evidence v5) is recorded in the submission's own transaction, with
+        its Idempotency-Key: both commit or neither does, and a replay grants nothing again. Without it
+        (no body, or `{}`) the story's sharing is left as it is: submitting never withdraws it.
+      additionalProperties: false
+      properties:
+        shareBeyondSite:
+          type: object
+          additionalProperties: false
+          required: [formVersion, privacyPolicyVersion]
+          properties:
+            formVersion:
+              type: string
+              pattern: '^[a-z0-9][a-z0-9_-]{0,63}$'
+              example: v1
+            privacyPolicyVersion:
+              type: string
+              pattern: '^[a-z0-9][a-z0-9_-]{0,63}$'
+              example: v1
+
     DpaVersion:
       type: object
       description: A version of the data-subject-facing Data Processing Agreement (D20, D22).

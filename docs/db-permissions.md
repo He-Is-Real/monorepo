@@ -877,9 +877,18 @@ retried`, on both RocksDB and the in-memory engine.
     - Deleting a story leaves its sharing events on the ledger (kept like every consent event,
       six years after erasure), pointing at an id that no longer exists, like `auditLog`'s. Both
       writes bump the person's fence, so an event can't commit for a story deleted alongside it.
+    - **Sharing ticked on Review is part of SubmitStory** (round 3 of the review): api-user puts
+      the ledger's grant statements (`ConsentLedger.storySharingGrant`, the same checks, form
+      version and privacy policy check in the transaction, mechanism `web_form_submission`,
+      evidence v5) in the submission's own transaction, beside its Idempotency-Key, all in the
+      person's session. Both commit or neither does, and a replay of the key grants nothing
+      again. No new permission: the person already creates their own `consent` events and
+      submits their own stories.
     - Tests: `libs/database/integration/consent-forms.int-spec.ts` ("sharing beyond
       heisreal.today: chosen per story"), `erasure.int-spec.ts` (kept after erasure),
-      `libs/consent/integration/ledger.int-spec.ts`, `apps/api-user/integration/my-stories.int-spec.ts`.
+      `libs/consent/integration/ledger.int-spec.ts`, `apps/api-user/integration/my-stories.int-spec.ts`,
+      `apps/api-user/integration/submit-sharing.int-spec.ts` (together or not at all, in the
+      transaction itself both ways, and replays).
 
 ## Person-linked tables
 

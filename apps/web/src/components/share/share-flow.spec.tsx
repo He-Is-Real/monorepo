@@ -106,6 +106,7 @@ describe('ReviewStep', () => {
     forget: jest.fn(),
     setVersion: jest.fn(),
     beginSubmit: jest.fn(),
+    keptSubmit: jest.fn(() => null),
     settleSubmit: jest.fn(),
     current: () => ({ draftId: 'd1', version: 2 }),
   };

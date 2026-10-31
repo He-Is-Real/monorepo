@@ -404,6 +404,38 @@ export class ConsentLedger {
   }
 
   /**
+   * O4: the statements that record a story's sharing beyond heisreal.today, for a command that
+   * runs them in its own transaction (SubmitStory: Review's box is sent with the submission, so
+   * the grant and the submission commit together or not at all). Checked as {@link grant} checks
+   * it: the social sharing form and privacy policy shown must be the ones in force
+   * (`ConsentConflictError`) and the story the person's own (`ConsentStoryNotFoundError`).
+   * Recorded with `web_form_submission` and evidence v5. The statements bind `$event` and leave
+   * `$result` to the caller, which merges `vars` into its own. The transaction's refusal (a
+   * version replaced meanwhile) is {@link consentConflictOf}.
+   */
+  async storySharingGrant(
+    person: SurrealQueryable,
+    input: {
+      formVersion: string;
+      privacyPolicyVersion: string;
+      storyId: string;
+    },
+  ): Promise<{ statements: string; vars: Record<string, unknown> }> {
+    const prepared = await this.prepareGrant(person, {
+      form: 'social',
+      formVersion: input.formVersion,
+      statement: 'share_socials',
+      mechanism: 'web_form_submission',
+      privacyPolicyVersion: input.privacyPolicyVersion,
+      storyId: input.storyId,
+    });
+    return {
+      statements: prepared.statements.replace(EVENT_RESULT, ''),
+      vars: prepared.vars,
+    };
+  }
+
+  /**
    * WithdrawConsent: appends a `withdrawn` event (bound to the form version and DPA of the event
    * it follows) and, for `publish` and `special_category_religious`, deletes the person's
    * `publicStory` rows in the same transaction (D17: every story follows the person's consent).
@@ -521,7 +553,7 @@ export class ConsentLedger {
           THROW '${NOT_IN_FORCE}';
         };
         ${appendEvent('granted')}
-        LET $result = { id: $event.id, version: NONE };`,
+        ${EVENT_RESULT}`,
       vars: {
         form_kind: input.form,
         type: input.statement,
@@ -614,7 +646,7 @@ export class ConsentLedger {
                FOR $s IN $stories { DELETE type::record('publicStory', record::id($s)); };`
             : ''
         }
-        LET $result = { id: $event.id, version: NONE };`,
+        ${EVENT_RESULT}`,
       vars: {
         type,
         dpa,
@@ -694,20 +726,33 @@ export class ConsentLedger {
         };
       });
     } catch (err) {
-      // The database is the backstop (D20, D84): e.g. the version retired in between.
-      if (
-        err instanceof DatabaseQueryError &&
-        (err.message.includes(PUBLISHED_FORM_REFUSED) ||
-          err.message.includes(NOT_IN_FORCE))
-      ) {
-        throw new ConsentConflictError(
-          'form_version_not_in_force',
-          'The form version, privacy policy or terms of use shown is no longer the one in force',
-        );
-      }
-      throw err;
+      throw consentConflictOf(err) ?? err;
     }
   }
+}
+
+/** A ledger command's answer: the event it appended. */
+const EVENT_RESULT = 'LET $result = { id: $event.id, version: NONE };';
+
+/**
+ * The database's refusal of a grant as the 409 it is (the backstop, D20, D84): the form version,
+ * privacy policy or terms shown stopped being the ones in force between the check and the
+ * commit. `undefined` for any other error.
+ */
+export function consentConflictOf(
+  err: unknown,
+): ConsentConflictError | undefined {
+  if (
+    err instanceof DatabaseQueryError &&
+    (err.message.includes(PUBLISHED_FORM_REFUSED) ||
+      err.message.includes(NOT_IN_FORCE))
+  ) {
+    return new ConsentConflictError(
+      'form_version_not_in_force',
+      'The form version, privacy policy or terms of use shown is no longer the one in force',
+    );
+  }
+  return undefined;
 }
 
 /** Appends one ledger event as `$event`; fails the transaction if it wasn't written. */

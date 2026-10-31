@@ -120,6 +120,12 @@ export interface UploadRequest {
   resume?: boolean;
 }
 
+/** The contract's `SubmitStory.shareBeyondSite`: the versions shown beside the ticked box. */
+export interface ShareBeyondSite {
+  formVersion: string;
+  privacyPolicyVersion: string;
+}
+
 export interface CommandResult {
   id: string;
   version: number;
@@ -268,17 +274,13 @@ export function shareApi(api: ApiUser) {
     story: async (id: string) =>
       (await api.get<MyStory>(`/v1/account/stories/${encodeURIComponent(id)}`))
         .data as MyStory,
-    /**
-     * GrantConsent on the version in force shown (D84); one key per tick. Sharing beyond
-     * heisreal.today names its story (O4: chosen per story).
-     */
+    /** GrantConsent on the version in force shown (D84); one key per tick. */
     grant: (
       form: 'testimony' | 'social',
       formVersion: string,
       privacyPolicyVersion: string,
       statement: string,
       idempotencyKey = newIdempotencyKey(),
-      storyId?: string,
     ) =>
       api.command('/v1/account/consents', {
         method: 'POST',
@@ -289,7 +291,6 @@ export function shareApi(api: ApiUser) {
           statement,
           mechanism: 'web_form_submission',
           privacyPolicyVersion,
-          ...(storyId === undefined ? {} : { storyId }),
         },
         idempotencyKey,
       }),
@@ -339,11 +340,26 @@ export function shareApi(api: ApiUser) {
       );
       return uploadTarget(res.data);
     },
-    submit: async (id: string, version: number, idempotencyKey: string) =>
+    /**
+     * SubmitStory. `share` (O4): sharing beyond heisreal.today ticked on Review, with the social
+     * sharing form and privacy policy versions shown: recorded with the submission, in its own
+     * transaction, so a replay of the same key and body resolves both at once.
+     */
+    submit: async (
+      id: string,
+      version: number,
+      idempotencyKey: string,
+      share?: ShareBeyondSite,
+    ) =>
       commandResult(
         await api.command<CommandResult>(
           `/v1/stories/${encodeURIComponent(id)}/submit`,
-          { method: 'POST', version, idempotencyKey },
+          {
+            method: 'POST',
+            version,
+            idempotencyKey,
+            ...(share ? { body: { shareBeyondSite: share } } : {}),
+          },
         ),
       ),
   };

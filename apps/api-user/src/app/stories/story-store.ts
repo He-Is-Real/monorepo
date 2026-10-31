@@ -21,7 +21,14 @@ import {
   submissionLimitOf,
   trimmedTextLength,
 } from '@heisreal/database';
-import { recordKey, type StorySharing, storySharing } from '@heisreal/consent';
+import {
+  ConsentConflictError,
+  consentConflictOf,
+  ConsentStoryNotFoundError,
+  recordKey,
+  type StorySharing,
+  storySharing,
+} from '@heisreal/consent';
 import type { SurrealQueryable } from 'surrealdb';
 import {
   type CreateInput,
@@ -377,12 +384,20 @@ export class StoryStore {
   /**
    * SubmitStory: draft/changes_requested → pending, once per Idempotency-Key, at `ifMatch`.
    * `checkMedia`: a video or audio story's file checks (uploads.ts), run with the others.
+   * `shareGrant` (O4): the story's sharing beyond heisreal.today, ticked on Review, as the
+   * ledger's statements (ConsentLedger.storySharingGrant): recorded in the submission's own
+   * transaction, with its Idempotency-Key, so the two commit together or neither does, and a
+   * replay grants nothing again. Submitting never withdraws it.
    */
   async submit(
     id: string,
     ifMatch: number,
     idempotency: { scope: IdempotencyScope; requestHash: string },
     checkMedia?: () => Promise<void>,
+    shareGrant?: () => Promise<{
+      statements: string;
+      vars: Record<string, unknown>;
+    }>,
   ): Promise<CommandResult> {
     try {
       const { response } = await runIdempotent(
@@ -435,6 +450,7 @@ export class StoryStore {
             if (availableAt) throw this.weekly(availableAt);
           }
           await checkMedia?.();
+          const share = await shareGrant?.();
           return {
             status: 200,
             statements: `LET $s = (SELECT version FROM type::record('story', $id))[0];
@@ -443,8 +459,9 @@ export class StoryStore {
               LET $u = (UPDATE ONLY type::record('story', $id) SET status = 'pending'
                 RETURN id, version);
               IF $u = NONE { THROW 'story_cmd:not_written' };
+              ${share?.statements ?? ''}
               LET $result = { id: $u.id, version: $u.version };`,
-            vars: { id, version: ifMatch },
+            vars: { ...share?.vars, id, version: ifMatch },
           };
         },
       );
@@ -800,6 +817,17 @@ export class StoryStore {
 
   private async submitProblem(err: unknown): Promise<unknown> {
     if (err instanceof HttpException) return err;
+    // O4: the sharing ticked on Review, refused before or in the transaction (nothing committed).
+    const conflict =
+      err instanceof ConsentConflictError ? err : consentConflictOf(err);
+    if (conflict) {
+      return new ConflictException({
+        code: conflict.code,
+        message: conflict.message,
+      });
+    }
+    if (err instanceof ConsentStoryNotFoundError)
+      return new NotFoundException();
     if (submissionLimitOf(err) === 'weekly_submission') {
       const at = await this.nextSubmissionAt().catch(() => undefined);
       return this.weekly(at ?? new Date(Date.now() + 7 * 864e5).toISOString());

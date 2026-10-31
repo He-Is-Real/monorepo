@@ -524,6 +524,90 @@ test.describe('behaviour', () => {
     await expect(further.locator('[data-status]')).toHaveText('Published');
   });
 
+  for (const direction of ['share', 'stop'] as const) {
+    test(`a ${direction === 'share' ? 'grant' : 'withdrawal'} whose answer is lost shows nothing as decided until the same command is answered, then reads the story again`, async ({
+      page,
+      request,
+    }) => {
+      const sharing = direction === 'stop';
+      const me = await person(page, request, {
+        granted: ['special_category_religious', 'publish'],
+        stories: [
+          {
+            id: 'l1',
+            status: 'approved',
+            title: 'Lost one',
+            slug: 'lost',
+            shared: sharing,
+          },
+        ],
+      });
+      const command = sharing
+        ? `${STUB_USER_URL}/v1/account/consents/share_socials/withdraw`
+        : `${STUB_USER_URL}/v1/account/consents`;
+      // The first command goes through but its answer is lost; the next is held until released.
+      const sent: { key: string | null; body: unknown }[] = [];
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((r) => (release = r));
+      await page.route(command, async (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        sent.push({
+          key: await route.request().headerValue('idempotency-key'),
+          body: route.request().postDataJSON(),
+        });
+        if (sent.length === 1) {
+          readsAtSend = reads;
+          await route.fetch();
+          return route.fulfill({ status: 503, body: '' });
+        }
+        await held;
+        return route.fallback();
+      });
+      let reads = 0;
+      let readsAtSend = -1;
+      page.on('request', (r) => {
+        if (r.method() === 'GET' && r.url().includes('/v1/account/stories'))
+          reads += 1;
+      });
+      await page.goto(PROFILE);
+      const lost = row(page, 'Lost one');
+      await expect(
+        lost.locator(`[data-sharing="${sharing ? 'on' : 'off'}"]`),
+      ).toBeVisible();
+      await lost
+        .getByRole('button', {
+          name: sharing
+            ? 'Stop sharing beyond heisreal.today'
+            : 'Share beyond heisreal.today',
+        })
+        .click();
+      await lost
+        .getByRole('button', {
+          name: sharing ? 'Yes, stop sharing' : 'Yes, share this story',
+        })
+        .click();
+      // It went through, but the page doesn't know: neither state is stated.
+      await expect(lost.locator('[data-sharing="unknown"]')).toContainText(
+        'We couldn’t confirm that, checking…',
+      );
+      await expect.poll(() => sent.length).toBe(2);
+      await expect(lost.locator('[data-sharing="on"]')).toHaveCount(0);
+      await expect(lost.locator('[data-sharing="off"]')).toHaveCount(0);
+      expect(await me.shared()).toEqual(sharing ? [] : ['l1']);
+      // Not read again before the command's outcome is known; the replay is the same command.
+      expect(reads).toBe(readsAtSend);
+      expect(sent[1]).toEqual(sent[0]);
+
+      release();
+      await expect(
+        lost.locator(`[data-sharing="${sharing ? 'off' : 'on'}"]`),
+      ).toBeVisible();
+      expect(reads).toBeGreaterThan(readsAtSend);
+      expect(sent).toHaveLength(2);
+      expect(await me.shared()).toEqual(sharing ? [] : ['l1']);
+    });
+  }
+
   test('a withdrawn story that was shared can still stop being shared, and a draft isn’t offered it', async ({
     page,
     request,

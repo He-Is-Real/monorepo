@@ -940,6 +940,10 @@ paths:
         limits in force now (D113; "new rules apply to everyone", Joel 2026-10-30), from the
         size the browser declared and Bunny's own length. `503` `uploads_unavailable` when api-user
         can't reach Bunny's settings.
+
+        **Sharing beyond heisreal.today (O4):** the optional body's `shareBeyondSite` records this story's
+        `share_socials` grant in the same transaction as the submission (`SubmitStory`). The same key with
+        another body is `422`.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -949,6 +953,12 @@ paths:
         - $ref: './components.yaml#/components/parameters/storyId'
         - $ref: './components.yaml#/components/parameters/ifMatch'
         - $ref: './components.yaml#/components/parameters/idempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/SubmitStory'
       responses:
         '200':
           $ref: './components.yaml#/components/responses/CommandApplied'

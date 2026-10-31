@@ -470,9 +470,10 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
   expect((await patch(1, { body: ' ' })).status).toBe(400);
   expect((await patch(1)).status).toBe(200);
   expect((await patch(1)).status).toBe(412);
-  const submit = (version: number) =>
+  const submit = (version: number, data?: unknown, k = key()) =>
     call('POST', `/v1/stories/${id}/submit`, {
-      headers: { 'if-match': `"${version}"`, 'idempotency-key': key() },
+      headers: { 'if-match': `"${version}"`, 'idempotency-key': k },
+      data,
     });
   expect((await submit(2)).status).toBe(403); // no publish consent yet
   await call('POST', '/v1/account/consents', {
@@ -486,7 +487,29 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     headers: { 'idempotency-key': key() },
   });
   expect((await submit(1)).status).toBe(412);
-  expect((await submit(2)).status).toBe(200);
+  // O4: sharing beyond heisreal.today ticked on Review goes with the submission (both or neither).
+  const shareBeyondSite = {
+    formVersion: 'v2',
+    privacyPolicyVersion: 'dev_policy',
+  };
+  expect((await submit(2, { shareBeyondSite: true })).status).toBe(400);
+  expect(
+    (
+      await submit(2, {
+        shareBeyondSite: { ...shareBeyondSite, formVersion: 'v1' },
+      })
+    ).body.code,
+  ).toBe('form_version_not_in_force');
+  expect(
+    (await call('GET', `/v1/account/stories/${id}`)).body.sharing.granted,
+  ).toBe(false);
+  const submitKey = key();
+  expect((await submit(2, { shareBeyondSite }, submitKey)).status).toBe(200);
+  expect((await submit(2, { shareBeyondSite }, submitKey)).status).toBe(200); // replayed
+  expect((await submit(2, undefined, submitKey)).status).toBe(422);
+  expect(
+    (await call('GET', `/v1/account/stories/${id}`)).body.sharing,
+  ).toMatchObject({ granted: true, counts: true });
   expect((await patch(3)).status).toBe(409); // locked once submitted
   const second = await call('POST', '/v1/stories', {
     data: { ...draft, tagSlugs: ['hope'] },
