@@ -476,7 +476,11 @@ const STORIES: StoryFixture[] = [
  * don't interfere with testing. The dev behavioural suite's `behavioural+clerk_test@example.com`
  * belongs here once its id is known.
  */
-const TEST_ACCOUNTS: string[] = [];
+const TEST_ACCOUNTS: string[] = [
+  // upload-behaviour+clerk_test@example.com: behavioural/story-upload.developer.ts submits a
+  // story on every run.
+  'user_3LQqgJMojJ8H1rfyfb16nyBNK3J',
+];
 
 export const DATASET: Dataset = {
   people: PEOPLE,
