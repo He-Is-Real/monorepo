@@ -34,7 +34,7 @@ export interface PublicStory {
   primaryFormat: 'video' | 'audio' | 'written';
   media: MediaPlayback[];
   image: StoryImage | null;
-  tags: { slug: string; name: string }[];
+  tags: { id: string; name: string }[];
   publishedAt: string;
   version: number;
 }

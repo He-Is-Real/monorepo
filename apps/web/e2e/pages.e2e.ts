@@ -409,7 +409,7 @@ test.describe('behaviour', () => {
     const mine = `hide-test-${info.project.name}`;
     const stub = STUB_URL;
     await request.post(`${stub}/__test/show?slug=${mine}`);
-    await page.goto('/stories?tag=hide-test');
+    await page.goto('/stories?tag=hide_test');
     const card = page.getByRole('link', {
       name: `Hide test story (${info.project.name})`,
     });

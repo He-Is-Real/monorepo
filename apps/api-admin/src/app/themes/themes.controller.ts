@@ -34,7 +34,8 @@ import { parseIfMatch } from '../submission-settings/submission-settings.control
 
 /** A theme's name: at most 40 characters (the schema's `tag.name`). */
 export const NAME_MAX = 40;
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** A tag's id: opaque (a ULID for every theme, R2), the record id without `tag:`. */
+const ID = /^[A-Za-z0-9_]{1,64}$/;
 
 /** A field error, as RFC 9457 `errors[]` (D30). */
 const invalid = (pointer: string, code: string, message: string) =>
@@ -127,35 +128,6 @@ export function parseName(value: unknown): string {
   return name;
 }
 
-/**
- * The slug (the theme's id, `tag:<slug>`, and its browse address) made from its first name:
- * lower case, accents dropped, anything else between letters and numbers a hyphen. A name with
- * no such letters (another script) gets `theme`. Never changes when the theme is renamed.
- */
-export function slugOf(name: string): string {
-  const base = name
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, NAME_MAX)
-    .replace(/-+$/, '');
-  return base || 'theme';
-}
-
-/** The slug and the next ones to try when it's taken: `hope`, `hope-2`, ... `hope-50`. */
-function slugCandidates(name: string): string[] {
-  const base = slugOf(name);
-  return [
-    base,
-    ...Array.from({ length: 49 }, (_, i) => {
-      const suffix = `-${i + 2}`;
-      return `${base.slice(0, NAME_MAX - suffix.length).replace(/-+$/, '')}${suffix}`;
-    }),
-  ];
-}
-
 /** The contract's `UpdateMainThemes` body. */
 export function parseMainThemes(body: unknown): {
   mainThemes: string[];
@@ -173,17 +145,17 @@ export function parseMainThemes(body: unknown): {
   }
   const list = b['mainThemes'];
   if (!Array.isArray(list)) {
-    throw invalid('/mainThemes', 'required', 'A list of theme slugs.');
+    throw invalid('/mainThemes', 'required', 'A list of theme ids.');
   }
   const seen = new Set<string>();
-  list.forEach((slug, i) => {
-    if (typeof slug !== 'string' || !SLUG.test(slug)) {
-      throw invalid(`/mainThemes/${i}`, 'invalid_slug', 'A theme’s slug.');
+  list.forEach((id, i) => {
+    if (typeof id !== 'string' || !ID.test(id)) {
+      throw invalid(`/mainThemes/${i}`, 'invalid_id', 'A theme’s id.');
     }
-    if (seen.has(slug)) {
+    if (seen.has(id)) {
       throw invalid(`/mainThemes/${i}`, 'duplicate', 'Each theme once.');
     }
-    seen.add(slug);
+    seen.add(id);
   });
   return { mainThemes: list as string[], mainThemesCount: count };
 }
@@ -232,12 +204,12 @@ export class ThemesController {
   ) {
     const [rows] = (await runQuery(
       this.db,
-      `SELECT record::id(id) AS slug, name, category, version FROM tag`,
-    )) as [{ slug: string; name: string; category: string; version: number }[]];
+      `SELECT record::id(id) AS id, name, category, version FROM tag`,
+    )) as [{ id: string; name: string; category: string; version: number }[]];
     const body = {
       data: rows.sort(
         (a, b) =>
-          a.name.localeCompare(b.name, 'en') || a.slug.localeCompare(b.slug),
+          a.name.localeCompare(b.name, 'en') || a.id.localeCompare(b.id),
       ),
     };
     const etag = weakETag(body);
@@ -251,8 +223,8 @@ export class ThemesController {
   }
 
   /**
-   * CreateTheme: a new theme (category `theme`) from its name. The slug is made from the name,
-   * with `-2`, `-3`... if another theme has it. A name another theme has, ignoring case, is `409`
+   * CreateTheme: a new theme (category `theme`) from its name, with a new ULID as its id
+   * (R2: opaque, never made from the name). A name another theme has, ignoring case, is `409`
    * (a natural key, so a repeated request gets 409 rather than a second theme; no
    * Idempotency-Key, docs/api-conventions.md).
    */
@@ -268,62 +240,47 @@ export class ThemesController {
   ) {
     const name = parseName(objectBody(body, ['name'])['name']);
     const { role, user } = await this.actor(req);
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const results = (await runQuery(
-          this.db,
-          `BEGIN TRANSACTION;
-           LET $slug = $candidates.filter(|$c| !record::exists(type::record('tag', $c)))[0];
-           IF $slug = NONE { THROW 'theme_cmd:no_slug' };
-           CREATE ONLY type::record('tag', $slug) CONTENT {
-             name: $name, category: 'theme', changedBy: $user, changedByRole: $role
-           } RETURN record::id(id) AS slug, version;
-           COMMIT TRANSACTION;`,
-          { candidates: slugCandidates(name), name, user, role },
-        )) as unknown[];
-        const row = requireWritten<{ slug: string; version: number }>(
-          results[results.length - 2],
-          'theme',
-        );
-        this.logger.log(`Theme ${row.slug} created`);
-        res.status(HttpStatus.CREATED);
-        res.setHeader('Location', `/v1/admin/themes/${row.slug}`);
-        res.setHeader('ETag', `"${row.version}"`);
-        return { id: row.slug, version: row.version };
-      } catch (err) {
-        if (isNameTaken(err)) throw nameTaken();
-        // Another theme took the same slug at the same moment: try the next one.
-        if (isTransactionConflict(err) && attempt < 3) continue;
-        if (String(err).includes('theme_cmd:no_slug')) {
-          throw invalid(
-            '/name',
-            'no_slug',
-            'Too many themes have a name like this one.',
-          );
-        }
-        throw err;
-      }
+    try {
+      const [created] = (await runQuery(
+        this.db,
+        `CREATE ONLY type::record('tag', rand::ulid()) CONTENT {
+           name: $name, category: 'theme', changedBy: $user, changedByRole: $role
+         } RETURN record::id(id) AS id, version`,
+        { name, user, role },
+      )) as unknown[];
+      const row = requireWritten<{ id: string; version: number }>(
+        created,
+        'theme',
+      );
+      this.logger.log(`Theme ${row.id} created`);
+      res.status(HttpStatus.CREATED);
+      res.setHeader('Location', `/v1/admin/themes/${row.id}`);
+      res.setHeader('ETag', `"${row.version}"`);
+      return { id: row.id, version: row.version };
+    } catch (err) {
+      if (isNameTaken(err)) throw nameTaken();
+      throw err;
     }
   }
 
   /**
    * RenameTheme: JSON Merge Patch `{ name }` at the version read (If-Match; 412 if it changed
-   * since, 428 if missing). The slug stays; stories link the theme by id, so they show the new
+   * since, 428 if missing). The id stays; stories link the theme by id, so they show the new
    * name everywhere at once. A name another theme has, ignoring case, is `409`.
    */
-  @Patch('themes/:slug')
+  @Patch('themes/:id')
   @RequiresRole('Admin')
   @NoConsentRequired(
     'renaming a theme is staff work on reference data, not the admin’s own data',
   )
   async rename(
-    @Param('slug') slug: string,
+    @Param('id') id: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Body() body: unknown,
     @Headers('if-match') ifMatchHeader?: string,
   ) {
-    if (!SLUG.test(slug) || slug.length > NAME_MAX) throw notFound();
+    if (!ID.test(id)) throw notFound();
     const version = parseIfMatch(ifMatchHeader);
     if (version === undefined) throw ifMatchRequired();
     if (version === 'invalid') throw stale('the theme');
@@ -334,13 +291,13 @@ export class ThemesController {
       results = (await runQuery(
         this.db,
         `BEGIN TRANSACTION;
-         LET $v = (SELECT VALUE version FROM ONLY type::record('tag', $slug));
+         LET $v = (SELECT VALUE version FROM ONLY type::record('tag', $id));
          IF $v = NONE { THROW 'theme_cmd:not_found' };
          IF $v != $version { THROW 'theme_cmd:stale_version' };
-         UPDATE ONLY type::record('tag', $slug)
+         UPDATE ONLY type::record('tag', $id)
            MERGE { name: $name, changedBy: $user, changedByRole: $role } RETURN version;
          COMMIT TRANSACTION;`,
-        { slug, version, name, user, role },
+        { id, version, name, user, role },
       )) as unknown[];
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -358,9 +315,9 @@ export class ThemesController {
       results[results.length - 2],
       'theme',
     );
-    this.logger.log(`Theme ${slug} renamed (version ${row.version})`);
+    this.logger.log(`Theme ${id} renamed (version ${row.version})`);
     res.setHeader('ETag', `"${row.version}"`);
-    return { id: slug, version: row.version };
+    return { id, version: row.version };
   }
 
   /** The main themes in priority order (existing themes only) and how many people see. */
@@ -405,7 +362,7 @@ export class ThemesController {
 
   /**
    * UpdateMainThemes: the whole ordered list and the count, at the version read (If-Match; 412
-   * if someone saved since, 428 if missing). Every slug must be an existing theme (400 on the
+   * if someone saved since, 428 if missing). Every id must be an existing theme (400 on the
    * first that isn't), each once. People see the change on their next page.
    */
   @Put('main-themes')

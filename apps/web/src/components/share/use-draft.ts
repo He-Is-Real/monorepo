@@ -128,7 +128,9 @@ const DEBOUNCE_MS = 1200;
 function readStored(owner: string, id: string | null): Stored | null {
   try {
     const raw = window.sessionStorage.getItem(KEY(owner, id));
-    return raw ? (JSON.parse(raw) as Stored) : null;
+    const stored = raw ? (JSON.parse(raw) as Stored) : null;
+    // Kept before themes had opaque ids (R2: `tagSlugs`): nothing safe to restore.
+    return Array.isArray(stored?.local?.tagIds) ? stored : null;
   } catch {
     return null; // storage blocked or garbled: nothing to restore
   }

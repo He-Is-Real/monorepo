@@ -19,7 +19,8 @@ export interface StoredImage {
 
 /** `components.yaml#/components/schemas/Tag`, as stories embed it. */
 export interface TagRef {
-  slug: string;
+  /** Opaque (R2): the tag's record id without `tag:`, never made from its name. */
+  id: string;
   name: string;
   category: string;
   version: number;
@@ -69,8 +70,8 @@ export const SUMMARY_FIELDS = `
   string::slice(body ?? '', 0, ${FETCH_CHARS}) AS bodyStart,
   string::len(body ?? '') AS textLength,
   publishedAt, <string> publishedAt AS cursorAt,
-  (SELECT record::id(id) AS slug, name, category, version FROM tag
-    WHERE id IN $parent.tagRefs ORDER BY slug) AS tags`;
+  (SELECT record::id(id) AS id, name, category, version FROM tag
+    WHERE id IN $parent.tagRefs ORDER BY name) AS tags`;
 
 /** A row selected with SUMMARY_FIELDS. */
 export interface SummaryRow {

@@ -147,7 +147,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       tags: unknown;
     };
     expect(story.tags).toEqual([
-      { slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
+      { id: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
     ]);
     // Renaming a tag changes the response without changing the story's version: the ETag
     // follows the representation, so a cached copy is revalidated (#45 review).

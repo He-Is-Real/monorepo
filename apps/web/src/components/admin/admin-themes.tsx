@@ -12,7 +12,8 @@ import { type ApiUser, StaleVersion } from '@/lib/api-user';
 
 /** The contract's `Tag`, as api-admin lists them. */
 interface Theme {
-  slug: string;
+  /** Opaque (R2). */
+  id: string;
   name: string;
   version: number;
 }
@@ -165,9 +166,9 @@ function MainThemesForm({
     setProblem(next);
     setSaved(false);
   };
-  const name = (slug: string) =>
-    themes.find((t) => t.slug === slug)?.name ?? slug;
-  const others = themes.filter((t) => !order.includes(t.slug));
+  const name = (themeId: string) =>
+    themes.find((t) => t.id === themeId)?.name ?? themeId;
+  const others = themes.filter((t) => !order.includes(t.id));
   const shownCount = Number(count);
   const valid = /^\d+$/.test(count.trim()) && shownCount >= 1;
 
@@ -254,17 +255,17 @@ function MainThemesForm({
 
         {order.length === 0 ? (
           <p className="text-secondary-text" data-main-empty="">
-            No main themes yet, so people see every theme at once.
+            No main themes yet, so people see every theme behind “More themes”.
           </p>
         ) : (
           <ol className="space-y-2" aria-label="Main themes, in order">
-            {order.map((slug, i) => {
+            {order.map((themeId, i) => {
               const hidden = valid && i >= shownCount;
-              const label = name(slug);
+              const label = name(themeId);
               return (
                 <li
-                  key={slug}
-                  data-main-theme={slug}
+                  key={themeId}
+                  data-main-theme={themeId}
                   className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-2"
                 >
                   <span className="min-w-0 flex-1 px-2 [overflow-wrap:anywhere]">
@@ -276,7 +277,7 @@ function MainThemesForm({
                       </span>
                     )}
                   </span>
-                  <span className="flex gap-2">
+                  <span className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       className={small}
@@ -300,7 +301,7 @@ function MainThemesForm({
                       className={small}
                       aria-label={`Remove ${label} from the main themes`}
                       onClick={() => {
-                        setOrder(order.filter((s) => s !== slug));
+                        setOrder(order.filter((s) => s !== themeId));
                         setNote(null);
                       }}
                     >
@@ -330,7 +331,7 @@ function MainThemesForm({
               >
                 <option value="">Choose a theme</option>
                 {others.map((t) => (
-                  <option key={t.slug} value={t.slug}>
+                  <option key={t.id} value={t.id}>
                     {t.name}
                   </option>
                 ))}
@@ -446,9 +447,9 @@ function AllThemes({
       <NoteLine note={note} reload={reload} />
       <ul className="space-y-2" aria-label="All themes">
         {themes.map((t) =>
-          editing === t.slug ? (
+          editing === t.id ? (
             <RenameTheme
-              key={t.slug}
+              key={t.id}
               theme={t}
               client={client}
               done={(renamed) => {
@@ -465,8 +466,8 @@ function AllThemes({
             />
           ) : (
             <li
-              key={t.slug}
-              data-theme={t.slug}
+              key={t.id}
+              data-theme={t.id}
               className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-2"
             >
               <span className="min-w-0 flex-1 px-2 [overflow-wrap:anywhere]">
@@ -476,7 +477,7 @@ function AllThemes({
                 type="button"
                 className={small}
                 aria-label={`Rename ${t.name}`}
-                onClick={() => setEditing(t.slug)}
+                onClick={() => setEditing(t.id)}
               >
                 Rename
               </button>
@@ -516,7 +517,7 @@ function RenameTheme({
     if (trimmed === theme.name) return done(null);
     setBusy(true);
     try {
-      await client.command(`/v1/admin/themes/${theme.slug}`, {
+      await client.command(`/v1/admin/themes/${theme.id}`, {
         method: 'PATCH',
         mergePatch: true,
         body: { name: trimmed },
@@ -538,7 +539,7 @@ function RenameTheme({
 
   return (
     <li
-      data-theme={theme.slug}
+      data-theme={theme.id}
       className="space-y-3 rounded-xl border border-primary bg-card p-3"
     >
       <form

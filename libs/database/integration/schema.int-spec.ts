@@ -9,7 +9,7 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
   afterAll(() => t?.close());
 
   it('3.2.4 gotcha: an element index over record links finds nothing; over strings it works', async () => {
-    // Why publicStory has tagSlugs (D63): `tagRefs.*` or `tagRefs[*]` indexes make
+    // Why publicStory has tagIds (D63): `tagRefs.*` or `tagRefs[*]` indexes make
     // `tagRefs CONTAINS tag:x` use the index and return no rows.
     const migrator = await t.migrator();
     const found = await rows(

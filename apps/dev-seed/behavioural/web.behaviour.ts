@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { DATASET } from '../src/app/dataset';
+import { DATASET, tagId } from '../src/app/dataset';
 
 // web on dev, after a reset: the pages a visitor sees show the dummy dataset through
 // api-public-read (D32), with consent checks enforced (D48 off since D75: no footer note).
@@ -63,7 +63,7 @@ test('browse lists the published stories, loads the rest on its own, and nothing
 });
 
 test('a tag narrows browse to stories with that tag', async ({ page }) => {
-  await page.goto('/stories?tag=hope');
+  await page.goto(`/stories?tag=${tagId('hope')}`);
   await expect(page.getByText('Stories tagged Hope')).toBeVisible();
   const shown = await cards(page).count();
   expect(shown).toBeGreaterThan(0);

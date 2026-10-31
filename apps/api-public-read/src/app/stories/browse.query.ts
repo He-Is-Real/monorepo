@@ -21,7 +21,7 @@ export interface CursorKey {
 export interface BrowseQuery {
   /** Full-text search, trimmed; `null` = no search. */
   q: string | null;
-  /** Tag slugs, sorted and unique; a story must have all of them. */
+  /** Tag ids (opaque, R2), sorted and unique; a story must have all of them. */
   tags: string[];
   format: StoryFormat | null;
   sort: Sort;
@@ -41,8 +41,6 @@ export const CURSOR_MAX_CHARS = 300;
 /** At most this many ids in one `id` lookup. */
 export const IDS_MAX = 50;
 
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const SLUG_MAX = 60;
 const SORTS: readonly Sort[] = ['latest', 'oldest', 'relevance'];
 const FORMATS: readonly StoryFormat[] = ['video', 'audio', 'written'];
 const KNOWN = new Set(['q', 'tag', 'format', 'sort', 'limit', 'cursor', 'id']);
@@ -128,9 +126,9 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
           ? (rawTags as string[])
           : null;
   const tags = [...new Set(tagList ?? [])].sort();
-  if (tagList === null) fail('tag', 'invalid', 'Tag slugs only.');
-  else if (tags.some((t) => !SLUG.test(t) || t.length > SLUG_MAX))
-    fail('tag', 'invalid', 'Tag slugs: lowercase letters, digits and hyphens.');
+  if (tagList === null) fail('tag', 'invalid', 'Tag ids only.');
+  else if (tags.some((t) => !ID.test(t)))
+    fail('tag', 'invalid', 'Tag ids: letters, digits and underscores.');
   else if (tags.length > TAGS_MAX)
     fail('tag', 'too_many', `At most ${TAGS_MAX} tags.`);
 

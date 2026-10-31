@@ -665,10 +665,10 @@ paths:
                   main:
                     type: array
                     description: |
-                      The main themes' slugs in priority order (O5, Joel 2026-10-31): the first
+                      The main themes' IDs in priority order (O5, Joel 2026-10-31): the first
                       `mainThemesCount` an admin set at /admin/themes, of every theme. Pickers show these
-                      first and every other theme behind "More themes"; empty means no main themes
-                      are set, so they show every theme.
+                      first and every other theme behind "More themes"; when it's empty (none set), every
+                      theme is behind "More themes".
                     items:
                       type: string
         '304':
@@ -694,7 +694,7 @@ paths:
         **Limits (D94, W3, D112):** open drafts per person (default 3: the admin's setting, or their
         override for this person; none for a trusted submitter); one more answers `409`
         `draft_limit_reached`. Text longer, or more themes, than the settings allow answers `400`
-        (`/body`, `/tagSlugs`); so do unknown tags. The database enforces all of these too.
+        (`/body`, `/tagIds`); so do unknown tags. The database enforces all of these too.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -744,9 +744,9 @@ paths:
         the person's current Art 9 consent (`403`). A stale `If-Match` answers `412`: the client
         re-reads, re-applies its change when nothing it touched has changed, and asks the person only
         on a real clash (D70). An edit that makes the text longer, or adds themes, beyond the settings'
-        maximum (W3) answers `400` (`/body`, `/tagSlugs`); one that trims a draft that's still over a
+        maximum (W3) answers `400` (`/body`, `/tagIds`); one that trims a draft that's still over a
         newly lowered maximum is accepted, so it can be fixed (Joel, 2026-10-30). Unknown tags answer
-        `400` (`/tagSlugs`). Answers `ETag` with the new version. Also accepts
+        `400` (`/tagIds`). Answers `ETag` with the new version. Also accepts
         `application/json`.
       x-required-role: User
       x-requires-consent:
@@ -903,7 +903,7 @@ paths:
         text (W3: default 200 characters, not counting leading and trailing spaces); shorter is `400`
         with `code: story_text_too_short` and an `errors` entry for `/body`. The database refuses it too.
         Every story needs the settings' number of themes (default 1–5; `400` `tags_required`,
-        `/tagSlugs`). Every limit in force applies at submit, whatever the limits were when the draft
+        `/tagIds`). Every limit in force applies at submit, whatever the limits were when the draft
         was started (Joel, 2026-10-30: no grandfathering): longer than the text maximum is `400`
         `story_text_too_long`, more themes than the maximum `400` `too_many_tags`, each with the
         `limit` and a message that says it, so the person can edit the draft and submit.

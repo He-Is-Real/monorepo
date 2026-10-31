@@ -408,11 +408,12 @@ retried`, on both RocksDB and the in-memory engine.
   reviewed (`fn::story::shows_reviewed_media` against the row). Anything else (another clip or
   image, a custom thumbnail) is never copied: #61's event hides the story in the same write.
   Copying it would make unreviewed media look reviewed.
-- **`publicStory.tagSlugs` (D63), computed.** `GET /v1/tags` lists a tag only if a published
+- **`publicStory.tagIds` (D63), computed** (named `tagSlugs` until R2 made tag ids opaque, item
+  43). `GET /v1/tags` lists a tag only if a published
   story uses it: one probe per tag, at most one match, through the element index
-  `publicStory_tag_slugs` (`tagSlugs.*`), never a scan of every story. Each probe is a top-level
-  statement with its slug bound (`$t0`, `$t1`, ...): inside a closure 3.2.4 iterates the whole
-  table instead (Codex, #67; at 10,000 rows 313 ms against 20 ms for 30 tags). The slugs are computed
+  `publicStory_tag_ids` (`tagIds.*`), never a scan of every story. Each probe is a top-level
+  statement with its id bound (`$t0`, `$t1`, ...): inside a closure 3.2.4 iterates the whole
+  table instead (Codex, #67; at 10,000 rows 313 ms against 20 ms for 30 tags). The ids are computed
   from `tagRefs` on every write, so no writer sets them. Not an index over `tagRefs` itself:
   on 3.2.4 an element index over record links makes `CONTAINS` return no rows (a gotcha test in
   `schema.int-spec.ts`). Rows written before the migration get it on their next write; in dev,
@@ -596,7 +597,7 @@ retried`, on both RocksDB and the in-memory engine.
     - **a change of text or themes** (create, edit): refused only if it's over `storyTextMax` /
       `tagsMax` **and** makes it worse (longer, more themes), so a draft over a newly lowered
       maximum can still be trimmed (`story_text_too_long:`, `story_too_many_tags:`; api-user
-      `400` on `/body`, `/tagSlugs`);
+      `400` on `/body`, `/tagIds`);
     - **submitting** (entering pending, in_review or approved from an editable status): the
       minimum and maximum length and at most `tagsMax` themes, as they are now (the database
       and api-user; api-user answers `400` `story_text_too_short`, `story_text_too_long` or
@@ -853,8 +854,8 @@ retried`, on both RocksDB and the in-memory engine.
 
 43. **Themes are never deleted; admins add and rename them and choose the main ones.**
     - **`tag`:** `FOR delete NONE` (was api-admin's), so no service login and no person can delete
-      a theme; api-admin's login still creates and updates them. A rename keeps the slug (the id),
-      and stories link tags by id (D15), so every story shows the new name at once. Names are
+      a theme; api-admin's login still creates and updates them. A rename keeps the id, and
+      stories link tags by id (D15), so every story shows the new name at once. Names are
       unique ignoring case: `nameKey` (computed, `string::lowercase(name)`) with the unique index
       `tag_name_key`; a name is trimmed (`ASSERT string::trim($value) = $value`), 1 to 40
       characters. `changedBy`/`changedByRole` name the admin; the `tag_audit` event refuses an
@@ -870,14 +871,29 @@ retried`, on both RocksDB and the in-memory engine.
       login, naming the admin, and system users write it; nobody deletes it. Each change writes an
       `UpdateMainThemes` audit row (new action). Created by data script `0008` with no main themes;
       dev-seed gives dev the dataset's "theme" tags when the list is empty.
-    - **`fn::settings::main_themes()`:** the slugs people see first: the list's themes that still
+    - **`fn::settings::main_themes()`:** the ids people see first: the list's themes that still
       exist (a system user may have deleted one), then the first `mainThemesCount`. Empty means
-      none are set, and pickers show every theme. api-public-read's and api-user's `GET /v1/tags`
+      none are set; pickers then show every theme behind "More themes" (never all at once). api-public-read's and api-user's `GET /v1/tags`
       return it as `main` (api-public-read leaves out any no published story uses, D63).
+    - **Opaque ids (R2, Joel 2026-10-31):** a theme's id is `tag:<ulid>`, unrelated to its name,
+      so a renamed theme's browse address (`/stories?tag=<id>`) never keeps the old wording.
+      api-admin creates themes with `rand::ulid()`, and the `tag_opaque_id` event refuses a login
+      creating a tag whose id isn't a ULID (system users, such as test fixtures, aren't checked).
+      Data script `0009` gives every tag whose id isn't a ULID (ids made from the first name,
+      e.g. `tag:doubt`) a new one and moves every link with it, in place: stories' and published
+      stories' `tagRefs` (and so `publicStory.tagIds`, written for every published row) and
+      `themeSettings.mainThemes`. The theme keeps its name and category (its version restarts at 1).
+      Running it again changes nothing. Re-pointing a story's links is a system user's change to
+      `tagRefs` only, so `story_consent` doesn't ask for the submitter's Art 9 consent for it
+      (any other change still does); a published row is written with the story's new version, so
+      it still mirrors the story. Nothing else links a tag (the only audit rows naming tags are
+      api-admin's, which already have ULIDs). dev-seed's themes have fixed ULIDs, the same on
+      every reset.
     - No new login or permission beyond the above: api-admin already had create/update on `tag`.
     - Tests: `libs/database/integration/themes.int-spec.ts` (no delete for any login; only
-      api-admin writes; unique names ignoring case; audit rows; main themes order, count, unknown
-      and repeated themes, no upper cap), `apps/api-admin/integration/themes.int-spec.ts` (the
+      api-admin writes; ULID ids only; unique names ignoring case; audit rows; main themes order,
+      count, unknown and repeated themes, no upper cap; data script 0009 on themes, drafts, a
+      published story, an unconsented draft and the main themes, run twice), `apps/api-admin/integration/themes.int-spec.ts` (the
       routes against the contract), api-public-read's `browse.int-spec.ts` (`main`).
 
 ## Person-linked tables

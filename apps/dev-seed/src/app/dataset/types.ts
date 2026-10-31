@@ -17,7 +17,9 @@ export type Processing = 'processing' | 'ready' | 'failed';
 export type TagCategory = 'theme' | 'journey' | 'emotion';
 
 export interface TagFixture {
-  /** tag:<id>, also the slug in URLs */
+  /** The dataset's own name for the tag, as stories list it; never stored. */
+  key: string;
+  /** tag:<id>, a fixed ULID (R2: opaque, never made from the name); also browse's `?tag=` */
   id: string;
   name: string;
   category: TagCategory;
@@ -42,7 +44,7 @@ export interface StoryFixture {
   /** user:<id>, a fixture person */
   submitter: string;
   format: StoryFormat;
-  /** tag ids, at most 5 */
+  /** tag keys (TagFixture.key), at most 5 */
   tags: string[];
   /** Video and audio: the clip. Omitted on a draft before its upload. */
   media?: { clip: ClipId; processing?: Processing };

@@ -12,7 +12,8 @@ export type BrowseSort = 'latest' | 'oldest' | 'relevance';
 
 /** `Tag` in libs/contracts/openapi/components.yaml. */
 export interface StoryTag {
-  slug: string;
+  /** Opaque (R2): never made from the name; browse addresses use it (`?tag=`). */
+  id: string;
   name: string;
   category: 'theme' | 'journey' | 'emotion';
   version: number;
@@ -225,7 +226,7 @@ function isTag(value: unknown): value is StoryTag {
   const t = value as Partial<StoryTag> | null;
   return (
     !!t &&
-    typeof t.slug === 'string' &&
+    typeof t.id === 'string' &&
     typeof t.name === 'string' &&
     typeof t.category === 'string'
   );

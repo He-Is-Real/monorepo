@@ -20,7 +20,7 @@ export interface MyStoryRow {
   status: string;
   title: string;
   primaryFormat: 'video' | 'audio' | 'written';
-  tags: { slug: string; name: string }[];
+  tags: { id: string; name: string }[];
   rejectionFeedback: string | null;
   createdAt: string;
   /** A draft's deletion date if nobody touches it (api-user's rule; never recomputed here). */

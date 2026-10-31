@@ -16,12 +16,16 @@ import { useBodyParser } from '../src/app/body-parser';
 
 /**
  * Themes and the main themes (O5, Joel 2026-10-31) through api-admin's real AppModule on its own
- * login (D13) and a real SurrealDB, as /admin/themes calls them: add a theme (its slug from its
- * name), rename one at the version read, and save the main themes and how many people see. Every
+ * login (D13) and a real SurrealDB, as /admin/themes calls them: add a theme (with a new opaque
+ * id, R2), rename one at the version read, and save the main themes and how many people see. Every
  * answer is checked against api-admin.yaml. That no login can delete a theme is the database's
  * (libs/database themes.int-spec); there is no route for it.
  */
+const ULID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+
 describe('themes (api-admin)', () => {
+  /** The id api-admin gave "Mental Health" in the first test. */
+  let mentalHealth = '';
   const contract = new Contract('api-admin.yaml');
   let t: TestDatabase;
   let clerk: TestClerk;
@@ -62,7 +66,7 @@ describe('themes (api-admin)', () => {
     (await res.json()) as T;
   const themes = async () =>
     (
-      await json<{ data: { slug: string; name: string; version: number }[] }>(
+      await json<{ data: { id: string; name: string; version: number }[] }>(
         await call('GET', '/v1/admin/themes'),
       )
     ).data;
@@ -108,19 +112,25 @@ describe('themes (api-admin)', () => {
     await t?.close();
   });
 
-  it('an admin adds a theme: its slug comes from the name, a taken slug gets a number, a taken name is 409', async () => {
+  it('an admin adds a theme: its id is a new ULID, unrelated to the name (R2); a taken name is 409', async () => {
     const added = await call('POST', '/v1/admin/themes', {
       name: '  Mental   Health ',
     });
     expect(added.status).toBe(201);
-    expect(added.headers.get('location')).toBe(
-      '/v1/admin/themes/mental-health',
+    const { id, version } = await json<{ id: string; version: number }>(added);
+    expect([id, version]).toEqual([expect.stringMatching(ULID), 1]);
+    expect(added.headers.get('location')).toBe(`/v1/admin/themes/${id}`);
+    mentalHealth = id;
+    // Another name, however close to an existing theme's, gets an id of its own.
+    const close = await json<{ id: string }>(
+      await call('POST', '/v1/admin/themes', { name: 'Hopé' }),
     );
-    expect(await json(added)).toEqual({ id: 'mental-health', version: 1 });
-    // Accents dropped; the slug "hope" is taken, so the next number.
+    expect(close.id).toMatch(ULID);
+    expect(close.id).not.toBe(id);
+    // A name in a script with no Latin letters is as good as any.
     expect(
-      await json(await call('POST', '/v1/admin/themes', { name: 'Hopé' })),
-    ).toEqual({ id: 'hope-2', version: 1 });
+      (await call('POST', '/v1/admin/themes', { name: 'Ελπίδα' })).status,
+    ).toBe(201);
     // The same name in another case.
     const taken = await call('POST', '/v1/admin/themes', {
       name: 'mental health',
@@ -131,7 +141,7 @@ describe('themes (api-admin)', () => {
       { name: '' },
       { name: 'x'.repeat(41) },
       {},
-      { name: 'A', slug: 'a' },
+      { name: 'A', id: 'a' },
     ]) {
       expect((await call('POST', '/v1/admin/themes', body)).status).toBe(400);
     }
@@ -140,6 +150,7 @@ describe('themes (api-admin)', () => {
       'Hope',
       'Hopé',
       'Mental Health',
+      'Ελπίδα',
     ]);
     expect(
       await rows(
@@ -147,13 +158,16 @@ describe('themes (api-admin)', () => {
         `SELECT action, record::id(actor) AS actor, actorRole, createdAt FROM auditLog
          WHERE action = 'CreateTag' ORDER BY createdAt`,
       ).then((r) => r.map(({ createdAt: _c, ...rest }) => rest)),
-    ).toEqual([
-      { action: 'CreateTag', actor: 'admin', actorRole: 'Admin' },
-      { action: 'CreateTag', actor: 'admin', actorRole: 'Admin' },
-    ]);
+    ).toEqual(
+      Array.from({ length: 3 }, () => ({
+        action: 'CreateTag',
+        actor: 'admin',
+        actorRole: 'Admin',
+      })),
+    );
   });
 
-  it('an admin renames a theme at the version read; the slug stays; stale, missing If-Match and taken names are refused', async () => {
+  it('an admin renames a theme at the version read; the id stays; stale, missing If-Match and taken names are refused', async () => {
     const renamed = await call(
       'PATCH',
       '/v1/admin/themes/doubt',
@@ -212,13 +226,13 @@ describe('themes (api-admin)', () => {
     const saved = await call(
       'PUT',
       '/v1/admin/main-themes',
-      { mainThemes: ['mental-health', 'doubt', 'hope'], mainThemesCount: 2 },
+      { mainThemes: [mentalHealth, 'doubt', 'hope'], mainThemesCount: 2 },
       { 'if-match': '"1"' },
     );
     expect(saved.status).toBe(200);
     expect(await json(saved)).toEqual({ id: 'current', version: 2 });
     expect(await rows(migrator, 'RETURN fn::settings::main_themes()')).toEqual([
-      'mental-health',
+      mentalHealth,
       'doubt',
     ]);
     expect(
@@ -226,7 +240,7 @@ describe('themes (api-admin)', () => {
     ).toMatchObject({
       version: 2,
       changedBy: 'admin',
-      mainThemes: ['mental-health', 'doubt', 'hope'],
+      mainThemes: [mentalHealth, 'doubt', 'hope'],
       mainThemesCount: 2,
     });
     // Admins choose the number: no upper cap (Joel, 2026-10-31).

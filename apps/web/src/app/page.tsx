@@ -14,6 +14,7 @@ import {
   type StoryTag,
 } from '@/lib/browse';
 import { whenUnavailable } from '@/lib/log';
+import { splitThemes } from '@/lib/main-themes';
 import { pageMetadata } from '@/lib/seo';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -53,16 +54,25 @@ function Eyebrow({ id, children }: { id: string; children: React.ReactNode }) {
   );
 }
 
-function TagTrack({ label, tags }: { label: string; tags: StoryTag[] }) {
-  if (tags.length === 0) return null;
+/**
+ * The main themes (R1, Joel 2026-10-31): the ones an admin picked at /admin/themes, in their
+ * order and as many as they set, the same list browse and Share show first (api-public-read
+ * leaves out any no published story uses, so none leads to an empty page).
+ */
+function MainThemes({ tags }: { tags: StoryTag[] }) {
   return (
     <div>
-      <h3 className="mb-4 text-lg text-secondary-text italic">{label}</h3>
-      <ul className="grid gap-2.5 sm:grid-cols-2">
+      <h3 className="mb-4 text-lg text-secondary-text italic">
+        Going through something?
+      </h3>
+      <ul
+        className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3"
+        aria-label="Main themes"
+      >
         {tags.map((t) => (
-          <li key={t.slug}>
+          <li key={t.id}>
             <Link
-              href={`/stories?tag=${t.slug}`}
+              href={`/stories?tag=${encodeURIComponent(t.id)}`}
               className="group flex min-h-14 items-center justify-between rounded-lg border border-border bg-card px-4 font-semibold text-foreground transition-colors hover:border-teal hover:bg-accent hover:text-foreground"
             >
               {t.name}
@@ -93,12 +103,11 @@ const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/9
  */
 export default async function Page() {
   await connection();
-  const [stories, { tags }] = await Promise.all([
+  const [stories, { tags, main }] = await Promise.all([
     newestStories(),
     listTags().catch(whenUnavailable('home', NO_TAGS)),
   ]);
-  const themes = tags.filter((t) => t.category === 'theme');
-  const journeys = tags.filter((t) => t.category === 'journey');
+  const themes = splitThemes(tags, main).main;
 
   return (
     <main id="main" className="flex-1">
@@ -188,7 +197,7 @@ export default async function Page() {
         </p>
       </section>
 
-      {(themes.length > 0 || journeys.length > 0) && (
+      {themes.length > 0 && (
         <section
           aria-labelledby="explore"
           className="border-y border-border bg-raised"
@@ -200,10 +209,7 @@ export default async function Page() {
                 Find stories from people who’ve been where you are.
               </p>
             </div>
-            <div className="grid gap-10 lg:grid-cols-[3fr_2fr] lg:gap-14">
-              <TagTrack label="Going through something?" tags={themes} />
-              <TagTrack label="Curious about faith?" tags={journeys} />
-            </div>
+            <MainThemes tags={themes} />
           </div>
         </section>
       )}

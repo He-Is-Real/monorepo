@@ -30,7 +30,7 @@
 --     (image.junk is refused), and REMOVE FIELD keeps stored values: fn::story::shape_problem
 --     checks media keys, data/0004 checks rows written earlier
 --   * an element index over record links (`tagRefs.*`, `tagRefs[*]`) makes `CONTAINS` return no
---     rows; over strings it works (2026-10-24): publicStory.tagSlugs
+--     rows; over strings it works (2026-10-24): publicStory.tagIds
 --   * a query inside a closure (`$list.filter(|$x| ...)`) iterates the whole table, never an
 --     index (Codex, #67): /v1/tags sends its probes as top-level statements
 --   * a field VALUE also runs for a nested SET (`SET media[0].x = ...`), with $value the whole
@@ -236,10 +236,13 @@ DEFINE FUNCTION OVERWRITE fn::fence::legal() {
 -- may delete one, only rename it, so no story ever loses a theme and the themes never drop below
 -- submissionSettings.tagsMin. api-admin's login creates and renames them for an admin (/admin/themes),
 -- naming the admin in changedBy (audit-logged, tag_audit). A name is unique ignoring case
--- (`nameKey`, a unique index); the slug (the id) is made from the first name and never changes.
+-- (`nameKey`, a unique index). The id is opaque and has nothing to do with the name (R2, Joel
+-- 2026-10-31): `tag:<ulid>`, from rand::ulid() when api-admin creates it, so browse addresses
+-- (`?tag=<id>`) never carry a theme's old wording after a rename. data/0009 gave the tags made
+-- before that (ids from their first name, e.g. tag:doubt) such ids.
 -- System users (the migrator, dev-seed's reset) aren't bound by permissions and may still delete,
 -- which is why submitting needs fn::settings::themes_needed(), never more themes than there are.
-DEFINE TABLE OVERWRITE tag SCHEMAFULL PERMISSIONS               -- id = tag:<slug>, e.g. tag:doubt
+DEFINE TABLE OVERWRITE tag SCHEMAFULL PERMISSIONS               -- id = tag:<ulid>
   FOR select FULL,
   FOR create, update WHERE $auth.id = service:api_admin,
   FOR delete NONE;
@@ -264,6 +267,14 @@ DEFINE EVENT OVERWRITE tag_audit ON tag
     CREATE auditLog CONTENT {
       service: fn::audit::service(), action: IF $event = 'CREATE' { 'CreateTag' } ELSE { 'UpdateTag' },
       entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
+    };
+  };
+-- R2: a login's new theme has an opaque id (a ULID), never one made from its name.
+DEFINE EVENT OVERWRITE tag_opaque_id ON tag
+  WHEN $event = 'CREATE' AND $auth != NONE
+  THEN {
+    IF !string::is_ulid(<string> record::id($after.id)) {
+      THROW 'a theme’s id is a ULID (rand::ulid()), never made from its name';
     };
   };
 -- Themes can't be deleted, so nothing needs the old deletion check or its fence.
@@ -597,11 +608,15 @@ DEFINE EVENT OVERWRITE story_owner_transitions ON story
 --   approve (-> approved) and publishing -> Art 9 + publish + 18+ that count, on any version
 --     (fn::consent::publishable): no form version ever takes a story off the site (D93).
 -- Checked against the story's SUBMITTER whoever writes (person, workflow, api-admin), not $auth.
--- Withdrawing (-> withdrawn, content unchanged) and erasure (DELETE) need none.
+-- Withdrawing (-> withdrawn, content unchanged) and erasure (DELETE) need none, and neither does
+-- a system user re-pointing a story's theme links at the same themes' new ids (data/0009, R2):
+-- the person's testimony is unchanged (only tagRefs differs, and no login can do it).
 DEFINE EVENT OVERWRITE story_consent ON story
   WHEN $event = 'UPDATE'
   THEN {
     IF fn::story::content($before) != fn::story::content($after)
+       AND !($auth = NONE AND object::remove(fn::story::content($before), 'tagRefs')
+             = object::remove(fn::story::content($after), 'tagRefs'))
        AND !fn::consent::granted($after.submitter, ['special_category_religious']) {
       THROW 'changing a story’s content or media needs the submitter’s current Art 9 consent';
     };
@@ -924,9 +939,12 @@ DEFINE FIELD OVERWRITE image.alt              ON publicStory TYPE option<string>
 DEFINE FIELD OVERWRITE durationSeconds ON publicStory TYPE option<int>
   VALUE type::record('story', record::id(id)).media[0].durationSeconds;
 -- D63: /v1/tags lists a tag only if a published story uses it, probing an index for one match
--- per tag (top-level statements, see the gotchas). The tags' slugs, computed on every write (no writer sets them): 3.2.4 returns no rows
--- from an element index over record links (`tagRefs.*`), but indexes strings correctly.
-DEFINE FIELD OVERWRITE tagSlugs      ON publicStory TYPE array<string>
+-- per tag (top-level statements, see the gotchas). The tags' ids as strings, computed on every
+-- write (no writer sets them): 3.2.4 returns no rows from an element index over record links
+-- (`tagRefs.*`), but indexes strings correctly. (Named tagSlugs until R2 made tag ids opaque.)
+REMOVE INDEX IF EXISTS publicStory_tag_slugs ON publicStory;
+REMOVE FIELD IF EXISTS tagSlugs ON publicStory;
+DEFINE FIELD OVERWRITE tagIds        ON publicStory TYPE array<string>
   VALUE tagRefs.map(|$t| record::id($t));
 DEFINE FIELD OVERWRITE publishedAt   ON publicStory TYPE datetime;
 DEFINE FIELD OVERWRITE updatedAt     ON publicStory TYPE datetime VALUE time::now();
@@ -1003,7 +1021,7 @@ DEFINE INDEX OVERWRITE publicStory_slug     ON publicStory FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory;
 DEFINE INDEX OVERWRITE publicStory_browse   ON publicStory FIELDS publishedAt;
 DEFINE INDEX OVERWRITE publicStory_tags     ON publicStory FIELDS tagRefs;
-DEFINE INDEX OVERWRITE publicStory_tag_slugs ON publicStory FIELDS tagSlugs.*;  -- D63
+DEFINE INDEX OVERWRITE publicStory_tag_ids  ON publicStory FIELDS tagIds.*;    -- D63
 DEFINE INDEX OVERWRITE publicStory_fts      ON publicStory FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
 
@@ -2067,7 +2085,7 @@ DEFINE EVENT OVERWRITE themeSettings_check ON themeSettings
       };
     };
   };
--- The main themes people see first, as slugs in priority order: the first mainThemesCount of the
+-- The main themes people see first, as ids in priority order: the first mainThemesCount of the
 -- list that still exist (defaults before data/0008 ran: none). Empty means no main themes yet, so
 -- pickers show every theme. Anyone may call it (everyone reads tags and the settings).
 DEFINE FUNCTION OVERWRITE fn::settings::main_themes() {

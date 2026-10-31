@@ -122,3 +122,25 @@ test('200% text: /admin/limits with its confirmation fits on a 320 px phone', as
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
+
+test('200% text: /admin/themes, its main-theme buttons and a rename fit on a 320 px phone', async ({
+  page,
+}) => {
+  await enlarge(page);
+  await page.addInitScript(() =>
+    window.localStorage.setItem('e2e-session', 'admin-text-zoom-themes'),
+  );
+  await page.goto(`${WEB_SIGNED_IN_URL}/admin/themes`);
+  const main = page.getByRole('list', { name: 'Main themes, in order' });
+  // Every main theme's Remove button is within the screen's width.
+  const removes = main.getByRole('button', { name: /^Remove / });
+  await expect(removes).toHaveCount(4);
+  for (const box of await removes.evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().right),
+  ))
+    expect(box).toBeLessThanOrEqual(320);
+  await expectNoHorizontalOverflow(page);
+  await page.getByRole('button', { name: 'Rename Doubt' }).click();
+  await expect(page.getByLabel('New name for Doubt')).toBeFocused();
+  await expectNoHorizontalOverflow(page);
+});

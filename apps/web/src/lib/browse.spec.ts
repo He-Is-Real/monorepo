@@ -17,7 +17,7 @@ const card: StorySummary = {
   thumbnailHeight: 640,
   image: null,
   textLength: 0,
-  tags: [{ slug: 'hope', name: 'Hope', category: 'emotion', version: 1 }],
+  tags: [{ id: 'hope', name: 'Hope', category: 'emotion', version: 1 }],
   publishedAt: '2026-10-21T20:00:00Z',
   isNew: false,
 };

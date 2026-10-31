@@ -249,7 +249,7 @@ test.describe('behaviour', () => {
         title: 'Found',
         body: TEXT,
         bylineName: 'Sam',
-        tags: [{ slug: 'hope' }, { slug: 'faith' }],
+        tags: [{ id: 'hope' }, { id: 'faith' }],
       },
     ]);
     // The prompts were guidance only: nothing of them is stored.
@@ -557,7 +557,7 @@ test.describe('behaviour', () => {
           title: 'Almost there',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          tagIds: ['hope'],
         },
       ],
     });
@@ -627,7 +627,7 @@ test.describe('behaviour', () => {
       title: `Draft ${id}`,
       body: TEXT,
       primaryFormat: 'written',
-      tagSlugs: ['hope'],
+      tagIds: ['hope'],
       ...extra,
     });
     await person(page, request, {
@@ -716,7 +716,7 @@ test.describe('behaviour', () => {
           title: 'Almost there',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          tagIds: ['hope'],
         },
       ],
     });
@@ -819,7 +819,7 @@ test.describe('behaviour', () => {
           title: 'Written before the change',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          tagIds: ['hope'],
         },
       ],
     });

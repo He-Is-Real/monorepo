@@ -1174,19 +1174,19 @@ function DetailsStep({
 }) {
   const limits = useLimits();
   const [problem, setProblem] = useState<string | null>(null);
-  const chosen = draft.fields.tagSlugs;
+  const chosen = draft.fields.tagIds;
   // O5: the main themes first, every other one behind "More themes". A chosen other one shows in
   // the first row while "More themes" is closed (`pinned`, taken when the step opens and each
   // time it closes), so what's chosen stays visible; while it's open, choosing leaves the theme
   // where it is, so nothing moves under the person's finger or focus.
   const { main, more } = splitThemes(themes.tags, themes.main);
   const pinnedNow = () =>
-    more.filter((t) => chosen.includes(t.slug)).map((t) => t.slug);
+    more.filter((t) => chosen.includes(t.id)).map((t) => t.id);
   const [pinned, setPinned] = useState<string[]>(pinnedNow);
-  const first = [...main, ...more.filter((t) => pinned.includes(t.slug))];
-  const rest = more.filter((t) => !pinned.includes(t.slug));
+  const first = [...main, ...more.filter((t) => pinned.includes(t.id))];
+  const rest = more.filter((t) => !pinned.includes(t.id));
   const themeChip = (t: Tag) => {
-    const on = chosen.includes(t.slug);
+    const on = chosen.includes(t.id);
     return (
       <label
         className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
@@ -1202,9 +1202,7 @@ function DetailsStep({
           disabled={!on && chosen.length >= limits.tags.max}
           onChange={() =>
             draft.update({
-              tagSlugs: on
-                ? chosen.filter((s) => s !== t.slug)
-                : [...chosen, t.slug],
+              tagIds: on ? chosen.filter((s) => s !== t.id) : [...chosen, t.id],
             })
           }
         />
@@ -1285,11 +1283,13 @@ function DetailsStep({
               ? `Choose ${limits.tags.min} to ${limits.tags.max}.`
               : `Choose up to ${limits.tags.max}.`}
           </p>
-          <ul className="flex flex-wrap gap-2">
-            {first.map((t) => (
-              <li key={t.slug}>{themeChip(t)}</li>
-            ))}
-          </ul>
+          {first.length > 0 && (
+            <ul className="flex flex-wrap gap-2">
+              {first.map((t) => (
+                <li key={t.id}>{themeChip(t)}</li>
+              ))}
+            </ul>
+          )}
           <MoreThemes
             themes={rest}
             renderTheme={(t) => <li>{themeChip(t)}</li>}
@@ -1361,9 +1361,7 @@ export function ReviewStep({
     social: newIdempotencyKey(),
   });
   const f = draft.fields;
-  const tagNames = f.tagSlugs.map(
-    (s) => tags.find((t) => t.slug === s)?.name ?? s,
-  );
+  const tagNames = f.tagIds.map((s) => tags.find((t) => t.id === s)?.name ?? s);
 
   async function submit() {
     if (outdated) return;

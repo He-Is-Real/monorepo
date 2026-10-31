@@ -73,7 +73,7 @@ describe('predictHeight (D55: fixed parts + clamped media + text)', () => {
 
   it('adds a row for tags', () => {
     const tags = [
-      { slug: 'hope', name: 'Hope', category: 'emotion' as const, version: 1 },
+      { id: 'hope', name: 'Hope', category: 'emotion' as const, version: 1 },
     ];
     expect(h(card({ tags }))).toBeGreaterThan(h(card()));
   });

@@ -9,6 +9,7 @@ import {
 import {
   DATASET,
   devDatabaseWithDataset,
+  tagId,
   type StoryFixture,
 } from '@heisreal/dev-seed/testing';
 import { MediaUrls, mediaConfigFromEnv } from '@heisreal/story-cards';
@@ -38,7 +39,7 @@ interface Card {
     alt: string | null;
   } | null;
   textLength: number;
-  tags: { slug: string; name: string; category: string }[];
+  tags: { id: string; name: string; category: string }[];
   publishedAt: string;
 }
 interface Page {
@@ -151,7 +152,7 @@ describe('browse API over the dev dataset', () => {
     });
 
     it('filters by a tag', async () => {
-      const { ids } = await walk('tag=healing&limit=2');
+      const { ids } = await walk(`tag=${tagId('healing')}&limit=2`);
       expect(ids).toEqual(
         latestFirst.filter((id) =>
           approved.find((s) => s.id === id)?.tags.includes('healing'),
@@ -161,7 +162,9 @@ describe('browse API over the dev dataset', () => {
     });
 
     it('filters by several tags: stories with all of them', async () => {
-      const { ids } = await walk('tag=healing&tag=faith');
+      const { ids } = await walk(
+        `tag=${tagId('healing')}&tag=${tagId('faith')}`,
+      );
       const expected = latestFirst.filter((id) => {
         const tags = approved.find((s) => s.id === id)?.tags ?? [];
         return tags.includes('healing') && tags.includes('faith');
@@ -171,7 +174,7 @@ describe('browse API over the dev dataset', () => {
     });
 
     it('answers an unknown tag with no stories', async () => {
-      expect(await page('/v1/stories?tag=no-such-tag')).toEqual({
+      expect(await page('/v1/stories?tag=no_such_tag')).toEqual({
         data: [],
         nextCursor: null,
       });
@@ -207,9 +210,19 @@ describe('browse API over the dev dataset', () => {
         image: null,
         textLength: 640,
         tags: [
-          { slug: 'faith', name: 'Faith', category: 'journey', version: 1 },
-          { slug: 'healing', name: 'Healing', category: 'theme', version: 1 },
-          { slug: 'hope', name: 'Hope', category: 'emotion', version: 1 },
+          {
+            id: tagId('faith'),
+            name: 'Faith',
+            category: 'journey',
+            version: 1,
+          },
+          {
+            id: tagId('healing'),
+            name: 'Healing',
+            category: 'theme',
+            version: 1,
+          },
+          { id: tagId('hope'), name: 'Hope', category: 'emotion', version: 1 },
         ],
         publishedAt: expect.any(String),
       });
@@ -271,7 +284,7 @@ describe('browse API over the dev dataset', () => {
     // A sample: the parsing rules are browse.query.spec.ts's; this is the HTTP answer.
     it.each([
       ['limit=0', '/limit'],
-      ['tag=Not%20A%20Slug', '/tag'],
+      ['tag=Not%20An%20Id', '/tag'],
       [`q=${'a'.repeat(201)}`, '/q'],
     ])('refuses %s with a 400 problem', async (query, pointer) => {
       const res = await get(`/v1/stories?${query}`);
@@ -533,7 +546,7 @@ describe('browse API over the dev dataset', () => {
       expect(res.status).toBe(200);
       return (
         (await res.json()) as {
-          data: { slug: string; name: string; category: string }[];
+          data: { id: string; name: string; category: string }[];
         }
       ).data;
     };
@@ -544,19 +557,19 @@ describe('browse API over the dev dataset', () => {
       const res = await get('/v1/tags');
       expect(res.status).toBe(200);
       const { data } = (await res.json()) as {
-        data: { slug: string; name: string; category: string }[];
+        data: { id: string; name: string; category: string }[];
       };
       const order = ['theme', 'journey', 'emotion'];
       const used = usedBy(approved);
       const expected = [...DATASET.tags]
-        .filter((x) => used.has(x.id))
+        .filter((x) => used.has(x.key))
         .sort(
           (a, b) =>
             order.indexOf(a.category) - order.indexOf(b.category) ||
             a.name.localeCompare(b.name),
         )
         .map((x) => ({
-          slug: x.id,
+          id: x.id,
           name: x.name,
           category: x.category,
           version: 1,
@@ -576,30 +589,31 @@ describe('browse API over the dev dataset', () => {
       const { main } = (await res.json()) as { main: string[] };
       expect(main).toEqual(
         DATASET.tags
-          .filter((x) => x.category === 'theme' && used.has(x.id))
+          .filter((x) => x.category === 'theme' && used.has(x.key))
           .map((x) => x.id),
       );
     });
 
     it('hides tags with no published story, even when an unpublished one uses them (D63)', async () => {
       const used = usedBy(approved);
-      const unused = DATASET.tags.filter((x) => !used.has(x.id));
+      const unused = DATASET.tags.filter((x) => !used.has(x.key));
       // The dataset must keep this case covered.
       expect(unused.length).toBeGreaterThan(0);
-      expect(unused.some((x) => usedBy(unpublished).has(x.id))).toBe(true);
-      const slugs = (await tagList()).map((x) => x.slug);
-      for (const x of unused) expect(slugs).not.toContain(x.id);
+      expect(unused.some((x) => usedBy(unpublished).has(x.key))).toBe(true);
+      const ids = (await tagList()).map((x) => x.id);
+      for (const x of unused) expect(ids).not.toContain(x.id);
     });
 
     it('drops a tag when its last story leaves the public site, and brings it back when it returns (D63)', async () => {
       // A tag only one published story uses, a clip, so #61 can hide and restore it.
       const only = DATASET.tags.find((x) => {
-        const users = approved.filter((s) => s.tags.includes(x.id));
+        const users = approved.filter((s) => s.tags.includes(x.key));
         return users.length === 1 && users[0].format !== 'written';
       });
       expect(only).toBeDefined();
       const tag = only?.id as string;
-      const id = approved.find((s) => s.tags.includes(tag))?.id as string;
+      const id = approved.find((s) => s.tags.includes(only?.key as string))
+        ?.id as string;
       const migrator = await t.migrator();
       const processing = (state: string) =>
         run(
@@ -608,7 +622,7 @@ describe('browse API over the dev dataset', () => {
           { id, state },
         );
       await processing('failed');
-      expect((await tagList()).map((x) => x.slug)).not.toContain(tag);
+      expect((await tagList()).map((x) => x.id)).not.toContain(tag);
       await processing('ready');
       expect(
         await rows(
@@ -619,25 +633,25 @@ describe('browse API over the dev dataset', () => {
           },
         ),
       ).toHaveLength(1);
-      expect((await tagList()).map((x) => x.slug)).toContain(tag);
+      expect((await tagList()).map((x) => x.id)).toContain(tag);
     });
 
     it('probes one indexed match per tag, never scanning every published story', async () => {
-      // EXPLAIN each statement exactly as the endpoint sends it (top level, bound slug): inside a
+      // EXPLAIN each statement exactly as the endpoint sends it (top level, bound id): inside a
       // closure 3.2.4 iterates the table instead (Codex, #67).
       const migrator = await t.migrator();
-      const slugs = await rows<string>(
+      const ids = await rows<string>(
         migrator,
         'SELECT VALUE record::id(id) FROM tag',
       );
-      const { statements, vars } = tagProbes(slugs);
-      expect(statements).toHaveLength(slugs.length);
+      const { statements, vars } = tagProbes(ids);
+      expect(statements).toHaveLength(ids.length);
       const plans = (await run(
         migrator,
         statements.map((st) => `${st} EXPLAIN FULL`).join(';\n'),
         vars,
       )) as Record<string, unknown>[];
-      expect(plans).toHaveLength(slugs.length);
+      expect(plans).toHaveLength(ids.length);
       for (const plan of plans) {
         const operators: { operator: string; index?: string }[] = [];
         const walk = (n: Record<string, unknown>) => {
@@ -652,11 +666,11 @@ describe('browse API over the dev dataset', () => {
         walk(plan);
         expect(operators).toContainEqual({
           operator: 'IndexScan',
-          index: 'publicStory_tag_slugs',
+          index: 'publicStory_tag_ids',
         });
         expect(
           operators.filter((o) => /Scan|Iterate/.test(o.operator)),
-        ).toEqual([{ operator: 'IndexScan', index: 'publicStory_tag_slugs' }]);
+        ).toEqual([{ operator: 'IndexScan', index: 'publicStory_tag_ids' }]);
       }
     });
 

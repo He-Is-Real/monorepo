@@ -8,11 +8,11 @@ import {
 
 // D72: a story card says NEW while its story was published less than 7 days ago, decided by
 // web's server (nothing per person, nothing computed in the browser). The e2e servers' clock is
-// pinned (E2E_NOW in servers.ts, 2026-10-25T12:00:00Z) and the stub's `tag=new-test` stories
+// pinned (E2E_NOW in servers.ts, 2026-10-25T12:00:00Z) and the stub's `tag=new_test` stories
 // are dated around it, so the 7-day boundary is exact, locally and in CI. Every device, both
 // colour schemes.
 
-const LIST = '/stories?tag=new-test';
+const LIST = '/stories?tag=new_test';
 const LABEL = 'New: published in the last week';
 const NEW = ['New test: 2 days old', 'New test: 1 second under 7 days old'];
 const NOT_NEW = ['New test: exactly 7 days old', 'New test: 8 days old'];

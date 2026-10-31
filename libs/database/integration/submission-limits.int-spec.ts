@@ -222,8 +222,9 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
 
   it('the limits in force apply to every later action: a draft over a new maximum can’t be submitted until edited, and trimming is always saved (Joel, 2026-10-30)', async () => {
     const gus = await person('gus');
+    // Fixture themes with readable ids, made as a system user (an admin's get ULIDs, R2).
     await run(
-      admin,
+      await t.migrator(),
       `CREATE tag:a SET name = 'A', category = 'theme', changedBy = user:fixture_admin;
        CREATE tag:b SET name = 'B', category = 'theme', changedBy = user:fixture_admin;
        CREATE tag:c SET name = 'C', category = 'theme', changedBy = user:fixture_admin;`,

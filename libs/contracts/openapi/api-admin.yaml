@@ -512,9 +512,8 @@ paths:
       summary: Add a theme
       description: |
         Command `CreateTheme` (category `theme`). The name is trimmed (runs of spaces made one), 1 to
-        40 characters. The slug (`tag:<slug>`, also its browse address) is made from the name (lower
-        case, accents dropped, other characters a hyphen; `theme` if nothing is left), with `-2`,
-        `-3`... if taken, and never changes. A name another theme has, ignoring case, is `409
+        40 characters. Its ID is a new ULID (`tag:<ulid>`, also its browse address), unrelated to the
+        name and never changed (R2, Joel 2026-10-31). A name another theme has, ignoring case, is `409
         name_taken`; that natural key means a repeat gets `409`, so no `Idempotency-Key` is needed.
         The database writes a `CreateTag` audit row naming the admin and their role.
       x-required-role: Admin
@@ -527,7 +526,7 @@ paths:
               $ref: './components.yaml#/components/schemas/ThemeName'
       responses:
         '201':
-          description: Created; `id` is the slug.
+          description: Created; `id` is the theme's ID.
           headers:
             Location:
               $ref: './components.yaml#/components/headers/Location'
@@ -548,13 +547,13 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
-  /v1/admin/themes/{slug}:
+  /v1/admin/themes/{id}:
     patch:
       tags: [Themes]
       operationId: renameTheme
       summary: Rename a theme
       description: |
-        Command `RenameTheme`, a JSON Merge Patch of `name` only. The slug stays. Stories link
+        Command `RenameTheme`, a JSON Merge Patch of `name` only. The ID stays. Stories link
         themes by reference and read the name when they're shown (D15), so every story with this
         theme shows the new name at once. A name another theme has, ignoring case, is `409
         name_taken`. Themes can't be deleted (O5: no delete route, and the database refuses it for
@@ -562,7 +561,7 @@ paths:
       x-required-role: Admin
       x-milestone: M2
       parameters:
-        - $ref: './components.yaml#/components/parameters/tagSlug'
+        - $ref: './components.yaml#/components/parameters/tagId'
         - $ref: './components.yaml#/components/parameters/ifMatch'
       requestBody:
         required: true
@@ -630,7 +629,7 @@ paths:
       operationId: updateMainThemes
       summary: Save the main themes and how many people see
       description: |
-        Command `UpdateMainThemes`: the whole ordered list (each an existing theme's slug, each once)
+        Command `UpdateMainThemes`: the whole ordered list (each an existing theme's ID, each once)
         and the count (a whole number, 1 or more; admins choose it, no upper cap, Joel 2026-10-31).
         Saved only at the version read (`412 stale_version` if someone saved since; `428` without
         `If-Match`). The database writes an `UpdateMainThemes` audit row naming the admin.

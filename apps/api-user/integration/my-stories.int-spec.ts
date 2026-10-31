@@ -95,7 +95,7 @@ describe('my stories: withdraw and delete', () => {
       body: {
         title: 'How I found hope',
         primaryFormat: format,
-        tagSlugs: ['healing'],
+        tagIds: ['healing'],
         ...(format === 'written'
           ? { body: `My story${STORY_TEXT_PADDING}` }
           : {}),
@@ -171,8 +171,10 @@ describe('my stories: withdraw and delete', () => {
     url = await app.getUrl();
     await publishDpa(t, 'v1');
     await createPeople(t, { moderator: 'user_mod' });
+    // A fixture theme with a readable id, made as a system user (R2: themes an admin adds get
+    // ULIDs; the API treats ids as opaque).
     await run(
-      admin,
+      await t.migrator(),
       `CREATE tag:healing SET name = 'Healing', category = 'theme', changedBy = user:fixture_admin`,
     );
     // More stories each than D94's limits let a person start: trusted.

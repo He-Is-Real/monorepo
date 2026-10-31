@@ -13,7 +13,7 @@ import {
   expectNoHorizontalOverflow,
   expectTarget,
 } from './helpers';
-import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
+import { STUB_USER_URL, WEB_LIVE_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // Themes (O5, Joel 2026-10-31). Where people choose themes (Share's details step) and filter by
 // them (browse), the main themes come first and every other theme is behind "More themes": closed
@@ -21,7 +21,8 @@ import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 // chosen themes in the first row while it's closed. Admins add and rename themes and choose the
 // main ones at /admin/themes (the stub api-admin in stub-api-user.mjs keeps each session's own
 // themes, so a rename shows on that session's stories). Browse's main themes are stub-api.mjs's
-// "theme" tags; Share's are Hope, Faith, Loss and Healing.
+// "theme" tags; Share's are Hope, Faith, Loss and Healing. With no main themes to show (Go live's
+// stub has none), every theme still waits behind "More themes".
 
 const PHONE = 'phone-320';
 
@@ -60,6 +61,46 @@ async function expectCompactOpen(page: Page, more: Locator) {
   expect((l?.height ?? 0) <= screen * 0.4 + 1).toBe(true);
   await expectNoHorizontalOverflow(page);
 }
+
+test.describe('home: the main themes, in the admin’s order (R1)', () => {
+  test('home’s theme links are the main themes, in order, each opening browse by its id', async ({
+    page,
+  }, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'one phone and one desktop',
+    );
+    await page.goto('/');
+    const main = page.getByRole('list', { name: 'Main themes' });
+    // The stub's main themes, in its order (not alphabetical); nothing else.
+    await expect(main.getByRole('link')).toHaveText([
+      'Healing',
+      'Addiction',
+      'Loss',
+      'Depression',
+      'Relationships',
+      'Loneliness',
+      'Illness',
+      'Parenting',
+    ]);
+    await expect(main.getByRole('link', { name: 'Faith' })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await main.getByRole('link', { name: 'Loss' }).click();
+    await expect(page).toHaveURL(/\/stories\?tag=loss$/);
+    await expect(page.getByText('Stories tagged Loss')).toBeVisible();
+  });
+
+  test('with no main themes to show, home has no theme links', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== PHONE, 'one device');
+    await page.goto(`${WEB_LIVE_URL}/`);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Main themes' })).toHaveCount(
+      0,
+    );
+  });
+});
 
 test.describe('browse: main themes first, the rest behind “More themes”', () => {
   test('on a phone: closed at first, opens compact, the search narrows, “Fewer themes” closes it, the chosen one stays shown', async ({
@@ -122,6 +163,31 @@ test.describe('browse: main themes first, the rest behind “More themes”', ()
     await more.getByText('Fewer themes').click();
     await expect(more).not.toHaveAttribute('open');
   });
+
+  test('with no main themes to show (none chosen, or none a published story uses), every theme waits behind “More themes” on a phone', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== PHONE, 'the phone the picker is for');
+    await page.goto(`${WEB_LIVE_URL}/stories`);
+    const first = page.getByRole('list', { name: 'Themes' });
+    await expect(first.getByRole('link')).toHaveText(['All']);
+    const more = page.locator('main [data-more-themes]');
+    await expect(more).not.toHaveAttribute('open');
+    await expect(more.getByRole('link', { name: 'Healing' })).toBeHidden();
+    await expectNoHorizontalOverflow(page);
+
+    await more.getByText('More themes').click();
+    await expectCompactOpen(page, more);
+    await more.getByLabel('Search themes').fill('heal');
+    await more.getByRole('link', { name: 'Healing' }).click();
+    await expect(page).toHaveURL(/[?&]tag=healing/);
+    await more.getByText('Fewer themes').click();
+    await expect(more).not.toHaveAttribute('open');
+    await expect(first.getByRole('link')).toHaveText([
+      'All',
+      'Healing (selected)',
+    ]);
+  });
 });
 
 test.describe('share: choosing themes', () => {
@@ -172,6 +238,42 @@ test.describe('share: choosing themes', () => {
       firstRow.getByRole('checkbox', { name: 'Doubt' }),
     ).toBeChecked();
     await expectNoHorizontalOverflow(page);
+  });
+  test('with no main themes set, every theme waits behind “More themes” on a phone; a chosen one shows once it closes', async ({
+    page,
+    request,
+  }, info) => {
+    test.skip(info.project.name !== PHONE, 'the phone the picker is for');
+    await person(page, request, {
+      granted: ['age_18plus', 'account_data', 'special_category_religious'],
+      main: [],
+      stories: [
+        {
+          id: 'd2',
+          title: 'Found',
+          body: 'I was lost for years, and I did not think anyone could reach me. '.repeat(
+            5,
+          ),
+          primaryFormat: 'written',
+        },
+      ],
+    });
+    await page.goto(`${WEB_SIGNED_IN_URL}/share?draft=d2`);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    const themes = page.getByRole('group', { name: 'Themes' });
+    const more = themes.locator('[data-more-themes]');
+    await expect(more).not.toHaveAttribute('open');
+    await expect(themes.getByRole('checkbox', { name: 'Hope' })).toBeHidden();
+    await expectNoHorizontalOverflow(page);
+
+    await more.getByText('More themes').click();
+    await expectCompactOpen(page, more);
+    await more.getByLabel('Search themes').fill('hope');
+    await more.getByText('Hope', { exact: true }).click();
+    await more.getByText('Fewer themes').click();
+    await expect(more).not.toHaveAttribute('open');
+    await expect(themes.getByRole('checkbox', { name: 'Hope' })).toBeChecked();
+    await expect(themes.getByRole('checkbox')).toHaveCount(1);
   });
 });
 
@@ -276,7 +378,7 @@ test.describe('/admin/themes', () => {
             status: 'pending',
             title: 'My healing',
             primaryFormat: 'written',
-            tagSlugs: ['healing'],
+            tagIds: ['healing'],
           },
         ],
       },

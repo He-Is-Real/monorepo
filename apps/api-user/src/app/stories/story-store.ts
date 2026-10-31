@@ -47,7 +47,8 @@ function themesNeeded(set: SubmissionSettings, themes: number): number {
 
 /** The contract's `Tag`. */
 export interface Tag {
-  slug: string;
+  /** Opaque (R2): the record id without `tag:`. */
+  id: string;
   name: string;
   category: 'theme' | 'journey' | 'emotion';
   version: number;
@@ -187,11 +188,11 @@ const iso = (d: string | null | undefined) =>
 export class StoryStore {
   constructor(private readonly person: SurrealQueryable) {}
 
-  /** Every tag, and the main themes' slugs the form shows first (O5). */
+  /** Every tag, and the main themes' ids the form shows first (O5). */
   async tags(): Promise<{ data: Tag[]; main: string[] }> {
     const [rows, main] = (await runQuery(
       this.person,
-      `SELECT record::id(id) AS slug, name, category, version FROM tag;
+      `SELECT record::id(id) AS id, name, category, version FROM tag;
        RETURN fn::settings::main_themes();`,
     )) as [Tag[], string[]];
     return {
@@ -264,7 +265,7 @@ export class StoryStore {
         idempotency.requestHash,
         async () => {
           this.checkLimits(await this.settings(), input);
-          await this.checkTags(input.tagSlugs);
+          await this.checkTags(input.tagIds);
           return {
             status: 201,
             statements: `LET $story = (CREATE ONLY type::record('story', rand::ulid()) CONTENT {
@@ -281,7 +282,7 @@ export class StoryStore {
               body: input.body ?? undefined,
               bylineName: input.bylineName ?? undefined,
               format: input.primaryFormat,
-              tags: input.tagSlugs ?? [],
+              tags: input.tagIds ?? [],
             },
           };
         },
@@ -314,7 +315,7 @@ export class StoryStore {
         // An edit over a maximum is refused only if it makes it worse, so a draft over a
         // newly lowered maximum can be trimmed (Joel, 2026-10-30); submitting needs them all.
         this.checkLimits(await this.settings(), patch, current);
-        await this.checkTags(patch.tagSlugs);
+        await this.checkTags(patch.tagIds);
         const sets: string[] = [];
         const vars: Record<string, unknown> = { id, version: ifMatch };
         for (const field of [
@@ -334,9 +335,9 @@ export class StoryStore {
           sets.push('slug = $slug');
           vars['slug'] = slugFor(patch.title, slugSuffix(current.slug));
         }
-        if (patch.tagSlugs) {
+        if (patch.tagIds) {
           sets.push("tagRefs = $tags.map(|$t| type::record('tag', $t))");
-          vars['tags'] = patch.tagSlugs;
+          vars['tags'] = patch.tagIds;
         }
         // An empty patch still makes a version step (nothing else to do; D29).
         if (!sets.length) sets.push('title = title');
@@ -402,7 +403,7 @@ export class StoryStore {
                   : `Choose at least ${set.tagsMin} themes before submitting`,
               errors: [
                 {
-                  pointer: '/tagSlugs',
+                  pointer: '/tagIds',
                   message: `choose at least ${set.tagsMin}`,
                 },
               ],
@@ -589,11 +590,11 @@ export class StoryStore {
         });
       }
     }
-    if (f.tagSlugs) {
-      const n = f.tagSlugs.length;
+    if (f.tagIds) {
+      const n = f.tagIds.length;
       if (n > set.tagsMax && n > was.tags) {
         errors.push({
-          pointer: '/tagSlugs',
+          pointer: '/tagIds',
           message: `at most ${set.tagsMax} themes`,
         });
       }
@@ -609,14 +610,14 @@ export class StoryStore {
     return at ? new Date(at).toISOString() : undefined;
   }
 
-  private async checkTags(slugs: string[] | undefined) {
-    if (!slugs?.length) return;
+  private async checkTags(ids: string[] | undefined) {
+    if (!ids?.length) return;
     const [found] = (await runQuery(
       this.person,
       `SELECT VALUE id FROM $tags.map(|$t| type::record('tag', $t)) WHERE id != NONE`,
-      { tags: slugs },
+      { tags: ids },
     )) as [unknown[]];
-    if (found.length !== slugs.length) unknownTags();
+    if (found.length !== ids.length) unknownTags();
   }
 
   /** Tag rows for the stories' tagRefs, in each story's order. */
@@ -625,7 +626,7 @@ export class StoryStore {
     const [tags] = refs.length
       ? ((await runQuery(
           this.person,
-          `SELECT <string> id AS ref, record::id(id) AS slug, name, category, version
+          `SELECT <string> id AS ref, record::id(id) AS id, name, category, version
              FROM $refs.map(|$r| <record> $r)`,
           { refs },
         )) as [(Tag & { ref: string })[]])
@@ -686,7 +687,7 @@ export class StoryStore {
       code: 'too_many_tags',
       message: `Your story has more themes than the current limit of ${max}. Remove some, then submit.`,
       limit: max,
-      errors: [{ pointer: '/tagSlugs', message: `at most ${max} themes` }],
+      errors: [{ pointer: '/tagIds', message: `at most ${max} themes` }],
     });
   }
 
@@ -719,7 +720,7 @@ export class StoryStore {
         errors: [
           over === 'text'
             ? { pointer: '/body', message: 'longer than allowed' }
-            : { pointer: '/tagSlugs', message: 'more themes than allowed' },
+            : { pointer: '/tagIds', message: 'more themes than allowed' },
         ],
       });
     }

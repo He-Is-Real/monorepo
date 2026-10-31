@@ -146,7 +146,7 @@ describe('download my data', () => {
       body: JSON.stringify({
         title,
         primaryFormat: 'written',
-        tagSlugs: ['healing'],
+        tagIds: ['healing'],
         body: `${title}${STORY_TEXT_PADDING}`,
       }),
     });
@@ -253,8 +253,10 @@ describe('download my data', () => {
     url = await app.getUrl();
     await publishDpa(t, 'v1');
     await createPeople(t, { modq7: 'user_modq7' });
+    // A fixture theme with a readable id, made as a system user (R2: themes an admin adds get
+    // ULIDs; the API treats ids as opaque).
     await run(
-      admin,
+      await t.migrator(),
       `CREATE tag:healing SET name = 'Healing', category = 'theme', changedBy = user:fixture_admin`,
     );
   });
@@ -414,7 +416,7 @@ describe('download my data', () => {
       title: 'Ann draft',
       body: `Ann draft${STORY_TEXT_PADDING}`,
       bylineName: 'Ann',
-      tags: [{ slug: 'healing', name: 'Healing' }],
+      tags: [{ id: 'healing', name: 'Healing' }],
       onSiteNow: false,
       image: {
         width: 800,

@@ -51,6 +51,7 @@ const SEEDS = [
   '0006-submission-settings',
   '0007-dev-legal-documents',
   '0008-theme-settings',
+  '0009-theme-ids',
 ];
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
@@ -308,10 +309,10 @@ describe('init + identity check + migrate on an empty database', () => {
   it('a second run is a no-op: same schema, no script re-run, data and sessions intact', async () => {
     const migrator = await t.migrator();
     const admin = await t.service('api_admin'); // a WebSocket session opened before
-    // api-admin's changes name the admin (O5).
+    // api-admin's changes name the admin (O5), and its themes have ULID ids (R2).
     await run(
       admin,
-      `CREATE tag:kept SET name = 'kept', category = 'theme', changedBy = user:someone;`,
+      `CREATE tag:01JBQ8Y6V9W2K7E3M4N5P6R7SB SET name = 'kept', category = 'theme', changedBy = user:someone;`,
     );
     const before = {
       info: await rows(migrator, 'INFO FOR DB'),
@@ -337,9 +338,12 @@ describe('init + identity check + migrate on an empty database', () => {
     expect(
       await rows(migrator, 'SELECT * FROM dpaVersion ORDER BY id'),
     ).toEqual(before.dpa);
-    expect(await rows(admin, 'SELECT VALUE name FROM tag:kept')).toEqual([
-      'kept',
-    ]);
+    expect(
+      await rows(
+        admin,
+        'SELECT VALUE name FROM tag:01JBQ8Y6V9W2K7E3M4N5P6R7SB',
+      ),
+    ).toEqual(['kept']);
   });
 
   it('re-running the init rotates a service password, and the check verifies the new one', async () => {
@@ -1126,6 +1130,7 @@ describe('upgrading a database migrated by the previous release (Codex, #101)', 
       '0006-submission-settings',
       '0007-dev-legal-documents',
       '0008-theme-settings',
+      '0009-theme-ids',
     ]);
     const migrator = await t.migrator();
     expect(

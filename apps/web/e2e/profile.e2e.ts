@@ -55,7 +55,7 @@ const EVERY_STATUS = [
   { id: 's_withdrawn', status: 'withdrawn', title: 'Withdrawn one' },
 ].map((s, i) => ({
   ...s,
-  tagSlugs: ['healing'],
+  tagIds: ['healing'],
   // Newest first in the list: the stub lists in reverse order of seeding.
   createdAt: new Date(Date.UTC(2026, 9, 1 + i)).toISOString(),
 }));

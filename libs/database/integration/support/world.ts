@@ -148,15 +148,16 @@ export async function buildWorld(t: TestDatabase) {
   const admin = await t.service('api_admin');
   await run(
     admin,
-    `CREATE tag:doubt SET name = 'Doubt', category = 'journey', changedBy = user:fixture_admin;
-     CREATE dpaVersion:v2_draft CONTENT {
+    `CREATE dpaVersion:v2_draft CONTENT {
        materiality: 'material', documentPath: 'libs/legal/dpa/v2.md', contentHash: $h };`,
     { h: sha256('v2 draft') },
   );
   // The world has more stories per person than D94's limits allow a person to start: trusted.
+  // tag:doubt as made before themes got opaque ids (R2), so a readable fixture.
   await run(
     await t.migrator(),
-    `CREATE submitterLimits:ann SET user = user:ann, trusted = true;
+    `CREATE tag:doubt SET name = 'Doubt', category = 'journey';
+     CREATE submitterLimits:ann SET user = user:ann, trusted = true;
      CREATE submitterLimits:bob SET user = user:bob, trusted = true;`,
   );
   const ann = await t.person('user_ann');

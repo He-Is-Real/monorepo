@@ -25,25 +25,113 @@ const PEOPLE = [
 ];
 const MODERATOR = 'seed_moderator';
 
-// The browse list (project content/browse.md), sorted into theme, journey and emotion.
+// The browse list (project content/browse.md), sorted into theme, journey and emotion. Each
+// has a fixed ULID as its id (R2: a theme's id is opaque, never made from its name), the same
+// on every reseed so dev's addresses and an admin's main themes survive it; stories list them by
+// `key`, which only this file knows.
 const TAGS: TagFixture[] = [
-  { id: 'healing', name: 'Healing', category: 'theme' },
-  { id: 'addiction', name: 'Addiction', category: 'theme' },
-  { id: 'loss', name: 'Loss', category: 'theme' },
-  { id: 'depression', name: 'Depression', category: 'theme' },
-  { id: 'relationships', name: 'Relationships', category: 'theme' },
-  { id: 'loneliness', name: 'Loneliness', category: 'theme' },
-  { id: 'illness', name: 'Illness', category: 'theme' },
-  { id: 'parenting', name: 'Parenting', category: 'theme' },
-  { id: 'faith', name: 'Faith', category: 'journey' },
-  { id: 'answered-prayers', name: 'Answered Prayers', category: 'journey' },
-  { id: 'forgiveness', name: 'Forgiveness', category: 'journey' },
-  { id: 'salvation', name: 'Salvation', category: 'journey' },
-  { id: 'doubt', name: 'Doubt', category: 'journey' },
-  { id: 'hope', name: 'Hope', category: 'emotion' },
-  { id: 'peace', name: 'Peace', category: 'emotion' },
-  { id: 'grief', name: 'Grief', category: 'emotion' },
-  { id: 'joy', name: 'Joy', category: 'emotion' },
+  {
+    key: 'healing',
+    id: '01JBRKFR42DFYEA62HE5EYBRQF',
+    name: 'Healing',
+    category: 'theme',
+  },
+  {
+    key: 'addiction',
+    id: '01JBR62VATZNXQRQSQ7GB2V4JR',
+    name: 'Addiction',
+    category: 'theme',
+  },
+  {
+    key: 'loss',
+    id: '01JBR7FC87C5AF51FQSE5NCDXW',
+    name: 'Loss',
+    category: 'theme',
+  },
+  {
+    key: 'depression',
+    id: '01JBR83T93G23604JCQFPJCKEN',
+    name: 'Depression',
+    category: 'theme',
+  },
+  {
+    key: 'relationships',
+    id: '01JBRMBYX330JZH49EK5GTHXD4',
+    name: 'Relationships',
+    category: 'theme',
+  },
+  {
+    key: 'loneliness',
+    id: '01JBRGDSA4MZH5JTMEPS32E7FN',
+    name: 'Loneliness',
+    category: 'theme',
+  },
+  {
+    key: 'illness',
+    id: '01JBRF6GP0QMFK5992FC1T0GJF',
+    name: 'Illness',
+    category: 'theme',
+  },
+  {
+    key: 'parenting',
+    id: '01JBREDGPJZTEHXGERTJ8JYCFN',
+    name: 'Parenting',
+    category: 'theme',
+  },
+  {
+    key: 'faith',
+    id: '01JBRJXH7WJFV01A9PE29WSJMM',
+    name: 'Faith',
+    category: 'journey',
+  },
+  {
+    key: 'answered-prayers',
+    id: '01JBRPMQQ6PAV0JY0321F8R3GD',
+    name: 'Answered Prayers',
+    category: 'journey',
+  },
+  {
+    key: 'forgiveness',
+    id: '01JBRHP03JB3ZNE8M79K7PH7GW',
+    name: 'Forgiveness',
+    category: 'journey',
+  },
+  {
+    key: 'salvation',
+    id: '01JBRY5Z0JESEHVPBPDA63QJ3K',
+    name: 'Salvation',
+    category: 'journey',
+  },
+  {
+    key: 'doubt',
+    id: '01JBRN4SSG8RA7VR01ZH5QP3F1',
+    name: 'Doubt',
+    category: 'journey',
+  },
+  {
+    key: 'hope',
+    id: '01JBRE01CB98V69WYG363B31JT',
+    name: 'Hope',
+    category: 'emotion',
+  },
+  {
+    key: 'peace',
+    id: '01JBRQGWT04D9DNX9Z22NE3YKG',
+    name: 'Peace',
+    category: 'emotion',
+  },
+  {
+    key: 'grief',
+    id: '01JBR78F6J8D3X0XDAQAA214NF',
+    name: 'Grief',
+    category: 'emotion',
+  },
+  {
+    key: 'joy',
+    id: '01JBRW4ZRSQRHT620WKGSXXJ9D',
+    name: 'Joy',
+    category: 'emotion',
+  },
 ];
 
 const FEEDBACK_CHANGES =
@@ -481,6 +569,13 @@ const TEST_ACCOUNTS: string[] = [
   // story on every run.
   'user_3LQqgJMojJ8H1rfyfb16nyBNK3J',
 ];
+
+/** The id of the dataset's tag with this key (tests use it to address a tag). */
+export function tagId(key: string): string {
+  const tag = TAGS.find((t) => t.key === key);
+  if (!tag) throw new Error(`no dataset tag ${key}`);
+  return tag.id;
+}
 
 export const DATASET: Dataset = {
   people: PEOPLE,

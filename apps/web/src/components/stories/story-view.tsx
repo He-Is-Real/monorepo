@@ -37,8 +37,11 @@ function Meta({
           aria-label="Tags"
         >
           {story.tags.map((t) => (
-            <li key={t.slug}>
-              <Link href={`/stories?tag=${t.slug}`} className={TAG_CHIP}>
+            <li key={t.id}>
+              <Link
+                href={`/stories?tag=${encodeURIComponent(t.id)}`}
+                className={TAG_CHIP}
+              >
                 {t.name}
               </Link>
             </li>

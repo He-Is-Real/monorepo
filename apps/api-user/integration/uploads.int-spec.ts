@@ -127,14 +127,15 @@ describe('video and audio uploads', () => {
   async function person(who: string) {
     await createPeople(t, { [who]: `user_${who}` });
     await grantAll(await t.person(`user_${who}`));
+    // A fixture theme with a readable id, made as a system user (R2: an admin's get ULIDs).
     await run(
-      await t.service('api_admin'),
+      await t.migrator(),
       `UPSERT tag:healing SET name = 'Healing', category = 'theme', changedBy = user:fixture_admin`,
     );
   }
   const draft = async (who: string, format: 'video' | 'audio' = 'video') => {
     const res = await call('POST', '/v1/stories', who, {
-      body: { title: 'My story', primaryFormat: format, tagSlugs: ['healing'] },
+      body: { title: 'My story', primaryFormat: format, tagIds: ['healing'] },
       headers: { 'idempotency-key': key() },
     });
     expect(res.status).toBe(201);

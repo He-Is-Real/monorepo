@@ -15,7 +15,7 @@ export const LINK_SECONDS = 60 * 60;
  */
 const HELD_SQL = `
 LET $stories = SELECT id, slug, status, title, description, body, bylineName, primaryFormat,
-    tagRefs.map(|$t| { slug: record::id($t), name: $t.name }) AS tags, media, image,
+    tagRefs.map(|$t| { id: record::id($t), name: $t.name }) AS tags, media, image,
     rejectionFeedback, createdAt, updatedAt, submittedAt, approvedAt,
     fn::story::draft_expires_at(id) AS draftExpiresAt
   FROM story WHERE submitter = $auth ORDER BY createdAt DESC, id DESC;
@@ -66,7 +66,7 @@ interface Held {
     body?: Opt<string>;
     bylineName?: Opt<string>;
     primaryFormat: string;
-    tags: { slug: string; name?: Opt<string> }[];
+    tags: { id: string; name?: Opt<string> }[];
     media?: Opt<
       {
         format: 'video' | 'audio';
@@ -252,7 +252,7 @@ export function toExport(
         bylineName: or(s.bylineName),
         primaryFormat: s.primaryFormat,
         tags: s.tags.flatMap((t) =>
-          t.name ? [{ slug: t.slug, name: t.name }] : [],
+          t.name ? [{ id: t.id, name: t.name }] : [],
         ),
         media: (s.media ?? []).map((m) => ({
           format: m.format,

@@ -17,24 +17,24 @@ import type { TagRef } from '@heisreal/story-cards';
 /** The order browse groups tags in. */
 export const CATEGORIES = ['theme', 'journey', 'emotion'] as const;
 
-const ALL_TAGS = `SELECT record::id(id) AS slug, name, category, version FROM tag;
+const ALL_TAGS = `SELECT record::id(id) AS id, name, category, version FROM tag;
   RETURN fn::settings::main_themes();`;
 
 /**
  * D63: one probe per tag for whether a published story uses it, each a top-level statement with
- * the slug bound ($t0, $t1, ...), at most one match through `publicStory_tag_slugs`. Only top
+ * the tag's id bound ($t0, $t1, ...), at most one match through `publicStory_tag_ids`. Only top
  * level: inside a closure 3.2.4 iterates the whole table instead (Codex, #67).
  */
-export function tagProbes(slugs: string[]): {
+export function tagProbes(ids: string[]): {
   statements: string[];
   vars: Record<string, string>;
 } {
   return {
-    statements: slugs.map(
+    statements: ids.map(
       (_, i) =>
-        `SELECT VALUE id FROM publicStory WHERE tagSlugs CONTAINS $t${i} LIMIT 1`,
+        `SELECT VALUE id FROM publicStory WHERE tagIds CONTAINS $t${i} LIMIT 1`,
     ),
-    vars: Object.fromEntries(slugs.map((slug, i) => [`t${i}`, slug])),
+    vars: Object.fromEntries(ids.map((id, i) => [`t${i}`, id])),
   };
 }
 
@@ -61,7 +61,7 @@ export class TagsController {
       TagRef[],
       string[],
     ];
-    const { statements, vars } = tagProbes(all.map((t) => t.slug));
+    const { statements, vars } = tagProbes(all.map((t) => t.id));
     const found = statements.length
       ? ((await runQuery(this.db, statements.join(';\n'), vars)) as unknown[][])
       : [];
@@ -72,9 +72,9 @@ export class TagsController {
         (a, b) =>
           rank(a) - rank(b) ||
           a.name.localeCompare(b.name, 'en') ||
-          a.slug.localeCompare(b.slug),
+          a.id.localeCompare(b.id),
       ),
-      main: main.filter((slug) => tags.some((t) => t.slug === slug)),
+      main: main.filter((id) => tags.some((t) => t.id === id)),
     };
     return sendCached(res, ifNoneMatch, body, collectionETag(body));
   }

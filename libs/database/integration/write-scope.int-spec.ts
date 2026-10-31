@@ -195,20 +195,20 @@ describe('write scope on story fields (D41)', () => {
       ).toEqual([93]);
     });
 
-    it('computes tagSlugs from the story’s tags, whatever the writer sends (D63)', async () => {
-      // /v1/tags probes an index over tagSlugs (3.2.4 can't index record elements correctly).
-      const slugs = () =>
-        rows(migrator, 'SELECT VALUE tagSlugs FROM publicStory:bob_pending');
+    it('computes tagIds from the story’s tags, whatever the writer sends (D63)', async () => {
+      // /v1/tags probes an index over tagIds (3.2.4 can't index record elements correctly).
+      const ids = () =>
+        rows(migrator, 'SELECT VALUE tagIds FROM publicStory:bob_pending');
       const expected = await rows(
         migrator,
         'SELECT VALUE tagRefs.map(|$t| record::id($t)) FROM story:bob_pending',
       );
-      expect(await slugs()).toEqual(expected);
+      expect(await ids()).toEqual(expected);
       await run(
         admin,
-        `UPDATE publicStory:bob_pending SET tagSlugs = ['not-a-tag']`,
+        `UPDATE publicStory:bob_pending SET tagIds = ['not_a_tag']`,
       );
-      expect(await slugs()).toEqual(expected);
+      expect(await ids()).toEqual(expected);
     });
 
     it('follows processing’s corrections of a published clip in the same write', async () => {

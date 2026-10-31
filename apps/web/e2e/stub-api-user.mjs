@@ -48,7 +48,7 @@
 // Hearts are kept per token, so tests running in parallel never see each other's. A session
 // starting `no-consent` has lost the sign-up consent since the page loaded (its account answer
 // still says accepted): hearting answers 403 `consent_required` (D73).
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
@@ -295,18 +295,15 @@ async function saveSettings(req, res, session) {
 }
 
 // --- api-admin: themes and the main themes (O5) ---------------------------------------------
-const slugOf = (name) =>
-  name
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'theme';
+// A new theme's id, as api-admin makes it (R2): a ULID, nothing to do with the name.
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const newThemeId = () =>
+  `01JBS${Array.from(randomBytes(21), (b) => CROCKFORD[b % 32]).join('')}`;
 const nameOf = (v) =>
   typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
 const nameTaken = (themes, name, except) =>
   themes.some(
-    (t) => t.slug !== except && t.name.toLowerCase() === name.toLowerCase(),
+    (t) => t.id !== except && t.name.toLowerCase() === name.toLowerCase(),
   );
 const conflict = (res) => {
   res.writeHead(409, {
@@ -341,17 +338,14 @@ async function handleThemes(req, res, path, s) {
     const name = nameOf(((await readJson(req)) ?? {}).name);
     if (!name || name.length > 40) return invalid(res, '/name', 'required');
     if (nameTaken(s.themes, name)) return conflict(res);
-    const base = slugOf(name);
-    let slug = base;
-    for (let i = 2; s.themes.some((t) => t.slug === slug); i++)
-      slug = `${base}-${i}`;
-    s.themes.push({ slug, name, category: 'theme', version: 1 });
-    res.setHeader('location', `/v1/admin/themes/${slug}`);
-    return send(res, 201, { id: slug, version: 1 });
+    const id = newThemeId();
+    s.themes.push({ id, name, category: 'theme', version: 1 });
+    res.setHeader('location', `/v1/admin/themes/${id}`);
+    return send(res, 201, { id, version: 1 });
   }
-  const one = /^\/v1\/admin\/themes\/([a-z0-9-]+)$/.exec(path);
+  const one = /^\/v1\/admin\/themes\/([A-Za-z0-9_]{1,64})$/.exec(path);
   if (one && req.method === 'PATCH') {
-    const theme = s.themes.find((t) => t.slug === one[1]);
+    const theme = s.themes.find((t) => t.id === one[1]);
     if (!theme) return problem(res, 404, 'Not found', 'not_found');
     const ifMatch = req.headers['if-match'];
     if (!ifMatch)
@@ -360,11 +354,11 @@ async function handleThemes(req, res, path, s) {
     if (!name || name.length > 40) return invalid(res, '/name', 'required');
     if (ifMatch !== `"${theme.version}"`)
       return problem(res, 412, 'Precondition failed', 'stale_version');
-    if (nameTaken(s.themes, name, theme.slug)) return conflict(res);
+    if (nameTaken(s.themes, name, theme.id)) return conflict(res);
     theme.name = name;
     theme.version += 1;
     res.setHeader('etag', `"${theme.version}"`);
-    return send(res, 200, { id: theme.slug, version: theme.version });
+    return send(res, 200, { id: theme.id, version: theme.version });
   }
   if (path === '/v1/admin/main-themes' && req.method === 'GET') {
     const etag = `"${s.main.version}"`;
@@ -391,7 +385,7 @@ async function handleThemes(req, res, path, s) {
     if (
       !Array.isArray(list) ||
       new Set(list).size !== list.length ||
-      list.some((slug) => !s.themes.some((t) => t.slug === slug))
+      list.some((id) => !s.themes.some((t) => t.id === id))
     )
       return invalid(res, '/mainThemes', 'unknown_theme');
     if (ifMatch !== `"${s.main.version}"`)
@@ -585,12 +579,12 @@ const SETTINGS = {
   mediaMaxSeconds: 900,
 };
 const TAGS = [
-  { slug: 'healing', name: 'Healing', category: 'theme', version: 1 },
-  { slug: 'faith', name: 'Faith', category: 'theme', version: 1 },
-  { slug: 'addiction', name: 'Addiction', category: 'journey', version: 1 },
-  { slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
-  { slug: 'loss', name: 'Loss', category: 'emotion', version: 1 },
-  { slug: 'hope', name: 'Hope', category: 'emotion', version: 1 },
+  { id: 'healing', name: 'Healing', category: 'theme', version: 1 },
+  { id: 'faith', name: 'Faith', category: 'theme', version: 1 },
+  { id: 'addiction', name: 'Addiction', category: 'journey', version: 1 },
+  { id: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
+  { id: 'loss', name: 'Loss', category: 'emotion', version: 1 },
+  { id: 'hope', name: 'Hope', category: 'emotion', version: 1 },
 ];
 /** The main themes each session starts with (O5): Addiction and Doubt are behind "More themes". */
 const MAIN = ['hope', 'faith', 'loss', 'healing'];
@@ -641,7 +635,7 @@ function newSession(id, seed = {}) {
       status: 'draft',
       description: '',
       bylineName: null,
-      tagSlugs: [],
+      tagIds: [],
       submittedAt: null,
       createdAt: now,
       updatedAt: now,
@@ -753,7 +747,7 @@ function storyMine(id, st, s) {
         ]
       : [],
     image: null,
-    tags: st.tagSlugs.map((slug) => s.themes.find((t) => t.slug === slug)),
+    tags: st.tagIds.map((id) => s.themes.find((t) => t.id === id)),
     rejectionFeedback: st.rejectionFeedback ?? null,
     submittedAt: st.submittedAt,
     approvedAt: null,
@@ -813,7 +807,7 @@ function myDataOf(s, token, mine) {
       return {
         ...rest,
         onSiteNow: st.status === 'approved',
-        tags: tags.map((t) => ({ slug: t.slug, name: t.name })),
+        tags: tags.map((t) => ({ id: t.id, name: t.name })),
         media: media.map((m) => ({
           ...m,
           bunnyVideoId: st.videoId,
@@ -988,14 +982,14 @@ function fieldErrors(b, allowed, s, current) {
   )
     errors.push({ pointer: '/bylineName', message: 'at most 80 characters' });
   if (
-    'tagSlugs' in b &&
-    (!Array.isArray(b.tagSlugs) ||
-      (b.tagSlugs.length > s.settings.tagsMax &&
-        b.tagSlugs.length > (current?.tagSlugs.length ?? 0)) ||
-      new Set(b.tagSlugs).size !== b.tagSlugs.length ||
-      b.tagSlugs.some((t) => !s.themes.some((x) => x.slug === t)))
+    'tagIds' in b &&
+    (!Array.isArray(b.tagIds) ||
+      (b.tagIds.length > s.settings.tagsMax &&
+        b.tagIds.length > (current?.tagIds.length ?? 0)) ||
+      new Set(b.tagIds).size !== b.tagIds.length ||
+      b.tagIds.some((t) => !s.themes.some((x) => x.id === t)))
   )
-    errors.push({ pointer: '/tagSlugs', message: 'too many or unknown tags' });
+    errors.push({ pointer: '/tagIds', message: 'too many or unknown tags' });
   return errors;
 }
 
@@ -1071,14 +1065,7 @@ async function handleShare(req, res, path, url, s) {
     const b = await readJson(req);
     const errors = fieldErrors(
       b,
-      [
-        'title',
-        'description',
-        'body',
-        'bylineName',
-        'primaryFormat',
-        'tagSlugs',
-      ],
+      ['title', 'description', 'body', 'bylineName', 'primaryFormat', 'tagIds'],
       s,
     );
     if (b && !('title' in b))
@@ -1121,7 +1108,7 @@ async function handleShare(req, res, path, url, s) {
         body: b.body ?? null,
         bylineName: b.bylineName?.trim() || null,
         primaryFormat: b.primaryFormat,
-        tagSlugs: b.tagSlugs ?? [],
+        tagIds: b.tagIds ?? [],
         submittedAt: null,
         createdAt: now,
         updatedAt: now,
@@ -1205,7 +1192,7 @@ async function handleShare(req, res, path, url, s) {
     const b = await readJson(req);
     const errors = fieldErrors(
       b,
-      ['title', 'description', 'body', 'bylineName', 'tagSlugs'],
+      ['title', 'description', 'body', 'bylineName', 'tagIds'],
       s,
       st,
     );
@@ -1222,7 +1209,7 @@ async function handleShare(req, res, path, url, s) {
     if ('description' in b) st.description = b.description.trim();
     if ('body' in b) st.body = b.body;
     if ('bylineName' in b) st.bylineName = b.bylineName?.trim() || null;
-    if ('tagSlugs' in b) st.tagSlugs = b.tagSlugs;
+    if ('tagIds' in b) st.tagIds = b.tagIds;
     st.version += 1;
     st.updatedAt = new Date().toISOString();
     return sendJson(
@@ -1260,12 +1247,12 @@ async function handleShare(req, res, path, url, s) {
       // The minimum at submit; the maximum only when themes change (as api-user does).
       const { storyTextMin } = s.settings;
       const tagsMin = Math.min(s.settings.tagsMin, THEME_COUNT);
-      if (st.tagSlugs.length < tagsMin)
+      if (st.tagIds.length < tagsMin)
         return p(400, 'Bad request', 'tags_required', {
           detail: `Choose at least ${tagsMin} themes before submitting`,
           errors: [
             {
-              pointer: '/tagSlugs',
+              pointer: '/tagIds',
               message: `choose at least ${tagsMin}`,
             },
           ],
@@ -1297,12 +1284,12 @@ async function handleShare(req, res, path, url, s) {
             },
           ],
         });
-      if (st.tagSlugs.length > tagsMax)
+      if (st.tagIds.length > tagsMax)
         return p(400, 'Bad request', 'too_many_tags', {
           detail: `Your story has more themes than the current limit of ${tagsMax}. Remove some, then submit.`,
           limit: tagsMax,
           errors: [
-            { pointer: '/tagSlugs', message: `at most ${tagsMax} themes` },
+            { pointer: '/tagIds', message: `at most ${tagsMax} themes` },
           ],
         });
       const next = limitsOf(s).submissions.nextAvailableAt;

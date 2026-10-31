@@ -5,7 +5,7 @@ import { DATASET } from '../src/app/dataset';
 import { buildVars, fakeUploads } from '../src/app/plan';
 import { reset } from '../src/app/seed';
 
-export { DATASET } from '../src/app/dataset';
+export { DATASET, tagId } from '../src/app/dataset';
 export type { StoryFixture, TagFixture } from '../src/app/dataset';
 
 /**

@@ -18,11 +18,11 @@ export const TAG_CHIP = `${chip} border-border bg-surface text-secondary-text ho
 const selected = `${chip} border-teal bg-accent font-medium text-foreground hover:text-foreground`;
 
 function TagLink({ tag, filters }: { tag: StoryTag; filters: BrowseFilters }) {
-  const on = filters.tags.includes(tag.slug);
+  const on = filters.tags.includes(tag.id);
   return (
     <li>
       <Link
-        href={browseHref(toggleTag(filters, tag.slug))}
+        href={browseHref(toggleTag(filters, tag.id))}
         className={on ? selected : TAG_CHIP}
         scroll={false}
       >
@@ -54,7 +54,7 @@ export function TagFilter({
 }) {
   if (tags.length === 0) return null;
   const { main: first, more } = splitThemes(tags, main);
-  const chosen = more.filter((t) => filters.tags.includes(t.slug));
+  const chosen = more.filter((t) => filters.tags.includes(t.id));
   return (
     <div className="mt-5">
       <ul className="flex flex-wrap gap-2" aria-label="Themes">
@@ -68,7 +68,7 @@ export function TagFilter({
           </Link>
         </li>
         {[...first, ...chosen].map((t) => (
-          <TagLink key={t.slug} tag={t} filters={filters} />
+          <TagLink key={t.id} tag={t} filters={filters} />
         ))}
       </ul>
       <MoreThemes

@@ -243,7 +243,7 @@ export function StoryCard({
           <ul className="mt-3.5 flex flex-wrap gap-1.5" aria-label="Tags">
             {story.tags.map((t) => (
               <li
-                key={t.slug}
+                key={t.id}
                 className="h-6 truncate rounded-full bg-surface px-2.5 text-xs leading-6 text-muted-foreground"
               >
                 {t.name}

@@ -47,7 +47,7 @@ const joinAnd = (names: string[]) =>
 /** What the list shows, in words (never a count: api-conventions has no totals). */
 function summaryOf(filters: Filters, tags: StoryTag[]): string | null {
   const names = filters.tags.map(
-    (slug) => tags.find((t) => t.slug === slug)?.name ?? slug,
+    (id) => tags.find((t) => t.id === id)?.name ?? id,
   );
   const kind = filters.format ? KINDS[filters.format] : 'stories';
   const tagged = names.length ? ` tagged ${joinAnd(names)}` : '';

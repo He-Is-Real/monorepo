@@ -45,9 +45,9 @@ describe('parseBrowseSearch (the browse page’s URL)', () => {
     );
   });
 
-  it('drops what the API would refuse: bad slugs, repeats, more than 5 tags, bad format', () => {
+  it('drops what the API would refuse: bad tag ids, repeats, more than 5 tags, bad format', () => {
     const { filters } = parseBrowseSearch({
-      tag: ['ok', 'Not A Slug', 'ok', 'b', 'c', 'd', 'e', 'f'],
+      tag: ['ok', 'Not An Id', 'not-an-id', 'ok', 'b', 'c', 'd', 'e', 'f'],
       format: 'podcast',
       sort: ['latest', 'oldest'],
     });

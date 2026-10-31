@@ -133,8 +133,10 @@ describe('the submit flow for written stories', () => {
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
     await publishDpa(t, 'v1');
+    // Fixture themes with readable ids, made as a system user (R2: themes an admin adds get
+    // ULIDs; the API treats ids as opaque, whatever they are).
     await run(
-      await t.service('api_admin'),
+      await t.migrator(),
       `CREATE tag:healing SET name = 'Healing', category = 'theme', changedBy = user:fixture_admin;
        CREATE tag:doubt SET name = 'Doubt', category = 'journey', changedBy = user:fixture_admin;
        CREATE tag:anxiety SET name = 'Anxiety', category = 'emotion', changedBy = user:fixture_admin;`,
@@ -149,7 +151,7 @@ describe('the submit flow for written stories', () => {
     await person('tagger');
     const res = await call('GET', '/v1/tags', 'tagger');
     expect(res.status).toBe(200);
-    expect(res.body.data.map((tag: { slug: string }) => tag.slug)).toEqual([
+    expect(res.body.data.map((tag: { id: string }) => tag.id)).toEqual([
       'healing',
       'doubt',
       'anxiety',
@@ -159,7 +161,7 @@ describe('the submit flow for written stories', () => {
   it('creates, autosaves, resumes and submits a written story to pending', async () => {
     await person('ann');
     const k = key();
-    const created = await create('ann', { tagSlugs: [] }, k);
+    const created = await create('ann', { tagIds: [] }, k);
     expect(created.status).toBe(201);
     const { id, version } = created.body;
     expect(version).toBe(1);
@@ -167,7 +169,7 @@ describe('the submit flow for written stories', () => {
     expect(created.headers.get('etag')).toBe('"1"');
 
     // A retry with the same key replays; the same key for another story is refused.
-    expect((await create('ann', { tagSlugs: [] }, k)).body).toEqual({
+    expect((await create('ann', { tagIds: [] }, k)).body).toEqual({
       id,
       version: 1,
     });
@@ -178,7 +180,7 @@ describe('the submit flow for written stories', () => {
     const saved = await patch('ann', id, 1, {
       description: 'Hope after a hard year',
       bylineName: '  ',
-      tagSlugs: ['healing', 'doubt'],
+      tagIds: ['healing', 'doubt'],
     });
     expect(saved.status).toBe(200);
     expect(saved.body).toEqual({ id, version: 2 });
@@ -197,8 +199,8 @@ describe('the submit flow for written stories', () => {
       bylineName: null,
       primaryFormat: 'written',
       tags: [
-        { slug: 'healing', name: 'Healing' },
-        { slug: 'doubt', name: 'Doubt' },
+        { id: 'healing', name: 'Healing' },
+        { id: 'doubt', name: 'Doubt' },
       ],
     });
     expect(mine.body.slug).toMatch(/^how-i-found-hope-[0-9a-f]{8}$/);
@@ -280,9 +282,9 @@ describe('the submit flow for written stories', () => {
     expect(noTags.status).toBe(400);
     expect(noTags.body).toMatchObject({
       code: 'tags_required',
-      errors: [{ pointer: '/tagSlugs' }],
+      errors: [{ pointer: '/tagIds' }],
     });
-    await patch('pub', id, 1, { tagSlugs: ['healing'] });
+    await patch('pub', id, 1, { tagIds: ['healing'] });
     const short = await submit('pub', id, 2);
     expect(short.status).toBe(400);
     expect(short.body).toMatchObject({
@@ -296,15 +298,15 @@ describe('the submit flow for written stories', () => {
     await person('val');
     const bad = await create('val', {
       title: ' ',
-      tagSlugs: ['healing', 'no-such-tag'],
+      tagIds: ['healing', 'no_such_tag'],
       secret: 'testimony words',
     });
     expect(bad.status).toBe(400);
     expect(JSON.stringify(bad.body)).not.toContain('testimony words');
-    const unknown = await create('val', { tagSlugs: ['no-such-tag'] });
+    const unknown = await create('val', { tagIds: ['no_such_tag'] });
     expect(unknown.status).toBe(400);
     expect(unknown.body.errors).toEqual([
-      expect.objectContaining({ pointer: '/tagSlugs' }),
+      expect.objectContaining({ pointer: '/tagIds' }),
     ]);
     const { id } = (await create('val')).body;
     const emptied = await patch('val', id, 1, { body: '   ' });
@@ -353,8 +355,8 @@ describe('the submit flow for written stories', () => {
       id: string;
       version: number;
     }[];
-    await patch('lim', a.id, 1, { tagSlugs: ['healing'] });
-    await patch('lim', b.id, 1, { tagSlugs: ['healing'] });
+    await patch('lim', a.id, 1, { tagIds: ['healing'] });
+    await patch('lim', b.id, 1, { tagIds: ['healing'] });
     expect((await submit('lim', a.id, 2)).status).toBe(200);
     const second = await submit('lim', b.id, 2);
     expect(second.status).toBe(409);
@@ -410,14 +412,14 @@ describe('the submit flow for written stories', () => {
         expect.objectContaining({ pointer: '/body' }),
       ]);
       const tags = await create('lims', {
-        tagSlugs: ['healing', 'doubt', 'anxiety'],
+        tagIds: ['healing', 'doubt', 'anxiety'],
       });
       expect(tags.body.errors).toEqual([
-        expect.objectContaining({ pointer: '/tagSlugs' }),
+        expect.objectContaining({ pointer: '/tagIds' }),
       ]);
       const ok = await create('lims', {
         body: 'Twenty-one characters',
-        tagSlugs: ['healing'],
+        tagIds: ['healing'],
       });
       expect(ok.status).toBe(201);
       expect((await create('lims')).body.code).toBe('draft_limit_reached');
@@ -448,14 +450,14 @@ describe('the submit flow for written stories', () => {
       const limits = (await call('GET', '/v1/account/limits', 'few')).body;
       expect(limits.tags).toEqual({ min: 2, max: 5 });
 
-      const { id } = (await create('few', { tagSlugs: ['healing'] })).body;
+      const { id } = (await create('few', { tagIds: ['healing'] })).body;
       const one = await submit('few', id, 1);
       expect(one.status).toBe(400);
       expect(one.body).toMatchObject({
         code: 'tags_required',
-        errors: [{ pointer: '/tagSlugs', message: 'choose at least 2' }],
+        errors: [{ pointer: '/tagIds', message: 'choose at least 2' }],
       });
-      await patch('few', id, 1, { tagSlugs: ['healing', 'doubt'] });
+      await patch('few', id, 1, { tagIds: ['healing', 'doubt'] });
       expect((await submit('few', id, 2)).status).toBe(200);
       expect(await storiesOf('few')).toEqual(['pending']);
     } finally {
@@ -476,7 +478,7 @@ describe('the submit flow for written stories', () => {
     await createPeople(t, { grandadmin: 'user_grandadmin' });
     const body = 'x'.repeat(300);
     const { id } = (
-      await create('grand', { body, tagSlugs: ['healing', 'doubt', 'anxiety'] })
+      await create('grand', { body, tagIds: ['healing', 'doubt', 'anxiety'] })
     ).body;
     try {
       await run(
@@ -505,8 +507,7 @@ describe('the submit flow for written stories', () => {
       const tags = await submit('grand', id, 3);
       expect(tags.body).toMatchObject({ code: 'too_many_tags', limit: 2 });
       expect(
-        (await patch('grand', id, 3, { tagSlugs: ['healing', 'doubt'] }))
-          .status,
+        (await patch('grand', id, 3, { tagIds: ['healing', 'doubt'] })).status,
       ).toBe(200);
       expect((await submit('grand', id, 4)).status).toBe(200);
       expect(

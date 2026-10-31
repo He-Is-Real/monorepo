@@ -20,7 +20,7 @@ export interface StoryFields {
   description: string;
   /** The optional first name; empty = "Anonymous". */
   bylineName: string;
-  tagSlugs: string[];
+  tagIds: string[];
 }
 
 export const EMPTY_FIELDS: StoryFields = {
@@ -28,16 +28,17 @@ export const EMPTY_FIELDS: StoryFields = {
   body: '',
   description: '',
   bylineName: '',
-  tagSlugs: [],
+  tagIds: [],
 };
 
 export interface Tag {
-  slug: string;
+  /** Opaque (R2): never made from the name. */
+  id: string;
   name: string;
   category: 'theme' | 'journey' | 'emotion';
 }
 
-/** `GET /v1/tags`: every theme and the main themes' slugs in their order (O5). */
+/** `GET /v1/tags`: every theme and the main themes' ids in their order (O5). */
 export interface Themes {
   tags: Tag[];
   main: string[];
@@ -127,7 +128,7 @@ export function normalise(f: StoryFields): StoryFields {
     body: f.body,
     description: f.description.trim(),
     bylineName: f.bylineName.trim(),
-    tagSlugs: [...f.tagSlugs],
+    tagIds: [...f.tagIds],
   };
 }
 
@@ -137,7 +138,7 @@ export function fieldsOf(story: MyStory): StoryFields {
     body: story.body ?? '',
     description: story.description,
     bylineName: story.bylineName ?? '',
-    tagSlugs: story.tags.map((t) => t.slug),
+    tagIds: story.tags.map((t) => t.id),
   });
 }
 
@@ -252,7 +253,7 @@ export function shareApi(api: ApiUser) {
     limits: async () =>
       (await api.get<SubmissionLimits>('/v1/account/limits'))
         .data as SubmissionLimits,
-    /** Every theme, and the main ones' slugs to show first (O5). */
+    /** Every theme, and the main ones' ids to show first (O5). */
     tags: async (): Promise<Themes> => {
       const body = (await api.get<{ data: Tag[]; main?: string[] }>('/v1/tags'))
         .data;
@@ -303,7 +304,7 @@ export function shareApi(api: ApiUser) {
             body: format === 'written' || n.body.trim() ? n.body : null,
             description: n.description,
             bylineName: n.bylineName || null,
-            tagSlugs: n.tagSlugs,
+            tagIds: n.tagIds,
           },
           idempotencyKey,
         }),

@@ -93,7 +93,7 @@ describe('ReviewStep', () => {
       ...EMPTY_FIELDS,
       title: 'T',
       body: 'x'.repeat(250),
-      tagSlugs: ['hope'],
+      tagIds: ['hope'],
     },
     status: 'saved' as const,
     error: null,
@@ -126,7 +126,7 @@ describe('ReviewStep', () => {
         <ReviewStep
           heading={createRef()}
           draft={draft}
-          tags={[{ slug: 'hope', name: 'Hope', category: 'emotion' }]}
+          tags={[{ id: 'hope', name: 'Hope', category: 'emotion' }]}
           legal={{ testimony: form([ART9]), social: null }}
           consents={consents}
           calls={calls as never}
@@ -164,7 +164,7 @@ describe('ReviewStep', () => {
         <ReviewStep
           heading={createRef()}
           draft={{ ...draft, forget }}
-          tags={[{ slug: 'hope', name: 'Hope', category: 'emotion' }]}
+          tags={[{ id: 'hope', name: 'Hope', category: 'emotion' }]}
           legal={{ testimony: form([ART9, PUBLISH]), social: null }}
           consents={consents}
           calls={calls as never}

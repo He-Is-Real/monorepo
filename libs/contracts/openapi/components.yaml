@@ -50,14 +50,14 @@ components:
       schema:
         type: string
         pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
-    tagSlug:
-      name: slug
+    tagId:
+      name: id
       in: path
       required: true
-      description: Tag slug; also the tag's ID (`tag:<slug>`).
+      description: Tag ID. Opaque (the SurrealDB record ID without the `tag:` prefix, a ULID; never made from the name, R2); don't parse it.
       schema:
         type: string
-        pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        pattern: '^[A-Za-z0-9_]{1,64}$'
     consentType:
       name: type
       in: path
@@ -355,12 +355,15 @@ components:
 
     Tag:
       type: object
-      required: [slug, name, category, version]
+      required: [id, name, category, version]
       properties:
-        slug:
+        id:
           type: string
-          description: "Also the tag's ID (`tag:<slug>`)."
-          example: doubt
+          description: |
+            Opaque (the SurrealDB record ID without the `tag:` prefix, a ULID); don't parse it.
+            Never made from the name (R2, Joel 2026-10-31), so it doesn't change, or keep old
+            wording, when the tag is renamed. Browse addresses use it (`/stories?tag=<id>`).
+          example: 01JBRN4SSG8RA7VR01ZH5QP3F1
         name:
           type: string
           maxLength: 40
@@ -375,7 +378,7 @@ components:
       type: object
       description: |
         A theme's name (CreateTheme, and RenameTheme as a JSON Merge Patch). Trimmed, runs of spaces
-        made one; unique among themes ignoring case. The slug (ID) can't change.
+        made one; unique among themes ignoring case. The ID is opaque and never changes.
       required: [name]
       additionalProperties: false
       properties:
@@ -391,10 +394,10 @@ components:
       properties:
         mainThemes:
           type: array
-          description: Theme slugs in priority order, each once, each an existing theme.
+          description: Theme IDs in priority order, each once, each an existing theme.
           items:
             type: string
-            pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+            pattern: '^[A-Za-z0-9_]{1,64}$'
         mainThemesCount:
           type: integer
           minimum: 1
@@ -416,7 +419,7 @@ components:
           description: The user record id of the last admin who saved them (Clerk holds names, D16); `null` if only the migrator has.
         mainThemes:
           type: array
-          description: Theme slugs in priority order (existing themes only).
+          description: Theme IDs in priority order (existing themes only).
           items:
             type: string
         mainThemesCount:
@@ -791,7 +794,7 @@ components:
             no email field: Clerk holds it.
         primaryFormat:
           $ref: '#/components/schemas/Format'
-        tagSlugs:
+        tagIds:
           type: array
           description: |
             Tags from `GET /v1/tags` (api-user), no repeats, at most the settings' maximum (W3:
@@ -821,7 +824,7 @@ components:
         bylineName:
           type: [string, 'null']
           maxLength: 80
-        tagSlugs:
+        tagIds:
           type: array
           items:
             type: string
@@ -1982,10 +1985,11 @@ components:
                 items:
                   type: object
                   additionalProperties: false
-                  required: [slug, name]
+                  required: [id, name]
                   properties:
-                    slug:
+                    id:
                       type: string
+                      description: The theme's opaque ID (`Tag.id`).
                     name:
                       type: string
               media:

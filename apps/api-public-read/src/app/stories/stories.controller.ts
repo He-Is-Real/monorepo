@@ -31,7 +31,7 @@ export interface StoryPublic {
   primaryFormat: 'video' | 'audio' | 'written';
   media: MediaPlayback[];
   image: StoryImage | null;
-  tags: { slug: string; name: string; category: string; version: number }[];
+  tags: { id: string; name: string; category: string; version: number }[];
   publishedAt: string;
   updatedAt?: string;
   version: number;
@@ -59,8 +59,8 @@ export interface StoryImage {
 const BY_SLUG = `
   SELECT record::id(id) AS id, slug, title, description, body, bylineName, primaryFormat,
     media, image, durationSeconds, publishedAt, updatedAt, version,
-    (SELECT record::id(id) AS slug, name, category, version FROM tag
-      WHERE id IN $parent.tagRefs ORDER BY slug) AS tags
+    (SELECT record::id(id) AS id, name, category, version FROM tag
+      WHERE id IN $parent.tagRefs ORDER BY name) AS tags
   FROM publicStory WHERE slug = $slug LIMIT 1;
   SELECT VALUE slug FROM publicStory WHERE slugHistory CONTAINS $slug LIMIT 1;`;
 

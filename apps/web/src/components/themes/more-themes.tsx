@@ -13,7 +13,7 @@ import { searchThemes } from '@/lib/main-themes';
  * A native <details>, so it opens from the keyboard and without JavaScript too (the search then
  * does nothing, and every theme is listed). Each theme is drawn by `renderTheme`, as an <li>.
  */
-export function MoreThemes<T extends { slug: string; name: string }>({
+export function MoreThemes<T extends { id: string; name: string }>({
   themes,
   renderTheme,
   onToggle,
@@ -73,7 +73,7 @@ export function MoreThemes<T extends { slug: string; name: string }>({
           {shown.length > 0 ? (
             <ul id={`${id}-list`} className="flex flex-wrap gap-2 p-1">
               {shown.map((t) => (
-                <Fragment key={t.slug}>{renderTheme(t)}</Fragment>
+                <Fragment key={t.id}>{renderTheme(t)}</Fragment>
               ))}
             </ul>
           ) : (

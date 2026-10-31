@@ -46,7 +46,7 @@ for (const scheme of ['light', 'dark'] as const) {
     test('an audio card shows its thumbnail at its shape, and plays in the same box', async ({
       page,
     }) => {
-      await page.goto('/stories?tag=play-test');
+      await page.goto('/stories?tag=play_test');
       const card = page.locator('article').filter({
         has: page.getByRole('heading', { name: 'Play test: audio' }),
       });

@@ -154,7 +154,7 @@ export function isStoryTextTooShortError(err: unknown): boolean {
 
 /**
  * The database refused text longer, or more themes, than the settings allow (story_text_limits).
- * api-user answers `400` for `/body` or `/tagSlugs`.
+ * api-user answers `400` for `/body` or `/tagIds`.
  */
 export function storyLimitOf(err: unknown): 'text' | 'tags' | undefined {
   const message = err instanceof Error ? err.message : String(err);

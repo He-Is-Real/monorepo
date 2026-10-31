@@ -44,7 +44,7 @@ test('every list page, filter and search the stub serves fits the contract', asy
     '?format=audio&sort=oldest',
     '?q=placeholder',
     '?q=nothing-matches-this',
-    '?tag=hide-test',
+    '?tag=hide_test',
   ]) {
     let path = `/v1/stories${query}`;
     for (let pages = 0; pages < 10; pages++) {
@@ -196,7 +196,7 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
           id: 'e1',
           status: 'changes_requested',
           title: 'Mine',
-          tagSlugs: ['healing'],
+          tagIds: ['healing'],
           rejectionFeedback: 'A little more, please.',
         },
         {
@@ -458,7 +458,7 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
   );
   expect((await call('GET', `/v1/account/stories/${id}`)).status).toBe(200);
   expect((await call('GET', '/v1/account/stories/none')).status).toBe(404);
-  const patch = (version?: number, data: object = { tagSlugs: ['hope'] }) =>
+  const patch = (version?: number, data: object = { tagIds: ['hope'] }) =>
     call('PATCH', `/v1/stories/${id}`, {
       data,
       headers: {
@@ -489,7 +489,7 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
   expect((await submit(2)).status).toBe(200);
   expect((await patch(3)).status).toBe(409); // locked once submitted
   const second = await call('POST', '/v1/stories', {
-    data: { ...draft, tagSlugs: ['hope'] },
+    data: { ...draft, tagIds: ['hope'] },
     headers: { 'idempotency-key': key() },
   });
   const weekly = await call('POST', `/v1/stories/${second.body.id}/submit`, {
@@ -500,7 +500,7 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     body: { code: 'weekly_submission_limit_reached' },
   });
   const short = await call('POST', '/v1/stories', {
-    data: { ...draft, body: 'Short', tagSlugs: ['hope'] },
+    data: { ...draft, body: 'Short', tagIds: ['hope'] },
     headers: { 'idempotency-key': key() },
   });
   expect(
@@ -602,7 +602,7 @@ test('the stub api-user’s uploads fit the contract, answers and errors (M2 pla
     return { status: res.status(), body };
   };
   const created = await call('POST', '/v1/stories', {
-    data: { title: 'My video', primaryFormat: 'video', tagSlugs: ['hope'] },
+    data: { title: 'My video', primaryFormat: 'video', tagIds: ['hope'] },
     headers: { 'idempotency-key': `contract-up-${Date.now()}-xxxxxxxx` },
   });
   expect(created.status).toBe(201);

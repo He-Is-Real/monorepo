@@ -107,7 +107,8 @@ export function stepsFor(story: StoryFixture): Step[] {
 /** Everything wrong with the dataset (and the uploads it needs), or an empty list. */
 export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
   const problems: string[] = [];
-  const tagIds = new Set(data.tags.map((t) => t.id));
+  const tagKeys = new Set(data.tags.map((t) => t.key));
+  const tagId = new Map(data.tags.map((t) => [t.key, t.id]));
   const people = new Set(data.people);
   const ids = new Set<string>();
   const slugs = new Set<string>();
@@ -119,12 +120,15 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
       problems.push(`person ${id}: ids start with seed_`);
   }
   for (const t of data.tags) {
-    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(t.id))
-      problems.push(`tag ${t.id}: not a slug`);
+    if (!/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(t.id))
+      problems.push(`tag ${t.key}: its id is not a ULID`);
     if (t.name.length === 0 || t.name.length > LIMITS.tagNameMax) {
-      problems.push(`tag ${t.id}: name length`);
+      problems.push(`tag ${t.key}: name length`);
     }
   }
+  if (tagKeys.size !== data.tags.length) problems.push('a tag key twice');
+  if (tagId.size !== new Set(data.tags.map((t) => t.id)).size)
+    problems.push('a tag id twice');
 
   for (const s of data.stories) {
     const p = (m: string) => problems.push(`${s.id}: ${m}`);
@@ -138,7 +142,7 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
       p('title length');
     if (s.description.length > LIMITS.descriptionMax) p('description too long');
     if (s.tags.length > LIMITS.tagsMax) p('more than 5 tags');
-    for (const t of s.tags) if (!tagIds.has(t)) p(`unknown tag ${t}`);
+    for (const t of s.tags) if (!tagKeys.has(t)) p(`unknown tag ${t}`);
     if (new Set(s.tags).size !== s.tags.length) p('a tag twice');
 
     const body = s.body?.trim() ?? '';
@@ -237,6 +241,7 @@ export function buildVars(
       `The dev dataset has problems:\n  ${problems.join('\n  ')}`,
     );
   }
+  const tagId = new Map(data.tags.map((t) => [t.key, t.id]));
   return {
     people: data.people,
     testAccounts: data.testAccounts,
@@ -252,7 +257,7 @@ export function buildVars(
         body: s.body,
         bylineName: s.bylineName,
         primaryFormat: s.format,
-        tagRefs: s.tags,
+        tagRefs: s.tags.map((key) => tagId.get(key) as string),
         media: s.media
           ? [mediaItem(s.media.clip, media, s.media.processing)]
           : [],

@@ -21,7 +21,8 @@ export const MAX_PAGES = 10;
 
 const Q_MAX_CHARS = 200;
 const TAGS_MAX = 5;
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// A tag's id, as api-public-read takes it: opaque (R2), letters, digits and underscores.
+const TAG_ID = /^[A-Za-z0-9_]{1,64}$/;
 const FORMATS: readonly StoryFormat[] = ['video', 'audio', 'written'];
 const SORTS: readonly BrowseSort[] = ['latest', 'oldest', 'relevance'];
 
@@ -43,8 +44,7 @@ export function sanitizeFilters(input: {
   const tags = [
     ...new Set(
       list(input.tags).filter(
-        (t): t is string =>
-          typeof t === 'string' && t.length <= 100 && SLUG.test(t),
+        (t): t is string => typeof t === 'string' && TAG_ID.test(t),
       ),
     ),
   ].slice(0, TAGS_MAX);
@@ -93,10 +93,10 @@ export function browseHref(
   return sp.size ? `/stories?${sp}` : '/stories';
 }
 
-export function toggleTag(filters: BrowseFilters, slug: string): BrowseFilters {
-  const tags = filters.tags.includes(slug)
-    ? filters.tags.filter((t) => t !== slug)
-    : [...filters.tags, slug].slice(-TAGS_MAX);
+export function toggleTag(filters: BrowseFilters, id: string): BrowseFilters {
+  const tags = filters.tags.includes(id)
+    ? filters.tags.filter((t) => t !== id)
+    : [...filters.tags, id].slice(-TAGS_MAX);
   return { ...filters, tags };
 }
 

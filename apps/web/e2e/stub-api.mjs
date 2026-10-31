@@ -59,8 +59,8 @@ const stories = {
       'A description with averyveryverylongunbrokenwordthatmustwrapnicelyonsmallphones.',
     body: 'Paragraph one.\n\nhttps://example.com/a/very/long/unbroken/url/that/must/not/push/the/page/sideways/on/a/small/phone',
     tags: [
-      { slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
-      { slug: 'healing', name: 'Healing', category: 'theme', version: 1 },
+      { id: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
+      { id: 'healing', name: 'Healing', category: 'theme', version: 1 },
     ],
   },
 };
@@ -162,7 +162,7 @@ const TAGS = [
   ['illness', 'Illness', 'theme'],
   ['parenting', 'Parenting', 'theme'],
   ['faith', 'Faith', 'journey'],
-  ['answered-prayers', 'Answered Prayers', 'journey'],
+  ['answered_prayers', 'Answered Prayers', 'journey'],
   ['forgiveness', 'Forgiveness', 'journey'],
   ['salvation', 'Salvation', 'journey'],
   ['doubt', 'Doubt', 'journey'],
@@ -170,8 +170,8 @@ const TAGS = [
   ['peace', 'Peace', 'emotion'],
   ['grief', 'Grief', 'emotion'],
   ['joy', 'Joy', 'emotion'],
-].map(([slug, name, category]) => ({ slug, name, category, version: 1 }));
-const tag = (slug) => TAGS.find((t) => t.slug === slug);
+].map(([id, name, category]) => ({ id, name, category, version: 1 }));
+const tag = (id) => TAGS.find((t) => t.id === id);
 const KINDS = [
   { format: 'video', w: 360, h: 640 },
   { format: 'written' },
@@ -203,10 +203,10 @@ const sized = (w, h) =>
 for (let i = 0; i < 48; i++) {
   const kind = KINDS[i % KINDS.length];
   const n = String(i + 1).padStart(2, '0');
-  const tagSlugs = [
-    TAGS[i % 8].slug,
-    ...(i % 3 === 0 ? [TAGS[8 + (i % 5)].slug] : []),
-    ...(i % 4 === 0 ? [TAGS[13 + (i % 4)].slug] : []),
+  const tagIds = [
+    TAGS[i % 8].id,
+    ...(i % 3 === 0 ? [TAGS[8 + (i % 5)].id] : []),
+    ...(i % 4 === 0 ? [TAGS[13 + (i % 4)].id] : []),
   ];
   const day = new Date(Date.UTC(2026, 9, 20) - i * 86_400_000);
   const slug = `browse-test-${n}`;
@@ -229,7 +229,7 @@ for (let i = 0; i < 48; i++) {
         : i % 2
           ? 'Placeholder words under a generated clip.'
           : null,
-    tags: tagSlugs.map(tag),
+    tags: tagIds.map(tag),
     publishedAt: day.toISOString().replace('.000', ''),
     media:
       kind.format === 'written'
@@ -260,9 +260,9 @@ for (let i = 0; i < 48; i++) {
 // and /__test/show?slug= withdraw a story from that port's API (every route: the list, related
 // lists and the story itself, which then answers 404) or bring it back. Each port keeps its own
 // set, so the live server's withdrawal test (freshness.e2e.ts) never touches the dev server's.
-// On dev (pages.e2e.ts): stories listed only under `tag=hide-test`, one per device project
+// On dev (pages.e2e.ts): stories listed only under `tag=hide_test`, one per device project
 // (projects run in parallel, so each hides its own). Nothing else lists them.
-const HIDE_TEST = 'hide-test';
+const HIDE_TEST = 'hide_test';
 const hiddenOn = { dev: new Set(), live: new Set(), down: new Set() };
 for (const name of ['phone-320', 'desktop-1280', 'spare']) {
   const slug = `hide-test-${name.replace('.', '-')}`;
@@ -273,18 +273,16 @@ for (const name of ['phone-320', 'desktop-1280', 'spare']) {
     title: `Hide test story (${name})`,
     description: 'Dummy story for the hide test.',
     body: 'Placeholder text.',
-    tags: [
-      { slug: HIDE_TEST, name: 'Hide test', category: 'theme', version: 1 },
-    ],
+    tags: [{ id: HIDE_TEST, name: 'Hide test', category: 'theme', version: 1 }],
     publishedAt: '2026-10-22T20:00:00Z',
   };
 }
 
-// Card playback (card-playback.e2e.ts): stories listed only under `tag=play-test`. Each card
+// Card playback (card-playback.e2e.ts): stories listed only under `tag=play_test`. Each card
 // plays from its media area; "gone" answers 404 and "down" 503 when the player is asked for.
-const PLAY_TEST = 'play-test';
+const PLAY_TEST = 'play_test';
 const playTag = {
-  slug: PLAY_TEST,
+  id: PLAY_TEST,
   name: 'Play test',
   category: 'theme',
   version: 1,
@@ -336,9 +334,9 @@ playStory('play-test-down', {
   media: clip('video', '44444444-4444-4444-8444-444444444444', 1080, 1350),
 });
 // Prefetch check (card-playback.e2e.ts): each run makes its own video story (POST /__test/story,
-// `prefetch-test-…`), listed only under `tag=prefetch-test`, so no two tests (or repeats) ever
+// `prefetch-test-…`), listed only under `tag=prefetch_test`, so no two tests (or repeats) ever
 // share its read count. GET /__test/reads?slug= says how often its story was read.
-const PREFETCH_TEST = 'prefetch-test';
+const PREFETCH_TEST = 'prefetch_test';
 const prefetchStory = (slug) => {
   // A UUID-shaped media id of the story's own (the player's links name it).
   const h = createHash('sha256').update(slug).digest('hex');
@@ -348,7 +346,7 @@ const prefetchStory = (slug) => {
     title: `Prefetch test ${slug}`,
     tags: [
       {
-        slug: PREFETCH_TEST,
+        id: PREFETCH_TEST,
         name: 'Prefetch test',
         category: 'theme',
         version: 1,
@@ -357,10 +355,10 @@ const prefetchStory = (slug) => {
     media: clip('video', id, 1920, 1080),
   });
 };
-// The NEW badge (new-badge.e2e.ts, D72): stories listed only under `tag=new-test`, dated around
+// The NEW badge (new-badge.e2e.ts, D72): stories listed only under `tag=new_test`, dated around
 // the e2e servers' pinned clock (E2E_NOW in servers.ts, 2026-10-25T12:00:00Z). New means less
 // than 7 days old, so exactly 7 days isn't, and one second less is.
-const NEW_TEST = 'new-test';
+const NEW_TEST = 'new_test';
 for (const [slug, title, format, publishedAt] of [
   ['new-test-2-days', 'New test: 2 days old', 'video', '2026-10-23T12:00:00Z'],
   [
@@ -386,7 +384,7 @@ for (const [slug, title, format, publishedAt] of [
     primaryFormat: format,
     title,
     description: 'Placeholder story for the NEW badge tests.',
-    tags: [{ slug: NEW_TEST, name: 'New test', category: 'theme', version: 1 }],
+    tags: [{ id: NEW_TEST, name: 'New test', category: 'theme', version: 1 }],
     publishedAt,
     ...(format === 'written'
       ? { body: 'Placeholder text for the NEW badge tests.' }
@@ -404,10 +402,10 @@ const reads = new Map();
 const UNREADABLE = { 'play-test-gone': 404, 'play-test-down': 503 };
 
 // Hearts (favourites.e2e.ts): a story per behaviour device to heart, listed only under
-// `tag=heart-test`. A test that hides a story makes its own first (POST /__test/story), listed
+// `tag=heart_test`. A test that hides a story makes its own first (POST /__test/story), listed
 // nowhere, so no two tests (or repeats) ever share one.
-const HEART_TEST = 'heart-test';
-const HEART_TMP = 'heart-tmp';
+const HEART_TEST = 'heart_test';
+const HEART_TMP = 'heart_tmp';
 for (const name of ['phone-320', 'desktop-1280']) {
   const slug = `heart-test-${name}`;
   stories[slug] = {
@@ -418,7 +416,7 @@ for (const name of ['phone-320', 'desktop-1280']) {
     description: 'Dummy story for the hearts test.',
     body: 'Placeholder text.',
     tags: [
-      { slug: HEART_TEST, name: 'Heart test', category: 'theme', version: 1 },
+      { id: HEART_TEST, name: 'Heart test', category: 'theme', version: 1 },
     ],
     publishedAt: '2026-10-22T20:00:00Z',
   };
@@ -428,8 +426,9 @@ for (const name of ['phone-320', 'desktop-1280']) {
 // picture, a 9:16 video and a 16:9 video, each at its own shape. Test-tagged stories' related
 // lists hold only stories with the same test tag.
 const ASPECT_TEST = 'aspect-test';
+const ASPECT_TAG = 'aspect_test';
 const aspectTag = {
-  slug: ASPECT_TEST,
+  id: ASPECT_TAG,
   name: 'Aspect test',
   category: 'theme',
   version: 1,
@@ -475,7 +474,7 @@ aspectStory('aspect-test-landscape', {
 });
 
 const TEST_TAGS = [
-  ASPECT_TEST,
+  ASPECT_TAG,
   HIDE_TEST,
   PLAY_TEST,
   PREFETCH_TEST,
@@ -484,7 +483,7 @@ const TEST_TAGS = [
   NEW_TEST,
 ];
 const testTagOf = (s) =>
-  s.tags.find((t) => TEST_TAGS.includes(t.slug))?.slug ?? null;
+  s.tags.find((t) => TEST_TAGS.includes(t.id))?.id ?? null;
 
 // A story whose related list can't load (503): its page still shows (pages.e2e.ts). Listed
 // nowhere, so the browse counts stay as they are.
@@ -533,7 +532,7 @@ function summaryOf(s) {
     image: s.image,
     textLength: (s.body ?? '').length,
     tags: s.tags.map(
-      (t) => tag(t.slug) ?? { ...t, category: 'theme', version: 1 },
+      (t) => tag(t.id) ?? { ...t, category: 'theme', version: 1 },
     ),
     publishedAt: s.publishedAt,
   };
@@ -738,7 +737,7 @@ function listStories(mode, url, res) {
     (s) =>
       s.slug !== RELATED_DOWN &&
       (testTagOf(s) === null || tags.includes(testTagOf(s))) &&
-      tags.every((t) => s.tags.some((x) => x.slug === t)) &&
+      tags.every((t) => s.tags.some((x) => x.id === t)) &&
       (!format || s.primaryFormat === format) &&
       (!q ||
         `${s.title} ${s.description} ${s.body ?? ''}`
@@ -769,7 +768,7 @@ function related(mode, slug, res) {
     (s) => s.slug !== slug && (own ? testTagOf(s) === own : !unlisted(s)),
   );
   const shared = others.filter((s) =>
-    s.tags.some((t) => story.tags.some((x) => x.slug === t.slug)),
+    s.tags.some((t) => story.tags.some((x) => x.id === t.id)),
   );
   const picked = [
     ...shared,
@@ -840,7 +839,7 @@ const handler = (mode) => (req, res) => {
       description: 'Dummy story a hearts test made for itself.',
       body: 'Placeholder text.',
       tags: [
-        { slug: HEART_TMP, name: 'Heart temp', category: 'theme', version: 1 },
+        { id: HEART_TMP, name: 'Heart temp', category: 'theme', version: 1 },
       ],
       publishedAt: '2026-10-22T21:00:00Z',
     };
@@ -871,11 +870,15 @@ const handler = (mode) => (req, res) => {
   if (site) return siteVideo(mode, site[1], res);
   if (url.pathname === '/v1/stories') return listStories(mode, url, res);
   // O5: the main themes, as dev-seed sets them (the "theme" tags, in order); the rest are behind
-  // "More themes".
+  // "More themes". Go live has none to show (themes.e2e.ts): none chosen yet, or none a published
+  // story uses, which api-public-read leaves out, so the site gets the same empty list.
   if (url.pathname === '/v1/tags')
     return json(res, 200, {
       data: TAGS,
-      main: TAGS.filter((t) => t.category === 'theme').map((t) => t.slug),
+      main:
+        mode === 'live'
+          ? []
+          : TAGS.filter((t) => t.category === 'theme').map((t) => t.id),
     });
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);
   if (rel) return related(mode, rel[1], res);

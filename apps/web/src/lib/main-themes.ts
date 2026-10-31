@@ -2,26 +2,26 @@
 // admin picked come first, in the admin's order, and every other theme sits behind "More themes".
 
 interface Named {
-  slug: string;
+  id: string;
   name: string;
 }
 
 /**
- * The themes to show first (`main`, in the admin's order) and the rest (`more`, by name). With no
- * main themes set (`main` empty), every theme is shown first and there is nothing more.
+ * The themes to show first (`main`, in the admin's order) and the rest (`more`, by name). The rest
+ * always stay behind "More themes", even when none of the main themes is here (none set, or, on
+ * browse, none used by a published story): a phone never gets the whole list at once.
  */
 export function splitThemes<T extends Named>(
   themes: T[],
   main: string[],
 ): { main: T[]; more: T[] } {
-  const bySlug = new Map(themes.map((t) => [t.slug, t]));
-  const first = main.flatMap((slug) => bySlug.get(slug) ?? []);
-  if (first.length === 0) return { main: themes, more: [] };
-  const shown = new Set(first.map((t) => t.slug));
+  const byId = new Map(themes.map((t) => [t.id, t]));
+  const first = main.flatMap((id) => byId.get(id) ?? []);
+  const shown = new Set(first.map((t) => t.id));
   return {
     main: first,
     more: themes
-      .filter((t) => !shown.has(t.slug))
+      .filter((t) => !shown.has(t.id))
       .sort((a, b) => a.name.localeCompare(b.name, 'en')),
   };
 }

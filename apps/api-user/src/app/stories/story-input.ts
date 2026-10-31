@@ -16,7 +16,7 @@ export interface StoryFields {
   description?: string;
   body?: string | null;
   bylineName?: string | null;
-  tagSlugs?: string[];
+  tagIds?: string[];
 }
 
 export interface CreateInput extends StoryFields {
@@ -30,7 +30,8 @@ interface FieldError {
 }
 
 const LIMITS = { title: 140, description: 5000, bylineName: 80 } as const;
-const TAG_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// A tag's id (R2): opaque, the record id without `tag:`, as story ids are.
+const TAG_ID = /^[A-Za-z0-9_]{1,64}$/;
 const length = (s: string) => [...s].length;
 
 function fail(errors: FieldError[]): never {
@@ -97,19 +98,19 @@ function fields(
       });
     } else out.bylineName = n.trim() || null; // blank = anonymous
   }
-  if ('tagSlugs' in b) {
-    const tags = b['tagSlugs'];
+  if ('tagIds' in b) {
+    const tags = b['tagIds'];
     if (
       !Array.isArray(tags) ||
       tags.length > STORY_CEILINGS.tags ||
-      tags.some((t) => typeof t !== 'string' || !TAG_SLUG.test(t)) ||
+      tags.some((t) => typeof t !== 'string' || !TAG_ID.test(t)) ||
       new Set(tags).size !== tags.length
     ) {
       errors.push({
-        pointer: '/tagSlugs',
-        message: `at most ${STORY_CEILINGS.tags} different tag slugs`,
+        pointer: '/tagIds',
+        message: `at most ${STORY_CEILINGS.tags} different tag ids`,
       });
-    } else out.tagSlugs = tags as string[];
+    } else out.tagIds = tags as string[];
   }
   return out;
 }
@@ -120,7 +121,7 @@ export function parseCreate(body: unknown): CreateInput {
   const errors: FieldError[] = [];
   const f = fields(
     b,
-    ['title', 'description', 'body', 'bylineName', 'primaryFormat', 'tagSlugs'],
+    ['title', 'description', 'body', 'bylineName', 'primaryFormat', 'tagIds'],
     errors,
   );
   const format = b['primaryFormat'];
@@ -144,7 +145,7 @@ export function parsePatch(body: unknown): StoryFields {
   const errors: FieldError[] = [];
   const f = fields(
     b,
-    ['title', 'description', 'body', 'bylineName', 'tagSlugs'],
+    ['title', 'description', 'body', 'bylineName', 'tagIds'],
     errors,
   );
   if (errors.length) fail(errors);
@@ -160,9 +161,9 @@ export function overLimit(errors: FieldError[]): never {
   });
 }
 
-/** A tag slug the database doesn't know (`400`, `/tagSlugs`). */
+/** A tag slug the database doesn't know (`400`, `/tagIds`). */
 export function unknownTags(): never {
-  fail([{ pointer: '/tagSlugs', message: 'a tag that doesn’t exist' }]);
+  fail([{ pointer: '/tagIds', message: 'a tag that doesn’t exist' }]);
 }
 
 /** A written story's text can't be emptied (D53: it needs its text). */
