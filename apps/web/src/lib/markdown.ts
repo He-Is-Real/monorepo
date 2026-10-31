@@ -30,25 +30,33 @@ const CLASS = {
   code: 'rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-foreground [overflow-wrap:anywhere] [box-decoration-break:clone]',
   // A code block wraps too: no sideways scroll on phones.
   pre: 'rounded-lg bg-muted px-4 py-3 font-mono text-sm leading-relaxed text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]',
-  // Tables: below sm each row stacks as a block with its column names (data-label), so
-  // nothing scrolls sideways; explicit roles keep it a table for screen readers despite the
-  // CSS. From 1024 px it breaks out of the reading column by the same amount on both sides.
-  tableWrap: 'rounded-xl border border-border lg:-mx-16',
-  // From sm, break-word, not the site's `anywhere`: a table sizes its columns from their
-  // narrowest content, which `anywhere` would shrink to single letters.
-  table: 'w-full text-left text-sm sm:[overflow-wrap:break-word]',
+  // Tables, sized by the box they're in (a container query on the wrapper), not the screen:
+  // the same policy sits in a page's column, a card in the share flow, and the admin's preview.
+  // In a box narrower than 38rem each row stacks as a block with its column names (data-label);
+  // explicit roles keep it a table for screen readers despite the CSS. In rem, so the switch
+  // moves with a reader's text size. Anything still too wide for its box (a long word at 200%
+  // text) scrolls inside the wrapper, never the page; a page with room either side may widen
+  // the wrapper (legal-document-page.tsx).
+  tableWrap: '@container overflow-x-auto rounded-xl border border-border',
+  // As a table, break-word, not the site's `anywhere`: a table sizes its columns from their
+  // narrowest content, which `anywhere` would shrink to single letters. Inline code too, so the
+  // first column is as wide as its longest name and `__client_uat` stays on one line.
+  table:
+    'w-full text-left text-sm @min-[38rem]:[overflow-wrap:break-word] @min-[38rem]:[&_code]:[overflow-wrap:break-word]',
   thead: 'bg-raised text-foreground',
   // On each cell, not the thead: `overflow` doesn't apply to table rows and row groups, so a
-  // hidden thead's cells would still widen the page.
-  th: 'px-4 py-3 font-semibold max-sm:sr-only',
+  // hidden thead's cells would still widen the box.
+  th: 'px-4 py-3 font-semibold @max-[38rem]:sr-only',
   tbody: 'text-secondary-text',
-  tr: 'align-top max-sm:block max-sm:px-4 max-sm:py-4',
+  tr: 'align-top @max-[38rem]:block @max-[38rem]:px-4 @max-[38rem]:py-4',
   trBorder: 'border-t border-border',
-  trFirst: 'sm:border-t sm:border-border',
+  trFirst: '@min-[38rem]:border-t @min-[38rem]:border-border',
   rowheader:
-    'font-mono text-xs font-normal break-all text-foreground max-sm:block max-sm:pb-2 sm:px-4 sm:py-3',
-  // On phones each cell shows its column name above it.
-  cell: 'max-sm:block max-sm:py-1 max-sm:before:block max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:text-foreground max-sm:before:content-[attr(data-label)] sm:px-4 sm:py-3',
+    'font-mono text-xs font-normal text-foreground @max-[38rem]:block @max-[38rem]:pb-2 @min-[38rem]:px-4 @min-[38rem]:py-3',
+  // Stacked, each cell shows its column name above it. As a table, the other columns' words
+  // may break anywhere (a long host name), so the first column keeps its names whole and the
+  // rest share what's left by how much they say; at least 7rem each, never single letters.
+  cell: '@min-[38rem]:min-w-28 @min-[38rem]:[overflow-wrap:anywhere] @max-[38rem]:block @max-[38rem]:py-1 @max-[38rem]:before:block @max-[38rem]:before:text-xs @max-[38rem]:before:font-semibold @max-[38rem]:before:text-foreground @max-[38rem]:before:content-[attr(data-label)] @min-[38rem]:px-4 @min-[38rem]:py-3',
 } as const;
 
 /** The words of an inline token, without marks. */
@@ -205,7 +213,8 @@ function create(): MarkdownIt {
   const escape = md.utils.escapeHtml;
   md.renderer.rules.table_open = (tokens, idx) => {
     const caption = (tokens[idx].meta as { caption?: string } | null)?.caption;
-    return `<div class="${CLASS.tableWrap}"><table role="table" class="${CLASS.table}">${
+    // A focusable, named region, so keyboard users can scroll a table too wide for its box.
+    return `<div role="region" tabindex="0" aria-label="${escape(caption || 'Table')}" class="${CLASS.tableWrap}" data-legal-table=""><table role="table" class="${CLASS.table}">${
       caption ? `<caption class="sr-only">${escape(caption)}</caption>` : ''
     }\n`;
   };
