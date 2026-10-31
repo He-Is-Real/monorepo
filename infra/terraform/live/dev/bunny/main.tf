@@ -142,6 +142,9 @@ module "bunny" {
   # The nightly housekeeping Job lists and deletes orphaned story videos with the library's
   # API key (modules/gcp/housekeeping.tf; the gcp root makes its service account).
   stream_key_readers = ["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"]
+  # ...and deletes the images-zone folders of stories that are gone (erasure's pictures and
+  # abandoned drafts') with the zone's password.
+  storage_password_readers = ["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"]
 
   # Where the library's videos live (Bunny made it with library 789855).
   stream_storage_zone = { id = 2014507, name = "vz-bd66cea0-80b" }

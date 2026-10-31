@@ -39,6 +39,7 @@ import {
   uploadsState,
 } from './allowance';
 import { useDraft } from './use-draft';
+import { ImagePanel, type PictureState } from './image-panel';
 import { fileLimits, type FileState, UploadPanel } from './upload-panel';
 
 /**
@@ -447,6 +448,8 @@ function SignedInFlow({
             <WriteStep
               heading={heading}
               draft={draft}
+              calls={calls}
+              owner={owner}
               onNext={() => go(after('write'))}
               onBack={() => go(before('write'))}
             />
@@ -978,18 +981,57 @@ function SaveState({ draft }: { draft: DraftState }) {
   );
 }
 
+/** The story's picture from its last read (another tab or device, or before a reload). */
+function useEarlierPicture(
+  calls: ReturnType<typeof shareApi>,
+  draftId: string | null,
+) {
+  const [story, setStory] = useState<MyStory | null>(null);
+  useEffect(() => {
+    if (!draftId) return;
+    let live = true;
+    calls
+      .story(draftId)
+      .then((s) => live && setStory(s))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [calls, draftId]);
+  return story;
+}
+
 function WriteStep({
   heading,
   draft,
+  calls,
+  owner,
   onNext,
   onBack,
 }: {
   heading: HeadingRef;
   draft: DraftState;
+  calls: ReturnType<typeof shareApi>;
+  owner: string;
   onNext: () => void;
   onBack: () => void;
 }) {
   const limits = useLimits();
+  const earlier = useEarlierPicture(calls, draft.draftId);
+  const [picture, setPicture] = useState<PictureState>('none');
+  const [pictureProblem, setPictureProblem] = useState<string | null>(null);
+  // The draft exists once it has its title and text (D53), so the picture comes after them.
+  const preparePicture = async () => {
+    if (!draft.fields.title.trim() || !draft.fields.body.trim()) {
+      return 'Write your title and your story first, then add a picture.';
+    }
+    if (!(await draft.flush())) {
+      return 'Your story couldn’t be saved yet, so the picture can’t be added. Please try again.';
+    }
+    const { draftId: id, version } = draft.current();
+    if (!id || !version) return 'Your story isn’t saved yet. Please try again.';
+    return { draftId: id, version };
+  };
   const [problems, setProblems] = useState<{ title?: string; body?: string }>(
     {},
   );
@@ -1006,6 +1048,13 @@ function WriteStep({
         if (!draft.fields.body.trim()) p.body = 'Write your story here.';
         setProblems(p);
         if (p.title || p.body) return;
+        if (picture === 'unfinished') {
+          setPictureProblem(
+            'Add the picture you chose, or remove it, before you continue.',
+          );
+          return;
+        }
+        setPictureProblem(null);
         if (await draft.flush()) onNext();
       }}
     >
@@ -1064,6 +1113,26 @@ function WriteStep({
             <p className="mt-1 text-sm text-destructive">{problems.body}</p>
           )}
         </div>
+        <div>
+          <p className="mb-1.5 font-semibold">A picture (optional)</p>
+          <ImagePanel
+            calls={calls}
+            owner={owner}
+            format="written"
+            draftId={draft.draftId}
+            earlier={earlier?.image ?? null}
+            prepare={preparePicture}
+            setVersion={draft.setVersion}
+            current={draft.current}
+            reload={draft.load}
+            onState={setPicture}
+          />
+          {pictureProblem && (
+            <p role="alert" className="mt-2 text-destructive">
+              {pictureProblem}
+            </p>
+          )}
+        </div>
       </div>
       <SaveState draft={draft} />
       <Actions>
@@ -1105,21 +1174,11 @@ function MediaStep({
   const [titleProblem, setTitleProblem] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [file, setFile] = useState<FileState>('none');
-  const [earlier, setEarlier] = useState(false);
+  const [picture, setPicture] = useState<PictureState>('none');
   const { draftId } = draft;
-
-  // Whether the story has a file from before (another tab or device).
-  useEffect(() => {
-    if (!draftId) return;
-    let live = true;
-    calls
-      .story(draftId)
-      .then((story) => live && setEarlier(story.media.length > 0))
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [calls, draftId]);
+  // Whether the story has a file (and a picture) from before (another tab or device).
+  const story = useEarlierPicture(calls, draftId);
+  const earlier = (story?.media.length ?? 0) > 0;
 
   const prepare = async () => {
     if (!draft.fields.title.trim()) {
@@ -1151,6 +1210,12 @@ function MediaStep({
         if (file === 'unfinished') {
           setProblem(
             `Your ${noun} hasn’t finished uploading. Wait for it to finish, or pause it and come back later: your story is saved.`,
+          );
+          return;
+        }
+        if (picture === 'unfinished') {
+          setProblem(
+            `Add the ${format === 'video' ? 'thumbnail' : 'picture'} you chose, or remove it, before you continue.`,
           );
           return;
         }
@@ -1198,6 +1263,34 @@ function MediaStep({
             onCounted={refreshLimits}
           />
         </div>
+        {/* An audio story's picture, or (Joel, 2026-10-30) a video's own thumbnail once the
+            video is chosen; without one, Bunny's thumbnail (or the site's audio picture). */}
+        {(format === 'audio' || file !== 'none') && (
+          <div>
+            <p className="mb-1.5 font-semibold">
+              {format === 'video'
+                ? 'Add a thumbnail (optional)'
+                : 'Add a picture (optional)'}
+            </p>
+            <p className="mb-3 text-sm text-secondary-text">
+              {format === 'video'
+                ? 'The picture shown before your video plays. Without one, our video host picks a frame.'
+                : 'The picture shown while people listen. Without one, we show our own.'}
+            </p>
+            <ImagePanel
+              calls={calls}
+              owner={owner}
+              format={format}
+              draftId={draftId}
+              earlier={story?.image ?? null}
+              prepare={prepare}
+              setVersion={draft.setVersion}
+              current={draft.current}
+              reload={draft.load}
+              onState={setPicture}
+            />
+          </div>
+        )}
       </div>
       <SaveState draft={draft} />
       {problem && (
@@ -1409,6 +1502,8 @@ export function ReviewStep({
     social: newIdempotencyKey(),
   });
   const f = draft.fields;
+  // The picture as the story has it now (M2 plan PR 10).
+  const picture = useEarlierPicture(calls, draft.draftId)?.image ?? null;
   const tagNames = f.tagSlugs.map(
     (s) => tags.find((t) => t.slug === s)?.name ?? s,
   );
@@ -1571,6 +1666,19 @@ export function ReviewStep({
               </button>
             </>,
           );
+        } else if (p.code === 'image_not_uploaded') {
+          setProblem(
+            <>
+              {plainMessage(err, 'Your picture hasn’t finished uploading.')}{' '}
+              <button
+                type="button"
+                className="min-h-11 font-semibold text-link underline"
+                onClick={() => onEdit('write')}
+              >
+                Go to your picture
+              </button>
+            </>,
+          );
         } else if (p.code === 'tags_required') {
           setProblem(
             <>
@@ -1638,6 +1746,27 @@ export function ReviewStep({
               'write',
             )
           : row(`Your ${NOUN[draft.format]}`, 'Uploaded', 'write')}
+        {picture &&
+          row(
+            draft.format === 'video' ? 'Thumbnail' : 'Picture',
+            <div
+              data-review-picture=""
+              className="max-w-64 overflow-hidden rounded-lg bg-surface"
+              style={{ aspectRatio: `${picture.width} / ${picture.height}` }}
+            >
+              {picture.url && (
+                // A signed link, at a size already known.
+                <img
+                  src={picture.url}
+                  alt={picture.alt ?? 'Your picture'}
+                  width={picture.width}
+                  height={picture.height}
+                  className="block h-full w-full object-cover"
+                />
+              )}
+            </div>,
+            'write',
+          )}
       </dl>
       <div className="mt-6 flex flex-col gap-3">
         {askPublish ? (

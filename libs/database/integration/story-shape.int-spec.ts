@@ -22,13 +22,14 @@ import { approve, processed, submit } from './support/world';
  * enforced by the database (event `story_shape`, one definition in `fn::story::shape_problem`):
  *   written → text (body, not blank), no video or audio; optional image
  *   video   → one video media item, optional text; no image
- *   audio   → one audio media item, optional text; no image
+ *   audio   → one audio media item, optional text; an optional picture (M2 plan PR 10)
  * A draft is created before its upload (CreateDraftStory), so a video or audio story may have no
  * media while it's editable (draft, changes_requested); from submit on (pending, in_review,
  * approved) it needs exactly one. Shapes are real pixel sizes (positive ints), refused beyond
  * 1:3 or 3:1; audio has none. Media items and the image accept only the defined fields, so the
  * removed `aspectRatio` (or any free text) can't be stored. The image is the person's content
- * (D41): api-admin and workflow writes to it are dropped.
+ * (D41): api-admin and workflow writes to it are dropped; its file comes only through an upload
+ * grant (D80, images.int-spec.ts), and the person may change its description or remove it.
  */
 describe('story types and shapes (D53)', () => {
   let t: TestDatabase;
@@ -45,13 +46,13 @@ describe('story types and shapes (D53)', () => {
 
   /**
    * Pat creates a story with these extra fields (SurrealQL object entries); returns its id. With
-   * media, a system user creates it for Pat: a person's session never writes media (D80), and
-   * the shape rules are the same for every writer.
+   * media or an image, a system user creates it for Pat: a person's session never writes media or
+   * an image's file (D80), and the shape rules are the same for every writer.
    */
   const create = async (fields: string, person?: SurrealQueryable) => {
     seq += 1;
     const id = `shape_${seq}`;
-    const writer = person ?? (/\bmedia:/.test(fields) ? migrator : pat);
+    const writer = person ?? (/\b(media|image):/.test(fields) ? migrator : pat);
     const result = await outcome(
       writer,
       `CREATE type::record('story', $id) CONTENT {
@@ -86,7 +87,7 @@ describe('story types and shapes (D53)', () => {
 
   const VIDEO = `{ format: 'video', bunnyVideoId: 'vid', width: 1080, height: 1920 }`;
   const AUDIO = `{ format: 'audio', bunnyVideoId: 'aud', durationSeconds: 60 }`;
-  const IMAGE = `{ path: 'images/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
+  const IMAGE = `{ path: 'dev-seed/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
   /** A written story's text, long enough to submit (200 characters). */
   const TEXT = `body: '${'Words of the story. '.repeat(11)}'`;
 
@@ -112,15 +113,15 @@ describe('story types and shapes (D53)', () => {
       ],
       [
         'an image without alt text (readers use a neutral default)',
-        `primaryFormat: 'written', body: 'My story', image: { path: 'images/b.webp', width: 800, height: 800 }`,
+        `primaryFormat: 'written', body: 'My story', image: { path: 'dev-seed/b.webp', width: 800, height: 800 }`,
       ],
       [
         'an image at exactly 1:3',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 500, height: 1500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500, height: 1500 }`,
       ],
       [
         'an image at exactly 3:1',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 1500, height: 500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 1500, height: 500 }`,
       ],
     ])('allows %s', async (_name, fields) => {
       await created(fields);
@@ -145,22 +146,22 @@ describe('story types and shapes (D53)', () => {
       ],
       [
         'an image taller than 1:3',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 500, height: 1501 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500, height: 1501 }`,
         'beyond 1:3 or 3:1',
       ],
       [
         'an image wider than 3:1',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 1501, height: 500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 1501, height: 500 }`,
         'beyond 1:3 or 3:1',
       ],
       [
         'an image of zero width',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 0, height: 500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 0, height: 500 }`,
         'image.width',
       ],
       [
         'an image without a height',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500 }`,
         'image.height',
       ],
       [
@@ -170,7 +171,7 @@ describe('story types and shapes (D53)', () => {
       ],
       [
         'an image with an aspect-ratio label',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 5, height: 5, aspectRatio: '1:1' }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 5, height: 5, aspectRatio: '1:1' }`,
         'image.aspectRatio',
       ],
     ])('refuses %s', async (_name, fields, message) => {
@@ -272,6 +273,11 @@ describe('story types and shapes (D53)', () => {
     });
   });
 
+  it('every type may have an image: a written story’s, an audio story’s picture, a video’s own thumbnail (M2 plan PR 10)', async () => {
+    await created(`primaryFormat: 'video', media: [${VIDEO}], image: ${IMAGE}`);
+    await created(`primaryFormat: 'audio', media: [${AUDIO}], image: ${IMAGE}`);
+  });
+
   describe.each([
     ['video', VIDEO, AUDIO],
     ['audio', AUDIO, VIDEO],
@@ -290,11 +296,6 @@ describe('story types and shapes (D53)', () => {
         'the other format',
         `media: [${other}]`,
         `a ${format} story’s media must be ${format}`,
-      ],
-      [
-        'an image',
-        `media: [${own}], image: ${IMAGE}`,
-        'only a written story can have an image',
       ],
     ])('refuses %s', async (_name, fields, message) => {
       await refused(`primaryFormat: '${format}', ${fields}`, message);
@@ -400,22 +401,13 @@ describe('story types and shapes (D53)', () => {
   });
 
   describe('changing type', () => {
-    it('allows written → video while a draft, once the text-only parts fit', async () => {
+    it('allows written → video while a draft; the image stays, as its thumbnail', async () => {
       const id = await created(
         `primaryFormat: 'written', body: 'x', image: ${IMAGE}`,
       );
-      expect(await update(id, `primaryFormat = 'video'`)).toEqual({
-        ok: false,
-        error: expect.stringContaining(
-          'only a written story can have an image',
-        ),
+      expect(await update(id, `primaryFormat = 'video'`)).toMatchObject({
+        ok: true,
       });
-      expect(
-        await update(
-          id,
-          `primaryFormat = 'video', image = NONE, media = [${VIDEO}]`,
-        ),
-      ).toMatchObject({ ok: true });
     });
   });
 
@@ -440,9 +432,9 @@ describe('story types and shapes (D53)', () => {
       const before = await image();
       for (const set of [
         `image = NONE`,
-        `image = { path: 'other.webp', width: 10, height: 10 }`,
+        `image = { path: 'dev-seed/other.webp', width: 10, height: 10 }`,
         `image.alt = 'Words the person never wrote'`,
-        `image.path = 'someone-elses.webp'`,
+        `image.path = 'dev-seed/someone-elses.webp'`,
       ]) {
         await update(id, set, db());
       }
@@ -463,8 +455,9 @@ describe('story types and shapes (D53)', () => {
         `primaryFormat: 'written', body: 'x'`,
         quinn,
       );
+      await update(q, `image = ${IMAGE}`, migrator);
       await consentEvent(quinn, 'special_category_religious', 'withdrawn');
-      expect(await update(q, `image = ${IMAGE}`, quinn)).toEqual({
+      expect(await update(q, `image.alt = 'Changed'`, quinn)).toEqual({
         ok: false,
         error: expect.stringContaining('current Art 9 consent'),
       });
@@ -501,7 +494,12 @@ describe('story types and shapes (D53)', () => {
           { w },
         ),
       ).toEqual([
-        { path: 'images/a.webp', width: 1200, height: 1600, alt: 'A sunrise' },
+        {
+          path: 'dev-seed/a.webp',
+          width: 1200,
+          height: 1600,
+          alt: 'A sunrise',
+        },
       ]);
       expect(
         await rows(

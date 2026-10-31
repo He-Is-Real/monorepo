@@ -33,7 +33,7 @@ describe('approval waits for media processing (A2)', () => {
   const TEXT = `${'Words of the story. '.repeat(11)}`;
   const VIDEO = `{ format: 'video', bunnyVideoId: 'vid' }`;
   const AUDIO = `{ format: 'audio', bunnyVideoId: 'aud' }`;
-  const IMAGE = `{ path: 'images/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
+  const IMAGE = `{ path: 'dev-seed/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
 
   const truth = <T = Record<string, unknown>>(
     sql: string,
@@ -61,10 +61,11 @@ describe('approval waits for media processing (A2)', () => {
 
   /**
    * Pat creates a draft with these extra fields (SurrealQL object entries). `media` (a SurrealQL
-   * array) is then put on it as an upload would, by a system user: a person's session never
-   * writes media (D80), and these tests are about processing, not grants (uploads.int-spec.ts).
+   * array) and `image` (an object) are then put on it as an upload would, by a system user: a
+   * person's session never writes media or an image's file (D80), and these tests are about
+   * processing, not grants (uploads.int-spec.ts, images.int-spec.ts).
    */
-  const create = async (fields: string, media?: string) => {
+  const create = async (fields: string, media?: string, image?: string) => {
     seq += 1;
     const id = `proc_${seq}`;
     const result = await outcome(
@@ -85,12 +86,19 @@ describe('approval waits for media processing (A2)', () => {
         },
       );
     }
+    if (image) {
+      await run(
+        migrator,
+        `UPDATE type::record('story', $id) SET image = ${image}`,
+        { id },
+      );
+    }
     return id;
   };
   const video = () => create(`primaryFormat: 'video'`, `[${VIDEO}]`);
   const audio = () => create(`primaryFormat: 'audio'`, `[${AUDIO}]`);
   const written = () =>
-    create(`primaryFormat: 'written', body: '${TEXT}', image: ${IMAGE}`);
+    create(`primaryFormat: 'written', body: '${TEXT}'`, undefined, IMAGE);
   const update = (id: string, set: string, db: SurrealQueryable = pat) =>
     outcome(db, `UPDATE type::record('story', $id) SET ${set}`, { id });
 
@@ -125,9 +133,9 @@ describe('approval waits for media processing (A2)', () => {
       expect(await processing(v)).toEqual({ media: [], image: undefined });
       const w = await create(
         `primaryFormat: 'written', body: 'x',
-         image: { path: 'p', width: 10, height: 10, processing: 'ready' }`,
+         image: { path: 'dev-seed/p.webp', width: 10, height: 10, processing: 'ready' }`,
       );
-      expect(await processing(w)).toEqual({ media: [], image: null });
+      expect(await processing(w)).toEqual({ media: [], image: undefined });
     });
 
     it.each([
@@ -189,7 +197,7 @@ describe('approval waits for media processing (A2)', () => {
         ),
       ).toMatchObject({ ok: true });
       expect((await story(w)).image).toEqual({
-        path: 'images/a.webp',
+        path: 'dev-seed/a.webp',
         width: 1200,
         height: 1600,
         alt: 'A sunrise',
@@ -197,7 +205,7 @@ describe('approval waits for media processing (A2)', () => {
       });
       // Workflow can't remove the person's image either.
       await update(w, `image = NONE`, workflow);
-      expect((await story(w)).image).toMatchObject({ path: 'images/a.webp' });
+      expect((await story(w)).image).toMatchObject({ path: 'dev-seed/a.webp' });
     });
 
     it('refuses an unknown processing state', async () => {
@@ -234,16 +242,19 @@ describe('approval waits for media processing (A2)', () => {
 
     it.each([
       [
-        'another image',
-        `image = { path: 'images/b.webp', width: 800, height: 800 }`,
+        'another image (dropped: only a grant brings one, D80)',
+        `image = { path: 'dev-seed/b.webp', width: 800, height: 800 }`,
       ],
-      ['another path', `image.path = 'images/c.webp'`],
+      ['another path (dropped)', `image.path = 'dev-seed/c.webp'`],
       ['another alt text', `image.alt = 'Sunrise over the hills'`],
-    ])('image: %s', async (_name, set) => {
+    ])('image: the person’s %s keeps it', async (_name, set) => {
       const id = await written();
       await processed(workflow, id);
       expect(await update(id, set)).toMatchObject({ ok: true });
-      expect(await processing(id)).toEqual({ media: [], image: null });
+      expect(await processing(id)).toEqual({ media: [], image: 'ready' });
+      expect((await story(id)).image).toMatchObject({
+        path: 'dev-seed/a.webp',
+      });
     });
 
     it('keeps it while the media and image are unchanged', async () => {
@@ -870,7 +881,7 @@ describe('approval waits for media processing (A2)', () => {
       [
         'another image path',
         written,
-        `image.path = 'images/replacement.webp'`,
+        `image.path = 'dev-seed/replacement.webp'`,
         null,
       ],
     ])(
@@ -900,12 +911,12 @@ describe('approval waits for media processing (A2)', () => {
     );
 
     it('a written story’s new image path stays hidden: a moderator must review it', async () => {
-      // Only a system user (or, before submit, the person) can write image.path.
+      // Only a system user (or an upload grant, before submit) can write image.path.
       const id = await live(written);
       await update(id, `image.processing = 'failed'`, workflow);
       await update(
         id,
-        `image.path = 'images/replacement.webp', image.processing = 'ready'`,
+        `image.path = 'dev-seed/replacement.webp', image.processing = 'ready'`,
         migrator,
       );
       await expectHidden(id);

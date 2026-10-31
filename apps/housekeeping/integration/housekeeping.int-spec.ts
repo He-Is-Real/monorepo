@@ -4,6 +4,7 @@ import {
   consentEvent,
   createPeople,
   grantAll,
+  grantImage,
   grantUpload,
   outcome,
   publishDpa,
@@ -17,6 +18,7 @@ import type { Surreal, SurrealTransaction } from 'surrealdb';
 import { CHORES } from '../src/app/chores';
 import type { ClerkUsers } from '../src/app/clerk';
 import { erasureRequestsTask, pendingDeletionsTask } from '../src/app/erasure';
+import type { ImageZone } from '../src/app/images';
 import { startHousekeeping } from '../src/app/start';
 import type { LibraryVideo, StreamLibrary } from '../src/app/stream';
 import { runTasks, type TaskContext } from '../src/app/tasks';
@@ -37,6 +39,14 @@ class FakeLibrary implements StreamLibrary {
   async delete(guid: string) {
     this.deleted.push(guid);
     this.videos = this.videos.filter((v) => v.guid !== guid);
+  }
+}
+
+/** The images zone, in memory: the story folders it was asked to delete. */
+class FakeZone implements ImageZone {
+  deleted: string[] = [];
+  async deleteFolder(folder: string) {
+    this.deleted.push(folder);
   }
 }
 
@@ -98,6 +108,10 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
   let library: FakeLibrary;
   const V = {} as Record<string, string>;
   const logs: Record<string, unknown>[] = [];
+  const OLD_PICTURE = `stories/old_written_draft/${'c'.repeat(32)}.webp`;
+  const YOUNG_PICTURE = `stories/young_draft/${'d'.repeat(32)}.webp`;
+  const queued = () =>
+    rows(migrator, `SELECT kind, ref FROM pendingDeletion ORDER BY ref`);
 
   const exists = async (id: string) =>
     (await rows(migrator, `SELECT id FROM type::record('story', $id)`, { id }))
@@ -151,8 +165,24 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     await draft(ann, 'old_video_draft', 'video');
     await touched('old_video_draft', 200, media(V.expired));
     await draft(ann, 'old_written_draft', 'written');
+    expect(
+      await grantImage(apiUser, {
+        story: 'old_written_draft',
+        person: 'ann',
+        version: 1,
+        path: OLD_PICTURE,
+      }),
+    ).toMatchObject({ ok: true });
     await touched('old_written_draft', 190);
     await draft(ann, 'young_draft', 'video');
+    expect(
+      await grantImage(apiUser, {
+        story: 'young_draft',
+        person: 'ann',
+        version: 1,
+        path: YOUNG_PICTURE,
+      }),
+    ).toMatchObject({ ok: true });
     await touched('young_draft', 184, media(V.youngRef));
     // Never a draft: submitted 200 days ago, and withdrawn 200 days ago.
     await draft(bob, 'old_pending', 'video');
@@ -228,10 +258,18 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
       `UPDATE story:young_draft SET updatedAt = time::now() - 400d`,
     );
     await run(housekeeping, `DELETE uploadGrant`);
+    // Nor may it queue a live story's picture, or anything but a picture, for deletion.
+    await run(
+      housekeeping,
+      `CREATE pendingDeletion CONTENT { kind: 'image', ref: $young };
+       CREATE pendingDeletion CONTENT { kind: 'image', ref: 'stories/none/x.webp' }`,
+      { young: YOUNG_PICTURE },
+    );
+    expect(await queued()).toEqual([]);
     expect(await exists('young_draft')).toBe(true);
     expect(await exists('old_pending')).toBe(true);
     expect(await exists('old_withdrawn')).toBe(true);
-    expect(await rows(migrator, `SELECT id FROM uploadGrant`)).toHaveLength(2);
+    expect(await rows(migrator, `SELECT id FROM uploadGrant`)).toHaveLength(4);
     const [young] = await rows<{ days: number }>(
       migrator,
       `SELECT VALUE duration::days(time::now() - updatedAt) FROM story:young_draft`,
@@ -308,6 +346,40 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
         V.undated,
       ].sort(),
     );
+  });
+
+  it('queues the deleted drafts’ picture folders, and deletes them once the images zone can be used, the last time after a PUT link’s 10 minutes', async () => {
+    const folders = ['stories/old_video_draft/', 'stories/old_written_draft/'];
+    expect(await queued()).toEqual(
+      folders.map((ref) => ({ kind: 'image', ref })),
+    );
+    const zone = new FakeZone();
+    expect(await sweep({ images: zone, dryRun: true })).toBe(0);
+    expect(zone.deleted).toEqual([]);
+    // Straight away: deleted, but a PUT link signed before the draft went may still be used, so
+    // the rows wait for their final pass (fn::erasure::final_pass_after), tries unchanged.
+    expect(await sweep({ images: zone })).toBe(0);
+    expect(zone.deleted.sort()).toEqual(folders);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE [attempts, nextAttemptAt = finalPassAt, finalPassAt > time::now() + 14m]
+         FROM pendingDeletion`,
+      ),
+    ).toEqual([
+      [0, true, true],
+      [0, true, true],
+    ]);
+    expect(await sweep({ images: zone })).toBe(0);
+    expect(zone.deleted).toHaveLength(2);
+    // Fifteen minutes on: the final pass deletes them again, and they're done.
+    await run(
+      migrator,
+      `UPDATE pendingDeletion SET finalPassAt = time::now() - 1s, nextAttemptAt = time::now() - 1s`,
+    );
+    expect(await sweep({ images: zone })).toBe(0);
+    expect(zone.deleted.slice(2).sort()).toEqual(folders);
+    expect(await queued()).toEqual([]);
   });
 
   it('is safe to run again: nothing left to do', async () => {
@@ -504,10 +576,11 @@ describe('housekeeping: erasure requests and queued deletions', () => {
       },
       (entry) => logs.push(entry),
     );
+  // Their stories' picture folders wait too (no images zone here): the describes either side.
   const queued = () =>
     rows<{ ref: string; attempts: number }>(
       migrator,
-      `SELECT ref, attempts FROM pendingDeletion ORDER BY ref`,
+      `SELECT ref, attempts FROM pendingDeletion WHERE kind != 'image' ORDER BY ref`,
     );
   const erased = async (who: string) =>
     (
@@ -653,9 +726,23 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
     `projects/${PROJECT}/secrets/${id}/versions/latest`;
   const GUS_VIDEO = guid();
   const HAL_VIDEO = guid();
+  const HAL_PICTURE = `stories/hal_video/${'e'.repeat(32)}.webp`;
+  const FOLDERS = ['stories/gus_video/', 'stories/hal_video/'];
 
-  /** Secret Manager, in memory: the DB password reads; Clerk's and Bunny's keys as given. */
-  const start = (clerkKey: () => string, bunnyKey = () => 'bunny-key') => {
+  const disabled = () => {
+    throw new Error(
+      '9 FAILED_PRECONDITION: Secret Version is in DISABLED state.',
+    );
+  };
+  /**
+   * Secret Manager, in memory: the DB password reads; Clerk's and Bunny's keys and the images
+   * zone's password as given.
+   */
+  const start = (
+    clerkKey: () => string,
+    bunnyKey = () => 'bunny-key',
+    zonePassword: () => string = disabled,
+  ) => {
     const payloads: Record<string, string> = {
       [secret('surreal-password-housekeeping')]:
         t.servicePasswords.get('housekeeping') ?? '',
@@ -669,7 +756,9 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
                 ? clerkKey()
                 : name === secret('bunny-stream-api-key')
                   ? bunnyKey()
-                  : payloads[name],
+                  : name === secret('bunny-storage-password')
+                    ? zonePassword()
+                    : payloads[name],
           },
         },
       ],
@@ -679,6 +768,8 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
       story(HAL_VIDEO, ago(1)),
     ]);
     const clerkMade: string[] = [];
+    const zone = new FakeZone();
+    const zoneMade: { name: string; host: string }[] = [];
     const logs: Record<string, unknown>[] = [];
     const exitCode = startHousekeeping({
       config: {
@@ -692,6 +783,11 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
         },
         stream: { libraryId: '1', keySecret: 'bunny-stream-api-key' },
         clerkKeySecret: 'clerk-secret-key',
+        images: {
+          zone: 'test-zone',
+          s3Host: 'uk-s3.storage.bunnycdn.com',
+          passwordSecret: 'bunny-storage-password',
+        },
         dryRun: false,
         maxDeletions: 50,
       },
@@ -702,8 +798,12 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
         clerkMade.push(key);
         throw new Error('Clerk must not be used');
       },
+      images: ({ name, host }) => {
+        zoneMade.push({ name, host });
+        return zone;
+      },
     });
-    return { exitCode, library, logs, clerkMade };
+    return { exitCode, library, logs, clerkMade, zone, zoneMade };
   };
   const queued = () =>
     rows<{ kind: string; ref: string; attempts: number }>(
@@ -734,7 +834,15 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
         }),
       ).toMatchObject({ ok: true });
     }
-    // Gus withdrew his testimony consent and wasn't erased; Hal deleted his account and both
+    expect(
+      await grantImage(apiUser, {
+        story: 'hal_video',
+        person: 'hal',
+        version: 2,
+        path: HAL_PICTURE,
+      }),
+    ).toMatchObject({ ok: true });
+    // Gus withdrew his testimony consent and wasn't erased; Hal deleted his account and all his
     // deletions wait.
     await consentEvent(
       await t.person('user_gus'),
@@ -750,20 +858,22 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
 
   // First: the later cases delete the videos this one leaves queued.
   it('with no usable Bunny key either, still erases, and leaves the video deletions queued, untried', async () => {
-    const { exitCode, library, logs } = start(
-      () => {
-        throw new Error(
-          '9 FAILED_PRECONDITION: Secret Version is in DISABLED state.',
-        );
-      },
-      () => '',
-    );
+    const { exitCode, library, logs, zone } = start(disabled, () => '');
     expect(await exitCode).toBe(1);
     expect(logs[0]).toEqual({
       severity: 'ERROR',
       error: expect.stringContaining('bunny-stream-api-key'),
     });
-    expect(logs[2]).toMatchObject({ stream: false, clerk: false });
+    expect(logs[2]).toEqual({
+      severity: 'ERROR',
+      error: expect.stringContaining('bunny-storage-password'),
+    });
+    expect(logs[3]).toMatchObject({
+      stream: false,
+      clerk: false,
+      images: false,
+    });
+    expect(zone.deleted).toEqual([]);
     expect(
       await rows(migrator, `SELECT VALUE gdprDeletedAt != NONE FROM user:gus`),
     ).toEqual([true]);
@@ -772,6 +882,8 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
       expect.arrayContaining([
         { kind: 'bunny_video', ref: GUS_VIDEO, attempts: 0 },
         { kind: 'bunny_video', ref: HAL_VIDEO, attempts: 0 },
+        { kind: 'image', ref: FOLDERS[0], attempts: 0 },
+        { kind: 'image', ref: FOLDERS[1], attempts: 0 },
         { kind: 'clerk_user', ref: 'user_gus', attempts: 0 },
         { kind: 'clerk_user', ref: 'user_hal', attempts: 0 },
       ]),
@@ -779,23 +891,20 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
   });
 
   it('with no enabled version of the key, erases and deletes at Bunny, and leaves Clerk’s deletions queued, untried', async () => {
-    const { exitCode, library, logs, clerkMade } = start(() => {
-      throw new Error(
-        '9 FAILED_PRECONDITION: Secret Version is in DISABLED state.',
-      );
-    });
+    const { exitCode, library, logs, clerkMade } = start(disabled);
     expect(await exitCode).toBe(1);
     expect(logs[0]).toEqual({
       severity: 'ERROR',
       error: expect.stringContaining('clerk-secret-key'),
     });
-    expect(logs[1]).toMatchObject({ clerk: false });
+    expect(logs[2]).toMatchObject({ clerk: false, images: false });
     expect(clerkMade).toEqual([]);
     expect(
       await rows(migrator, `SELECT VALUE gdprDeletedAt != NONE FROM user:gus`),
     ).toEqual([true]);
     expect(library.deleted.sort()).toEqual([GUS_VIDEO, HAL_VIDEO].sort());
     expect(await queued()).toEqual([
+      ...FOLDERS.map((ref) => ({ kind: 'image', ref, attempts: 0 })),
       { kind: 'clerk_user', ref: 'user_gus', attempts: 0 },
       { kind: 'clerk_user', ref: 'user_hal', attempts: 0 },
     ]);
@@ -807,6 +916,28 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
     expect(logs[0]).toMatchObject({ severity: 'ERROR' });
     expect(JSON.stringify(logs)).not.toContain('not-a-clerk-key');
     expect(clerkMade).toEqual([]);
-    expect(await queued()).toHaveLength(2);
+    expect(await queued()).toHaveLength(4);
+  });
+
+  it('once the images zone’s password can be read, deletes the erased people’s picture folders, never logging the password', async () => {
+    const { exitCode, logs, zone, zoneMade } = start(
+      disabled,
+      undefined,
+      () => 'zone-password-value',
+    );
+    expect(await exitCode).toBe(1); // Clerk's key still can't be used
+    expect(zoneMade).toEqual([
+      { name: 'test-zone', host: 'uk-s3.storage.bunnycdn.com' },
+    ]);
+    expect(logs[1]).toMatchObject({ images: true });
+    expect(zone.deleted.sort()).toEqual(FOLDERS);
+    expect(JSON.stringify(logs)).not.toContain('zone-password-value');
+    // Deleted, and their final passes still to come.
+    expect((await queued()).map((r) => r.kind)).toEqual([
+      'image',
+      'image',
+      'clerk_user',
+      'clerk_user',
+    ]);
   });
 });

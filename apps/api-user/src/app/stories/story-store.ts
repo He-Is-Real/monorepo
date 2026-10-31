@@ -23,6 +23,7 @@ import {
 } from '@heisreal/database';
 import { recordKey } from '@heisreal/consent';
 import type { SurrealQueryable } from 'surrealdb';
+import type { MediaUrls } from '@heisreal/story-cards';
 import {
   type CreateInput,
   slugFor,
@@ -73,7 +74,20 @@ export interface StoryMine {
     durationSeconds: number | null;
     processing: string | null;
   }[];
-  image: null;
+  /** A written story's image or an audio story's picture (M2 plan PR 10), signed for its owner. */
+  image: {
+    url: string | null;
+    width: number;
+    height: number;
+    alt: string | null;
+    /** Its file's path in the images zone: what RequestUpload's `expectedImage` names. */
+    path: string;
+    /**
+     * Whether its file has arrived (GetStory checks the storage zone; Codex #140 round 3). null
+     * where it isn't checked: a list, or with image uploads off.
+     */
+    uploaded: boolean | null;
+  } | null;
   tags: Tag[];
   rejectionFeedback: string | null;
   submittedAt: string | null;
@@ -169,6 +183,7 @@ interface RawStory {
     durationSeconds?: number | null;
     processing?: string | null;
   }[];
+  image?: { path: string; width: number; height: number; alt?: string } | null;
   rejectionFeedback?: string | null;
   submittedAt?: string | null;
   approvedAt?: string | null;
@@ -178,8 +193,16 @@ interface RawStory {
 }
 
 const STORY_FIELDS = `<string> id AS id, version, slug, status, title, description, body,
-  bylineName, primaryFormat, tagRefs.map(|$t| <string> $t) AS tagRefs, media, rejectionFeedback,
+  bylineName, primaryFormat, tagRefs.map(|$t| <string> $t) AS tagRefs, media, image, rejectionFeedback,
   submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt`;
+
+function fail400(pointer: string, message: string): never {
+  throw new BadRequestException({
+    code: 'validation_failed',
+    message: 'The story has fields that aren’t valid',
+    errors: [{ pointer, message }],
+  });
+}
 
 const iso = (d: string | null | undefined) =>
   d ? new Date(d).toISOString() : null;
@@ -190,7 +213,11 @@ const iso = (d: string | null | undefined) =>
  * ownership, consent (D21, D93), the story's shape and text limits (D53, A3) and D94's limits.
  */
 export class StoryStore {
-  constructor(private readonly person: SurrealQueryable) {}
+  constructor(
+    private readonly person: SurrealQueryable,
+    /** Signs the draft's image for its owner (D52); its URL is null without it. */
+    private readonly urls?: Pick<MediaUrls, 'imageUrl'>,
+  ) {}
 
   async tags(): Promise<Tag[]> {
     const [rows] = (await runQuery(
@@ -338,6 +365,17 @@ export class StoryStore {
           sets.push("tagRefs = $tags.map(|$t| type::record('tag', $t))");
           vars['tags'] = patch.tagSlugs;
         }
+        // The image (M2 plan PR 10): removed, or its description changed. Its file stays at
+        // Bunny for the clean-up sweep (an approved copy may still show it). Only RequestUpload
+        // puts one on (D80); the database keeps the person to these two changes.
+        if (patch.image === null) sets.push('image = NONE');
+        else if (patch.image) {
+          if (!current.image) {
+            fail400('/image', 'this story has no picture to describe');
+          }
+          sets.push(patch.image.alt ? 'image.alt = $alt' : 'image.alt = NONE');
+          if (patch.image.alt) vars['alt'] = patch.image.alt;
+        }
         // An empty patch still makes a version step (nothing else to do; D29).
         if (!sets.length) sets.push('title = title');
         const results = await runQuery(
@@ -480,9 +518,10 @@ export class StoryStore {
   /**
    * DeleteStory at `ifMatch` (D71): the person's own draft, withdrawn, rejected or
    * changes-requested story, gone with its read-model rows, reviews and others' hearts
-   * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its upload grants,
-   * D80), for the caller to delete at Bunny once this has committed. The grants themselves stay: the upload limits count them
-   * for 7 days (D113).
+   * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its video and audio
+   * upload grants, D80), for the caller to delete at Bunny once this has committed. Its picture
+   * folder is queued by the delete itself (story_picture_folder), for housekeeping. The grants
+   * themselves stay: the upload limits count them for 7 days (D113).
    */
   async delete(id: string, ifMatch: number): Promise<{ videos: string[] }> {
     try {
@@ -495,7 +534,7 @@ export class StoryStore {
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN $deletable { THROW 'story_cmd:not_deletable' };
            LET $videos = (SELECT VALUE record::id(id) FROM uploadGrant
-             WHERE story = type::record('story', $id));
+             WHERE story = type::record('story', $id) AND format != 'image');
            LET $gone = (DELETE type::record('story', $id) RETURN BEFORE);
            IF array::len($gone) = 0 { THROW 'story_cmd:not_deletable' };
            $videos;
@@ -525,6 +564,7 @@ export class StoryStore {
 
   /** What the submit page shows: the settings' text and theme limits, and the person's own. */
   async limits(): Promise<SubmissionLimits> {
+    // The weekly uploads count video and audio only: pictures never count (Joel, 2026-10-30).
     const results = (await runQuery(
       this.person,
       `RETURN fn::settings::submission();
@@ -532,9 +572,10 @@ export class StoryStore {
        RETURN fn::limits::effective($auth);
        RETURN count(SELECT id FROM story WHERE submitter = $auth AND status = 'draft');
        RETURN fn::story::next_submission_at($auth);
-       RETURN fn::upload::next_allowed_at($auth);
+       RETURN fn::upload::next_allowed_at($auth, 'video');
        RETURN count(SELECT id FROM submissionLog WHERE person = $auth AND at > time::now() - 7d);
-       RETURN count(SELECT id FROM uploadGrant WHERE person = $auth AND at > time::now() - 7d);`,
+       RETURN count(SELECT id FROM uploadGrant
+         WHERE person = $auth AND format != 'image' AND at > time::now() - 7d);`,
     )) as [
       SubmissionSettings,
       number,
@@ -659,7 +700,16 @@ export class StoryStore {
         durationSeconds: m.durationSeconds ?? null,
         processing: m.processing ?? null,
       })),
-      image: null,
+      image: r.image
+        ? {
+            url: this.urls?.imageUrl(r.image.path) ?? null,
+            width: r.image.width,
+            height: r.image.height,
+            alt: r.image.alt ?? null,
+            path: r.image.path,
+            uploaded: null,
+          }
+        : null,
       tags: r.tagRefs.flatMap((ref) => byRef.get(ref) ?? []),
       rejectionFeedback: r.rejectionFeedback ?? null,
       submittedAt: iso(r.submittedAt),

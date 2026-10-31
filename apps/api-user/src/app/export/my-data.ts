@@ -28,7 +28,7 @@ RETURN {
   user: (SELECT record::id(id) AS id, createdAt FROM ONLY $auth),
   stories: $stories,
   published: IF array::len($public) > 0 {
-    (SELECT record::id(id) AS id, publishedAt, image.path AS imagePath FROM $public)
+    (SELECT record::id(id) AS id, publishedAt FROM $public)
   } ELSE { [] },
   reviews: IF array::len($mine) > 0 {
     (SELECT record::id(story) AS story, decision, feedbackToSubmitter, storyVersion, decidedAt
@@ -48,7 +48,7 @@ RETURN {
   submissions: (SELECT at FROM submissionLog WHERE person = $auth ORDER BY at ASC),
   uploads: (SELECT record::id(id) AS id, record::id(story) AS story, format, contentType,
       sizeBytes, durationSeconds, at, renewedAt
-    FROM uploadGrant WHERE person = $auth ORDER BY at ASC),
+    FROM uploadGrant WHERE person = $auth ORDER BY at ASC, id ASC),
   keys: (SELECT record::id(id)[2] AS key, status, expiresAt FROM idempotencyKey
     WHERE record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth ORDER BY expiresAt ASC)
 };`;
@@ -91,7 +91,7 @@ interface Held {
     approvedAt?: Opt<string>;
     draftExpiresAt?: Opt<string>;
   }[];
-  published: { id: string; publishedAt: string; imagePath?: Opt<string> }[];
+  published: { id: string; publishedAt: string }[];
   reviews: {
     story: string;
     decision: string;
@@ -168,7 +168,7 @@ const SECTIONS = {
   submissions:
     'When you sent a story for review in the last seven days. We keep these for seven days to apply the weekly limit, then delete them.',
   uploads:
-    'Each video or audio file you started uploading: which story, the kind of file, its size and length, and when. We keep these to apply the upload limits.',
+    'Each video, audio file or picture you started uploading: which story, the kind of file, its size and length, and when. We keep these to apply the upload limits.',
   requestKeys:
     'Codes your browser sent with your recent changes, so that pressing a button twice does a change only once. Each is deleted after 24 hours.',
 } as const;
@@ -203,12 +203,6 @@ export function toExport(
   }: { role: string; signIn: ClerkProfile; urls: MediaUrls; generatedAt: Date },
 ) {
   const publishedAt = new Map(held.published.map((p) => [p.id, p.publishedAt]));
-  // A picture is signed only as published (approved by a moderator, and public anyway): a
-  // draft's image.path is the person's own write, so signing it could hand them a link to any
-  // file in the storage zone they name.
-  const publishedImage = new Map(
-    held.published.map((p) => [p.id, p.imagePath ?? null]),
-  );
   const reviewsOf = (story: string) =>
     held.reviews
       .filter((r) => r.story === story)
@@ -266,7 +260,9 @@ export function toExport(
         })),
         image: s.image
           ? {
-              url: urls.imageUrl(publishedImage.get(id)),
+              // The person's own picture: the database keeps every story's image.path in that
+              // story's own folder (fn::media::own_image), so this can't sign anyone else's file.
+              url: urls.imageUrl(s.image.path),
               width: s.image.width,
               height: s.image.height,
               alt: or(s.image.alt),
@@ -325,8 +321,10 @@ export function toExport(
       ),
     },
     submissions: held.submissions.map((s) => ({ at: iso(s.at) as string })),
+    // A grant's id is the Bunny video's id, or a picture's path in the images zone.
     uploads: held.uploads.map((u) => ({
-      bunnyVideoId: u.id,
+      bunnyVideoId: u.format === 'image' ? null : u.id,
+      imagePath: u.format === 'image' ? u.id : null,
       storyId: u.story,
       format: u.format,
       contentType: u.contentType,

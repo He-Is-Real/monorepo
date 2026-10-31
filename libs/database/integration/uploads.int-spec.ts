@@ -395,7 +395,7 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       );
       const [next] = await rows<string>(
         hal,
-        'RETURN fn::upload::next_allowed_at($auth)',
+        "RETURN fn::upload::next_allowed_at($auth, 'video')",
       );
       expect(new Date(next).getTime() - new Date(first).getTime()).toBe(
         3600_000,

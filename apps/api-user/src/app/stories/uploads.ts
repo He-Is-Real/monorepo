@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -22,6 +23,8 @@ import {
   WriteNotAppliedError,
 } from '@heisreal/database';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
+import { STORY_IMAGE_PATH } from '@heisreal/story-cards';
+import type { ImageStore, SignedImageUpload } from './bunny-storage';
 import type { BunnyStream, SignedUpload } from './bunny-stream';
 import { StaleVersionException } from './story-store';
 
@@ -39,27 +42,66 @@ import { StaleVersionException } from './story-store';
  * - The TUS link bounds neither size nor type (D68), so the person's limits (D113, admin
  *   settings) are checked before anything is created at Bunny, by the database again when the
  *   grant is written, and at submit with the limits in force then and Bunny's own length.
+ *
+ * Images (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's picture or a
+ * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's, never set at Bunny). The
+ * browser re-encodes it to WebP without metadata and sends its size, pixel size and description;
+ * api-user picks its path, `stories/<story id>/<random>.webp`, records the grant (whose event puts
+ * it on the draft) and signs an S3 presigned PUT binding that path, the type and the exact size
+ * (D68). Nothing is made at Bunny before the grant, so a refusal leaves nothing behind. A replaced
+ * image's file is never deleted here: an approved story's public copy may still show it, so it's
+ * an orphan for the clean-up sweep (media-runbook).
  */
 
 export interface UploadRequest {
-  format: 'video' | 'audio';
+  format: 'video' | 'audio' | 'image';
   contentType: string;
   fileSizeBytes: number;
   durationSeconds?: number;
   resume: boolean;
+  /** Images: the real pixel size (D53) and its optional description. */
+  width?: number;
+  height?: number;
+  alt?: string;
+  /**
+   * Images: the path of the picture the person's page showed when they chose theirs (null: none).
+   * The grant is refused (`409 image_changed`) if the story has another one by then (Codex #140 r3).
+   */
+  expectedImage?: string | null;
 }
 
-/** The contract's `UploadTarget`. */
-export interface UploadTarget extends SignedUpload {
-  id: string;
-  version: number;
-  provider: 'bunny_tus';
-  method: 'POST';
-}
+/** The contract's `UploadTarget`: a TUS link for a video or audio file, or an image's PUT. */
+export type UploadTarget =
+  | (SignedUpload & {
+      id: string;
+      version: number;
+      provider: 'bunny_tus';
+      method: 'POST';
+    })
+  | (SignedImageUpload & {
+      id: string;
+      version: number;
+      provider: 'bunny_s3';
+      method: 'PUT';
+      /** The picture's path, as `StoryMine.image.path`. */
+      path: string;
+    });
 
-/** A4: video MP4/MOV/WebM, audio MP3/M4A/WAV (browsers name some of them two ways). */
+/**
+ * An image's fixed bounds, as the database's fn::upload::image_limits: the browser sends at most
+ * 2048 px on the longer side, so these only stop what no browser of ours sends.
+ */
+export const IMAGE_LIMITS = {
+  maxBytes: 5_242_880,
+  minSide: 200,
+  maxSide: 4096,
+  altMax: 500,
+};
+
+/** A4: video MP4/MOV/WebM, audio MP3/M4A/WAV (browsers name some of them two ways); images WebP. */
 export const CONTENT_TYPES: Record<UploadRequest['format'], readonly string[]> =
   {
+    image: ['image/webp'],
     video: ['video/mp4', 'video/quicktime', 'video/webm'],
     audio: [
       'audio/mpeg',
@@ -89,6 +131,13 @@ function invalid(
   throw new BadRequestException({ code: 'validation_failed', message, errors });
 }
 
+/**
+ * An image's path as api-user names it, `stories/<story id>/<32 hex>.webp`: the same rule the
+ * database holds every story's `image.path` to (fn::media::own_image), so a path read from a story
+ * is always in that story's own folder, and the signer and erasure's deleter can rely on it.
+ */
+const IMAGE_PATH = STORY_IMAGE_PATH;
+
 const posInt = (v: unknown) =>
   typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 
@@ -98,19 +147,24 @@ export function parseUploadRequest(body: unknown): UploadRequest {
   }
   const b = body as Record<string, unknown>;
   const errors: FieldError[] = [];
-  const known = [
-    'format',
-    'contentType',
-    'fileSizeBytes',
-    'durationSeconds',
-    'resume',
-  ];
+  const image = b['format'] === 'image';
+  const known = image
+    ? [
+        'format',
+        'contentType',
+        'fileSizeBytes',
+        'width',
+        'height',
+        'alt',
+        'expectedImage',
+      ]
+    : ['format', 'contentType', 'fileSizeBytes', 'durationSeconds', 'resume'];
   for (const k of Object.keys(b)) {
     if (!known.includes(k))
       errors.push({ pointer: `/${k}`, message: 'unknown field' });
   }
-  if (b['format'] !== 'video' && b['format'] !== 'audio') {
-    errors.push({ pointer: '/format', message: 'video or audio' });
+  if (!['video', 'audio', 'image'].includes(b['format'] as string)) {
+    errors.push({ pointer: '/format', message: 'video, audio or image' });
   }
   const format = b['format'] as UploadRequest['format'];
   if (
@@ -120,10 +174,43 @@ export function parseUploadRequest(body: unknown): UploadRequest {
     errors.push({
       pointer: '/contentType',
       message:
-        format === 'audio'
-          ? 'an MP3, M4A or WAV file'
-          : 'an MP4, MOV or WebM file',
+        format === 'image'
+          ? 'a WebP image'
+          : format === 'audio'
+            ? 'an MP3, M4A or WAV file'
+            : 'an MP4, MOV or WebM file',
     });
+  }
+  if (image) {
+    for (const side of ['width', 'height']) {
+      if (!posInt(b[side])) {
+        errors.push({
+          pointer: `/${side}`,
+          message: 'whole pixels, at least 1',
+        });
+      }
+    }
+    const alt = b['alt'];
+    if (
+      alt !== undefined &&
+      (typeof alt !== 'string' || [...alt].length > IMAGE_LIMITS.altMax)
+    ) {
+      errors.push({
+        pointer: '/alt',
+        message: `at most ${IMAGE_LIMITS.altMax} characters`,
+      });
+    }
+    const expected = b['expectedImage'];
+    if (
+      expected !== null &&
+      !(typeof expected === 'string' && IMAGE_PATH.test(expected))
+    ) {
+      errors.push({
+        pointer: '/expectedImage',
+        message:
+          'the path of the story’s picture as you were shown it, or null',
+      });
+    }
   }
   if (!posInt(b['fileSizeBytes'])) {
     errors.push({
@@ -147,6 +234,14 @@ export function parseUploadRequest(body: unknown): UploadRequest {
     fileSizeBytes: b['fileSizeBytes'] as number,
     durationSeconds: b['durationSeconds'] as number | undefined,
     resume: b['resume'] === true,
+    ...(image
+      ? {
+          width: b['width'] as number,
+          height: b['height'] as number,
+          alt: (b['alt'] as string | undefined)?.trim() || undefined,
+          expectedImage: b['expectedImage'] as string | null,
+        }
+      : {}),
   };
 }
 
@@ -162,17 +257,29 @@ interface DraftMedia {
   status: string;
   primaryFormat: string;
   videoId?: string;
+  imagePath?: string;
 }
 
 const EDITABLE = ['draft', 'changes_requested'];
 
+/** How many arrived pictures each instance remembers (GetStory skips the zone for them). */
+const ARRIVED_REMEMBERED = 10_000;
+
 export class Uploads {
   private readonly logger = new Logger('Uploads');
+  /**
+   * Pictures this instance has seen arrive. A path is only ever written once (its PUT is one use,
+   * and a new picture gets a new path), and its file goes only with its story, so once there it
+   * stays there for as long as anyone can read the story: no need to ask the zone again. Oldest
+   * forgotten first, past ARRIVED_REMEMBERED.
+   */
+  private readonly arrived = new Set<string>();
 
   constructor(
     /** api-user's own login: only it creates upload grants (D80). */
     private readonly service: SurrealQueryable,
     private readonly bunny: BunnyStream | null,
+    private readonly images: ImageStore | null = null,
   ) {}
 
   private stream(): BunnyStream {
@@ -198,6 +305,9 @@ export class Uploads {
     input: UploadRequest,
     idempotency: { key: string; requestHash: string },
   ): Promise<UploadTarget> {
+    if (input.format === 'image') {
+      return this.requestImage(person, user, id, ifMatch, input, idempotency);
+    }
     const bunny = this.stream();
     if (input.resume) {
       const draft = await this.checkDraft(person, id, ifMatch, input);
@@ -217,7 +327,7 @@ export class Uploads {
     let replaced: string | undefined;
     const prepare = async (): Promise<PreparedCommand> => {
       const draft = await this.checkDraft(person, id, ifMatch, input);
-      const availableAt = await this.nextAllowedAt(person);
+      const availableAt = await this.nextAllowedAt(person, input.format);
       if (availableAt) throw limitReached(availableAt);
       videoId ??= await bunny.createVideo(id);
       replaced = draft.videoId;
@@ -256,7 +366,7 @@ export class Uploads {
       if (definite(err)) {
         // The database answered: nothing was written, so the video made for it is nobody's.
         if (videoId) await this.discard(videoId, 'a refused upload');
-        throw await this.refusal(err, person);
+        throw await this.refusal(err, person, input.format);
       }
       // No answer (a lost connection, a timeout): the grant may have committed with the video
       // on the draft. Never delete it; look the key up again, which commits with the grant.
@@ -288,6 +398,129 @@ export class Uploads {
       await this.renew(user, id, granted);
     }
     return this.target(bunny, id, version, granted);
+  }
+
+  /**
+   * RequestUpload for an image (M2 plan PR 10), once per Idempotency-Key like a video's: its
+   * grant counts towards the hourly upload limit (never the weekly one: Joel, 2026-10-30), so a
+   * retry after a lost answer replays the same path. The path is picked here, never by the browser (D80), and the grant's event puts it on
+   * the draft with its size and description. A replay signs the same path again only while it's
+   * still the story's image and the story editable; the PUT is one use (`If-None-Match: *`), so
+   * a file already there can't be replaced.
+   */
+  private async requestImage(
+    person: SurrealQueryable,
+    user: RecordId,
+    id: string,
+    ifMatch: number,
+    input: UploadRequest,
+    idempotency: { key: string; requestHash: string },
+  ): Promise<UploadTarget> {
+    const images = this.imageStore();
+    const scope: IdempotencyScope = {
+      service: 'api-user',
+      owner: user,
+      key: idempotency.key,
+    };
+    const path = `stories/${id}/${randomBytes(16).toString('hex')}.webp`;
+    const prepare = async (): Promise<PreparedCommand> => {
+      const draft = await this.checkDraft(person, id, ifMatch, input);
+      // The database checks it again in the grant's write (image_changed).
+      if ((draft.imagePath ?? null) !== input.expectedImage)
+        throw imageChanged();
+      // Per hour only: pictures never count towards the weekly limit (Joel, 2026-10-30).
+      const availableAt = await this.nextAllowedAt(person, 'image');
+      if (availableAt) throw limitReached(availableAt);
+      return {
+        status: 200,
+        statements: `LET $grant = (CREATE ONLY type::record('uploadGrant', $path) CONTENT {
+            story: type::record('story', $id), person: $person, format: 'image',
+            contentType: $contentType, sizeBytes: $size, width: $width, height: $height,
+            alt: $alt, expectedImage: $expected, storyVersion: $version
+          } RETURN id, storyVersion);
+          IF $grant = NONE { THROW 'upload_refused: upload grant not written' };
+          LET $result = { id: $grant.id, version: $grant.storyVersion + 1 };`,
+        vars: {
+          path,
+          id,
+          person: user,
+          contentType: input.contentType,
+          size: input.fileSizeBytes,
+          width: input.width,
+          height: input.height,
+          alt: input.alt,
+          expected: input.expectedImage ?? undefined,
+          version: ifMatch,
+        },
+      };
+    };
+    let outcome: { response: IdempotentResponse; replayed: boolean };
+    try {
+      outcome = await runIdempotent(
+        this.service,
+        scope,
+        idempotency.requestHash,
+        prepare,
+      );
+    } catch (err) {
+      // Nothing was made at Bunny, so there's nothing to discard either way.
+      if (definite(err)) throw await this.refusal(err, person, 'image');
+      outcome = await this.reconcile(
+        scope,
+        idempotency.requestHash,
+        undefined,
+        err,
+      );
+    }
+    const granted = recordKey(outcome.response.id);
+    const version = outcome.response.version ?? ifMatch + 1;
+    if (outcome.replayed && granted !== path) {
+      const draft = await this.draft(person, id);
+      if (!EDITABLE.includes(draft.status)) throw locked();
+      if (draft.imagePath !== granted) {
+        throw new ConflictException({
+          code: 'nothing_to_resume',
+          message:
+            'That picture is no longer on your story. Choose it again to add it.',
+        });
+      }
+    }
+    return {
+      id,
+      version,
+      provider: 'bunny_s3',
+      method: 'PUT',
+      path: granted,
+      ...images.sign(granted, input.fileSizeBytes),
+    };
+  }
+
+  /**
+   * Whether the draft's picture's file has arrived (GetStory, for its owner; Codex #140 round 3):
+   * what the page counts as finished, never its own memory. null with image uploads off. An
+   * unclear answer counts as not arrived: the page offers to add it again. Asks the zone only
+   * until the picture is known to have arrived.
+   */
+  async imageArrived(path: string): Promise<boolean | null> {
+    if (!this.images) return null;
+    if (this.arrived.has(path)) return true;
+    try {
+      const there = await this.images.exists(path);
+      if (there) this.remember(path);
+      return there;
+    } catch (err) {
+      this.logger.warn(
+        `Couldn’t check whether picture ${path} arrived (counted as not): ${String(err)}`,
+      );
+      return false;
+    }
+  }
+
+  private remember(path: string) {
+    if (this.arrived.size >= ARRIVED_REMEMBERED) {
+      this.arrived.delete(this.arrived.values().next().value as string);
+    }
+    this.arrived.add(path);
   }
 
   /**
@@ -361,6 +594,17 @@ export class Uploads {
     if (!renewed) throw nothingToResume();
   }
 
+  private imageStore(): ImageStore {
+    if (!this.images) {
+      throw new ServiceUnavailableException({
+        code: 'uploads_unavailable',
+        message:
+          'Adding a picture isn’t available right now. Your story is saved.',
+      });
+    }
+    return this.images;
+  }
+
   /**
    * DeleteStory's clean-up (D71): the videos api-user made for a story that is now deleted go at
    * Bunny at once, after the database committed. Nobody else's story can show them (one story
@@ -399,6 +643,10 @@ export class Uploads {
     const draft = await this.draft(person, id);
     if (draft.version !== ifMatch) throw new StaleVersionException();
     if (!EDITABLE.includes(draft.status)) throw locked();
+    if (input.format === 'image') {
+      checkImage(input);
+      return draft;
+    }
     if (draft.primaryFormat !== input.format) {
       invalid([
         {
@@ -412,13 +660,16 @@ export class Uploads {
   }
 
   /**
-   * SubmitStory's checks on a video or audio story (D80, D113): its file has arrived at Bunny
-   * (`409 media_not_uploaded`), Bunny could read it (`409 media_failed`), and it's within the
-   * limits in force now (`409 media_over_limit`): "new rules apply to everyone" (Joel,
-   * 2026-10-30), so a draft started under older limits is checked against today's.
+   * SubmitStory's checks on a story's files. Its picture, if it has one, has arrived in the images
+   * zone (`400 image_not_uploaded`; `503 uploads_unavailable` when the zone can't say). A video or
+   * audio story's file (D80, D113) has arrived at Bunny (`409 media_not_uploaded`), Bunny could
+   * read it (`409 media_failed`), and it's within the limits in force now (`409
+   * media_over_limit`): "new rules apply to everyone" (Joel, 2026-10-30), so a draft started
+   * under older limits is checked against today's.
    */
   async checkBeforeSubmit(person: SurrealQueryable, id: string): Promise<void> {
     const draft = await this.draft(person, id);
+    if (draft.imagePath) await this.checkImageArrived(draft.imagePath);
     if (draft.primaryFormat === 'written') return;
     const bunny = this.stream();
     const notUploaded = () =>
@@ -473,14 +724,42 @@ export class Uploads {
     }
   }
 
+  /** Submit's picture check: asks the zone unless this instance has seen the file arrive. */
+  private async checkImageArrived(path: string): Promise<void> {
+    const images = this.imageStore();
+    let there = this.arrived.has(path);
+    if (!there) {
+      try {
+        there = await images.exists(path);
+      } catch (err) {
+        this.logger.warn(
+          `Couldn’t check whether picture ${path} arrived before submit: ${String(err)}`,
+        );
+        throw new ServiceUnavailableException({
+          code: 'uploads_unavailable',
+          message:
+            'We couldn’t check your picture just now. Your story is saved; please try again.',
+        });
+      }
+    }
+    if (!there) {
+      throw new BadRequestException({
+        code: 'image_not_uploaded',
+        message:
+          'Your picture hasn’t finished uploading. Add it again, or remove it, then submit your story.',
+      });
+    }
+    this.remember(path);
+  }
+
   private async draft(
     person: SurrealQueryable,
     id: string,
   ): Promise<DraftMedia> {
     const [rows] = (await runQuery(
       person,
-      `SELECT version, status, primaryFormat, media[0].bunnyVideoId AS videoId
-         FROM type::record('story', $id)`,
+      `SELECT version, status, primaryFormat, media[0].bunnyVideoId AS videoId,
+         image.path AS imagePath FROM type::record('story', $id)`,
       { id },
     )) as [DraftMedia[]];
     if (!rows.length) throw new NotFoundException();
@@ -497,10 +776,12 @@ export class Uploads {
 
   private async nextAllowedAt(
     person: SurrealQueryable,
+    format: UploadRequest['format'],
   ): Promise<string | undefined> {
     const [at] = (await runQuery(
       person,
-      'RETURN fn::upload::next_allowed_at($auth)',
+      'RETURN fn::upload::next_allowed_at($auth, $format)',
+      { format },
     )) as [string | null | undefined];
     return at ? new Date(at).toISOString() : undefined;
   }
@@ -546,11 +827,14 @@ export class Uploads {
   private async refusal(
     err: unknown,
     person: SurrealQueryable,
+    format: UploadRequest['format'],
   ): Promise<unknown> {
     if (err instanceof HttpException) return err;
     const limit = uploadLimitOf(err);
     if (limit === 'hourly' || limit === 'weekly') {
-      const at = await this.nextAllowedAt(person).catch(() => undefined);
+      const at = await this.nextAllowedAt(person, format).catch(
+        () => undefined,
+      );
       return limitReached(at ?? new Date(Date.now() + 3600_000).toISOString());
     }
     if (limit) {
@@ -569,6 +853,15 @@ export class Uploads {
     if (/story_cmd:stale_version/.test(message))
       return new StaleVersionException();
     if (/story_cmd:locked/.test(message)) return locked();
+    if (/image_changed:/.test(message)) return imageChanged();
+    // The database's own checks of an image (its folder, type, size, shape).
+    if (/upload_refused: an image/.test(message)) {
+      return new BadRequestException({
+        code: 'validation_failed',
+        message: 'The upload isn’t valid',
+        errors: [{ pointer: '', message: 'an image we can take' }],
+      });
+    }
     if (/needs the submitter’s current Art 9/.test(message)) {
       return new ForbiddenException({
         code: 'consent_required',
@@ -577,6 +870,41 @@ export class Uploads {
     }
     return err;
   }
+}
+
+/**
+ * An image's checks before anything is written (D53; the database checks them again): a written
+ * story's image, an audio story's picture or a video's own thumbnail (Joel, 2026-10-30), within
+ * the fixed size and pixel bounds, 1:3..3:1. Its description is never required (Joel,
+ * 2026-10-30).
+ */
+function checkImage(input: UploadRequest) {
+  const errors: FieldError[] = [];
+  const { width = 0, height = 0 } = input;
+  if (input.fileSizeBytes > IMAGE_LIMITS.maxBytes) {
+    errors.push({
+      pointer: '/fileSizeBytes',
+      message: `at most ${IMAGE_LIMITS.maxBytes} bytes`,
+    });
+  }
+  for (const [side, px] of [
+    ['width', width],
+    ['height', height],
+  ] as const) {
+    if (px < IMAGE_LIMITS.minSide || px > IMAGE_LIMITS.maxSide) {
+      errors.push({
+        pointer: `/${side}`,
+        message: `${IMAGE_LIMITS.minSide} to ${IMAGE_LIMITS.maxSide} pixels`,
+      });
+    }
+  }
+  if (height > width * 3 || width > height * 3) {
+    errors.push({
+      pointer: '/width',
+      message: 'no wider than 3:1 and no taller than 1:3',
+    });
+  }
+  if (errors.length) invalid(errors, 'The picture can’t be used');
 }
 
 /** Thrown by the reconciling lookup's command: it never writes. */
@@ -601,6 +929,15 @@ function nothingToResume() {
     code: 'nothing_to_resume',
     message:
       'There’s no unfinished upload on this story to carry on with. Choose the file again to upload it.',
+  });
+}
+
+/** Another picture is on the story than the one the person's page showed (Codex #140 round 3). */
+function imageChanged() {
+  return new ConflictException({
+    code: 'image_changed',
+    message:
+      'Your story’s picture was changed in another tab or window. Look at the picture it has now, then choose whether to replace it.',
   });
 }
 

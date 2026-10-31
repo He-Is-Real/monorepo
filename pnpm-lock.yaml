@@ -380,6 +380,9 @@ importers:
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
+      '@heisreal/story-cards':
+        specifier: workspace:*
+        version: link:../../libs/story-cards
       '@nestjs/common':
         specifier: ^12.3.2
         version: 12.3.2(reflect-metadata@0.2.2)(rxjs@7.8.2)

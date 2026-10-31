@@ -9,7 +9,10 @@ export interface StoredMedia {
   height?: number;
 }
 
-/** A written story's stored image (`publicStory.image`). Never sent as it is. */
+/**
+ * A story's stored image (`publicStory.image`): a written story's image, an audio story's picture
+ * or a video's own thumbnail (M2 plan PR 10). Never sent as it is.
+ */
 export interface StoredImage {
   path: string;
   width: number;
@@ -91,10 +94,35 @@ export interface SummaryRow {
   cursorAt: string;
 }
 
+/**
+ * The picture shown for a video or audio story (M2 plan PR 10; Joel, 2026-10-30): the person's
+ * own image when the story has one, in place of Bunny's thumbnail; otherwise Bunny's, at the
+ * clip's recorded size (a video's, or an audio file's thumbnail's: Joel, 2026-10-24). The one
+ * rule for cards and the story page, so every view shows the same picture.
+ */
+export function clipPicture(
+  clip: StoredMedia | undefined,
+  image: StoredImage | undefined,
+  urls: MediaUrls,
+): { url: string | null; width: number | null; height: number | null } {
+  if (!clip) return { url: null, width: null, height: null };
+  if (image) {
+    return {
+      url: urls.imageUrl(image.path),
+      width: image.width,
+      height: image.height,
+    };
+  }
+  return {
+    url: urls.thumbnailUrl(clip.bunnyVideoId, clip.thumbnailPath),
+    width: clip.width ?? null,
+    height: clip.height ?? null,
+  };
+}
+
 /** A card; thumbnail and image links are signed by the same `MediaUrls` as the story page (D52). */
 export function toSummary(row: SummaryRow, urls: MediaUrls): StorySummary {
-  // A video's size, or an audio file's thumbnail's size (Joel, 2026-10-24): the picture shown.
-  const clip = row.media?.[0];
+  const picture = clipPicture(row.media?.[0], row.image, urls);
   return {
     id: row.id,
     slug: row.slug,
@@ -103,11 +131,9 @@ export function toSummary(row: SummaryRow, urls: MediaUrls): StorySummary {
     bylineName: row.bylineName ?? null,
     primaryFormat: row.primaryFormat,
     durationSeconds: row.durationSeconds ?? null,
-    thumbnailUrl: clip
-      ? urls.thumbnailUrl(clip.bunnyVideoId, clip.thumbnailPath)
-      : null,
-    thumbnailWidth: clip?.width ?? null,
-    thumbnailHeight: clip?.height ?? null,
+    thumbnailUrl: picture.url,
+    thumbnailWidth: picture.width,
+    thumbnailHeight: picture.height,
     image: row.image
       ? {
           url: urls.imageUrl(row.image.path),

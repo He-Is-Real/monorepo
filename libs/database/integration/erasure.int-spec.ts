@@ -108,12 +108,16 @@ describe('erasure on api_user’s service login', () => {
     ).toBe(3);
   });
 
-  it('queues what must go outside the database: the person’s Bunny video and Clerk account (D40)', async () => {
+  it('queues what must go outside the database: the person’s Bunny video, every story’s picture folder and their Clerk account (D40)', async () => {
     expect(
-      await truth('SELECT kind, ref FROM pendingDeletion ORDER BY kind'),
+      await truth('SELECT kind, ref FROM pendingDeletion ORDER BY kind, ref'),
     ).toEqual([
       { kind: 'bunny_video', ref: ANN_VIDEO },
       { kind: 'clerk_user', ref: 'user_ann' },
+      ...['ann_draft', 'ann_live', 'ann_pending', 'ann_video'].map((s) => ({
+        kind: 'image',
+        ref: `stories/${s}/`,
+      })),
     ]);
     expect(await truth('SELECT * FROM uploadGrant')).toEqual([]);
     // Only api-user's (and housekeeping's, for retries) login sees or changes the queue.

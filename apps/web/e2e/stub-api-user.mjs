@@ -21,6 +21,15 @@
 //   and read what arrived (`GET /__e2e/sessions/<id>/uploads`); submit needs the file to have
 //   arrived, as api-user asks Bunny. `POST /__e2e/sessions/<id>/settings` changes a session's
 //   settings after its page loaded.
+// - Pictures (M2 plan PR 10): `format: image` on the same route (a written story's image, an
+//   audio story's picture, a video's own thumbnail) puts the picture on the draft at a path the
+//   stub picks, `stories/<id>/<random>.webp`, and answers a presigned PUT to `/__s3/<path>`,
+//   standing in for Bunny's S3 endpoint: it checks the signature, the type, the exact size and
+//   one use (412), keeps the bytes, and serves them back (GET) as the draft's signed image link.
+//   `GET /__e2e/sessions/<id>/uploads` reads them back (base64), so a test can check what left
+//   the browser. `PATCH` takes `image: null` (remove) and `image: { alt }`. As api-user, a
+//   picture's request names the picture it replaces (`expectedImage`; `409 image_changed` if the
+//   story has another), and `GET` of one story says whether its picture's file arrived.
 // - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
 //   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
 //   carry its `status`, `slug` and moderator's `rejectionFeedback`. Erasure (PR 11):
@@ -511,9 +520,14 @@ function newSession(id, seed = {}) {
     // what the TUS server should do with the next PATCHes.
     videos: new Map(),
     // `uploadsAgo`: video or audio uploads started that many ms before the session began.
-    uploadTimes: (seed.uploadsAgo ?? []).map((ms) => Date.now() - ms),
+    uploadTimes: (seed.uploadsAgo ?? []).map((ms) => ({
+      at: Date.now() - ms,
+      image: false,
+    })),
     uploadRequests: 0,
     tus: { fail: 0, hold: false },
+    // Pictures by path: { story, size, bytes (a Buffer once PUT) }.
+    images: new Map(),
     // Erasure: `DELETE /v1/account` erases, then answers 500 (the queue failed after the commit).
     eraseThenFail: seed.eraseThenFail ?? false,
   };
@@ -611,7 +625,8 @@ function consentState(s) {
   };
 }
 
-function storyMine(id, st) {
+/** `uploaded`: whether the picture's file arrived, checked only when one story is read. */
+function storyMine(id, st, uploaded = () => null) {
   return {
     id,
     version: st.version,
@@ -635,7 +650,16 @@ function storyMine(id, st) {
           },
         ]
       : [],
-    image: null,
+    image: st.image
+      ? {
+          url: st.image.url,
+          width: st.image.width,
+          height: st.image.height,
+          alt: st.image.alt ?? null,
+          path: st.image.path,
+          uploaded: uploaded(st.image.path),
+        }
+      : null,
     tags: st.tagSlugs.map((slug) => TAGS.find((t) => t.slug === slug)),
     rejectionFeedback: st.rejectionFeedback ?? null,
     submittedAt: st.submittedAt,
@@ -785,19 +809,23 @@ function limitsOf(s) {
   };
 }
 
-/** The upload half of the limits (D113): trusted has no weekly limit and the ceilings. */
-function uploadLimitsOf(s) {
+/**
+ * The upload half of the limits (D113): trusted has no weekly limit and the ceilings. Every grant
+ * counts per hour; only video and audio files per 7 days, so a picture checks the hour only.
+ */
+function uploadLimitsOf(s, format = 'video') {
   const now = Date.now();
-  const week = s.uploadTimes
-    .filter((t) => t + WEEK_MS > now)
-    .sort((a, b) => a - b);
-  const hour = week.filter((t) => t + 3600_000 > now);
+  const recent = s.uploadTimes
+    .filter((t) => t.at + WEEK_MS > now)
+    .sort((a, b) => a.at - b.at);
+  const hour = recent.filter((t) => t.at + 3600_000 > now).map((t) => t.at);
+  const week = recent.filter((t) => !t.image).map((t) => t.at);
   const perHour = s.settings.uploadRequestsPerHour;
   const per7Days = s.trusted ? null : s.settings.uploadsPer7Days;
   const byHour =
     hour.length >= perHour ? hour[hour.length - perHour] + 3600_000 : null;
   const byWeek =
-    per7Days !== null && week.length >= per7Days
+    format !== 'image' && per7Days !== null && week.length >= per7Days
       ? week[week.length - per7Days] + WEEK_MS
       : null;
   const next = Math.max(byHour ?? 0, byWeek ?? 0);
@@ -828,6 +856,11 @@ const UPLOAD_TYPES = {
 const tusSignature = (expires, videoId) =>
   createHash('sha256')
     .update(`stub-library-key${expires}${videoId}`)
+    .digest('hex');
+/** The stub's stand-in for a presigned PUT's signature: the path and the exact size. */
+const s3Signature = (path, size, expires) =>
+  createHash('sha256')
+    .update(`stub-zone-password${path}${size}${expires}`)
     .digest('hex');
 /** TUS uploads by id: { session, videoId, length, received }. */
 const tusUploads = new Map();
@@ -944,9 +977,14 @@ async function handleShare(req, res, path, url, s) {
     const st = s.stories.get(mine[1]);
     if (!st) return shareProblem(res, 404, 'Not found');
     const etag = `"${st.version}"`;
-    if (req.headers['if-none-match'] === etag)
+    // As api-user: a picture whose file hasn't arrived is never answered 304.
+    const arrived = (p) => !!s.images.get(p)?.bytes;
+    if (
+      req.headers['if-none-match'] === etag &&
+      (!st.image || arrived(st.image.path))
+    )
       return sendJson(res, 304, undefined, { etag });
-    return sendJson(res, 200, storyMine(mine[1], st), { etag });
+    return sendJson(res, 200, storyMine(mine[1], st, arrived), { etag });
   }
   if (path === '/v1/stories' && req.method === 'POST') {
     // The guard: Art 9 on the forms in force (D93).
@@ -1089,10 +1127,14 @@ async function handleShare(req, res, path, url, s) {
     const b = await readJson(req);
     const errors = fieldErrors(
       b,
-      ['title', 'description', 'body', 'bylineName', 'tagSlugs'],
+      ['title', 'description', 'body', 'bylineName', 'tagSlugs', 'image'],
       s,
       st,
     );
+    if (b && 'image' in b && b.image !== null) {
+      if (!st.image)
+        errors.push({ pointer: '/image', message: 'no picture to describe' });
+    }
     if (b && 'body' in b && !trimmed(b.body))
       errors.push({
         pointer: '/body',
@@ -1107,6 +1149,12 @@ async function handleShare(req, res, path, url, s) {
     if ('body' in b) st.body = b.body;
     if ('bylineName' in b) st.bylineName = b.bylineName?.trim() || null;
     if ('tagSlugs' in b) st.tagSlugs = b.tagSlugs;
+    // The picture's file stays (api-user never deletes one: the clean-up sweep does).
+    if ('image' in b)
+      st.image =
+        b.image === null
+          ? null
+          : { ...st.image, alt: b.image.alt?.trim() || null };
     st.version += 1;
     st.updatedAt = new Date().toISOString();
     return sendJson(
@@ -1153,6 +1201,12 @@ async function handleShare(req, res, path, url, s) {
               message: `choose at least ${tagsMin}`,
             },
           ],
+        });
+      // As api-user: a picture whose file never arrived can't be submitted.
+      if (st.image?.path && !s.images.get(st.image.path)?.bytes)
+        return p(400, 'Bad request', 'image_not_uploaded', {
+          detail:
+            'Your picture hasn’t finished uploading. Add it again, or remove it, then submit your story.',
         });
       if ((st.primaryFormat ?? 'written') !== 'written') {
         const video = st.videoId ? s.videos.get(st.videoId) : undefined;
@@ -1236,6 +1290,78 @@ async function handleShare(req, res, path, url, s) {
         return p(409, 'Conflict', 'story_locked');
       const limits = uploadLimitsOf(s);
       const errors = [];
+      if (b.format === 'image') {
+        // As api-user (uploads.ts, checkImage): WebP, 5 MiB, 200–4096 px, 1:3..3:1, and a
+        // written story's description.
+        const { width: w, height: h } = b;
+        if (b.contentType !== 'image/webp')
+          errors.push({ pointer: '/contentType', message: 'a WebP image' });
+        if (!(b.fileSizeBytes > 0) || b.fileSizeBytes > 5_242_880)
+          errors.push({ pointer: '/fileSizeBytes', message: 'at most 5 MiB' });
+        if (
+          ![w, h].every((x) => Number.isInteger(x) && x >= 200 && x <= 4096) ||
+          w > h * 3 ||
+          h > w * 3
+        )
+          errors.push({
+            pointer: '/width',
+            message: 'a size and shape we take',
+          });
+        const expected = b.expectedImage;
+        if (expected !== null && typeof expected !== 'string')
+          errors.push({
+            pointer: '/expectedImage',
+            message:
+              'the path of the story’s picture as you were shown it, or null',
+          });
+        if (errors.length)
+          return p(400, 'Bad request', 'validation_failed', { errors });
+        // Whatever the version: another tab's picture is replaced only by the person's choice.
+        if ((st.image?.path ?? null) !== expected)
+          return p(409, 'Conflict', 'image_changed', {
+            detail:
+              'Your story’s picture was changed in another tab or window.',
+          });
+        // Per hour only: pictures never count towards the weekly limit (Joel, 2026-10-30).
+        const hourly = uploadLimitsOf(s, 'image').nextAvailableAt;
+        if (hourly)
+          return p(409, 'Conflict', 'upload_limit_reached', {
+            detail: 'You’ve started as many uploads as you can for now.',
+            availableAt: hourly,
+          });
+        const path = `stories/${uploadUrl[1]}/${randomUUID().replace(/-/g, '')}.webp`;
+        const url = `http://${req.headers.host}/__s3/${path}`;
+        s.images.set(path, {
+          story: uploadUrl[1],
+          size: b.fileSizeBytes,
+          bytes: null,
+        });
+        s.uploadTimes.push({ at: Date.now(), image: true });
+        st.image = {
+          path,
+          url,
+          width: w,
+          height: h,
+          alt: b.alt?.trim() || null,
+        };
+        st.version += 1;
+        st.updatedAt = new Date().toISOString();
+        const expires = Math.floor(Date.now() / 1000) + 600;
+        return {
+          status: 200,
+          body: {
+            id: uploadUrl[1],
+            version: st.version,
+            provider: 'bunny_s3',
+            path,
+            uploadUrl: `${url}?X-Amz-Expires=${expires}&X-Amz-Signature=${s3Signature(path, b.fileSizeBytes, expires)}`,
+            method: 'PUT',
+            headers: { 'Content-Type': 'image/webp', 'If-None-Match': '*' },
+            expiresAt: new Date(expires * 1000).toISOString(),
+          },
+          headers: { etag: `"${st.version}"` },
+        };
+      }
       if (b.format !== st.primaryFormat)
         errors.push({
           pointer: '/format',
@@ -1302,7 +1428,7 @@ async function handleShare(req, res, path, url, s) {
         done: false,
         deleted: false,
       });
-      s.uploadTimes.push(Date.now());
+      s.uploadTimes.push({ at: Date.now(), image: false });
       st.videoId = videoId;
       st.version += 1;
       st.updatedAt = new Date().toISOString();
@@ -1310,6 +1436,45 @@ async function handleShare(req, res, path, url, s) {
     });
   }
   return false;
+}
+
+/** The presigned PUT and signed GET standing in for Bunny Storage's (the images zone). */
+async function handleS3(req, res, url) {
+  const path = decodeURIComponent(url.pathname.slice('/__s3/'.length));
+  const session = [...sessions.values()].find((x) => x.images.has(path));
+  const image = session?.images.get(path);
+  if (req.method === 'GET') {
+    if (!image?.bytes) {
+      res.writeHead(404);
+      return res.end();
+    }
+    res.writeHead(200, { 'content-type': 'image/webp' });
+    return res.end(image.bytes);
+  }
+  if (req.method !== 'PUT') return false;
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const body = Buffer.concat(chunks);
+  const expires = Number(url.searchParams.get('X-Amz-Expires'));
+  if (
+    !image ||
+    url.searchParams.get('X-Amz-Signature') !==
+      s3Signature(path, Number(req.headers['content-length']), expires) ||
+    expires * 1000 < Date.now() ||
+    req.headers['content-type'] !== 'image/webp' ||
+    req.headers['if-none-match'] !== '*' ||
+    body.length !== image.size
+  ) {
+    res.writeHead(403);
+    return res.end();
+  }
+  if (image.bytes) {
+    res.writeHead(412);
+    return res.end();
+  }
+  image.bytes = body;
+  res.writeHead(200);
+  return res.end();
 }
 
 /** The TUS server standing in for Bunny Stream's (tus 1.0.0, the parts tus-js-client uses). */
@@ -1477,7 +1642,16 @@ createServer(async (req, res) => {
     return sendJson(res, 200, {
       requests: s.uploadRequests,
       videos: [...s.videos].map(([id, v]) => ({ id, ...v })),
+      images: [...s.images].map(([path, i]) => ({
+        path,
+        story: i.story,
+        size: i.size,
+        bytes: i.bytes ? i.bytes.toString('base64') : null,
+      })),
     });
+  }
+  if (path.startsWith('/__s3/')) {
+    if ((await handleS3(req, res, url)) !== false) return;
   }
   if (path === '/tusupload' || path.startsWith('/tusupload/')) {
     if ((await handleTus(req, res, path)) !== false) return;

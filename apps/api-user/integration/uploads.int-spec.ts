@@ -18,6 +18,10 @@ import { tusSignature } from '@heisreal/story-cards';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import {
+  BUNNY_STORAGE,
+  BunnyImageStore,
+} from '../src/app/stories/bunny-storage';
+import {
   BUNNY_STREAM,
   type BunnyStream,
   signUpload,
@@ -86,9 +90,25 @@ function withFaults(db: Surreal): Surreal {
   });
 }
 
+/** The images zone: signs as Bunny's does; a file is there once the test says it arrived. */
+class FakeImageStore extends BunnyImageStore {
+  readonly arrived = new Set<string>();
+  asked = 0;
+  override async exists(path: string) {
+    this.asked++;
+    return this.arrived.has(path);
+  }
+}
+
 describe('video and audio uploads', () => {
   const contract = new Contract('api-user.yaml');
   const bunny = new FakeStream();
+  const images = new FakeImageStore({
+    name: 'test-zone',
+    password: 'zone-password',
+    host: 'uk-s3.storage.bunnycdn.com',
+    region: 'uk',
+  });
   let t: TestDatabase;
   let clerk: TestClerk;
   let migrator: Surreal;
@@ -206,6 +226,8 @@ describe('video and audio uploads', () => {
       .useValue('test-project')
       .overrideProvider(BUNNY_STREAM)
       .useValue(bunny)
+      .overrideProvider(BUNNY_STORAGE)
+      .useValue(images)
       .compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
@@ -488,6 +510,124 @@ describe('video and audio uploads', () => {
     const again = await upload('gus', id, 1, FILE, k);
     expect([again.status, again.body.version]).toEqual([200, 2]);
     expect(await grants('gus')).toEqual([again.body.headers.VideoId]);
+  });
+
+  it('a picture: api-user names its path in the story’s folder, puts it on the draft and presigns a PUT binding it; a retry replays the same path; the story says once its file arrived', async () => {
+    await person('pia');
+    const created = await call('POST', '/v1/stories', 'pia', {
+      body: { title: 'Words', primaryFormat: 'written', body: 'x'.repeat(250) },
+      headers: { 'idempotency-key': key() },
+    });
+    const id = created.body.id as string;
+    const PICTURE = {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes: 40_000,
+      width: 900,
+      height: 1200,
+      alt: 'A hill at dawn',
+      expectedImage: null,
+    };
+    const k = key();
+    const res = await upload('pia', id, 1, PICTURE, k);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      id,
+      version: 2,
+      provider: 'bunny_s3',
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/webp', 'If-None-Match': '*' },
+    });
+    const link = new URL(res.body.uploadUrl);
+    expect(link.pathname).toMatch(
+      new RegExp(`^/test-zone/stories/${id}/[0-9a-f]{32}\\.webp$`),
+    );
+    expect(link.searchParams.get('X-Amz-SignedHeaders')).toBe(
+      'content-length;content-type;host;if-none-match',
+    );
+    const path = link.pathname.slice('/test-zone/'.length);
+    expect(res.body.path).toBe(path);
+    const mine = async () =>
+      (await call('GET', `/v1/account/stories/${id}`, 'pia')).body.image;
+    expect(await mine()).toEqual({
+      url: null,
+      width: 900,
+      height: 1200,
+      alt: 'A hill at dawn',
+      path,
+      uploaded: false,
+    });
+    // Not there yet: never a 304, since its arrival doesn't step the version.
+    const unchanged = await call('GET', `/v1/account/stories/${id}`, 'pia', {
+      headers: { 'if-none-match': '"2"' },
+    });
+    expect(unchanged.status).toBe(200);
+    images.arrived.add(path);
+    expect(await mine()).toMatchObject({ path, uploaded: true });
+    // Once it's known to be there, reading the story doesn't ask the zone again.
+    const asked = images.asked;
+    expect(await mine()).toMatchObject({ path, uploaded: true });
+    expect(images.asked).toBe(asked);
+    // A lost answer's retry: the same path, nothing new counted.
+    const again = await upload('pia', id, 1, PICTURE, k);
+    expect(new URL(again.body.uploadUrl).pathname).toBe(link.pathname);
+    expect(await grants('pia')).toEqual([path]);
+
+    // Asked for while the page showed no picture (another tab added this one): refused at the
+    // story's own version, nothing counted (Codex #140 round 3).
+    const stale = await upload('pia', id, 2, PICTURE);
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('image_changed');
+    expect(await grants('pia')).toEqual([path]);
+
+    // Pictures count per hour, never towards the weekly limit (Joel, 2026-10-30: only video and
+    // audio files do): with one upload a week, the next picture is still allowed.
+    try {
+      await settings({ uploadsPer7Days: 1 });
+      const next = await upload('pia', id, 2, {
+        ...PICTURE,
+        expectedImage: path,
+      });
+      expect(next.status).toBe(200);
+      expect(await grants('pia')).toHaveLength(2);
+      // And /share's "uploads left this week" doesn't count them either.
+      const limits = (await call('GET', '/v1/account/limits', 'pia')).body;
+      expect(limits.uploads).toMatchObject({
+        per7Days: 1,
+        usedIn7Days: 0,
+        nextAvailableAt: null,
+      });
+    } finally {
+      await settings({ uploadsPer7Days: 5 });
+    }
+  });
+
+  it('submit refuses a story whose picture’s file never arrived, and takes it once it has', async () => {
+    await person('pam');
+    const created = await call('POST', '/v1/stories', 'pam', {
+      body: {
+        title: 'Words',
+        primaryFormat: 'written',
+        body: 'x'.repeat(250),
+        tagSlugs: ['healing'],
+      },
+      headers: { 'idempotency-key': key() },
+    });
+    const id = created.body.id as string;
+    const granted = await upload('pam', id, 1, {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes: 40_000,
+      width: 1200,
+      height: 900,
+      expectedImage: null,
+    });
+    expect(granted.status).toBe(200);
+    const refused = await submit('pam', id, 2);
+    expect(refused.status).toBe(400);
+    expect(refused.body.code).toBe('image_not_uploaded');
+    images.arrived.add(granted.body.path);
+    expect((await submit('pam', id, 2)).status).toBe(200);
   });
 
   it('a written story takes no upload', async () => {
