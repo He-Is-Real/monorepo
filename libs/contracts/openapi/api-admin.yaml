@@ -202,8 +202,10 @@ paths:
         the commit (address fetched from Clerk, D16).
 
         Approval waits for processing (A2): every video, audio file and image must be `ready`, and a
-        video must have its width, height and duration, an audio file its duration. Otherwise `409`
-        with `code: media_not_ready` (the database refuses it; nothing is written or published).
+        video must have its width, height and duration, an audio file its duration, and a video with
+        its own picture must show that picture as its thumbnail at Bunny (O1 a: api-user sets it at
+        submit; a removed one must be gone). Otherwise `409` with `code: media_not_ready` (the
+        database refuses it; nothing is written or published).
       x-required-role: Moderator
       x-requires-consent:
         subject: submitter

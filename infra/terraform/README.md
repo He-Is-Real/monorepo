@@ -371,9 +371,16 @@ its videos live (`vz-…`, made by Bunny with the library), is declared too and 
 its API nor the provider lets us choose, so it's written down to make where the videos live
 visible and any change drift. No replication regions (they can't be removed again and cost extra),
 and `prevent_destroy`, since destroying it deletes every video. No custom hostnames (D7).
-Transcription, smart titles/descriptions, content tagging, MP4 fallback, kept originals, premium
-encoding, Optimizer, Origin Shield, Perma-Cache and WebSockets are all set off explicitly, so
-turning one on in the dashboard shows up as drift. (Automatic chapters and moments aren't in the
+Transcription, smart titles/descriptions, content tagging, MP4 fallback, premium encoding,
+Optimizer, Origin Shield, Perma-Cache and WebSockets are all set off explicitly, so turning one on
+in the dashboard shows up as drift. Original files are kept (Joel, 2026-10-31): "Download my data"
+links each person to the file they uploaded (`<video id>/original` on the Stream pull zone, signed
+like every Stream file); early play stays off. Bunny serves originals on the CDN only with the
+library's `ExposeOriginals` on, which the provider can't set and which must stay **off**: the
+player's folder-wide token would then let any viewer download a video's original
+([docs/media-runbook.md](../../docs/media-runbook.md), "Originals"). Requests
+without a referrer are allowed (`direct_url_file_access_blocked = false`, 2026-10-31), so those links
+open from the address bar; the CDN token (D52) still guards every Stream file. (Automatic chapters and moments aren't in the
 provider; both are off by default and would switch transcribing on, which shows as drift.)
 
 **Keys and state.** The provider stores the library keys, the zone passwords and the pull zone's

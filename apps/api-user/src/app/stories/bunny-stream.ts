@@ -4,7 +4,9 @@ import { tusSignature } from '@heisreal/story-cards';
 
 /**
  * Bunny Stream for uploads (M2 plan PR 7; D68, D80, D89): api-user creates each story's video,
- * signs the browser's TUS upload for it, checks it arrived and deletes replaced ones. The library
+ * signs the browser's TUS upload for it, checks it arrived and deletes replaced ones. At submit it
+ * sets a video's own picture as its thumbnail (O1 a), and "Download my data" asks whether Bunny
+ * kept a video's original file (O2 B). The library
  * key (`bunny-stream-api-key`, which only api-user may read: `upload_key_readers`, bunny root)
  * comes from Secret Manager at startup and is never logged. Video and audio both go to the
  * library (in Frankfurt, D89): an audio story is an audio-only upload Bunny encodes like a video.
@@ -28,6 +30,8 @@ export interface StreamVideo {
   status: number;
   /** Seconds, once Bunny has read the file (0 before). */
   length: number;
+  /** Bunny kept the file as uploaded (`<video id>/original`; the library keeps originals, O2 B). */
+  hasOriginal: boolean;
 }
 
 /** What RequestUpload returns for the browser's TUS client: the contract's `UploadTarget` bits. */
@@ -52,6 +56,37 @@ export interface BunnyStream {
   deleteVideo(id: string): Promise<void>;
   /** A TUS upload link for that video only, valid for UPLOAD_LINK_SECONDS. */
   sign(videoId: string, now?: number): SignedUpload;
+  /**
+   * Makes the picture at `pictureUrl` (a short-lived signed link, which Bunny fetches itself) the
+   * video's thumbnail. Repeating it is harmless: Bunny keeps the latest.
+   */
+  setThumbnail(
+    videoId: string,
+    pictureUrl: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  /**
+   * Puts one of Bunny's own frames of the video back as its thumbnail, from `frameUrl` (that
+   * frame, signed on the Stream CDN). Both stop at `signal` as well as at their own timeout.
+   */
+  resetThumbnail(
+    videoId: string,
+    frameUrl: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
+}
+
+/**
+ * The frame a removed picture gives way to. Setting a picture deletes Bunny's `thumbnail.jpg`, but
+ * keeps the frames it generated from the video, `thumbnail_1.jpg` onwards (tested on dev,
+ * 2026-10-31), so the first of those goes back.
+ */
+export const BUNNY_FRAME = 'thumbnail_1.jpg';
+
+/** Each call's own timeout, and the caller's deadline if it has one. */
+function within(signal?: AbortSignal): AbortSignal {
+  const own = AbortSignal.timeout(TIMEOUT_MS);
+  return signal ? AbortSignal.any([own, signal]) : own;
 }
 
 const LIBRARY = /^[0-9]{1,12}$/;
@@ -67,7 +102,12 @@ export class BunnyStreamApi implements BunnyStream {
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
-  private async call(method: string, path: string, body?: unknown) {
+  private async call(
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ) {
     const res = await this.fetcher(
       `${API}/library/${this.libraryId}/videos${path}`,
       {
@@ -80,7 +120,7 @@ export class BunnyStreamApi implements BunnyStream {
         body: body ? JSON.stringify(body) : undefined,
         // The library key goes to Bunny's API only, never on to wherever a redirect points.
         redirect: 'error',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: within(signal),
       },
     );
     return res;
@@ -101,11 +141,72 @@ export class BunnyStreamApi implements BunnyStream {
     const res = await this.call('GET', `/${id}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Bunny Stream get answered ${res.status}`);
-    const v = (await res.json()) as { status?: unknown; length?: unknown };
+    const v = (await res.json()) as {
+      status?: unknown;
+      length?: unknown;
+      hasOriginal?: unknown;
+    };
     return {
       status: typeof v.status === 'number' ? v.status : -1,
       length: typeof v.length === 'number' ? v.length : 0,
+      hasOriginal: v.hasOriginal === true,
     };
+  }
+
+  async setThumbnail(
+    videoId: string,
+    pictureUrl: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!VIDEO_ID.test(videoId)) throw new Error('Not a Bunny video id');
+    const res = await this.call(
+      'POST',
+      `/${videoId}/thumbnail?thumbnailUrl=${encodeURIComponent(pictureUrl)}`,
+      undefined,
+      signal,
+    );
+    if (!res.ok) {
+      throw new Error(`Bunny Stream set thumbnail answered ${res.status}`);
+    }
+  }
+
+  async resetThumbnail(
+    videoId: string,
+    frameUrl: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!VIDEO_ID.test(videoId)) throw new Error('Not a Bunny video id');
+    // Bunny couldn't fetch its own frame by link while the library refused Stream files to
+    // requests without a referrer (its fetcher sends none; tested on dev, 2026-10-31). So the frame
+    // (a small JPEG of the person's own video) is passed through as a stream, never held whole,
+    // with the player's origin as referrer, as the player itself fetches it: that works whether
+    // or not the library blocks such requests (direct_url_file_access_blocked, modules/bunny).
+    const frame = await this.fetcher(frameUrl, {
+      headers: { Referer: 'https://player.mediadelivery.net/' },
+      redirect: 'error',
+      signal: within(signal),
+    });
+    if (!frame.ok || !frame.body) {
+      throw new Error(`Bunny's own frame answered ${frame.status}`);
+    }
+    const res = await this.fetcher(
+      `${API}/library/${this.libraryId}/videos/${videoId}/thumbnail`,
+      {
+        method: 'POST',
+        headers: {
+          AccessKey: this.key,
+          Accept: 'application/json',
+          'Content-Type': frame.headers.get('content-type') ?? 'image/jpeg',
+        },
+        body: frame.body,
+        duplex: 'half',
+        redirect: 'error',
+        signal: within(signal),
+      } as RequestInit,
+    );
+    if (!res.ok) {
+      throw new Error(`Bunny Stream reset thumbnail answered ${res.status}`);
+    }
   }
 
   async deleteVideo(id: string): Promise<void> {

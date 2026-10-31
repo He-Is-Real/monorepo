@@ -76,10 +76,33 @@ signed and what each link enforces: [infra/terraform/README.md](../infra/terrafo
 
 "Story image" is any story's own picture (M2 plan PR 10): a written story's image, an audio
 story's picture, or a video's own thumbnail (Joel, 2026-10-30). It's always `story.image`, at
-`stories/<story id>/<32 hex>.webp`, never set at Bunny Stream; cards and the story page show it in
-place of Bunny's generated thumbnail (`clipPicture`, `libs/story-cards`). Processing and the
-media-ready step can't change it: `story.image`'s VALUE keeps workflow to `processing` alone
+`stories/<story id>/<32 hex>.webp`; cards and the story page show it in place of Bunny's
+generated thumbnail (`clipPicture`, `libs/story-cards`). Processing and the media-ready step can't
+change it: `story.image`'s VALUE keeps workflow to `processing` alone
 (`libs/database/schema/schema.surql`).
+
+A video's own picture is also copied to Bunny Stream as the video's thumbnail when the story is
+submitted (O1 a, 2026-10-31), so Bunny's player shows it: Bunny fetches it from a 10-minute signed
+link, and the copy lives with the video in Frankfurt. `streamThumbnail` records it, and a moderator
+can't approve until it names the story's current video and picture. A picture removed before the
+next submit is replaced at Bunny by one of its own frames (`thumbnail_1.jpg`). If a story is stuck
+on "the video's own picture isn't its thumbnail at Bunny yet" (for example, submitted before this
+existed), request changes so the person submits again.
+
+**Originals (O2 B, 2026-10-31):** the library keeps each video and audio file as uploaded
+(`<video id>/original`, Frankfurt), so "Download my data" can link the person to their own file.
+Files uploaded before the switch have none. They go with the video, like its encodings.
+
+**Never turn on the library's `ExposeOriginals`** (not in the OpenTofu provider, so only Bunny's
+API or dashboard could). Bunny serves a kept original on the CDN only with it on, but then
+**anyone who can watch a video can download its original**: the player page hands every viewer a
+token for the whole video folder (`token_path=/<video id>/`), and that token opens
+`<video id>/original` too. Tested on a throwaway library, 2026-10-31: with `ExposeOriginals` on,
+the player's own token fetched the uploaded file byte for byte (`200`). With it off, even a link we
+signed for exactly `/original` answers `403`. An original is the file as the phone wrote it,
+location and device metadata included, and a published video's player is public. So until the
+export gets the original another way (an open question in the PR that added this), the export's
+`originalFileUrl` links answer `403`; the files are kept meanwhile.
 
 No personal data goes into Bunny names: a video's title is the story id (D69) and an image's path
 is under the story's folder (D80). Deleting an image leaves its folder behind, so deletions remove

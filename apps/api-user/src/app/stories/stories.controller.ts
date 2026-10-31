@@ -163,10 +163,10 @@ export class StoriesController {
     @Inject(SURREAL) service: Surreal,
     @Inject(BUNNY_STREAM) bunny: BunnyStream | null,
     @Inject(BUNNY_STORAGE) images: ImageStore | null,
-    /** The draft's own image, signed for its owner (D52). */
+    /** The draft's own image, signed for its owner, and the links Bunny fetches it from (D52). */
     private readonly urls: MediaUrls,
   ) {
-    this.uploads = new Uploads(service, bunny, images);
+    this.uploads = new Uploads(service, bunny, images, urls);
   }
 
   @Get('v1/tags')

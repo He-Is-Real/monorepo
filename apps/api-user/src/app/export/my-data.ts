@@ -4,8 +4,8 @@ import type { MediaUrls } from '@heisreal/story-cards';
 import type { SurrealQueryable } from 'surrealdb';
 import type { ClerkProfile } from '../erasure/clerk-backend';
 
-/** How long the file's media links work (M2 decisions: "media as 1-hour links"). */
-export const LINK_SECONDS = 60 * 60;
+/** How long the file's media links work: 7 days (Joel, 2026-10-31), time to download the files. */
+export const LINK_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Everything the database holds about the person, read in one query in **their own session**
@@ -143,6 +143,13 @@ interface Held {
   keys: { key: string; status: number; expiresAt: string }[];
 }
 
+/** The Bunny ids of the person's video and audio files, to ask Bunny which originals it kept. */
+export function heldVideoIds(held: Held): string[] {
+  return held.stories.flatMap((s) =>
+    (s.media ?? []).flatMap((m) => (m.bunnyVideoId ? [m.bunnyVideoId] : [])),
+  );
+}
+
 /** The person's rows, read in their own session. */
 export async function readHeld(person: SurrealQueryable): Promise<Held> {
   const results = await runQuery(person, HELD_SQL);
@@ -163,7 +170,7 @@ const SECTIONS = {
   signIn:
     'What Clerk, the company that runs our sign-in, holds about you: your names, email addresses, phone numbers, any accounts you sign in with (such as Google), your picture if you gave one, and when you made the account and last signed in. We read it from Clerk when you asked for this file; we don’t keep a copy. You can change it under Manage account.',
   stories:
-    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "sharing" is whether you let our media team share that story beyond heisreal.today (you choose it for each story): "granted" is your latest choice for it, "counts" whether that choice was made on a version of our sharing form that still counts, and "formVersion" and "occurredAt" which version and when. We only ever share a story while it is on the site.',
+    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, a link to watch or listen to it, and a link to download the file you uploaded ("originalFileUrl"; empty for files uploaded before 31 October 2026, which Bunny didn’t keep); a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links work for 7 days, until the time in "linksExpireAt"; ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "sharing" is whether you let our media team share that story beyond heisreal.today (you choose it for each story): "granted" is your latest choice for it, "counts" whether that choice was made on a version of our sharing form that still counts, and "formVersion" and "occurredAt" which version and when. We only ever share a story while it is on the site.',
   consents:
     'Every time you gave or withdrew a consent, oldest first, with the words of the box you ticked, the form and the version of our privacy policy (and terms of use) it was given under. Sharing a story beyond heisreal.today is chosen for each story, so those name the story ("storyId"); every other consent covers all your stories. "evidenceHash" is a fingerprint of exactly what you were shown, so either of us can prove it. We keep this record even after you delete your account, for six years, as proof that we asked.',
   favourites:
@@ -179,7 +186,7 @@ const SECTIONS = {
 } as const;
 
 const NOT_INCLUDED = [
-  'The files of your videos and audio. We never keep the file you uploaded once it is ready to play, and our servers never carry your media: use each item’s link to watch or listen to it, or ask us for help to get a copy.',
+  'The files of your videos and audio themselves. Our servers never carry your media: use each item’s link to download the file you uploaded, or to watch or listen to it. Bunny kept no copy of a file uploaded before 31 October 2026; ask us for help if you need one.',
   'Who moderated your stories. You get every decision and the feedback to you, not the moderator’s name or id.',
   'Our audit log: a record, by ids only and without any of your words, of things done to your account and stories (for example, a story approved or taken off the site). We keep it for six years as a record of what we did. Ask us if you want it.',
   'Your sign-in sessions and devices, which Clerk keeps. You can see and end them under Manage account.',
@@ -204,8 +211,16 @@ export function toExport(
     role,
     signIn,
     urls,
+    originals,
     generatedAt,
-  }: { role: string; signIn: ClerkProfile; urls: MediaUrls; generatedAt: Date },
+  }: {
+    role: string;
+    signIn: ClerkProfile;
+    urls: MediaUrls;
+    /** The Bunny ids of the person's videos and audio files whose original Bunny kept. */
+    originals: ReadonlySet<string>;
+    generatedAt: Date;
+  },
 ) {
   const publishedAt = new Map(held.published.map((p) => [p.id, p.publishedAt]));
   const reviewsOf = (story: string) =>
@@ -258,6 +273,12 @@ export function toExport(
           bunnyVideoId: or(m.bunnyVideoId),
           playbackUrl: urls.playbackUrl(m.bunnyVideoId),
           thumbnailUrl: urls.thumbnailUrl(m.bunnyVideoId, m.thumbnailPath),
+          // O2 B: the file as the person uploaded it, if Bunny kept it (uploads since originals
+          // are kept); never for older ones.
+          originalFileUrl:
+            m.bunnyVideoId && originals.has(m.bunnyVideoId)
+              ? urls.originalUrl(m.bunnyVideoId)
+              : null,
           width: or(m.width),
           height: or(m.height),
           durationSeconds: or(m.durationSeconds),

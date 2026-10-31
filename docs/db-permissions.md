@@ -886,10 +886,13 @@ retried`, on both RocksDB and the in-memory engine.
       readable by the owner in their session, a seam for M3), `erasureRequest`,
       `pendingDeletion` and `erasedIdentity` (only during or after erasure). The file's
       `about.notIncluded` says so in plain words.
-    - **Media:** each item is its Bunny id and a link signed for one hour (`MediaUrls.expiringIn`,
-      D52's signer, the person's own story media only; pictures too, published or not, since
-      `image.path` is always in its own story's folder: item 37, `fn::media::own_image`); no bytes pass through api-user, and Bunny
-      keeps no original upload or MP4 file (`modules/bunny`), so the player is how to watch it.
+    - **Media:** each item is its Bunny id and links signed for 7 days (Joel, 2026-10-31;
+      `MediaUrls.expiringIn`, D52's signer, the person's own story media only; pictures too,
+      published or not, since `image.path` is always in its own story's folder: item 37,
+      `fn::media::own_image`): the player, and the file as uploaded (`originalFileUrl`,
+      `<video id>/original`) where Bunny kept it (O2 B: the library keeps originals since
+      2026-10-31; api-user asks Bunny, `hasOriginal`, and a Bunny failure is `503` like Clerk's).
+      No bytes pass through api-user.
     - Tests: `apps/api-user/integration/export.int-spec.ts` (a person with data of every kind:
       complete against what the database holds, read as the migrator, and nothing of another
       person whose data touches theirs; Clerk failing is `503`, all or nothing),
@@ -933,6 +936,38 @@ retried`, on both RocksDB and the in-memory engine.
       `apps/api-user/integration/submit-sharing.int-spec.ts` (together or not at all, in the
       transaction itself both ways, and replays).
 
+44. **A video's own picture is its thumbnail at Bunny before anyone approves it (O1 a, Joel
+    2026-10-31).** `streamThumbnail` (id = the story's id): what api-user last asked Bunny Stream
+    to show as the video's thumbnail, at submit: the story's picture, or (`imagePath` NONE) one of
+    Bunny's own frames after the person removed it. Only api-user's login reads or writes it (the
+    person's session and api-admin can't); the row needs its story's submitter live (fence) and
+    goes with the story (`story_erasure_cascade`). It is never on the story itself: a write there
+    would step the story's version, and media writes never touch `story.image`.
+    - **Pending, then confirmed.** api-user claims the row as `pending` (with the wanted video and
+      picture) _before_ asking Bunny, and confirms it once Bunny answered OK. A failed Bunny call,
+      or an OK whose confirm never landed, leaves it `pending`, which vouches for nothing: the
+      next submit sends the wanted state again, and a removed picture gets Bunny's frame back even
+      when the earlier picture's OK was never recorded.
+    - **One submit at a time (a lease).** The claim sets `leaseOwner` (a random id per request)
+      and `leaseUntil` (30 s); `streamThumbnail_lease` refuses another request's claim while it
+      runs (`409 thumbnail_sync_in_progress`; two claims racing: one loses at commit), only a
+      claimed row can become `confirmed`, as claimed, and api-user confirms with
+      `WHERE leaseOwner = <its id>`, clearing the lease in the same write. Every Bunny call of one
+      submit ends within 20 s, well inside the lease; a crashed holder's lease simply runs out. So
+      Bunny is never asked about a story by two submits at once, and a confirmed row is what Bunny
+      shows. A person who edits the picture during the call gets a row that doesn't match the
+      story (approval waits) and their submit fails on its version; their next submit re-syncs.
+    - **Approval.** `story_approval_media` refuses approval (`media_not_ready`, any login; system
+      users load as given) unless, for a video with its own picture, the row is `confirmed` and
+      names the story's current video and picture; for a video without one, no row names its
+      video, or a `confirmed` one does with Bunny's frame back. Checked at approval only, not for
+      already-published stories (the person can't change a submitted story).
+    - Tests: `libs/database/integration/images.int-spec.ts` (the rule, the lease, owner-only
+      confirm, takeover of an expired lease), `person-linked.int-spec.ts`,
+      `apps/api-user/integration/video-thumbnail.int-spec.ts` (submit at Bunny, retries,
+      `503 thumbnail_unavailable`, removal, Bunny's OK never recorded, a second tab's submit
+      refused while the first is at Bunny).
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
@@ -960,6 +995,7 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | `submitterLimits`                                                                                                                                                                                          | D112's per-person limits and trusted mark; `user`, `changedBy`                                                                 | linked     | user live + fence; `changedBy` required from api-admin; `devSeed` dev only; audit row per change                                       |
 | `submissionLog`                                                                                                                                                                                            | D113's recent submissions; `person`                                                                                            | linked     | written by `story_limits` only; person live + fence                                                                                    |
 | `uploadGrant`                                                                                                                                                                                              | D80's uploads; `person`, `story`                                                                                               | linked     | created and renewed by api-user's login only; person live + fence (`uploadGrant_attach`, `uploadGrant_renew`)                          |
+| `streamThumbnail`                                                                                                                                                                                          | O1 a: a video's own picture set as its Bunny thumbnail; `story` (same id)                                                      | linked     | api-user's login only; the story's submitter live + fence (`streamThumbnail_own_story`); deleted with the story                        |
 | `submissionSettings`, `tag`, `signupFormVersion`, `testimonyFormVersion`, `socialSharingFormVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity`, `_setting`               | no person data                                                                                                                 | none       | —                                                                                                                                      | —                                                                        |
 
 - **Audit writes that race erasure.** These are allowed to commit, because audit rows are kept

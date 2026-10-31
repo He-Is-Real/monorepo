@@ -45,17 +45,27 @@ import {
  * keys. Every answer is checked against api-user.yaml.
  */
 class FakeStream implements BunnyStream {
+  /** The videos whose original Bunny kept (uploaded since the library keeps them, O2 B). */
+  readonly kept = new Set<string>();
+  failing = false;
   async createVideo() {
     return randomUUID();
   }
-  async video() {
-    return null;
+  async video(id: string) {
+    if (this.failing) throw new Error('Bunny Stream get answered 503');
+    return { status: 4, length: 30, hasOriginal: this.kept.has(id) };
   }
   async deleteVideo() {
     // nothing to delete here
   }
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
+  }
+  async setThumbnail() {
+    // not in these tests (video-thumbnail.int-spec.ts)
+  }
+  async resetThumbnail() {
+    // not in these tests
   }
 }
 
@@ -101,11 +111,12 @@ class FakeClerk implements ClerkBackend {
   }
 }
 
-const HOUR_MS = 60 * 60 * 1000;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 describe('download my data', () => {
   const contract = new Contract('api-user.yaml');
   const clerkApi = new FakeClerk();
+  const stream = new FakeStream();
   let t: TestDatabase;
   let clerk: TestClerk;
   let migrator: Surreal;
@@ -231,7 +242,7 @@ describe('download my data', () => {
       .overrideProvider(SECRETS_PROJECT)
       .useValue('test-project')
       .overrideProvider(BUNNY_STREAM)
-      .useValue(new FakeStream())
+      .useValue(stream)
       .overrideProvider(CLERK_BACKEND)
       .useValue(clerkApi)
       // Signing on, with test keys (D52's signer).
@@ -335,6 +346,19 @@ describe('download my data', () => {
       }),
     ).toMatchObject({ ok: true });
     await processed(await t.service('workflow'), 'ann_video');
+    stream.kept.add(annVideo);
+    // A video uploaded before the library kept originals: no download link.
+    const annOldVideo = randomUUID();
+    await draft(ann, 'ann_old_video', {
+      primaryFormat: 'video',
+      body: undefined,
+    });
+    await grantUpload(apiUser, {
+      video: annOldVideo,
+      story: 'ann_old_video',
+      person: 'ann',
+      version: 1,
+    });
 
     // Zed's stories: a secret draft, a video and a published one, which Ann hearts; he hearts hers.
     const ZED_TEXT = 'ZQXSECRET words nobody else may read';
@@ -406,6 +430,7 @@ describe('download my data', () => {
       [annNo.id]: 'rejected',
       [annLive.id]: 'approved',
       ann_video: 'draft',
+      ann_old_video: 'draft',
     });
     expect(file.consents.map((c: { id: string }) => c.id).sort()).toEqual(
       [...held['consents']].sort(),
@@ -512,10 +537,25 @@ describe('download my data', () => {
     const expires =
       Number(new URL(clip.playbackUrl).searchParams.get('expires')) * 1000;
     expect(expires).toBe(new Date(file.about.linksExpireAt).getTime());
-    expect(expires - before).toBeGreaterThan(HOUR_MS - 60_000);
-    expect(expires - before).toBeLessThanOrEqual(HOUR_MS + 60_000);
+    // Every link lasts 7 days (Joel, 2026-10-31).
+    expect(expires - before).toBeGreaterThan(WEEK_MS - 60_000);
+    expect(expires - before).toBeLessThanOrEqual(WEEK_MS + 60_000);
+    // The file as uploaded, where Bunny kept it (O2 B): signed like Bunny's other Stream files,
+    // with the same expiry; none for a video Bunny didn't keep.
+    const original = new URL(clip.originalFileUrl);
+    expect(`${original.origin}${original.pathname}`).toBe(
+      `https://vz-test.b-cdn.net/${annVideo}/original`,
+    );
+    expect(original.searchParams.get('token')).toMatch(/^HS256-/);
+    expect(Number(original.searchParams.get('expires')) * 1000).toBe(expires);
+    expect(story('ann_old_video').media).toEqual([
+      expect.objectContaining({
+        bunnyVideoId: annOldVideo,
+        originalFileUrl: null,
+      }),
+    ]);
     expect(
-      file.uploads.find((u: { format: string }) => u.format === 'video'),
+      file.uploads.find((u: { storyId: string }) => u.storyId === 'ann_video'),
     ).toMatchObject({
       imagePath: null,
       storyId: 'ann_video',
@@ -579,6 +619,18 @@ describe('download my data', () => {
       [...zedHeld['stories']].sort(),
     );
     expect(theirs.limits.overrides.uploadRequestsPerHour).toBe(33);
+
+    // All or nothing: if Bunny can't say which originals it kept, 503 and no file.
+    stream.failing = true;
+    try {
+      const down = await call('GET', '/v1/account/export', 'ann');
+      expect([down.status, down.body.code]).toEqual([
+        503,
+        'export_unavailable',
+      ]);
+    } finally {
+      stream.failing = false;
+    }
   });
 
   it('is all or nothing: when Clerk can’t answer, 503 and no file', async () => {

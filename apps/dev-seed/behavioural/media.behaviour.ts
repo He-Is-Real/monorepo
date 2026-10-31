@@ -33,7 +33,7 @@ const UNPUBLISHED_IMAGES = ['seed_w02', 'seed_w05'].map((id) => {
   return imagePath(s.image!.file);
 });
 
-// Bunny's Stream zone refuses requests without a referrer (direct_url_file_access_blocked).
+// The player's requests carry the site as referrer; sent here too, as a browser on the site would.
 const headers = { referer: `${WEB_URL}/` };
 const SIX_HOURS = 6 * 60 * 60;
 

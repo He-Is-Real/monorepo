@@ -751,6 +751,12 @@ DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever app
   THEN {
     LET $problem = fn::story::approval_problem($after);
     IF $problem != NONE { THROW $problem };
+    -- O1 a: a video's own picture is its thumbnail at Bunny before anyone approves it. System
+    -- users (the migrator, dev's dummy data) load stories as given, as story_media_granted does.
+    IF $auth != NONE {
+      LET $thumbnail = fn::story::thumbnail_problem($after);
+      IF $thumbnail != NONE { THROW $thumbnail };
+    };
   };
 -- Joel, 2026-10-23: an approved story stays approved when its media stops being ready ('failed',
 -- back to 'processing', a size fact removed): "we need to ... get it loading again instead of
@@ -910,6 +916,7 @@ DEFINE EVENT OVERWRITE story_erasure_cascade ON story
     DELETE type::record('hiddenStory', record::id($before.id));
     DELETE moderationReview WHERE story = $before.id;
     DELETE favourite WHERE story = $before.id;                  -- others' hearts on it
+    DELETE type::record('streamThumbnail', record::id($before.id));
   };
 -- Every deleted story's picture folder in the images zone (M2 plan PR 10, D82, D40), whoever
 -- deletes it (its owner, erasure, housekeeping's expired drafts, dev-seed): every picture of a
@@ -2384,6 +2391,84 @@ DEFINE EVENT OVERWRITE uploadGrant_renew ON uploadGrant
 DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: record<user>, $video: string) {
   RETURN (UPDATE type::record('uploadGrant', $video) SET renewedAt = time::now()
     WHERE story = $story AND person = $person RETURN VALUE renewedAt)[0];
+};
+
+-- ---------------------------------------------------------------- streamThumbnail (O1 a)
+-- id = streamThumbnail:<story id>: what api-user last asked Bunny Stream to show as a video story's
+-- thumbnail (Joel, 2026-10-31, "O1 a": a video's own picture, set at Submit, so Bunny's own player
+-- shows it too): that picture (imagePath = story.image.path), or, with imagePath NONE, one of
+-- Bunny's own frames put back after the person removed it. Written only by api-user's login, never
+-- by the person's session, and never on the story itself (a write there would step its version,
+-- and media writes never touch story.image). Deleted with its story (story_erasure_cascade).
+--
+-- One submit at a time talks to Bunny about a story (a short lease on this row), so what Bunny
+-- shows is always what the last confirmed row says:
+--   1. claim: state 'pending' with the wanted video and picture, leaseOwner = that request's
+--      random id, leaseUntil a little later. Refused while another request's lease runs
+--      (streamThumbnail_lease); an expired lease (a crashed holder) can be taken over.
+--   2. Bunny (api-user keeps every call well inside the lease).
+--   3. confirm: state 'confirmed' and the lease cleared in one write, only by the lease's owner.
+-- A row stays 'pending' when Bunny failed or the confirm never landed, and approval waits for a
+-- 'confirmed' row (fn::story::thumbnail_problem), so a failure never leaves a wrong picture
+-- vouched for; the next submit sends the wanted state again.
+DEFINE TABLE OVERWRITE streamThumbnail SCHEMAFULL PERMISSIONS
+  FOR select, create, update, delete WHERE $auth.id = service:api_user;
+DEFINE FIELD OVERWRITE story      ON streamThumbnail TYPE record<story> READONLY;
+DEFINE FIELD OVERWRITE videoId    ON streamThumbnail TYPE string;          -- the Bunny video
+DEFINE FIELD OVERWRITE imagePath  ON streamThumbnail TYPE option<string>;  -- story.image.path; NONE = Bunny's frame
+DEFINE FIELD OVERWRITE state      ON streamThumbnail TYPE string ASSERT $value IN ['pending', 'confirmed'];
+DEFINE FIELD OVERWRITE leaseOwner ON streamThumbnail TYPE option<string>;  -- the submit talking to Bunny
+DEFINE FIELD OVERWRITE leaseUntil ON streamThumbnail TYPE option<datetime>;
+DEFINE FIELD OVERWRITE at         ON streamThumbnail TYPE datetime VALUE time::now();
+-- Person-linked through its story: a row needs the story's submitter live, and bumps their fence,
+-- so a write racing erasure loses at commit (fn::person::live; NONE once the story is gone).
+DEFINE EVENT OVERWRITE streamThumbnail_own_story ON streamThumbnail
+  WHEN $event IN ['CREATE', 'UPDATE'] THEN {
+    IF record::id($after.id) != record::id($after.story) {
+      THROW 'streamThumbnail: its id is its story’s';
+    };
+    fn::person::live((SELECT VALUE submitter FROM ONLY $after.story));
+  };
+-- The lease: nobody else's write lands while it runs, and only its owner confirms (clearing it in
+-- the same write). Two claims racing on the same row: one loses at commit (a transaction conflict).
+DEFINE EVENT OVERWRITE streamThumbnail_lease ON streamThumbnail
+  WHEN $event IN ['CREATE', 'UPDATE'] THEN {
+    IF $before.leaseUntil != NONE AND $before.leaseUntil > time::now()
+      AND $after.leaseOwner != $before.leaseOwner AND $after.leaseOwner != NONE {
+      THROW 'streamThumbnail: lease_held';
+    };
+    -- api-user confirms with WHERE leaseOwner = <its own id>; here: only a claimed row, as claimed.
+    IF $after.state = 'confirmed' AND ($before.state != 'pending' OR $before.leaseOwner = NONE
+      OR $after.videoId != $before.videoId OR $after.imagePath != $before.imagePath) {
+      THROW 'streamThumbnail: only a claimed row is confirmed, as claimed';
+    };
+    IF $after.state = 'pending' AND ($after.leaseOwner = NONE OR $after.leaseUntil = NONE) {
+      THROW 'streamThumbnail: a pending row is claimed';
+    };
+    IF $after.state = 'confirmed' AND $after.leaseOwner != NONE {
+      THROW 'streamThumbnail: confirming clears the lease';
+    };
+  };
+-- O1 a: what keeps a video story from being approved because of its own picture at Bunny, or
+-- NONE. With a picture, Bunny must show that picture on that video (a confirmed row naming both);
+-- without one, Bunny must not still show one (no row naming this video, or a confirmed one with
+-- Bunny's own frame back). A pending row (Bunny failed, a confirm that never landed, or a submit
+-- still talking to Bunny) vouches for nothing. A row on another video doesn't count: a replaced
+-- video was deleted at Bunny. Only for a video: an audio story's picture becomes its thumbnail
+-- through processing (M7). Checked when a story is approved, not for one already published (the
+-- person can't change it after submit).
+DEFINE FUNCTION OVERWRITE fn::story::thumbnail_problem($s: any) {
+  LET $video = ($s.media ?? []).find(|$m| $m.format = 'video').bunnyVideoId;
+  IF $video = NONE { RETURN NONE };
+  LET $set = (SELECT videoId, imagePath, state FROM ONLY type::record('streamThumbnail', record::id($s.id)));
+  IF $s.image != NONE AND ($set.state != 'confirmed' OR $set.videoId != $video
+    OR $set.imagePath != $s.image.path) {
+    RETURN 'media_not_ready: the video’s own picture isn’t its thumbnail at Bunny yet';
+  };
+  IF $s.image = NONE AND $set.videoId = $video AND ($set.state != 'confirmed' OR $set.imagePath != NONE) {
+    RETURN 'media_not_ready: Bunny may still show a picture the person removed from the video';
+  };
+  RETURN NONE;
 };
 
 -- ---------------------------------------------------------------- erasedIdentity (D82 tombstone)

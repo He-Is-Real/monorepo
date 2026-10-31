@@ -705,7 +705,7 @@ const sharingOf = (st) => ({
  */
 function myDataOf(s, token, mine) {
   const generatedAt = new Date().toISOString();
-  const linksExpireAt = new Date(Date.now() + 3600_000).toISOString();
+  const linksExpireAt = new Date(Date.now() + WEEK_MS).toISOString();
   const none = (keys) => Object.fromEntries(keys.map((k) => [k, null]));
   return {
     about: {
@@ -749,6 +749,7 @@ function myDataOf(s, token, mine) {
           ...m,
           bunnyVideoId: st.videoId,
           playbackUrl: `https://player.mediadelivery.net/embed/1/${st.videoId}?token=stub&expires=1`,
+          originalFileUrl: `https://vz-stub.b-cdn.net/${st.videoId}/original?token=HS256-stub&expires=1`,
         })),
         moderation: st.rejectionFeedback
           ? [

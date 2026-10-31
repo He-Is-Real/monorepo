@@ -41,7 +41,7 @@ class FakeStream implements BunnyStream {
   readonly deleted: string[] = [];
   async createVideo(title: string) {
     const id = randomUUID();
-    this.videos.set(id, { title, status: 0, length: 0 });
+    this.videos.set(id, { title, status: 0, length: 0, hasOriginal: false });
     return id;
   }
   async video(id: string) {
@@ -53,6 +53,12 @@ class FakeStream implements BunnyStream {
   }
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
+  }
+  async setThumbnail() {
+    // not in these tests (video-thumbnail.int-spec.ts)
+  }
+  async resetThumbnail() {
+    // not in these tests
   }
   /** What Bunny would show once the browser's upload finished and it read the file. */
   arrived(id: string, length = 30) {

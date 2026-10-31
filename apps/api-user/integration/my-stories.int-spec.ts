@@ -46,6 +46,12 @@ class FakeStream implements BunnyStream {
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
   }
+  async setThumbnail() {
+    // not in these tests (video-thumbnail.int-spec.ts)
+  }
+  async resetThumbnail() {
+    // not in these tests
+  }
 }
 
 describe('my stories: withdraw and delete', () => {

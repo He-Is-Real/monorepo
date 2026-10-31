@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -14,6 +14,7 @@ import {
   DatabaseQueryError,
   IdempotencyKeyReusedError,
   type IdempotencyScope,
+  isTransactionConflict,
   type IdempotentResponse,
   type PreparedCommand,
   retryOnConflict,
@@ -23,9 +24,13 @@ import {
   WriteNotAppliedError,
 } from '@heisreal/database';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
-import { STORY_IMAGE_PATH } from '@heisreal/story-cards';
+import { type MediaUrls, STORY_IMAGE_PATH } from '@heisreal/story-cards';
 import type { ImageStore, SignedImageUpload } from './bunny-storage';
-import type { BunnyStream, SignedUpload } from './bunny-stream';
+import {
+  BUNNY_FRAME,
+  type BunnyStream,
+  type SignedUpload,
+} from './bunny-stream';
 import { StaleVersionException } from './story-store';
 
 /**
@@ -44,7 +49,7 @@ import { StaleVersionException } from './story-store';
  *   grant is written, and at submit with the limits in force then and Bunny's own length.
  *
  * Images (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's picture or a
- * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's, never set at Bunny). The
+ * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's on our cards). The
  * browser re-encodes it to WebP without metadata and sends its size, pixel size and description;
  * api-user picks its path, `stories/<story id>/<random>.webp`, records the grant (whose event puts
  * it on the draft) and signs an S3 presigned PUT binding that path, the type and the exact size
@@ -118,6 +123,23 @@ const NOT_UPLOADED = [0, 6];
 /** Uploaded, processing, transcoding, finished, couldn't be encoded, just-in-time stages. */
 const ARRIVED = [1, 2, 3, 4, 5, 7, 8];
 const ENCODING_FAILED = 5;
+/** How long Bunny's link to the picture lasts: it fetches it at once (R2: about 1.3 s). */
+const PICTURE_LINK_SECONDS = 10 * 60;
+/** Tries at Bunny's thumbnail call within one submit (repeating it is harmless). */
+const THUMBNAIL_TRIES = 3;
+/** How long one submit talks to Bunny about a story's thumbnail before another may (the lease). */
+const THUMBNAIL_LEASE_SECONDS = 30;
+/** Every Bunny call of one sync, tries included, ends by then: well inside the lease. */
+const THUMBNAIL_DEADLINE_MS = 20_000;
+
+/** `503`: Bunny didn't take the video's picture this time; the story stays a draft. */
+function thumbnailUnavailable() {
+  return new ServiceUnavailableException({
+    code: 'thumbnail_unavailable',
+    message:
+      'We couldn’t save your picture with the video just now. Your story is saved; please press Submit again.',
+  });
+}
 
 interface FieldError {
   pointer: string;
@@ -280,6 +302,8 @@ export class Uploads {
     private readonly service: SurrealQueryable,
     private readonly bunny: BunnyStream | null,
     private readonly images: ImageStore | null = null,
+    /** Signs the links Bunny fetches a video's own picture (or its own frame) from (D52). */
+    private readonly urls: MediaUrls | null = null,
   ) {}
 
   private stream(): BunnyStream {
@@ -722,6 +746,143 @@ export class Uploads {
         } one, then submit your story.`,
       });
     }
+    if (draft.primaryFormat === 'video') {
+      await this.syncThumbnail(id, draft.videoId, draft.imagePath);
+    }
+  }
+
+  /**
+   * O1 a (Joel, 2026-10-31): a video's own picture becomes its thumbnail at Bunny at submit, so
+   * Bunny's player shows it too, and the moderator reviews exactly that. Bunny keeps a picture set
+   * before it finishes processing (R1, tested on dev). A picture removed since gives way to one of
+   * Bunny's own frames. The story's streamThumbnail row (schema.surql) says what Bunny shows, and
+   * approval waits for it to be confirmed for the story's video and picture:
+   * - nothing to do when it already is (or no picture was ever set on this video);
+   * - otherwise claim the row (pending, with a lease, so one submit at a time talks to Bunny about
+   *   this story: another gets `409 thumbnail_sync_in_progress`), ask Bunny, then confirm, as the
+   *   lease's owner, clearing the lease. Every Bunny call ends well inside the lease.
+   * Bunny still failing after a few tries: `503 thumbnail_unavailable`, submit again; the row stays
+   * pending (nothing vouched for), so the next submit sends the wanted state again whatever Bunny
+   * did, and so does one after a confirm that never landed.
+   */
+  private async syncThumbnail(
+    id: string,
+    videoId: string,
+    imagePath: string | undefined,
+  ): Promise<void> {
+    const [row] = (await runQuery(
+      this.service,
+      `SELECT videoId, imagePath, state FROM ONLY type::record('streamThumbnail', $id)`,
+      { id },
+    )) as [{ videoId: string; imagePath?: string; state: string } | null];
+    // No picture, and none ever asked for on this video (a replaced video was deleted at Bunny).
+    if (!imagePath && row?.videoId !== videoId) return;
+    if (
+      row?.state === 'confirmed' &&
+      row.videoId === videoId &&
+      row.imagePath === imagePath
+    ) {
+      return;
+    }
+    const owner = randomUUID();
+    await this.claimThumbnail(id, videoId, imagePath, owner);
+    const urls = this.urls?.expiringIn(PICTURE_LINK_SECONDS);
+    const deadline = AbortSignal.timeout(THUMBNAIL_DEADLINE_MS);
+    try {
+      if (imagePath) {
+        await this.atBunny(
+          videoId,
+          urls?.imageUrl(imagePath),
+          deadline,
+          (url) => this.stream().setThumbnail(videoId, url, deadline),
+        );
+      } else {
+        const frame = urls?.thumbnailUrl(videoId, `${videoId}/${BUNNY_FRAME}`);
+        await this.atBunny(videoId, frame, deadline, (url) =>
+          this.stream().resetThumbnail(videoId, url, deadline),
+        );
+      }
+    } catch (err) {
+      // Bunny answered no each time: let the next submit in at once. A call cut off by its
+      // timeout may still land at Bunny, so then the lease runs out by itself first.
+      if (!deadline.aborted && !(err as { uncertain?: boolean }).uncertain) {
+        await runQuery(
+          this.service,
+          `UPDATE type::record('streamThumbnail', $id) SET leaseUntil = time::now()
+             WHERE leaseOwner = $owner RETURN NONE`,
+          { id, owner },
+        ).catch(() => undefined);
+      }
+      throw err;
+    }
+    const [confirmed] = (await runQuery(
+      this.service,
+      `UPDATE type::record('streamThumbnail', $id)
+         SET state = 'confirmed', leaseOwner = NONE, leaseUntil = NONE
+         WHERE leaseOwner = $owner RETURN VALUE id`,
+      { id, owner },
+    )) as [unknown[]];
+    if (!confirmed.length) {
+      // The lease ran out and someone else took it (not expected: calls end well inside it).
+      this.logger.warn(`Lost story ${id}’s thumbnail lease before confirming`);
+      throw thumbnailUnavailable();
+    }
+  }
+
+  /** Claims the story's thumbnail row for this submit, or `409` while another holds it. */
+  private async claimThumbnail(
+    id: string,
+    videoId: string,
+    imagePath: string | undefined,
+    owner: string,
+  ): Promise<void> {
+    try {
+      await runQuery(
+        this.service,
+        `UPSERT type::record('streamThumbnail', $id) SET story = type::record('story', $id),
+           videoId = $videoId, imagePath = $imagePath ?? NONE, state = 'pending',
+           leaseOwner = $owner, leaseUntil = time::now() + ${THUMBNAIL_LEASE_SECONDS}s
+           RETURN NONE`,
+        { id, videoId, imagePath: imagePath ?? null, owner },
+      );
+    } catch (err) {
+      // Held by another submit, or two claims racing (one loses at commit).
+      if (/lease_held/.test(String(err)) || isTransactionConflict(err)) {
+        throw new ConflictException({
+          code: 'thumbnail_sync_in_progress',
+          message:
+            'Your story is still being saved from another tab or window. Please try again in a moment.',
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * One thumbnail call at Bunny, tried a few times until `deadline`; `503` if signing is off or it
+   * keeps failing. The error says whether a try was cut off (it may still land at Bunny).
+   */
+  private async atBunny(
+    videoId: string,
+    url: string | null | undefined,
+    deadline: AbortSignal,
+    call: (url: string) => Promise<void>,
+  ): Promise<void> {
+    let last: unknown = new Error('media signing is off');
+    let uncertain = false;
+    for (let i = 0; url && i < THUMBNAIL_TRIES && !deadline.aborted; i++) {
+      try {
+        return await call(url);
+      } catch (err) {
+        last = err;
+        const name = (err as { name?: string }).name;
+        if (name === 'TimeoutError' || name === 'AbortError') uncertain = true;
+      }
+    }
+    this.logger.warn(
+      `Couldn’t set video ${videoId}’s thumbnail at Bunny: ${String(last)}`,
+    );
+    throw Object.assign(thumbnailUnavailable(), { uncertain });
   }
 
   /** Submit's picture check: asks the zone unless this instance has seen the file arrive. */
