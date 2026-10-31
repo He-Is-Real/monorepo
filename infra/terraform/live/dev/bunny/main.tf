@@ -139,6 +139,9 @@ module "bunny" {
   # M2's uploads (D80): api-user creates and signs them with the library key and
   # the images zone password (infra/terraform/README.md, "Uploads").
   upload_key_readers = ["serviceAccount:api-user@heisreal-dev.iam.gserviceaccount.com"]
+  # The nightly housekeeping Job lists and deletes orphaned story videos with the library's
+  # API key (modules/gcp/housekeeping.tf; the gcp root makes its service account).
+  stream_key_readers = ["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"]
 
   # Where the library's videos live (Bunny made it with library 789855).
   stream_storage_zone = { id = 2014507, name = "vz-bd66cea0-80b" }

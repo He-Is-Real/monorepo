@@ -11,4 +11,5 @@ images = {
   "api-admin"       = "main"
   "web"             = "main"
   "dev-seed"        = "main" # D49: the dev-seed Cloud Run Job (dev only)
+  "housekeeping"    = "main" # the nightly housekeeping Cloud Run Job (#141)
 }
