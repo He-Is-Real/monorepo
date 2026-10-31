@@ -9,18 +9,21 @@ import {
 } from 'react';
 import type { StorySummary } from '@/lib/browse';
 import {
+  BREAKPOINTS,
   type CardLayout,
   type ColumnHeights,
   GAP,
   layoutFor,
+  layoutStyle,
+  MASONRY_CSS,
   spanFor,
 } from '@/lib/masonry';
 import { StoryCard } from './story-card';
 
-/** The column count the stylesheet is using now (`.masonry` in global.css). */
+/** The column count the stylesheet is using now (MASONRY_CSS). */
 function currentColumns(): 1 | 2 | 3 {
-  if (window.matchMedia('(min-width: 1024px)').matches) return 3;
-  if (window.matchMedia('(min-width: 640px)').matches) return 2;
+  if (window.matchMedia(`(min-width: ${BREAKPOINTS[3]}px)`).matches) return 3;
+  if (window.matchMedia(`(min-width: ${BREAKPOINTS[2]}px)`).matches) return 2;
   return 1;
 }
 
@@ -62,12 +65,13 @@ function laidFrom(cards: StorySummary[]): Laid {
 }
 
 /**
- * Story cards in browse's balanced masonry (D55, lib/masonry.ts, `.masonry` in global.css): each
+ * Story cards in browse's balanced masonry (D55, lib/masonry.ts and its MASONRY_CSS): each
  * card at its media's own clamped shape (D53), a written story without a picture as text only,
- * the list in date order, each card in the column the server predicted. In the browser the
- * measured heights replace the predicted spans. Browse passes the layouts it continues page by
- * page; favourites (Joel, 2026-10-31: the same display as browse) is laid out here, and cards
- * added after the ones on screen continue from them as browse's pages do (`continueLayout`).
+ * the list in date order, each card in the column the server predicted, spanning the rows
+ * predicted for the band of widths the list is in. In the browser the measured heights replace
+ * the predicted spans. Browse passes the layouts it continues page by page; favourites (Joel,
+ * 2026-10-31: the same display as browse) is laid out here, and cards added after the ones on
+ * screen continue from them as browse's pages do (`continueLayout`).
  */
 export function StoryMasonry({
   cards,
@@ -132,25 +136,22 @@ export function StoryMasonry({
   }, [shown, list]);
 
   return (
-    <ul ref={list} className="masonry">
-      {shown.map((story, i) => {
-        const { col, span } = placed[i];
-        const style = {
-          '--c2': col[2] + 1,
-          '--s2': span[2],
-          '--c3': col[3] + 1,
-          '--s3': span[3],
-        } as CSSProperties;
-        return (
-          <li key={story.id} style={style}>
+    <>
+      {/* React puts it in the page's head, once however many lists render it. */}
+      <style href="story-masonry" precedence="default">
+        {MASONRY_CSS}
+      </style>
+      <ul ref={list} className="masonry">
+        {shown.map((story, i) => (
+          <li key={story.id} style={layoutStyle(placed[i]) as CSSProperties}>
             <StoryCard
               story={story}
               headingLevel={headingLevel}
               eager={i < 3}
             />
           </li>
-        );
-      })}
-    </ul>
+        ))}
+      </ul>
+    </>
   );
 }

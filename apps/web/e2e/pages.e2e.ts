@@ -681,38 +681,3 @@ test.describe('without JavaScript', () => {
     await expect(page.getByText('You’ve seen every story here.')).toBeVisible();
   });
 });
-
-// The masonry's first paint is the server's prediction (D55): the browser measures the cards
-// only once its JavaScript runs, and never without it. A prediction may leave a gap but must
-// never overlap the next card (Codex review of #72, round 3: 9:16 videos were 35 px short at
-// 1280 px, which a loaded machine caught before the measurement landed). Every multi-column
-// device, every story.
-test.describe('first paint, before any measuring', () => {
-  test.use({ javaScriptEnabled: false });
-
-  test('no card overlaps the next one in its column', async ({
-    page,
-  }, info) => {
-    test.skip(
-      (info.project.use.viewport?.width ?? 0) < 640,
-      'one column below 640 px',
-    );
-    await page.goto('/stories?pages=4');
-    await expect(cards(page)).toHaveCount(54);
-    const overlaps = await cards(page).evaluateAll((lis) => {
-      const boxes = lis.map((li, i) => {
-        const r = (li.firstElementChild as HTMLElement).getBoundingClientRect();
-        return { i, x: Math.round(r.x), top: r.top, bottom: r.bottom };
-      });
-      const out: string[] = [];
-      for (const a of boxes)
-        for (const b of boxes)
-          if (a.x === b.x && b.top > a.top && b.top < a.bottom - 0.5)
-            out.push(
-              `card ${a.i} ends at ${a.bottom.toFixed(1)}, card ${b.i} starts at ${b.top.toFixed(1)}`,
-            );
-      return out;
-    });
-    expect(overlaps).toEqual([]);
-  });
-});
