@@ -689,6 +689,17 @@ components:
         updatedAt:
           type: string
           format: date-time
+        draftExpiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            A draft's deletion date if nobody touches it again (D71, R5): the nightly housekeeping
+            Job deletes it after this. The database's one rule (`fn::story::draft_expires_at`): the
+            longest draft retention any published testimony form has promised (a month counted as
+            31 days; 186 days today) after the draft's last edit or the last time an upload link
+            was signed for it again. `null` for anything that isn't a draft, or while no testimony
+            form is published (nothing expires). Clients show it as it is; they never recompute it.
+            Sent by api-user only.
 
     StoryModeration:
       description: Moderator view of the story write model, including lock state and the submitter reference.

@@ -75,6 +75,8 @@ export interface StoryMine {
   approvedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** A draft's deletion date if nobody touches it (D71; fn::story::draft_expires_at). */
+  draftExpiresAt: string | null;
 }
 
 /** The contract's `SubmissionLimits`: what the submit page shows and checks (W3, D112). */
@@ -133,10 +135,11 @@ const ERR =
 /** WithdrawStory: anything submitted and not yet finished with (D61: withdrawn stays withdrawn). */
 const WITHDRAWABLE = ['pending', 'in_review', 'approved', 'changes_requested'];
 /**
- * DeleteStory (D71): the person's own draft, withdrawn or rejected story. The database's story
- * permission says the same, so it holds whoever calls.
+ * DeleteStory (D71): the person's own draft, withdrawn or rejected story, or one sent back for
+ * changes (no need to withdraw it first). The database's story permission says the same, so it
+ * holds whoever calls.
  */
-const DELETABLE = ['draft', 'withdrawn', 'rejected'];
+const DELETABLE = ['draft', 'changes_requested', 'withdrawn', 'rejected'];
 
 interface RawStory {
   id: string;
@@ -162,11 +165,12 @@ interface RawStory {
   approvedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  draftExpiresAt?: string | null;
 }
 
 const STORY_FIELDS = `<string> id AS id, version, slug, status, title, description, body,
   bylineName, primaryFormat, tagRefs.map(|$t| <string> $t) AS tagRefs, media, image, rejectionFeedback,
-  submittedAt, approvedAt, createdAt, updatedAt`;
+  submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt`;
 
 function fail400(pointer: string, message: string): never {
   throw new BadRequestException({
@@ -488,10 +492,10 @@ export class StoryStore {
   }
 
   /**
-   * DeleteStory at `ifMatch` (D71): the person's own draft, withdrawn or rejected story, gone
-   * with its read-model rows, reviews and others' hearts (story_erasure_cascade). Answers the
-   * Bunny videos api-user made for it (its upload grants, D80), for the caller to delete at
-   * Bunny once this has committed. The grants themselves stay: the upload limits count them
+   * DeleteStory at `ifMatch` (D71): the person's own draft, withdrawn, rejected or
+   * changes-requested story, gone with its read-model rows, reviews and others' hearts
+   * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its upload grants,
+   * D80), for the caller to delete at Bunny once this has committed. The grants themselves stay: the upload limits count them
    * for 7 days (D113).
    */
   async delete(id: string, ifMatch: number): Promise<{ videos: string[] }> {
@@ -668,6 +672,7 @@ export class StoryStore {
       approvedAt: iso(r.approvedAt),
       createdAt: iso(r.createdAt) as string,
       updatedAt: iso(r.updatedAt) as string,
+      draftExpiresAt: iso(r.draftExpiresAt),
     }));
   }
 
@@ -782,7 +787,7 @@ export class StoryStore {
       return new ConflictException({
         code: 'story_not_deletable',
         message:
-          'Only a draft, or a story that was withdrawn or not accepted, can be deleted. Withdraw it first.',
+          'Only a draft, or a story sent back for changes, withdrawn or not accepted, can be deleted. Withdraw it first.',
       });
     }
     return err;
