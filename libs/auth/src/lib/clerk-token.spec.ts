@@ -25,13 +25,25 @@ const b64 = (v: unknown) =>
   Buffer.from(JSON.stringify(v)).toString('base64url');
 
 describe('verifyClerkToken', () => {
-  it('accepts a valid session token and returns the user id, role and the token itself', () => {
-    const token = clerk.token('user_ann', { role: 'Moderator' });
+  it('accepts a valid session token and returns the user id, role, session, expiry and the token itself', () => {
+    const exp = Math.floor(Date.now() / 1000) + 30;
+    const token = clerk.token('user_ann', { role: 'Moderator', exp });
     expect(verifyClerkToken(token, config)).toEqual({
       clerkUserId: 'user_ann',
       role: 'Moderator',
+      sessionId: 'sess_test',
+      expiresAt: exp,
       token,
     });
+  });
+
+  it('refuses a token that names no Clerk session (missing or malformed sid)', () => {
+    expect(refused(clerk.token('user_ann', { sid: undefined }))).toBe(
+      'session',
+    );
+    expect(refused(clerk.token('user_ann', { sid: '../users/x' }))).toBe(
+      'session',
+    );
   });
 
   it('accepts every allowed origin in azp', () => {

@@ -80,6 +80,9 @@ class FakeClerk implements ClerkBackend {
   async webhookKey() {
     return this.webhooksOn ? WEBHOOK_KEY : null;
   }
+  passIssuer() {
+    return null;
+  }
   async getUser(): Promise<never> {
     throw new Error('not in these tests');
   }

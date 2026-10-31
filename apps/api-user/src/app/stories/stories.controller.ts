@@ -27,6 +27,7 @@ import {
   ifNoneMatches,
   NoConsentRequired,
   parseIdempotencyKey,
+  PERSON_WORK_SECONDS,
   PersonSessions,
   RequiresConsent,
   weakETag,
@@ -319,28 +320,32 @@ export class StoriesController {
     const idempotencyKey = parseIdempotencyKey(key);
     const { shareBeyondSite: share } = parseSubmit(body);
     const result = await this.people
-      .run(req, ({ session, user }) =>
-        new StoryStore(session).submit(
-          sid,
-          version,
-          {
-            scope: { service: 'api-user', owner: user, key: idempotencyKey },
-            // The same key with or without the sharing is a different request (422).
-            requestHash: requestHash(
-              share
-                ? ['POST', 'submit', sid, version, share]
-                : ['POST', 'submit', sid, version],
-            ),
-          },
-          () => this.uploads.checkBeforeSubmit(session, sid),
-          // O4: sharing ticked on Review commits with the submission, or neither does.
-          share &&
-            (() =>
-              this.ledger.storySharingGrant(session, {
-                ...share,
-                storyId: sid,
-              })),
-        ),
+      .run(
+        req,
+        ({ session, user }) =>
+          new StoryStore(session).submit(
+            sid,
+            version,
+            {
+              scope: { service: 'api-user', owner: user, key: idempotencyKey },
+              // The same key with or without the sharing is a different request (422).
+              requestHash: requestHash(
+                share
+                  ? ['POST', 'submit', sid, version, share]
+                  : ['POST', 'submit', sid, version],
+              ),
+            },
+            () => this.uploads.checkBeforeSubmit(session, sid),
+            // O4: sharing ticked on Review commits with the submission, or neither does.
+            share &&
+              (() =>
+                this.ledger.storySharingGrant(session, {
+                  ...share,
+                  storyId: sid,
+                })),
+          ),
+        // Waits on Bunny for the file (decision T): a pass that can last that long.
+        PERSON_WORK_SECONDS.slow,
       )
       .catch((err: unknown) => {
         throw reused(err);
@@ -405,11 +410,21 @@ export class StoriesController {
     const idempotencyKey = parseIdempotencyKey(key);
     const input = parseUploadRequest(body);
     const target = await this.people
-      .run(req, ({ session, user }) =>
-        this.uploads.request(session, user, sid, version, input, {
-          key: idempotencyKey,
-          requestHash: requestHash(['POST', 'upload-url', sid, version, input]),
-        }),
+      .run(
+        req,
+        ({ session, user }) =>
+          this.uploads.request(session, user, sid, version, input, {
+            key: idempotencyKey,
+            requestHash: requestHash([
+              'POST',
+              'upload-url',
+              sid,
+              version,
+              input,
+            ]),
+          }),
+        // Creates and deletes videos at Bunny (decision T): a pass that can last that long.
+        PERSON_WORK_SECONDS.slow,
       )
       .catch((err: unknown) => {
         throw reused(err);

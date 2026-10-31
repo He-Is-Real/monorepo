@@ -14,6 +14,10 @@ info:
       minted for an allowed origin (`azp`), with the `role` claim (D1); anything else is `401`. A role
       below the operation's `x-required-role` is `403` with code `role_required`. The person's first
       call creates their `user` record (only `clerkUserId`, D16).
+    - A request isn't cut off when the token expires midway (decision T): if it may outlast the
+      token, api-user asks Clerk for a fresh one for the same session and uses it with the database
+      only. If Clerk says the session has ended, `401`; if Clerk can't be reached, `503` with code
+      `sign_in_unavailable` (try again).
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
     - Commands return `{ id, version }` (D28): `201` + `Location` for creates, `202` for async work.
       Modifying commands need `If-Match` (`412`/`428`), except account settings, which live in Clerk

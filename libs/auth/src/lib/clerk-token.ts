@@ -13,6 +13,7 @@ export type ClerkTokenFailure =
   | 'issuer'
   | 'authorized_party'
   | 'subject'
+  | 'session'
   | 'session_status'
   | 'role';
 
@@ -28,6 +29,10 @@ export interface VerifiedClerkToken {
   clerkUserId: string;
   /** The {@link ROLE_CLAIM} claim (D1). */
   role: Role;
+  /** `sid`: the Clerk session it belongs to (api-user asks Clerk for a fresh pass for it). */
+  sessionId: string;
+  /** `exp`, seconds since the epoch. */
+  expiresAt: number;
   /** The compact token itself, unchanged: it also opens the person's SurrealDB session (D27). */
   token: string;
 }
@@ -36,6 +41,8 @@ export interface VerifiedClerkToken {
 const MAX_TOKEN_LENGTH = 8192;
 const SEGMENT = /^[A-Za-z0-9_-]+$/;
 const CLERK_USER_ID = /^user_[A-Za-z0-9]{1,64}$/;
+/** Clerk's session ids; anything else never reaches a URL (api-user's fresh passes). */
+export const CLERK_SESSION_ID = /^sess_[A-Za-z0-9_-]{1,64}$/;
 
 function decodeJson(segment: string): Record<string, unknown> {
   let value: unknown;
@@ -61,7 +68,8 @@ const isNumber = (v: unknown): v is number =>
  * - `exp` and `nbf` are required, and `iat` must not be in the future, each with
  *   `clockSkewSeconds` of leeway;
  * - `iss` must be the configured instance, `azp` one of the allowed origins (SurrealDB checks
- *   neither), `sub` a Clerk user id, a pending session (`sts` other than `active`) is refused;
+ *   neither), `sub` a Clerk user id, `sid` a Clerk session id, a pending session (`sts` other
+ *   than `active`) is refused;
  * - the role claim must be one of {@link ROLES}.
  *
  * Throws {@link ClerkTokenError} on any failure. SurrealDB verifies the same signature and
@@ -117,6 +125,11 @@ export function verifyClerkToken(
   if (typeof sub !== 'string' || !CLERK_USER_ID.test(sub)) {
     throw new ClerkTokenError('subject');
   }
+  // Every session token names its session; a token without one isn't a session token.
+  const sid = claims['sid'];
+  if (typeof sid !== 'string' || !CLERK_SESSION_ID.test(sid)) {
+    throw new ClerkTokenError('session');
+  }
   // v2 tokens: `sts` is the session status; a pending session (e.g. unfinished tasks) is
   // treated as signed out, as Clerk's own SDKs do.
   if (claims['sts'] !== undefined && claims['sts'] !== 'active') {
@@ -125,5 +138,5 @@ export function verifyClerkToken(
   const role = claims[ROLE_CLAIM];
   if (!isRole(role)) throw new ClerkTokenError('role');
 
-  return { clerkUserId: sub, role, token };
+  return { clerkUserId: sub, role, token, sessionId: sid, expiresAt: exp };
 }
