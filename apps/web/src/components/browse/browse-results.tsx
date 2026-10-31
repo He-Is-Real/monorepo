@@ -6,18 +6,15 @@ import {
   continueLayout,
   StoryMasonry,
 } from '@/components/stories/story-masonry';
+import { useNearEnd } from '@/components/stories/use-near-end';
 import { Button } from '@/components/ui/button';
 import type { StorySummary } from '@/lib/browse';
 import {
-  autoLoadsLeft,
   type BrowseFilters,
   browseHref,
   parseBrowseSearch,
 } from '@/lib/browse-query';
 import { type CardLayout, type ColumnHeights, layoutFor } from '@/lib/masonry';
-
-/** How far before the end of the list the next page starts loading (D55: "near the end"). */
-const NEAR_END = '0px 0px 800px 0px';
 
 interface Loaded {
   cards: StorySummary[];
@@ -30,9 +27,10 @@ interface Loaded {
 /**
  * Browse's cards in a balanced masonry, and loading more (D55). The cards the server rendered
  * come with the layout for every column count; this island then measures the real cards and
- * loads further pages through a server action (web's server calls the API, D32). At most 2
- * pages load on their own as the reader nears the end; then "Show more stories". The number of
- * pages is kept in the URL, so Back and reloads show the same list.
+ * loads further pages through a server action (web's server calls the API, D32). The next page
+ * loads on its own whenever the reader nears the end, to the end of the list (Joel, 2026-10-31:
+ * no page cap; `useNearEnd`). The number of pages is kept in the URL, so Back and reloads show
+ * the same list.
  *
  * Every server render is the truth (D51: stories are read fresh): `snapshot` is new each time
  * the server renders the page, and the list starts again from that render's cards, so a story
@@ -65,7 +63,6 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [announcement, setAnnouncement] = useState('');
   const list = useRef<HTMLUListElement>(null);
-  const sentinel = useRef<HTMLDivElement>(null);
   const busy = useRef(false);
   const current = useRef(loaded);
   current.current = loaded;
@@ -86,6 +83,8 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
       if (busy.current || !cursor) return false;
       busy.current = true;
       setStatus('loading');
+      // Emptied while a page loads, so each page's "loaded" is a change screen readers announce.
+      setAnnouncement('');
       let result: Awaited<ReturnType<typeof loadMoreStories>>;
       try {
         result = await loadMoreStories(filters, cursor);
@@ -147,31 +146,21 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
     };
   }, [load]);
 
-  const autoLeft = autoLoadsLeft(loaded.pages);
-
-  // Near the end: load the next page, while automatic loads are left. An observer only acts for
-  // the list it was made for: once a load has moved on (the ref), its sightings are of the
-  // shorter list still on screen, e.g. Back's scroll restoring to the end of the first page
-  // while that page's second one is arriving (#119).
+  // Near the end: load the next page. An observer only acts for the list it was made for: once
+  // a load has moved on (the ref), its sightings are of the shorter list still on screen, e.g.
+  // Back's scroll restoring to the end of the first page while that page's second one is
+  // arriving (#119).
   const pages = loaded.pages;
-  useEffect(() => {
-    const el = sentinel.current;
-    if (!el || !loaded.cursor || autoLeft === 0 || status !== 'idle') return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (
-          entries.some((e) => e.isIntersecting) &&
-          current.current.pages === pages
-        )
-          void load(false);
-      },
-      { rootMargin: NEAR_END },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [loaded.cursor, autoLeft, status, load, pages]);
+  const { sentinel, auto } = useNearEnd({
+    active: !!loaded.cursor && status === 'idle',
+    round: pages,
+    onNear: () => {
+      if (current.current.pages === pages) void load(false);
+    },
+  });
 
-  // After "Show more stories", keyboard users carry on from the first new card.
+  // After Try again or "Show more stories", keyboard users carry on from the first new card.
+  // Loads on their own never move focus.
   useEffect(() => {
     const from = focusFrom.current;
     if (from === null) return;
@@ -186,8 +175,8 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
         layouts={loaded.layouts}
         listRef={list}
       />
-      <div ref={sentinel} aria-hidden="true" />
-      <p role="status" className="sr-only">
+      <div ref={sentinel} data-near-end="" aria-hidden="true" />
+      <p role="status" data-more-loaded="" className="sr-only">
         {announcement}
       </p>
       <div className="mt-12 flex flex-col items-center gap-3 text-center">
@@ -208,18 +197,15 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
             </Button>
           </>
         )}
-        {status === 'idle' && loaded.cursor && autoLeft === 0 && (
-          <>
-            {/* D62: no story counts anywhere, not even of what has loaded. */}
-            <p className="text-secondary-text">There are more stories.</p>
-            <Button
-              variant="outline"
-              className="min-h-11 px-6"
-              onClick={() => void load(true)}
-            >
-              Show more stories
-            </Button>
-          </>
+        {status === 'idle' && loaded.cursor && !auto && (
+          // Only where the browser can't tell when the end is near (no IntersectionObserver).
+          <Button
+            variant="outline"
+            className="min-h-11 px-6"
+            onClick={() => void load(true)}
+          >
+            Show more stories
+          </Button>
         )}
         {loaded.cursor && (
           // Without JavaScript nothing loads on its own and the button can't work: a link makes

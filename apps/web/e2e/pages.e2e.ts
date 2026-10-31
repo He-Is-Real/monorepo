@@ -1,22 +1,24 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import {
   expectAllTargets,
   expectNoHorizontalOverflow,
   expectTarget,
+  nearEndSettled,
+  recordAnnouncements,
   shots,
 } from './helpers';
 import { STUB_URL, WEB_DOWN_URL } from './servers';
 
 // M1 step 6b-1: home, browse and the story pages on every device in the matrix, light and dark
 // (no sideways scroll, 44 px targets, screenshots), then the behaviour that needs a real browser:
-// D55's two automatic pages and the button, Back, keyboard order, the share popup and the
+// loading more as the end comes near, to the end of the list, Back, keyboard order, the share popup and the
 // masonry's balance. The stub API serves 54 published stories (e2e/stub-api.mjs).
 
 const cards = (page: Page) => page.locator('main ul.masonry > li');
 
 /**
  * Brings the end of browse's list into view, as a reader scrolling down does: its last card,
- * instantly. Loading more watches for the end coming near (D55), so the list sees this however
+ * instantly. Loading more watches for the end coming near, so the list sees this however
  * late its JavaScript starts. Jumping to the page's very end instead (the footer, smoothly)
  * could pass the end between two frames under load and never be seen (#119).
  */
@@ -24,6 +26,20 @@ async function scrollToEnd(page: Page) {
   await cards(page)
     .last()
     .evaluate((li) => li.scrollIntoView({ block: 'end', behavior: 'instant' }));
+}
+
+/**
+ * Scrolls to the end of the list again and again, each time waiting for more cards, until
+ * `end` shows. How many pages each scroll brings (one, or more on a tall screen) doesn't matter.
+ */
+async function scrollUntil(page: Page, end: Locator) {
+  while (!(await end.isVisible())) {
+    const before = await cards(page).count();
+    await scrollToEnd(page);
+    await expect
+      .poll(async () => (await end.isVisible()) || (await cards(page).count()))
+      .not.toBe(before);
+  }
 }
 
 for (const scheme of ['light', 'dark'] as const) {
@@ -237,37 +253,36 @@ test.describe('behaviour', () => {
     );
   });
 
-  test('browse loads two pages on its own, then waits for “Show more stories” (D55)', async ({
+  // Joel, 2026-10-31: no page cap. The stub's 54 stories are 4 pages of 15.
+  test('browse loads the next page on its own whenever the end comes near, to the end', async ({
     page,
   }) => {
     await page.goto('/stories');
     await expect(cards(page)).toHaveCount(15);
-    await scrollToEnd(page);
-    await expect(cards(page)).toHaveCount(30);
-    // Screen readers hear that more loaded, never how many (D62: no story counts anywhere).
-    const announcement = page.locator('main [role="status"]', {
-      hasText: 'loaded',
-    });
-    await expect(announcement).toHaveText('More stories loaded.');
-    await scrollToEnd(page);
-    await expect(cards(page)).toHaveCount(45);
-    const more = page.getByRole('button', { name: 'Show more stories' });
-    await expect(more).toBeVisible();
-    await expect(page.getByText('There are more stories.')).toBeVisible();
-    await expect(page).toHaveURL(/[?&]pages=3$/);
+    const announced = await recordAnnouncements(page);
 
-    // No more automatic loads, however far the reader scrolls.
-    await scrollToEnd(page);
-    await page.waitForTimeout(1500);
-    await expect(cards(page)).toHaveCount(45);
-
-    await expectTarget(page, more);
-    await more.click();
+    const end = page.getByText('You’ve seen every story here.');
+    await scrollUntil(page, end);
     await expect(cards(page)).toHaveCount(54);
-    await expect(page.getByText('You’ve seen every story here.')).toBeVisible();
-    await expect(more).toHaveCount(0);
-    // Keyboard and screen-reader users carry on from the first new story.
-    await expect(cards(page).nth(45).getByRole('link')).toBeFocused();
+    // Screen readers hear that more loaded, for each of the 3 pages, never how many (D62: no
+    // story counts anywhere).
+    expect(await announced()).toEqual([
+      'More stories loaded.',
+      '',
+      'More stories loaded.',
+      '',
+      'More stories loaded.',
+    ]);
+    await expect(page).toHaveURL(/[?&]pages=4$/);
+    // Past the old cap of two automatic pages, with no button on the way.
+    await expect(
+      page.getByRole('button', { name: 'Show more stories' }),
+    ).toHaveCount(0);
+    await expect(page.getByText('Loading more stories…')).toHaveCount(0);
+    // Loads on their own never take the reader's focus.
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+      'BODY',
+    );
   });
 
   test('Back from a story shows the same loaded list', async ({ page }) => {
@@ -285,9 +300,9 @@ test.describe('behaviour', () => {
     await expect(page).toHaveURL(/\/stories\/[a-z0-9-]+$/);
     await page.goBack();
     // The same 30 come back, in order, rather than the first page again. Back restores the
-    // scroll position near the end, so the list may go on to auto-load its third page (D55)
-    // at once: whether it has yet is timing, so neither the count nor `pages=` is pinned.
-    await expect(page).toHaveURL(/pages=[23]/);
+    // scroll position near the end, so the list may go on to load more on its own at once:
+    // whether it has yet is timing, so neither the count nor `pages=` is pinned.
+    await expect(page).toHaveURL(/pages=[234]/);
     await expect.poll(async () => (await links()).slice(0, 30)).toEqual(loaded);
   });
 
@@ -431,25 +446,34 @@ test.describe('behaviour', () => {
     await expect(page.getByLabel('Search stories')).toHaveValue('');
   });
 
-  test('a failed load (network) offers Try again, which works', async ({
+  test('a failed load (network) offers Try again, never retries on its own, and Try again works', async ({
     page,
   }) => {
     await page.goto('/stories');
     await expect(cards(page)).toHaveCount(15);
     // Server actions are POSTs to the page: fail the first one.
-    let failed = false;
+    let posts = 0;
     await page.route('**/stories*', (route) => {
-      if (route.request().method() === 'POST' && !failed) {
-        failed = true;
-        return route.abort('internetdisconnected');
-      }
-      return route.continue();
+      if (route.request().method() !== 'POST') return route.continue();
+      posts += 1;
+      return posts === 1
+        ? route.abort('internetdisconnected')
+        : route.continue();
     });
     await scrollToEnd(page);
     await expect(page.getByText('More stories couldn’t load.')).toBeVisible();
     await expect(page.getByText('Loading more stories…')).toHaveCount(0);
+    // At the end of the list again, nothing is asked for until the reader says so.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await nearEndSettled(page);
+    await scrollToEnd(page);
+    expect(await nearEndSettled(page)).toBe(true);
+    await expect(page.getByText('More stories couldn’t load.')).toBeVisible();
+    expect(posts).toBe(1);
     await page.getByRole('button', { name: 'Try again' }).click();
-    await expect(cards(page)).toHaveCount(30);
+    await expect.poll(() => cards(page).count()).toBeGreaterThanOrEqual(30);
+    // Keyboard and screen-reader users carry on from the first new story.
+    await expect(cards(page).nth(15).getByRole('link')).toBeFocused();
   });
 
   test('keyboard focus stays in the open phone menu', async ({
