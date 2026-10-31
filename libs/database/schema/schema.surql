@@ -29,10 +29,10 @@
 --   * array<object> items store undefined keys (media[0].junk), unlike nested objects
 --     (image.junk is refused), and REMOVE FIELD keeps stored values: fn::story::shape_problem
 --     checks media keys, data/0004 checks rows written earlier
---   * an element index over record links (`tagRefs.*`, `tagRefs[*]`) makes `CONTAINS` return no
---     rows; over strings it works (2026-10-24): publicStory.tagSlugs
+--   * an element index over record links (`themeRefs.*`, `themeRefs[*]`) makes `CONTAINS` return no
+--     rows; over strings it works (2026-10-24): publicStory.themeIds
 --   * a query inside a closure (`$list.filter(|$x| ...)`) iterates the whole table, never an
---     index (Codex, #67): /v1/tags sends its probes as top-level statements
+--     index (Codex, #67): /v1/themes sends its probes as top-level statements
 --   * a field VALUE also runs for a nested SET (`SET media[0].x = ...`), with $value the whole
 --     new field and $before the old one (2026-10-23): media/image VALUE use it to reset
 --     `processing` (A2)
@@ -230,40 +230,103 @@ DEFINE FUNCTION OVERWRITE fn::fence::legal() {
   UPSERT legalFence:forms SET n += 1 RETURN NONE;
 };
 
--- ---------------------------------------------------------------- tag
-DEFINE TABLE OVERWRITE tag SCHEMAFULL PERMISSIONS               -- id = tag:<slug>, e.g. tag:doubt
+-- ---------------------------------------------------------------- themes (plan v3, 2026-10-31)
+-- Admins manage categories and themes at /admin/themes; every story and published story links
+-- the themes it carries (themeRefs). One fixed category, themeCategory:other ("Other"), is where
+-- a deleted category's themes go: nobody may delete or rename it. Other categories and every
+-- theme have ULID ids. A theme is "highlighted" in its category: highlighted themes are shown
+-- first wherever people choose or browse themes. No order, no version per row: categories and
+-- themes are listed A-Z (Other last). Names are tidied and checked for duplicates by api-admin
+-- (case-insensitive); there's no uniqueness rule here (two saves are serialised by themeCatalog).
+DEFINE TABLE OVERWRITE themeCategory SCHEMAFULL PERMISSIONS     -- id = themeCategory:<ulid> | :other
   FOR select FULL,
   FOR create, update, delete WHERE $auth.id = service:api_admin;
-DEFINE FIELD OVERWRITE name      ON tag TYPE string ASSERT string::len($value) > 0 AND string::len($value) <= 40;
-DEFINE FIELD OVERWRITE category  ON tag TYPE string ASSERT $value IN ['theme', 'journey', 'emotion'];
-DEFINE FIELD OVERWRITE version       ON tag TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
-DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now() READONLY;
--- Submitting needs at least submissionSettings.tagsMin themes (api-user), so a catalogue with fewer
--- themes than that would refuse every submission. A theme is any tag (there's no hidden or retired
--- flag, and the category doesn't matter), so the only way to lose one is a DELETE: api-admin's
--- login may not delete a tag that would leave fewer than tagsMin (`too_few_themes:<tagsMin>`), and
--- submissionSettings_check refuses raising tagsMin above the tags there are. Both read a snapshot,
--- so every tag deletion and every settings write also write themesFence:current: of a deletion
--- and a save (or two deletions) that overlap, the second to commit fails with a retryable
--- conflict, and its retry sees the other's result. System users (the migrator, dev-seed's reset,
--- which deletes and re-creates the tags in one transaction) aren't checked, so the themes can
--- still drop below tagsMin that way (Codex, admin limits review round 3). Submitting therefore
--- needs fn::settings::themes_needed(), never more themes than there are: a lock-out can't happen
--- whatever deletes them, and the admin checks above keep an admin from making it happen on purpose.
-DEFINE TABLE OVERWRITE themesFence SCHEMAFULL PERMISSIONS NONE;   -- id = themesFence:current
-DEFINE FIELD OVERWRITE n ON themesFence TYPE int DEFAULT 0;
-DEFINE FUNCTION OVERWRITE fn::fence::themes() {
-  UPSERT themesFence:current SET n += 1 RETURN NONE;
-};
-DEFINE EVENT OVERWRITE tag_delete ON tag
+DEFINE FIELD OVERWRITE name ON themeCategory TYPE string
+  ASSERT string::len($value) > 0 AND string::len($value) <= 40;
+-- Other can't be renamed, or deleted (by anyone, system users too). Deleting another category
+-- moves its themes to Other, not highlighted (so Other's first-shown list doesn't fill with
+-- whatever was deleted), in the same transaction, whoever deletes it.
+DEFINE EVENT OVERWRITE themeCategory_other ON themeCategory
+  WHEN $event != 'DELETE' AND $after.id = themeCategory:other AND $after.name != 'Other'
+  THEN { THROW 'theme_category_fixed: the Other category can’t be deleted or renamed' };
+DEFINE EVENT OVERWRITE themeCategory_delete ON themeCategory
   WHEN $event = 'DELETE'
   THEN {
-    fn::fence::themes();
-    LET $min = fn::settings::submission().tagsMin;
-    IF $auth != NONE AND count(SELECT VALUE id FROM tag) < $min {
-      THROW 'too_few_themes:' + <string>$min;
+    IF $before.id = themeCategory:other {
+      THROW 'theme_category_fixed: the Other category can’t be deleted or renamed';
+    };
+    UPDATE theme SET category = themeCategory:other, highlighted = false
+      WHERE category = $before.id RETURN NONE;
+  };
+DEFINE TABLE OVERWRITE theme SCHEMAFULL PERMISSIONS             -- id = theme:<ulid>
+  FOR select FULL,
+  FOR create, update, delete WHERE $auth.id = service:api_admin;
+DEFINE FIELD OVERWRITE name        ON theme TYPE string
+  ASSERT string::len($value) > 0 AND string::len($value) <= 40;
+DEFINE FIELD OVERWRITE category    ON theme TYPE record<themeCategory>
+  ASSERT record::exists($value);
+DEFINE FIELD OVERWRITE highlighted ON theme TYPE bool DEFAULT false;
+DEFINE INDEX OVERWRITE theme_category ON theme FIELDS category;
+-- Deleting a theme removes it from every story and published story that carries it, whoever
+-- deletes it, in the same transaction: the story first, then its published row (which must
+-- mirror it). A story left with fewer themes than the minimum isn't re-checked; only its next
+-- submission is (plan v3, A9). Removing a deleted theme isn't the person changing their story, so
+-- it needs no consent (story_consent, api-admin's write only) and passes the owner's content lock
+-- (that's the owner only).
+-- A transaction reads a snapshot, so the delete's scan can miss a story write that adds the
+-- theme and commits meanwhile (leaving a submitted story linking a deleted theme). Both write the
+-- theme's themeFence record (story_theme_fence below), so of two overlapping ones the second to
+-- commit fails with a retryable conflict, and its retry sees the other. Per theme: stories adding
+-- other themes never conflict.
+DEFINE TABLE OVERWRITE themeFence SCHEMAFULL PERMISSIONS NONE;    -- id = themeFence:<theme ulid>
+DEFINE FIELD OVERWRITE n ON themeFence TYPE int DEFAULT 0;
+DEFINE FUNCTION OVERWRITE fn::fence::theme($theme: record<theme>) {
+  UPSERT type::record('themeFence', record::id($theme)) SET n += 1 RETURN NONE;
+};
+DEFINE EVENT OVERWRITE theme_delete ON theme
+  WHEN $event = 'DELETE'
+  THEN {
+    fn::fence::theme($before.id);
+    DELETE type::record('themeFence', record::id($before.id));
+    UPDATE story SET themeRefs -= $before.id
+      WHERE themeRefs CONTAINS $before.id RETURN NONE;
+    UPDATE publicStory SET themeRefs -= $before.id
+      WHERE themeIds CONTAINS record::id($before.id) RETURN NONE;
+  };
+-- The themes' version (D29) for /admin/themes: api-admin's save checks it and adds 1 in the same
+-- transaction, naming the admin, so of two admins saving from the same version one is refused
+-- (and two overlapping saves conflict at commit). Its event writes the audit row.
+DEFINE TABLE OVERWRITE themeCatalog SCHEMAFULL PERMISSIONS     -- id = themeCatalog:current
+  FOR select FULL,
+  FOR create, update WHERE $auth.id = service:api_admin,
+  FOR delete NONE;
+DEFINE FIELD OVERWRITE version       ON themeCatalog TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
+DEFINE FIELD OVERWRITE changedBy     ON themeCatalog TYPE option<record<user>>;
+DEFINE FIELD OVERWRITE changedByRole ON themeCatalog TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
+DEFINE FIELD OVERWRITE updatedAt     ON themeCatalog TYPE datetime VALUE time::now();
+DEFINE EVENT OVERWRITE themeCatalog_audit ON themeCatalog
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    IF $after.id != themeCatalog:current { THROW 'there is one theme catalogue record: themeCatalog:current' };
+    IF $after.changedBy = NONE AND $auth != NONE { THROW 'a themes save names the admin who made it (changedBy)' };
+    CREATE auditLog CONTENT {
+      service: fn::audit::service(), action: 'SaveThemes',
+      entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
     };
   };
+-- The old tag table (id = tag:<slug>), kept only so data/0008 can copy it into themes; 0008
+-- empties it. Remove it (with data/0008) once 0008 has run on every database: before that
+-- 0008 would fail on a fresh database, as 3.2.4 refuses a SELECT from an undefined table.
+DEFINE TABLE OVERWRITE tag SCHEMALESS PERMISSIONS NONE;
+REMOVE EVENT IF EXISTS tag_delete ON tag;
+REMOVE FIELD IF EXISTS name ON tag;
+REMOVE FIELD IF EXISTS category ON tag;
+REMOVE FIELD IF EXISTS version ON tag;
+REMOVE FIELD IF EXISTS createdAt ON tag;
+REMOVE TABLE IF EXISTS themesFence;
+REMOVE FUNCTION IF EXISTS fn::fence::themes;
+REMOVE FUNCTION IF EXISTS fn::settings::themes_needed;
 
 -- ---------------------------------------------------------------- story (write model)
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
@@ -317,9 +380,15 @@ DEFINE FIELD OVERWRITE bylineName    ON story TYPE option<string>   -- story con
     FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE primaryFormat ON story TYPE string ASSERT $value IN ['video', 'audio', 'written']
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
-DEFINE FIELD OVERWRITE tagRefs       ON story TYPE array<record<tag>> DEFAULT []
-  ASSERT array::len($value) <= 20     -- D15: no denormalised tags[]; the limit is a setting (W3)
+-- The story's themes (D15: links, no denormalised names). 20 is a hard ceiling; the number a
+-- story needs is a setting, checked at submission only (story_text_limits).
+DEFINE FIELD OVERWRITE themeRefs     ON story TYPE array<record<theme>> DEFAULT []
+  ASSERT array::len($value) <= 20 AND array::len(array::distinct($value)) = array::len($value)
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
+-- Legacy: was the story's tags. data/0008 moves them to themeRefs and clears this; it stays
+-- defined only because data/0003 (dev's walking-skeleton story) still writes `tagRefs: []` on a
+-- fresh database. Nothing else may write it. Removed together with 0008 and `tag` later.
+DEFINE FIELD OVERWRITE tagRefs ON story TYPE option<array<record<tag>>> PERMISSIONS NONE;
 -- Status: the owner (submit/withdraw, checked by the events below) and api-admin (moderation).
 DEFINE FIELD OVERWRITE status        ON story TYPE string DEFAULT 'draft'
   ASSERT $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn']
@@ -460,9 +529,14 @@ DEFINE FIELD OVERWRITE approvedAt    ON story TYPE option<datetime>
 DEFINE FUNCTION OVERWRITE fn::story::content($s: any) {
   RETURN {
     slug: $s.slug, title: $s.title, description: $s.description, body: $s.body,
-    bylineName: $s.bylineName, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: $s.media,
+    bylineName: $s.bylineName, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: $s.media,
     image: $s.image
   };
+};
+-- Whether a write changed nothing but the story's themes (theme_delete, data/0008).
+DEFINE FUNCTION OVERWRITE fn::story::only_themes_changed($before: any, $after: any) {
+  RETURN fn::story::content(object::extend($before, { themeRefs: $after.themeRefs }))
+    = fn::story::content($after);
 };
 -- D53: whether a picture's pixel size is allowed: positive, and no taller than 1:3 or wider
 -- than 3:1 (strips, not photos). Cards clamp further, between 9:16 and 2:1 (the readers' job).
@@ -629,7 +703,17 @@ DEFINE EVENT OVERWRITE story_owner_transitions ON story
 DEFINE EVENT OVERWRITE story_consent ON story
   WHEN $event = 'UPDATE'
   THEN {
+    -- Two theme-only writes need no consent, as neither processes the person's words: a system
+    -- user's (data/0008 relinks themes), and theme_delete's, run by api-admin as it deletes
+    -- themes, which only takes away links to themes that no longer exist. Anyone else changing
+    -- themes (the owner too) needs consent, as for any content.
+    LET $removed = array::complement($before.themeRefs ?? [], $after.themeRefs ?? []);
+    LET $theme_deleted = $auth.id = service:api_admin
+      AND array::len(array::complement($after.themeRefs ?? [], $before.themeRefs ?? [])) = 0
+      AND array::len($removed) > 0
+      AND array::len($removed.filter(|$t| record::exists($t))) = 0;
     IF fn::story::content($before) != fn::story::content($after)
+       AND !(fn::story::only_themes_changed($before, $after) AND ($auth = NONE OR $theme_deleted))
        AND !fn::consent::granted($after.submitter, ['special_category_religious']) {
       THROW 'changing a story’s content or media needs the submitter’s current Art 9 consent';
     };
@@ -711,34 +795,40 @@ DEFINE EVENT OVERWRITE story_limits ON story
 -- No grandfathering (Joel, 2026-10-30: "make people stick to new rules even if they had
 -- progress under old rule"): every later action meets the limits in force, drafts started under
 -- older ones included. Which action checks what, by whoever writes:
---   - a change of text or themes is refused only if it's over the maximum AND makes it worse
---     (longer, more themes), so someone over a newly lowered maximum can still trim their draft;
+--   - a change of text is refused only if it's over the maximum AND makes it longer, so someone
+--     over a newly lowered maximum can still trim their draft;
+--   - the number of themes is checked only at submission (themes plan v3, 2026-10-31): a draft
+--     may hold any number up to the field's hard ceiling;
 --   - submitting (entering pending, in_review or approved from an editable status, or created
---     there by a system user) needs the minimum and maximum length, and at most the maximum
---     number of themes, as they are now. The minimum number of themes is api-user's check at
---     submit, against fn::settings::themes_needed() (tests and data loaded before it have none).
--- Hard ceilings stay on the fields (body, tagRefs). Messages start with a code for api-user.
+--     there by a system user) needs the text's minimum and maximum length, from themesMin to
+--     themesMax themes, and every theme still there, as they are now. A story already submitted
+--     or published is never re-checked (a deleted theme may leave it under the minimum).
+-- Hard ceilings stay on the fields (body, themeRefs). Messages start with a code for api-user.
 DEFINE EVENT OVERWRITE story_text_limits ON story
   WHEN $event IN ['CREATE', 'UPDATE']
   THEN {
     LET $set = fn::settings::submission();
     LET $len = string::len($after.body ?? '');
-    LET $tags = array::len($after.tagRefs ?? []);
     LET $was_len = IF $event = 'CREATE' { 0 } ELSE { string::len($before.body ?? '') };
-    LET $was_tags = IF $event = 'CREATE' { 0 } ELSE { array::len($before.tagRefs ?? []) };
     IF $len > $set.storyTextMax AND $len > $was_len {
       THROW 'story_text_too_long: the story’s body is longer than the setting allows (W3)';
-    };
-    IF $tags > $set.tagsMax AND $tags > $was_tags {
-      THROW 'story_too_many_tags: a story has more themes than the setting allows (W3)';
     };
     IF $after.status IN ['pending', 'in_review', 'approved']
        AND ($event = 'CREATE' OR $before.status NOT IN ['pending', 'in_review', 'approved']) {
       IF $len > $set.storyTextMax {
         THROW 'story_text_too_long: the story’s body is longer than the setting allows (W3)';
       };
-      IF $tags > $set.tagsMax {
-        THROW 'story_too_many_tags: a story has more themes than the setting allows (W3)';
+      -- Themes (plan v3): checked when the person submits (into pending) only, never again
+      -- later (deleting a theme may leave a published story under the minimum).
+      IF $after.status = 'pending' {
+        LET $themes = $after.themeRefs ?? [];
+        IF $themes.any(|$t| !record::exists($t)) {
+          THROW 'story_themes_changed: a story’s theme no longer exists';
+        };
+        IF array::len($themes) < $set.themesMin OR array::len($themes) > $set.themesMax {
+          THROW 'story_theme_count: a story needs from ' + <string> $set.themesMin + ' to '
+            + <string> $set.themesMax + ' themes when it is submitted';
+        };
       };
       IF $after.primaryFormat = 'written' AND fn::text::trimmed_length($after.body) < $set.storyTextMin {
         THROW 'a written story needs at least ' + <string> $set.storyTextMin
@@ -845,7 +935,7 @@ DEFINE FUNCTION OVERWRITE fn::story::restore($story: record<story>, $reason: str
     version: $s.version, slug: $s.slug, slugHistory: $h.slugHistory,
     title: $s.title, description: $s.description, body: $s.body,
     bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-    tagRefs: $s.tagRefs, publishedAt: $h.publishedAt,
+    themeRefs: $s.themeRefs, publishedAt: $h.publishedAt,
     image: IF $s.image != NONE { { path: $s.image.path, width: $s.image.width,
       height: $s.image.height, alt: $s.image.alt } },
     media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
@@ -902,6 +992,16 @@ DEFINE EVENT OVERWRITE story_fence ON story                       -- create, edi
     -- D71: housekeeping's delete of an expired draft read the forms' retention
     -- (fn::story::draft_expired); a form published meanwhile with a longer one conflicts.
     IF $event = 'DELETE' AND $auth.id = service:housekeeping { fn::fence::legal() };
+  };
+-- A story write that adds themes writes each one's fence (themeFence, above), so it conflicts
+-- with that theme's deletion if the two overlap. A link to a theme already gone needs none (the
+-- submission refuses it).
+DEFINE EVENT OVERWRITE story_theme_fence ON story
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    FOR $t IN array::complement($after.themeRefs ?? [], $before.themeRefs ?? []) {
+      IF record::exists($t) { fn::fence::theme($t) };
+    };
   };
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
   WHEN $event = 'DELETE'
@@ -968,7 +1068,9 @@ DEFINE FIELD OVERWRITE description   ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE body          ON publicStory TYPE option<string>;
 DEFINE FIELD OVERWRITE bylineName    ON publicStory TYPE option<string>;
 DEFINE FIELD OVERWRITE primaryFormat ON publicStory TYPE string;
-DEFINE FIELD OVERWRITE tagRefs       ON publicStory TYPE array<record<tag>>;
+DEFINE FIELD OVERWRITE themeRefs     ON publicStory TYPE array<record<theme>> DEFAULT [];
+-- Legacy, as story.tagRefs: data/0003 writes it, data/0008 clears it.
+DEFINE FIELD OVERWRITE tagRefs ON publicStory TYPE option<array<record<tag>>> PERMISSIONS NONE;
 DEFINE FIELD OVERWRITE media         ON publicStory TYPE array<object>;  -- playback fields only
 DEFINE FIELD OVERWRITE media[*].format        ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE media[*].bunnyVideoId  ON publicStory TYPE option<string>;
@@ -986,11 +1088,13 @@ DEFINE FIELD OVERWRITE image.alt              ON publicStory TYPE option<string>
 -- audio story always has it; NONE for written stories.
 DEFINE FIELD OVERWRITE durationSeconds ON publicStory TYPE option<int>
   VALUE type::record('story', record::id(id)).media[0].durationSeconds;
--- D63: /v1/tags lists a tag only if a published story uses it, probing an index for one match
--- per tag (top-level statements, see the gotchas). The tags' slugs, computed on every write (no writer sets them): 3.2.4 returns no rows
--- from an element index over record links (`tagRefs.*`), but indexes strings correctly.
-DEFINE FIELD OVERWRITE tagSlugs      ON publicStory TYPE array<string>
-  VALUE tagRefs.map(|$t| record::id($t));
+-- The themes' ids as text, computed on every write (no writer sets them), for ?theme= and for
+-- whether a published story uses a theme (D63: /v1/themes lists a theme that isn't highlighted
+-- only then). 3.2.4 returns no rows from an element index over record links (`themeRefs.*`),
+-- but indexes strings correctly (see the gotchas).
+DEFINE FIELD OVERWRITE themeIds      ON publicStory TYPE array<string>
+  VALUE (themeRefs ?? []).map(|$t| record::id($t));
+REMOVE FIELD IF EXISTS tagSlugs ON publicStory;
 DEFINE FIELD OVERWRITE publishedAt   ON publicStory TYPE datetime;
 DEFINE FIELD OVERWRITE updatedAt     ON publicStory TYPE datetime VALUE time::now();
 -- A full-text index covers one field, so search goes over a computed field.
@@ -1018,8 +1122,8 @@ DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
     LET $unready = fn::story::approval_problem($s);
     IF $unready != NONE { THROW $unready };
     IF [$after.slug, $after.title, $after.description, $after.body, $after.bylineName,
-        $after.primaryFormat, $after.tagRefs]
-       != [$s.slug, $s.title, $s.description, $s.body, $s.bylineName, $s.primaryFormat, $s.tagRefs]
+        $after.primaryFormat, $after.themeRefs]
+       != [$s.slug, $s.title, $s.description, $s.body, $s.bylineName, $s.primaryFormat, $s.themeRefs]
        OR $after.media.map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath, $m.width, $m.height])
        != $s.media.map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath, $m.width, $m.height])
        -- array<object> items take undefined keys (3.2.4): playback fields only, nothing else
@@ -1065,8 +1169,9 @@ DEFINE ANALYZER OVERWRITE story_en TOKENIZERS blank, class FILTERS lowercase, as
 DEFINE INDEX OVERWRITE publicStory_slug     ON publicStory FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory;
 DEFINE INDEX OVERWRITE publicStory_browse   ON publicStory FIELDS publishedAt;
-DEFINE INDEX OVERWRITE publicStory_tags     ON publicStory FIELDS tagRefs;
-DEFINE INDEX OVERWRITE publicStory_tag_slugs ON publicStory FIELDS tagSlugs.*;  -- D63
+REMOVE INDEX IF EXISTS publicStory_tags ON publicStory;
+REMOVE INDEX IF EXISTS publicStory_tag_slugs ON publicStory;
+DEFINE INDEX OVERWRITE publicStory_theme_ids ON publicStory FIELDS themeIds.*;  -- D63
 DEFINE INDEX OVERWRITE publicStory_fts      ON publicStory FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
 
@@ -1936,7 +2041,7 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
   'GrantConsent', 'WithdrawConsent', 'UpdateAccount', 'EraseAccount',
   -- api-admin (M3, M5)
   'LockStory', 'ReleaseStory', 'ApproveStory', 'RejectStory', 'RequestStoryChanges', 'EscalateStory',
-  'AssignRole', 'LinkLegacyUser', 'CreateTag', 'UpdateTag', 'DeleteTag',
+  'AssignRole', 'LinkLegacyUser', 'SaveThemes',
   'CreateDpaDraft', 'PublishDpa', 'UpdateSubmissionSettings', 'UpdateSubmitterLimits',
   'PublishPrivacyPolicy', 'PublishTerms',
   -- workflow (M7)
@@ -1947,7 +2052,7 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
 DEFINE FIELD OVERWRITE actor      ON auditLog TYPE option<record<user>>;  -- NONE = system/job
 DEFINE FIELD OVERWRITE actorRole  ON auditLog TYPE option<string>         -- snapshot of the Clerk claim (D1)
   ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];
-DEFINE FIELD OVERWRITE entity     ON auditLog TYPE option<record>;        -- story, user, tag, dpaVersion, termsVersion...
+DEFINE FIELD OVERWRITE entity     ON auditLog TYPE option<record>;        -- story, user, themeCatalog, dpaVersion, termsVersion...
 DEFINE FIELD OVERWRITE storyVersion ON auditLog TYPE option<int>;         -- the version acted on (D29)
 DEFINE FIELD OVERWRITE fromStatus ON auditLog TYPE option<string>
   ASSERT $value = NONE OR $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn'];
@@ -2050,7 +2155,7 @@ DEFINE EVENT OVERWRITE user_erasure_favourites ON user
 -- record, submissionSettings:current, created by data/0006 with today's values (the defaults
 -- here, so a missing field reads as them too):
 --   storyTextMin / storyTextMax: a written story's text, trimmed, to submit / at most (A3);
---   tagsMin / tagsMax: themes to submit / at most;
+--   themesMin / themesMax: how many themes a story needs when it is submitted (only then);
 --   openDraftsMax, submissionsPer7Days: D94's limits per person (overridable per person);
 --   uploadRequestsPerHour: new uploads (pictures too) per person in any rolling hour
 --     (overridable; trusted too);
@@ -2076,9 +2181,13 @@ DEFINE TABLE OVERWRITE submissionSettings SCHEMAFULL PERMISSIONS
 DEFINE FIELD OVERWRITE storyTextMin  ON submissionSettings TYPE int DEFAULT 200 ASSERT $value >= 1;
 DEFINE FIELD OVERWRITE storyTextMax  ON submissionSettings TYPE int DEFAULT 10000
   ASSERT $value >= 1 AND $value <= 50000;                    -- story.body's hard ceiling
-DEFINE FIELD OVERWRITE tagsMin       ON submissionSettings TYPE int DEFAULT 1 ASSERT $value >= 0;
-DEFINE FIELD OVERWRITE tagsMax       ON submissionSettings TYPE int DEFAULT 5
-  ASSERT $value >= 1 AND $value <= 20;                       -- story.tagRefs' hard ceiling
+DEFINE FIELD OVERWRITE themesMin     ON submissionSettings TYPE int DEFAULT 1
+  ASSERT $value >= 0 AND $value <= 20;
+DEFINE FIELD OVERWRITE themesMax     ON submissionSettings TYPE int DEFAULT 5
+  ASSERT $value >= 0 AND $value <= 20;                       -- story.themeRefs' hard ceiling
+-- Were tagsMin / tagsMax; data/0008 copies the stored values.
+REMOVE FIELD IF EXISTS tagsMin ON submissionSettings;
+REMOVE FIELD IF EXISTS tagsMax ON submissionSettings;
 DEFINE FIELD OVERWRITE openDraftsMax ON submissionSettings TYPE int DEFAULT 3
   ASSERT $value >= 1 AND $value <= 1000;
 DEFINE FIELD OVERWRITE submissionsPer7Days ON submissionSettings TYPE int DEFAULT 1
@@ -2105,14 +2214,8 @@ DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
   THEN {
     IF $after.id != submissionSettings:current { THROW 'there is one settings record: submissionSettings:current' };
     IF $after.storyTextMin > $after.storyTextMax { THROW 'storyTextMin is more than storyTextMax' };
-    IF $after.tagsMin > $after.tagsMax { THROW 'tagsMin is more than tagsMax' };
+    IF $after.themesMin > $after.themesMax { THROW 'themesMin is more than themesMax' };
     IF $after.changedBy = NONE AND $auth != NONE { THROW 'a settings change names the admin who made it (changedBy)' };
-    -- tagsMin can't be raised above the themes there are (else nobody could submit); see tag_delete.
-    fn::fence::themes();
-    IF $auth != NONE AND $after.tagsMin > ($before.tagsMin ?? 0)
-      AND $after.tagsMin > count(SELECT VALUE id FROM tag) {
-      THROW 'too_few_themes:' + <string>count(SELECT VALUE id FROM tag);
-    };
     CREATE auditLog CONTENT {
       service: fn::audit::service(), action: 'UpdateSubmissionSettings',
       entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
@@ -2123,19 +2226,13 @@ DEFINE FUNCTION OVERWRITE fn::settings::submission() {
   LET $s = (SELECT * FROM ONLY submissionSettings:current);
   RETURN {
     storyTextMin: $s.storyTextMin ?? 200, storyTextMax: $s.storyTextMax ?? 10000,
-    tagsMin: $s.tagsMin ?? 1, tagsMax: $s.tagsMax ?? 5,
+    themesMin: $s.themesMin ?? 1, themesMax: $s.themesMax ?? 5,
     openDraftsMax: $s.openDraftsMax ?? 3, submissionsPer7Days: $s.submissionsPer7Days ?? 1,
     uploadRequestsPerHour: $s.uploadRequestsPerHour ?? 10,
     uploadsPer7Days: $s.uploadsPer7Days ?? 5,
     videoMaxBytes: $s.videoMaxBytes ?? 4294967296, audioMaxBytes: $s.audioMaxBytes ?? 524288000,
     mediaMaxSeconds: $s.mediaMaxSeconds ?? 900
   };
-};
--- The fewest themes a story needs to be submitted: tagsMin, or every theme there is if there are
--- fewer (a system user may delete themes below tagsMin; see tag_delete). api-user checks it at
--- submit and reports it as the limit; anyone may call it (everyone reads tags and the settings).
-DEFINE FUNCTION OVERWRITE fn::settings::themes_needed() {
-  RETURN math::min([fn::settings::submission().tagsMin, count(SELECT VALUE id FROM tag)]);
 };
 -- The most any setting may allow for one upload, and what a trusted submitter gets: 10 GiB of
 -- video, 2 GiB of audio, 3 hours (a cost ceiling, not a product rule).

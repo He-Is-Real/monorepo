@@ -1,13 +1,18 @@
-import type { BrowseParams, BrowseSort, StoryFormat } from './browse';
+import {
+  type BrowseParams,
+  type BrowseSort,
+  type StoryFormat,
+  THEME_ID,
+} from './browse';
 
-// The browse page's state lives in its URL (`/stories?q=&tag=&format=&sort=&pages=`), so links,
+// The browse page's state lives in its URL (`/stories?q=&theme=&format=&sort=&pages=`), so links,
 // Back and reloads show the same stories (D55: "the position is kept in the URL"). Anything the
 // API would refuse is dropped here rather than turned into an error page.
 
 export interface BrowseFilters {
   q: string;
-  /** A story must have all of them (the API's rule), at most 5. */
-  tags: string[];
+  /** One theme's id, or none (themes plan v3). */
+  theme: string | null;
   format: StoryFormat | null;
   sort: BrowseSort;
 }
@@ -21,8 +26,6 @@ export const PAGE_SIZE = 15;
 export const MAX_PAGES = 10;
 
 const Q_MAX_CHARS = 200;
-const TAGS_MAX = 5;
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const FORMATS: readonly StoryFormat[] = ['video', 'audio', 'written'];
 const SORTS: readonly BrowseSort[] = ['latest', 'oldest', 'relevance'];
 
@@ -30,30 +33,21 @@ type SearchParams = Record<string, string | string[] | undefined>;
 
 const one = (v: unknown): string | undefined =>
   typeof v === 'string' ? v : undefined;
-const list = (v: unknown): unknown[] =>
-  v === undefined ? [] : Array.isArray(v) ? v : [v];
 
 /** Filters from untrusted input (the URL, or what the browser sends the server action). */
 export function sanitizeFilters(input: {
   q?: unknown;
-  tags?: unknown;
+  theme?: unknown;
   format?: unknown;
   sort?: unknown;
 }): BrowseFilters {
   const q = [...(one(input.q)?.trim() ?? '')].slice(0, Q_MAX_CHARS).join('');
-  const tags = [
-    ...new Set(
-      list(input.tags).filter(
-        (t): t is string =>
-          typeof t === 'string' && t.length <= 100 && SLUG.test(t),
-      ),
-    ),
-  ].slice(0, TAGS_MAX);
+  const theme = one(input.theme);
   const format = one(input.format) as StoryFormat | undefined;
   const sort = one(input.sort) as BrowseSort | undefined;
   return {
     q,
-    tags,
+    theme: theme && THEME_ID.test(theme) ? theme : null,
     format: format && FORMATS.includes(format) ? format : null,
     sort:
       sort && SORTS.includes(sort) && (sort !== 'relevance' || q)
@@ -70,7 +64,7 @@ export function parseBrowseSearch(sp: SearchParams): {
 } {
   const filters = sanitizeFilters({
     q: sp['q'],
-    tags: sp['tag'],
+    theme: sp['theme'],
     format: sp['format'],
     sort: sp['sort'],
   });
@@ -86,7 +80,7 @@ export function browseHref(
 ): string {
   const sp = new URLSearchParams();
   if (filters.q) sp.set('q', filters.q);
-  for (const t of filters.tags) sp.append('tag', t);
+  if (filters.theme) sp.set('theme', filters.theme);
   if (filters.format) sp.set('format', filters.format);
   const defaultSort = filters.q ? 'relevance' : 'latest';
   if (filters.sort !== defaultSort) sp.set('sort', filters.sort);
@@ -94,11 +88,9 @@ export function browseHref(
   return sp.size ? `/stories?${sp}` : '/stories';
 }
 
-export function toggleTag(filters: BrowseFilters, slug: string): BrowseFilters {
-  const tags = filters.tags.includes(slug)
-    ? filters.tags.filter((t) => t !== slug)
-    : [...filters.tags, slug].slice(-TAGS_MAX);
-  return { ...filters, tags };
+/** Choosing the theme that's chosen clears it; another replaces it. */
+export function toggleTheme(filters: BrowseFilters, id: string): BrowseFilters {
+  return { ...filters, theme: filters.theme === id ? null : id };
 }
 
 /** The API call for these filters (`lib/browse.ts`). */
@@ -108,7 +100,7 @@ export function toBrowseParams(
 ): BrowseParams {
   return {
     q: filters.q || undefined,
-    tags: filters.tags,
+    theme: filters.theme ?? undefined,
     format: filters.format ?? undefined,
     sort: filters.sort,
     limit: PAGE_SIZE,

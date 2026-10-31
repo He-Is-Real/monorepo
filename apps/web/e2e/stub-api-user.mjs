@@ -12,7 +12,7 @@
 //   force (409), a statement on that form (409), an `Idempotency-Key` (400; the same key with
 //   another body 422, the same body answers as before). No state but the keys, which are
 //   random per test.
-// - The submit flow (M2 plan PR 4): consent state, limits, tags, the person's stories, and
+// - The submit flow (M2 plan PR 4): consent state, limits, themes, the person's stories, and
 //   create, edit and submit, per test session (see the section below).
 // - Video and audio (M2 plan PR 7): `POST /v1/stories/{id}/upload-url` (RequestUpload, with the
 //   real service's checks and one video per draft) and a minimal TUS server at `/tusupload`
@@ -54,6 +54,10 @@
 // - api-admin's submission limits (W3, D112): `GET`/`PUT /v1/admin/submission-settings`, Admins
 //   only, kept per session from data 0006's values; a save is checked like the real one (bounds,
 //   minimum ≤ maximum, 428 without If-Match, 412 unless it's the version read).
+// - api-admin's themes (themes plan v3): `GET`/`PUT /v1/admin/themes`, Admins only, kept per
+//   session from a small catalogue (Topics, Feelings, Journeys and Other, with story counts); a
+//   save of the whole picture is checked like the real one (Other kept, names tidied, no
+//   duplicates ignoring case, 428 without If-Match, 412 unless it's the version read).
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -216,8 +220,8 @@ const MIB = 1_048_576;
 const SETTING_BOUNDS = {
   storyTextMin: { min: 1, max: 50_000 },
   storyTextMax: { min: 1, max: 50_000 },
-  tagsMin: { min: 0, max: 20 },
-  tagsMax: { min: 1, max: 20 },
+  themesMin: { min: 0, max: 20 },
+  themesMax: { min: 0, max: 20 },
   openDraftsMax: { min: 1, max: 1000 },
   submissionsPer7Days: { min: 1, max: 1000 },
   uploadRequestsPerHour: { min: 1, max: 10_000 },
@@ -226,8 +230,6 @@ const SETTING_BOUNDS = {
   audioMaxBytes: { min: MIB, max: 2 * 1024 * MIB },
   mediaMaxSeconds: { min: 60, max: 10_800 },
 };
-/** The themes there are, as dev-seed's catalogue: tagsMin can't be more. */
-const THEME_COUNT = 17;
 /** Session → `{ version, changedBy, settings }`, starting from data 0006's values. */
 const settingsState = new Map();
 const settingsFor = (session) => {
@@ -238,8 +240,8 @@ const settingsFor = (session) => {
       settings: {
         storyTextMin: 200,
         storyTextMax: 10_000,
-        tagsMin: 1,
-        tagsMax: 5,
+        themesMin: 1,
+        themesMax: 5,
         openDraftsMax: 3,
         submissionsPer7Days: 1,
         uploadRequestsPerHour: 10,
@@ -268,11 +270,7 @@ function sendSettings(req, res, session) {
       updatedAt: '2026-10-30T12:00:00.000Z',
       changedBy: s.changedBy,
       settings: s.settings,
-      bounds: {
-        ...SETTING_BOUNDS,
-        tagsMin: { min: 0, max: Math.min(20, THEME_COUNT) },
-      },
-      themeCount: THEME_COUNT,
+      bounds: SETTING_BOUNDS,
     }),
   );
 }
@@ -291,10 +289,8 @@ async function saveSettings(req, res, session) {
   }
   if (body.storyTextMin > body.storyTextMax)
     return invalid(res, '/storyTextMin', 'min_over_max');
-  if (body.tagsMin > body.tagsMax)
-    return invalid(res, '/tagsMin', 'min_over_max');
-  if (body.tagsMin > THEME_COUNT)
-    return invalid(res, '/tagsMin', 'over_theme_count');
+  if (body.themesMin > body.themesMax)
+    return invalid(res, '/themesMin', 'min_over_max');
   // Another admin saved meanwhile.
   if (ifMatch !== `"${s.version}"`)
     return problem(res, 412, 'Precondition failed', 'stale_version');
@@ -305,6 +301,169 @@ async function saveSettings(req, res, session) {
   );
   res.setHeader('etag', `"${s.version}"`);
   return send(res, 200, { id: 'current', version: s.version });
+}
+
+// --- api-admin: the themes (themes plan v3) ----------------------------------------------------
+/** Each session's categories and themes, as GET /v1/admin/themes sends them, and the version. */
+const adminThemes = new Map();
+const adminThemesFor = (session) => {
+  if (!adminThemes.has(session)) {
+    const t = (id, name, highlighted, storyCount = 0) => ({
+      id,
+      name,
+      highlighted,
+      storyCount,
+    });
+    adminThemes.set(session, {
+      version: 3,
+      categories: [
+        {
+          id: 'c_feelings',
+          name: 'Feelings',
+          themes: [
+            t('t_grief', 'Grief', false, 2),
+            t('t_hope', 'Hope', true, 5),
+          ],
+        },
+        {
+          id: 'c_journeys',
+          name: 'Journeys',
+          themes: [
+            t('t_coming', 'Coming to faith', false),
+            t('t_doubt', 'Doubt', false, 4),
+          ],
+        },
+        {
+          id: 'c_topics',
+          name: 'Topics',
+          themes: [
+            t('t_healing', 'Healing', true, 7),
+            t('t_loss', 'Loss', true, 3),
+            t('t_work', 'Work', false),
+          ],
+        },
+        { id: 'other', name: 'Other', themes: [] },
+      ],
+    });
+  }
+  return adminThemes.get(session);
+};
+const tidy = (name) => {
+  const spaced = name.trim().replace(/\s+/gu, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+};
+const byName = (a, b) =>
+  a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+
+/** `GET /v1/admin/themes`: categories A–Z with Other last, themes A–Z. */
+function sendAdminThemes(res, session) {
+  const { version, categories } = adminThemesFor(session);
+  res.writeHead(200, {
+    'content-type': 'application/json',
+    'cache-control': 'private, no-store',
+    etag: `"${version}"`,
+  });
+  res.end(
+    JSON.stringify({
+      version,
+      categories: [...categories]
+        .sort(
+          (a, b) =>
+            Number(a.id === 'other') - Number(b.id === 'other') || byName(a, b),
+        )
+        .map((c) => ({ ...c, themes: [...c.themes].sort(byName) })),
+    }),
+  );
+}
+
+/**
+ * `PUT /v1/admin/themes` (SaveThemes): the whole picture at the version read, checked like
+ * api-admin (Other kept and unrenamed, names tidied, no duplicates ignoring case), then kept.
+ */
+async function saveAdminThemes(req, res, session) {
+  const state = adminThemesFor(session);
+  const ifMatch = req.headers['if-match'];
+  if (!ifMatch)
+    return problem(res, 428, 'Precondition required', 'if_match_required');
+  const body = await readJson(req);
+  if (!Array.isArray(body?.categories))
+    return invalid(res, '/categories', 'required', 'A list of categories.');
+  const counts = new Map(
+    state.categories.flatMap((c) => c.themes.map((t) => [t.id, t.storyCount])),
+  );
+  const names = { c: new Set(), t: new Set() };
+  let next = 0;
+  const fresh = (id) =>
+    id.startsWith('new-') ? `n${++next}_${Date.now()}` : id;
+  const categories = [];
+  for (const [ci, c] of body.categories.entries()) {
+    const name = tidy(String(c.name ?? ''));
+    if (!name || name.length > 40)
+      return invalid(
+        res,
+        `/categories/${ci}/name`,
+        'length',
+        'A name of 1 to 40 characters.',
+      );
+    const key = name.normalize('NFC').toLowerCase();
+    if (names.c.has(key))
+      return invalid(
+        res,
+        `/categories/${ci}/name`,
+        'duplicate',
+        `There is already a category called “${name}”.`,
+      );
+    names.c.add(key);
+    const themes = [];
+    for (const [ti, t] of (c.themes ?? []).entries()) {
+      const tname = tidy(String(t.name ?? ''));
+      const tkey = tname.normalize('NFC').toLowerCase();
+      if (!tname || tname.length > 40)
+        return invalid(
+          res,
+          `/categories/${ci}/themes/${ti}/name`,
+          'length',
+          'A name of 1 to 40 characters.',
+        );
+      if (names.t.has(tkey))
+        return invalid(
+          res,
+          `/categories/${ci}/themes/${ti}/name`,
+          'duplicate',
+          `There is already a theme called “${tname}”.`,
+        );
+      names.t.add(tkey);
+      themes.push({
+        id: fresh(t.id),
+        name: tname,
+        highlighted: t.highlighted === true,
+        storyCount: counts.get(t.id) ?? 0,
+      });
+    }
+    categories.push({ id: fresh(c.id), name, themes });
+  }
+  const other = categories.find((c) => c.id === 'other');
+  if (!other)
+    return invalid(
+      res,
+      '/categories',
+      'other_required',
+      'The Other category can’t be deleted.',
+    );
+  if (other.name !== 'Other')
+    return invalid(
+      res,
+      '/categories',
+      'other_fixed',
+      'The Other category can’t be renamed.',
+    );
+  // Another admin saved meanwhile (A2): refused, never merged.
+  if (ifMatch !== `"${state.version}"`)
+    return problem(res, 412, 'Precondition failed', 'stale_version');
+  state.version += 1;
+  state.categories = categories;
+  res.setHeader('etag', `"${state.version}"`);
+  return send(res, 200, { id: 'current', version: state.version });
 }
 
 const readBody = (req) =>
@@ -484,8 +643,8 @@ const DRAFT_RETENTION_MS = 186 * 24 * 3600 * 1000;
 const SETTINGS = {
   storyTextMin: 200,
   storyTextMax: 10000,
-  tagsMin: 1,
-  tagsMax: 5,
+  themesMin: 1,
+  themesMax: 5,
   openDraftsMax: 3,
   submissionsPer7Days: 1,
   uploadRequestsPerHour: 10,
@@ -494,14 +653,51 @@ const SETTINGS = {
   audioMaxBytes: 524288000,
   mediaMaxSeconds: 900,
 };
-const TAGS = [
-  { slug: 'healing', name: 'Healing', category: 'theme', version: 1 },
-  { slug: 'faith', name: 'Faith', category: 'theme', version: 1 },
-  { slug: 'addiction', name: 'Addiction', category: 'journey', version: 1 },
-  { slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
-  { slug: 'loss', name: 'Loss', category: 'emotion', version: 1 },
-  { slug: 'hope', name: 'Hope', category: 'emotion', version: 1 },
+/**
+ * GET /v1/themes (themes plan v3): every category with themes, A–Z with Other last, themes A–Z.
+ * Topics' themes are highlighted, Feelings' Hope too; Journeys has none highlighted, so it shows
+ * only under "More themes". Ids are short words here (the real ones are ULIDs). A test may delete
+ * a theme for its session (`POST /__e2e/sessions/<id>/delete-theme?id=`), as an admin would.
+ */
+const THEME_CATEGORIES = [
+  {
+    id: 'feelings',
+    name: 'Feelings',
+    themes: [
+      { id: 'hope', name: 'Hope', highlighted: true },
+      { id: 'loss', name: 'Loss', highlighted: false },
+    ],
+  },
+  {
+    id: 'journeys',
+    name: 'Journeys',
+    themes: [
+      { id: 'addiction', name: 'Addiction', highlighted: false },
+      { id: 'doubt', name: 'Doubt', highlighted: false },
+    ],
+  },
+  {
+    id: 'topics',
+    name: 'Topics',
+    themes: [
+      { id: 'a', name: 'A', highlighted: true }, // one letter: still a 44 px target
+      { id: 'faith', name: 'Faith', highlighted: true },
+      { id: 'healing', name: 'Healing', highlighted: true },
+    ],
+  },
 ];
+/** The session's themes: all of them less any its test deleted. */
+const themesOf = (s) =>
+  THEME_CATEGORIES.map((c) => ({
+    ...c,
+    themes: c.themes.filter((t) => !s.deletedThemes.has(t.id)),
+  })).filter((c) => c.themes.length > 0);
+const themeRef = (s, id) => {
+  const t = themesOf(s)
+    .flatMap((c) => c.themes)
+    .find((x) => x.id === id);
+  return t ? { id: t.id, name: t.name } : null;
+};
 /** The person's own consents, for all their stories; sharing is per story (O4). */
 const CONSENT_TYPES = [
   'special_category_religious',
@@ -527,6 +723,7 @@ function newSession(id, seed = {}) {
     granted: new Set(seed.granted ?? []),
     trusted: seed.trusted ?? false,
     settings: { ...SETTINGS, ...(seed.settings ?? {}) },
+    deletedThemes: new Set(),
     stories: new Map(),
     keys: new Map(),
     // Uploads: the videos made for this session's drafts, when new ones were started, and
@@ -553,7 +750,7 @@ function newSession(id, seed = {}) {
       status: 'draft',
       description: '',
       bylineName: null,
-      tagSlugs: [],
+      themeIds: [],
       submittedAt: null,
       createdAt: now,
       updatedAt: now,
@@ -641,7 +838,7 @@ function consentState(s) {
 }
 
 /** `uploaded`: whether the picture's file arrived, checked only when one story is read. */
-function storyMine(id, st, uploaded = () => null) {
+function storyMine(s, id, st, uploaded = () => null) {
   return {
     id,
     version: st.version,
@@ -675,7 +872,8 @@ function storyMine(id, st, uploaded = () => null) {
           uploaded: uploaded(st.image.path),
         }
       : null,
-    tags: st.tagSlugs.map((slug) => TAGS.find((t) => t.slug === slug)),
+    // A deleted theme is left out, as api-user does.
+    themes: st.themeIds.map((id) => themeRef(s, id)).filter(Boolean),
     rejectionFeedback: st.rejectionFeedback ?? null,
     submittedAt: st.submittedAt,
     approvedAt: null,
@@ -740,11 +938,10 @@ function myDataOf(s, token, mine) {
       lastActiveAt: null,
     },
     stories: [...s.stories].reverse().map(([id, st]) => {
-      const { version: _v, tags, media, ...rest } = storyMine(id, st);
+      const { version: _v, media, ...rest } = storyMine(s, id, st);
       return {
         ...rest,
         onSiteNow: st.status === 'approved',
-        tags: tags.map((t) => ({ slug: t.slug, name: t.name })),
         media: media.map((m) => ({
           ...m,
           bunnyVideoId: st.videoId,
@@ -840,11 +1037,7 @@ function limitsOf(s) {
       : null;
   return {
     storyText: { min: s.settings.storyTextMin, max: s.settings.storyTextMax },
-    // Never more themes than there are (fn::settings::themes_needed).
-    tags: {
-      min: Math.min(s.settings.tagsMin, THEME_COUNT),
-      max: s.settings.tagsMax,
-    },
+    themes: { min: s.settings.themesMin, max: s.settings.themesMax },
     openDrafts: { max: s.trusted ? null : s.settings.openDraftsMax, open },
     submissions: {
       per7Days,
@@ -954,17 +1147,25 @@ function fieldErrors(b, allowed, s, current) {
     (typeof b.bylineName !== 'string' || b.bylineName.trim().length > 80)
   )
     errors.push({ pointer: '/bylineName', message: 'at most 80 characters' });
+  // Any number up to the hard ceiling: the settings' count is checked at submit only.
   if (
-    'tagSlugs' in b &&
-    (!Array.isArray(b.tagSlugs) ||
-      (b.tagSlugs.length > s.settings.tagsMax &&
-        b.tagSlugs.length > (current?.tagSlugs.length ?? 0)) ||
-      new Set(b.tagSlugs).size !== b.tagSlugs.length ||
-      b.tagSlugs.some((t) => !TAGS.some((x) => x.slug === t)))
+    'themeIds' in b &&
+    (!Array.isArray(b.themeIds) ||
+      b.themeIds.length > 20 ||
+      new Set(b.themeIds).size !== b.themeIds.length)
   )
-    errors.push({ pointer: '/tagSlugs', message: 'too many or unknown tags' });
+    errors.push({ pointer: '/themeIds', message: 'at most 20, no repeats' });
   return errors;
 }
+
+/** A theme chosen that doesn't exist (any more): an admin deleted it meanwhile (A7). */
+const gone = (s, b) =>
+  Array.isArray(b?.themeIds) && b.themeIds.some((id) => !themeRef(s, id));
+const themesGone = (res) =>
+  shareProblem(res, 400, 'Bad request', 'themes_changed', {
+    detail: 'Themes have changed, please choose again',
+    errors: [{ pointer: '/themeIds', message: 'a theme that doesn’t exist' }],
+  });
 
 /** Idempotency-Key (D29): replay the stored answer; 422 for the same key with another body. */
 function idempotent(s, req, res, body, run) {
@@ -1007,15 +1208,15 @@ async function handleShare(req, res, path, url, s) {
   if (path === '/v1/account/limits' && req.method === 'GET') {
     return collection(req, res, limitsOf(s));
   }
-  if (path === '/v1/tags' && req.method === 'GET') {
-    return collection(req, res, { data: TAGS });
+  if (path === '/v1/themes' && req.method === 'GET') {
+    return collection(req, res, { data: themesOf(s) });
   }
   if (path === '/v1/account/stories' && req.method === 'GET') {
     const status = url.searchParams.get('status');
     const data = [...s.stories]
       .filter(([, st]) => !status || st.status === status)
       .reverse()
-      .map(([id, st]) => storyMine(id, st));
+      .map(([id, st]) => storyMine(s, id, st));
     return collection(req, res, { data, nextCursor: null });
   }
   const mine = /^\/v1\/account\/stories\/([^/]+)$/.exec(path);
@@ -1030,7 +1231,7 @@ async function handleShare(req, res, path, url, s) {
       (!st.image || arrived(st.image.path))
     )
       return sendJson(res, 304, undefined, { etag });
-    return sendJson(res, 200, storyMine(mine[1], st, arrived), { etag });
+    return sendJson(res, 200, storyMine(s, mine[1], st, arrived), { etag });
   }
   if (path === '/v1/stories' && req.method === 'POST') {
     // The guard: Art 9 on the forms in force (D93).
@@ -1045,7 +1246,7 @@ async function handleShare(req, res, path, url, s) {
         'body',
         'bylineName',
         'primaryFormat',
-        'tagSlugs',
+        'themeIds',
       ],
       s,
     );
@@ -1060,6 +1261,7 @@ async function handleShare(req, res, path, url, s) {
       return shareProblem(res, 400, 'Bad request', 'validation_failed', {
         errors,
       });
+    if (gone(s, b)) return themesGone(res);
     return idempotent(s, req, res, b, () => {
       const open = [...s.stories.values()].filter(
         (st) => st.status === 'draft',
@@ -1089,7 +1291,7 @@ async function handleShare(req, res, path, url, s) {
         body: b.body ?? null,
         bylineName: b.bylineName?.trim() || null,
         primaryFormat: b.primaryFormat,
-        tagSlugs: b.tagSlugs ?? [],
+        themeIds: b.themeIds ?? [],
         submittedAt: null,
         createdAt: now,
         updatedAt: now,
@@ -1173,7 +1375,7 @@ async function handleShare(req, res, path, url, s) {
     const b = await readJson(req);
     const errors = fieldErrors(
       b,
-      ['title', 'description', 'body', 'bylineName', 'tagSlugs', 'image'],
+      ['title', 'description', 'body', 'bylineName', 'themeIds', 'image'],
       s,
       st,
     );
@@ -1190,11 +1392,12 @@ async function handleShare(req, res, path, url, s) {
       return shareProblem(res, 400, 'Bad request', 'validation_failed', {
         errors,
       });
+    if (gone(s, b)) return themesGone(res);
     if ('title' in b) st.title = b.title.trim();
     if ('description' in b) st.description = b.description.trim();
     if ('body' in b) st.body = b.body;
     if ('bylineName' in b) st.bylineName = b.bylineName?.trim() || null;
-    if ('tagSlugs' in b) st.tagSlugs = b.tagSlugs;
+    if ('themeIds' in b) st.themeIds = b.themeIds;
     // The picture's file stays (api-user never deletes one: the clean-up sweep does).
     if ('image' in b)
       st.image =
@@ -1258,17 +1461,26 @@ async function handleShare(req, res, path, url, s) {
         return p(409, 'Conflict', 'legal_document_not_in_force');
       if (!['draft', 'changes_requested'].includes(st.status))
         return p(409, 'Conflict', 'story_not_submittable');
-      // The minimum at submit; the maximum only when themes change (as api-user does).
-      const { storyTextMin } = s.settings;
-      const tagsMin = Math.min(s.settings.tagsMin, THEME_COUNT);
-      if (st.tagSlugs.length < tagsMin)
-        return p(400, 'Bad request', 'tags_required', {
-          detail: `Choose at least ${tagsMin} themes before submitting`,
+      // The themes, at submit only (themes plan v3): every one still there (A7), then
+      // themesMin–themesMax.
+      const { storyTextMin, themesMin: min, themesMax: max } = s.settings;
+      if (st.themeIds.some((id) => !themeRef(s, id)))
+        return p(400, 'Bad request', 'themes_changed', {
+          detail: 'Themes have changed, please choose again',
           errors: [
-            {
-              pointer: '/tagSlugs',
-              message: `choose at least ${tagsMin}`,
-            },
+            { pointer: '/themeIds', message: 'a theme that doesn’t exist' },
+          ],
+        });
+      if (st.themeIds.length < min || st.themeIds.length > max)
+        return p(400, 'Bad request', 'theme_count', {
+          detail:
+            min === max
+              ? `Choose ${max} ${max === 1 ? 'theme' : 'themes'}`
+              : min === 0
+                ? `Choose up to ${max} ${max === 1 ? 'theme' : 'themes'}`
+                : `Choose ${min}–${max} themes`,
+          errors: [
+            { pointer: '/themeIds', message: `from ${min} to ${max} themes` },
           ],
         });
       // As api-user: a picture whose file never arrived can't be submitted.
@@ -1286,7 +1498,7 @@ async function handleShare(req, res, path, url, s) {
       }
       const written = (st.primaryFormat ?? 'written') === 'written';
       // Every limit in force applies at submit (Joel, 2026-10-30: no grandfathering).
-      const { storyTextMax, tagsMax } = s.settings;
+      const { storyTextMax } = s.settings;
       if (written && (st.body ?? '').length > storyTextMax)
         return p(400, 'Bad request', 'story_text_too_long', {
           detail: `Your story is longer than the current limit of ${storyTextMax} characters. Shorten it, then submit.`,
@@ -1302,14 +1514,6 @@ async function handleShare(req, res, path, url, s) {
               pointer: '/body',
               message: `at least ${storyTextMin} characters`,
             },
-          ],
-        });
-      if (st.tagSlugs.length > tagsMax)
-        return p(400, 'Bad request', 'too_many_tags', {
-          detail: `Your story has more themes than the current limit of ${tagsMax}. Remove some, then submit.`,
-          limit: tagsMax,
-          errors: [
-            { pointer: '/tagSlugs', message: `at most ${tagsMax} themes` },
           ],
         });
       const next = limitsOf(s).submissions.nextAvailableAt;
@@ -1700,6 +1904,24 @@ createServer(async (req, res) => {
     res.writeHead(204);
     return res.end();
   }
+  // Test set-up only: an admin deletes a theme while the person is choosing (A7). As the
+  // database's theme_delete does, it comes off every story carrying it, which moves each one's
+  // version on.
+  const themeGone = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/delete-theme$/.exec(
+    path,
+  );
+  if (themeGone && req.method === 'POST') {
+    const s = shareSession(themeGone[1]);
+    const id = url.searchParams.get('id');
+    s.deletedThemes.add(id);
+    for (const st of s.stories.values()) {
+      if (!st.themeIds?.includes(id)) continue;
+      st.themeIds = st.themeIds.filter((t) => t !== id);
+      st.version += 1;
+    }
+    res.writeHead(204);
+    return res.end();
+  }
   // Test set-up only: what the TUS server does with the next PATCHes ({ fail: n, hold: bool }).
   const tusSet = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/tus$/.exec(path);
   if (tusSet && req.method === 'POST') {
@@ -1786,6 +2008,17 @@ createServer(async (req, res) => {
     return req.method === 'GET'
       ? sendSettings(req, res, token)
       : void saveSettings(req, res, token);
+  }
+  if (
+    path === '/v1/admin/themes' &&
+    (req.method === 'GET' || req.method === 'PUT')
+  ) {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return req.method === 'GET'
+      ? sendAdminThemes(res, token)
+      : void saveAdminThemes(req, res, token);
   }
   if (path === '/v1/account/consents' && req.method === 'POST') {
     if (!signedIn()) return;

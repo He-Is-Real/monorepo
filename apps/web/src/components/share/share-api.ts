@@ -7,6 +7,7 @@ import {
   ApiUserUnavailable,
   newIdempotencyKey,
 } from '@/lib/api-user';
+import type { ThemeCategory, ThemeRef } from '@/lib/browse';
 
 /**
  * The submit flow's calls to api-user (api-user.yaml), through web's one api-user client
@@ -20,7 +21,8 @@ export interface StoryFields {
   description: string;
   /** The optional first name; empty = "Anonymous". */
   bylineName: string;
-  tagSlugs: string[];
+  /** The chosen themes' ids. */
+  themeIds: string[];
 }
 
 export const EMPTY_FIELDS: StoryFields = {
@@ -28,14 +30,10 @@ export const EMPTY_FIELDS: StoryFields = {
   body: '',
   description: '',
   bylineName: '',
-  tagSlugs: [],
+  themeIds: [],
 };
 
-export interface Tag {
-  slug: string;
-  name: string;
-  category: 'theme' | 'journey' | 'emotion';
-}
+export type { Theme, ThemeCategory, ThemeRef } from '@/lib/browse';
 
 export type StoryFormat = 'video' | 'audio' | 'written';
 
@@ -53,7 +51,7 @@ export interface MyStory {
   media: { format: string; processing: string | null }[];
   /** A written story's image or an audio story's picture (M2 plan PR 10), signed for its owner. */
   image: StoryPicture | null;
-  tags: Tag[];
+  themes: ThemeRef[];
   submittedAt: string | null;
   updatedAt: string;
   /** O4: whether this story may go beyond heisreal.today (its own choice). */
@@ -87,7 +85,7 @@ export interface ConsentState {
 /** The contract's `SubmissionLimits`: the admin's settings and the person's own (W3, D112). */
 export interface SubmissionLimits {
   storyText: { min: number; max: number };
-  tags: { min: number; max: number };
+  themes: { min: number; max: number };
   openDrafts: { max: number | null; open: number };
   /** Submissions for review per rolling 7 days, and how many they made in the last 7. */
   submissions: {
@@ -161,7 +159,7 @@ export function normalise(f: StoryFields): StoryFields {
     body: f.body,
     description: f.description.trim(),
     bylineName: f.bylineName.trim(),
-    tagSlugs: [...f.tagSlugs],
+    themeIds: [...f.themeIds],
   };
 }
 
@@ -171,7 +169,7 @@ export function fieldsOf(story: MyStory): StoryFields {
     body: story.body ?? '',
     description: story.description,
     bylineName: story.bylineName ?? '',
-    tagSlugs: story.tags.map((t) => t.slug),
+    themeIds: story.themes.map((t) => t.id),
   });
 }
 
@@ -294,8 +292,9 @@ export function shareApi(api: ApiUser) {
     limits: async () =>
       (await api.get<SubmissionLimits>('/v1/account/limits'))
         .data as SubmissionLimits,
-    tags: async () =>
-      ((await api.get<{ data: Tag[] }>('/v1/tags')).data?.data ?? []) as Tag[],
+    themes: async () =>
+      ((await api.get<{ data: ThemeCategory[] }>('/v1/themes')).data?.data ??
+        []) as ThemeCategory[],
     openDrafts: async () =>
       ((
         await api.get<{ data: MyStory[] }>(
@@ -341,7 +340,7 @@ export function shareApi(api: ApiUser) {
             body: format === 'written' || n.body.trim() ? n.body : null,
             description: n.description,
             bylineName: n.bylineName || null,
-            tagSlugs: n.tagSlugs,
+            themeIds: n.themeIds,
           },
           idempotencyKey,
         }),

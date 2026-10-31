@@ -62,7 +62,7 @@ const card = (id: string, title: string): StorySummary => ({
   thumbnailHeight: null,
   image: null,
   textLength: 100,
-  tags: [],
+  themes: [],
   publishedAt: '2026-10-20T12:00:00Z',
 });
 

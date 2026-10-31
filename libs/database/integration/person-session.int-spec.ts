@@ -358,7 +358,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       for (const set of [
         `title = 'changed after review'`,
         `body = 'changed'`,
-        `tagRefs = [tag:doubt]`,
+        `themeRefs = [theme:doubt]`,
         `bylineName = 'Someone'`,
       ]) {
         const result = await outcome(
@@ -444,7 +444,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         await rows(
           ann,
           `CREATE publicStory:ann_draft CONTENT { version: 1, slug: 'x', title: 'x',
-             description: 'x', primaryFormat: 'written', tagRefs: [], media: [], publishedAt: time::now() }`,
+             description: 'x', primaryFormat: 'written', themeRefs: [], media: [], publishedAt: time::now() }`,
         ),
       ).toEqual([]);
       expect(

@@ -13,7 +13,7 @@ const story = {
   primaryFormat: 'written',
   media: [],
   image: null,
-  tags: [],
+  themes: [],
   publishedAt: '2026-10-21T20:00:00Z',
   version: 1,
 };

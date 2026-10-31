@@ -224,7 +224,7 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
     await expect(
       page.getByRole('heading', { name: 'Add some details' }),
     ).toBeVisible();
-    // One theme (at least one is needed).
+    // One theme (the default minimum at submit is one; highlighted ones come first).
     await tick(page.getByRole('main').getByRole('checkbox').first());
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(

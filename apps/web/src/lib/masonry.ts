@@ -42,7 +42,7 @@ const CARD = {
   title: { font: 17, line: 24, maxLines: 3, glyph: 0.56, after: 6 },
   excerpt: { font: 15, line: 24, maxLines: 3, glyph: 0.5 },
   quote: { font: 18, line: 28, maxLines: 6, glyph: 0.5 }, // written, no image
-  tags: { before: 14, row: 24, gap: 6, font: 12, glyph: 0.55, padX: 20 },
+  themes: { before: 14, row: 24, gap: 6, font: 12, glyph: 0.55, padX: 20 },
   /** Predictions err tall: a span a little too long leaves a gap; too short would overlap. */
   slack: 4,
 } as const;
@@ -53,7 +53,7 @@ export interface CardShape {
   aspect: number | null;
   titleChars: number;
   excerptChars: number;
-  tagChars: number[];
+  themeChars: number[];
   /** Its top line's label, "Written · 3 min read" or "Video · 0:12" (story-card.tsx). */
   labelChars: number;
   /** D72: the card says NEW (a badge in its top line). */
@@ -84,7 +84,7 @@ export function cardShape(s: StorySummary): CardShape {
     aspect,
     titleChars: [...s.title].length,
     excerptChars: [...s.excerpt].length,
-    tagChars: s.tags.map((t) => [...t.name].length),
+    themeChars: s.themes.map((t) => [...t.name].length),
     labelChars: labelChars(s),
     isNew: s.isNew,
   };
@@ -93,11 +93,11 @@ export function cardShape(s: StorySummary): CardShape {
 const lines = (chars: number, font: number, glyph: number, width: number) =>
   chars === 0 ? 0 : Math.max(1, Math.ceil((chars * font * glyph) / width));
 
-function tagRows(tagChars: number[], width: number): number {
-  const { font, glyph, padX, gap } = CARD.tags;
+function themeRows(themeChars: number[], width: number): number {
+  const { font, glyph, padX, gap } = CARD.themes;
   let rows = 0;
   let used = Infinity;
-  for (const chars of tagChars) {
+  for (const chars of themeChars) {
     const w = Math.min(width, chars * font * glyph + padX);
     if (used + gap + w > width) {
       rows += 1;
@@ -127,11 +127,13 @@ export function predictHeight(
   const excerpt =
     Math.min(e.maxLines, lines(shape.excerptChars, e.font, e.glyph, text)) *
     e.line;
-  const rows = tagRows(shape.tagChars, text);
-  const tags =
+  const rows = themeRows(shape.themeChars, text);
+  const themes =
     rows === 0
       ? 0
-      : CARD.tags.before + rows * CARD.tags.row + (rows - 1) * CARD.tags.gap;
+      : CARD.themes.before +
+        rows * CARD.themes.row +
+        (rows - 1) * CARD.themes.gap;
   const m = CARD.metaLine;
   const metaWidth =
     (shape.isNew ? m.badge : 0) +
@@ -140,7 +142,7 @@ export function predictHeight(
     m.name +
     (shape.aspect === null ? m.heart : 0);
   const meta = CARD.meta + (metaWidth > text ? m.second : 0);
-  return media + CARD.padY + meta + title + excerpt + tags + CARD.slack;
+  return media + CARD.padY + meta + title + excerpt + themes + CARD.slack;
 }
 
 /**

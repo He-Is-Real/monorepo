@@ -7,7 +7,7 @@ import { CardHeart } from './heart-button';
 
 // A story's card (browse, home, related). Its parts and sizes mirror lib/masonry.ts, which
 // predicts its height (D55): change them together. The card's one link is its title, stretched
-// over the whole card, so the link's name is the story's title and tags stay plain text. On
+// over the whole card, so the link's name is the story's title and themes stay plain text. On
 // video and audio cards the media area plays the story instead (card-player.tsx), so the link
 // covers only the text below it. No counts or metrics of any kind (design principles).
 // The person's heart sits in the top-right corner, over the picture when there is one, so it
@@ -239,11 +239,11 @@ export function StoryCard({
             {story.excerpt}
           </p>
         )}
-        {story.tags.length > 0 && (
-          <ul className="mt-3.5 flex flex-wrap gap-1.5" aria-label="Tags">
-            {story.tags.map((t) => (
+        {story.themes.length > 0 && (
+          <ul className="mt-3.5 flex flex-wrap gap-1.5" aria-label="Themes">
+            {story.themes.map((t) => (
               <li
-                key={t.slug}
+                key={t.id}
                 className="h-6 truncate rounded-full bg-surface px-2.5 text-xs leading-6 text-muted-foreground"
               >
                 {t.name}

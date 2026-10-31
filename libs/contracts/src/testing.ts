@@ -58,7 +58,7 @@ export class Contract {
       this.docs.set(file, doc);
       this.ajv.addSchema(doc, `${BASE}${file}`);
     }
-    // Literal paths before templated ones (`/v1/tags` before `/v1/{x}`).
+    // Literal paths before templated ones (`/v1/themes` before `/v1/{x}`).
     this.paths = Object.keys(this.doc(spec)['paths'] as Json)
       .sort((a, b) => a.split('{').length - b.split('{').length)
       .map((template) => ({ template, pattern: pathPattern(template) }));

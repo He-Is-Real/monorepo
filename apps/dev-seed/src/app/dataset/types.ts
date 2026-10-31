@@ -14,13 +14,24 @@ export type StoryFormat = 'video' | 'audio' | 'written';
 /** A2: workflow's processing state. NONE (absent) = not processed yet. */
 export type Processing = 'processing' | 'ready' | 'failed';
 
-export type TagCategory = 'theme' | 'journey' | 'emotion';
-
-export interface TagFixture {
-  /** tag:<id>, also the slug in URLs */
+/** themeCategory:<id>, a fixed ULID so links survive resets; Other is the schema's own. */
+export interface ThemeCategoryFixture {
+  /** How the dataset refers to it. */
+  key: string;
   id: string;
   name: string;
-  category: TagCategory;
+}
+
+export interface ThemeFixture {
+  /** How the dataset refers to it (stories' `themes`). */
+  key: string;
+  /** theme:<id>, a fixed ULID so ?theme= links survive resets */
+  id: string;
+  name: string;
+  /** A category's key, or `other` (themeCategory:other) */
+  category: string;
+  /** Shown first, under its category's name */
+  highlighted?: true;
 }
 
 /** A moderation decision (moderationReview.decision) and what the submitter is told. */
@@ -42,8 +53,8 @@ export interface StoryFixture {
   /** user:<id>, a fixture person */
   submitter: string;
   format: StoryFormat;
-  /** tag ids, at most 5 */
-  tags: string[];
+  /** theme keys, at most 5 */
+  themes: string[];
   /** Video and audio: the clip. Omitted on a draft before its upload. */
   media?: { clip: ClipId; processing?: Processing };
   /** Written only: the optional image. */
@@ -69,7 +80,8 @@ export interface Dataset {
   people: string[];
   /** The fixture moderator who wrote every review (no Clerk account either). */
   moderator: string;
-  tags: TagFixture[];
+  categories: ThemeCategoryFixture[];
+  themes: ThemeFixture[];
   stories: StoryFixture[];
   /**
    * D112: dev's Clerk test accounts (their Clerk user ids, `user_…`), marked trusted submitters

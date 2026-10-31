@@ -16,7 +16,8 @@ export interface StoryFields {
   description?: string;
   body?: string | null;
   bylineName?: string | null;
-  tagSlugs?: string[];
+  /** Theme ids (`theme:<id>`), in the person's order. */
+  themeIds?: string[];
   /**
    * EditStory only (M2 plan PR 10): `null` removes the story's image; `{ alt }` changes its
    * description. Only RequestUpload puts an image on a story (D80).
@@ -40,7 +41,7 @@ const LIMITS = {
   bylineName: 80,
   alt: 500,
 } as const;
-const TAG_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
 const length = (s: string) => [...s].length;
 
 function fail(errors: FieldError[]): never {
@@ -107,19 +108,19 @@ function fields(
       });
     } else out.bylineName = n.trim() || null; // blank = anonymous
   }
-  if ('tagSlugs' in b) {
-    const tags = b['tagSlugs'];
+  if ('themeIds' in b) {
+    const themes = b['themeIds'];
     if (
-      !Array.isArray(tags) ||
-      tags.length > STORY_CEILINGS.tags ||
-      tags.some((t) => typeof t !== 'string' || !TAG_SLUG.test(t)) ||
-      new Set(tags).size !== tags.length
+      !Array.isArray(themes) ||
+      themes.length > STORY_CEILINGS.themes ||
+      themes.some((t) => typeof t !== 'string' || !THEME_ID.test(t)) ||
+      new Set(themes).size !== themes.length
     ) {
       errors.push({
-        pointer: '/tagSlugs',
-        message: `at most ${STORY_CEILINGS.tags} different tag slugs`,
+        pointer: '/themeIds',
+        message: `at most ${STORY_CEILINGS.themes} different theme ids`,
       });
-    } else out.tagSlugs = tags as string[];
+    } else out.themeIds = themes as string[];
   }
   return out;
 }
@@ -130,7 +131,7 @@ export function parseCreate(body: unknown): CreateInput {
   const errors: FieldError[] = [];
   const f = fields(
     b,
-    ['title', 'description', 'body', 'bylineName', 'primaryFormat', 'tagSlugs'],
+    ['title', 'description', 'body', 'bylineName', 'primaryFormat', 'themeIds'],
     errors,
   );
   const format = b['primaryFormat'];
@@ -154,7 +155,7 @@ export function parsePatch(body: unknown): StoryFields {
   const errors: FieldError[] = [];
   const f = fields(
     b,
-    ['title', 'description', 'body', 'bylineName', 'tagSlugs', 'image'],
+    ['title', 'description', 'body', 'bylineName', 'themeIds', 'image'],
     errors,
   );
   if ('image' in b) {
@@ -249,7 +250,7 @@ export function parseSubmit(body: unknown): SubmitInput {
   };
 }
 
-/** Over the settings' limits (W3): text too long or too many themes (`400`). */
+/** Over the settings' limits (W3): text too long (`400`). */
 export function overLimit(errors: FieldError[]): never {
   throw new BadRequestException({
     code: 'validation_failed',
@@ -258,9 +259,16 @@ export function overLimit(errors: FieldError[]): never {
   });
 }
 
-/** A tag slug the database doesn't know (`400`, `/tagSlugs`). */
-export function unknownTags(): never {
-  fail([{ pointer: '/tagSlugs', message: 'a tag that doesn’t exist' }]);
+/**
+ * A theme that doesn't exist (any more): an admin deleted it while the person was choosing
+ * (themes plan v3, A7). `400` `themes_changed`; the share form reloads the themes.
+ */
+export function themesChanged(): BadRequestException {
+  return new BadRequestException({
+    code: 'themes_changed',
+    message: 'Themes have changed, please choose again',
+    errors: [{ pointer: '/themeIds', message: 'a theme that doesn’t exist' }],
+  });
 }
 
 /** A written story's text can't be emptied (D53: it needs its text). */

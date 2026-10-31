@@ -88,12 +88,11 @@ describe('service identities (D13 B)', () => {
   });
 
   describe('api_public_read', () => {
-    it('reads publicStory, tags and published DPA versions only', async () => {
+    it('reads publicStory and published DPA versions only', async () => {
       const db = svc.publicRead;
       expect(await ids(db, 'SELECT id FROM publicStory')).toEqual([
         'publicStory:bob_live',
       ]);
-      expect(await ids(db, 'SELECT id FROM tag')).toEqual(['tag:doubt']);
       expect(await ids(db, 'SELECT id FROM dpaVersion')).toEqual([
         'dpaVersion:v1', // published by the world; the draft seed of v1 is the same row
       ]);
@@ -140,15 +139,12 @@ describe('service identities (D13 B)', () => {
         await rows(db, 'DELETE publicStory:bob_live RETURN BEFORE'),
       ).toEqual([]);
       expect(
-        await rows(db, `CREATE tag:spam SET name = 'Spam', category = 'theme'`),
-      ).toEqual([]);
-      expect(
         await rows(db, `CREATE user:sneak SET clerkUserId = 'user_sneak'`),
       ).toEqual([]);
       expect(
         await truth('SELECT VALUE title FROM publicStory:bob_live'),
       ).toEqual(['Story bob_live']);
-      expect(await truth('SELECT * FROM tag:spam, user:sneak')).toEqual([]);
+      expect(await truth('SELECT * FROM user:sneak')).toEqual([]);
     });
   });
 
@@ -266,7 +262,7 @@ describe('service identities (D13 B)', () => {
         await rows(
           db,
           `CREATE publicStory:ann_pending CONTENT { version: 1, slug: 'x', title: 'x',
-             description: 'x', primaryFormat: 'written', tagRefs: [], media: [], publishedAt: time::now() }`,
+             description: 'x', primaryFormat: 'written', themeRefs: [], media: [], publishedAt: time::now() }`,
         ),
       ).toEqual([]);
       expect(await rows(db, 'SELECT * FROM moderationReview')).toEqual([]);
@@ -394,7 +390,7 @@ describe('service identities (D13 B)', () => {
         await rows(
           db,
           `CREATE publicStory:bob_pending CONTENT { version: 1, slug: 'x', title: 'x',
-             description: 'x', primaryFormat: 'written', tagRefs: [], media: [], publishedAt: time::now() }`,
+             description: 'x', primaryFormat: 'written', themeRefs: [], media: [], publishedAt: time::now() }`,
         ),
       ).toEqual([]);
       expect(

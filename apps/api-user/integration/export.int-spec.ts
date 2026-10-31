@@ -148,7 +148,7 @@ describe('download my data', () => {
       body: JSON.stringify({
         title,
         primaryFormat: 'written',
-        tagSlugs: ['healing'],
+        themeIds: ['healing'],
         body: `${title}${STORY_TEXT_PADDING}`,
       }),
     });
@@ -257,7 +257,7 @@ describe('download my data', () => {
     await createPeople(t, { modq7: 'user_modq7' });
     await run(
       admin,
-      `CREATE tag:healing SET name = 'Healing', category = 'theme'`,
+      `CREATE theme:healing SET name = 'Healing', category = themeCategory:other`,
     );
   });
   afterAll(async () => {
@@ -448,7 +448,7 @@ describe('download my data', () => {
       title: 'Ann draft',
       body: `Ann draft${STORY_TEXT_PADDING}`,
       bylineName: 'Ann',
-      tags: [{ slug: 'healing', name: 'Healing' }],
+      themes: [{ id: 'healing', name: 'Healing' }],
       onSiteNow: false,
       image: {
         width: 800,

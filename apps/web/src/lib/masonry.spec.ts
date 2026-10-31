@@ -22,7 +22,7 @@ const card = (over: Partial<StorySummary> = {}): StorySummary => ({
   thumbnailHeight: null,
   image: null,
   textLength: 900,
-  tags: [],
+  themes: [],
   publishedAt: '2026-10-21T20:00:00Z',
   isNew: false,
   ...over,
@@ -69,13 +69,6 @@ describe('predictHeight (D55: fixed parts + clamped media + text)', () => {
     expect(h(card({ ...video(1920, 1080), excerpt: long }), 200)).toBe(
       h(card({ ...video(1920, 1080), excerpt: three + three }), 200),
     );
-  });
-
-  it('adds a row for tags', () => {
-    const tags = [
-      { slug: 'hope', name: 'Hope', category: 'emotion' as const, version: 1 },
-    ];
-    expect(h(card({ tags }))).toBeGreaterThan(h(card()));
   });
 
   it('gives audio its thumbnail’s shape (the default’s 16:9 without one) and grows narrower cards’ text', () => {

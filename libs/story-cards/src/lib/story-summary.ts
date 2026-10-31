@@ -1,4 +1,5 @@
 import type { MediaUrls } from './media-urls';
+import type { ThemeRef } from './themes';
 
 /** A published clip's stored fields (`publicStory.media[*]`). Never sent as they are. */
 export interface StoredMedia {
@@ -18,14 +19,6 @@ export interface StoredImage {
   width: number;
   height: number;
   alt?: string;
-}
-
-/** `components.yaml#/components/schemas/Tag`, as stories embed it. */
-export interface TagRef {
-  slug: string;
-  name: string;
-  category: string;
-  version: number;
 }
 
 /**
@@ -51,7 +44,7 @@ export interface StorySummary {
     alt: string | null;
   } | null;
   textLength: number;
-  tags: TagRef[];
+  themes: ThemeRef[];
   publishedAt: string;
 }
 
@@ -72,8 +65,8 @@ export const SUMMARY_FIELDS = `
   string::slice(body ?? '', 0, ${FETCH_CHARS}) AS bodyStart,
   string::len(body ?? '') AS textLength,
   publishedAt, <string> publishedAt AS cursorAt,
-  (SELECT record::id(id) AS slug, name, category, version FROM tag
-    WHERE id IN $parent.tagRefs ORDER BY slug) AS tags`;
+  (SELECT record::id(id) AS id, name FROM theme
+    WHERE id IN $parent.themeRefs ORDER BY name) AS themes`;
 
 /** A row selected with SUMMARY_FIELDS. */
 export interface SummaryRow {
@@ -88,7 +81,7 @@ export interface SummaryRow {
   media?: StoredMedia[];
   image?: StoredImage;
   durationSeconds?: number;
-  tags?: TagRef[];
+  themes?: ThemeRef[];
   publishedAt: string;
   /** publishedAt as SurrealDB writes it (nanoseconds), for cursors. */
   cursorAt: string;
@@ -143,7 +136,7 @@ export function toSummary(row: SummaryRow, urls: MediaUrls): StorySummary {
         }
       : null,
     textLength: row.textLength,
-    tags: row.tags ?? [],
+    themes: row.themes ?? [],
     publishedAt: row.publishedAt,
   };
 }

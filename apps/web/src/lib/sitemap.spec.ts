@@ -26,7 +26,7 @@ const card = (slug: string): StorySummary => ({
   thumbnailHeight: null,
   image: null,
   textLength: 300,
-  tags: [],
+  themes: [],
   publishedAt: '2026-10-21T20:00:00Z',
   isNew: false,
 });

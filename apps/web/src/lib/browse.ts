@@ -4,18 +4,28 @@ import { type StoryImage, StoriesUnavailableError } from './public-stories';
 // D32: web reads from api-public-read only, server-side, with nothing from the visitor's request
 // (no cookies, no headers). Anything that holds stories is fetched fresh (D51: `no-store`): Next's
 // `revalidate` keeps serving its last copy while a refresh fails, and a `404` never replaces it,
-// so a hidden, withdrawn or erased story could stay on the site. Only tags are kept for a minute:
-// they hold no story data.
+// so a hidden, withdrawn or erased story could stay on the site. Only themes are kept for a
+// minute: they hold no story data.
 
 export type StoryFormat = 'video' | 'audio' | 'written';
 export type BrowseSort = 'latest' | 'oldest' | 'relevance';
 
-/** `Tag` in libs/contracts/openapi/components.yaml. */
-export interface StoryTag {
-  slug: string;
+/** `ThemeRef` in libs/contracts/openapi/components.yaml: a story's theme. */
+export interface ThemeRef {
+  id: string;
   name: string;
-  category: 'theme' | 'journey' | 'emotion';
-  version: number;
+}
+
+/** `Theme`: one in the list people choose from. */
+export interface Theme extends ThemeRef {
+  highlighted: boolean;
+}
+
+/** `ThemeCategory`: themes A–Z; categories A–Z with Other last (themes plan v3). */
+export interface ThemeCategory {
+  id: string;
+  name: string;
+  themes: Theme[];
 }
 
 /**
@@ -35,7 +45,7 @@ export interface StorySummary {
   thumbnailHeight: number | null;
   image: StoryImage | null;
   textLength: number;
-  tags: StoryTag[];
+  themes: ThemeRef[];
   publishedAt: string;
   /**
    * web's own, not the API's: whether the card says NEW (`isNewStory`), judged by web's server
@@ -75,8 +85,8 @@ export interface StoryPage {
 export interface BrowseParams {
   /** A visitor's search; trimmed, and cut to the API's 200 characters. */
   q?: string;
-  /** A story must have all of them (at most 5 are sent). */
-  tags?: string[];
+  /** A theme id: only stories with it. */
+  theme?: string;
   format?: StoryFormat;
   sort?: BrowseSort;
   /** 1 to 50 (the API's default is 20). */
@@ -87,13 +97,14 @@ export interface BrowseParams {
 export type RelatedResult =
   { kind: 'stories'; stories: StorySummary[] } | { kind: 'not_found' };
 
-/** Tags only. */
+/** Themes only. */
 const REVALIDATE_SECONDS = 60;
 /** A cold api-public-read (scaled to zero, connecting to the database) can take a few seconds. */
 const TIMEOUT_MS = 10_000;
 const Q_MAX_CHARS = 200;
-const TAGS_MAX = 5;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** A theme's id, as api-public-read.yaml's `theme` parameter. */
+export const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
 
 /**
  * `GET /v1/stories`: a page of cards. `signal` lets a caller stop early (the sitemap's overall
@@ -106,8 +117,8 @@ export async function browseStories(
   const query = new URLSearchParams();
   const q = [...(params.q?.trim() ?? '')].slice(0, Q_MAX_CHARS).join('');
   if (q) query.set('q', q);
-  for (const tag of (params.tags ?? []).slice(0, TAGS_MAX))
-    query.append('tag', tag);
+  if (params.theme && THEME_ID.test(params.theme))
+    query.set('theme', params.theme);
   if (params.format) query.set('format', params.format);
   if (params.sort) query.set('sort', params.sort);
   if (params.limit !== undefined) query.set('limit', String(params.limit));
@@ -162,13 +173,13 @@ export async function getRelatedStories(slug: string): Promise<RelatedResult> {
 }
 
 /**
- * `GET /v1/tags`: the tags published stories use (D63), by category (theme, journey, emotion)
- * then name. No counts (D62).
+ * `GET /v1/themes`: the themes to browse by, by category (themes plan v3). Highlighted themes
+ * always; the others once a published story uses them. No counts (D62).
  */
-export async function listTags(): Promise<StoryTag[]> {
-  const body = (await json(await get('/v1/tags', { cached: true }))) as
+export async function listThemes(): Promise<ThemeCategory[]> {
+  const body = (await json(await get('/v1/themes', { cached: true }))) as
     { data?: unknown } | undefined;
-  if (!Array.isArray(body?.data) || !body.data.every(isTag))
+  if (!Array.isArray(body?.data) || !body.data.every(isCategory))
     throw new StoriesUnavailableError('unexpected response');
   return body.data;
 }
@@ -209,13 +220,21 @@ const json = (res: Response): Promise<unknown> =>
 
 const nullableNumber = (v: unknown) => v === null || typeof v === 'number';
 
-function isTag(value: unknown): value is StoryTag {
-  const t = value as Partial<StoryTag> | null;
+function isThemeRef(value: unknown): value is ThemeRef {
+  const t = value as Partial<ThemeRef> | null;
+  return !!t && typeof t.id === 'string' && typeof t.name === 'string';
+}
+
+function isCategory(value: unknown): value is ThemeCategory {
+  const c = value as Partial<ThemeCategory> | null;
   return (
-    !!t &&
-    typeof t.slug === 'string' &&
-    typeof t.name === 'string' &&
-    typeof t.category === 'string'
+    !!c &&
+    typeof c.id === 'string' &&
+    typeof c.name === 'string' &&
+    Array.isArray(c.themes) &&
+    c.themes.every(
+      (t) => isThemeRef(t) && typeof (t as Theme).highlighted === 'boolean',
+    )
   );
 }
 
@@ -234,8 +253,8 @@ function isSummary(value: unknown): value is ApiSummary {
       (typeof s.image?.width === 'number' &&
         typeof s.image?.height === 'number')) &&
     typeof s.textLength === 'number' &&
-    Array.isArray(s.tags) &&
-    s.tags.every(isTag) &&
+    Array.isArray(s.themes) &&
+    s.themes.every(isThemeRef) &&
     typeof s.publishedAt === 'string'
   );
 }

@@ -44,10 +44,6 @@ describe('parseBrowseQuery', () => {
     });
   });
 
-  it('drops a repeated tag', () => {
-    expect(parseBrowseQuery({ tag: ['hope', 'hope'] }).tags).toEqual(['hope']);
-  });
-
   it.each([
     [{ limit: '0' }, '/limit'],
     [{ limit: '51' }, '/limit'],
@@ -56,9 +52,6 @@ describe('parseBrowseQuery', () => {
     [{ limit: ['1', '2'] }, '/limit'],
     [{ sort: 'popular' }, '/sort'],
     [{ format: 'photo' }, '/format'],
-    [{ tag: 'Healing' }, '/tag'],
-    [{ tag: 'a'.repeat(61) }, '/tag'],
-    [{ tag: ['a', 'b', 'c', 'd', 'e', 'f'] }, '/tag'],
     [{ q: 'x'.repeat(201) }, '/q'],
     [{ q: ['a', 'b'] }, '/q'],
     [{ q: { nested: 'object' } }, '/q'],
@@ -69,7 +62,7 @@ describe('parseBrowseQuery', () => {
     expect(p).toMatchObject({ status: 400, code: 'validation_failed' });
     expect(p.errors?.map((e) => e.pointer)).toContain(pointer);
     // Never echoes what was sent.
-    expect(JSON.stringify(p)).not.toMatch(/xxxxxxxx|Healing|nested/);
+    expect(JSON.stringify(p)).not.toMatch(/xxxxxxxx|nested/);
   });
 
   it('lists every invalid parameter at once', () => {
@@ -83,25 +76,25 @@ describe('parseBrowseQuery', () => {
 });
 
 describe('cursors', () => {
-  const base: BrowseQuery = parseBrowseQuery({ tag: 'hope', limit: '5' });
+  const base: BrowseQuery = parseBrowseQuery({ theme: 'hope', limit: '5' });
 
   it('round-trips the position after the last card', () => {
     const cursor = encodeCursor(base, { key: AT, id: 'seed_v01' });
     expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(cursor.length).toBeLessThanOrEqual(300);
-    expect(parseBrowseQuery({ tag: 'hope', limit: '5', cursor }).after).toEqual(
-      { key: AT, id: 'seed_v01' },
-    );
+    expect(
+      parseBrowseQuery({ theme: 'hope', limit: '5', cursor }).after,
+    ).toEqual({ key: AT, id: 'seed_v01' });
   });
 
   it('works with another page size', () => {
     const cursor = encodeCursor(base, { key: AT, id: 'seed_v01' });
-    expect(parseBrowseQuery({ tag: 'hope', limit: '9', cursor }).after).toEqual(
-      {
-        key: AT,
-        id: 'seed_v01',
-      },
-    );
+    expect(
+      parseBrowseQuery({ theme: 'hope', limit: '9', cursor }).after,
+    ).toEqual({
+      key: AT,
+      id: 'seed_v01',
+    });
   });
 
   it('carries a relevance score', () => {
@@ -114,9 +107,9 @@ describe('cursors', () => {
   });
 
   it.each([
-    ['other filters', { tag: 'faith', limit: '5' }],
+    ['other filters', { theme: 'faith', limit: '5' }],
     ['another search', { q: 'faith', sort: 'latest' }],
-    ['another sort', { tag: 'hope', sort: 'oldest' }],
+    ['another sort', { theme: 'hope', sort: 'oldest' }],
   ])('refuses a cursor used with %s', (_, query) => {
     const cursor = encodeCursor(base, { key: AT, id: 'seed_v01' });
     expect(problem(() => parseBrowseQuery({ ...query, cursor }))).toMatchObject(
@@ -163,7 +156,7 @@ describe('cursors', () => {
     ])
       expect(
         problem(() =>
-          parseBrowseQuery({ tag: 'hope', limit: '5', cursor: forge(k) }),
+          parseBrowseQuery({ theme: 'hope', limit: '5', cursor: forge(k) }),
         ),
       ).toMatchObject({ status: 400, code: 'invalid_cursor' });
   });

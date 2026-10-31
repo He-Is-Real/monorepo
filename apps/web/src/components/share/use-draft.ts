@@ -84,6 +84,11 @@ export interface Draft {
    */
   submittedBefore: boolean;
   error: string | null;
+  /**
+   * Counts the saves refused because a chosen theme no longer exists (themes plan v3, A7): the
+   * choice is cleared and the flow reads the themes again.
+   */
+  themesChanged: number;
   conflict: StoryFields | null;
   update: (change: Partial<StoryFields>) => void;
   /** Saves now; true when the server has everything on screen. */
@@ -221,6 +226,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
   const [, render] = useState(0);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [themesChanged, setThemesChanged] = useState(0);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [submittedBefore, setSubmittedBefore] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -380,6 +386,14 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
           setError(null);
         } catch (err) {
           ok = false;
+          if (err instanceof ApiUserProblem && err.code === 'themes_changed') {
+            // A7: no attempt to keep the choice; the person chooses again.
+            commit({
+              ...state.current,
+              local: { ...state.current.local, themeIds: [] },
+            });
+            setThemesChanged((n) => n + 1);
+          }
           if (err instanceof ApiUserUnavailable) {
             setStatus('offline');
           } else {
@@ -404,7 +418,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     } finally {
       running.current = null;
     }
-  }, [conflict, saveOnce]);
+  }, [commit, conflict, saveOnce]);
 
   const update = useCallback(
     (change: Partial<StoryFields>) => {
@@ -584,6 +598,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     status,
     submittedBefore,
     error,
+    themesChanged,
     conflict: conflict?.fields ?? null,
     update,
     flush,

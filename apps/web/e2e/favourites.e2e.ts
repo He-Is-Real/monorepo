@@ -29,7 +29,7 @@ import {
 // desktop; the layout (44 px targets, no sideways scroll, light and dark) on every device.
 
 const FAVOURITES = '/v1/account/favourites';
-const HEART_PAGE = '/stories?tag=heart-test';
+const HEART_PAGE = '/stories?theme=heart_test';
 const DEVICE_HEARTS_KEY = 'heisreal:device-hearts';
 
 /** This test's own session at the stub api-user. */

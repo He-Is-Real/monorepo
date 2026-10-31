@@ -21,8 +21,8 @@ export function publicCacheControl(): string {
 
 /**
  * A strong validator of exactly what's sent: a hash of the JSON body, which is what Nest
- * serialises. Not the story's `version` alone, because the response embeds its tags by
- * reference (#45 review): renaming a tag changes the body, so the ETag must change too.
+ * serialises. Not the story's `version` alone, because the response embeds its themes by
+ * reference (#45 review): renaming a theme changes the body, so the ETag must change too.
  */
 export function representationETag(body: unknown): string {
   return `"${createHash('sha256').update(JSON.stringify(body)).digest('base64url').slice(0, 27)}"`;

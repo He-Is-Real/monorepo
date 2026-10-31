@@ -34,7 +34,7 @@ function articleJsonLd(story: PublicStory) {
     ...(story.bylineName
       ? { author: { '@type': 'Person', name: story.bylineName } }
       : {}),
-    keywords: story.tags.map((t) => t.name).join(', ') || undefined,
+    keywords: story.themes.map((t) => t.name).join(', ') || undefined,
     inLanguage: 'en-GB',
   };
 }
@@ -121,7 +121,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         openGraph: {
           type: 'article',
           publishedTime: story.publishedAt,
-          tags: story.tags.map((t) => t.name),
+          tags: story.themes.map((t) => t.name),
         },
       });
     }
