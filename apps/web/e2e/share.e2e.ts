@@ -591,13 +591,15 @@ test.describe('behaviour', () => {
     await page.goto(SHARE);
     await page.getByRole('button', { name: 'Continue “Unclear”' }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    // Review's read of the story answers 200, first with `{}`, then the story without `sharing`.
+    // Reads of the story answer 200, first with `{}`, then the story without `sharing` (the
+    // picture panel reads it too, so the answers go by phase, not by count).
     const read = `${STUB_USER_URL}/v1/account/stories/unclear`;
+    let unclear: 'empty' | 'no-sharing' = 'empty';
     let reads = 0;
     await page.route(read, async (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       reads += 1;
-      if (reads === 1) return route.fulfill({ json: {} });
+      if (unclear === 'empty') return route.fulfill({ json: {} });
       const answer = await route.fetch();
       const { sharing: _, ...story } = await answer.json();
       return route.fulfill({ response: answer, json: story });
@@ -610,8 +612,10 @@ test.describe('behaviour', () => {
     await expect(
       page.getByRole('button', { name: 'Submit for review' }),
     ).toBeDisabled();
+    unclear = 'no-sharing';
+    const before = reads;
     await page.getByRole('button', { name: 'Try again' }).click();
-    await expect.poll(() => reads).toBe(2);
+    await expect.poll(() => reads).toBeGreaterThan(before);
     await expect(error).toBeVisible();
     await expect(page.locator('[data-grant="share_socials"]')).toHaveCount(0);
 

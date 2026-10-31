@@ -27,6 +27,9 @@
   ],
   "references": [
     {
+      "path": "../../libs/story-cards/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/secrets/tsconfig.lib.json"
     },
     {

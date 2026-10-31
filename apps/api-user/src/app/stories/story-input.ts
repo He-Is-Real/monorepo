@@ -17,6 +17,11 @@ export interface StoryFields {
   body?: string | null;
   bylineName?: string | null;
   tagSlugs?: string[];
+  /**
+   * EditStory only (M2 plan PR 10): `null` removes the story's image; `{ alt }` changes its
+   * description. Only RequestUpload puts an image on a story (D80).
+   */
+  image?: null | { alt: string | null };
 }
 
 export interface CreateInput extends StoryFields {
@@ -29,7 +34,12 @@ interface FieldError {
   message: string;
 }
 
-const LIMITS = { title: 140, description: 5000, bylineName: 80 } as const;
+const LIMITS = {
+  title: 140,
+  description: 5000,
+  bylineName: 80,
+  alt: 500,
+} as const;
 const TAG_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const length = (s: string) => [...s].length;
 
@@ -144,9 +154,32 @@ export function parsePatch(body: unknown): StoryFields {
   const errors: FieldError[] = [];
   const f = fields(
     b,
-    ['title', 'description', 'body', 'bylineName', 'tagSlugs'],
+    ['title', 'description', 'body', 'bylineName', 'tagSlugs', 'image'],
     errors,
   );
+  if ('image' in b) {
+    const image = b['image'];
+    if (image === null) f.image = null;
+    else {
+      const i = image as Record<string, unknown>;
+      const alt = i?.['alt'];
+      if (
+        !i ||
+        typeof i !== 'object' ||
+        Array.isArray(i) ||
+        Object.keys(i).some((k) => k !== 'alt') ||
+        !('alt' in i) ||
+        (alt !== null && (typeof alt !== 'string' || length(alt) > LIMITS.alt))
+      ) {
+        errors.push({
+          pointer: '/image',
+          message: `null, or { alt } with at most ${LIMITS.alt} characters`,
+        });
+      } else {
+        f.image = { alt: (alt as string | null)?.trim() || null };
+      }
+    }
+  }
   if (errors.length) fail(errors);
   return f;
 }

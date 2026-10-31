@@ -304,7 +304,7 @@ test.describe('behaviour', () => {
       buffer: Buffer.from('words'),
     });
     await expect(alert(page, 'Choose an MP4, MOV or WebM file')).toBeVisible();
-    expect(await me.uploads()).toEqual({ requests: 0, videos: [] });
+    expect(await me.uploads()).toMatchObject({ requests: 0, videos: [] });
   });
 
   test('after a reload, choosing the same file carries on with the same video', async ({

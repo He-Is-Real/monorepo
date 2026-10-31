@@ -5,7 +5,6 @@ import { Upload } from 'tus-js-client';
 import {
   ApiUserProblem,
   ApiUserUnavailable,
-  newIdempotencyKey,
   StaleVersion,
 } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
@@ -16,6 +15,12 @@ import type {
   UploadRequest,
   UploadTarget,
 } from './share-api';
+import {
+  readAttempt,
+  sameFile,
+  useRuns,
+  useUploadRequest,
+} from './upload-request';
 
 /**
  * A video or audio story's file (M2 plan PR 7; D68, D80, D113): drag and drop or choose a file,
@@ -30,13 +35,9 @@ import type {
  * know it again), whether it finished, and the current link (it lasts an hour). tus-js-client
  * keeps the upload's address per video and file in localStorage, removed once it finishes.
  *
- * A new upload's request (D29; Codex #133 round 1) is kept there too, with its Idempotency-Key,
- * the version and body it was sent with, until its answer settles it. Its answer can be lost
- * after api-user made the video, put it on the draft and counted it: choosing the same file
- * again then sends the very same request, and api-user replays it (the same video, nothing new
- * counted), however the draft's version moved on meanwhile. A `412` means the draft changed
- * elsewhere: it's read again (the same check as a save's), and the request is made at its new
- * version.
+ * A new upload's request (D29; Codex #133 round 1) is kept there too until its answer settles it
+ * (upload-request.ts, shared with the picture panel), so a retry after a lost answer replays the
+ * same video without counting another.
  */
 
 export type UploadFormat = 'video' | 'audio';
@@ -194,49 +195,6 @@ function writeKept(owner: string, draftId: string, kept: Kept | null) {
     // storage blocked: this tab keeps it on screen only
   }
 }
-/** A new upload's request, until its answer settles it. */
-interface Attempt {
-  key: string;
-  version: number;
-  request: UploadRequest;
-  name: string;
-  size: number;
-  lastModified: number;
-}
-const attemptKey = (owner: string, draftId: string) =>
-  `${PREFIX}${owner}:upload-request:${draftId}`;
-function readAttempt(owner: string, draftId: string): Attempt | null {
-  try {
-    return JSON.parse(
-      window.sessionStorage.getItem(attemptKey(owner, draftId)) ?? 'null',
-    ) as Attempt | null;
-  } catch {
-    return null;
-  }
-}
-function writeAttempt(owner: string, draftId: string, a: Attempt | null) {
-  try {
-    if (a) {
-      window.sessionStorage.setItem(
-        attemptKey(owner, draftId),
-        JSON.stringify(a),
-      );
-    } else window.sessionStorage.removeItem(attemptKey(owner, draftId));
-  } catch {
-    // storage blocked: kept for this call only
-  }
-}
-/** No answer, or a server error: it may have gone through, so its request is kept to replay. */
-const outcomeUnknown = (err: unknown) =>
-  err instanceof ApiUserUnavailable ||
-  (err instanceof ApiUserProblem && err.status >= 500);
-
-const sameFile = (k: Kept | Attempt | null, f: File) =>
-  !!k &&
-  k.name === f.name &&
-  k.size === f.size &&
-  k.lastModified === f.lastModified;
-
 type Phase =
   | { at: 'idle' }
   | { at: 'checking'; name: string }
@@ -305,22 +263,12 @@ export function UploadPanel({
     else onState(hasEarlierFile && !cancelled ? 'earlier' : 'none');
   }, [phase.at, kept, hasEarlierFile, cancelled, onState]);
 
-  // Each run's token. Leaving the step (Back, another account) or a newer run makes an older
-  // run's late answers unused: nothing kept, no upload started that nobody can see or cancel.
-  const runs = useRef(0);
-  const begin = useCallback(() => {
-    const mine = ++runs.current;
-    return () => runs.current !== mine;
-  }, []);
+  // Each run's token (upload-request.ts): leaving the step or a newer run drops an older one's
+  // late answers.
+  const { begin, stop } = useRuns();
 
   // Leaving the step pauses the upload; it carries on when the person comes back to it.
-  useEffect(
-    () => () => {
-      runs.current++;
-      void upload.current?.abort();
-    },
-    [],
-  );
+  useEffect(() => () => void upload.current?.abort(), []);
 
   const remember = useCallback(
     (id: string, k: Kept | null) => {
@@ -330,66 +278,21 @@ export function UploadPanel({
     [owner],
   );
 
-  /**
-   * A new video for the file, once per request: a kept one for this file that never got a
-   * settled answer is sent again as it was (its key, version and body), else a new one. After a
-   * `412` the draft is read again and the request made once more at its version.
-   */
-  const newUpload = useCallback(
-    async (
-      file: File,
-      first: { draftId: string; version: number },
-      request: UploadRequest,
-      gone: () => boolean,
-    ): Promise<UploadTarget | null> => {
-      // Left behind (Back, another account, a newer run): ask for nothing, keep nothing.
-      if (gone()) return null;
-      let ready = first;
-      for (let again = false; ; again = true) {
-        const kept = readAttempt(owner, ready.draftId);
-        const attempt: Attempt =
-          kept && sameFile(kept, file) && kept.request.format === request.format
-            ? kept
-            : {
-                key: newIdempotencyKey(),
-                version: ready.version,
-                request,
-                name: file.name,
-                size: file.size,
-                lastModified: file.lastModified,
-              };
-        writeAttempt(owner, ready.draftId, attempt);
-        try {
-          const target = await calls.uploadUrl(
-            ready.draftId,
-            attempt.version,
-            attempt.request,
-            attempt.key,
-          );
-          if (gone()) return null;
-          writeAttempt(owner, ready.draftId, null);
-          // A replay answers the version its request made; the draft may be past it since.
-          if (target.version > ready.version) setVersion(target.version);
-          return target;
-        } catch (err) {
-          if (outcomeUnknown(err) || gone()) throw err;
-          writeAttempt(owner, ready.draftId, null);
-          if (!(err instanceof StaleVersion) || again) throw err;
-          // Changed elsewhere (another tab, or a request of this one whose answer was lost):
-          // read it again, then ask at its version.
-          if (!(await reload(ready.draftId)) || gone()) throw err;
-          const now = await prepare();
-          if (gone()) return null;
-          if (typeof now === 'string') {
-            setProblem(now);
-            return null;
-          }
-          ready = now;
-        }
-      }
-    },
-    [calls, owner, prepare, reload, setVersion],
-  );
+  /** A new video for the file, once per request (upload-request.ts). */
+  const newUpload = useUploadRequest({
+    calls,
+    owner,
+    slot: 'upload-request',
+    prepare,
+    reload,
+    setVersion,
+    onProblem: setProblem,
+    reuse: useCallback(
+      (kept: { request: UploadRequest }, request: UploadRequest) =>
+        kept.request.format === request.format,
+      [],
+    ),
+  });
 
   /** A link for the file: the kept one while it lasts, else a new one for the same video. */
   const linkFor = useCallback(
@@ -527,7 +430,9 @@ export function UploadPanel({
     if (
       until &&
       !(kept && !kept.done && sameFile(kept, file)) &&
-      !(draftId && sameFile(readAttempt(owner, draftId), file))
+      !(
+        draftId && sameFile(readAttempt(owner, 'upload-request', draftId), file)
+      )
     ) {
       setProblem(
         `You’ve started as many uploads as you can for now. Your story is saved: you can upload your ${noun} from ${formatWhen(until)}.`,
@@ -576,7 +481,7 @@ export function UploadPanel({
   }
 
   function cancel() {
-    runs.current++;
+    stop();
     void upload.current?.abort();
     upload.current = null;
     const c = current.current;
@@ -600,7 +505,8 @@ export function UploadPanel({
   // on with a file this tab started, or sending again a request whose answer was lost, counts
   // nothing new, so it stays open.
   const carriesOn =
-    (kept && !kept.done) || (!!draftId && !!readAttempt(owner, draftId));
+    (kept && !kept.done) ||
+    (!!draftId && !!readAttempt(owner, 'upload-request', draftId));
   const held = !!uploadsState(limits).until && !carriesOn && !busy;
 
   return (

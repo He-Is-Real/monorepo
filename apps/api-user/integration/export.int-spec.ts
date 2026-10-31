@@ -10,6 +10,7 @@ import {
   createPeople,
   draft,
   grantAll,
+  grantImage,
   shareStory,
   grantUpload,
   processed,
@@ -279,13 +280,35 @@ describe('download my data', () => {
 
     // Ann's stories: a draft with a picture, one waiting, one sent back with feedback, one
     // rejected, one published (and hearted by Zed), and a video draft with its upload.
+    // A picture comes only through an upload grant (api-user's login), in the story's folder.
+    const picture = async (
+      id: string,
+      width: number,
+      height: number,
+      alt?: string,
+    ) => {
+      const [version] = await rows<number>(
+        migrator,
+        `SELECT VALUE version FROM type::record('story', $id)`,
+        { id },
+      );
+      expect(
+        await grantImage(apiUser, {
+          story: id,
+          person: 'ann',
+          version,
+          width,
+          height,
+          alt: alt ?? null,
+        }),
+      ).toMatchObject({ ok: true });
+      return `stories/${id}/${'a'.repeat(32)}.webp`;
+    };
     const annDraft = await createThroughApi('ann', 'Ann draft');
-    await run(
-      ann,
-      `UPDATE type::record('story', $id) SET bylineName = 'Ann',
-         image = { path: 'stories/ann/sunrise.webp', width: 800, height: 600, alt: 'A sunrise' }`,
-      { id: annDraft.id },
-    );
+    await run(ann, `UPDATE type::record('story', $id) SET bylineName = 'Ann'`, {
+      id: annDraft.id,
+    });
+    const draftPicture = await picture(annDraft.id, 800, 600, 'A sunrise');
     const annWaiting = await createThroughApi('ann', 'Ann waiting');
     await submit(ann, annWaiting.id);
     const annBack = await createThroughApi('ann', 'Ann sent back');
@@ -295,12 +318,7 @@ describe('download my data', () => {
     await submit(ann, annNo.id);
     await decide(annNo.id, 'reject', 'Not for this site, sorry.');
     const annLive = await createThroughApi('ann', 'Ann live');
-    await run(
-      ann,
-      `UPDATE type::record('story', $id) SET
-         image = { path: 'stories/ann/live.webp', width: 640, height: 480 }`,
-      { id: annLive.id },
-    );
+    const livePicture = await picture(annLive.id, 640, 480);
     await submit(ann, annLive.id);
     await processed(await t.service('workflow'), annLive.id);
     await decide(annLive.id, 'approve');
@@ -392,14 +410,27 @@ describe('download my data', () => {
     expect(file.consents.map((c: { id: string }) => c.id).sort()).toEqual(
       [...held['consents']].sort(),
     );
-    expect(file.favourites.map((f: { storyId: string }) => f.storyId)).toEqual(
-      held['hearts'],
-    );
+    // Same-millisecond rows may come in either order: compare what is there.
+    expect(
+      file.favourites.map((f: { storyId: string }) => f.storyId).sort(),
+    ).toEqual([...held['hearts']].sort());
     expect(file.submissions).toHaveLength(held['submissions'].length);
     expect(held['submissions']).toHaveLength(4);
     expect(
-      file.uploads.map((u: { bunnyVideoId: string }) => u.bunnyVideoId),
-    ).toEqual(held['uploads']);
+      file.uploads
+        .map(
+          (u: { bunnyVideoId: string | null; imagePath: string | null }) =>
+            u.bunnyVideoId ?? u.imagePath,
+        )
+        .sort(),
+    ).toEqual([...held['uploads']].sort());
+    // Ann's two pictures are uploads too, by their path.
+    expect(
+      file.uploads
+        .filter((u: { format: string }) => u.format === 'image')
+        .map((u: { imagePath: string }) => u.imagePath)
+        .sort(),
+    ).toEqual([draftPicture, livePicture].sort());
     expect(file.requestKeys.map((k: { key: string }) => k.key).sort()).toEqual(
       [...held['keys']].sort(),
     );
@@ -423,8 +454,9 @@ describe('download my data', () => {
         width: 800,
         height: 600,
         alt: 'A sunrise',
-        // A draft's path is the person's own write: never signed (only a published picture is).
-        url: null,
+        // The database keeps every picture in its own story's folder, so the person's own
+        // picture is signed for them, published or not.
+        url: expect.stringContaining(`/${draftPicture}?token=HS256-`),
       },
     });
     expect(story(annDraft.id).draftExpiresAt).not.toBeNull();
@@ -461,7 +493,9 @@ describe('download my data', () => {
         height: 480,
         alt: null,
         url: expect.stringMatching(
-          /^https:\/\/images-test\.b-cdn\.net\/stories\/ann\/live\.webp\?token=HS256-/,
+          new RegExp(
+            `^https://images-test\\.b-cdn\\.net/${livePicture}\\?token=HS256-`,
+          ),
         ),
       },
     });
@@ -480,7 +514,10 @@ describe('download my data', () => {
     expect(expires).toBe(new Date(file.about.linksExpireAt).getTime());
     expect(expires - before).toBeGreaterThan(HOUR_MS - 60_000);
     expect(expires - before).toBeLessThanOrEqual(HOUR_MS + 60_000);
-    expect(file.uploads[0]).toMatchObject({
+    expect(
+      file.uploads.find((u: { format: string }) => u.format === 'video'),
+    ).toMatchObject({
+      imagePath: null,
       storyId: 'ann_video',
       format: 'video',
       contentType: 'video/mp4',

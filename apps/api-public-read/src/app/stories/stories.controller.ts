@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { runQuery, SURREAL } from '@heisreal/database';
 import {
+  clipPicture,
   MediaUrls,
   type StoredImage,
   type StoredMedia,
@@ -83,16 +84,22 @@ function toPublic(row: Row, urls: MediaUrls): StoryPublic {
     primaryFormat: row.primaryFormat,
     // D52: signed, expiring links (MediaUrls), never bare ids or storage paths. Only
     // `publicStory` is read, so only published media is signed. Captions come with M7.
-    media: (row.media ?? []).map((m) => ({
-      format: m.format,
-      playbackUrl: urls.playbackUrl(m.bunnyVideoId),
-      thumbnailUrl: urls.thumbnailUrl(m.bunnyVideoId, m.thumbnailPath),
-      width: m.width ?? null,
-      height: m.height ?? null,
-      captionsUrl: null,
-      // One clip per story (D53); the read model computes its duration from the story.
-      durationSeconds: row.durationSeconds ?? null,
-    })),
+    // The picture shown before playing: the person's own image wins over Bunny's thumbnail
+    // (clipPicture, M2 plan PR 10). A video's box keeps the video's size; an audio file's is its
+    // picture's (Joel, 2026-10-24).
+    media: (row.media ?? []).map((m) => {
+      const picture = clipPicture(m, row.image, urls);
+      return {
+        format: m.format,
+        playbackUrl: urls.playbackUrl(m.bunnyVideoId),
+        thumbnailUrl: picture.url,
+        width: (m.format === 'audio' ? picture.width : m.width) ?? null,
+        height: (m.format === 'audio' ? picture.height : m.height) ?? null,
+        captionsUrl: null,
+        // One clip per story (D53); the read model computes its duration from the story.
+        durationSeconds: row.durationSeconds ?? null,
+      };
+    }),
     image: row.image
       ? {
           url: urls.imageUrl(row.image.path),

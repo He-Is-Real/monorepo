@@ -38,8 +38,14 @@ import {
 } from '@heisreal/database';
 import { RequiresRole } from '@heisreal/roles';
 import { SecretsService } from '@heisreal/secrets';
+import { MediaUrls } from '@heisreal/story-cards';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import {
+  BUNNY_STORAGE,
+  createImageStore,
+  type ImageStore,
+} from './bunny-storage';
 import {
   BUNNY_STREAM,
   type BunnyStream,
@@ -141,7 +147,7 @@ function reused(err: unknown): unknown {
 }
 
 /**
- * The submit flow's routes (M2 plan PR 4, written stories; PR 7, video and audio): the person's
+ * The submit flow's routes (M2 plan PR 4, written stories; PR 7, video and audio; PR 10, images): the person's
  * own stories and the commands that create, edit, upload to and submit a draft. Everything runs in
  * the person's own database session (D27), but for the upload grant on api-user's own login (D80). Consent is checked by the guard first and by the database (D21, D93); D94's
  * limits by the database (story_limits).
@@ -156,8 +162,11 @@ export class StoriesController {
     private readonly ledger: ConsentLedger,
     @Inject(SURREAL) service: Surreal,
     @Inject(BUNNY_STREAM) bunny: BunnyStream | null,
+    @Inject(BUNNY_STORAGE) images: ImageStore | null,
+    /** The draft's own image, signed for its owner (D52). */
+    private readonly urls: MediaUrls,
   ) {
-    this.uploads = new Uploads(service, bunny);
+    this.uploads = new Uploads(service, bunny, images);
   }
 
   @Get('v1/tags')
@@ -193,7 +202,7 @@ export class StoriesController {
       });
     }
     const page = await this.people.run(req, ({ session }) =>
-      new StoryStore(session).list(
+      new StoryStore(session, this.urls).list(
         status,
         parseLimit(limit),
         decodeCursor(cursor),
@@ -231,13 +240,19 @@ export class StoriesController {
     @Headers('if-none-match') ifNoneMatch?: string,
   ): Promise<StoryMine | undefined> {
     const story = await this.people.run(req, ({ session }) =>
-      new StoryStore(session).get(storyId(id)),
+      new StoryStore(session, this.urls).get(storyId(id)),
     );
     if (!story) throw new NotFoundException();
+    // Whether the picture's file arrived: a fact from the storage zone, what the page counts as
+    // finished (Codex #140 round 3). Its arrival doesn't step the version, so a picture not
+    // there yet is never answered 304.
+    if (story.image) {
+      story.image.uploaded = await this.uploads.imageArrived(story.image.path);
+    }
     const etag = `"${story.version}"`;
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('ETag', etag);
-    if (ifNoneMatches(ifNoneMatch, etag)) {
+    if (ifNoneMatches(ifNoneMatch, etag) && story.image?.uploaded !== false) {
       res.status(HttpStatus.NOT_MODIFIED);
       return undefined;
     }
@@ -423,7 +438,8 @@ export class StoriesController {
 
 /**
  * Bunny Stream for uploads (M2 plan PR 7) and erasure's video deletions (D40): null when off (no
- * BUNNY_STREAM_API_KEY_SECRET).
+ * BUNNY_STREAM_API_KEY_SECRET). The images storage zone (M2 plan PR 10) for picture uploads and
+ * erasure's picture deletions: null when off (no BUNNY_STORAGE_PASSWORD_SECRET).
  */
 @Global()
 @Module({
@@ -433,8 +449,13 @@ export class StoriesController {
       inject: [SecretsService],
       useFactory: (secrets: SecretsService) => createBunnyStream(secrets),
     },
+    {
+      provide: BUNNY_STORAGE,
+      inject: [SecretsService],
+      useFactory: (secrets: SecretsService) => createImageStore(secrets),
+    },
   ],
-  exports: [BUNNY_STREAM],
+  exports: [BUNNY_STREAM, BUNNY_STORAGE],
 })
 export class BunnyStreamModule {}
 

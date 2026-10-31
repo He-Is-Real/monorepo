@@ -11,6 +11,11 @@ export interface HousekeepingConfig {
   stream: { libraryId: string; keySecret: string };
   /** Clerk's secret key's secret (CLERK_SECRET_KEY_SECRET), or null: Clerk deletions wait. */
   clerkKeySecret: string | null;
+  /**
+   * The images storage zone (BUNNY_STORAGE_ZONE, its S3 host BUNNY_STORAGE_S3_HOST, and its
+   * password's secret BUNNY_STORAGE_PASSWORD_SECRET), or null: picture deletions wait.
+   */
+  images: { zone: string; s3Host: string; passwordSecret: string } | null;
   /** Only log what would be deleted. On unless HOUSEKEEPING_DRY_RUN is exactly `false`. */
   dryRun: boolean;
   /** Each chore deletes at most this many per run. */
@@ -21,6 +26,8 @@ export class RefusedError extends Error {}
 
 const LIBRARY = /^[0-9]{1,12}$/;
 const SECRET = /^[A-Za-z0-9_-]{1,255}$/;
+const ZONE = /^[a-z0-9-]{1,64}$/;
+const S3_HOST = /^[a-z0-9]+-s3\.storage\.bunnycdn\.com$/;
 
 export function housekeepingConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -51,6 +58,25 @@ export function housekeepingConfig(
   if (clerkKeySecret !== null && !SECRET.test(clerkKeySecret)) {
     throw new RefusedError('CLERK_SECRET_KEY_SECRET must be a secret name');
   }
+  const zone = env['BUNNY_STORAGE_ZONE']?.trim() || null;
+  const s3Host = env['BUNNY_STORAGE_S3_HOST']?.trim() || null;
+  const passwordSecret = env['BUNNY_STORAGE_PASSWORD_SECRET']?.trim() || null;
+  const anyImages = zone !== null || s3Host !== null || passwordSecret !== null;
+  if (
+    anyImages &&
+    !(
+      zone !== null &&
+      ZONE.test(zone) &&
+      s3Host !== null &&
+      S3_HOST.test(s3Host) &&
+      passwordSecret !== null &&
+      SECRET.test(passwordSecret)
+    )
+  ) {
+    throw new RefusedError(
+      'BUNNY_STORAGE_ZONE, BUNNY_STORAGE_S3_HOST (a Bunny S3 host) and BUNNY_STORAGE_PASSWORD_SECRET (a secret name) go together',
+    );
+  }
   return {
     project: need('GCP_PROJECT'),
     database: {
@@ -62,6 +88,10 @@ export function housekeepingConfig(
     },
     stream: { libraryId, keySecret },
     clerkKeySecret,
+    images:
+      zone && s3Host && passwordSecret
+        ? { zone, s3Host, passwordSecret }
+        : null,
     dryRun: dryRun === 'true',
     maxDeletions: max,
   };
