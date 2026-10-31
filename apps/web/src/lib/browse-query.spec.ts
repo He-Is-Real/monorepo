@@ -1,5 +1,4 @@
 import {
-  autoLoadsLeft,
   browseHref,
   type BrowseFilters,
   parseBrowseSearch,
@@ -107,16 +106,5 @@ describe('browseHref and toggleTag', () => {
     expect(toggleTag({ ...none, tags: ['hope', 'joy'] }, 'hope').tags).toEqual([
       'joy',
     ]);
-  });
-});
-
-describe('autoLoadsLeft (D55: at most 2 automatic extra pages)', () => {
-  it.each([
-    [1, 2],
-    [2, 1],
-    [3, 0],
-    [5, 0],
-  ])('after %p pages: %p', (pages, left) => {
-    expect(autoLoadsLeft(pages)).toBe(left);
   });
 });

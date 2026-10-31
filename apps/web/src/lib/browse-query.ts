@@ -12,11 +12,12 @@ export interface BrowseFilters {
   sort: BrowseSort;
 }
 
-/** Cards per page: D55's "about 45 stories" over the first page and 2 automatic ones. */
+/** Cards per page. */
 export const PAGE_SIZE = 15;
-/** D55 (AGENTS.md): at most 2 extra pages load on their own, then a button. */
-export const AUTO_LOADS = 2;
-/** How many pages a URL may ask the server to rebuild (`?pages=`). */
+/**
+ * How many pages a URL may ask the server to rebuild (`?pages=`). The list itself loads on past
+ * it as the reader scrolls (no page cap since Joel, 2026-10-31); a reload shows the first 10.
+ */
 export const MAX_PAGES = 10;
 
 const Q_MAX_CHARS = 200;
@@ -99,10 +100,6 @@ export function toggleTag(filters: BrowseFilters, slug: string): BrowseFilters {
     : [...filters.tags, slug].slice(-TAGS_MAX);
   return { ...filters, tags };
 }
-
-/** Automatic loads still allowed after `pagesLoaded` pages (D55). */
-export const autoLoadsLeft = (pagesLoaded: number) =>
-  Math.max(0, AUTO_LOADS - (pagesLoaded - 1));
 
 /** The API call for these filters (`lib/browse.ts`). */
 export function toBrowseParams(
