@@ -255,7 +255,7 @@ describe('download my data', () => {
     await createPeople(t, { modq7: 'user_modq7' });
     await run(
       admin,
-      `CREATE tag:healing SET name = 'Healing', category = 'theme'`,
+      `CREATE tag:healing SET name = 'Healing', category = 'theme', changedBy = user:fixture_admin`,
     );
   });
   afterAll(async () => {

@@ -237,7 +237,7 @@ paths:
       summary: List the tags in use
       description: |
         Every tag at least one published story uses, by category (theme, journey, emotion) then
-        name; clients group them by `category`. A tag with no published story is left out, so
+        name, and the main themes (`main`, O5) that browse shows first. A tag with no published story is left out, so
         none leads to an empty page; it comes back when a published story uses it (D63). No
         story counts (no totals in public responses, D30, D62). Takes no query parameters
         (`400`).
@@ -256,12 +256,21 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data]
+                required: [data, main]
                 properties:
                   data:
                     type: array
                     items:
                       $ref: './components.yaml#/components/schemas/Tag'
+                  main:
+                    type: array
+                    description: |
+                      The main themes' slugs in priority order (O5, Joel 2026-10-31): the first
+                      `mainThemesCount` an admin set at /admin/themes, leaving out any no published story
+                      uses (D63, so each is also in `data`). Browse shows these first and every other theme behind "More themes"; empty means no main themes
+                      are set, so they show every theme.
+                    items:
+                      type: string
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '400':

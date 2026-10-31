@@ -569,6 +569,18 @@ describe('browse API over the dev dataset', () => {
       );
     });
 
+    it('lists the main themes browse shows first, in the admin’s order, leaving out unused ones (O5)', async () => {
+      // dev-seed's main themes: the dataset's "theme" tags, in its order.
+      const used = usedBy(approved);
+      const res = await get('/v1/tags');
+      const { main } = (await res.json()) as { main: string[] };
+      expect(main).toEqual(
+        DATASET.tags
+          .filter((x) => x.category === 'theme' && used.has(x.id))
+          .map((x) => x.id),
+      );
+    });
+
     it('hides tags with no published story, even when an unpublished one uses them (D63)', async () => {
       const used = usedBy(approved);
       const unused = DATASET.tags.filter((x) => !used.has(x.id));

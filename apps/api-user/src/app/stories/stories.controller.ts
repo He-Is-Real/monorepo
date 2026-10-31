@@ -161,11 +161,11 @@ export class StoriesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
-  ): Promise<{ data: Tag[] } | undefined> {
-    const data = await this.people.run(req, ({ session }) =>
+  ): Promise<{ data: Tag[]; main: string[] } | undefined> {
+    const body = await this.people.run(req, ({ session }) =>
       new StoryStore(session).tags(),
     );
-    return this.collection(res, { data }, ifNoneMatch);
+    return this.collection(res, body, ifNoneMatch);
   }
 
   @Get('v1/account/stories')

@@ -173,7 +173,7 @@ describe('my stories: withdraw and delete', () => {
     await createPeople(t, { moderator: 'user_mod' });
     await run(
       admin,
-      `CREATE tag:healing SET name = 'Healing', category = 'theme'`,
+      `CREATE tag:healing SET name = 'Healing', category = 'theme', changedBy = user:fixture_admin`,
     );
     // More stories each than D94's limits let a person start: trusted.
     for (const who of ['ann', 'bob']) {

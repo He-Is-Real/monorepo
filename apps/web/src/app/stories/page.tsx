@@ -9,6 +9,7 @@ import {
   browseStories,
   listTags,
   type StorySummary,
+  NO_TAGS,
   type StoryTag,
 } from '@/lib/browse';
 import {
@@ -93,8 +94,8 @@ async function loadPages(filters: Filters, pages: number) {
 export default async function BrowsePage({ searchParams }: Props) {
   await connection();
   const { filters, pages } = parseBrowseSearch(await searchParams);
-  const [tags, result] = await Promise.all([
-    listTags().catch(whenUnavailable('browse', [] as StoryTag[])),
+  const [{ tags, main }, result] = await Promise.all([
+    listTags().catch(whenUnavailable('browse', NO_TAGS)),
     loadPages(filters, pages),
   ]);
   const summary = summaryOf(filters, tags);
@@ -117,7 +118,7 @@ export default async function BrowsePage({ searchParams }: Props) {
 
       <div className="border-b border-border pb-6">
         <BrowseFilters filters={filters} />
-        <TagFilter tags={tags} filters={filters} />
+        <TagFilter tags={tags} main={main} filters={filters} />
       </div>
 
       {summary && (

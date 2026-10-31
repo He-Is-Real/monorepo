@@ -637,7 +637,7 @@ paths:
       summary: Every tag a story can carry (for the submit form)
       description: |
         Every tag, by category (theme, journey, emotion) then name, for choosing a story's themes
-        (how many: `GET /v1/account/limits`).
+        (how many: `GET /v1/account/limits`), and the main themes (`main`, O5) the form shows first.
         Unlike api-public-read's `/v1/tags` (only tags a published story uses, D63), this lists them all.
         Read as the person (D27); needs no consent (tags aren't personal data).
       x-required-role: User
@@ -656,12 +656,21 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data]
+                required: [data, main]
                 properties:
                   data:
                     type: array
                     items:
                       $ref: './components.yaml#/components/schemas/Tag'
+                  main:
+                    type: array
+                    description: |
+                      The main themes' slugs in priority order (O5, Joel 2026-10-31): the first
+                      `mainThemesCount` an admin set at /admin/themes, of every theme. Pickers show these
+                      first and every other theme behind "More themes"; empty means no main themes
+                      are set, so they show every theme.
+                    items:
+                      type: string
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '401':

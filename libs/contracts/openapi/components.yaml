@@ -371,33 +371,57 @@ components:
         version:
           $ref: '#/components/schemas/Version'
 
-    CreateTag:
+    ThemeName:
       type: object
-      required: [slug, name, category]
-      properties:
-        slug:
-          type: string
-          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
-        name:
-          type: string
-          minLength: 1
-          maxLength: 40
-        category:
-          type: string
-          enum: [theme, journey, emotion]
-
-    TagPatch:
-      type: object
-      description: JSON Merge Patch (RFC 7396). The slug (ID) can't change.
+      description: |
+        A theme's name (CreateTheme, and RenameTheme as a JSON Merge Patch). Trimmed, runs of spaces
+        made one; unique among themes ignoring case. The slug (ID) can't change.
+      required: [name]
       additionalProperties: false
       properties:
         name:
           type: string
           minLength: 1
           maxLength: 40
-        category:
+
+    MainThemesValues:
+      type: object
+      required: [mainThemes, mainThemesCount]
+      additionalProperties: false
+      properties:
+        mainThemes:
+          type: array
+          description: Theme slugs in priority order, each once, each an existing theme.
+          items:
+            type: string
+            pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        mainThemesCount:
+          type: integer
+          minimum: 1
+          description: How many of `mainThemes` people see first (no upper cap; admins choose).
+
+    AdminMainThemes:
+      type: object
+      required: [version, updatedAt, changedBy, mainThemes, mainThemesCount]
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        updatedAt:
           type: string
-          enum: [theme, journey, emotion]
+          format: date-time
+        changedBy:
+          type: [string, 'null']
+          description: The user record id of the last admin who saved them (Clerk holds names, D16); `null` if only the migrator has.
+        mainThemes:
+          type: array
+          description: Theme slugs in priority order (existing themes only).
+          items:
+            type: string
+        mainThemesCount:
+          type: integer
+          minimum: 1
 
     MediaPlayback:
       type: object

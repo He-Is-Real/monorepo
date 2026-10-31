@@ -870,7 +870,13 @@ const handler = (mode) => (req, res) => {
   const site = /^\/v1\/site-videos\/([^/]+)$/.exec(url.pathname);
   if (site) return siteVideo(mode, site[1], res);
   if (url.pathname === '/v1/stories') return listStories(mode, url, res);
-  if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
+  // O5: the main themes, as dev-seed sets them (the "theme" tags, in order); the rest are behind
+  // "More themes".
+  if (url.pathname === '/v1/tags')
+    return json(res, 200, {
+      data: TAGS,
+      main: TAGS.filter((t) => t.category === 'theme').map((t) => t.slug),
+    });
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);
   if (rel) return related(mode, rel[1], res);
   if (req.url?.startsWith('/images/wide.svg')) {

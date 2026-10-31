@@ -135,9 +135,9 @@ describe('the submit flow for written stories', () => {
     await publishDpa(t, 'v1');
     await run(
       await t.service('api_admin'),
-      `CREATE tag:healing SET name = 'Healing', category = 'theme';
-       CREATE tag:doubt SET name = 'Doubt', category = 'journey';
-       CREATE tag:anxiety SET name = 'Anxiety', category = 'emotion';`,
+      `CREATE tag:healing SET name = 'Healing', category = 'theme', changedBy = user:fixture_admin;
+       CREATE tag:doubt SET name = 'Doubt', category = 'journey', changedBy = user:fixture_admin;
+       CREATE tag:anxiety SET name = 'Anxiety', category = 'emotion', changedBy = user:fixture_admin;`,
     );
   });
   afterAll(async () => {
@@ -461,7 +461,7 @@ describe('the submit flow for written stories', () => {
     } finally {
       await run(
         migrator,
-        `CREATE tag:anxiety SET name = 'Anxiety', category = 'emotion'`,
+        `CREATE tag:anxiety SET name = 'Anxiety', category = 'emotion', changedBy = user:fixture_admin`,
       );
       await run(
         admin,

@@ -10,6 +10,7 @@ import {
   browseStories,
   listTags,
   type StorySummary,
+  NO_TAGS,
   type StoryTag,
 } from '@/lib/browse';
 import { whenUnavailable } from '@/lib/log';
@@ -92,9 +93,9 @@ const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/9
  */
 export default async function Page() {
   await connection();
-  const [stories, tags] = await Promise.all([
+  const [stories, { tags }] = await Promise.all([
     newestStories(),
-    listTags().catch(whenUnavailable('home', [] as StoryTag[])),
+    listTags().catch(whenUnavailable('home', NO_TAGS)),
   ]);
   const themes = tags.filter((t) => t.category === 'theme');
   const journeys = tags.filter((t) => t.category === 'journey');

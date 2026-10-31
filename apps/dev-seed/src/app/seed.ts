@@ -21,7 +21,8 @@ import type { SeedVars } from './plan';
  * Wiped: story (and, through its erasure cascade, publicStory and moderationReview), whatever
  * read-model rows or reviews are left, auditLog, idempotencyKey and tag. Kept: people who aren't
  * fixtures (Clerk sign-ins), the consent ledger (append-only), DPA versions, settings and the
- * migration ledger. Fixture people are `user:seed_*`; ones no longer in the dataset are removed.
+ * migration ledger (an admin's main themes too; dev gets the dataset's themes if none are set).
+ * Fixture people are `user:seed_*`; ones no longer in the dataset are removed.
  *
  * The script text is fixed: the dataset only ever arrives as bound variables (SeedVars).
  */
@@ -78,6 +79,12 @@ FOR $clerk IN $testAccounts {
 };
 FOR $t IN $tags {
   CREATE type::record('tag', $t.id) CONTENT { name: $t.name, category: $t.category } RETURN NONE;
+};
+-- O5: until an admin picks main themes (/admin/themes), dev's are the dataset's "theme" tags in
+-- its order, as browse grouped them before. An admin's choice is kept across resets (settings).
+IF array::len((SELECT VALUE mainThemes FROM ONLY themeSettings:current) ?? []) = 0 {
+  UPSERT themeSettings:current SET mainThemes = $tags
+    .filter(|$t| $t.category = 'theme').map(|$t| type::record('tag', $t.id)) RETURN NONE;
 };
 
 FOR $s IN $stories {

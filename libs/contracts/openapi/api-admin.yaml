@@ -3,8 +3,8 @@ info:
   title: He Is Real Today — api-admin
   version: 1.0.0-draft
   description: |
-    **Moderation and admin.** The moderation queue and decisions, flag triage, role assignment, tag
-    curation, and the legal documents' versions (the privacy policy, D20's DPA, and the terms of use). Its own service and database login (D13, D33). No featured or
+    **Moderation and admin.** The moderation queue and decisions, flag triage, role assignment, themes
+    (add, rename, main themes; never deleted), and the legal documents' versions (the privacy policy, D20's DPA, and the terms of use). Its own service and database login (D13, D33). No featured or
     pinned stories (Joel, 2026-10-23: unfair to everyone else).
 
     - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
@@ -44,8 +44,8 @@ tags:
     description: 'The queue, pick-up lock, decisions and flags.'
   - name: Admin
     description: 'Users and roles.'
-  - name: Tags
-    description: 'Tag taxonomy writes.'
+  - name: Themes
+    description: 'Themes (tags): add and rename, never delete, and the main themes people see first (O5), at /admin/themes.'
   - name: LegalDocuments
     description: 'The privacy policy and terms of use: their numbered versions and publishing (D121, D125).'
   - name: SubmissionSettings
@@ -466,26 +466,68 @@ paths:
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
 
-  # ------------------------------------------------------------------ tags
-  /v1/tags:
-    post:
-      tags: [Tags]
-      operationId: createTag
-      summary: Create a tag
+  # ------------------------------------------------------------------ themes (O5)
+  /v1/admin/themes:
+    get:
+      tags: [Themes]
+      operationId: listThemesAdmin
+      summary: Every theme, by name
       description: |
-        CRUD create. The slug is the ID (`tag:<slug>`), so a repeat returns `409` rather than creating a
-        duplicate; no `Idempotency-Key` is needed. Tags are seeded by migration in M1.
+        All themes (`tag`), whether or not a story uses them, sorted by name. Each item's `version`
+        goes back in `If-Match` to rename it.
       x-required-role: Admin
-      x-milestone: M5
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The themes.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/CollectionETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: './components.yaml#/components/schemas/Tag'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    post:
+      tags: [Themes]
+      operationId: createTheme
+      summary: Add a theme
+      description: |
+        Command `CreateTheme` (category `theme`). The name is trimmed (runs of spaces made one), 1 to
+        40 characters. The slug (`tag:<slug>`, also its browse address) is made from the name (lower
+        case, accents dropped, other characters a hyphen; `theme` if nothing is left), with `-2`,
+        `-3`... if taken, and never changes. A name another theme has, ignoring case, is `409
+        name_taken`; that natural key means a repeat gets `409`, so no `Idempotency-Key` is needed.
+        The database writes a `CreateTag` audit row naming the admin and their role.
+      x-required-role: Admin
+      x-milestone: M2
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: './components.yaml#/components/schemas/CreateTag'
+              $ref: './components.yaml#/components/schemas/ThemeName'
       responses:
         '201':
-          description: Created.
+          description: Created; `id` is the slug.
           headers:
             Location:
               $ref: './components.yaml#/components/headers/Location'
@@ -503,15 +545,22 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
-  /v1/tags/{slug}:
+  /v1/admin/themes/{slug}:
     patch:
-      tags: [Tags]
-      operationId: updateTag
-      summary: Rename or recategorise a tag
-      description: Stories link tags by reference and fetch them at read time (D15), so nothing else changes.
+      tags: [Themes]
+      operationId: renameTheme
+      summary: Rename a theme
+      description: |
+        Command `RenameTheme`, a JSON Merge Patch of `name` only. The slug stays. Stories link
+        themes by reference and read the name when they're shown (D15), so every story with this
+        theme shows the new name at once. A name another theme has, ignoring case, is `409
+        name_taken`. Themes can't be deleted (O5: no delete route, and the database refuses it for
+        every login). The database writes an `UpdateTag` audit row.
       x-required-role: Admin
-      x-milestone: M5
+      x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/tagSlug'
         - $ref: './components.yaml#/components/parameters/ifMatch'
@@ -520,7 +569,81 @@ paths:
         content:
           application/merge-patch+json:
             schema:
-              $ref: './components.yaml#/components/schemas/TagPatch'
+              $ref: './components.yaml#/components/schemas/ThemeName'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/admin/main-themes:
+    get:
+      tags: [Themes]
+      operationId: getMainThemes
+      summary: The main themes, in priority order, and how many people see
+      description: |
+        The one record `themeSettings:current`. People see the first `mainThemesCount` of
+        `mainThemes` first wherever they choose or filter by themes; every other theme is behind
+        "More themes". Its `version` is the strong `ETag`; send it back in `If-Match` to save.
+      x-required-role: Admin
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The main themes and their version.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/AdminMainThemes'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    put:
+      tags: [Themes]
+      operationId: updateMainThemes
+      summary: Save the main themes and how many people see
+      description: |
+        Command `UpdateMainThemes`: the whole ordered list (each an existing theme's slug, each once)
+        and the count (a whole number, 1 or more; admins choose it, no upper cap, Joel 2026-10-31).
+        Saved only at the version read (`412 stale_version` if someone saved since; `428` without
+        `If-Match`). The database writes an `UpdateMainThemes` audit row naming the admin.
+      x-required-role: Admin
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/MainThemesValues'
       responses:
         '200':
           $ref: './components.yaml#/components/responses/CommandApplied'
@@ -536,31 +659,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
-    delete:
-      tags: [Tags]
-      operationId: deleteTag
-      summary: Delete an unused tag
-      description: '`409` while any story still uses the tag.'
-      x-required-role: Admin
-      x-milestone: M5
-      parameters:
-        - $ref: './components.yaml#/components/parameters/tagSlug'
-        - $ref: './components.yaml#/components/parameters/ifMatch'
-      responses:
-        '204':
-          description: Deleted.
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-        '412':
-          $ref: './components.yaml#/components/responses/PreconditionFailed'
-        '428':
-          $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   # ------------------------------------------------------------------ legal documents (D121, D125)
   /v1/admin/legal-documents/{document}/versions:

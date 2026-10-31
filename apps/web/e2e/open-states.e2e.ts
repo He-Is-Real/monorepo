@@ -6,7 +6,7 @@ import {
 } from './helpers';
 
 // T7: states that only appear after a tap or a failure, on every device in the matrix (light;
-// the colour scheme doesn't change sizes): the phone menu, "More tags", "Show more stories" and
+// the colour scheme doesn't change sizes): the phone menu, "More themes", "Show more stories" and
 // a failed load's Try again fit the screen, with 44 px targets. Their behaviour (focus, Escape,
 // loading) is in pages.e2e.ts on one phone and one desktop.
 
@@ -28,9 +28,9 @@ test('the phone menu, open, fits with full-size targets', async ({
   await expectAllTargets(page);
 });
 
-test('“More tags”, open, fits with full-size targets', async ({ page }) => {
+test('“More themes”, open, fits with full-size targets', async ({ page }) => {
   await page.goto('/stories');
-  const more = page.locator('main details', { hasText: 'More tags' });
+  const more = page.locator('main [data-more-themes]');
   await more.locator('summary').click();
   await expect(more).toHaveAttribute('open');
   await expect(more.getByRole('link').first()).toBeVisible();

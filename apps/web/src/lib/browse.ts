@@ -161,16 +161,28 @@ export async function getRelatedStories(slug: string): Promise<RelatedResult> {
   return { kind: 'stories', stories: withNew(body.data) };
 }
 
+/** `GET /v1/tags`: the tags and the main themes, in their order (O5). */
+export interface TagList {
+  tags: StoryTag[];
+  main: string[];
+}
+
+/** No tags (api-public-read couldn't be reached). */
+export const NO_TAGS: TagList = { tags: [], main: [] };
+
 /**
  * `GET /v1/tags`: the tags published stories use (D63), by category (theme, journey, emotion)
- * then name. No counts (D62).
+ * then name, and the main themes browse shows first (O5). No counts (D62).
  */
-export async function listTags(): Promise<StoryTag[]> {
+export async function listTags(): Promise<TagList> {
   const body = (await json(await get('/v1/tags', { cached: true }))) as
-    { data?: unknown } | undefined;
+    { data?: unknown; main?: unknown } | undefined;
   if (!Array.isArray(body?.data) || !body.data.every(isTag))
     throw new StoriesUnavailableError('unexpected response');
-  return body.data;
+  const main = Array.isArray(body.main)
+    ? body.main.filter((s): s is string => typeof s === 'string')
+    : [];
+  return { tags: body.data, main };
 }
 
 async function get(
