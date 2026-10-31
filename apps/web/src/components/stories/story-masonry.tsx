@@ -9,7 +9,6 @@ import {
 } from 'react';
 import type { StorySummary } from '@/lib/browse';
 import {
-  BREAKPOINTS,
   type CardLayout,
   type ColumnHeights,
   GAP,
@@ -20,12 +19,16 @@ import {
 } from '@/lib/masonry';
 import { StoryCard } from './story-card';
 
-/** The column count the stylesheet is using now (MASONRY_CSS). */
-function currentColumns(): 1 | 2 | 3 {
-  if (window.matchMedia(`(min-width: ${BREAKPOINTS[3]}px)`).matches) return 3;
-  if (window.matchMedia(`(min-width: ${BREAKPOINTS[2]}px)`).matches) return 2;
-  return 1;
-}
+/** The column count the stylesheet is using now (MASONRY_CSS): the list's grid tracks. */
+const columnsOf = (ul: HTMLUListElement) =>
+  getComputedStyle(ul).gridTemplateColumns.split(' ').length;
+
+/**
+ * px on screen as px at the default 16 px text size, the masonry's own units (lib/masonry.ts):
+ * the stylesheet sizes it in rem, so it scales with the reader's text size.
+ */
+const basePx = (px: number) =>
+  (px * 16) / parseFloat(getComputedStyle(document.documentElement).fontSize);
 
 /**
  * Layouts for `more` cards added after the ones on screen in `ul` (laid out as `layouts`, ending
@@ -39,14 +42,14 @@ export function continueLayout(
   heights: ColumnHeights,
   more: StorySummary[],
 ): { cards: CardLayout[]; heights: ColumnHeights } {
-  const n = currentColumns();
-  if (n === 1 || !ul) return layoutFor(more, heights);
+  const n = ul ? columnsOf(ul) : 1;
+  if ((n !== 2 && n !== 3) || !ul) return layoutFor(more, heights);
   const top = ul.getBoundingClientRect().top;
   const measured = Array(n).fill(0);
   layouts.forEach((layout, i) => {
     const li = ul.children[i] as HTMLElement | undefined;
     if (!li) return;
-    const bottom = li.getBoundingClientRect().bottom - top + GAP;
+    const bottom = basePx(li.getBoundingClientRect().bottom - top) + GAP;
     const col = layout.col[n];
     measured[col] = Math.max(measured[col], bottom);
   });
@@ -126,7 +129,7 @@ export function StoryMasonry({
         const li = (entry.target as HTMLElement).parentElement;
         li?.style.setProperty(
           '--m',
-          String(spanFor(entry.target.getBoundingClientRect().height)),
+          String(spanFor(basePx(entry.target.getBoundingClientRect().height))),
         );
       }
     });
@@ -141,17 +144,19 @@ export function StoryMasonry({
       <style href="story-masonry" precedence="default">
         {MASONRY_CSS}
       </style>
-      <ul ref={list} className="masonry">
-        {shown.map((story, i) => (
-          <li key={story.id} style={layoutStyle(placed[i]) as CSSProperties}>
-            <StoryCard
-              story={story}
-              headingLevel={headingLevel}
-              eager={i < 3}
-            />
-          </li>
-        ))}
-      </ul>
+      <div className="masonry-box">
+        <ul ref={list} className="masonry">
+          {shown.map((story, i) => (
+            <li key={story.id} style={layoutStyle(placed[i]) as CSSProperties}>
+              <StoryCard
+                story={story}
+                headingLevel={headingLevel}
+                eager={i < 3}
+              />
+            </li>
+          ))}
+        </ul>
+      </div>
     </>
   );
 }
