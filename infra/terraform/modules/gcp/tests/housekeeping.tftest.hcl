@@ -1,5 +1,5 @@
 # The nightly housekeeping Job (housekeeping.tf): in London, its own identity reading only its own
-# database password, signing in as service:housekeeping, and started by Cloud Scheduler as a
+# database password and Clerk's secret key (erasure retries), signing in as service:housekeeping, and started by Cloud Scheduler as a
 # second identity that may start this one Job and nothing else. Mock providers.
 
 mock_provider "google" {
@@ -89,6 +89,20 @@ run "least_privilege" {
       google_secret_manager_secret_iam_member.housekeeping[0].role == "roles/secretmanager.secretAccessor"
     )
     error_message = "The Job reads only its own database password here (the Stream key's grant is the bunny root's)."
+  }
+
+  assert {
+    condition = (
+      length(google_secret_manager_secret_iam_member.housekeeping_clerk) == 1 &&
+      google_secret_manager_secret_iam_member.housekeeping_clerk[0].secret_id == "clerk-secret-key" &&
+      google_secret_manager_secret_iam_member.housekeeping_clerk[0].role == "roles/secretmanager.secretAccessor" &&
+      google_secret_manager_secret_iam_member.housekeeping_clerk[0].member == google_service_account.housekeeping[0].member &&
+      one([for e in google_cloud_run_v2_job.housekeeping[0].template[0].template[0].containers[0].env :
+      e.value if e.name == "CLERK_SECRET_KEY_SECRET"]) == "clerk-secret-key" &&
+      length([for e in google_cloud_run_v2_job.housekeeping[0].template[0].template[0].containers[0].env :
+      e if e.name == "CLERK_WEBHOOK_SECRET_SECRET"]) == 0
+    )
+    error_message = "Of Clerk's secrets, the Job reads only the secret key (to retry erased people's Clerk deletions, D81), never the webhook's."
   }
 
   assert {

@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Headers,
   HttpStatus,
@@ -19,6 +20,7 @@ import {
 import { runQuery } from '@heisreal/database';
 import { RequiresRole } from '@heisreal/roles';
 import type { Request, Response } from 'express';
+import { Erasure } from '../erasure/erasure';
 
 /** The contract's `Account` (components.yaml). */
 export interface Account {
@@ -43,6 +45,7 @@ export class AccountController {
     private readonly people: PersonSessions,
     @Inject(SIGNUP_CONSENT_STATUS)
     private readonly signupConsent: SignupConsentStatus,
+    private readonly erasure: Erasure,
   ) {}
 
   @Get()
@@ -87,6 +90,30 @@ export class AccountController {
       return undefined;
     }
     return account;
+  }
+
+  /**
+   * "Delete my account" (D39, D82; the profile's Your data): erases the person on api-user's own
+   * login (their session can't delete stories), then deletes their media at Bunny and their Clerk
+   * account. Answers 202 once the database half has committed; a Bunny or Clerk deletion that
+   * fails is retried later (D40). No `If-Match` or `Idempotency-Key` (a listed exception, D29):
+   * it can only happen once, and a repeat finds nothing to erase.
+   */
+  @Delete()
+  @RequiresRole('User')
+  @NoConsentRequired(
+    'deleting your account needs no consent (your right to erasure, Art 17)',
+  )
+  async eraseAccount(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    const { clerkUserId } = await this.people.authenticate(req);
+    // Only a live person: their own session must open, so a leftover token of an account that's
+    // already gone gets 401, like every other route.
+    await this.people.run(req, async () => undefined);
+    await this.erasure.erase(clerkUserId, 'account_deleted');
+    res.status(HttpStatus.ACCEPTED);
   }
 }
 

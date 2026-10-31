@@ -48,6 +48,8 @@ tags:
     description: 'Tag taxonomy writes.'
   - name: LegalDocuments
     description: 'The privacy policy and terms of use: their numbered versions and publishing (D121, D125).'
+  - name: SubmissionSettings
+    description: 'The submission limits everyone submits under (W3, D94, D112, D113), adjusted at /admin/limits.'
 
 paths:
   /health:
@@ -637,6 +639,80 @@ paths:
           $ref: './components.yaml#/components/responses/NotFound'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/admin/submission-settings:
+    get:
+      tags: [SubmissionSettings]
+      operationId: getSubmissionSettings
+      summary: The submission limits in force, with what each may be set to
+      description: |
+        The one record `submissionSettings:current`. Its `version` is the strong `ETag`; send it back in
+        `If-Match` to save.
+      x-required-role: Admin
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The limits, their version and their bounds.
+          headers:
+            ETag:
+              $ref: './components.yaml#/components/headers/ETag'
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/AdminSubmissionSettings'
+        '304':
+          $ref: './components.yaml#/components/responses/NotModified'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    put:
+      tags: [SubmissionSettings]
+      operationId: updateSubmissionSettings
+      summary: Save every submission limit
+      description: |
+        Command `UpdateSubmissionSettings`. The whole set, each within the bounds `GET` returns, each
+        minimum at most its maximum, and `tagsMin` at most the themes there are, checked as it saves
+        (`400` with the field otherwise). Saved only at the version read
+        (`412 stale_version` if someone saved since, including at the same moment; `428` without
+        `If-Match`). The database writes an `UpdateSubmissionSettings` audit row naming the admin and
+        their role. New values apply to everyone's next action, drafts already started included
+        (no grandfathering, Joel 2026-10-30).
+      x-required-role: Admin
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/SubmissionSettingsValues'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 

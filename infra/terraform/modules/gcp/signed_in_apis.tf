@@ -2,8 +2,8 @@
 # moderation API. Same shape as api-public-read (scale to zero, capped, Direct VPC egress to
 # SurrealDB on GKE), but every route needs a Clerk session token, verified in the app against
 # the pinned key (task 0.5, D1, D21). Each has its own runtime service account, which may read
-# only its own database password, and signs in as its own service record (D13 B). They hold no
-# Clerk secret key: verification is offline.
+# only its own database password, and signs in as its own service record (D13 B). Verification
+# is offline; only api-user reads Clerk's secret key, for erasure (secrets.tf).
 
 locals {
   signed_in_apis = {
@@ -126,9 +126,16 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
       # Hearts (M2): api-user signs the media links on favourites' cards like api-public-read
       # (D52). Uploads (M2 plan PR 7): it creates and signs Stream uploads with the library key;
       # images (PR 10): it signs S3 presigned PUTs with the images zone's password.
-      # Secret names, never values; the bunny root grants the access.
+      # Erasure (PR 11): Clerk's secret key deletes the person at Clerk, and the webhook's signing
+      # secret verifies user.deleted; both are read when first needed, so a secret without a
+      # version yet turns off only that. Secret names, never values; secrets.tf (Clerk) and the
+      # bunny root grant the access.
       dynamic "env" {
         for_each = each.key != "api-user" ? {} : merge(
+          {
+            CLERK_SECRET_KEY_SECRET     = google_secret_manager_secret.clerk_secret_key.secret_id
+            CLERK_WEBHOOK_SECRET_SECRET = google_secret_manager_secret.clerk_webhook_signing_secret.secret_id
+          },
           var.api_user_media_signing ? local.api_public_read_media_env : {},
           var.api_user_uploads ? {
             BUNNY_STREAM_LIBRARY_ID     = var.api_public_read_media.stream_library_id
@@ -167,7 +174,10 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
     }
   }
 
-  depends_on = [google_secret_manager_secret_iam_member.signed_in_api]
+  depends_on = [
+    google_secret_manager_secret_iam_member.signed_in_api,
+    google_secret_manager_secret_iam_member.api_user_clerk,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "signed_in_api_invokers" {

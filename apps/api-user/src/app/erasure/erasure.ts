@@ -1,0 +1,115 @@
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ERASE_ACCOUNT,
+  type ErasureReason,
+  PENDING_DELETION_DONE,
+  PENDING_DELETION_FAILED,
+  PENDING_DELETIONS_DUE,
+  type PendingDeletion,
+  retryOnConflict,
+  runQuery,
+  SURREAL,
+} from '@heisreal/database';
+import type { Surreal } from 'surrealdb';
+import { BUNNY_STREAM, type BunnyStream } from '../stories/bunny-stream';
+import { CLERK_BACKEND, type ClerkBackend } from './clerk-backend';
+
+/**
+ * Deletes one picture from the images storage zone, and its story's folder if that empties it
+ * (media-runbook.md: an emptied folder stays otherwise). The seam for the images PR (M2 plan PR 10),
+ * which adds the storage zone's client: until it provides this, nobody can upload a picture, so
+ * erasure finds no image grants, and any `image` row would wait in the queue (logged).
+ */
+export interface ImageDeleter {
+  deleteImage(path: string): Promise<void>;
+}
+export const IMAGE_DELETER = Symbol('IMAGE_DELETER');
+
+/** How many other queued deletions, due for a retry, each erasure tries after its own. */
+const RETRY_EARLIER = 10;
+
+/**
+ * EraseAccount (D39) for its three callers: "Delete my account", withdrawing the testimony (Art 9)
+ * or sign-up consent (D88, D73), and Clerk's `user.deleted` webhook. The database half is one
+ * transaction on api-user's own login (`ERASE_ACCOUNT`), retried until it commits; it leaves the
+ * erased-identity tombstone (D82) and queues what must go elsewhere (D40). Then the queue is
+ * drained at once: the person's Bunny videos and pictures, and their Clerk account (which ends
+ * their sessions). Draining never fails the erasure: once the database half has committed, the
+ * person is erased, and a deletion that fails (or a drain the database couldn't finish) stays
+ * queued for the nightly housekeeping, which retries with backoff (pendingDeletion). Logged with
+ * internal ids only (D40), for the restore runbook.
+ */
+@Injectable()
+export class Erasure {
+  private readonly logger = new Logger(Erasure.name);
+
+  constructor(
+    @Inject(SURREAL) private readonly db: Surreal,
+    @Inject(BUNNY_STREAM) private readonly bunny: BunnyStream | null,
+    @Inject(CLERK_BACKEND) private readonly clerk: ClerkBackend,
+    @Inject(IMAGE_DELETER) private readonly images: ImageDeleter | null,
+  ) {}
+
+  async erase(clerkUserId: string, reason: ErasureReason): Promise<void> {
+    const [user, pending] = await retryOnConflict(
+      async () => {
+        const results = await runQuery(this.db, ERASE_ACCOUNT, {
+          clerkUserId,
+          reason,
+        });
+        return results[results.length - 2] as [string | undefined, string[]];
+      },
+      { attempts: 8 },
+    );
+    if (user) {
+      this.logger.log(
+        `Erased ${user} (${reason}); ${pending.length} deletion(s) queued`,
+      );
+    }
+    try {
+      if (pending.length > 0) await this.drain(pending);
+      await this.drain();
+    } catch (err) {
+      this.logger.warn(
+        `Erased, but couldn’t work through the deletion queue; housekeeping retries it: ${err instanceof Error ? err.message : 'error'}`,
+      );
+    }
+  }
+
+  /**
+   * Works through queued deletions that are due: `keys` (those of one erasure), or else a few of
+   * the others. Each row goes once its deletion is done; a failure is logged, counted and pushed
+   * back (fn::erasure::retry_after).
+   */
+  async drain(keys?: string[]): Promise<void> {
+    const [rows] = (await runQuery(this.db, PENDING_DELETIONS_DUE, {
+      kinds: ['bunny_video', 'image', 'clerk_user'],
+      keys: keys ?? null,
+      limit: keys ? keys.length : RETRY_EARLIER,
+    })) as [PendingDeletion[]];
+    for (const row of rows) {
+      try {
+        await this.delete(row);
+      } catch (err) {
+        this.logger.warn(
+          `Couldn’t delete queued ${row.kind} pendingDeletion:${row.key}; it stays queued: ${err instanceof Error ? err.message : 'error'}`,
+        );
+        await runQuery(this.db, PENDING_DELETION_FAILED, { key: row.key });
+        continue;
+      }
+      await runQuery(this.db, PENDING_DELETION_DONE, { key: row.key });
+    }
+  }
+
+  private async delete({ kind, ref }: PendingDeletion): Promise<void> {
+    if (kind === 'bunny_video') {
+      if (!this.bunny) throw new Error('Bunny Stream is off here');
+      return this.bunny.deleteVideo(ref);
+    }
+    if (kind === 'image') {
+      if (!this.images) throw new Error('image deletion isn’t built yet');
+      return this.images.deleteImage(ref);
+    }
+    return this.clerk.deleteUser(ref);
+  }
+}

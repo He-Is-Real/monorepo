@@ -34,6 +34,18 @@ import {
   unknownTags,
 } from './story-input';
 
+/** How many themes there are; with the settings read in the same query (see `themesNeeded`). */
+const THEME_COUNT_SQL = 'RETURN count(SELECT VALUE id FROM tag)';
+
+/**
+ * The themes a story needs: the setting's `tagsMin`, never more than there are (as
+ * fn::settings::themes_needed). Taken from one settings read, so it's never above that read's
+ * `tagsMax`.
+ */
+function themesNeeded(set: SubmissionSettings, themes: number): number {
+  return Math.min(set.tagsMin, themes);
+}
+
 /** The contract's `Tag`. */
 export interface Tag {
   slug: string;
@@ -530,12 +542,18 @@ export class StoryStore {
     }
   }
 
-  /** The settings in force (W3), read in the person's session (everyone reads them). */
+  /**
+   * The settings in force (W3), read in the person's session (everyone reads them). `tagsMin` is
+   * the themes a story needs: never more than there are (as fn::settings::themes_needed), so
+   * deleting themes can't lock every submitter out. It's worked out here from the same settings
+   * read as `tagsMax`, so a save in between can't pair a new minimum with an old maximum.
+   */
   async settings(): Promise<SubmissionSettings> {
-    const [set] = (await runQuery(this.person, SUBMISSION_SETTINGS_SQL)) as [
-      SubmissionSettings,
-    ];
-    return set;
+    const [set, themes] = (await runQuery(
+      this.person,
+      `${SUBMISSION_SETTINGS_SQL}; ${THEME_COUNT_SQL};`,
+    )) as [SubmissionSettings, number];
+    return { ...set, tagsMin: themesNeeded(set, themes) };
   }
 
   /** What the submit page shows: the settings' text and theme limits, and the person's own. */
@@ -543,12 +561,14 @@ export class StoryStore {
     const results = (await runQuery(
       this.person,
       `RETURN fn::settings::submission();
+       ${THEME_COUNT_SQL};
        RETURN fn::limits::effective($auth);
        RETURN count(SELECT id FROM story WHERE submitter = $auth AND status = 'draft');
        RETURN fn::story::next_submission_at($auth);
        RETURN fn::upload::next_allowed_at($auth, 'video');`,
     )) as [
       SubmissionSettings,
+      number,
       {
         openDraftsMax?: number | null;
         submissionsPer7Days?: number | null;
@@ -562,10 +582,10 @@ export class StoryStore {
       string | null | undefined,
       string | null | undefined,
     ];
-    const [set, mine, open, next, nextUpload] = results;
+    const [set, themes, mine, open, next, nextUpload] = results;
     return {
       storyText: { min: set.storyTextMin, max: set.storyTextMax },
-      tags: { min: set.tagsMin, max: set.tagsMax },
+      tags: { min: themesNeeded(set, themes), max: set.tagsMax },
       openDrafts: { max: mine.openDraftsMax ?? null, open },
       submissions: {
         per7Days: mine.submissionsPer7Days ?? null,

@@ -519,6 +519,10 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     });
   expect((await withdrawConsent('share_socials')).status).toBe(409);
   expect((await withdrawConsent('publish')).status).toBe(202);
+  // Erasure (M2 plan PR 11): the account goes, and its token gets 401 from then on.
+  expect((await call('DELETE', '/v1/account')).status).toBe(202);
+  expect((await call('GET', '/v1/account')).status).toBe(401);
+  expect((await call('DELETE', '/v1/account')).status).toBe(401);
 });
 
 test('the stub api-user’s uploads fit the contract, answers and errors (M2 plan PR 7)', async ({

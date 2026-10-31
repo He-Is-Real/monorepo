@@ -434,6 +434,42 @@ describe('the submit flow for written stories', () => {
     }
   });
 
+  it('never needs more themes than there are, even after a system user deletes some (Codex, admin limits round 3)', async () => {
+    await person('few');
+    const admin = await t.service('api_admin');
+    await createPeople(t, { fewadmin: 'user_fewadmin' });
+    await run(
+      admin,
+      `UPDATE submissionSettings:current SET tagsMin = 3, changedBy = user:fewadmin`,
+    );
+    try {
+      // A migration or dev-seed's reset isn't checked by the admin guard: 2 themes, tagsMin 3.
+      await run(migrator, 'DELETE tag:anxiety');
+      const limits = (await call('GET', '/v1/account/limits', 'few')).body;
+      expect(limits.tags).toEqual({ min: 2, max: 5 });
+
+      const { id } = (await create('few', { tagSlugs: ['healing'] })).body;
+      const one = await submit('few', id, 1);
+      expect(one.status).toBe(400);
+      expect(one.body).toMatchObject({
+        code: 'tags_required',
+        errors: [{ pointer: '/tagSlugs', message: 'choose at least 2' }],
+      });
+      await patch('few', id, 1, { tagSlugs: ['healing', 'doubt'] });
+      expect((await submit('few', id, 2)).status).toBe(200);
+      expect(await storiesOf('few')).toEqual(['pending']);
+    } finally {
+      await run(
+        migrator,
+        `CREATE tag:anxiety SET name = 'Anxiety', category = 'emotion'`,
+      );
+      await run(
+        admin,
+        `UPDATE submissionSettings:current SET tagsMin = 1, changedBy = user:fewadmin`,
+      );
+    }
+  });
+
   it('a draft over a newly lowered maximum can’t be submitted until edited; trimming saves are accepted (Joel, 2026-10-30)', async () => {
     await person('grand');
     const admin = await t.service('api_admin');

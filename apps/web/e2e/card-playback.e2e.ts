@@ -306,6 +306,71 @@ test("a story page's related cards play in place from 1024 px", async ({
   await expectNoHorizontalOverflow(page);
 });
 
+// Joel, 2026-10-31: every related preview keeps its own (clamped, D53) shape, on phones' small
+// list and in the desktop row, and a video plays in its own shape's box (as browse's cards
+// do). Stub: `aspect-test`'s related stories.
+test('a story page’s related previews keep their own shapes', async ({
+  page,
+}, info) => {
+  test.skip(
+    !BEHAVIOUR_DEVICES.includes(info.project.name),
+    'one phone and one desktop',
+  );
+  const shapes = [
+    ['Aspect test: a 3:4 picture', 3 / 4],
+    ['Aspect test: a 9:16 video', 9 / 16],
+    ['Aspect test: a 16:9 video', 16 / 9],
+  ] as const;
+  const ratio = async (locator: Locator) => {
+    const { width, height } = (await locator.boundingBox()) ?? {
+      width: 0,
+      height: 1,
+    };
+    return width / height;
+  };
+  await page.goto('/stories/aspect-test');
+  const related = page.getByRole('region', { name: 'Related stories' });
+  await expect(related).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  if (info.project.name === 'phone-320') {
+    // The small list: each picture fits its slot at its own shape.
+    for (const [title, aspect] of shapes) {
+      const link = related.getByRole('link', { name: title });
+      await expectTarget(page, link);
+      const picture = link.locator('[data-related-picture]');
+      await expect(picture.locator('img')).toBeVisible();
+      expect(await ratio(picture), title).toBeCloseTo(aspect, 1);
+    }
+    return;
+  }
+
+  const cardOf = (title: string) =>
+    related.locator('article').filter({
+      has: page.getByRole('heading', { name: title, exact: true }),
+    });
+  // Mixed heights line up at the top.
+  const tops = await Promise.all(
+    shapes.map(async ([title]) => (await cardOf(title).boundingBox())?.y ?? -1),
+  );
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
+  for (const [title, aspect] of shapes) {
+    const c = cardOf(title);
+    await expect(media(c).locator('img')).toBeVisible();
+    expect(await ratio(media(c)), title).toBeCloseTo(aspect, 1);
+    if (title.includes('video')) {
+      // Plays in place in that box, as in browse: the player shows the whole clip in it.
+      await playButton(page, title).click();
+      await expect(c.locator(`iframe[title="Video: ${title}"]`)).toBeVisible();
+      const box = await size(media(c));
+      expect(
+        Math.abs(box.height - Math.max(box.width / aspect, PLAYER_MIN_HEIGHT)),
+        `${title}: playing`,
+      ).toBeLessThanOrEqual(1);
+    }
+  }
+});
+
 // Codex, #82: each Related layout is hidden at the other's widths, so a card playing in the
 // desktop row would keep playing, out of sight and with no "Close player", once the screen
 // rotates below 1024 px. Hiding it stops it.

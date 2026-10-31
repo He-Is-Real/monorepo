@@ -9,16 +9,19 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useAccountState } from '@/components/auth/account-bootstrap';
+import {
+  AdminAccess,
+  problemText,
+  WRAPPING_BUTTON,
+} from '@/components/admin/admin-access';
 import { LegalMarkdown } from '@/components/legal/legal-markdown';
 import { Button } from '@/components/ui/button';
-import { ApiUserProblem, apiUser, NotSignedIn } from '@/lib/api-user';
+import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import {
   DOCUMENT_TITLES,
   documentVersionHref,
   type LegalDocumentName,
 } from '@/lib/legal-text';
-import { usePersonalSession } from '@/lib/personal-session';
 
 const DOCUMENTS: { document: LegalDocumentName; about: string }[] = [
   {
@@ -35,7 +38,6 @@ const DOCUMENTS: { document: LegalDocumentName; about: string }[] = [
 
 /** The text's limit, as api-admin's (characters). */
 const MAX_TEXT = 200_000;
-const ADMIN_ROLES = new Set(['Admin', 'SuperAdmin']);
 
 /** The contract's `AdminLegalDocumentVersionList`. */
 interface VersionList {
@@ -65,19 +67,6 @@ const date = (iso: string) =>
     timeZone: 'UTC',
   }).format(new Date(iso)) + ' UTC';
 
-const problemText = (err: unknown) => {
-  if (err instanceof ApiUserProblem) {
-    const field = err.problem.errors?.[0]?.message;
-    return field ?? err.problem.detail ?? `api-admin answered ${err.status}.`;
-  }
-  if (err instanceof NotSignedIn) return 'You’re signed out. Sign in again.';
-  return 'api-admin couldn’t be reached. Try again in a moment.';
-};
-
-/** A button whose words may wrap (200% text on a 320 px phone): full width there. */
-const WRAPPING_BUTTON =
-  'h-auto min-h-11 w-full px-5 py-2 whitespace-normal sm:w-auto';
-
 /** The marks the text box understands: what lib/markdown.ts renders. */
 const CHEAT_SHEET: [string, string][] = [
   ['## Heading', 'A section heading (### for a smaller one)'],
@@ -101,9 +90,14 @@ const CHEAT_SHEET: [string, string][] = [
  * each linking to its public page.
  */
 export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
-  const session = usePersonalSession();
-  const userId = session.status === 'signed-in' ? session.userId : null;
-  const account = useAccountState(userId);
+  return (
+    <AdminAccess apiAdminUrl={apiAdminUrl}>
+      {(client) => <LegalDocuments client={client} />}
+    </AdminAccess>
+  );
+}
+
+function LegalDocuments({ client }: { client: ApiUser }) {
   const [document, setDocument] = useState<LegalDocumentName>('privacy');
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   /** The version just published, said until another document is chosen. */
@@ -112,18 +106,8 @@ export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
   const load = useRef(0);
   const id = useId();
 
-  const api = useCallback(() => {
-    if (session.status !== 'signed-in' || !apiAdminUrl) return null;
-    return apiUser(apiAdminUrl, session.getToken);
-  }, [session, apiAdminUrl]);
-
-  const role = account.status === 'ready' ? account.account.role : undefined;
-  const allowed = role !== undefined && ADMIN_ROLES.has(role);
-
   const refresh = useCallback(
     (which: LegalDocumentName) => {
-      const client = api();
-      if (!client) return;
       const mine = ++load.current;
       setLoaded({ status: 'loading' });
       client
@@ -143,51 +127,16 @@ export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
           },
         );
     },
-    [api],
+    [client],
   );
 
   useEffect(() => {
-    if (allowed) refresh(document);
-  }, [allowed, document, refresh]);
+    refresh(document);
+  }, [document, refresh]);
   useEffect(() => {
     if (notice) noticeRef.current?.focus();
   }, [notice]);
 
-  if (
-    session.status === 'unknown' ||
-    (userId && account.status !== 'ready' && account.status !== 'failed')
-  ) {
-    return <p className="text-secondary-text">Loading…</p>;
-  }
-  if (session.status !== 'signed-in') {
-    return (
-      <p
-        className="rounded-2xl border border-border bg-card p-6"
-        data-admin-refused=""
-      >
-        Sign in with an admin account to use this page.
-      </p>
-    );
-  }
-  if (!apiAdminUrl) {
-    return (
-      <p className="rounded-2xl border border-border bg-card p-6">
-        The admin service isn’t available on this site.
-      </p>
-    );
-  }
-  if (!allowed) {
-    return (
-      <p
-        className="rounded-2xl border border-border bg-card p-6"
-        data-admin-refused=""
-      >
-        This page is for admins.
-      </p>
-    );
-  }
-
-  const client = api();
   return (
     <div className="space-y-10">
       <fieldset>
@@ -252,36 +201,34 @@ export function AdminLegal({ apiAdminUrl }: { apiAdminUrl?: string }) {
           {loaded.message}
         </p>
       )}
-      {loaded.status === 'ready' &&
-        loaded.list.document === document &&
-        client && (
-          <>
-            <EditVersion
-              key={`${document} ${loaded.list.current?.number ?? 0}`}
-              document={document}
-              list={loaded.list}
-              reload={() => {
-                setNotice(null);
-                refresh(document);
-              }}
-              publish={async (text) => {
-                const res = await client.command<{ number: number }>(
-                  `/v1/admin/legal-documents/${document}/versions`,
-                  {
-                    method: 'POST',
-                    body: {
-                      text,
-                      basedOn: loaded.list.current?.number ?? null,
-                    },
+      {loaded.status === 'ready' && loaded.list.document === document && (
+        <>
+          <EditVersion
+            key={`${document} ${loaded.list.current?.number ?? 0}`}
+            document={document}
+            list={loaded.list}
+            reload={() => {
+              setNotice(null);
+              refresh(document);
+            }}
+            publish={async (text) => {
+              const res = await client.command<{ number: number }>(
+                `/v1/admin/legal-documents/${document}/versions`,
+                {
+                  method: 'POST',
+                  body: {
+                    text,
+                    basedOn: loaded.list.current?.number ?? null,
                   },
-                );
-                setNotice(res.data?.number ?? null);
-                refresh(document);
-              }}
-            />
-            <Versions document={document} list={loaded.list} />
-          </>
-        )}
+                },
+              );
+              setNotice(res.data?.number ?? null);
+              refresh(document);
+            }}
+          />
+          <Versions document={document} list={loaded.list} />
+        </>
+      )}
     </div>
   );
 }

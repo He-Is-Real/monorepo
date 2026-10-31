@@ -31,7 +31,9 @@
 //   story has another), and `GET` of one story says whether its picture's file arrived.
 // - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
 //   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
-//   carry its `status`, `slug` and moderator's `rejectionFeedback`.
+//   carry its `status`, `slug` and moderator's `rejectionFeedback`. Erasure (PR 11):
+//   `DELETE /v1/account`, and withdrawing the testimony or sign-up consent, erase the session:
+//   its token gets 401 afterwards.
 // - Hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and `GET /v1/account/favourites`
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
@@ -43,6 +45,9 @@
 //   a publish is checked like the real one (its text, and 409 unless the version it was based on
 //   is still in force) and kept per session. A session seeded with `noLegalDocuments` starts with none (a fresh
 //   environment's first publication).
+// - api-admin's submission limits (W3, D112): `GET`/`PUT /v1/admin/submission-settings`, Admins
+//   only, kept per session from data 0006's values; a save is checked like the real one (bounds,
+//   minimum ≤ maximum, 428 without If-Match, 412 unless it's the version read).
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -106,6 +111,10 @@ const MECHANISMS = [
 /** Idempotency-Key → { body, answer } (D29). */
 const replies = new Map();
 let events = 0;
+/** Sessions whose account was erased (`DELETE /v1/account`, or an erasing withdrawal): 401 after. */
+const erased = new Set();
+/** api-user's ERASING_WITHDRAWALS (D88, D73). */
+const ERASING = ['special_category_religious', 'account_data'];
 
 const send = (res, status, body) => {
   res.writeHead(status, {
@@ -193,6 +202,103 @@ async function publishDocument(req, res, session, document) {
   });
   res.setHeader('location', `/v1/admin/legal-documents/${document}/versions`);
   return send(res, 201, { number, publishedAt });
+}
+
+// --- api-admin: the submission limits (W3, D112, D113) ---------------------------------------
+const MIB = 1_048_576;
+/** As api-admin's BOUNDS. */
+const SETTING_BOUNDS = {
+  storyTextMin: { min: 1, max: 50_000 },
+  storyTextMax: { min: 1, max: 50_000 },
+  tagsMin: { min: 0, max: 20 },
+  tagsMax: { min: 1, max: 20 },
+  openDraftsMax: { min: 1, max: 1000 },
+  submissionsPer7Days: { min: 1, max: 1000 },
+  uploadRequestsPerHour: { min: 1, max: 10_000 },
+  uploadsPer7Days: { min: 1, max: 1000 },
+  videoMaxBytes: { min: MIB, max: 10 * 1024 * MIB },
+  audioMaxBytes: { min: MIB, max: 2 * 1024 * MIB },
+  mediaMaxSeconds: { min: 60, max: 10_800 },
+};
+/** The themes there are, as dev-seed's catalogue: tagsMin can't be more. */
+const THEME_COUNT = 17;
+/** Session → `{ version, changedBy, settings }`, starting from data 0006's values. */
+const settingsState = new Map();
+const settingsFor = (session) => {
+  if (!settingsState.has(session))
+    settingsState.set(session, {
+      version: 1,
+      changedBy: null,
+      settings: {
+        storyTextMin: 200,
+        storyTextMax: 10_000,
+        tagsMin: 1,
+        tagsMax: 5,
+        openDraftsMax: 3,
+        submissionsPer7Days: 1,
+        uploadRequestsPerHour: 10,
+        uploadsPer7Days: 5,
+        videoMaxBytes: 4096 * MIB,
+        audioMaxBytes: 500 * MIB,
+        mediaMaxSeconds: 900,
+      },
+    });
+  return settingsState.get(session);
+};
+
+/** `GET /v1/admin/submission-settings`: a strong ETag from the version, as api-admin. */
+function sendSettings(req, res, session) {
+  const s = settingsFor(session);
+  const etag = `"${s.version}"`;
+  const headers = { etag, 'cache-control': 'private, no-store' };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    return res.end();
+  }
+  res.writeHead(200, { ...headers, 'content-type': 'application/json' });
+  return res.end(
+    JSON.stringify({
+      version: s.version,
+      updatedAt: '2026-10-30T12:00:00.000Z',
+      changedBy: s.changedBy,
+      settings: s.settings,
+      bounds: {
+        ...SETTING_BOUNDS,
+        tagsMin: { min: 0, max: Math.min(20, THEME_COUNT) },
+      },
+      themeCount: THEME_COUNT,
+    }),
+  );
+}
+
+/** `PUT /v1/admin/submission-settings` (UpdateSubmissionSettings), checked like api-admin. */
+async function saveSettings(req, res, session) {
+  const s = settingsFor(session);
+  const ifMatch = req.headers['if-match'];
+  if (!ifMatch)
+    return problem(res, 428, 'Precondition required', 'if_match_required');
+  const body = (await readJson(req)) ?? {};
+  for (const [field, { min, max }] of Object.entries(SETTING_BOUNDS)) {
+    const v = body[field];
+    if (!Number.isInteger(v) || v < min || v > max)
+      return invalid(res, `/${field}`, 'out_of_range');
+  }
+  if (body.storyTextMin > body.storyTextMax)
+    return invalid(res, '/storyTextMin', 'min_over_max');
+  if (body.tagsMin > body.tagsMax)
+    return invalid(res, '/tagsMin', 'min_over_max');
+  if (body.tagsMin > THEME_COUNT)
+    return invalid(res, '/tagsMin', 'over_theme_count');
+  // Another admin saved meanwhile.
+  if (ifMatch !== `"${s.version}"`)
+    return problem(res, 412, 'Precondition failed', 'stale_version');
+  s.version += 1;
+  s.changedBy = 'e2efixture';
+  s.settings = Object.fromEntries(
+    Object.keys(SETTING_BOUNDS).map((f) => [f, body[f]]),
+  );
+  res.setHeader('etag', `"${s.version}"`);
+  return send(res, 200, { id: 'current', version: s.version });
 }
 
 const readBody = (req) =>
@@ -415,6 +521,8 @@ function newSession(id, seed = {}) {
     tus: { fail: 0, hold: false },
     // Pictures by path: { story, size, bytes (a Buffer once PUT) }.
     images: new Map(),
+    // Erasure: `DELETE /v1/account` erases, then answers 500 (the queue failed after the commit).
+    eraseThenFail: seed.eraseThenFail ?? false,
   };
   for (const story of seed.stories ?? []) {
     const now = new Date().toISOString();
@@ -577,7 +685,11 @@ function limitsOf(s) {
       : null;
   return {
     storyText: { min: s.settings.storyTextMin, max: s.settings.storyTextMax },
-    tags: { min: s.settings.tagsMin, max: s.settings.tagsMax },
+    // Never more themes than there are (fn::settings::themes_needed).
+    tags: {
+      min: Math.min(s.settings.tagsMin, THEME_COUNT),
+      max: s.settings.tagsMax,
+    },
     openDrafts: { max: s.trusted ? null : s.settings.openDraftsMax, open },
     submissions: { per7Days, nextAvailableAt: next },
     uploads: uploadLimitsOf(s),
@@ -964,7 +1076,8 @@ async function handleShare(req, res, path, url, s) {
       if (!['draft', 'changes_requested'].includes(st.status))
         return p(409, 'Conflict', 'story_not_submittable');
       // The minimum at submit; the maximum only when themes change (as api-user does).
-      const { tagsMin, storyTextMin } = s.settings;
+      const { storyTextMin } = s.settings;
+      const tagsMin = Math.min(s.settings.tagsMin, THEME_COUNT);
       if (st.tagSlugs.length < tagsMin)
         return p(400, 'Bad request', 'tags_required', {
           detail: `Choose at least ${tagsMin} themes before submitting`,
@@ -1412,7 +1525,7 @@ createServer(async (req, res) => {
   }
   const token = sessionOf(req.headers.authorization);
   const signedIn = () => {
-    if (token === null) {
+    if (token === null || erased.has(token)) {
       problem(res, 401, 'Unauthorized');
       return null;
     }
@@ -1420,6 +1533,16 @@ createServer(async (req, res) => {
     return hearts.get(token);
   };
 
+  // Erasure (M2 plan PR 11): the account is gone, and the session's token gets 401 from now on.
+  if (path === '/v1/account' && req.method === 'DELETE') {
+    if (!signedIn()) return;
+    erased.add(token);
+    if (shareSession(token).eraseThenFail) {
+      return problem(res, 500, 'Internal Server Error');
+    }
+    res.writeHead(202, { 'cache-control': 'no-store' });
+    return res.end();
+  }
   if (path === '/v1/account' && req.method === 'GET') {
     if (!signedIn()) return;
     // The sign-up consent is accepted, except for the `unaccepted…` sessions; `admin…`
@@ -1445,6 +1568,17 @@ createServer(async (req, res) => {
     if (what === 'versions')
       return cached(req, res, listOf(document, versionsFor(token, document)));
     return problem(res, 404, 'Not found', 'not_found');
+  }
+  if (
+    path === '/v1/admin/submission-settings' &&
+    (req.method === 'GET' || req.method === 'PUT')
+  ) {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return req.method === 'GET'
+      ? sendSettings(req, res, token)
+      : void saveSettings(req, res, token);
   }
   if (path === '/v1/account/consents' && req.method === 'POST') {
     if (!signedIn()) return;
@@ -1481,6 +1615,7 @@ createServer(async (req, res) => {
     events += 1;
     const answer = { id: `stubconsent${events}`, version: null };
     replies.set(key, { text: '', answer });
+    if (ERASING.includes(type)) erased.add(token);
     return send(res, 202, answer);
   }
   if (path === '/v1/account/favourites' && req.method === 'GET') {

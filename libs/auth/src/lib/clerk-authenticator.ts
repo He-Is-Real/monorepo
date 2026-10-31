@@ -18,7 +18,7 @@ import {
   type VerifiedClerkToken,
   verifyClerkToken,
 } from './clerk-token';
-import { findPerson, provisionPerson } from './people';
+import { ErasedIdentityError, findPerson, provisionPerson } from './people';
 
 /**
  * The request's Clerk session token, from `Authorization: Bearer …` only. The browser calls
@@ -106,7 +106,16 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
 @Injectable()
 export class ApiUserAuthenticator extends ClerkAuthenticator {
   protected async ensurePerson(clerkUserId: string): Promise<void> {
-    await provisionPerson(this.db, clerkUserId);
+    try {
+      await provisionPerson(this.db, clerkUserId);
+    } catch (err) {
+      // D82: the account was deleted; its leftover token (or Clerk account) is refused.
+      if (err instanceof ErasedIdentityError) {
+        this.logger.warn('Refused a session token: the account was erased');
+        throw new UnauthorizedException('The session token was refused');
+      }
+      throw err;
+    }
   }
 }
 

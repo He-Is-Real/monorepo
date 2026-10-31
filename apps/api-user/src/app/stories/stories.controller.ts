@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Global,
   Headers,
   HttpStatus,
   Inject,
@@ -414,23 +415,30 @@ export class StoriesController {
   }
 }
 
+/**
+ * Bunny Stream for uploads (M2 plan PR 7) and erasure's video deletions (D40): null when off (no
+ * BUNNY_STREAM_API_KEY_SECRET). The images storage zone (M2 plan PR 10) for picture uploads and
+ * erasure's picture deletions: null when off (no BUNNY_STORAGE_PASSWORD_SECRET).
+ */
+@Global()
 @Module({
-  controllers: [StoriesController],
   providers: [
     {
-      // Uploads (M2 plan PR 7): null when off (no BUNNY_STREAM_API_KEY_SECRET).
       provide: BUNNY_STREAM,
       inject: [SecretsService],
       useFactory: (secrets: SecretsService) => createBunnyStream(secrets),
     },
     {
-      // Images (M2 plan PR 10): null when off (no BUNNY_STORAGE_PASSWORD_SECRET).
       provide: BUNNY_STORAGE,
       inject: [SecretsService],
       useFactory: (secrets: SecretsService) => createImageStore(secrets),
     },
   ],
+  exports: [BUNNY_STREAM, BUNNY_STORAGE],
 })
+export class BunnyStreamModule {}
+
+@Module({ controllers: [StoriesController] })
 export class StoriesModule implements NestModule {
   // EditStory takes JSON Merge Patch (D28), which Nest's JSON parser leaves alone.
   configure(consumer: MiddlewareConsumer) {
