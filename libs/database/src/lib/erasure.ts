@@ -4,9 +4,7 @@
  * (D88, D73); `clerk_user_deleted` Clerk's `user.deleted` webhook.
  */
 export type ErasureReason =
-  | 'account_deleted'
-  | 'consent_withdrawn'
-  | 'clerk_user_deleted';
+  'account_deleted' | 'consent_withdrawn' | 'clerk_user_deleted';
 
 /**
  * EraseAccount (D39, D82, D40), run by api-user on its own service login in one transaction

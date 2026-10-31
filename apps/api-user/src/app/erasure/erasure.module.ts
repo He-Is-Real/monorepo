@@ -42,7 +42,9 @@ const SVIX_ID = /^[A-Za-z0-9_-]{1,100}$/;
  * nothing from Clerk (D16).
  */
 @NoRoleRequired('Clerk webhooks are signed by Svix, not by a person’s token')
-@NoConsentRequired('Clerk’s notice that an account was deleted needs no consent')
+@NoConsentRequired(
+  'Clerk’s notice that an account was deleted needs no consent',
+)
 @Controller('v1/webhooks/clerk')
 export class ClerkWebhookController {
   private readonly logger = new Logger(ClerkWebhookController.name);
@@ -64,7 +66,8 @@ export class ClerkWebhookController {
     const key = await this.clerk.webhookKey();
     // Not set up yet: Svix retries for days, so nothing is lost once the secret is added.
     if (!key) throw new ServiceUnavailableException('Clerk webhooks are off');
-    if (!req.rawBody) throw new Error('The raw body is missing (rawBody: true)');
+    if (!req.rawBody)
+      throw new Error('The raw body is missing (rawBody: true)');
     try {
       verifySvix(key, { id, timestamp, signature }, req.rawBody);
     } catch (err) {

@@ -6,10 +6,7 @@ import {
 } from '@/components/account/manage-account';
 import { MySubmissions } from '@/components/account/my-submissions';
 import { SocialSharingConsent } from '@/components/account/social-sharing-consent';
-import {
-  ClerkYourData,
-  FixtureYourData,
-} from '@/components/account/your-data';
+import { ClerkYourData, FixtureYourData } from '@/components/account/your-data';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { clerkPublishableKey, e2eFixtures } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';

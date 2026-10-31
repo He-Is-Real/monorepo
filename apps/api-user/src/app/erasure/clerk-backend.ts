@@ -89,7 +89,8 @@ export function createClerkBackend(
   const name = (v: string | undefined, what: string) => {
     const value = v?.trim() ?? '';
     if (value === '') return null;
-    if (!SECRET_NAME.test(value)) throw new Error(`${what} must be a secret name`);
+    if (!SECRET_NAME.test(value))
+      throw new Error(`${what} must be a secret name`);
     return value;
   };
   return new ClerkBackendApi(

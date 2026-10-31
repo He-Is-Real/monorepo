@@ -148,11 +148,14 @@ function TakeStoriesOff() {
     );
   } else if (confirm) {
     body = (
-      <div data-confirm="take-off" className="rounded-xl border border-border-hover p-4">
+      <div
+        data-confirm="take-off"
+        className="rounded-xl border border-border-hover p-4"
+      >
         <p className="mb-3">
           Take every one of your stories off the site? They come off straight
-          away and stay in your account. To publish again, you give your
-          consent again when you next submit a story.
+          away and stay in your account. To publish again, you give your consent
+          again when you next submit a story.
         </p>
         <div className="flex flex-wrap gap-3">
           <Button
@@ -280,9 +283,9 @@ function DeleteAccount({ signOut }: { signOut: () => Promise<void> }) {
           </ul>
           <p className="mb-3">
             It can’t be undone. It’s also how you withdraw your consent for us
-            to keep your stories: we can’t keep your account without it. We
-            keep only the record of the consents you gave and withdrew, with
-            none of your stories, for six years, as proof that we asked.
+            to keep your stories: we can’t keep your account without it. We keep
+            only the record of the consents you gave and withdrew, with none of
+            your stories, for six years, as proof that we asked.
           </p>
           <form
             onSubmit={(e) => {

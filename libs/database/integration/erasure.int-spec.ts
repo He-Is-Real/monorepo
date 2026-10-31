@@ -128,9 +128,7 @@ describe('erasure on api_user’s service login', () => {
     expect(await truth('SELECT * FROM erasedIdentity')).toEqual([
       { id: `erasedIdentity:${fingerprint('user_ann')}` },
     ]);
-    expect(
-      await outcome(apiUser, `CREATE erasedIdentity:user_plain`),
-    ).toEqual({
+    expect(await outcome(apiUser, `CREATE erasedIdentity:user_plain`)).toEqual({
       ok: false,
       error: expect.stringContaining('sha256 fingerprint only'),
     });
@@ -287,10 +285,9 @@ describe('erasure on api_user’s service login', () => {
     // [user, pending]: nobody erased, nothing queued.
     expect(results[results.length - 2]).toEqual([undefined, []]);
     expect(
-      await truth(
-        `SELECT VALUE id FROM type::record('erasedIdentity', $f)`,
-        { f: fingerprint('user_never_here') },
-      ),
+      await truth(`SELECT VALUE id FROM type::record('erasedIdentity', $f)`, {
+        f: fingerprint('user_never_here'),
+      }),
     ).toHaveLength(1);
   });
 

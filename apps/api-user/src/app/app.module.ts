@@ -10,10 +10,7 @@ import { MediaUrlsModule } from '@heisreal/story-cards';
 import { AccountModule } from './account/account.controller';
 import { ErasureModule } from './erasure/erasure.module';
 import { FavouritesModule } from './favourites/favourites.controller';
-import {
-  BunnyStreamModule,
-  StoriesModule,
-} from './stories/stories.controller';
+import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
 
 @Module({
   imports: [
