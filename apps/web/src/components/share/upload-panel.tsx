@@ -8,6 +8,7 @@ import {
   StaleVersion,
 } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
+import { formatWhen, UploadsLeft, uploadsState } from './allowance';
 import type {
   ShareApi,
   SubmissionLimits,
@@ -118,6 +119,16 @@ export function formatMinutes(seconds: number): string {
       : `${m} minutes`;
 }
 
+/** One file's types, size and length for the format: "MP4, MOV or WebM, up to 4 GB and 15 minutes." */
+export function fileLimits(
+  limits: SubmissionLimits['uploads'],
+  format: UploadFormat,
+): string {
+  const bytes =
+    format === 'audio' ? limits.audioMaxBytes : limits.videoMaxBytes;
+  return `${KINDS[format]}, up to ${formatBytes(bytes)} and ${formatMinutes(limits.maxDurationSeconds)}.`;
+}
+
 /** The content type api-user accepts for this file, or undefined if it's not one of them. */
 export function contentTypeOf(
   file: { name: string; type: string },
@@ -197,6 +208,7 @@ export function UploadPanel({
   setVersion,
   reload,
   onState,
+  onCounted,
 }: {
   calls: ShareApi;
   owner: string;
@@ -215,6 +227,8 @@ export function UploadPanel({
   /** Reads the draft again after a `412` (as a save does); false once it can't be edited. */
   reload: (draftId: string) => Promise<boolean>;
   onState: (state: FileState) => void;
+  /** A new upload was counted, or refused for the limits: read them again. */
+  onCounted: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>({ at: 'idle' });
   const [problem, setProblem] = useState<React.ReactNode>(null);
@@ -321,6 +335,7 @@ export function UploadPanel({
       }
       const target = await newUpload(file, ready, request, gone);
       if (!target) return null;
+      onCounted();
       remember(ready.draftId, {
         name: file.name,
         size: file.size,
@@ -331,7 +346,7 @@ export function UploadPanel({
       });
       return { target, draftId: ready.draftId };
     },
-    [calls, format, newUpload, owner, prepare, remember],
+    [calls, format, newUpload, onCounted, owner, prepare, remember],
   );
 
   const run = useCallback(
@@ -351,6 +366,11 @@ export function UploadPanel({
         if (gone()) return;
         setPhase({ at: 'idle' });
         setProblem(refusal(err, noun));
+        if (
+          err instanceof ApiUserProblem &&
+          err.code === 'upload_limit_reached'
+        )
+          onCounted();
         return;
       }
       if (gone()) return;
@@ -394,11 +414,24 @@ export function UploadPanel({
       if (previous[0]) tus.resumeFromPreviousUpload(previous[0]);
       tus.start();
     },
-    [linkFor, noun, owner, remember],
+    [linkFor, noun, onCounted, owner, remember],
   );
 
   async function choose(file: File | undefined) {
     if (!file) return;
+    // At a limit, a new file waits (D113), however it comes (chooser or drop): only the file
+    // this tab started, or a request whose answer was lost, carries on, as neither counts again.
+    const until = uploadsState(limits).until;
+    if (
+      until &&
+      !(kept && !kept.done && sameFile(kept, file)) &&
+      !(draftId && sameFile(readAttempt(owner, draftId), file))
+    ) {
+      setProblem(
+        `You’ve started as many uploads as you can for now. Your story is saved: you can upload your ${noun} from ${formatWhen(until)}.`,
+      );
+      return;
+    }
     setCancelled(false);
     if (phase.at === 'uploading') upload.current?.abort();
     const contentType = contentTypeOf(file, format);
@@ -461,6 +494,12 @@ export function UploadPanel({
       ? Math.floor((phase.sent / phase.total) * 100)
       : 0;
   const busy = phase.at === 'uploading' || phase.at === 'checking';
+  // At a limit, a new file waits (D113): said here instead of answered with an error. Carrying
+  // on with a file this tab started, or sending again a request whose answer was lost, counts
+  // nothing new, so it stays open.
+  const carriesOn =
+    (kept && !kept.done) || (!!draftId && !!readAttempt(owner, draftId));
+  const held = !!uploadsState(limits).until && !carriesOn && !busy;
 
   return (
     <div data-upload-phase={phase.at}>
@@ -486,7 +525,7 @@ export function UploadPanel({
             : `Drag your ${noun} here, or`}
         </p>
         <label
-          className={`${phase.at === 'done' ? secondary : primary} cursor-pointer has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${busy ? 'pointer-events-none opacity-60' : ''}`}
+          className={`${phase.at === 'done' ? secondary : primary} cursor-pointer has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${busy || held ? 'pointer-events-none opacity-60' : ''}`}
         >
           {phase.at === 'done' ? 'Choose another file' : 'Choose a file'}
           <input
@@ -494,8 +533,8 @@ export function UploadPanel({
             type="file"
             accept={ACCEPT[format]}
             className="sr-only"
-            disabled={busy}
-            aria-describedby="upload-limits"
+            disabled={busy || held}
+            aria-describedby="upload-limits upload-allowance"
             onChange={(e) => {
               const chosen = e.target.files?.[0];
               // Emptied at once, so choosing the same file again (to try again) is a change.
@@ -505,9 +544,11 @@ export function UploadPanel({
           />
         </label>
         <p id="upload-limits" className="text-sm text-secondary-text">
-          {KINDS[format]}, up to {formatBytes(maxBytes)} and{' '}
-          {formatMinutes(limits.maxDurationSeconds)}.
+          {fileLimits(limits, format)}
         </p>
+        <div className="text-sm text-secondary-text">
+          <UploadsLeft limits={limits} noun={noun} id="upload-allowance" />
+        </div>
       </div>
 
       {kept && !kept.done && phase.at === 'idle' && (

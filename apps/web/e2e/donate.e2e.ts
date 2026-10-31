@@ -5,7 +5,7 @@ import {
   expectAllTargets,
   expectNoHorizontalOverflow,
   expectTarget,
-  MIN_TARGET,
+  expectAtLeastTarget,
   shots,
 } from './helpers';
 import { STRIPE_E2E, WEB_LIVE_URL, WEB_SIGNED_IN_URL } from './servers';
@@ -92,8 +92,8 @@ for (const scheme of ['light', 'dark'] as const) {
       // Each option's whole label is the 44 px target (the radio itself is visually hidden).
       for (const label of await frequency(page).locator('label').all()) {
         const box = await label.boundingBox();
-        expect(box?.height ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
-        expect(box?.width ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
+        expectAtLeastTarget(box?.height, 'height');
+        expectAtLeastTarget(box?.width, 'width');
       }
       await expectShown(page, STRIPE_E2E.oneOffButtonId);
       await expectNoHorizontalOverflow(page);

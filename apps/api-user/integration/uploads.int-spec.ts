@@ -386,6 +386,7 @@ describe('video and audio uploads', () => {
       const limits = (await call('GET', '/v1/account/limits', 'cat')).body;
       expect(limits.uploads).toMatchObject({
         perHour: 1,
+        usedIn7Days: 1,
         nextAvailableAt: again.body.availableAt,
       });
     } finally {
@@ -589,6 +590,13 @@ describe('video and audio uploads', () => {
       });
       expect(next.status).toBe(200);
       expect(await grants('pia')).toHaveLength(2);
+      // And /share's "uploads left this week" doesn't count them either.
+      const limits = (await call('GET', '/v1/account/limits', 'pia')).body;
+      expect(limits.uploads).toMatchObject({
+        per7Days: 1,
+        usedIn7Days: 0,
+        nextAvailableAt: null,
+      });
     } finally {
       await settings({ uploadsPer7Days: 5 });
     }

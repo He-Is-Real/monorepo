@@ -164,8 +164,10 @@ paths:
         The text and theme limits an admin sets (W3: `submissionSettings`) and the person's own D94
         limits (the settings, or the admin's override for them; D112): open drafts (`max` null =
         unlimited, as for a trusted submitter) and how many they have, and submissions per rolling 7
-        days with when they may next submit (`nextAvailableAt` null = now). The submit page shows
-        these numbers; nothing is hard-coded. Read as the person; needs no consent.
+        days with when they may next submit (`nextAvailableAt` null = now). How many submissions and
+        video or audio uploads they made in the last 7 days (`usedIn7Days`), so the share page can say
+        how many they have left before they reach the limit. The submit page shows these numbers;
+        nothing is hard-coded. Read as the person; needs no consent.
       x-required-role: User
       x-milestone: M2
       parameters:

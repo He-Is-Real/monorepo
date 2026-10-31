@@ -4,6 +4,19 @@ import { SCREENSHOT_DEVICES } from './devices';
 // Shared by the e2e suites: screenshots, the no-sideways-scroll check and 44 px targets.
 
 export const MIN_TARGET = 44;
+/**
+ * Measured sizes come back as floats: a 44 px box can read 43.99997 px (layout units and
+ * transforms, e.g. the open select list's slide-in). Allow that rounding only; a 43.9 px
+ * target still fails.
+ */
+const SUBPIXEL = 0.01;
+/** Asserts a measured width or height is a 44 px target, allowing sub-pixel rounding only. */
+export function expectAtLeastTarget(size: number | undefined, what = 'target') {
+  expect(
+    size ?? 0,
+    `${what} is at least ${MIN_TARGET} px`,
+  ).toBeGreaterThanOrEqual(MIN_TARGET - SUBPIXEL);
+}
 export async function shots(
   page: Page,
   project: string,
@@ -65,8 +78,8 @@ export async function expectTarget(page: Page, locator: Locator) {
   await locator.scrollIntoViewIfNeeded();
   await expect(locator).toBeVisible();
   const box = await locator.boundingBox();
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
-  expect(box?.width ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
+  expectAtLeastTarget(box?.height, 'height');
+  expectAtLeastTarget(box?.width, 'width');
   // Fully inside the viewport horizontally.
   const width = page.viewportSize()?.width ?? 0;
   expect(
@@ -96,6 +109,53 @@ export async function expectAllTargets(page: Page) {
         );
     }
     return out;
-  }, MIN_TARGET);
+  }, MIN_TARGET - SUBPIXEL);
   expect(small, 'targets smaller than 44 × 44 px').toEqual([]);
+}
+
+/**
+ * Waits until the browser has told every IntersectionObserver what it sees of the list's end
+ * (`[data-near-end]`, use-near-end.ts) and the page has rendered what it does about it: an
+ * observer made now reports in the same round as any the page already had, then two frames.
+ * For checking that nothing loads: a load the page would start has started by then. Returns
+ * whether the end is near (within use-near-end.ts's 800 px).
+ */
+export async function nearEndSettled(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () =>
+      new Promise<boolean>((done) => {
+        const end = document.querySelector('[data-near-end]');
+        if (!end) throw new Error('No [data-near-end] on the page');
+        const observer = new IntersectionObserver(
+          ([entry]) => {
+            observer.disconnect();
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => done(!!entry?.isIntersecting)),
+            );
+          },
+          { rootMargin: '0px 0px 800px 0px' },
+        );
+        observer.observe(end);
+      }),
+  );
+}
+
+/**
+ * Records what a list's "loaded" live region (`[data-more-loaded]`) says, each change in turn,
+ * from now on. Read with the function returned. Screen readers announce a change only, so a
+ * page loaded after another must take it through something else (empty) and back.
+ */
+export async function recordAnnouncements(page: Page) {
+  await page.locator('main [data-more-loaded]').evaluate((el) => {
+    const said: string[] = [];
+    (window as unknown as { announced: string[] }).announced = said;
+    new MutationObserver(() => {
+      const text = el.textContent ?? '';
+      if (said.at(-1) !== text) said.push(text);
+    }).observe(el, { childList: true, characterData: true, subtree: true });
+  });
+  return () =>
+    page.evaluate(
+      () => (window as unknown as { announced: string[] }).announced,
+    );
 }

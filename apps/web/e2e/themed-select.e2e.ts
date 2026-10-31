@@ -2,7 +2,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 import {
   expectNoHorizontalOverflow,
   expectTarget,
-  MIN_TARGET,
+  expectAtLeastTarget,
 } from './helpers';
 
 // Themed dropdowns (Joel, 2026-10-24: "the drop down menus look dated, bring them in line with
@@ -148,7 +148,7 @@ for (const scheme of ['light', 'dark'] as const) {
       const width = page.viewportSize()?.width ?? 0;
       for (const option of await options.all()) {
         const box = await option.boundingBox();
-        expect(box?.height ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
+        expectAtLeastTarget(box?.height, 'option height');
         // The list fits on the screen, also on a 320 px phone.
         expect(
           (box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= width,
