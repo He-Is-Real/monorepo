@@ -139,7 +139,7 @@ describe('ReviewStep', () => {
               themes: [{ id: 'hope', name: 'Hope', highlighted: true }],
             },
           ]}
-          refreshThemes={() => undefined}
+          refreshThemes={async () => null}
           legal={{ testimony: form([ART9]), social: null }}
           consents={consents}
           api={null as never}
@@ -187,7 +187,7 @@ describe('ReviewStep', () => {
               themes: [{ id: 'hope', name: 'Hope', highlighted: true }],
             },
           ]}
-          refreshThemes={() => undefined}
+          refreshThemes={async () => null}
           legal={{ testimony: form([ART9, PUBLISH]), social: null }}
           consents={consents}
           api={null as never}

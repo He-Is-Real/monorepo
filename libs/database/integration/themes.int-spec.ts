@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RecordId, type Surreal } from 'surrealdb';
 import {
+  consentEvent,
+  createPeople,
   DPA_V1_SHA256,
+  grantAll,
   outcome,
   rows,
   run,
@@ -181,6 +184,38 @@ describe('themes and their categories', () => {
     expect(
       await rows(migrator, 'SELECT VALUE status FROM story:bob_live'),
     ).toEqual(['approved']);
+  });
+
+  it('after Art 9 consent is withdrawn, the owner can’t change themes, but deleting a theme still takes it off', async () => {
+    await createPeople(t, { cara: 'user_cara' });
+    const cara = await t.person('user_cara');
+    await grantAll(cara);
+    await run(
+      admin,
+      `CREATE theme:kept SET name = 'Kept', category = themeCategory:other;
+       CREATE theme:going SET name = 'Going', category = themeCategory:other;`,
+    );
+    await draft(cara, 'cara_draft', {
+      themeRefs: [theme('kept'), theme('going')],
+    });
+    await consentEvent(cara, 'special_category_religious', 'withdrawn');
+
+    // The owner removing a theme that still exists is an edit like any other.
+    for (const refs of ['[]', '[theme:kept]']) {
+      expect(
+        error(
+          await outcome(
+            cara,
+            `UPDATE story:cara_draft SET themeRefs = ${refs}`,
+          ),
+        ),
+      ).toMatch(/Art 9 consent/);
+    }
+    expect(await themesOf('story', 'cara_draft')).toEqual(['kept', 'going']);
+
+    // Deleting the theme takes it off the story without consent.
+    await run(admin, 'DELETE theme:going');
+    expect(await themesOf('story', 'cara_draft')).toEqual(['kept']);
   });
 
   it('a published story that falls under the minimum after a delete isn’t re-checked', async () => {

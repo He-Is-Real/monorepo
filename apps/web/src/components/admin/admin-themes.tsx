@@ -10,8 +10,10 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import {
+  createContext,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -42,6 +44,13 @@ import {
 
 /** 412's words (A2): never merged; the admin reloads and makes their changes again. */
 const STALE = 'Someone else changed themes. Reload to see their changes';
+
+/**
+ * While a save (and the reload after it) is in flight, nothing on the page can change: the
+ * reload starts the page again from what the server holds, so a change made meanwhile would be
+ * lost without a word.
+ */
+const Locked = createContext(false);
 
 /** How far (px) the mouse moves before a press on a pill becomes a drag. */
 const DRAG_DISTANCE = 6;
@@ -272,8 +281,9 @@ function Editor({
       activationConstraint: { distance: DRAG_DISTANCE },
     }),
   );
+  const busy = status.kind === 'busy';
   const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over) return;
+    if (!over || busy) return;
     const [category, section] = String(over.id).split('|');
     updateTheme(String(active.id), {
       category,
@@ -308,36 +318,49 @@ function Editor({
           Saved. Everyone sees the new themes now.
         </p>
       )}
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        <div className="space-y-8">
-          {view.map((c) => (
-            <CategorySection
-              key={c.id}
-              category={c}
-              editing={editing}
-              onEdit={setEditing}
-              onRename={(id, name) => updateTheme(id, { name })}
-              onOpen={(id) => setDialog({ kind: 'panel', id })}
-              onDelete={(id) => setDialog({ kind: 'delete', id })}
-              onUndo={(id) => updateTheme(id, { deleted: false })}
-              onAdd={(name, highlighted) => addTheme(c.id, name, highlighted)}
-              onRenameCategory={(name) =>
-                change(picture.map((x) => (x.id === c.id ? { ...x, name } : x)))
+      <Locked.Provider value={busy}>
+        {/* While saving, every control here is disabled (Locked above for dragging). */}
+        <fieldset
+          disabled={busy}
+          aria-busy={busy}
+          className="m-0 min-w-0 border-0 p-0"
+        >
+          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+            <div className="space-y-8">
+              {view.map((c) => (
+                <CategorySection
+                  key={c.id}
+                  category={c}
+                  editing={editing}
+                  onEdit={setEditing}
+                  onRename={(id, name) => updateTheme(id, { name })}
+                  onOpen={(id) => setDialog({ kind: 'panel', id })}
+                  onDelete={(id) => setDialog({ kind: 'delete', id })}
+                  onUndo={(id) => updateTheme(id, { deleted: false })}
+                  onAdd={(name, highlighted) =>
+                    addTheme(c.id, name, highlighted)
+                  }
+                  onRenameCategory={(name) =>
+                    change(
+                      picture.map((x) => (x.id === c.id ? { ...x, name } : x)),
+                    )
+                  }
+                  onDeleteCategory={() => deleteCategory(c.id)}
+                />
+              ))}
+            </div>
+          </DndContext>
+          <div className="mt-8">
+            <AddName
+              label="Create category"
+              field="New category’s name"
+              onAdd={(name) =>
+                change([...picture, { id: newId(), name, themes: [] }])
               }
-              onDeleteCategory={() => deleteCategory(c.id)}
             />
-          ))}
-        </div>
-      </DndContext>
-      <div className="mt-8">
-        <AddName
-          label="Create category"
-          field="New category’s name"
-          onAdd={(name) =>
-            change([...picture, { id: newId(), name, themes: [] }])
-          }
-        />
-      </div>
+          </div>
+        </fieldset>
+      </Locked.Provider>
 
       {(status.kind === 'error' || status.kind === 'stale') && (
         <div
@@ -358,7 +381,7 @@ function Editor({
 
       <SaveBar
         changes={changes}
-        busy={status.kind === 'busy'}
+        busy={busy}
         stale={status.kind === 'stale'}
         onDiscard={() => {
           setPicture(start);
@@ -586,9 +609,10 @@ function Pill({
   onDelete: () => void;
   onUndo: () => void;
 }) {
+  const locked = useContext(Locked);
   const { setNodeRef, listeners, transform, isDragging } = useDraggable({
     id: theme.id,
-    disabled: theme.deleted || editing,
+    disabled: theme.deleted || editing || locked,
   });
   // Where the mouse went down: a press that ends somewhere else was a drag, not a click on the
   // name (else every drop would open the name for editing).
@@ -617,7 +641,7 @@ function Pill({
     >
       <button
         type="button"
-        className={`min-h-11 truncate rounded-l-full pl-4 pr-1 text-left ${theme.deleted ? 'text-muted-foreground line-through' : ''}`}
+        className={`min-h-11 min-w-11 truncate rounded-l-full pl-4 pr-1 text-left ${theme.deleted ? 'text-muted-foreground line-through' : ''}`}
         disabled={theme.deleted}
         aria-haspopup="dialog"
         onMouseDown={(e) => {

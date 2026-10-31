@@ -740,14 +740,17 @@ test.describe('behaviour', () => {
     await expect(themes).toContainText('2 of 3 chosen.');
     await saved(page);
 
-    // An admin deletes Doubt before the person submits.
+    // An admin deletes Doubt before the person submits: it comes off the draft, whose version
+    // moves on, so the submission is stale; the page says why.
     await me.deleteTheme('doubt');
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await step(page, 'Review and submit');
     await page.getByRole('button', { name: 'Submit for review' }).click();
-    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+    const alert = page.getByRole('main').getByRole('alert');
+    await expect(alert).toContainText(
       'Themes have changed, please choose again',
     );
+    await expect(alert).not.toContainText('another tab');
     await page.getByRole('button', { name: 'Choose themes' }).click();
     await step(page, 'Add some details');
     await themes.getByRole('button', { name: 'More themes' }).click();

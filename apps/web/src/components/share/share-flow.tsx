@@ -280,19 +280,21 @@ function SignedInFlow({
     if (step === 'choose' && moved.current) refreshLimits();
   }, [step, refreshLimits]);
 
-  // A chosen theme was deleted meanwhile (A7): the list is read again to choose from.
+  // A chosen theme was deleted meanwhile (A7): the list is read again to choose from. Answers
+  // the list read, or null if it couldn't be.
   const reloadThemes = useCallback(
     () =>
-      void calls
+      calls
         .themes()
-        .then((themes) =>
-          setLoaded((l) => (l.state === 'ready' ? { ...l, themes } : l)),
-        )
-        .catch(() => undefined),
+        .then((themes) => {
+          setLoaded((l) => (l.state === 'ready' ? { ...l, themes } : l));
+          return themes;
+        })
+        .catch(() => null),
     [calls],
   );
   useEffect(() => {
-    if (draft.themesChanged > 0) reloadThemes();
+    if (draft.themesChanged > 0) void reloadThemes();
   }, [draft.themesChanged, reloadThemes]);
 
   // The draft's id in the address once it exists, so a reload resumes it.
@@ -1509,8 +1511,8 @@ export function ReviewStep({
   refreshConsents: () => Promise<ConsentState>;
   /** The page's limits and drafts read again (when the server's answer shows them stale). */
   refreshLimits: () => void;
-  /** The themes read again (a chosen one was deleted meanwhile, A7). */
-  refreshThemes: () => void;
+  /** The themes read again (a chosen one was deleted meanwhile, A7); null if unreadable. */
+  refreshThemes: () => Promise<ThemeCategory[] | null>;
   onEdit: (step: Step) => void;
   onDone: () => void;
 }) {
@@ -1586,8 +1588,26 @@ export function ReviewStep({
     .flatMap((id) => themes.flatMap((c) => c.themes).filter((t) => t.id === id))
     .map((t) => t.name);
 
+  /** A7: a chosen theme was deleted meanwhile; the person chooses again from the new list. */
+  function chooseThemesAgain(message: string) {
+    draft.update({ themeIds: [] });
+    setProblem(
+      <>
+        {message}.{' '}
+        <button
+          type="button"
+          className="min-h-11 font-semibold text-link underline"
+          onClick={() => onEdit('details')}
+        >
+          Choose themes
+        </button>
+      </>,
+    );
+  }
+
   async function submit() {
     if (outdated || waiting || !sharingKnown) return;
+    const chosen = f.themeIds;
     if (askPublish && !publishBox) {
       setProblem(
         'The publishing consent can’t be shown right now, so your story can’t be submitted yet. It’s saved; please try again later.',
@@ -1674,9 +1694,25 @@ export function ReviewStep({
           onDone();
           return;
         }
-        setProblem(
-          'Your story was changed in another tab or window. Check it, then submit again.',
-        );
+        // Deleting a theme takes it off every draft carrying it, which moves the story's version
+        // on, so the submission comes back stale. If a chosen theme has left the list, that's
+        // why (A7), not another tab.
+        const fresh =
+          err instanceof StaleVersion && chosen.length > 0
+            ? await refreshThemes()
+            : null;
+        const gone =
+          fresh &&
+          chosen.some(
+            (id) => !fresh.some((c) => c.themes.some((t) => t.id === id)),
+          );
+        if (gone) {
+          chooseThemesAgain('Themes have changed, please choose again');
+        } else {
+          setProblem(
+            'Your story was changed in another tab or window. Check it, then submit again.',
+          );
+        }
       } else if (err instanceof ApiUserUnavailable) {
         setProblem(
           'We can’t reach our server right now. Your story is saved; please try again in a moment.',
@@ -1766,19 +1802,9 @@ export function ReviewStep({
         } else if (p.code === 'themes_changed') {
           // A7: a chosen theme was deleted meanwhile. The list is read again and the person
           // chooses again (useDraft clears the choice when a save says so; here, submit did).
-          draft.update({ themeIds: [] });
-          refreshThemes();
-          setProblem(
-            <>
-              {plainMessage(err, 'Themes have changed, please choose again')}.{' '}
-              <button
-                type="button"
-                className="min-h-11 font-semibold text-link underline"
-                onClick={() => onEdit('details')}
-              >
-                Choose themes
-              </button>
-            </>,
+          void refreshThemes();
+          chooseThemesAgain(
+            plainMessage(err, 'Themes have changed, please choose again'),
           );
         } else {
           setProblem(

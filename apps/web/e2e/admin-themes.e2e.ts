@@ -157,6 +157,14 @@ test.describe('/admin/themes', () => {
 
   test('Discard puts everything back as it was loaded', async ({ page }) => {
     await open(page);
+    // A one-letter name is still a 44 px target.
+    await zone(page, 'Other', 'rest')
+      .getByRole('button', { name: 'Add a theme to Other' })
+      .click();
+    await page.getByLabel('New theme’s name').fill('A');
+    await page.getByLabel('New theme’s name').press('Enter');
+    await expect(pill(page, 'A')).toBeVisible();
+    await expectAllTargets(page);
     const dialog = await panel(page, 'Healing');
     await dialog.getByRole('switch', { name: /Highlighted/ }).uncheck();
     await dialog.getByRole('button', { name: 'Done' }).click();
@@ -166,10 +174,60 @@ test.describe('/admin/themes', () => {
     ]);
     await page.getByRole('button', { name: 'Discard' }).click();
     await expect(namesIn(page, 'Topics', 'rest')).toHaveText(['Work×']);
+    await expect(pill(page, 'A')).toHaveCount(0);
     await expect(page.locator('[data-unsaved]')).toHaveAttribute(
       'data-unsaved',
       '0',
     );
+  });
+
+  test('nothing can be changed while a save is in flight, so no change is lost when the page reloads after it', async ({
+    page,
+  }, info) => {
+    test.skip(!BEHAVIOUR_DEVICES.includes(info.project.name), 'behaviour');
+    await open(page);
+    const dialog = await panel(page, 'Work');
+    await dialog.getByRole('switch', { name: /Highlighted/ }).check();
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    // The save's PUT is held until the test lets it go.
+    let release = () => undefined as void;
+    const held = new Promise<void>((done) => (release = done));
+    await page.route('**/v1/admin/themes', async (route) => {
+      if (route.request().method() === 'PUT') await held;
+      await route.continue();
+    });
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await page
+      .getByRole('dialog', { name: 'Save 1 change?' })
+      .getByRole('button', { name: 'Save changes' })
+      .click();
+
+    await expect(page.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Discard' })).toBeDisabled();
+    const grief = pill(page, 'Grief');
+    await expect(
+      grief.getByRole('button', { name: 'Grief', exact: true }),
+    ).toBeDisabled();
+    await expect(
+      grief.getByRole('button', { name: 'Delete Grief' }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: '+ Create category' }),
+    ).toBeDisabled();
+    await expect(
+      category(page, 'Topics').getByRole('button', { name: 'Rename Topics' }),
+    ).toBeDisabled();
+
+    release();
+    await expect(page.locator('[data-save-status="done"]')).toBeVisible();
+    await expect(namesIn(page, 'Topics', 'highlighted')).toHaveText([
+      'Healing×',
+      'Loss×',
+      'Work×',
+    ]);
+    await expect(
+      grief.getByRole('button', { name: 'Grief', exact: true }),
+    ).toBeEnabled();
   });
 
   test('a duplicate name (ignoring capitals) is refused by the server and nothing is saved', async ({

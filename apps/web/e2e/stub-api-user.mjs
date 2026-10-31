@@ -1903,12 +1903,21 @@ createServer(async (req, res) => {
     res.writeHead(204);
     return res.end();
   }
-  // Test set-up only: an admin deletes a theme while the person is choosing (A7).
+  // Test set-up only: an admin deletes a theme while the person is choosing (A7). As the
+  // database's theme_delete does, it comes off every story carrying it, which moves each one's
+  // version on.
   const themeGone = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/delete-theme$/.exec(
     path,
   );
   if (themeGone && req.method === 'POST') {
-    shareSession(themeGone[1]).deletedThemes.add(url.searchParams.get('id'));
+    const s = shareSession(themeGone[1]);
+    const id = url.searchParams.get('id');
+    s.deletedThemes.add(id);
+    for (const st of s.stories.values()) {
+      if (!st.themeIds?.includes(id)) continue;
+      st.themeIds = st.themeIds.filter((t) => t !== id);
+      st.version += 1;
+    }
     res.writeHead(204);
     return res.end();
   }

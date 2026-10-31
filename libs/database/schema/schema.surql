@@ -270,8 +270,9 @@ DEFINE INDEX OVERWRITE theme_category ON theme FIELDS category;
 -- Deleting a theme removes it from every story and published story that carries it, whoever
 -- deletes it, in the same transaction: the story first, then its published row (which must
 -- mirror it). A story left with fewer themes than the minimum isn't re-checked; only its next
--- submission is (plan v3, A9). Removing a theme isn't the person changing their story, so it
--- needs no consent (story_consent) and passes the owner's content lock (that's the owner only).
+-- submission is (plan v3, A9). Removing a deleted theme isn't the person changing their story, so
+-- it needs no consent (story_consent, api-admin's write only) and passes the owner's content lock
+-- (that's the owner only).
 DEFINE EVENT OVERWRITE theme_delete ON theme
   WHEN $event = 'DELETE'
   THEN {
@@ -690,11 +691,17 @@ DEFINE EVENT OVERWRITE story_owner_transitions ON story
 DEFINE EVENT OVERWRITE story_consent ON story
   WHEN $event = 'UPDATE'
   THEN {
-    -- A theme deleted by an admin (theme_delete) only takes a link away, and a system user
-    -- (data/0008) only relinks themes: no processing of the person's words, so no consent.
+    -- Two theme-only writes need no consent, as neither processes the person's words: a system
+    -- user's (data/0008 relinks themes), and theme_delete's, run by api-admin as it deletes
+    -- themes, which only takes away links to themes that no longer exist. Anyone else changing
+    -- themes (the owner too) needs consent, as for any content.
+    LET $removed = array::complement($before.themeRefs ?? [], $after.themeRefs ?? []);
+    LET $theme_deleted = $auth.id = service:api_admin
+      AND array::len(array::complement($after.themeRefs ?? [], $before.themeRefs ?? [])) = 0
+      AND array::len($removed) > 0
+      AND array::len($removed.filter(|$t| record::exists($t))) = 0;
     IF fn::story::content($before) != fn::story::content($after)
-       AND !(fn::story::only_themes_changed($before, $after) AND ($auth = NONE
-         OR array::len(array::complement($after.themeRefs ?? [], $before.themeRefs ?? [])) = 0))
+       AND !(fn::story::only_themes_changed($before, $after) AND ($auth = NONE OR $theme_deleted))
        AND !fn::consent::granted($after.submitter, ['special_category_religious']) {
       THROW 'changing a story’s content or media needs the submitter’s current Art 9 consent';
     };
