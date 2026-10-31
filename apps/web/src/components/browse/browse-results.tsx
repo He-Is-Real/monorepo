@@ -83,6 +83,8 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
       if (busy.current || !cursor) return false;
       busy.current = true;
       setStatus('loading');
+      // Emptied while a page loads, so each page's "loaded" is a change screen readers announce.
+      setAnnouncement('');
       let result: Awaited<ReturnType<typeof loadMoreStories>>;
       try {
         result = await loadMoreStories(filters, cursor);
@@ -173,8 +175,8 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
         layouts={loaded.layouts}
         listRef={list}
       />
-      <div ref={sentinel} aria-hidden="true" />
-      <p role="status" className="sr-only">
+      <div ref={sentinel} data-near-end="" aria-hidden="true" />
+      <p role="status" data-more-loaded="" className="sr-only">
         {announcement}
       </p>
       <div className="mt-12 flex flex-col items-center gap-3 text-center">

@@ -3,6 +3,8 @@ import {
   expectAllTargets,
   expectNoHorizontalOverflow,
   expectTarget,
+  nearEndSettled,
+  recordAnnouncements,
   shots,
 } from './helpers';
 import { STUB_URL, WEB_DOWN_URL } from './servers';
@@ -39,15 +41,6 @@ async function scrollUntil(page: Page, end: Locator) {
       .not.toBe(before);
   }
 }
-
-/** Two frames: long enough for an IntersectionObserver to have reported what it sees. */
-const twoFrames = (page: Page) =>
-  page.evaluate(
-    () =>
-      new Promise<void>((done) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => done())),
-      ),
-  );
 
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
@@ -266,17 +259,20 @@ test.describe('behaviour', () => {
   }) => {
     await page.goto('/stories');
     await expect(cards(page)).toHaveCount(15);
-    await scrollToEnd(page);
-    await expect.poll(() => cards(page).count()).toBeGreaterThan(15);
-    // Screen readers hear that more loaded, never how many (D62: no story counts anywhere).
-    const announcement = page.locator('main [role="status"]', {
-      hasText: 'loaded',
-    });
-    await expect(announcement).toHaveText('More stories loaded.');
+    const announced = await recordAnnouncements(page);
 
     const end = page.getByText('You’ve seen every story here.');
     await scrollUntil(page, end);
     await expect(cards(page)).toHaveCount(54);
+    // Screen readers hear that more loaded, for each of the 3 pages, never how many (D62: no
+    // story counts anywhere).
+    expect(await announced()).toEqual([
+      'More stories loaded.',
+      '',
+      'More stories loaded.',
+      '',
+      'More stories loaded.',
+    ]);
     await expect(page).toHaveURL(/[?&]pages=4$/);
     // Past the old cap of two automatic pages, with no button on the way.
     await expect(
@@ -469,9 +465,10 @@ test.describe('behaviour', () => {
     await expect(page.getByText('Loading more stories…')).toHaveCount(0);
     // At the end of the list again, nothing is asked for until the reader says so.
     await page.evaluate(() => window.scrollTo(0, 0));
-    await twoFrames(page);
+    await nearEndSettled(page);
     await scrollToEnd(page);
-    await twoFrames(page);
+    expect(await nearEndSettled(page)).toBe(true);
+    await expect(page.getByText('More stories couldn’t load.')).toBeVisible();
     expect(posts).toBe(1);
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect.poll(() => cards(page).count()).toBeGreaterThanOrEqual(30);

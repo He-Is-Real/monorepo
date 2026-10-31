@@ -74,6 +74,12 @@ function SignedIn({ userId }: { userId: string }) {
   return null;
 }
 
+/** The header's part when nobody is signed in. */
+function SignedOut() {
+  usePublishPersonalSession(null, undefined, async () => null);
+  return null;
+}
+
 /** A heart elsewhere on the page, for a story only A hearted. */
 function HeartOf({ storyId }: { storyId: string }) {
   const { state } = useHeart(storyId);
@@ -132,4 +138,72 @@ it('an answer for the person signed in before never reaches the person signed in
   await screen.findByText(/You haven’t hearted any stories yet/);
   expect(screen.queryByText('A’s story')).toBeNull();
   expect(screen.getByTestId('heart').textContent).toBe('off');
+});
+
+// Codex, #157 round 1: A's next page still on its way when B signs in must not hold up B's
+// list. The browser's observer reports once when the end comes near and stays quiet while it
+// stays near, so a sighting dropped then would stall B's list for good.
+it('a next page asked for the person signed in before never holds up the person signed in now', async () => {
+  const observers = window as unknown as { IntersectionObserver: unknown };
+  const before = observers.IntersectionObserver;
+  const media = window.matchMedia;
+  // jsdom has no media queries: a 1-column screen.
+  window.matchMedia = ((q: string) => ({
+    matches: false,
+    media: q,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  })) as unknown as typeof window.matchMedia;
+  // A tall screen: every new observer finds the end in view at once, as a browser's does.
+  observers.IntersectionObserver = class {
+    constructor(
+      private readonly report: (e: { isIntersecting: boolean }[]) => void,
+    ) {}
+    observe() {
+      queueMicrotask(() => this.report([{ isIntersecting: true }]));
+    }
+    disconnect() {
+      // nothing to release
+    }
+  };
+  try {
+    const page = (who: string, next: string | null) => ({
+      data: [card(`${who}_1`, `${who}’s story`)],
+      nextCursor: next,
+    });
+    // Start from nobody signed in, with none of the test before's calls.
+    render(<SignedOut />).unmount();
+    mockCalls.length = 0;
+    const { rerender } = render(
+      <>
+        <SignedIn userId="user_a" />
+        <FavouritesList />
+      </>,
+    );
+    const aFirst = await callFor('user_a', LIST);
+    await act(async () => aFirst.answer(page('a', 'a-next')));
+    // A's next page is asked for, and held.
+    const aNext = await callFor('user_a', `${LIST}24&cursor=a-next`);
+
+    rerender(
+      <>
+        <SignedIn userId="user_b" />
+        <FavouritesList />
+      </>,
+    );
+    const bFirst = await callFor('user_b', LIST);
+    await act(async () => bFirst.answer(page('b', 'b-next')));
+    // B's end is in view: B's next page is asked for although A's is still on its way.
+    const bNext = await callFor('user_b', `${LIST}24&cursor=b-next`);
+
+    // A's arrives late and changes nothing; B's then lands.
+    await act(async () => aNext.answer(page('a2', null)));
+    await act(async () => bNext.answer(page('b2', null)));
+    await screen.findByText('b2’s story');
+    expect(screen.queryByText('a2’s story')).toBeNull();
+    expect(screen.getByText('You’ve seen all your favourites.')).toBeTruthy();
+  } finally {
+    observers.IntersectionObserver = before;
+    window.matchMedia = media;
+  }
 });

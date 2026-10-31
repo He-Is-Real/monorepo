@@ -45,7 +45,9 @@ export function FavouritesList() {
   const session = usePersonalSession();
   const [list, setList] = useState<List>({ status: 'loading' });
   const load = useRef(0); // the current load; answers to older ones are dropped
-  const busy = useRef(false); // a next page is on its way: one at a time
+  // The load whose next page is on its way (one at a time), or null. Tied to its load, so a
+  // request for someone signed in before neither holds up nor frees the new person's list.
+  const busy = useRef<number | null>(null);
 
   // The latest session (Clerk renews getToken); a new person, not a new getToken, means a new list.
   const current = useRef(session);
@@ -88,6 +90,7 @@ export function FavouritesList() {
   const start = useCallback(
     (owner: string) => {
       const mine = ++load.current;
+      busy.current = null;
       setList({ status: 'loading' });
       fetchPage(owner, null).then(
         (page) => {
@@ -115,18 +118,22 @@ export function FavouritesList() {
 
   useEffect(() => {
     if (userId) start(userId);
-    else load.current += 1; // signed out: drop anything still on its way
+    else {
+      load.current += 1; // signed out: drop anything still on its way
+      busy.current = null;
+    }
   }, [userId, start]);
 
   const showMore = () => {
-    if (busy.current || list.status !== 'ready' || !list.cursor) return;
-    busy.current = true;
+    if (busy.current !== null || list.status !== 'ready' || !list.cursor)
+      return;
     const { owner } = list;
     const mine = load.current;
+    busy.current = mine;
     setList({ ...list, more: 'loading' });
     fetchPage(owner, list.cursor).then(
       (page) => {
-        busy.current = false;
+        if (busy.current === mine) busy.current = null;
         if (!stillFor(owner, mine)) return;
         markHearted(
           owner,
@@ -150,7 +157,7 @@ export function FavouritesList() {
         );
       },
       () => {
-        busy.current = false;
+        if (busy.current === mine) busy.current = null;
         if (stillFor(owner, mine))
           setList((now) =>
             now.status === 'ready' && now.owner === owner
@@ -248,6 +255,11 @@ function Cards({
     onNear: onMore,
   });
 
+  // Emptied while a page loads, so each page's "loaded" is a change screen readers announce.
+  useEffect(() => {
+    if (more === 'loading') setAnnouncement('');
+  }, [more]);
+
   useEffect(() => {
     if (cards.length <= shown.current) return;
     const from = focusFrom.current;
@@ -273,8 +285,8 @@ function Cards({
       <div data-favourites="">
         <StoryMasonry cards={cards} headingLevel={2} listRef={list} />
       </div>
-      <div ref={sentinel} aria-hidden="true" />
-      <p role="status" className="sr-only">
+      <div ref={sentinel} data-near-end="" aria-hidden="true" />
+      <p role="status" data-more-loaded="" className="sr-only">
         {announcement}
       </p>
       <div className="mt-10 flex flex-col items-center gap-3 text-center">
@@ -329,7 +341,7 @@ type DeviceList =
 function DeviceFavourites() {
   const [list, setList] = useState<DeviceList>({ status: 'loading' });
   const load = useRef(0);
-  const busy = useRef(false);
+  const busy = useRef<number | null>(null); // as FavouritesList's
 
   /** The cards for the next page of ids, in the device's order. */
   const fetchCards = async (ids: string[]) => {
@@ -344,6 +356,7 @@ function DeviceFavourites() {
 
   const start = useCallback(() => {
     const mine = ++load.current;
+    busy.current = null;
     const ids = deviceHeartIds();
     setList({ status: 'loading' });
     fetchCards(ids.slice(0, PAGE_SIZE)).then(
@@ -370,15 +383,19 @@ function DeviceFavourites() {
   }, [start]);
 
   const showMore = () => {
-    if (busy.current || list.status !== 'ready' || list.rest.length === 0)
+    if (
+      busy.current !== null ||
+      list.status !== 'ready' ||
+      list.rest.length === 0
+    )
       return;
-    busy.current = true;
     const mine = load.current;
+    busy.current = mine;
     const next = list.rest.slice(0, PAGE_SIZE);
     setList({ ...list, more: 'loading' });
     fetchCards(next).then(
       (cards) => {
-        busy.current = false;
+        if (busy.current === mine) busy.current = null;
         if (load.current !== mine) return;
         setList((now) =>
           now.status === 'ready'
@@ -395,7 +412,7 @@ function DeviceFavourites() {
         );
       },
       () => {
-        busy.current = false;
+        if (busy.current === mine) busy.current = null;
         if (load.current === mine)
           setList((now) =>
             now.status === 'ready' ? { ...now, more: 'failed' } : now,

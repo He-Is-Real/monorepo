@@ -12,6 +12,8 @@ import {
   expectAllTargets,
   expectNoHorizontalOverflow,
   expectTarget,
+  nearEndSettled,
+  recordAnnouncements,
 } from './helpers';
 import {
   fixtureToken,
@@ -862,6 +864,7 @@ test.describe('loading more favourites', () => {
     const list = page.locator('[data-favourites] ul.masonry');
     const cards = list.locator('> li');
     await expect(cards).toHaveCount(24);
+    const announced = await recordAnnouncements(page);
 
     const end = page.getByText('You’ve seen all your favourites.');
     while (!(await end.isVisible())) {
@@ -874,9 +877,12 @@ test.describe('loading more favourites', () => {
     await expect(cards).toHaveCount(52);
     // Newest heart first, so the first heart is last.
     await expect(cards.last()).toContainText('Browse test story 01');
-    await expect(
-      page.locator('main [role="status"]', { hasText: 'loaded' }),
-    ).toHaveText('More favourites loaded.');
+    // Screen readers hear that more loaded, for each of the 2 pages.
+    expect(await announced()).toEqual([
+      'More favourites loaded.',
+      '',
+      'More favourites loaded.',
+    ]);
     await expect(
       page.getByRole('button', { name: 'Show more favourites' }),
     ).toHaveCount(0);
@@ -910,17 +916,13 @@ test.describe('loading more favourites', () => {
     ).toBeVisible();
 
     // At the end of the list again, nothing is asked for until the reader says so.
-    const twoFrames = () =>
-      page.evaluate(
-        () =>
-          new Promise<void>((done) =>
-            requestAnimationFrame(() => requestAnimationFrame(() => done())),
-          ),
-      );
     await page.evaluate(() => window.scrollTo(0, 0));
-    await twoFrames();
+    await nearEndSettled(page);
     await scrollToEnd(list);
-    await twoFrames();
+    expect(await nearEndSettled(page)).toBe(true);
+    await expect(
+      page.getByText('More favourites couldn’t load.'),
+    ).toBeVisible();
     expect(asked).toBe(1);
 
     const retry = page.getByRole('button', { name: 'Try again' });

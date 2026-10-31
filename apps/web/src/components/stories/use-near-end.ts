@@ -15,6 +15,10 @@ const NEAR_END = '0px 0px 800px 0px';
  * `auto` is false where the browser has no IntersectionObserver: the list then shows its
  * "Show more" button instead. The caller keeps one request at a time and stops while a load
  * has failed (pass `active` false), so a failure waits for Try again rather than looping.
+ *
+ * An observer that still sees the end reports nothing new, so a sighting `onNear` ignores is
+ * never repeated. `active` must therefore be false whenever `onNear` would ignore one (a page
+ * on its way): the observer is then made again when that ends, and looks again.
  */
 export function useNearEnd({
   active,
