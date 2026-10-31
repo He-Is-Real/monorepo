@@ -81,6 +81,6 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
     ]);
     expect(
       await rows(migrator, 'SELECT VALUE id FROM service ORDER BY id'),
-    ).toHaveLength(4);
+    ).toHaveLength(SERVICES.length);
   });
 });

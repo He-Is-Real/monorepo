@@ -34,6 +34,7 @@ export const SERVICES = [
   'api_user',
   'api_admin',
   'workflow',
+  'housekeeping',
 ] as const;
 export type ServiceName = (typeof SERVICES)[number];
 
