@@ -17,7 +17,8 @@ const OPTIONS = [
  * button isn't configured are left out, and with one left there's no control at all. The choice
  * is kept in the address (`?frequency=monthly`; One-off has no parameter) so it can be linked,
  * and the address is the only state: a link to /donate (the header's, say) shows One-off again,
- * even from this page (Codex, #122). Next keeps useSearchParams in step with replaceState.
+ * even from this page (Codex, #122). Next keeps useSearchParams in step with replaceState. The
+ * choice, headings and text are centred on the same line as Stripe's fixed-width button below them.
  */
 export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
   const frequency = frequencyFor(
@@ -37,7 +38,7 @@ export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
   return (
     <>
       {options.length > 1 && (
-        <div className="mt-10">
+        <div className="mt-10 text-center">
           <p id="frequency-label" className="mb-3 font-semibold">
             How often would you like to give?
           </p>
@@ -67,7 +68,7 @@ export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
       )}
 
       {frequency === 'one-off' && stripe.oneOffButtonId && (
-        <section aria-labelledby="give-once" className="mt-8">
+        <section aria-labelledby="give-once" className="mt-8 text-center">
           <h2 id="give-once" className="text-2xl font-normal sm:text-[1.75rem]">
             Give once
           </h2>
@@ -82,7 +83,7 @@ export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
       )}
 
       {frequency === 'monthly' && stripe.monthlyButtonId && (
-        <section aria-labelledby="give-monthly" className="mt-8">
+        <section aria-labelledby="give-monthly" className="mt-8 text-center">
           <h2
             id="give-monthly"
             className="text-2xl font-normal sm:text-[1.75rem]"

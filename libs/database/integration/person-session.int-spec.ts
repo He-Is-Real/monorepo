@@ -372,11 +372,42 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       );
     });
 
-    it('cannot delete their own story (erasure runs on api_user’s login)', async () => {
-      expect(await rows(ann, 'DELETE story:ann_draft RETURN BEFORE')).toEqual(
+    it('deletes only their own draft, withdrawn or rejected story (D71), never one in review or published', async () => {
+      const statuses = [
+        'draft',
+        'pending',
+        'in_review',
+        'approved',
+        'changes_requested',
+        'rejected',
+        'withdrawn',
+      ];
+      for (const status of statuses) {
+        await draft(ann, `ann_del_${status}`);
+        // Moderation's statuses, set as a system user would (the person can't).
+        await run(
+          migrator,
+          `UPDATE type::record('story', $id) SET status = $status`,
+          { id: `ann_del_${status}`, status },
+        );
+      }
+      for (const status of statuses) {
+        await rows(ann, `DELETE type::record('story', $id)`, {
+          id: `ann_del_${status}`,
+        });
+      }
+      expect(
+        (
+          await truth<string>(
+            `SELECT VALUE status FROM story WHERE string::starts_with(record::id(id), 'ann_del_')`,
+          )
+        ).sort(),
+      ).toEqual(['approved', 'changes_requested', 'in_review', 'pending']);
+      // Someone else's draft, never.
+      expect(await rows(ann, 'DELETE story:bob_draft RETURN BEFORE')).toEqual(
         [],
       );
-      expect(await truth('SELECT id FROM story:ann_draft')).toHaveLength(1);
+      expect(await truth('SELECT id FROM story:bob_draft')).toHaveLength(1);
     });
   });
 

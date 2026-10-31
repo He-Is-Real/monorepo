@@ -95,8 +95,12 @@ through an upload grant (D80; the person's browser never names a video).
 - **Replaced:** choosing another file creates a new video and deletes the old one at Bunny at
   once, because nobody reviewed it. Its grant row stays for 7 days so the upload limits still
   count it.
+- **Deleted stories:** when a person deletes their draft, withdrawn or rejected story (D71),
+  api-user deletes every video it made for that story (its upload grants) at Bunny straight
+  after the database commits. Only granted videos: dev's seeded media and site assets are never
+  touched. The grants stay for the upload limits.
 - **Orphans** (a video on Bunny that no story shows) happen when that delete fails (api-user
-  logs `Couldn’t delete replaced video …`), when the database refused the grant after the video
+  logs `Couldn’t delete replaced video …` or `… a deleted story’s video …`), when the database refused the grant after the video
   was created and the delete after it failed (`… after a refused upload`), when api-user lost the
   database's answer to the grant and couldn't tell whether it committed (`… has no known outcome;
 video kept`: never deleted then, since it may be the draft's file; the person's retry with the

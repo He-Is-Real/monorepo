@@ -129,7 +129,14 @@ const CATEGORY_ORDER = ['theme', 'journey', 'emotion'];
 const EDITABLE = ['draft', 'changes_requested'];
 /** Codes the commands THROW inside their transaction, read back from the error. */
 const ERR =
-  /\bstory_cmd:(not_found|stale_version|locked|unknown_tag|not_written)\b/;
+  /\bstory_cmd:(not_found|stale_version|locked|unknown_tag|not_written|not_withdrawable|not_deletable)\b/;
+/** WithdrawStory: anything submitted and not yet finished with (D61: withdrawn stays withdrawn). */
+const WITHDRAWABLE = ['pending', 'in_review', 'approved', 'changes_requested'];
+/**
+ * DeleteStory (D71): the person's own draft, withdrawn or rejected story. The database's story
+ * permission says the same, so it holds whoever calls.
+ */
+const DELETABLE = ['draft', 'withdrawn', 'rejected'];
 
 interface RawStory {
   id: string;
@@ -450,6 +457,71 @@ export class StoryStore {
     }
   }
 
+  /**
+   * WithdrawStory at `ifMatch`: the story leaves review or the site (→ `withdrawn`), and its
+   * `publicStory` row goes in the same transaction (D17, D51: gone on the next request). No
+   * consent needed, and nothing in it changes.
+   */
+  async withdraw(id: string, ifMatch: number): Promise<CommandResult> {
+    try {
+      return await retryOnConflict(async () => {
+        const results = await runQuery(
+          this.person,
+          `BEGIN TRANSACTION;
+           LET $s = (SELECT version, status FROM type::record('story', $id))[0];
+           IF $s = NONE { THROW 'story_cmd:not_found' };
+           IF $s.version != $version { THROW 'story_cmd:stale_version' };
+           IF $s.status NOT IN $withdrawable { THROW 'story_cmd:not_withdrawable' };
+           LET $u = (UPDATE ONLY type::record('story', $id) SET status = 'withdrawn' RETURN id, version);
+           IF $u = NONE { THROW 'story_cmd:not_written' };
+           DELETE type::record('publicStory', $id);
+           $u;
+           COMMIT TRANSACTION;`,
+          { id, version: ifMatch, withdrawable: WITHDRAWABLE },
+        );
+        const row = requireWritten<{ id: string; version: number }>(
+          results[results.length - 2],
+          'story',
+        );
+        return { id: recordKey(row.id), version: row.version };
+      });
+    } catch (err) {
+      throw this.lifecycleProblem(err);
+    }
+  }
+
+  /**
+   * DeleteStory at `ifMatch` (D71): the person's own draft, withdrawn or rejected story, gone
+   * with its read-model rows, reviews and others' hearts (story_erasure_cascade). Answers the
+   * Bunny videos api-user made for it (its upload grants, D80), for the caller to delete at
+   * Bunny once this has committed. The grants themselves stay: the upload limits count them
+   * for 7 days (D113).
+   */
+  async delete(id: string, ifMatch: number): Promise<{ videos: string[] }> {
+    try {
+      return await retryOnConflict(async () => {
+        const results = await runQuery(
+          this.person,
+          `BEGIN TRANSACTION;
+           LET $s = (SELECT version, status FROM type::record('story', $id))[0];
+           IF $s = NONE { THROW 'story_cmd:not_found' };
+           IF $s.version != $version { THROW 'story_cmd:stale_version' };
+           IF $s.status NOT IN $deletable { THROW 'story_cmd:not_deletable' };
+           LET $videos = (SELECT VALUE record::id(id) FROM uploadGrant
+             WHERE story = type::record('story', $id));
+           LET $gone = (DELETE type::record('story', $id) RETURN BEFORE);
+           IF array::len($gone) = 0 { THROW 'story_cmd:not_deletable' };
+           $videos;
+           COMMIT TRANSACTION;`,
+          { id, version: ifMatch, deletable: DELETABLE },
+        );
+        return { videos: (results[results.length - 2] ?? []) as string[] };
+      });
+    } catch (err) {
+      throw this.lifecycleProblem(err);
+    }
+  }
+
   /** The settings in force (W3), read in the person's session (everyone reads them). */
   async settings(): Promise<SubmissionSettings> {
     const [set] = (await runQuery(this.person, SUBMISSION_SETTINGS_SQL)) as [
@@ -688,6 +760,32 @@ export class StoryStore {
           command === 'create'
             ? 'Starting a story needs your consent on the forms in force'
             : 'Changing a story needs your current consent',
+      });
+    }
+    return err;
+  }
+
+  /** WithdrawStory's and DeleteStory's refusals as problems. */
+  private lifecycleProblem(err: unknown): unknown {
+    if (err instanceof HttpException) return err;
+    const code =
+      err instanceof DatabaseQueryError
+        ? ERR.exec(err.message)?.[1]
+        : undefined;
+    if (code === 'not_found') return new NotFoundException();
+    if (code === 'stale_version') return new StaleVersionException();
+    if (code === 'not_withdrawable' || code === 'not_written') {
+      return new ConflictException({
+        code: 'story_not_withdrawable',
+        message:
+          'Only a story waiting for review, in review or published can be withdrawn',
+      });
+    }
+    if (code === 'not_deletable') {
+      return new ConflictException({
+        code: 'story_not_deletable',
+        message:
+          'Only a draft, or a story that was withdrawn or not accepted, can be deleted. Withdraw it first.',
       });
     }
     return err;

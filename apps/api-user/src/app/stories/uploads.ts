@@ -504,6 +504,24 @@ export class Uploads {
     return this.images;
   }
 
+  /**
+   * DeleteStory's clean-up (D71): the videos api-user made for a story that is now deleted go at
+   * Bunny at once, after the database committed. Nobody else's story can show them (one story
+   * per video, D80). A failed delete leaves an orphan for the sweep (media-runbook.md), logged
+   * with its id only.
+   */
+  async discardDeleted(videoIds: string[]): Promise<void> {
+    if (!videoIds.length) return;
+    if (!this.bunny) {
+      this.logger.warn(
+        `Couldn’t delete the deleted story’s videos ${videoIds.join(', ')} (uploads are off; orphans until the sweep)`,
+      );
+      return;
+    }
+    for (const id of videoIds)
+      await this.discard(id, 'a deleted story’s video');
+  }
+
   private async discard(videoId: string, what: string) {
     await this.stream()
       .deleteVideo(videoId)
