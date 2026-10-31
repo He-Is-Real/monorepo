@@ -525,7 +525,11 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
   // With 3 drafts and a submission this week, as the page reads it.
   expect((await call('GET', '/v1/account/limits')).body).toMatchObject({
     openDrafts: { max: 3, open: 3 },
-    submissions: { per7Days: 1, nextAvailableAt: expect.any(String) },
+    submissions: {
+      per7Days: 1,
+      usedIn7Days: 1,
+      nextAvailableAt: expect.any(String),
+    },
   });
 
   // The profile (M2 plan PR 8): withdraw the submitted story, delete it and a draft.
@@ -687,5 +691,6 @@ test('the stub api-user’s uploads fit the contract, answers and errors (M2 pla
   expect((await call('GET', '/v1/account/limits')).body.uploads).toMatchObject({
     perHour: 10,
     per7Days: 5,
+    usedIn7Days: 1,
   });
 });

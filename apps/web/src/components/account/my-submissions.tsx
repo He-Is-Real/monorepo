@@ -28,7 +28,7 @@ export interface MyStoryRow {
   /** A draft's deletion date if nobody touches it (api-user's rule; never recomputed here). */
   draftExpiresAt?: string | null;
   /** O4: whether this story may go beyond heisreal.today (its own choice). */
-  sharing?: StorySharingState;
+  sharing: StorySharingState;
 }
 
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -97,6 +97,16 @@ async function readAll(api: ApiUser): Promise<MyStoryRow[]> {
       nextCursor: string | null;
     }>(`/v1/account/stories${query}`);
     if (!data) throw new ApiUserUnavailable('No answer');
+    // A story's sharing without a yes or no can't be shown as either (O4): the list waits for
+    // an answer that has it, rather than show "only on heisreal.today" for a story that's shared.
+    if (
+      !data.data.every(
+        (s) =>
+          typeof s.sharing?.granted === 'boolean' &&
+          typeof s.sharing.counts === 'boolean',
+      )
+    )
+      throw new ApiUserUnavailable('A story without its sharing');
     all.push(...data.data);
     cursor = data.nextCursor;
     if (!cursor) break;
@@ -228,7 +238,7 @@ export function MySubmissions({
                 storyId={story.id}
                 titleId={`story-${story.id}`}
                 status={story.status}
-                sharing={story.sharing ?? { granted: false, counts: false }}
+                sharing={story.sharing}
                 form={socialForm}
                 api={() => own.api(state.owner)}
                 onChanged={() => own.reload(state.owner)}

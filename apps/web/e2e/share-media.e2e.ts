@@ -410,9 +410,19 @@ test.describe('behaviour', () => {
         return route.fulfill({ response: res, json });
       },
     );
+    // The alert stays up from one try to the next, so each try waits for its own answer and
+    // for the panel to settle after it, never for the alert alone: otherwise the next file is
+    // chosen while this one is still being read, and the tries overlap.
     for (let i = 0; i < tries; i++) {
+      const answered = page.waitForResponse(
+        (r) =>
+          r.url().endsWith('/upload-url') && r.request().method() === 'POST',
+      );
       await page.getByLabel('Choose a file').setInputFiles(path);
+      await answered;
+      await expect(phase(page)).toHaveAttribute('data-upload-phase', 'idle');
       await expect(alert(page, 'can’t reach our server')).toBeVisible();
+      expect((await me.uploads()).requests).toBe(i + 1);
     }
     await page.getByLabel('Choose a file').setInputFiles(path);
     await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();

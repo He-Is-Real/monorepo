@@ -4,6 +4,19 @@ import { SCREENSHOT_DEVICES } from './devices';
 // Shared by the e2e suites: screenshots, the no-sideways-scroll check and 44 px targets.
 
 export const MIN_TARGET = 44;
+/**
+ * Measured sizes come back as floats: a 44 px box can read 43.99997 px (layout units and
+ * transforms, e.g. the open select list's slide-in). Allow that rounding only; a 43.9 px
+ * target still fails.
+ */
+const SUBPIXEL = 0.01;
+/** Asserts a measured width or height is a 44 px target, allowing sub-pixel rounding only. */
+export function expectAtLeastTarget(size: number | undefined, what = 'target') {
+  expect(
+    size ?? 0,
+    `${what} is at least ${MIN_TARGET} px`,
+  ).toBeGreaterThanOrEqual(MIN_TARGET - SUBPIXEL);
+}
 export async function shots(
   page: Page,
   project: string,
@@ -65,8 +78,8 @@ export async function expectTarget(page: Page, locator: Locator) {
   await locator.scrollIntoViewIfNeeded();
   await expect(locator).toBeVisible();
   const box = await locator.boundingBox();
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
-  expect(box?.width ?? 0).toBeGreaterThanOrEqual(MIN_TARGET);
+  expectAtLeastTarget(box?.height, 'height');
+  expectAtLeastTarget(box?.width, 'width');
   // Fully inside the viewport horizontally.
   const width = page.viewportSize()?.width ?? 0;
   expect(
@@ -96,6 +109,6 @@ export async function expectAllTargets(page: Page) {
         );
     }
     return out;
-  }, MIN_TARGET);
+  }, MIN_TARGET - SUBPIXEL);
   expect(small, 'targets smaller than 44 × 44 px').toEqual([]);
 }

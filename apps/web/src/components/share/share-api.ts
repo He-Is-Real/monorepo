@@ -75,14 +75,23 @@ export interface SubmissionLimits {
   storyText: { min: number; max: number };
   tags: { min: number; max: number };
   openDrafts: { max: number | null; open: number };
-  submissions: { per7Days: number | null; nextAvailableAt: string | null };
-  /** Video and audio files (D113): one file's size and length, and new uploads per hour/7 days. */
+  /** Submissions for review per rolling 7 days, and how many they made in the last 7. */
+  submissions: {
+    per7Days: number | null;
+    usedIn7Days: number;
+    nextAvailableAt: string | null;
+  };
+  /**
+   * Video and audio files (D113): one file's size and length, and new uploads per hour/7 days
+   * (pictures never count).
+   */
   uploads: {
     videoMaxBytes: number;
     audioMaxBytes: number;
     maxDurationSeconds: number;
     perHour: number;
     per7Days: number | null;
+    usedIn7Days: number;
     nextAvailableAt: string | null;
   };
 }

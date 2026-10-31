@@ -19,7 +19,8 @@
 //   standing in for Bunny Stream: creation (`POST`, the signed headers checked), `HEAD` and
 //   `PATCH`. A test can make the next PATCHes fail or hold them (`POST /__e2e/sessions/<id>/tus`)
 //   and read what arrived (`GET /__e2e/sessions/<id>/uploads`); submit needs the file to have
-//   arrived, as api-user asks Bunny.
+//   arrived, as api-user asks Bunny. `POST /__e2e/sessions/<id>/settings` changes a session's
+//   settings after its page loaded.
 // - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
 //   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
 //   carry its `status`, `slug`, moderator's `rejectionFeedback` and whether it may be `shared`
@@ -521,7 +522,8 @@ function newSession(id, seed = {}) {
     // Uploads: the videos made for this session's drafts, when new ones were started, and
     // what the TUS server should do with the next PATCHes.
     videos: new Map(),
-    uploadTimes: [],
+    // `uploadsAgo`: video or audio uploads started that many ms before the session began.
+    uploadTimes: (seed.uploadsAgo ?? []).map((ms) => Date.now() - ms),
     uploadRequests: 0,
     tus: { fail: 0, hold: false },
     // O4: which stories' sharing was ever chosen (a withdrawal needs a grant before it).
@@ -819,7 +821,11 @@ function limitsOf(s) {
       max: s.settings.tagsMax,
     },
     openDrafts: { max: s.trusted ? null : s.settings.openDraftsMax, open },
-    submissions: { per7Days, nextAvailableAt: next },
+    submissions: {
+      per7Days,
+      usedIn7Days: recent.length,
+      nextAvailableAt: next,
+    },
     uploads: uploadLimitsOf(s),
   };
 }
@@ -846,6 +852,7 @@ function uploadLimitsOf(s) {
     maxDurationSeconds: s.trusted ? 10800 : s.settings.mediaMaxSeconds,
     perHour,
     per7Days,
+    usedIn7Days: week.length,
     nextAvailableAt: next ? new Date(next).toISOString() : null,
   };
 }
@@ -1484,6 +1491,19 @@ createServer(async (req, res) => {
           ['terms', []],
         ]),
       );
+    res.writeHead(204);
+    return res.end();
+  }
+  // Test set-up only: the session's settings change after the page loaded (an admin lowers a
+  // limit), so the page's numbers are stale and the server's refusal answers instead.
+  const settingsSet = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/settings$/.exec(
+    path,
+  );
+  if (settingsSet && req.method === 'POST') {
+    Object.assign(
+      shareSession(settingsSet[1]).settings,
+      (await readJson(req)) ?? {},
+    );
     res.writeHead(204);
     return res.end();
   }

@@ -549,6 +549,34 @@ test.describe('behaviour', () => {
     expect(await me.shared()).toEqual([]);
   });
 
+  test('a list whose story has no sharing yes or no isn’t shown as “only on heisreal.today”', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {
+      granted: ['special_category_religious', 'publish'],
+      stories: [
+        { id: 'u1', status: 'approved', title: 'Shared one', shared: true },
+      ],
+    });
+    const list = `${STUB_USER_URL}/v1/account/stories?*`;
+    await page.route(list, async (route) => {
+      const answer = await route.fetch();
+      const body = await answer.json();
+      for (const story of body.data) delete story.sharing;
+      return route.fulfill({ response: answer, json: body });
+    });
+    await page.goto(PROFILE);
+    await expect(page.getByText('Your stories couldn’t load')).toBeVisible();
+    await expect(page.locator('[data-sharing]')).toHaveCount(0);
+
+    await page.unroute(list);
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect(
+      row(page, 'Shared one').locator('[data-sharing="on"]'),
+    ).toBeVisible();
+  });
+
   test('delete my account, by keyboard: it asks for the word, then the account is gone', async ({
     page,
     request,
