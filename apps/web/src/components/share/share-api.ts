@@ -37,6 +37,12 @@ export interface Tag {
   category: 'theme' | 'journey' | 'emotion';
 }
 
+/** `GET /v1/tags`: every theme and the main themes' slugs in their order (O5). */
+export interface Themes {
+  tags: Tag[];
+  main: string[];
+}
+
 export type StoryFormat = 'video' | 'audio' | 'written';
 
 /** The contract's `StoryMine`, the parts the flow uses. */
@@ -246,8 +252,12 @@ export function shareApi(api: ApiUser) {
     limits: async () =>
       (await api.get<SubmissionLimits>('/v1/account/limits'))
         .data as SubmissionLimits,
-    tags: async () =>
-      ((await api.get<{ data: Tag[] }>('/v1/tags')).data?.data ?? []) as Tag[],
+    /** Every theme, and the main ones' slugs to show first (O5). */
+    tags: async (): Promise<Themes> => {
+      const body = (await api.get<{ data: Tag[]; main?: string[] }>('/v1/tags'))
+        .data;
+      return { tags: body?.data ?? [], main: body?.main ?? [] };
+    },
     openDrafts: async () =>
       ((
         await api.get<{ data: MyStory[] }>(

@@ -231,39 +231,45 @@ DEFINE FUNCTION OVERWRITE fn::fence::legal() {
 };
 
 -- ---------------------------------------------------------------- tag
+-- The themes people choose for their stories and browse by. Stories link them by record id
+-- (D15), so a rename shows everywhere at once. **Never deleted (Joel, 2026-10-31, O5):** no login
+-- may delete one, only rename it, so no story ever loses a theme and the themes never drop below
+-- submissionSettings.tagsMin. api-admin's login creates and renames them for an admin (/admin/themes),
+-- naming the admin in changedBy (audit-logged, tag_audit). A name is unique ignoring case
+-- (`nameKey`, a unique index); the slug (the id) is made from the first name and never changes.
+-- System users (the migrator, dev-seed's reset) aren't bound by permissions and may still delete,
+-- which is why submitting needs fn::settings::themes_needed(), never more themes than there are.
 DEFINE TABLE OVERWRITE tag SCHEMAFULL PERMISSIONS               -- id = tag:<slug>, e.g. tag:doubt
   FOR select FULL,
-  FOR create, update, delete WHERE $auth.id = service:api_admin;
-DEFINE FIELD OVERWRITE name      ON tag TYPE string ASSERT string::len($value) > 0 AND string::len($value) <= 40;
+  FOR create, update WHERE $auth.id = service:api_admin,
+  FOR delete NONE;
+DEFINE FIELD OVERWRITE name      ON tag TYPE string
+  ASSERT string::len($value) > 0 AND string::len($value) <= 40 AND string::trim($value) = $value;
+-- Computed from name on every write, so no writer sets it; data/0008 wrote it for the tags made
+-- before it existed (an index skips rows without the field).
+DEFINE FIELD OVERWRITE nameKey   ON tag TYPE string VALUE string::lowercase(name);
+DEFINE INDEX OVERWRITE tag_name_key ON tag FIELDS nameKey UNIQUE;
 DEFINE FIELD OVERWRITE category  ON tag TYPE string ASSERT $value IN ['theme', 'journey', 'emotion'];
 DEFINE FIELD OVERWRITE version       ON tag TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now() READONLY;
--- Submitting needs at least submissionSettings.tagsMin themes (api-user), so a catalogue with fewer
--- themes than that would refuse every submission. A theme is any tag (there's no hidden or retired
--- flag, and the category doesn't matter), so the only way to lose one is a DELETE: api-admin's
--- login may not delete a tag that would leave fewer than tagsMin (`too_few_themes:<tagsMin>`), and
--- submissionSettings_check refuses raising tagsMin above the tags there are. Both read a snapshot,
--- so every tag deletion and every settings write also write themesFence:current: of a deletion
--- and a save (or two deletions) that overlap, the second to commit fails with a retryable
--- conflict, and its retry sees the other's result. System users (the migrator, dev-seed's reset,
--- which deletes and re-creates the tags in one transaction) aren't checked, so the themes can
--- still drop below tagsMin that way (Codex, admin limits review round 3). Submitting therefore
--- needs fn::settings::themes_needed(), never more themes than there are: a lock-out can't happen
--- whatever deletes them, and the admin checks above keep an admin from making it happen on purpose.
-DEFINE TABLE OVERWRITE themesFence SCHEMAFULL PERMISSIONS NONE;   -- id = themesFence:current
-DEFINE FIELD OVERWRITE n ON themesFence TYPE int DEFAULT 0;
-DEFINE FUNCTION OVERWRITE fn::fence::themes() {
-  UPSERT themesFence:current SET n += 1 RETURN NONE;
-};
-DEFINE EVENT OVERWRITE tag_delete ON tag
-  WHEN $event = 'DELETE'
+DEFINE FIELD OVERWRITE changedBy     ON tag TYPE option<record<user>>;
+-- The admin's role when they made the change (a snapshot of the Clerk claim, D1), as on
+-- submissionSettings; api-admin sets it with changedBy.
+DEFINE FIELD OVERWRITE changedByRole ON tag TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
+DEFINE EVENT OVERWRITE tag_audit ON tag
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $auth != NONE
   THEN {
-    fn::fence::themes();
-    LET $min = fn::settings::submission().tagsMin;
-    IF $auth != NONE AND count(SELECT VALUE id FROM tag) < $min {
-      THROW 'too_few_themes:' + <string>$min;
+    IF $after.changedBy = NONE { THROW 'a theme change names the admin who made it (changedBy)' };
+    CREATE auditLog CONTENT {
+      service: fn::audit::service(), action: IF $event = 'CREATE' { 'CreateTag' } ELSE { 'UpdateTag' },
+      entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
     };
   };
+-- Themes can't be deleted, so nothing needs the old deletion check or its fence.
+REMOVE EVENT IF EXISTS tag_delete ON tag;
+REMOVE TABLE IF EXISTS themesFence;
+REMOVE FUNCTION IF EXISTS fn::fence::themes;
 
 -- ---------------------------------------------------------------- story (write model)
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
@@ -1826,7 +1832,7 @@ DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
   'LockStory', 'ReleaseStory', 'ApproveStory', 'RejectStory', 'RequestStoryChanges', 'EscalateStory',
   'AssignRole', 'LinkLegacyUser', 'CreateTag', 'UpdateTag', 'DeleteTag',
   'CreateDpaDraft', 'PublishDpa', 'UpdateSubmissionSettings', 'UpdateSubmitterLimits',
-  'PublishPrivacyPolicy', 'PublishTerms',
+  'PublishPrivacyPolicy', 'PublishTerms', 'UpdateMainThemes',
   -- workflow (M7)
   'ProcessMedia',
   -- the database itself (story_media_availability), in the writer's transaction
@@ -1993,8 +1999,8 @@ DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
     IF $after.storyTextMin > $after.storyTextMax { THROW 'storyTextMin is more than storyTextMax' };
     IF $after.tagsMin > $after.tagsMax { THROW 'tagsMin is more than tagsMax' };
     IF $after.changedBy = NONE AND $auth != NONE { THROW 'a settings change names the admin who made it (changedBy)' };
-    -- tagsMin can't be raised above the themes there are (else nobody could submit); see tag_delete.
-    fn::fence::themes();
+    -- tagsMin can't be raised above the themes there are (else nobody could submit). Themes are
+    -- never deleted by a login (tag), so the count can only grow while a save is in flight.
     IF $auth != NONE AND $after.tagsMin > ($before.tagsMin ?? 0)
       AND $after.tagsMin > count(SELECT VALUE id FROM tag) {
       THROW 'too_few_themes:' + <string>count(SELECT VALUE id FROM tag);
@@ -2018,10 +2024,56 @@ DEFINE FUNCTION OVERWRITE fn::settings::submission() {
   };
 };
 -- The fewest themes a story needs to be submitted: tagsMin, or every theme there is if there are
--- fewer (a system user may delete themes below tagsMin; see tag_delete). api-user checks it at
+-- fewer (a system user may delete themes below tagsMin; see tag). api-user checks it at
 -- submit and reports it as the limit; anyone may call it (everyone reads tags and the settings).
 DEFINE FUNCTION OVERWRITE fn::settings::themes_needed() {
   RETURN math::min([fn::settings::submission().tagsMin, count(SELECT VALUE id FROM tag)]);
+};
+-- ---------------------------------------------------------------- themeSettings (O5)
+-- The main themes (Joel, 2026-10-31, O5): an ordered list of themes an admin picks, the order being
+-- their priority, and how many of them people see first (`mainThemesCount`, any whole number from 1,
+-- 10 unless an admin changes it; no upper cap: admins are trusted, Joel 2026-10-31). Wherever people choose or filter by themes, the first mainThemesCount come
+-- first and every other theme sits behind "More themes" (fn::settings::main_themes). The list
+-- holds each theme once, each an existing tag; tags are never deleted by a login,
+-- but a system user may delete one, so readers skip any that's gone. One record,
+-- themeSettings:current, created by data/0008. Everyone reads it (public reference data); only
+-- api-admin's login, naming the admin in changedBy, and the migrator change it, never delete it.
+-- Every change is audit-logged. Admins change it at /admin/themes (api-admin's GET/PUT
+-- /v1/admin/main-themes, If-Match on `version`).
+DEFINE TABLE OVERWRITE themeSettings SCHEMAFULL PERMISSIONS
+  FOR select FULL,
+  FOR create, update WHERE $auth.id = service:api_admin,
+  FOR delete NONE;
+DEFINE FIELD OVERWRITE mainThemes      ON themeSettings TYPE array<record<tag>> DEFAULT []
+  ASSERT array::len(array::distinct($value)) = array::len($value);
+DEFINE FIELD OVERWRITE mainThemesCount ON themeSettings TYPE int DEFAULT 10 ASSERT $value >= 1;
+DEFINE FIELD OVERWRITE changedBy       ON themeSettings TYPE option<record<user>>;
+DEFINE FIELD OVERWRITE changedByRole   ON themeSettings TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
+DEFINE FIELD OVERWRITE version         ON themeSettings TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
+DEFINE FIELD OVERWRITE updatedAt       ON themeSettings TYPE datetime VALUE time::now();
+DEFINE EVENT OVERWRITE themeSettings_check ON themeSettings
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    IF $after.id != themeSettings:current { THROW 'there is one theme settings record: themeSettings:current' };
+    IF $after.changedBy = NONE AND $auth != NONE { THROW 'a theme settings change names the admin who made it (changedBy)' };
+    IF $auth != NONE AND $after.mainThemes.any(|$t| !record::exists($t)) {
+      THROW 'unknown_theme: every main theme must be an existing theme';
+    };
+    IF $auth != NONE {
+      CREATE auditLog CONTENT {
+        service: fn::audit::service(), action: 'UpdateMainThemes',
+        entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
+      };
+    };
+  };
+-- The main themes people see first, as slugs in priority order: the first mainThemesCount of the
+-- list that still exist (defaults before data/0008 ran: none). Empty means no main themes yet, so
+-- pickers show every theme. Anyone may call it (everyone reads tags and the settings).
+DEFINE FUNCTION OVERWRITE fn::settings::main_themes() {
+  LET $s = (SELECT mainThemes, mainThemesCount FROM ONLY themeSettings:current);
+  LET $live = ($s.mainThemes ?? []).filter(|$t| record::exists($t));
+  RETURN $live.slice(0, $s.mainThemesCount ?? 10).map(|$t| record::id($t));
 };
 -- The most any setting may allow for one upload, and what a trusted submitter gets: 10 GiB of
 -- video, 2 GiB of audio, 3 hours (a cost ceiling, not a product rule).

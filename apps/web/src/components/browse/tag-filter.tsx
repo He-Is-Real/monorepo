@@ -1,10 +1,16 @@
+'use client';
+
 import Link from 'next/link';
+import { MoreThemes } from '@/components/themes/more-themes';
 import type { StoryTag } from '@/lib/browse';
 import { type BrowseFilters, browseHref, toggleTag } from '@/lib/browse-query';
+import { splitThemes } from '@/lib/main-themes';
 
 // The tags from GET /v1/tags: only tags some published story uses (D63).
 // Each is a link that adds or removes it (a story must have all selected tags); "All" clears
-// them. Theme tags come first; the faith-journey and feelings tags sit behind "More tags".
+// them. The main themes an admin picked come first, in their order (O5); every other theme sits
+// behind "More themes", with a search. A chosen one of those also shows in the first row, so the
+// filters in force stay visible while "More themes" is closed.
 
 const chip =
   'inline-flex min-h-11 items-center rounded-full border px-4 text-sm transition-colors';
@@ -39,23 +45,16 @@ function TagLink({ tag, filters }: { tag: StoryTag; filters: BrowseFilters }) {
 
 export function TagFilter({
   tags,
+  main,
   filters,
 }: {
   tags: StoryTag[];
+  main: string[];
   filters: BrowseFilters;
 }) {
   if (tags.length === 0) return null;
-  const themes = tags.filter((t) => t.category === 'theme');
-  const others = [
-    {
-      label: 'Faith journey',
-      tags: tags.filter((t) => t.category === 'journey'),
-    },
-    { label: 'Feelings', tags: tags.filter((t) => t.category === 'emotion') },
-  ].filter((g) => g.tags.length > 0);
-  const otherSelected = others.some((g) =>
-    g.tags.some((t) => filters.tags.includes(t.slug)),
-  );
+  const { main: first, more } = splitThemes(tags, main);
+  const chosen = more.filter((t) => filters.tags.includes(t.slug));
   return (
     <div className="mt-5">
       <ul className="flex flex-wrap gap-2" aria-label="Themes">
@@ -68,35 +67,14 @@ export function TagFilter({
             All
           </Link>
         </li>
-        {themes.map((t) => (
+        {[...first, ...chosen].map((t) => (
           <TagLink key={t.slug} tag={t} filters={filters} />
         ))}
       </ul>
-      {others.length > 0 && (
-        <details open={otherSelected} className="group mt-2">
-          <summary className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-md text-sm font-medium text-link hover:text-link-hover">
-            More tags
-            <svg
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              className="size-4 fill-none stroke-current transition-transform group-open:rotate-180 motion-reduce:transition-none"
-              strokeWidth="2"
-            >
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </summary>
-          {others.map((g) => (
-            <div key={g.label} className="mt-2">
-              <h2 className="mb-2 text-sm text-muted-foreground">{g.label}</h2>
-              <ul className="flex flex-wrap gap-2">
-                {g.tags.map((t) => (
-                  <TagLink key={t.slug} tag={t} filters={filters} />
-                ))}
-              </ul>
-            </div>
-          ))}
-        </details>
-      )}
+      <MoreThemes
+        themes={more}
+        renderTheme={(t) => <TagLink tag={t} filters={filters} />}
+      />
     </div>
   );
 }

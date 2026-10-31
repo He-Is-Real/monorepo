@@ -224,9 +224,9 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     const gus = await person('gus');
     await run(
       admin,
-      `CREATE tag:a SET name = 'A', category = 'theme';
-       CREATE tag:b SET name = 'B', category = 'theme';
-       CREATE tag:c SET name = 'C', category = 'theme';`,
+      `CREATE tag:a SET name = 'A', category = 'theme', changedBy = user:fixture_admin;
+       CREATE tag:b SET name = 'B', category = 'theme', changedBy = user:fixture_admin;
+       CREATE tag:c SET name = 'C', category = 'theme', changedBy = user:fixture_admin;`,
     );
     const long = 'x'.repeat(300);
     await run(

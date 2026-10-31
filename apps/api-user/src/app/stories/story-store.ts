@@ -187,17 +187,22 @@ const iso = (d: string | null | undefined) =>
 export class StoryStore {
   constructor(private readonly person: SurrealQueryable) {}
 
-  async tags(): Promise<Tag[]> {
-    const [rows] = (await runQuery(
+  /** Every tag, and the main themes' slugs the form shows first (O5). */
+  async tags(): Promise<{ data: Tag[]; main: string[] }> {
+    const [rows, main] = (await runQuery(
       this.person,
-      'SELECT record::id(id) AS slug, name, category, version FROM tag',
-    )) as [Tag[]];
-    return rows.sort(
-      (a, b) =>
-        CATEGORY_ORDER.indexOf(a.category) -
-          CATEGORY_ORDER.indexOf(b.category) ||
-        a.name.localeCompare(b.name, 'en'),
-    );
+      `SELECT record::id(id) AS slug, name, category, version FROM tag;
+       RETURN fn::settings::main_themes();`,
+    )) as [Tag[], string[]];
+    return {
+      data: rows.sort(
+        (a, b) =>
+          CATEGORY_ORDER.indexOf(a.category) -
+            CATEGORY_ORDER.indexOf(b.category) ||
+          a.name.localeCompare(b.name, 'en'),
+      ),
+      main,
+    };
   }
 
   async get(id: string): Promise<StoryMine | undefined> {

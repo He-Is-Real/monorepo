@@ -8,7 +8,13 @@ import { MAX_TEXT } from './legal-documents/legal-documents.controller';
  */
 export const JSON_BODY_LIMIT = MAX_TEXT * 6 + 1024;
 
-/** Nest's own JSON body parser, with api-admin's bounded limit. */
+/**
+ * Nest's own JSON body parser, with api-admin's bounded limit. It also reads JSON Merge Patch
+ * (D28: `PATCH` bodies are `application/merge-patch+json`, e.g. renaming a theme).
+ */
 export function useBodyParser(app: NestExpressApplication): void {
-  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
+  app.useBodyParser('json', {
+    limit: JSON_BODY_LIMIT,
+    type: ['application/json', 'application/merge-patch+json'],
+  });
 }

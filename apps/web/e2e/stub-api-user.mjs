@@ -294,6 +294,119 @@ async function saveSettings(req, res, session) {
   return send(res, 200, { id: 'current', version: s.version });
 }
 
+// --- api-admin: themes and the main themes (O5) ---------------------------------------------
+const slugOf = (name) =>
+  name
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'theme';
+const nameOf = (v) =>
+  typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+const nameTaken = (themes, name, except) =>
+  themes.some(
+    (t) => t.slug !== except && t.name.toLowerCase() === name.toLowerCase(),
+  );
+const conflict = (res) => {
+  res.writeHead(409, {
+    'content-type': 'application/problem+json',
+    'cache-control': 'no-store',
+  });
+  res.end(
+    JSON.stringify({
+      type: 'about:blank',
+      title: 'Conflict',
+      status: 409,
+      code: 'name_taken',
+      detail: 'There is already a theme with this name.',
+      errors: [
+        {
+          pointer: '/name',
+          code: 'name_taken',
+          message: 'There is already a theme with this name.',
+        },
+      ],
+    }),
+  );
+};
+
+/** `/v1/admin/themes` and `/v1/admin/main-themes`, checked like api-admin, on the session's own. */
+async function handleThemes(req, res, path, s) {
+  const byName = () =>
+    [...s.themes].sort((a, b) => a.name.localeCompare(b.name, 'en'));
+  if (path === '/v1/admin/themes' && req.method === 'GET')
+    return collection(req, res, { data: byName() });
+  if (path === '/v1/admin/themes' && req.method === 'POST') {
+    const name = nameOf(((await readJson(req)) ?? {}).name);
+    if (!name || name.length > 40) return invalid(res, '/name', 'required');
+    if (nameTaken(s.themes, name)) return conflict(res);
+    const base = slugOf(name);
+    let slug = base;
+    for (let i = 2; s.themes.some((t) => t.slug === slug); i++)
+      slug = `${base}-${i}`;
+    s.themes.push({ slug, name, category: 'theme', version: 1 });
+    res.setHeader('location', `/v1/admin/themes/${slug}`);
+    return send(res, 201, { id: slug, version: 1 });
+  }
+  const one = /^\/v1\/admin\/themes\/([a-z0-9-]+)$/.exec(path);
+  if (one && req.method === 'PATCH') {
+    const theme = s.themes.find((t) => t.slug === one[1]);
+    if (!theme) return problem(res, 404, 'Not found', 'not_found');
+    const ifMatch = req.headers['if-match'];
+    if (!ifMatch)
+      return problem(res, 428, 'Precondition required', 'if_match_required');
+    const name = nameOf(((await readJson(req)) ?? {}).name);
+    if (!name || name.length > 40) return invalid(res, '/name', 'required');
+    if (ifMatch !== `"${theme.version}"`)
+      return problem(res, 412, 'Precondition failed', 'stale_version');
+    if (nameTaken(s.themes, name, theme.slug)) return conflict(res);
+    theme.name = name;
+    theme.version += 1;
+    res.setHeader('etag', `"${theme.version}"`);
+    return send(res, 200, { id: theme.slug, version: theme.version });
+  }
+  if (path === '/v1/admin/main-themes' && req.method === 'GET') {
+    const etag = `"${s.main.version}"`;
+    return sendJson(
+      res,
+      200,
+      {
+        ...s.main,
+        updatedAt: '2026-10-31T12:00:00.000Z',
+        changedBy: s.main.version > 1 ? 'e2efixture' : null,
+      },
+      { etag, 'cache-control': 'private, no-store' },
+    );
+  }
+  if (path === '/v1/admin/main-themes' && req.method === 'PUT') {
+    const ifMatch = req.headers['if-match'];
+    if (!ifMatch)
+      return problem(res, 428, 'Precondition required', 'if_match_required');
+    const body = (await readJson(req)) ?? {};
+    const count = body.mainThemesCount;
+    if (!Number.isSafeInteger(count) || count < 1)
+      return invalid(res, '/mainThemesCount', 'out_of_range');
+    const list = body.mainThemes;
+    if (
+      !Array.isArray(list) ||
+      new Set(list).size !== list.length ||
+      list.some((slug) => !s.themes.some((t) => t.slug === slug))
+    )
+      return invalid(res, '/mainThemes', 'unknown_theme');
+    if (ifMatch !== `"${s.main.version}"`)
+      return problem(res, 412, 'Precondition failed', 'stale_version');
+    s.main = {
+      version: s.main.version + 1,
+      mainThemes: list,
+      mainThemesCount: count,
+    };
+    res.setHeader('etag', `"${s.main.version}"`);
+    return send(res, 200, { id: 'current', version: s.main.version });
+  }
+  return false;
+}
+
 const readBody = (req) =>
   new Promise((done) => {
     let text = '';
@@ -479,6 +592,8 @@ const TAGS = [
   { slug: 'loss', name: 'Loss', category: 'emotion', version: 1 },
   { slug: 'hope', name: 'Hope', category: 'emotion', version: 1 },
 ];
+/** The main themes each session starts with (O5): Addiction and Doubt are behind "More themes". */
+const MAIN = ['hope', 'faith', 'loss', 'healing'];
 const CONSENT_TYPES = [
   'special_category_religious',
   'publish',
@@ -514,6 +629,10 @@ function newSession(id, seed = {}) {
     tus: { fail: 0, hold: false },
     // Erasure: `DELETE /v1/account` erases, then answers 500 (the queue failed after the commit).
     eraseThenFail: seed.eraseThenFail ?? false,
+    // The themes and main themes (O5), the session's own so an admin's rename shows on its
+    // stories (api-admin's /v1/admin/themes and /v1/admin/main-themes on this stub).
+    themes: TAGS.map((t) => ({ ...t })),
+    main: { version: 1, mainThemes: seed.main ?? MAIN, mainThemesCount: 10 },
   };
   for (const story of seed.stories ?? []) {
     const now = new Date().toISOString();
@@ -609,7 +728,7 @@ function consentState(s) {
   };
 }
 
-function storyMine(id, st) {
+function storyMine(id, st, s) {
   return {
     id,
     version: st.version,
@@ -634,7 +753,7 @@ function storyMine(id, st) {
         ]
       : [],
     image: null,
-    tags: st.tagSlugs.map((slug) => TAGS.find((t) => t.slug === slug)),
+    tags: st.tagSlugs.map((slug) => s.themes.find((t) => t.slug === slug)),
     rejectionFeedback: st.rejectionFeedback ?? null,
     submittedAt: st.submittedAt,
     approvedAt: null,
@@ -690,7 +809,7 @@ function myDataOf(s, token, mine) {
       lastActiveAt: null,
     },
     stories: [...s.stories].reverse().map(([id, st]) => {
-      const { version: _v, tags, media, ...rest } = storyMine(id, st);
+      const { version: _v, tags, media, ...rest } = storyMine(id, st, s);
       return {
         ...rest,
         onSiteNow: st.status === 'approved',
@@ -874,7 +993,7 @@ function fieldErrors(b, allowed, s, current) {
       (b.tagSlugs.length > s.settings.tagsMax &&
         b.tagSlugs.length > (current?.tagSlugs.length ?? 0)) ||
       new Set(b.tagSlugs).size !== b.tagSlugs.length ||
-      b.tagSlugs.some((t) => !TAGS.some((x) => x.slug === t)))
+      b.tagSlugs.some((t) => !s.themes.some((x) => x.slug === t)))
   )
     errors.push({ pointer: '/tagSlugs', message: 'too many or unknown tags' });
   return errors;
@@ -922,14 +1041,18 @@ async function handleShare(req, res, path, url, s) {
     return collection(req, res, limitsOf(s));
   }
   if (path === '/v1/tags' && req.method === 'GET') {
-    return collection(req, res, { data: TAGS });
+    const { mainThemes, mainThemesCount } = s.main;
+    return collection(req, res, {
+      data: s.themes,
+      main: mainThemes.slice(0, mainThemesCount),
+    });
   }
   if (path === '/v1/account/stories' && req.method === 'GET') {
     const status = url.searchParams.get('status');
     const data = [...s.stories]
       .filter(([, st]) => !status || st.status === status)
       .reverse()
-      .map(([id, st]) => storyMine(id, st));
+      .map(([id, st]) => storyMine(id, st, s));
     return collection(req, res, { data, nextCursor: null });
   }
   const mine = /^\/v1\/account\/stories\/([^/]+)$/.exec(path);
@@ -939,7 +1062,7 @@ async function handleShare(req, res, path, url, s) {
     const etag = `"${st.version}"`;
     if (req.headers['if-none-match'] === etag)
       return sendJson(res, 304, undefined, { etag });
-    return sendJson(res, 200, storyMine(mine[1], st), { etag });
+    return sendJson(res, 200, storyMine(mine[1], st, s), { etag });
   }
   if (path === '/v1/stories' && req.method === 'POST') {
     // The guard: Art 9 on the forms in force (D93).
@@ -1506,6 +1629,14 @@ createServer(async (req, res) => {
       return void publishDocument(req, res, token, document);
     if (what === 'versions')
       return cached(req, res, listOf(document, versionsFor(token, document)));
+    return problem(res, 404, 'Not found', 'not_found');
+  }
+  if (path.startsWith('/v1/admin/themes') || path === '/v1/admin/main-themes') {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    if ((await handleThemes(req, res, path, shareSession(token))) !== false)
+      return;
     return problem(res, 404, 'Not found', 'not_found');
   }
   if (

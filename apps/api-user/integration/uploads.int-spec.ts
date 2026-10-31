@@ -129,7 +129,7 @@ describe('video and audio uploads', () => {
     await grantAll(await t.person(`user_${who}`));
     await run(
       await t.service('api_admin'),
-      `UPSERT tag:healing SET name = 'Healing', category = 'theme'`,
+      `UPSERT tag:healing SET name = 'Healing', category = 'theme', changedBy = user:fixture_admin`,
     );
   }
   const draft = async (who: string, format: 'video' | 'audio' = 'video') => {

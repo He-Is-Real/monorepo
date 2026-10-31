@@ -36,8 +36,8 @@ const MIB = 1_048_576;
  * of a 500. The media minima are one unit of what /admin/limits shows (1 MB, 1 minute): nothing
  * smaller can be typed there, and no real recording is smaller. Besides these, each minimum must
  * be at most its maximum (storyTextMin ≤ storyTextMax, tagsMin ≤ tagsMax), as the database checks,
- * and tagsMin at most the themes there are (else nobody could submit), checked as it saves; the
- * database also refuses deleting a theme that would leave fewer than tagsMin (tag_delete). The
+ * and tagsMin at most the themes there are (else nobody could submit), checked as it saves; no
+ * login can delete a theme (O5), so the themes can't drop below it afterwards either. The
  * other limits can't lock everyone out: every count's minimum is 1, and text min ≤ max.
  */
 export const BOUNDS = {
@@ -113,7 +113,7 @@ export function parseSettings(body: unknown): SubmissionSettings {
 }
 
 /** `If-Match: "<version>"` (D29): the version, undefined when missing, or 'invalid'. */
-function parseIfMatch(
+export function parseIfMatch(
   header: string | undefined,
 ): number | undefined | 'invalid' {
   if (header === undefined || header.trim() === '') return undefined;
@@ -214,10 +214,8 @@ export class SubmissionSettingsController {
    * UpdateSubmissionSettings: every limit, at the version read (If-Match; 412 if someone saved
    * since, 428 if missing). One transaction checks the version and writes; two admins saving
    * at once conflict at commit, and the loser gets 412 too. The theme count is read in the same
-   * transaction, so tagsMin is checked against the themes there are as it saves. That count is
-   * a snapshot, so the save also writes themesFence:current (submissionSettings_check), as every
-   * theme deletion does: a save and a deletion that overlap can't both commit, and the save that
-   * loses gets 412, then sees the new count when it's retried.
+   * transaction, so tagsMin is checked against the themes there are as it saves. No login can
+   * delete a theme (O5), so that count can only grow while the save is in flight.
    */
   @Put()
   @RequiresRole('Admin')

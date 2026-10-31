@@ -36,6 +36,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   submissionLog: 'linked', // person (D113: recent submissions)
   uploadGrant: 'linked', // person, story (D80: the Bunny videos api-user made for them)
   submissionSettings: 'none', // the limits an admin sets (W3, D112)
+  themeSettings: 'none', // the main themes an admin picks (O5); changedBy like submissionSettings
   // D82: the sha256 of an erased Clerk id, so it never gets a row again; no link, no date.
   erasedIdentity: 'kept',
   // D40: Bunny ids and image paths (and, until Clerk confirms, the Clerk id) erasure still has
@@ -48,8 +49,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   personFence: 'none', // a counter keyed by user id; events only
   identityFence: 'none', // a counter keyed by a Clerk id's fingerprint (D82); events only
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
-  themesFence: 'none', // one counter for tag deletions and settings writes (tagsMin); events only
-  tag: 'none',
+  tag: 'none', // changedBy: the admin who made or renamed it (O5), like submissionSettings
   // The legal documents (D121): the publishing admin's user id only (publishedBy, read by
   // api-admin alone), like an audit row's actor; kept for ever, never testimony.
   dpaVersion: 'kept',

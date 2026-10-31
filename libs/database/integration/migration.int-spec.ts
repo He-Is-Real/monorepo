@@ -50,6 +50,7 @@ const SEEDS = [
   '0005-dev-legal-placeholders',
   '0006-submission-settings',
   '0007-dev-legal-documents',
+  '0008-theme-settings',
 ];
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
@@ -307,7 +308,11 @@ describe('init + identity check + migrate on an empty database', () => {
   it('a second run is a no-op: same schema, no script re-run, data and sessions intact', async () => {
     const migrator = await t.migrator();
     const admin = await t.service('api_admin'); // a WebSocket session opened before
-    await run(admin, tag('kept'));
+    // api-admin's changes name the admin (O5).
+    await run(
+      admin,
+      `CREATE tag:kept SET name = 'kept', category = 'theme', changedBy = user:someone;`,
+    );
     const before = {
       info: await rows(migrator, 'INFO FOR DB'),
       migrations: await rows(migrator, 'SELECT * FROM _migration ORDER BY id'),
@@ -907,7 +912,7 @@ describe('allow-list: the guard matches 3.2.4', () => {
   };
   const wrap = (ctx: string, k: string, stmt: string) =>
     contexts[ctx](
-      `CREATE tag:in_before_${k} SET name = 'b', category = 'theme';\n${stmt};\nCREATE tag:in_after_${k} SET name = 'a', category = 'theme';`,
+      `CREATE tag:in_before_${k} SET name = 'b_${k}', category = 'theme';\n${stmt};\nCREATE tag:in_after_${k} SET name = 'a_${k}', category = 'theme';`,
     );
   const exists = async (id: string) =>
     (await rows(await t.migrator(), `SELECT VALUE id FROM tag:${id}`))
@@ -919,21 +924,21 @@ describe('allow-list: the guard matches 3.2.4', () => {
     [(k: string) => string, (k: string) => Promise<boolean>]
   > = {
     CREATE: [
-      (k) => `CREATE tag:e_${k} SET name = 'e', category = 'theme'`,
+      (k) => `CREATE tag:e_${k} SET name = 'e_${k}', category = 'theme'`,
       (k) => exists(`e_${k}`),
     ],
     UPDATE: [
-      (k) => `UPDATE tag:in_before_${k} SET name = 'updated'`,
+      (k) => `UPDATE tag:in_before_${k} SET name = 'updated_${k}'`,
       async (k) =>
         (
           await rows<string>(
             await t.migrator(),
             `SELECT VALUE name FROM tag:in_before_${k}`,
           )
-        )[0] === 'updated',
+        )[0] === `updated_${k}`,
     ],
     UPSERT: [
-      (k) => `UPSERT tag:e_${k} SET name = 'e', category = 'theme'`,
+      (k) => `UPSERT tag:e_${k} SET name = 'e_${k}', category = 'theme'`,
       (k) => exists(`e_${k}`),
     ],
     DELETE: [
@@ -943,12 +948,12 @@ describe('allow-list: the guard matches 3.2.4', () => {
     LET: [() => 'LET $v = 1', async () => true],
     IF: [
       (k) =>
-        `IF true { CREATE tag:e_${k} SET name = 'e', category = 'theme'; }`,
+        `IF true { CREATE tag:e_${k} SET name = 'e_${k}', category = 'theme'; }`,
       (k) => exists(`e_${k}`),
     ],
     FOR: [
       (k) =>
-        `FOR $x IN [1, 2] { UPSERT tag:e_${k} SET name = 'e', category = 'theme'; }`,
+        `FOR $x IN [1, 2] { UPSERT tag:e_${k} SET name = 'e_${k}', category = 'theme'; }`,
       (k) => exists(`e_${k}`),
     ],
     SELECT: [() => 'SELECT * FROM tag', async () => true],
@@ -1064,7 +1069,7 @@ describe('allow-list: the guard matches 3.2.4', () => {
     const k = `real_${word}_${ctx}`.toLowerCase().replace(/\W+/g, '_');
     await outcome(
       await t.migrator(),
-      `BEGIN TRANSACTION;\n${wrap(ctx, k, refused[word])}\nCREATE tag:mark_${k} SET name = 'm', category = 'theme';\nCOMMIT TRANSACTION;`,
+      `BEGIN TRANSACTION;\n${wrap(ctx, k, refused[word])}\nCREATE tag:mark_${k} SET name = 'm_${k}', category = 'theme';\nCOMMIT TRANSACTION;`,
     );
     expect(await exists(`in_before_${k}`)).toBe(true); // committed
     expect(await exists(`in_after_${k}`)).toBe(false); // silently skipped
@@ -1120,6 +1125,7 @@ describe('upgrading a database migrated by the previous release (Codex, #101)', 
       '0005-dev-legal-placeholders',
       '0006-submission-settings',
       '0007-dev-legal-documents',
+      '0008-theme-settings',
     ]);
     const migrator = await t.migrator();
     expect(

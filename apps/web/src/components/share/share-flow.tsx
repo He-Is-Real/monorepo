@@ -30,7 +30,10 @@ import {
   type StoryFormat,
   type SubmissionLimits,
   type Tag,
+  type Themes,
 } from './share-api';
+import { MoreThemes } from '@/components/themes/more-themes';
+import { splitThemes } from '@/lib/main-themes';
 import { useDraft } from './use-draft';
 import { type FileState, UploadPanel } from './upload-panel';
 
@@ -183,7 +186,7 @@ function SignedInFlow({
         state: 'ready';
         consents: ConsentState;
         limits: SubmissionLimits;
-        tags: Tag[];
+        tags: Themes;
         drafts: MyStory[];
         askConsent: boolean;
       }
@@ -441,7 +444,7 @@ function SignedInFlow({
             <DetailsStep
               heading={heading}
               draft={draft}
-              tags={tags}
+              themes={tags}
               onNext={() => go(after('details'))}
               onBack={() => go(before('details'))}
             />
@@ -450,7 +453,7 @@ function SignedInFlow({
             <ReviewStep
               heading={heading}
               draft={draft}
-              tags={tags}
+              tags={tags.tags}
               legal={legal}
               consents={consents}
               calls={calls}
@@ -1159,19 +1162,56 @@ function MediaStep({
 function DetailsStep({
   heading,
   draft,
-  tags,
+  themes,
   onNext,
   onBack,
 }: {
   heading: HeadingRef;
   draft: DraftState;
-  tags: Tag[];
+  themes: Themes;
   onNext: () => void;
   onBack: () => void;
 }) {
   const limits = useLimits();
   const [problem, setProblem] = useState<string | null>(null);
   const chosen = draft.fields.tagSlugs;
+  // O5: the main themes first, every other one behind "More themes". A chosen other one shows in
+  // the first row while "More themes" is closed (`pinned`, taken when the step opens and each
+  // time it closes), so what's chosen stays visible; while it's open, choosing leaves the theme
+  // where it is, so nothing moves under the person's finger or focus.
+  const { main, more } = splitThemes(themes.tags, themes.main);
+  const pinnedNow = () =>
+    more.filter((t) => chosen.includes(t.slug)).map((t) => t.slug);
+  const [pinned, setPinned] = useState<string[]>(pinnedNow);
+  const first = [...main, ...more.filter((t) => pinned.includes(t.slug))];
+  const rest = more.filter((t) => !pinned.includes(t.slug));
+  const themeChip = (t: Tag) => {
+    const on = chosen.includes(t.slug);
+    return (
+      <label
+        className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
+          on
+            ? 'border-teal bg-accent font-semibold text-foreground'
+            : 'border-border text-secondary-text'
+        }`}
+      >
+        <input
+          type="checkbox"
+          className="sr-only"
+          checked={on}
+          disabled={!on && chosen.length >= limits.tags.max}
+          onChange={() =>
+            draft.update({
+              tagSlugs: on
+                ? chosen.filter((s) => s !== t.slug)
+                : [...chosen, t.slug],
+            })
+          }
+        />
+        {t.name}
+      </label>
+    );
+  };
   return (
     <form
       noValidate
@@ -1245,36 +1285,18 @@ function DetailsStep({
               ? `Choose ${limits.tags.min} to ${limits.tags.max}.`
               : `Choose up to ${limits.tags.max}.`}
           </p>
-          <div className="flex flex-wrap gap-2">
-            {tags.map((t) => {
-              const on = chosen.includes(t.slug);
-              return (
-                <label
-                  key={t.slug}
-                  className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
-                    on
-                      ? 'border-teal bg-accent font-semibold text-foreground'
-                      : 'border-border text-secondary-text'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={on}
-                    disabled={!on && chosen.length >= limits.tags.max}
-                    onChange={() =>
-                      draft.update({
-                        tagSlugs: on
-                          ? chosen.filter((s) => s !== t.slug)
-                          : [...chosen, t.slug],
-                      })
-                    }
-                  />
-                  {t.name}
-                </label>
-              );
-            })}
-          </div>
+          <ul className="flex flex-wrap gap-2">
+            {first.map((t) => (
+              <li key={t.slug}>{themeChip(t)}</li>
+            ))}
+          </ul>
+          <MoreThemes
+            themes={rest}
+            renderTheme={(t) => <li>{themeChip(t)}</li>}
+            onToggle={(open) => {
+              if (!open) setPinned(pinnedNow());
+            }}
+          />
           {problem && (
             <p role="alert" className="mt-2 text-sm text-destructive">
               {problem}

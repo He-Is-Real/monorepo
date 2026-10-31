@@ -148,7 +148,7 @@ export async function buildWorld(t: TestDatabase) {
   const admin = await t.service('api_admin');
   await run(
     admin,
-    `CREATE tag:doubt SET name = 'Doubt', category = 'journey';
+    `CREATE tag:doubt SET name = 'Doubt', category = 'journey', changedBy = user:fixture_admin;
      CREATE dpaVersion:v2_draft CONTENT {
        materiality: 'material', documentPath: 'libs/legal/dpa/v2.md', contentHash: $h };`,
     { h: sha256('v2 draft') },

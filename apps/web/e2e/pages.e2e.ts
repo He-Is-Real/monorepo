@@ -328,7 +328,9 @@ test.describe('behaviour', () => {
     }
     expect(order.indexOf('Search')).toBeGreaterThan(-1);
     expect(order.indexOf('All')).toBeGreaterThan(order.indexOf('Search'));
-    expect(order.indexOf('More tags')).toBeGreaterThan(order.indexOf('All'));
+    expect(
+      order.findIndex((label) => label.startsWith('More themes')),
+    ).toBeGreaterThan(order.indexOf('All'));
     expect(order.at(-1)).toBe('card');
   });
 
@@ -504,16 +506,16 @@ test.describe('story pages and failures the stub can stage', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('“More tags” is open when one of its tags is selected', async ({
+  test('a chosen theme from “More themes” shows in the first row while it’s closed (O5)', async ({
     page,
   }) => {
-    await page.goto('/stories');
-    const more = page.locator('main details', { hasText: 'More tags' });
-    await expect(more).not.toHaveAttribute('open');
     await page.goto('/stories?tag=hope');
-    await expect(more).toHaveAttribute('open');
+    const more = page.locator('main [data-more-themes]');
+    await expect(more).not.toHaveAttribute('open');
     await expect(
-      more.getByRole('link', { name: /Hope/ }).first(),
+      page
+        .getByRole('list', { name: 'Themes' })
+        .getByRole('link', { name: 'Hope (selected)' }),
     ).toBeVisible();
   });
 
