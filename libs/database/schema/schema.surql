@@ -169,11 +169,23 @@ DEFINE INDEX OVERWRITE user_clerk    ON user FIELDS clerkUserId UNIQUE;
 -- D82: an erased Clerk id never gets a row again, whoever writes it (erasedIdentity below). A token
 -- minted before erasure lives 60 s, and a Clerk user whose deletion failed can still sign in, so
 -- api-user's first-use create (provisionPerson) and a legacy link are both refused here.
+-- Both sides write identityFence:<fingerprint>, so a first-use create racing the erasure of a Clerk
+-- id it can't see yet (Clerk's user.deleted for someone who never used the API) conflicts at commit;
+-- the retry then sees the tombstone, or the erasure's retry sees the row and erases it.
 DEFINE EVENT OVERWRITE user_not_erased_identity ON user
   WHEN $event IN ['CREATE', 'UPDATE'] AND $after.clerkUserId != NONE
    AND $after.clerkUserId != $before.clerkUserId
-   AND record::exists(type::record('erasedIdentity', crypto::sha256($after.clerkUserId)))
-  THEN { THROW 'identity_erased: this Clerk account was deleted' };
+  THEN {
+    fn::fence::identity(crypto::sha256($after.clerkUserId));
+    IF record::exists(type::record('erasedIdentity', crypto::sha256($after.clerkUserId))) {
+      THROW 'identity_erased: this Clerk account was deleted';
+    };
+  };
+DEFINE TABLE OVERWRITE identityFence SCHEMAFULL PERMISSIONS NONE; -- id = identityFence:<fingerprint>
+DEFINE FIELD OVERWRITE n ON identityFence TYPE int DEFAULT 0;    -- a counter, nothing else
+DEFINE FUNCTION OVERWRITE fn::fence::identity($fingerprint: string) {
+  UPSERT type::record('identityFence', $fingerprint) SET n += 1 RETURN NONE;
+};
 
 -- ---------------------------------------------------------------- personFence (write fence)
 -- Transactions read a snapshot, so a check like "consent is granted" or "not erased" can pass
@@ -2061,8 +2073,13 @@ DEFINE TABLE OVERWRITE erasedIdentity SCHEMAFULL PERMISSIONS
   FOR select, create WHERE $auth.id = service:api_user,
   FOR update, delete NONE;
 DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
-  WHEN $event = 'CREATE' AND !string::matches(<string> record::id($after.id), '^[0-9a-f]{64}$')
-  THEN { THROW 'an erased identity is a sha256 fingerprint only' };
+  WHEN $event = 'CREATE'
+  THEN {
+    IF !string::matches(<string> record::id($after.id), '^[0-9a-f]{64}$') {
+      THROW 'an erased identity is a sha256 fingerprint only';
+    };
+    fn::fence::identity(record::id($after.id));                 -- see user_not_erased_identity
+  };
 
 -- ---------------------------------------------------------------- pendingDeletion (D40)
 -- What erasure must still delete outside the database, written in the erasure transaction and

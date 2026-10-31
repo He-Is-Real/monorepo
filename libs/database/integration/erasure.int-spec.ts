@@ -261,6 +261,24 @@ describe('erasure on api_user’s service login', () => {
     ).toEqual(before);
   });
 
+  it('a first-use create racing the erasure of a Clerk id it can’t see yet loses at commit', async () => {
+    // Clerk's user.deleted for someone whose very first API call is still in flight.
+    const tx = await apiUser.beginTransaction();
+    await tx.query(`CREATE user SET clerkUserId = 'user_racer'`).collect();
+    await run(apiUser, ERASE, {
+      clerkUserId: 'user_racer',
+      reason: 'clerk_user_deleted',
+    });
+    await expect(tx.commit()).rejects.toThrow(/conflict|retried/i);
+    // provisionPerson's retry is then refused.
+    expect(
+      await outcome(apiUser, `CREATE user SET clerkUserId = 'user_racer'`),
+    ).toEqual({ ok: false, error: expect.stringContaining('identity_erased') });
+    expect(
+      await truth(`SELECT VALUE id FROM user WHERE clerkUserId = 'user_racer'`),
+    ).toEqual([]);
+  });
+
   it('fingerprints a Clerk id nobody here knew, and queues nothing (Clerk’s user.deleted)', async () => {
     const results = await run(apiUser, ERASE, {
       clerkUserId: 'user_never_here',

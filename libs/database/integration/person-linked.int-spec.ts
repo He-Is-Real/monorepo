@@ -43,6 +43,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   pendingDeletion: 'kept',
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
+  identityFence: 'none', // a counter keyed by a Clerk id's fingerprint (D82); events only
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
   tag: 'none',
   // The legal documents (D121): the publishing admin's user id only (publishedBy, read by

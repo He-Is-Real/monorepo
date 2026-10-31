@@ -24,7 +24,8 @@ export type ErasureReason =
  * Idempotent: a person already erased (or never known) leaves only the tombstone, which is
  * already there. A run that loses a race to another write fails at commit and must be retried
  * (`retryOnConflict`): the retry erases that write too. Its second-to-last result is
- * `[user, pending]`: the erased user (or NONE) and the `pendingDeletion` ids it wrote.
+ * `[user, pending]`: the erased user (or NONE) and the keys of the `pendingDeletion`
+ * rows it wrote.
  */
 export const ERASE_ACCOUNT = `
   BEGIN TRANSACTION;
@@ -36,7 +37,7 @@ export const ERASE_ACCOUNT = `
   LET $account = IF $u = NONE OR $reason = 'clerk_user_deleted' { [] }
     ELSE { [{ kind: 'clerk_user', ref: $clerkUserId }] };
   LET $pending = IF array::len(array::concat($media, $account)) = 0 { [] }
-    ELSE { (INSERT INTO pendingDeletion array::concat($media, $account) RETURN VALUE id) };
+    ELSE { (INSERT INTO pendingDeletion array::concat($media, $account) RETURN VALUE record::id(id)) };
   IF $u != NONE {
     DELETE story WHERE submitter = $u;              -- cascades publicStory, hiddenStory, reviews, hearts
     DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
