@@ -217,10 +217,10 @@ short-lived upload credentials.
 - A person's own commands run in a database session **as that person**, opened with their Clerk
   token, so the database enforces ownership. Admin commands run as `api-admin`'s login. In code:
   `PersonSessions.run(request, ({ session, user }) => …)` (`libs/consent`), built on
-  `withPersonSession` (`libs/database`). Work that waits on Bunny or Clerk, or reads everything a
-  person has, passes `PERSON_WORK_SECONDS.slow` as the third argument: the session then opens on a
-  pass that lasts that long (a fresh one from Clerk if the person's own is running out, decision
-  T), since surrealdb.js ends a session when its token expires (#164). Who the caller is comes from a `PersonAuthenticator`, the
+  `withPersonSession` (`libs/database`). Work that waits on Bunny, or reads everything a person
+  has, passes `'slow'` as the third argument (`PERSON_WORK`): the session then always opens on a
+  fresh pass from Clerk (decision T), and its retries pass `PersonContext.deadline` to
+  `runIdempotent` so they stop well inside that session, since surrealdb.js ends a session when its token expires (#164). Who the caller is comes from a `PersonAuthenticator`, the
   seam task 0.5 fills with Clerk verification; until then it refuses everyone (`401`).
 - `Idempotency-Key`: `runIdempotent` (`libs/database`) writes the key, the request hash and the
   stored `{ id, version }` **in the same transaction as the command**, in the session the command

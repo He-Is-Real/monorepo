@@ -1082,11 +1082,14 @@ try {
   connection's auth provider is skipped), so the SDK invalidates the session and later queries run
   anonymous ("Anonymous access not allowed"), though the database's own session lasts 5 minutes.
   Clerk's tokens last 60 s and arrive with 10 to 60 s left. So `PersonSessions.run(request, work,
-seconds)` opens the session with the person's own token only while it lasts `seconds` more
-  (`PERSON_WORK_SECONDS`), else with a fresh pass api-user gets from Clerk's Backend API for the
-  same Clerk session (6 minutes, so 5 usable; `401` if Clerk says the session is over, `503` if
-  Clerk doesn't answer). One unit of work never outlives 5 minutes; anything longer belongs in a
-  background job. api-admin has no Clerk key and uses the person's own token. Asking SurrealDB for
+kind)` (`PERSON_WORK`): quick work (database only) opens the session with the person's own token
+  while it lasts 10 s more; slow work (anything that waits on Bunny or reads everything a person
+  has) and quick work on a shorter token open it with a fresh pass api-user gets from Clerk's
+  Backend API for the same Clerk session (6 minutes, so 5 usable; `401` if Clerk says the session
+  is over, `503` if Clerk doesn't answer). Slow work starts no attempt after 2 minutes
+  (`PersonContext.deadline`, passed to `runIdempotent`), so it ends inside those 5 by itself; Cloud
+  Run's timeout ends only the response, not the work. Anything longer belongs in a background job.
+  api-admin has no Clerk key and uses the person's own token. Asking SurrealDB for
   a "let the database decide" setting is #164; if it lands, this can go.
 - **Service sign-in typing.** `connect({ authentication })` in 2.0.8 is typed for system users
   and tokens only, but the runtime signs in with record access (`access: 'svc'`). That path is

@@ -8,11 +8,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import {
-  NoConsentRequired,
-  PERSON_WORK_SECONDS,
-  PersonSessions,
-} from '@heisreal/consent';
+import { NoConsentRequired, PersonSessions } from '@heisreal/consent';
 import { ProblemException } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import { MediaUrls } from '@heisreal/story-cards';
@@ -56,11 +52,11 @@ export class ExportController {
     const generatedAt = new Date();
     // The database first: only a live person's session opens (401 otherwise), so Clerk is
     // never asked about an account that's gone.
-    // Everything the person has, in one session (decision T): a pass that can last that long.
+    // Everything the person has, in one session (decision T): a fresh pass.
     const held = await this.people.run(
       req,
       ({ session }) => readHeld(session),
-      PERSON_WORK_SECONDS.slow,
+      'slow',
     );
     const signIn = await this.signInDetails(clerkUserId);
     const file = toExport(held, {

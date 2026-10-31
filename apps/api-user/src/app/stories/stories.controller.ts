@@ -27,7 +27,6 @@ import {
   ifNoneMatches,
   NoConsentRequired,
   parseIdempotencyKey,
-  PERSON_WORK_SECONDS,
   PersonSessions,
   RequiresConsent,
   weakETag,
@@ -322,12 +321,13 @@ export class StoriesController {
     const result = await this.people
       .run(
         req,
-        ({ session, user }) =>
+        ({ session, user, deadline }) =>
           new StoryStore(session).submit(
             sid,
             version,
             {
               scope: { service: 'api-user', owner: user, key: idempotencyKey },
+              deadline,
               // The same key with or without the sharing is a different request (422).
               requestHash: requestHash(
                 share
@@ -344,8 +344,8 @@ export class StoriesController {
                   storyId: sid,
                 })),
           ),
-        // Waits on Bunny for the file (decision T): a pass that can last that long.
-        PERSON_WORK_SECONDS.slow,
+        // Waits on Bunny for the file (decision T): a fresh pass, and a deadline for retries.
+        'slow',
       )
       .catch((err: unknown) => {
         throw reused(err);
@@ -412,9 +412,10 @@ export class StoriesController {
     const target = await this.people
       .run(
         req,
-        ({ session, user }) =>
+        ({ session, user, deadline }) =>
           this.uploads.request(session, user, sid, version, input, {
             key: idempotencyKey,
+            deadline,
             requestHash: requestHash([
               'POST',
               'upload-url',
@@ -423,8 +424,8 @@ export class StoriesController {
               input,
             ]),
           }),
-        // Creates and deletes videos at Bunny (decision T): a pass that can last that long.
-        PERSON_WORK_SECONDS.slow,
+        // Creates and deletes videos at Bunny (decision T): a fresh pass, and a deadline for retries.
+        'slow',
       )
       .catch((err: unknown) => {
         throw reused(err);
