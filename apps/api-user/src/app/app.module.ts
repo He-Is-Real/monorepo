@@ -8,8 +8,12 @@ import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 import { MediaUrlsModule } from '@heisreal/story-cards';
 import { AccountModule } from './account/account.controller';
+import { ErasureModule } from './erasure/erasure.module';
 import { FavouritesModule } from './favourites/favourites.controller';
-import { StoriesModule } from './stories/stories.controller';
+import {
+  BunnyStreamModule,
+  StoriesModule,
+} from './stories/stories.controller';
 
 @Module({
   imports: [
@@ -22,6 +26,11 @@ import { StoriesModule } from './stories/stories.controller';
     ClerkAuthModule.forRoot(),
     // D21: global fail-closed consent guard.
     ConsentModule.forRoot({ authenticator: ApiUserAuthenticator }),
+    // Bunny Stream: uploads (PR 7) and erasure's video deletions (D40).
+    BunnyStreamModule,
+    // M2 plan PR 11: erasure for "Delete my account", the consent withdrawals that delete the
+    // account (D88, D73) and Clerk's user.deleted webhook (D39, D40, D82).
+    ErasureModule,
     AccountConsentsModule,
     AccountModule,
     // Hearts (M2). Their cards carry signed thumbnail and image links, signed like

@@ -7,7 +7,10 @@ import {
   Get,
   Headers,
   HttpStatus,
+  Inject,
+  Logger,
   Module,
+  Optional,
   Param,
   Post,
   Req,
@@ -37,6 +40,23 @@ import {
   isConsentType,
 } from './consent.types';
 import { PersonSessions } from './person';
+
+/**
+ * Withdrawing these deletes the whole account (D39, D88: the testimony consent, Art 9; D73: the
+ * sign-up consent to store the account). The ledger records the withdrawal first, then the
+ * service's erasure runs. Withdrawing anything else (publishing, social sharing, 18+, the terms)
+ * deletes nothing.
+ */
+export const ERASING_WITHDRAWALS: readonly ConsentType[] = [
+  'special_category_religious',
+  'account_data',
+];
+
+/** The service's erasure (api-user's EraseAccount), run after an erasing withdrawal. */
+export interface ConsentWithdrawalErasure {
+  erase(clerkUserId: string): Promise<void>;
+}
+export const CONSENT_WITHDRAWAL_ERASURE = Symbol('CONSENT_WITHDRAWAL_ERASURE');
 
 /** The contracts' `CommandResult`. */
 export interface CommandResult {
@@ -158,9 +178,14 @@ export function ifNoneMatches(
 @RequiresRole('User')
 @Controller('v1/account/consents')
 export class AccountConsentsController {
+  private readonly logger = new Logger(AccountConsentsController.name);
+
   constructor(
     private readonly people: PersonSessions,
     private readonly ledger: ConsentLedger,
+    @Optional()
+    @Inject(CONSENT_WITHDRAWAL_ERASURE)
+    private readonly erasure?: ConsentWithdrawalErasure,
   ) {}
 
   @Get()
@@ -221,7 +246,7 @@ export class AccountConsentsController {
       });
     }
     const idempotencyKey = parseIdempotencyKey(key);
-    return this.command(
+    const result = await this.command(
       req,
       res,
       idempotencyKey,
@@ -229,6 +254,16 @@ export class AccountConsentsController {
       (session, idempotency) =>
         this.ledger.withdraw(session, type, idempotency),
     );
+    if (ERASING_WITHDRAWALS.includes(type)) {
+      // D88, D73: the account goes, after the withdrawal is on the ledger (kept as proof).
+      if (!this.erasure) {
+        this.logger.error(`Withdrew ${type}, but this service can't erase`);
+      } else {
+        const { clerkUserId } = await this.people.authenticate(req);
+        await this.erasure.erase(clerkUserId);
+      }
+    }
+    return result;
   }
 
   /**
