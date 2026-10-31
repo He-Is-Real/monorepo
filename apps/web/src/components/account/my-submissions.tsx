@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   type ApiUser,
@@ -50,6 +50,31 @@ const DATE = new Intl.DateTimeFormat('en-GB', {
 /** A person has few stories (D94's limits); a bound in case. */
 const MAX_PAGES = 10;
 
+/** Your data's "Take all my stories off the site" says so, and My submissions reads again. */
+export const PUBLISHING_CHANGED = 'heisreal:publishing-changed';
+
+/** The person's stories, and whether they allow publishing (their `publish` consent, R6). */
+interface Mine {
+  stories: MyStoryRow[];
+  publishing: boolean;
+}
+
+async function readMine(api: ApiUser): Promise<Mine> {
+  const [stories, consents] = await Promise.all([
+    readAll(api),
+    api.get<{ current: { type: string; granted: boolean }[] }>(
+      '/v1/account/consents',
+    ),
+  ]);
+  if (!consents.data) throw new ApiUserUnavailable('No answer');
+  return {
+    stories,
+    publishing: consents.data.current.some(
+      (c) => c.type === 'publish' && c.granted,
+    ),
+  };
+}
+
 async function readAll(api: ApiUser): Promise<MyStoryRow[]> {
   const all: MyStoryRow[] = [];
   let cursor: string | null = null;
@@ -78,9 +103,17 @@ type Command = 'withdraw' | 'delete';
  * Filled in by the browser from api-user (D83), with its space kept while it loads.
  */
 export function MySubmissions() {
-  const own = useOwnData(readAll);
+  const own = useOwnData(readMine);
   const { notice, say } = useOwnNotice<string>();
   const heading = useRef<HTMLHeadingElement>(null);
+  const owner = own.state.status === 'ready' ? own.state.owner : null;
+  const { reload } = own;
+  useEffect(() => {
+    if (!owner) return;
+    const again = () => void reload(owner);
+    window.addEventListener(PUBLISHING_CHANGED, again);
+    return () => window.removeEventListener(PUBLISHING_CHANGED, again);
+  }, [owner, reload]);
 
   const run = async (
     owner: string,
@@ -165,7 +198,7 @@ export function MySubmissions() {
         </Button>
       </div>
     );
-  } else if (state.data.length === 0) {
+  } else if (state.data.stories.length === 0) {
     body = (
       <p className="min-h-24 text-secondary-text">
         You haven’t shared a story yet. When you do, you’ll see it here, with
@@ -175,10 +208,11 @@ export function MySubmissions() {
   } else {
     body = (
       <ul data-submissions="" className="flex flex-col gap-4">
-        {state.data.map((story) => (
+        {state.data.stories.map((story) => (
           <StoryRow
             key={story.id}
             story={story}
+            onSite={story.status === 'approved' && state.data.publishing}
             onCommand={(command) => run(state.owner, story, command)}
           />
         ))}
@@ -215,18 +249,24 @@ export function MySubmissions() {
 
 function StoryRow({
   story,
+  onSite,
   onCommand,
 }: {
   story: MyStoryRow;
+  /** Published and on the site: approved, and the person still allows publishing. */
+  onSite: boolean;
   onCommand: (command: Command) => Promise<string | null>;
 }) {
   const [confirm, setConfirm] = useState<Command | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const status = STATUS[story.status] ?? {
-    label: story.status,
-    tone: 'border-border text-secondary-text',
-  };
+  const offSite = story.status === 'approved' && !onSite;
+  const status = offSite
+    ? { label: 'Off the site', tone: 'border-border text-secondary-text' }
+    : (STATUS[story.status] ?? {
+        label: story.status,
+        tone: 'border-border text-secondary-text',
+      });
   const titleId = `story-${story.id}`;
   const what = story.status === 'draft' ? 'draft' : 'story';
 
@@ -284,6 +324,12 @@ function StoryRow({
           It isn’t on the site or waiting for review. You can delete it.
         </p>
       )}
+      {offSite && (
+        <p data-off-site="" className="mb-3 text-sm text-secondary-text">
+          It was accepted, but it isn’t on the site: you took your stories off
+          the site.
+        </p>
+      )}
 
       {confirm ? (
         <div
@@ -338,7 +384,7 @@ function StoryRow({
               </Link>
             </Button>
           )}
-          {story.status === 'approved' && (
+          {onSite && (
             <Button
               asChild
               variant="outline"

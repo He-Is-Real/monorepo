@@ -6,6 +6,10 @@ import {
 } from '@/components/account/manage-account';
 import { MySubmissions } from '@/components/account/my-submissions';
 import { SocialSharingConsent } from '@/components/account/social-sharing-consent';
+import {
+  ClerkYourData,
+  FixtureYourData,
+} from '@/components/account/your-data';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { clerkPublishableKey, e2eFixtures } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
@@ -64,33 +68,11 @@ export default async function ProfilePage() {
           </section>
         )}
         <SocialSharingConsent />
-        {/* "Download my data" (M2 plan PR 12) and "Delete my account" (PR 11) go here. */}
-        <section aria-labelledby="your-data" className="mb-12">
-          <h2 id="your-data" className="mb-5 text-2xl font-normal">
-            Your data
-          </h2>
-          <ul className="flex flex-col gap-4">
-            {[
-              [
-                'Download my data',
-                'Get a copy of everything we hold about you.',
-              ],
-              [
-                'Delete my account',
-                'Remove your account and everything we hold about you.',
-              ],
-            ].map(([title, text]) => (
-              <li
-                key={title}
-                data-coming-soon=""
-                className="rounded-2xl border border-border bg-card p-5 sm:p-6"
-              >
-                <h3 className="mb-1 text-lg font-semibold">{title}</h3>
-                <p className="text-secondary-text">{text} Coming soon.</p>
-              </li>
-            ))}
-          </ul>
-        </section>
+        {e2eFixtures() ? (
+          <FixtureYourData />
+        ) : clerkPublishableKey() ? (
+          <ClerkYourData />
+        ) : null}
       </NarrowColumn>
     </main>
   );
