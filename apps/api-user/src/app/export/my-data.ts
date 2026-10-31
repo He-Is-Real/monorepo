@@ -28,7 +28,7 @@ RETURN {
   user: (SELECT record::id(id) AS id, createdAt FROM ONLY $auth),
   stories: $stories,
   published: IF array::len($public) > 0 {
-    (SELECT record::id(id) AS id, publishedAt FROM $public)
+    (SELECT record::id(id) AS id, publishedAt, image.path AS imagePath FROM $public)
   } ELSE { [] },
   reviews: IF array::len($mine) > 0 {
     (SELECT record::id(story) AS story, decision, feedbackToSubmitter, storyVersion, decidedAt
@@ -91,7 +91,7 @@ interface Held {
     approvedAt?: Opt<string>;
     draftExpiresAt?: Opt<string>;
   }[];
-  published: { id: string; publishedAt: string }[];
+  published: { id: string; publishedAt: string; imagePath?: Opt<string> }[];
   reviews: {
     story: string;
     decision: string;
@@ -158,7 +158,7 @@ const SECTIONS = {
   signIn:
     'What Clerk, the company that runs our sign-in, holds about you: your names, email addresses, phone numbers, any accounts you sign in with (such as Google), your picture if you gave one, and when you made the account and last signed in. We read it from Clerk when you asked for this file; we don’t keep a copy. You can change it under Manage account.',
   stories:
-    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture has a link to the picture. These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted.',
+    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted.',
   consents:
     'Every time you gave or withdrew a consent, oldest first, with the words of the box you ticked, the form and the version of our privacy policy (and terms of use) it was given under. "evidenceHash" is a fingerprint of exactly what you were shown, so either of us can prove it. We keep this record even after you delete your account, for six years, as proof that we asked.',
   favourites:
@@ -203,6 +203,12 @@ export function toExport(
   }: { role: string; signIn: ClerkProfile; urls: MediaUrls; generatedAt: Date },
 ) {
   const publishedAt = new Map(held.published.map((p) => [p.id, p.publishedAt]));
+  // A picture is signed only as published (approved by a moderator, and public anyway): a
+  // draft's image.path is the person's own write, so signing it could hand them a link to any
+  // file in the storage zone they name.
+  const publishedImage = new Map(
+    held.published.map((p) => [p.id, p.imagePath ?? null]),
+  );
   const reviewsOf = (story: string) =>
     held.reviews
       .filter((r) => r.story === story)
@@ -260,7 +266,7 @@ export function toExport(
         })),
         image: s.image
           ? {
-              url: urls.imageUrl(s.image.path),
+              url: urls.imageUrl(publishedImage.get(id)),
               width: s.image.width,
               height: s.image.height,
               alt: or(s.image.alt),

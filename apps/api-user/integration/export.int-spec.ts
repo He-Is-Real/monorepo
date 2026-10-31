@@ -294,7 +294,14 @@ describe('download my data', () => {
     await submit(ann, annNo.id);
     await decide(annNo.id, 'reject', 'Not for this site, sorry.');
     const annLive = await createThroughApi('ann', 'Ann live');
+    await run(
+      ann,
+      `UPDATE type::record('story', $id) SET
+         image = { path: 'stories/ann/live.webp', width: 640, height: 480 }`,
+      { id: annLive.id },
+    );
     await submit(ann, annLive.id);
+    await processed(await t.service('workflow'), annLive.id);
     await decide(annLive.id, 'approve');
     const annVideo = randomUUID();
     await draft(ann, 'ann_video', { primaryFormat: 'video', body: undefined });
@@ -413,9 +420,8 @@ describe('download my data', () => {
         width: 800,
         height: 600,
         alt: 'A sunrise',
-        url: expect.stringMatching(
-          /^https:\/\/images-test\.b-cdn\.net\/stories\/ann\/sunrise\.webp\?token=HS256-/,
-        ),
+        // A draft's path is the person's own write: never signed (only a published picture is).
+        url: null,
       },
     });
     expect(story(annDraft.id).draftExpiresAt).not.toBeNull();
@@ -434,6 +440,14 @@ describe('download my data', () => {
       onSiteNow: true,
       publishedAt: expect.any(String),
       moderation: [{ decision: 'approve', feedbackToSubmitter: null }],
+      image: {
+        width: 640,
+        height: 480,
+        alt: null,
+        url: expect.stringMatching(
+          /^https:\/\/images-test\.b-cdn\.net\/stories\/ann\/live\.webp\?token=HS256-/,
+        ),
+      },
     });
     // Media as links and ids, never bytes: the player link expires in an hour.
     const [clip] = story('ann_video').media;

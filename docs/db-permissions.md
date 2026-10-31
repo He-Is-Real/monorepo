@@ -844,7 +844,8 @@ retried`, on both RocksDB and the in-memory engine.
       `pendingDeletion` and `erasedIdentity` (only during or after erasure). The file's
       `about.notIncluded` says so in plain words.
     - **Media:** each item is its Bunny id and a link signed for one hour (`MediaUrls.expiringIn`,
-      D52's signer, the person's own story media only); no bytes pass through api-user, and Bunny
+      D52's signer, the person's own story media only; a picture only as published, since a
+      draft's `image.path` is the person's own write and could name any file in the zone); no bytes pass through api-user, and Bunny
       keeps no original upload or MP4 file (`modules/bunny`), so the player is how to watch it.
     - Tests: `apps/api-user/integration/export.int-spec.ts` (a person with data of every kind:
       complete against what the database holds, read as the migrator, and nothing of another

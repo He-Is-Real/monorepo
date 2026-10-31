@@ -302,7 +302,8 @@ paths:
           Clerk's Backend API at the time of the request (D16, D81: the data download is one of the
           three server jobs that may use Clerk's secret key); nothing from Clerk is stored.
         - **Media never passes through our servers.** Each video or audio item carries its Bunny
-          Stream id and a signed player link, and each picture a signed link, valid for one hour
+          Stream id and a signed player link, and each published picture a signed link (never a draft's
+          path, which is the person's own write), valid for one hour
           (`about.linksExpireAt`; `null` links while media signing is off). We keep no original upload
           and no downloadable file of a video (Bunny's settings), so the player is how to watch it.
         - The audit log (ids only, D38) isn't included; `about.notIncluded` says so.

@@ -2008,6 +2008,9 @@ components:
                   url:
                     type: [string, 'null']
                     format: uri
+                    description: |
+                      A one-hour link to the picture as published; `null` while the story isn't on the site
+                      (a draft's path is the person's own write, so it is never signed).
                   width:
                     type: integer
                   height:
