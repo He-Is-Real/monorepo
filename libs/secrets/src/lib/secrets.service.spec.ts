@@ -1,4 +1,8 @@
-import { SecretAccessor, SecretsService } from './secrets.service';
+import {
+  REFRESH_RETRY_MS,
+  SecretAccessor,
+  SecretsService,
+} from './secrets.service';
 
 function fakeClient(payloads: Record<string, string | Uint8Array | null>) {
   const accessSecretVersion = vi.fn(async ({ name }: { name: string }) => {
@@ -36,6 +40,46 @@ describe('SecretsService', () => {
       expect(await get()).toBe('old');
       vi.advanceTimersByTime(1);
       expect(await get()).toBe('new');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the last good value when a refresh fails, and tries again shortly after', async () => {
+    vi.useFakeTimers();
+    try {
+      const payloads: Record<string, string> = { [NAME]: 'good' };
+      const { client, accessSecretVersion } = fakeClient(payloads);
+      const secrets = new SecretsService(client, 'heisreal-dev');
+      const get = () => secrets.get('db-pass', 'latest', { maxAgeMs: 1000 });
+      expect(await get()).toBe('good');
+      delete payloads[NAME]; // Secret Manager fails from now on
+      vi.advanceTimersByTime(1000);
+      expect(await get()).toBe('good');
+      expect(accessSecretVersion).toHaveBeenCalledTimes(2);
+      // Not tried again before the wait is over, then tried again.
+      vi.advanceTimersByTime(REFRESH_RETRY_MS - 1);
+      expect(await get()).toBe('good');
+      expect(accessSecretVersion).toHaveBeenCalledTimes(2);
+      payloads[NAME] = 'rotated';
+      vi.advanceTimersByTime(1);
+      expect(await get()).toBe('rotated');
+      expect(accessSecretVersion).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails a first read that fails, with nothing cached to fall back on', async () => {
+    vi.useFakeTimers();
+    try {
+      const payloads: Record<string, string> = {};
+      const { client } = fakeClient(payloads);
+      const secrets = new SecretsService(client, 'heisreal-dev');
+      const get = () => secrets.get('db-pass', 'latest', { maxAgeMs: 1000 });
+      await expect(get()).rejects.toThrow('NOT_FOUND');
+      payloads[NAME] = 'fixed';
+      expect(await get()).toBe('fixed'); // the next call reads again, no wait
     } finally {
       vi.useRealTimers();
     }

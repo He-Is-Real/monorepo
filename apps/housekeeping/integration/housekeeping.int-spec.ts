@@ -1,4 +1,5 @@
 import { ERASE_ACCOUNT } from '@heisreal/database';
+import { type SecretAccessor, SecretsService } from '@heisreal/secrets';
 import {
   consentEvent,
   createPeople,
@@ -16,6 +17,7 @@ import type { Surreal, SurrealTransaction } from 'surrealdb';
 import { CHORES } from '../src/app/chores';
 import type { ClerkUsers } from '../src/app/clerk';
 import { erasureRequestsTask, pendingDeletionsTask } from '../src/app/erasure';
+import { startHousekeeping } from '../src/app/start';
 import type { LibraryVideo, StreamLibrary } from '../src/app/stream';
 import { runTasks, type TaskContext } from '../src/app/tasks';
 
@@ -635,5 +637,143 @@ describe('housekeeping: erasure requests and queued deletions', () => {
       `CREATE pendingDeletion CONTENT { kind: 'clerk_user', ref: 'user_x' }`,
     );
     expect(await queued()).toEqual([]);
+  });
+});
+
+/**
+ * Startup with Clerk's key unreadable (Codex review, round 2): the erasure requests and Bunny
+ * deletions don't need Clerk, so they still go; only the Clerk deletions wait, and the run
+ * reports the key as an error and answers 1.
+ */
+describe('housekeeping startup without Clerk’s key', () => {
+  let t: TestDatabase;
+  let migrator: Surreal;
+  const PROJECT = 'heisreal-test';
+  const secret = (id: string) =>
+    `projects/${PROJECT}/secrets/${id}/versions/latest`;
+  const GUS_VIDEO = guid();
+  const HAL_VIDEO = guid();
+
+  /** Secret Manager, in memory: the Bunny key and the DB password read; Clerk's key as given. */
+  const start = (clerkKey: () => string) => {
+    const payloads: Record<string, string> = {
+      [secret('bunny-stream-api-key')]: 'bunny-key',
+      [secret('surreal-password-housekeeping')]:
+        t.servicePasswords.get('housekeeping') ?? '',
+    };
+    const client = {
+      accessSecretVersion: async ({ name }: { name: string }) => [
+        {
+          payload: {
+            data:
+              name === secret('clerk-secret-key') ? clerkKey() : payloads[name],
+          },
+        },
+      ],
+    } as unknown as SecretAccessor;
+    const library = new FakeLibrary([
+      story(GUS_VIDEO, ago(1)),
+      story(HAL_VIDEO, ago(1)),
+    ]);
+    const clerkMade: string[] = [];
+    const logs: Record<string, unknown>[] = [];
+    const exitCode = startHousekeeping({
+      config: {
+        project: PROJECT,
+        database: {
+          url: t.url,
+          namespace: t.namespace,
+          database: t.database,
+          username: 'housekeeping',
+          passwordSecret: 'surreal-password-housekeeping',
+        },
+        stream: { libraryId: '1', keySecret: 'bunny-stream-api-key' },
+        clerkKeySecret: 'clerk-secret-key',
+        dryRun: false,
+        maxDeletions: 50,
+      },
+      secrets: new SecretsService(client, PROJECT),
+      log: (entry) => logs.push(entry),
+      stream: () => library,
+      clerk: (key) => {
+        clerkMade.push(key);
+        throw new Error('Clerk must not be used');
+      },
+    });
+    return { exitCode, library, logs, clerkMade };
+  };
+  const queued = () =>
+    rows<{ kind: string; ref: string; attempts: number }>(
+      migrator,
+      `SELECT kind, ref, attempts FROM pendingDeletion ORDER BY ref`,
+    );
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    const apiUser = await t.service('api_user');
+    await publishDpa(t, 'v1');
+    await createPeople(t, { gus: 'user_gus', hal: 'user_hal' });
+    await trustSubmitters(t, 'gus', 'hal');
+    for (const [who, video] of [
+      ['gus', GUS_VIDEO],
+      ['hal', HAL_VIDEO],
+    ]) {
+      const person = await t.person(`user_${who}`);
+      await grantAll(person);
+      await createDraft(person, `${who}_video`, 'video');
+      expect(
+        await grantUpload(apiUser, {
+          video,
+          story: `${who}_video`,
+          person: who,
+          version: 1,
+        }),
+      ).toMatchObject({ ok: true });
+    }
+    // Gus withdrew his testimony consent and wasn't erased; Hal deleted his account and both
+    // deletions wait.
+    await consentEvent(
+      await t.person('user_gus'),
+      'special_category_religious',
+      'withdrawn',
+    );
+    await run(apiUser, ERASE_ACCOUNT, {
+      clerkUserId: 'user_hal',
+      reason: 'account_deleted',
+    });
+  });
+  afterAll(() => t?.close());
+
+  it('with no enabled version of the key, erases and deletes at Bunny, and leaves Clerk’s deletions queued, untried', async () => {
+    const { exitCode, library, logs, clerkMade } = start(() => {
+      throw new Error(
+        '9 FAILED_PRECONDITION: Secret Version is in DISABLED state.',
+      );
+    });
+    expect(await exitCode).toBe(1);
+    expect(logs[0]).toEqual({
+      severity: 'ERROR',
+      error: expect.stringContaining('clerk-secret-key'),
+    });
+    expect(logs[1]).toMatchObject({ clerk: false });
+    expect(clerkMade).toEqual([]);
+    expect(
+      await rows(migrator, `SELECT VALUE gdprDeletedAt != NONE FROM user:gus`),
+    ).toEqual([true]);
+    expect(library.deleted.sort()).toEqual([GUS_VIDEO, HAL_VIDEO].sort());
+    expect(await queued()).toEqual([
+      { kind: 'clerk_user', ref: 'user_gus', attempts: 0 },
+      { kind: 'clerk_user', ref: 'user_hal', attempts: 0 },
+    ]);
+  });
+
+  it('with a value that isn’t a Clerk key, does the same and never logs the value', async () => {
+    const { exitCode, logs, clerkMade } = start(() => 'not-a-clerk-key');
+    expect(await exitCode).toBe(1);
+    expect(logs[0]).toMatchObject({ severity: 'ERROR' });
+    expect(JSON.stringify(logs)).not.toContain('not-a-clerk-key');
+    expect(clerkMade).toEqual([]);
+    expect(await queued()).toHaveLength(2);
   });
 });
