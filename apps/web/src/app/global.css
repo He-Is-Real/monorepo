@@ -217,10 +217,10 @@
 }
 
 /*
- * Browse's balanced masonry (D55, lib/masonry.ts, components/browse/browse-results.tsx). The list
- * stays in date order; each card carries its column (--c2, --c3) and row span (--s2, --s3) per
- * column count, predicted on the server. In the browser --m, the measured span, replaces the
- * prediction. `dense` stacks each column's cards with no gaps. One column below 640 px.
+ * Browse's and favourites' balanced masonry (D55, lib/masonry.ts,
+ * components/stories/story-masonry.tsx). The list stays in date order; each card carries its
+ * column (--c2, --c3) and row span (--s2, --s3) per column count, predicted on the server. In
+ * the browser --m, the measured span, replaces the prediction. `dense` stacks each column's cards with no gaps. One column below 640 px.
  * The numbers match ROW_UNIT (4 px), GAP (24 px) and the breakpoints in lib/masonry.ts.
  */
 @layer components {
