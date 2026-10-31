@@ -18,7 +18,8 @@ import type { ShareApi, UploadRequest, UploadTarget } from './share-api';
  * choosing the same file again then sends the very same request, and api-user replays it (the
  * same file, nothing new counted), however the draft's version moved on meanwhile. A `412` means
  * the draft changed elsewhere: it's read again (the same check as a save's), and the request is
- * made at its new version. A picture's request (`keep`) is kept past its answer, until its PUT
+ * made at its new version, unless the caller's `stillWanted` says the change makes it unwanted
+ * (a picture's: another tab put another picture on the story, Codex #140 round 2). A picture's request (`keep`) is kept past its answer, until its PUT
  * succeeds or finds the file there (`forgetAttempt`): a PUT that failed or whose answer was lost
  * is retried by replaying it, which signs a fresh link for the same path and counts nothing new.
  */
@@ -113,8 +114,9 @@ export function useRuns() {
 /**
  * A new upload for the file, once per request: a kept one for this file that `reuse` accepts and
  * that never got a settled answer is sent again as it was (its key, version and body), else a new
- * one. After a `412` the draft is read again and the request made once more at its version.
- * Answers null when the run was left behind, or when `prepare` gave a reason (`onProblem`); else
+ * one. After a `412` the draft is read again and the request made once more at its version, if
+ * `stillWanted` (when given) agrees. Answers null when the run was left behind, when `prepare`
+ * gave a reason (`onProblem`), or when `stillWanted` declined; else
  * the target and the request that made it (a replay's, which may differ from `request` where
  * `reuse` allows).
  */
@@ -147,6 +149,8 @@ export function useUploadRequest({
       first: { draftId: string; version: number },
       request: UploadRequest,
       gone: () => boolean,
+      /** After a `412` and the draft read again: whether to ask again at its new version. */
+      stillWanted?: (draftId: string) => Promise<boolean>,
     ): Promise<(UploadTarget & { sent: UploadRequest }) | null> => {
       // Left behind (Back, another account, a newer run): ask for nothing, keep nothing.
       if (gone()) return null;
@@ -184,6 +188,8 @@ export function useUploadRequest({
           // Changed elsewhere (another tab, or a request of this one whose answer was lost):
           // read it again, then ask at its version.
           if (!(await reload(ready.draftId)) || gone()) throw err;
+          if (stillWanted && !(await stillWanted(ready.draftId))) return null;
+          if (gone()) return null;
           const now = await prepare();
           if (gone()) return null;
           if (typeof now === 'string') {

@@ -36,6 +36,14 @@ import {
  * edit; a replacement not yet granted is only on this device, so discarding it keeps the picture
  * the story has. Every answer is used only by the run that asked, for the draft it asked about:
  * after sign-out, another person, or another draft, nothing is kept or shown (Codex #140).
+ *
+ * Two cases read the story before going on (Codex #140 round 2):
+ * - a request answered `412` because the story changed elsewhere is made again on its own only
+ *   if the story's picture is still the one this panel knew. If another tab put on (or took off)
+ *   a picture, the panel shows the story's picture now and the person chooses to replace it;
+ * - a request with no answer may have put its picture on the story (`unsure`). Until the story
+ *   is read again, the panel counts as unfinished, and removing a replacement first reads it, so
+ *   a picture the person can't see is never left on the story.
  */
 
 /** The longer side the browser re-encodes to, and the bounds api-user and the database check. */
@@ -60,7 +68,28 @@ interface Shown {
   url: string | null;
   width: number;
   height: number;
+  /** Its file's name at the server (`<32 hex>.webp`), when known: what tells two pictures apart. */
+  file: string | null;
 }
+
+/** The file name at the end of a picture's link: the same in the PUT link and the signed one. */
+function fileOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).pathname.split('/').pop() || null;
+  } catch {
+    return null;
+  }
+}
+
+const shownOf = (p: StoryPicture | null): Shown | null =>
+  p
+    ? { url: p.url, width: p.width, height: p.height, file: fileOf(p.url) }
+    : null;
+
+/** Whether two pictures are the same one at the server (both none counts as the same). */
+const samePicture = (a: Shown | null, b: Shown | null) =>
+  a === null || b === null ? a === b : a.file !== null && a.file === b.file;
 
 type Phase =
   | { at: 'idle' }
@@ -196,7 +225,16 @@ export function ImagePanel({
   const noun = NOUN[format];
   const [phase, setPhase] = useState<Phase>({ at: 'idle' });
   /** The picture on the draft at the server, as last known: what a removal takes off. */
-  const [attached, setAttached] = useState<Shown | null>(null);
+  const [attached, setAttachedState] = useState<Shown | null>(null);
+  const attachedRef = useRef<Shown | null>(null);
+  const setAttached = (shown: Shown | null) => {
+    attachedRef.current = shown;
+    setAttachedState(shown);
+  };
+  /** A request had no answer, so its picture may be on the story: read it before going on. */
+  const [unsure, setUnsure] = useState(false);
+  /** The picture the person chose, kept while another tab's picture is shown (replace it?). */
+  const [pending, setPending] = useState<Prepared | null>(null);
   const [alt, setAlt] = useState('');
   const [savedAlt, setSavedAlt] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -209,11 +247,9 @@ export function ImagePanel({
   // The picture the story already has (another tab, or before a reload).
   useEffect(() => {
     if (!earlier) return;
-    setAttached({
-      url: earlier.url,
-      width: earlier.width,
-      height: earlier.height,
-    });
+    const shown = shownOf(earlier);
+    attachedRef.current = shown;
+    setAttachedState(shown);
     setPhase((p) =>
       p.at === 'idle'
         ? {
@@ -230,13 +266,15 @@ export function ImagePanel({
 
   useEffect(() => {
     onState?.(
-      phase.at === 'done'
-        ? 'done'
-        : phase.at === 'idle'
-          ? 'none'
-          : 'unfinished',
+      unsure
+        ? 'unfinished'
+        : phase.at === 'done'
+          ? 'done'
+          : phase.at === 'idle'
+            ? 'none'
+            : 'unfinished',
     );
-  }, [phase.at, onState]);
+  }, [phase.at, unsure, onState]);
 
   // A blob: link is freed once nothing shows it and it isn't the draft's picture (which a
   // discarded replacement goes back to).
@@ -248,13 +286,14 @@ export function ImagePanel({
           ? phase.url
           : null,
       attached?.url,
+      pending?.url,
     ];
     for (const url of blobs.current) {
       if (inUse.includes(url)) continue;
       blobs.current.delete(url);
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     }
-  }, [phase, attached]);
+  }, [phase, attached, pending]);
   useEffect(() => {
     const made = blobs.current;
     return () => {
@@ -282,10 +321,25 @@ export function ImagePanel({
     keep: true,
   });
 
+  /** The story's picture at the server now (and its version, kept if it moved on). */
+  async function read(id: string): Promise<Shown | null> {
+    const story = await calls.story(id);
+    const { version } = current();
+    if (current().draftId === id && (!version || story.version > version)) {
+      setVersion(story.version);
+    }
+    if (story.image) {
+      setAlt(story.image.alt ?? '');
+      setSavedAlt(story.image.alt ?? '');
+    }
+    return shownOf(story.image);
+  }
+
   async function choose(file: File | undefined) {
     if (!file) return;
     setProblem(null);
     setNotice(null);
+    setPending(null);
     const gone = begin();
     setPhase({ at: 'reading' });
     const prepared = await prepare(file);
@@ -302,8 +356,14 @@ export function ImagePanel({
   async function add(picture: Prepared, granted: boolean) {
     const description = alt.trim();
     setProblem(null);
+    setNotice(null);
+    setPending(null);
     const gone = begin();
     setPhase({ at: 'sending', picture });
+    /** The story's picture as this panel knew it when the person chose to add theirs. */
+    const knew = attachedRef.current;
+    /** Set when a `412` showed another tab changed the story's picture: its picture now. */
+    let changed: { now: Shown | null } | null = null;
     const back = (onDraft: boolean, reason: string | null) => {
       setPhase({ at: 'preview', picture, granted: onDraft });
       setProblem(reason);
@@ -327,20 +387,49 @@ export function ImagePanel({
           ...(description ? { alt: description } : {}),
         },
         gone,
+        // Made again on its own only while the story's picture is the one this panel knew when
+        // the person asked (not one a read since has learnt of, which they haven't chosen to replace).
+        async (id) => {
+          const now = await read(id);
+          setUnsure(false);
+          if (samePicture(now, knew)) return true;
+          setAttached(now);
+          changed = { now };
+          return false;
+        },
       );
       if (left()) return;
+      if (!target && changed) {
+        const { now } = changed as { now: Shown | null };
+        // Another tab changed the picture: show the story's, and let the person replace it.
+        if (now) {
+          setPending(picture);
+          setPhase({ at: 'done', ...now });
+          setProblem(
+            `Your story’s ${noun} was changed in another tab or window. This is the ${noun} it has now. To use the one you chose instead, choose “Replace with my ${noun}”.`,
+          );
+        } else {
+          back(
+            false,
+            `Your story’s ${noun} was removed in another tab or window. Add yours again if you still want it.`,
+          );
+        }
+        return;
+      }
       // No target: `prepare`'s reason is already shown (onProblem).
       if (!target) {
         setPhase({ at: 'preview', picture, granted });
         return;
       }
       // Granted: the picture is on the draft now, whether or not its file arrives.
-      const shown = {
+      const shown: Shown = {
         url: picture.url,
         width: picture.width,
         height: picture.height,
+        file: fileOf(target.uploadUrl),
       };
       setAttached(shown);
+      setUnsure(false);
       const res = await fetch(target.uploadUrl, {
         method: target.method,
         // Exactly the two headers the link was signed for (the browser sets the length).
@@ -365,7 +454,9 @@ export function ImagePanel({
       setPhase({ at: 'done', ...shown });
     } catch (err) {
       if (left()) return;
-      // No answer: it may have gone through, so it counts as on the draft.
+      // No answer: it may have gone through, so it counts as on the draft, and the story is
+      // read again before this panel lets anything else take its place.
+      if (outcomeUnknown(err)) setUnsure(true);
       back(granted || outcomeUnknown(err), refusal(err, noun));
     }
   }
@@ -406,16 +497,54 @@ export function ImagePanel({
     const gone = begin();
     setProblem(null);
     setNotice(null);
+    setPending(null);
     if (fileInput.current) fileInput.current.value = '';
+    // A request whose answer was lost may have put a picture on: read the story first.
+    let onServer = attached;
+    if (unsure) {
+      const id = current().draftId;
+      if (!id) return;
+      try {
+        onServer = await read(id);
+      } catch {
+        if (gone() || current().draftId !== id) return;
+        setProblem(
+          `We can’t check your story’s ${noun} right now. Please try again in a moment.`,
+        );
+        return;
+      }
+      if (gone() || current().draftId !== id) return;
+      setAttached(onServer);
+      setUnsure(false);
+      // A replacement not granted is only on this device; the story keeps the picture it has.
+      if (phase.at === 'preview' && !phase.granted && onServer) {
+        setPhase({ at: 'done', ...onServer });
+        setNotice(
+          `Your story still has the ${noun} you added before. Remove it too if you don’t want it.`,
+        );
+        return;
+      }
+      if (!onServer) {
+        forgetAttempt(owner, 'image-request', id);
+        setPhase({ at: 'idle' });
+        setAlt('');
+        setSavedAlt('');
+        setNotice(`Your story has no ${noun}.`);
+        return;
+      }
+    }
     // A replacement not granted yet is only on this device: the story's picture stays.
-    if (phase.at === 'preview' && !phase.granted && attached) {
+    if (phase.at === 'preview' && !phase.granted && onServer) {
       setAlt(savedAlt);
-      setPhase({ at: 'done', ...attached });
+      setPhase({ at: 'done', ...onServer });
       return;
     }
     // On the draft (added, or granted with its file still to arrive): taken off at the server
     // first, at the draft's version.
-    if (phase.at === 'done' || (phase.at === 'preview' && phase.granted)) {
+    if (
+      phase.at === 'done' ||
+      (phase.at === 'preview' && (phase.granted || onServer))
+    ) {
       const id = await edit({ image: null }, gone);
       if (!id) return;
       forgetAttempt(owner, 'image-request', id);
@@ -495,6 +624,15 @@ export function ImagePanel({
             {phase.at === 'sending' ? 'Adding…' : `Add this ${noun}`}
           </button>
         )}
+        {phase.at === 'done' && pending && (
+          <button
+            type="button"
+            className={primary}
+            onClick={() => void add(pending, false)}
+          >
+            Replace with my {noun}
+          </button>
+        )}
         {phase.at === 'done' && alt.trim() !== savedAlt && (
           <button
             type="button"
@@ -546,7 +684,7 @@ export function ImagePanel({
           as where it was taken, before it leaves your device.
         </p>
       )}
-      {phase.at === 'done' && (
+      {phase.at === 'done' && !pending && (
         <p className="text-sm font-semibold" role="status">
           {noun[0].toUpperCase()}
           {noun.slice(1)} added.

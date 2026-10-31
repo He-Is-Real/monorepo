@@ -37,6 +37,10 @@ async function person(page: Page, request: APIRequestContext) {
     window.localStorage.setItem('e2e-session', session);
   }, id);
   return {
+    /** The stub's Authorization for this person, as another tab of theirs would send it. */
+    auth: `Bearer e2e.${Buffer.from(
+      JSON.stringify({ sub: 'user_e2efixture', session: id }),
+    ).toString('base64url')}.fixture`,
     uploads: async () =>
       (await (
         await request.get(`${STUB_USER_URL}/__e2e/sessions/${id}/uploads`)
@@ -257,6 +261,114 @@ test.describe('behaviour', () => {
     );
     await page.getByRole('button', { name: 'Remove picture' }).click();
     await removed;
+    await expect(page.getByText('Picture removed.')).toBeVisible();
+    expect(edits).toEqual([{ image: null }]);
+  });
+
+  test('a picture put on in another tab while this one asks is shown, never replaced on its own (Codex #140 round 2, 1)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    await choose(page, 900, 1200);
+    // While this tab asks, another tab of theirs adds a 16:9 picture: this tab's request is stale.
+    let other = false;
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/*/upload-url`,
+      async (route) => {
+        if (other) return route.fallback();
+        other = true;
+        const id = /stories\/([^/]+)\/upload-url/.exec(
+          route.request().url(),
+        )?.[1];
+        const headers = { authorization: me.auth };
+        const story = await (
+          await request.get(`${STUB_USER_URL}/v1/account/stories/${id}`, {
+            headers,
+          })
+        ).json();
+        const added = await request.post(
+          `${STUB_USER_URL}/v1/stories/${id}/upload-url`,
+          {
+            headers: {
+              ...headers,
+              'if-match': `"${story.version}"`,
+              'idempotency-key': randomUUID(),
+            },
+            data: {
+              format: 'image',
+              contentType: 'image/webp',
+              fileSizeBytes: 1000,
+              width: 1280,
+              height: 720,
+            },
+          },
+        );
+        expect(added.status()).toBe(200);
+        return route.fallback();
+      },
+    );
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+
+    // The story's picture now is shown, and nothing more was asked for.
+    await expect(alert(page, 'was changed in another tab')).toBeVisible();
+    const preview = page.locator('[data-picture-preview]');
+    const wide = await preview.boundingBox();
+    expect((wide?.width ?? 0) / (wide?.height ?? 1)).toBeCloseTo(16 / 9, 1);
+    expect((await me.uploads()).images).toHaveLength(1);
+
+    // Replacing it is the person's own choice.
+    await page.getByRole('button', { name: 'Replace with my picture' }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    const tall = await preview.boundingBox();
+    expect((tall?.width ?? 0) / (tall?.height ?? 1)).toBeCloseTo(0.75, 1);
+    const { images } = await me.uploads();
+    expect(images).toHaveLength(2);
+    expect(images[1].bytes).not.toBeNull();
+  });
+
+  test('a picture whose answer was lost is found on the story before a replacement is discarded (Codex #140 round 2, 2)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    // The first request goes through at the server, but its answer is lost.
+    let lost = false;
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/*/upload-url`,
+      async (route) => {
+        if (lost) return route.fallback();
+        lost = true;
+        await route.fetch();
+        return route.abort('connectionreset');
+      },
+    );
+    const edits: unknown[] = [];
+    page.on('request', (r) => {
+      if (isImageEdit(r)) edits.push(r.postDataJSON());
+    });
+    await choose(page, 900, 1200);
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(alert(page, 'can’t reach our server')).toBeVisible();
+    expect((await me.uploads()).images).toHaveLength(1);
+
+    // Another picture chosen, then discarded: the story is read, and its picture shown. (The
+    // page may have read the story already when the draft was made, and offer to keep it.)
+    await choose(page, 1280, 720);
+    await page
+      .getByRole('button', { name: /^(Remove|Keep the earlier) picture$/ })
+      .click();
+    await expect(
+      page.getByText('Your story still has the picture you added before.'),
+    ).toBeVisible();
+    const box = await page.locator('[data-picture-preview]').boundingBox();
+    expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(0.75, 1);
+    expect(edits).toEqual([]);
+
+    // Removing that one takes it off the story.
+    await page.getByRole('button', { name: 'Remove picture' }).click();
     await expect(page.getByText('Picture removed.')).toBeVisible();
     expect(edits).toEqual([{ image: null }]);
   });
