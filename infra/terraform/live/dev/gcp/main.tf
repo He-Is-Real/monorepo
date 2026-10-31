@@ -168,6 +168,15 @@ module "gcp" {
   # with ci-dev-seeder, the Job exists but no CI identity may start it.
   dev_seed            = true
   ci_dev_seeder_email = try(local.bootstrap.ci_dev_seeder_email, "")
+
+  # The nightly housekeeping Job (abandoned drafts, orphaned story videos), 03:30 London time.
+  # Dry run first: it logs what it would delete; turn it off once a night's log looks right.
+  # Needs bootstrap's Cloud Scheduler API and tf-deployer's scheduler role applied first.
+  housekeeping = {
+    schedule      = "30 3 * * *"
+    dry_run       = true
+    max_deletions = 50
+  }
 }
 
 # --- Adopt the SurrealDB secrets created by hand on 2026-09-27 ---------------

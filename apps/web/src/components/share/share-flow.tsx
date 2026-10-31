@@ -17,10 +17,10 @@ import {
   newIdempotencyKey,
   StaleVersion,
 } from '@/lib/api-user';
+import { LegalDocumentDetails } from '@/components/legal/legal-document-details';
 import { LegalHtml } from '@/components/legal/legal-html';
 import type { ConsentBox, ConsentStatement } from '@/lib/legal';
 import type { ShareForm, ShareLegal } from '@/lib/share-legal';
-import { documentVersionHref } from '@/lib/legal-text';
 import { signInHref } from '@/lib/return-path';
 import {
   type ConsentState,
@@ -480,6 +480,7 @@ function boxFor(
 /**
  * The privacy policy a grant on this form names (D122), folded away to read, with its own
  * numbered page: shown beside every box that grants, so what's agreed to is what was shown.
+ * The same card as the sign-up step's (legal-document-details.tsx).
  */
 function PrivacyPolicy({
   form,
@@ -489,24 +490,13 @@ function PrivacyPolicy({
   className?: string;
 }) {
   return (
-    <details
-      className={`rounded-xl border border-border p-4 ${className ?? ''}`}
-    >
-      <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-link">
-        Read the privacy policy
-      </summary>
-      <div className="mt-3" data-privacy-document={form.privacyVersion}>
-        <LegalHtml html={form.privacyHtml} />
-        <a
-          href={documentVersionHref('privacy', form.privacyNumber)}
-          target="_blank"
-          rel="noopener"
-          className="mt-2 inline-flex min-h-11 items-center font-semibold text-link underline-offset-4 hover:underline"
-        >
-          Version {form.privacyNumber}, on its own page (opens in a new tab)
-        </a>
-      </div>
-    </details>
+    <LegalDocumentDetails
+      name="privacy"
+      version={form.privacyVersion}
+      number={form.privacyNumber}
+      html={form.privacyHtml}
+      className={className}
+    />
   );
 }
 
@@ -1213,7 +1203,8 @@ function DetailsStep({
           </label>
           <input
             id="story-name"
-            className={input}
+            className={`${input} placeholder:text-secondary-text focus:placeholder:text-transparent`}
+            placeholder="Anonymous"
             maxLength={80}
             autoComplete="given-name"
             value={draft.fields.bylineName}

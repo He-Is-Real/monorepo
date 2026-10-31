@@ -88,15 +88,39 @@ through an upload grant (D80; the person's browser never names a video).
 - **Replaced:** choosing another file creates a new video and deletes the old one at Bunny at
   once, because nobody reviewed it. Its grant row stays for 7 days so the upload limits still
   count it.
+- **Deleted stories:** when a person deletes their draft, withdrawn or rejected story (D71),
+  api-user deletes every video it made for that story (its upload grants) at Bunny straight
+  after the database commits. Only granted videos: dev's seeded media and site assets are never
+  touched. The grants stay for the upload limits.
 - **Orphans** (a video on Bunny that no story shows) happen when that delete fails (api-user
-  logs `Couldn’t delete replaced video …`), when the database refused the grant after the video
+  logs `Couldn’t delete replaced video …` or `… a deleted story’s video …`), when the database refused the grant after the video
   was created and the delete after it failed (`… after a refused upload`), when api-user lost the
   database's answer to the grant and couldn't tell whether it committed (`… has no known outcome;
 video kept`: never deleted then, since it may be the draft's file; the person's retry with the
   same Idempotency-Key settles it), or when a person
-  abandons a draft whose file never finished (Bunny keeps it at status 0, "created"). Until the
-  sweep (D40, with account deletion) find them by title: a story id with no story, or a video id
-  that isn't the story's `media[0].bunnyVideoId`:
+  abandons a draft whose file never finished (Bunny keeps it at status 0, "created").
+- **The nightly sweep** (the `housekeeping` Cloud Run Job, `apps/housekeeping`; set up in
+  [infra/terraform/README.md](../infra/terraform/README.md), "Housekeeping") deletes them at
+  03:30 London time. A video goes only if all of these hold:
+  - it's a story video: its title is a story id, and it's in no collection. So site videos (the
+    `site-assets` collection) and dev-seed's clips (titled `dev-seed/clip-NN`) are never touched;
+  - Bunny made it more than 48 hours ago. An upload in progress, a draft that has just been given
+    it, and a grant with no known outcome (settled by the person's retry within the
+    Idempotency-Key's 24 hours) are left alone;
+  - no story's media, no published story's media and no upload grant made or renewed (a resume
+    signed its link again) in the last 48 hours names it.
+
+  It deletes at most 50 videos a night (`max_deletions`), oldest first; the rest wait for the
+  next night. In dev it starts in a dry run: it logs what it would delete and deletes nothing.
+  Its log is one JSON line per chore with counts and ids only:
+  `gcloud logging read 'resource.labels.job_name="housekeeping"' --limit 20`.
+
+- **Abandoned drafts** (D71): the same Job first deletes drafts nobody has touched for as long as
+  the testimony forms promise (6 months, counted as 186 days), the way a person deletes their own
+  draft. Resuming an upload counts as touching the draft: api-user signs the link only once that
+  is recorded, and the two can't both win a race. Their videos are then orphans, and go in the same run once they're 48 hours old.
+- To look for orphans by hand: a story id with no story, or a video id that isn't the story's
+  `media[0].bunnyVideoId`:
 
   ```bash
   tools/scripts/tf.sh bunny-cli api GET '/library/<library id>/videos?itemsPerPage=100' | jq '.items[] | {guid, title, status, dateUploaded}'

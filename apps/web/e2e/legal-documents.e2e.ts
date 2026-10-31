@@ -13,7 +13,8 @@ import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 // - /privacy and /terms show the version in force as Markdown in the site's own formatting
 //   (inline `code` as real code), with its number, and link the earlier versions, each kept at
 //   /privacy/versions/<n>;
-// - the sign-up step's terms box links the terms of use in force, outside the box's own words;
+// - the sign-up step shows the terms of use and the privacy policy in force, each folded away
+//   with a link to its numbered version;
 // - /admin/legal, for Admins: edit the text with a live preview, confirm, publish; the new
 //   version is in force and the old ones stay listed. A publish based on a version that's no
 //   longer in force asks to reload. The stub api-admin (stub-api-user.mjs) keeps each test's
@@ -81,20 +82,25 @@ test.describe('the privacy policy and terms of use pages', () => {
   });
 });
 
-test('the sign-up step’s terms box links the terms of use in force, outside its words', async ({
+test('the sign-up step shows the terms of use and the privacy policy in force, folded away beside the boxes', async ({
   page,
 }) => {
   await useSession(page, `unaccepted-${randomUUID().slice(0, 8)}`);
   await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
-  const terms = page.getByRole('checkbox', {
-    name: 'I agree to the terms of use.',
-  });
-  await expect(terms).not.toBeChecked();
-  const link = page.getByRole('link', {
-    name: 'Read the terms of use, version 1 (opens in a new tab)',
+  await expect(
+    page.getByRole('checkbox', { name: 'I agree to the terms of use.' }),
+  ).not.toBeChecked();
+  // The terms of use, folded away like the privacy policy: open, they show their words.
+  const termsCard = page.locator('[data-terms-document="dev_placeholder"]');
+  await expect(termsCard).toBeHidden();
+  await page.getByText('Read the terms of use', { exact: true }).click();
+  await expect(termsCard).toContainText(
+    'The real terms come before the site goes live.',
+  );
+  const link = termsCard.getByRole('link', {
+    name: /^Version 1, on its own page/,
   });
   await expect(link).toHaveAttribute('href', '/terms/versions/1');
-  await expect(link).toHaveAttribute('data-terms-version', 'dev_placeholder');
   await expectTarget(page, link);
   // The privacy policy, folded away, in the same formatting as /privacy.
   await page.getByText('Read the privacy policy', { exact: true }).click();

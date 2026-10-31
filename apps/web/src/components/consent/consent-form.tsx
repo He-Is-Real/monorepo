@@ -13,6 +13,7 @@ import {
   useAccountState,
 } from '@/components/auth/account-bootstrap';
 import { dismissTestimonyBanner } from '@/components/consent/consent-prompts';
+import { LegalDocumentDetails } from '@/components/legal/legal-document-details';
 import { LegalHtml } from '@/components/legal/legal-html';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,7 +27,6 @@ import type {
   ConsentFormName,
   ConsentStatement,
 } from '@/lib/legal';
-import { documentVersionHref } from '@/lib/legal-text';
 import {
   personalApiUser,
   personalToken,
@@ -57,8 +57,11 @@ export interface ConsentAsk {
     number: number;
     html: string;
   };
-  /** The terms of use in force, when the version has the terms box (D122). */
-  terms: { version: string; number: number } | null;
+  /**
+   * The terms of use in force, when the version has the terms box (D122): its record id, its
+   * number and its words, rendered by the server.
+   */
+  terms: { version: string; number: number; html: string } | null;
   /** A same-site path to go on to afterwards (return-path.ts). */
   returnTo: string;
   /** api-user's origin (config.ts); none: nothing can be recorded. */
@@ -303,33 +306,8 @@ function PersonsConsentForm({
         <LegalHtml html={html} />
       </section>
 
-      <details className="group rounded-2xl border border-border bg-card">
-        <summary className="flex min-h-11 cursor-pointer items-center gap-2 rounded-2xl px-5 py-3 font-medium text-link hover:text-link-hover">
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            className="size-4 shrink-0 fill-none stroke-current transition-transform group-open:rotate-90"
-            strokeWidth="2"
-          >
-            <path d="M9 6l6 6-6 6" />
-          </svg>
-          Read the privacy policy
-        </summary>
-        <div
-          data-privacy-document={privacy.version}
-          className="space-y-4 border-t border-border px-5 py-4"
-        >
-          <LegalHtml html={privacy.html} />
-          <a
-            href={documentVersionHref('privacy', privacy.number)}
-            target="_blank"
-            rel="noopener"
-            className="inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
-          >
-            Version {privacy.number}, on its own page (opens in a new tab)
-          </a>
-        </div>
-      </details>
+      <LegalDocumentDetails name="privacy" {...privacy} />
+      {terms && <LegalDocumentDetails name="terms" {...terms} />}
 
       <form
         noValidate
@@ -349,56 +327,39 @@ function PersonsConsentForm({
           </legend>
           {asked.map(({ statement, label }) => {
             const invalid = missing.includes(statement);
-            const box = (
-              <label
-                className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border bg-card px-4 py-3 text-[1.0625rem] leading-relaxed text-foreground transition-colors hover:border-border-hover [overflow-wrap:anywhere] ${invalid ? 'border-destructive' : 'border-border'}`}
-              >
-                <input
-                  ref={(el) => {
-                    if (el) inputs.current.set(statement, el);
-                    else inputs.current.delete(statement);
-                  }}
-                  type="checkbox"
-                  name={statement}
-                  checked={ticked.has(statement)}
-                  onChange={(e) => toggle(statement, e.target.checked)}
-                  aria-invalid={invalid || undefined}
-                  aria-describedby={invalid ? errorId : undefined}
-                  className="peer sr-only"
-                />
-                <span
-                  aria-hidden="true"
-                  className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border-2 border-input bg-input-background text-primary-foreground peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 [&>svg]:invisible peer-checked:[&>svg]:visible"
+            return (
+              <div key={statement}>
+                <label
+                  className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border bg-card px-4 py-3 text-[1.0625rem] leading-relaxed text-foreground transition-colors hover:border-border-hover [overflow-wrap:anywhere] ${invalid ? 'border-destructive' : 'border-border'}`}
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="size-4 fill-none stroke-current"
-                    strokeWidth="3"
+                  <input
+                    ref={(el) => {
+                      if (el) inputs.current.set(statement, el);
+                      else inputs.current.delete(statement);
+                    }}
+                    type="checkbox"
+                    name={statement}
+                    checked={ticked.has(statement)}
+                    onChange={(e) => toggle(statement, e.target.checked)}
+                    aria-invalid={invalid || undefined}
+                    aria-describedby={invalid ? errorId : undefined}
+                    className="peer sr-only"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border-2 border-input bg-input-background text-primary-foreground peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 [&>svg]:invisible peer-checked:[&>svg]:visible"
                   >
-                    <path d="M5 12l5 5 9-10" />
-                  </svg>
-                </span>
-                <span className="min-w-0">{label}</span>
-              </label>
-            );
-            // D122: the terms box links the terms of use in force, outside its label (a link
-            // inside a label would tick the box).
-            return statement === 'terms_of_use' && terms ? (
-              <div key={statement} className="space-y-1">
-                {box}
-                <a
-                  href={documentVersionHref('terms', terms.number)}
-                  target="_blank"
-                  rel="noopener"
-                  data-terms-version={terms.version}
-                  className="ml-4 inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
-                >
-                  Read the terms of use, version {terms.number} (opens in a new
-                  tab)
-                </a>
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="size-4 fill-none stroke-current"
+                      strokeWidth="3"
+                    >
+                      <path d="M5 12l5 5 9-10" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0">{label}</span>
+                </label>
               </div>
-            ) : (
-              <div key={statement}>{box}</div>
             );
           })}
         </fieldset>

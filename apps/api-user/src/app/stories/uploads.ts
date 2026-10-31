@@ -15,6 +15,7 @@ import {
   type IdempotencyScope,
   type IdempotentResponse,
   type PreparedCommand,
+  retryOnConflict,
   runIdempotent,
   runQuery,
   uploadLimitOf,
@@ -33,7 +34,8 @@ import { StaleVersionException } from './story-store';
  *   browser never names a video, and the TUS link it gets binds only that video.
  * - One video per draft: a new file replaces the draft's video, and the old one is deleted at
  *   Bunny at once (nobody reviewed it). A resume signs the draft's own video again, only while
- *   nothing has arrived for it.
+ *   nothing has arrived for it, and only once its grant's renewal commits: that counts as
+ *   touching the draft, so housekeeping doesn't delete it as abandoned (D71).
  * - The TUS link bounds neither size nor type (D68), so the person's limits (D113, admin
  *   settings) are checked before anything is created at Bunny, by the database again when the
  *   grant is written, and at submit with the limits in force then and Bunny's own length.
@@ -201,6 +203,7 @@ export class Uploads {
       const draft = await this.checkDraft(person, id, ifMatch, input);
       // The same video again, for a new link (after a reload, or once the last one expired).
       await this.checkResumable(person, id, draft.videoId);
+      await this.renew(user, id, draft.videoId as string);
       return this.target(bunny, id, draft.version, draft.videoId as string);
     }
 
@@ -282,6 +285,7 @@ export class Uploads {
       // for a file the limits in force now refuse (its version may be stale; its file may not).
       this.checkFile(input, await this.limits(person));
       await this.checkResumable(person, id, granted);
+      await this.renew(user, id, granted);
     }
     return this.target(bunny, id, version, granted);
   }
@@ -329,13 +333,50 @@ export class Uploads {
       videoId && draft.videoId === videoId
         ? await this.stream().video(videoId)
         : null;
-    if (!video || !NOT_UPLOADED.includes(video.status)) {
-      throw new ConflictException({
-        code: 'nothing_to_resume',
-        message:
-          'There’s no unfinished upload on this story to carry on with. Choose the file again to upload it.',
-      });
+    if (!video || !NOT_UPLOADED.includes(video.status)) throw nothingToResume();
+  }
+
+  /**
+   * Before a link for an existing grant is signed again: its renewal (fn::upload::renew) counts
+   * as touching the draft (D71). It conflicts with housekeeping deleting the draft as abandoned,
+   * so if the deletion wins, the retry finds no draft and no link is signed.
+   */
+  private async renew(user: RecordId, id: string, videoId: string) {
+    let renewed: unknown;
+    try {
+      [renewed] = await retryOnConflict(() =>
+        runQuery(
+          this.service,
+          `RETURN fn::upload::renew(type::record('story', $id), $person, $video)`,
+          { id, person: user, video: videoId },
+        ),
+      );
+    } catch (err) {
+      const message =
+        err instanceof DatabaseQueryError ? err.message : String(err);
+      if (/story_cmd:locked/.test(message)) throw locked();
+      if (/nothing_to_resume/.test(message)) throw nothingToResume();
+      throw err;
     }
+    if (!renewed) throw nothingToResume();
+  }
+
+  /**
+   * DeleteStory's clean-up (D71): the videos api-user made for a story that is now deleted go at
+   * Bunny at once, after the database committed. Nobody else's story can show them (one story
+   * per video, D80). A failed delete leaves an orphan for the sweep (media-runbook.md), logged
+   * with its id only.
+   */
+  async discardDeleted(videoIds: string[]): Promise<void> {
+    if (!videoIds.length) return;
+    if (!this.bunny) {
+      this.logger.warn(
+        `Couldn’t delete the deleted story’s videos ${videoIds.join(', ')} (uploads are off; orphans until the sweep)`,
+      );
+      return;
+    }
+    for (const id of videoIds)
+      await this.discard(id, 'a deleted story’s video');
   }
 
   private async discard(videoId: string, what: string) {
@@ -553,6 +594,14 @@ function definite(err: unknown): boolean {
     err instanceof WriteNotAppliedError ||
     err instanceof IdempotencyKeyReusedError
   );
+}
+
+function nothingToResume() {
+  return new ConflictException({
+    code: 'nothing_to_resume',
+    message:
+      'There’s no unfinished upload on this story to carry on with. Choose the file again to upload it.',
+  });
 }
 
 function locked() {

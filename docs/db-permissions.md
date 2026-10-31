@@ -58,7 +58,7 @@ bypasses permissions) that the row is unchanged or absent.
 | Clerk JWT (D27): `sub` maps to `user` by `clerkUserId`. Rejected: expired, wrong key, `ac` = `svc` or unknown, unknown `sub`, other database, no `exp`, HS256-with-public-key confusion, tampered payload, erased person. An `id` claim can't override `AUTHENTICATE`; `iss`/`azp` aren't checked.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `person-session`                  |
 | A person sees only their own stories (drafts and pending too), never anyone else's in the write model, approved included. They see only their own consent and user row, and only published DPAs. `fn::consent::current(otherUser)` returns nothing to them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | `person-session`                  |
 | Draft creation: only for themselves, only as `draft`, only with current Art 9 consent. Moderation fields can't be pre-filled; `version`/`createdAt`/`submittedAt` are server-set.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | `person-session`                  |
-| Editing: own drafts only; `submitter` can't be reassigned; moderation fields are silently dropped; only submit or withdraw is allowed; no backdated `submittedAt`. Content is locked after submit, editable again after `changes_requested`. They can't delete stories, can withdraw (and unpublish) their own, and can't touch others'.                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `person-session`                  |
+| Editing: own drafts only; `submitter` can't be reassigned; moderation fields are silently dropped; only submit or withdraw is allowed; no backdated `submittedAt`. Content is locked after submit, editable again after `changes_requested`. They delete only their own `draft`, `withdrawn` or `rejected` story (D71, item 38), can withdraw (and unpublish) their own, and can't touch others'.                                                                                                                                                                                                                                                                                                                                                                                          | `person-session`                  |
 | Consent at every step: edit/media needs current Art 9; submit and approval need Art 9 + `publish` + `age_18plus`; the read model needs them too. Withdrawing a story needs none. Includes Codex's reproduction (withdraw Art 9, then edit, submit, approve: all refused, nothing published).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `consent-gates`                   |
 | D17 derivation over many people and stories: grant, re-grant to a newer DPA, withdraw and re-consent each change every one of that person's stories at once, and nobody else's. Correct in multi-row selects, in subqueries and in the person's own view.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `consent`                         |
 | D20/D22: no consent against a draft DPA (accepted once published). `occurredAt` is server time. Legacy consent (mechanism, legacy DPA, `legacyGivenAt`) is migrator-only. The 0003 import pattern derives `legacy-squarespace`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `consent`                         |
@@ -630,8 +630,17 @@ retried`, on both RocksDB and the in-memory engine.
 37. **A story's video or audio is only ever what api-user uploaded for it.**
     - **`uploadGrant`** (id = the Bunny video id, so a video is granted once, to one story):
       `story`, `person`, `format`, `contentType`, `sizeBytes`, `durationSeconds` (the browser's
-      word), `storyVersion` (the command's `If-Match`), `at`. Only api-user's login creates it, and
-      nobody updates it; the person reads their own; erasure deletes it.
+      word), `storyVersion` (the command's `If-Match`), `at`, `renewedAt`. Only api-user's login
+      creates it, and only it updates it, and then only `renewedAt` (the server's time; every
+      other field is `READONLY`); the person reads their own; erasure deletes it.
+    - **`fn::upload::renew` / `uploadGrant_renew`** (D71): before api-user signs a link for a
+      grant's video again (a resume, or a replayed RequestUpload), it sets the grant's
+      `renewedAt`, which counts as touching the draft for housekeeping. The event (elevated)
+      refuses it unless the story still exists, is the person's, is editable and still shows that
+      video (`nothing_to_resume:`, `story_cmd:locked`), and bumps the person's fence, so it
+      conflicts with housekeeping's delete of the draft: if the delete commits first, the retry is
+      refused and api-user signs nothing (`409 nothing_to_resume`); if the renewal commits first,
+      the delete's retry finds the draft touched.
     - **`uploadGrant_attach`** (elevated): the story must be the grant's person's, editable
       (`draft`, `changes_requested`), at `storyVersion` (`story_cmd:stale_version`), of that
       format (`upload_refused:`), and within the person's upload limits (`limit_upload_size:`,
@@ -683,6 +692,49 @@ retried`, on both RocksDB and the in-memory engine.
     `libs/database/integration/legal-documents.int-spec.ts`,
     `apps/api-admin/integration/legal-documents.int-spec.ts`.
 
+39. **A person deletes their own draft, withdrawn or rejected story (D71; M2 plan PR 8).**
+    `story`'s delete permission adds the owner, while not erased, for those three statuses only:
+    a story waiting for review, in review, sent back for changes or published is in moderation's
+    hands or public, so it's withdrawn first. api-user's `DeleteStory` runs in the person's
+    session, so the database decides; erasure still runs on api-user's login. The delete reaches
+    `publicStory`, `hiddenStory`, reviews and others' hearts through `story_erasure_cascade`
+    (events run elevated, so the person's session needs no rights on those). `uploadGrant` rows
+    are kept (the limits count them; erasure deletes them), and api-user deletes the story's
+    granted Bunny videos after the commit. Tests: `person-session` (every status, and someone
+    else's) and api-user's `my-stories`.
+
+### M2 nightly housekeeping (D71; Joel, 2026-10-30)
+
+40. **`service:housekeeping`: the nightly Cloud Run Job's own login, for abandoned drafts and
+    orphaned videos.** A fifth service record, with its password in
+    `surreal-housekeeping-password`, written by SurrealDB's startup init like the others
+    (`infra/k8s/surrealdb/base/init.surql.tmpl`); the migrate Job waits for it.
+    - **Reads:** `story` (every row: its id, status, dates and media, to find expired drafts
+      and the Bunny ids still in use), `uploadGrant` (ids and dates) and `publicStory` (public
+      anyway). **Never a story's words:** `slug`, `title`, `description`, `body`, `bylineName`,
+      `image.alt` and `rejectionFeedback` have `FOR select WHERE $auth != service:housekeeping`,
+      so they read as absent to it. It can't read people, consent or audit rows.
+    - **Deletes:** a `story` only while `fn::story::draft_expired(id)`: it's a `draft` whose
+      `updatedAt`, and every one of its upload grants' `renewedAt` (a resumed upload, item 37), is
+      before `fn::story::drafts_expire_before()`: the longest `draftRetentionMonths` of the
+      published or retired testimony forms (D71: "the form says so"; every form so far says 6), a
+      month counted as 31 days so nobody's draft goes earlier than promised; NONE, so nothing,
+      while no form is published. Its delete also writes `legalFence:forms` (`story_fence`), so
+      it conflicts with a form version published meanwhile (which may promise longer), and the
+      chore's retry checks again; a resume racing it conflicts through the person's fence. It's
+      the same delete as a person's own (item 39): the story's events bump the person's fence
+      and `story_erasure_cascade` removes what hangs off it. Its upload grants stay for the
+      upload limits (D113); the job deletes the video at Bunny once nothing names it
+      (`docs/media-runbook.md`).
+    - **Nothing else:** no create or update anywhere, no other delete.
+    - **`story.updatedAt`:** still the server's time on every write, except that a system user
+      (`$auth = NONE`: the migrator, dev's seed) may keep or supply one, so a migration doesn't
+      make a draft look touched and tests can age a draft.
+    - Tests: `apps/housekeeping/integration/housekeeping.int-spec.ts` (what it can read and
+      delete, the chores end to end against a stand-in for Bunny, and its delete racing a resume
+      and a form publication, each order); the generic per-service suites (`schema`,
+      `retention`, `migration`) include it through the harness's `SERVICES`.
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
@@ -704,7 +756,7 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------                                                                 | ---------- | ------------------------------------------------------------------------------------------------                                       | ----------------------------------------------------------------- |
 | `submitterLimits`                                                                                                                                                                                          | D112's per-person limits and trusted mark; `user`, `changedBy`                                                                 | linked     | user live + fence; `changedBy` required from api-admin; `devSeed` dev only; audit row per change                                       |
 | `submissionLog`                                                                                                                                                                                            | D113's recent submissions; `person`                                                                                            | linked     | written by `story_limits` only; person live + fence                                                                                    |
-| `uploadGrant`                                                                                                                                                                                              | D80's uploads; `person`, `story`                                                                                               | linked     | created by api-user's login only; person live + fence (`uploadGrant_attach`)                                                           |
+| `uploadGrant`                                                                                                                                                                                              | D80's uploads; `person`, `story`                                                                                               | linked     | created and renewed by api-user's login only; person live + fence (`uploadGrant_attach`, `uploadGrant_renew`)                          |
 | `submissionSettings`, `tag`, `signupFormVersion`, `testimonyFormVersion`, `socialSharingFormVersion`, `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity`, `_setting`               | no person data                                                                                                                 | none       | —                                                                                                                                      | —                                                                 |
 
 - **Audit writes that race erasure.** These are allowed to commit, because audit rows are kept
