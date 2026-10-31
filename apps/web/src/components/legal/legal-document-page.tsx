@@ -79,7 +79,12 @@ export function LegalDocumentPage({
                 </Link>
               </p>
             )}
-            <LegalMarkdown text={text} />
+            {/* From 1024 px the page has room either side of its reading column: its tables
+                widen into it by the same amount on both sides. Not in a card, which has none. */}
+            <LegalMarkdown
+              text={text}
+              className="lg:[&_[data-legal-table]]:-mx-16"
+            />
           </article>
         ) : (
           <p className="text-secondary-text" data-legal-problem={problem}>
