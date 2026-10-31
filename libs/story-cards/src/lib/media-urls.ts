@@ -72,7 +72,24 @@ export class MediaUrls {
   constructor(
     private readonly signing: Signing | null,
     private readonly now: () => number = Date.now,
+    private readonly expiry: (nowMs: number) => number = linkExpiry,
   ) {}
+
+  /**
+   * The same signer, for links that all expire `seconds` from now, not rounded to the hour: for one
+   * person's own copy ("Download my data": 1 hour), never for cached public answers.
+   */
+  expiringIn(seconds: number): MediaUrls {
+    const at = Math.ceil(this.now() / 1000) + seconds;
+    return new MediaUrls(this.signing, this.now, () => at);
+  }
+
+  /** When a link signed now stops working, or `null` while signing is off (every URL is null). */
+  linksExpireAt(): string | null {
+    return this.signing
+      ? new Date(this.expiry(this.now()) * 1000).toISOString()
+      : null;
+  }
 
   /** The Bunny Stream player (video and audio). */
   playbackUrl(videoId: string | null | undefined): string | null {
@@ -82,7 +99,7 @@ export class MediaUrls {
       s.config.streamLibraryId,
       videoId,
       s.streamKey,
-      linkExpiry(this.now()),
+      this.expiry(this.now()),
     );
   }
 
@@ -103,7 +120,7 @@ export class MediaUrls {
       s.config.streamCdnHost,
       path,
       s.streamKey,
-      linkExpiry(this.now()),
+      this.expiry(this.now()),
     );
   }
 
@@ -115,7 +132,7 @@ export class MediaUrls {
       s.config.imagesCdnHost,
       path,
       s.imagesKey,
-      linkExpiry(this.now()),
+      this.expiry(this.now()),
     );
   }
 }

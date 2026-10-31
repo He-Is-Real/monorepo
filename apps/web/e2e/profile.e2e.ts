@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import {
   type APIRequestContext,
   expect,
@@ -64,8 +65,9 @@ async function person(
   page: Page,
   request: APIRequestContext,
   seed: Record<string, unknown>,
+  prefix = '',
 ) {
-  const id = randomUUID().replace(/-/g, '');
+  const id = `${prefix}${randomUUID().replace(/-/g, '')}`;
   const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
     data: { signupAccepted: true, ...seed },
   });
@@ -178,11 +180,79 @@ test.describe('behaviour', () => {
     await expect(
       row(page, 'My draft').getByRole('link', { name: 'Continue' }),
     ).toHaveAttribute('href', '/share?draft=s_draft');
-    // Download comes later (M2 plan PR 12): a place, nothing to press.
-    await expect(page.locator('[data-coming-soon]')).toHaveCount(1);
+  });
+
+  test('download my data: a file of everything of mine, and nobody else’s', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {
+      granted: ['special_category_religious', 'publish'],
+      stories: [
+        { id: 'm1', status: 'approved', title: 'Only mine', slug: 'only-mine' },
+        { id: 'm2', status: 'draft', title: 'My draft' },
+      ],
+    });
+    // Someone else in the stub, with a story of their own.
+    const other = randomUUID().replace(/-/g, '');
+    expect(
+      (
+        await request.post(`${STUB_USER_URL}/__e2e/sessions/${other}`, {
+          data: {
+            signupAccepted: true,
+            stories: [{ id: 'o1', title: 'Someone else’s story' }],
+          },
+        })
+      ).status(),
+    ).toBe(204);
+    await page.goto(PROFILE);
+    const card = page.locator('[data-download-data]');
+    const saving = page.waitForEvent('download');
+    await card.getByRole('button', { name: 'Download my data' }).click();
+    const download = await saving;
+    expect(download.suggestedFilename()).toMatch(
+      /^he-is-real-my-data-\d{4}-\d{2}-\d{2}\.json$/,
+    );
+    const text = await readFile(await download.path(), 'utf8');
+    const file = JSON.parse(text) as {
+      about: { sections: Record<string, string> };
+      stories: { title: string; status: string }[];
+      consents: { type: string }[];
+    };
+    expect(file.stories.map((s) => [s.title, s.status])).toEqual([
+      ['My draft', 'draft'],
+      ['Only mine', 'approved'],
+    ]);
+    expect(file.consents.map((c) => c.type)).toEqual([
+      'special_category_religious',
+      'publish',
+    ]);
+    expect(Object.keys(file.about.sections).length).toBeGreaterThan(0);
+    expect(text).not.toContain('Someone else');
+    // Laid out to be read, not one long line.
+    expect(text.split('\n').length).toBeGreaterThan(20);
+    await expect(card.getByRole('status')).toHaveText(
+      /^Your file he-is-real-my-data-.+\.json is saved to your downloads\. Its links to your videos and pictures work for one hour\.$/,
+    );
+  });
+
+  test('download my data when it can’t be prepared: it says so, and trying again is possible', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {}, 'export-fails');
+    await page.goto(PROFILE);
+    const card = page.locator('[data-download-data]');
+    let downloads = 0;
+    page.on('download', () => (downloads += 1));
+    await card.getByRole('button', { name: 'Download my data' }).click();
+    await expect(card.getByRole('alert')).toHaveText(
+      'We couldn’t prepare your file just now. Please try again in a moment.',
+    );
     await expect(
-      page.locator('[data-coming-soon]').getByRole('button'),
-    ).toHaveCount(0);
+      card.getByRole('button', { name: 'Download my data' }),
+    ).toBeEnabled();
+    expect(downloads).toBe(0);
   });
 
   test('withdraw a story waiting for review', async ({ page, request }) => {

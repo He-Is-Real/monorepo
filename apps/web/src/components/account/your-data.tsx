@@ -77,8 +77,8 @@ const outcomeUnknown = (err: unknown) =>
 /**
  * Your data (R6, Joel 2026-10-30): the profile's serious choices about the person's data, in one
  * place. "Take all my stories off the site" withdraws their consent to publish (every story comes
- * off the site at once and stays in the account); "Download my data" comes with the export (M2
- * plan PR 12); "Delete my account" erases everything (D39, D82) after a typed confirmation, and
+ * off the site at once and stays in the account); "Download my data" saves everything we hold
+ * about them as one JSON file (M2 plan PR 12; Art 15, Art 20); "Delete my account" erases everything (D39, D82) after a typed confirmation, and
  * signs them out. Filled in by the browser (D83).
  */
 export function YourData({ afterDeletion }: { afterDeletion: AfterDeletion }) {
@@ -93,15 +93,7 @@ export function YourData({ afterDeletion }: { afterDeletion: AfterDeletion }) {
       {/* A fresh one for each person: nobody inherits the last person's confirmation or key. */}
       <ul key={owner ?? 'unknown'} className="flex flex-col gap-4">
         <TakeStoriesOff />
-        <li
-          data-coming-soon=""
-          className="rounded-2xl border border-border bg-card p-5 sm:p-6"
-        >
-          <h3 className="mb-1 text-lg font-semibold">Download my data</h3>
-          <p className="text-secondary-text">
-            Get a copy of everything we hold about you. Coming soon.
-          </p>
-        </li>
+        <DownloadMyData />
         <DeleteAccount afterDeletion={afterDeletion} />
       </ul>
     </section>
@@ -228,6 +220,100 @@ function TakeStoriesOff() {
         site, and stays in your account.
       </p>
       {body}
+      {notice && (
+        <p
+          role={notice.alert ? 'alert' : 'status'}
+          className={`mt-3 text-sm ${notice.alert ? 'text-destructive' : ''}`}
+        >
+          {notice.text}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/** The part of `GET /v1/account/export` the page reads; the rest goes into the file as it is. */
+interface MyDataFile {
+  about: { generatedAt: string; linksExpireAt: string | null };
+}
+
+/** Hands the browser `text` as a file to save, named `name`. */
+function saveFile(name: string, text: string) {
+  const url = URL.createObjectURL(
+    new Blob([text], { type: 'application/json' }),
+  );
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // After the click has handed it over; revoking at once can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/**
+ * "Download my data" (Art 15, Art 20; M2 plan PR 12): api-user reads everything of the person's
+ * in their own session and sends it as JSON, which is saved as it came, laid out to be read. The
+ * token is in a header, so the browser fetches it and saves it itself (a plain link can't carry
+ * the token). Media stay at Bunny: the file has links, never files. The file is handed over only
+ * while the person who asked is still the one signed in.
+ */
+function DownloadMyData() {
+  const session = usePersonalSession();
+  const owner = session.status === 'signed-in' ? session.userId : null;
+  const [busy, setBusy] = useState(false);
+  const { notice, say } = useOwnNotice<{ alert: boolean; text: string }>();
+
+  const download = async () => {
+    if (!owner || session.status !== 'signed-in') return;
+    const api = personalApiUser(session);
+    setBusy(true);
+    say(owner, undefined);
+    try {
+      const { data } = await api.get<MyDataFile>('/v1/account/export');
+      if (!data?.about?.generatedAt) throw new ApiUserUnavailable('No file');
+      if (!signedInAs(owner)) return;
+      const name = `he-is-real-my-data-${data.about.generatedAt.slice(0, 10)}.json`;
+      saveFile(name, JSON.stringify(data, null, 2));
+      say(owner, {
+        alert: false,
+        text: data.about.linksExpireAt
+          ? `Your file ${name} is saved to your downloads. Its links to your videos and pictures work for one hour.`
+          : `Your file ${name} is saved to your downloads.`,
+      });
+    } catch {
+      say(owner, {
+        alert: true,
+        text: 'We couldn’t prepare your file just now. Please try again in a moment.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li
+      data-download-data=""
+      className="rounded-2xl border border-border bg-card p-5 sm:p-6"
+    >
+      <h3 className="mb-1 text-lg font-semibold">Download my data</h3>
+      <p className="mb-4 text-secondary-text">
+        Get a copy of everything we hold about you, in one file (JSON) that
+        explains each part: your account and sign-in details, every story you’ve
+        started or shared, your consents, favourites and limits. Your videos,
+        audio and pictures are in it as links that work for one hour.
+      </p>
+      <Button
+        variant="outline"
+        className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+        disabled={busy || !owner}
+        aria-busy={busy}
+        onClick={() => void download()}
+      >
+        {busy ? 'Preparing your file…' : 'Download my data'}
+      </Button>
       {notice && (
         <p
           role={notice.alert ? 'alert' : 'status'}
