@@ -90,3 +90,13 @@ variable "upload_key_readers" {
     error_message = "Only this project's api-user service account may read the upload keys (D80: api-user alone creates and signs uploads)."
   }
 }
+
+variable "stream_key_readers" {
+  description = "The nightly housekeeping Job, as serviceAccount:housekeeping@<project>.iam.gserviceaccount.com: it may read the Stream library key (to list and delete orphaned story videos), and no other bunny-* secret. Empty: no reader."
+  type        = set(string)
+  default     = []
+  validation {
+    condition     = alltrue([for m in var.stream_key_readers : m == "serviceAccount:housekeeping@${var.project_id}.iam.gserviceaccount.com"])
+    error_message = "Only this project's housekeeping service account may read the Stream library key on its own (api-user reads it through upload_key_readers)."
+  }
+}

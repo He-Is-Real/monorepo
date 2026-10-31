@@ -70,6 +70,7 @@ variable "surreal_secret_names" {
     "surreal-api-user-password",
     "surreal-api-admin-password",
     "surreal-workflow-password",
+    "surreal-housekeeping-password",
     "surreal-backup-password",
     "surreal-migrator-password",
   ]
@@ -379,6 +380,20 @@ variable "dev_seed" {
   validation {
     condition     = !var.dev_seed || var.project_id == "heisreal-dev"
     error_message = "dev_seed (D49) can only be set in dev (project heisreal-dev)."
+  }
+}
+
+variable "housekeeping" {
+  description = "The nightly housekeeping Cloud Run Job and its Cloud Scheduler trigger (housekeeping.tf): cron schedule (Europe/London time), dry_run (only log what it would delete) and max_deletions (per chore per run). null: none. Needs api_public_read_media (the Stream library)."
+  type = object({
+    schedule      = optional(string, "30 3 * * *")
+    dry_run       = optional(bool, true)
+    max_deletions = optional(number, 50)
+  })
+  default = null
+  validation {
+    condition     = var.housekeeping == null || (try(var.housekeeping.max_deletions >= 1 && var.housekeeping.max_deletions <= 500 && floor(var.housekeeping.max_deletions) == var.housekeeping.max_deletions, false))
+    error_message = "housekeeping.max_deletions must be a whole number from 1 to 500."
   }
 }
 

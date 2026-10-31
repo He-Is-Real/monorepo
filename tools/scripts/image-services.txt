@@ -8,3 +8,4 @@ api-admin
 workflow
 web
 dev-seed
+housekeeping

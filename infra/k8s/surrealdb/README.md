@@ -38,6 +38,7 @@ Only the in-cluster Jobs are system users. Each identity has its own Secret Mana
 | `service:api_user`        | service login      | `surreal-api-user-password`        | api-user                              |
 | `service:api_admin`       | service login      | `surreal-api-admin-password`       | api-admin                             |
 | `service:workflow`        | service login      | `surreal-workflow-password`        | workflow (M7)                         |
+| `service:housekeeping`    | service login      | `surreal-housekeeping-password`    | housekeeping Cloud Run Job (nightly)  |
 | `backup`                  | system user VIEWER | `surreal-backup-password`          | backup CronJob                        |
 | `migrator`                | system user OWNER  | `surreal-migrator-password`        | migrate Job only                      |
 | `dev_seed` (dev only)     | system user EDITOR | `surreal-dev-seed-password`        | dev-seed Cloud Run Job (D49)          |

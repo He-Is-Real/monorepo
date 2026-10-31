@@ -49,7 +49,7 @@ spec:
             - name: MIGRATE_EXPECT_USERS
               value: backup,migrator
             - name: MIGRATE_EXPECT_SERVICES
-              value: api_public_read,api_user,api_admin,workflow
+              value: api_public_read,api_user,api_admin,workflow,housekeeping
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
           envFrom:

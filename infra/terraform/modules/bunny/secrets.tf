@@ -2,8 +2,9 @@
 # through libs/secrets. The values come from the Bunny resources and are sent
 # with write-only attributes, so these resources add nothing to state. Accessor
 # grants only for keys a deployed service uses: the two token auth keys, for
-# api-public-read (D52) and api-user (hearts' cards, M2), and the two upload
-# keys, for api-user alone (M2's uploads, D80).
+# api-public-read (D52) and api-user (hearts' cards, M2), the two upload keys,
+# for api-user alone (M2's uploads, D80), and the Stream library key for the
+# nightly housekeeping Job (orphaned story videos, M2).
 #
 # The version number is derived from the value, so a key rotated at Bunny
 # (refreshed into state by the next plan) becomes a new secret version on the
@@ -91,4 +92,18 @@ resource "google_secret_manager_secret_iam_member" "upload_key_readers" {
   secret_id = google_secret_manager_secret.app[each.value.secret].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = each.value.member
+}
+
+# Housekeeping (M2): the nightly Job lists the stories' library and deletes
+# orphaned story videos (docs/media-runbook.md, "Replaced and orphaned
+# videos"). The library key is the only Bunny secret it reads; the variable
+# accepts nothing but this project's housekeeping service account, which the
+# gcp root creates (apply that first).
+resource "google_secret_manager_secret_iam_member" "stream_key_readers" {
+  for_each = toset(var.stream_key_readers)
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.app["bunny-stream-api-key"].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value
 }
