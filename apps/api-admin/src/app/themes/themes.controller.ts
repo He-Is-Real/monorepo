@@ -14,6 +14,7 @@ import {
 import { NoConsentRequired, PersonSessions } from '@heisreal/consent';
 import {
   isTransactionConflict,
+  retryOnConflict,
   requireWritten,
   runQuery,
   SURREAL,
@@ -201,12 +202,12 @@ export class ThemesController {
     const user = await this.people.run(req, async ({ user }) => user);
     let results: unknown[];
     try {
-      results = (await runQuery(this.db, SAVE_SQL, {
-        ...changes,
-        version,
-        user,
-        role,
-      })) as unknown[];
+      // A deleted theme's fence (themeFence) conflicts with a story adding it at the same
+      // moment; the retry sees that story and takes the theme off it. Another admin's save at
+      // the same moment fails the version check on the retry instead.
+      results = (await retryOnConflict(() =>
+        runQuery(this.db, SAVE_SQL, { ...changes, version, user, role }),
+      )) as unknown[];
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (

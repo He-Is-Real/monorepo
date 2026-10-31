@@ -50,6 +50,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
   themeCategory: 'none', // admin-managed theme categories: names only
   theme: 'none',
+  themeFence: 'none', // a counter keyed by theme id; events only
   themeCatalog: 'none', // the themes' version and who saved them last, like submissionSettings
   tag: 'none', // the old tags, emptied by data/0008 and kept defined until it has run everywhere
   // The legal documents (D121): the publishing admin's user id only (publishedBy, read by

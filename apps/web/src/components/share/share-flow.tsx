@@ -1441,7 +1441,7 @@ function DetailsStep({
               const on = chosen.includes(t.id);
               return (
                 <label
-                  className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
+                  className={`inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
                     on
                       ? 'border-teal bg-accent font-semibold text-foreground'
                       : 'border-border text-secondary-text'

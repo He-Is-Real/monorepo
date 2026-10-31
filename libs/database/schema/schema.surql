@@ -273,9 +273,21 @@ DEFINE INDEX OVERWRITE theme_category ON theme FIELDS category;
 -- submission is (plan v3, A9). Removing a deleted theme isn't the person changing their story, so
 -- it needs no consent (story_consent, api-admin's write only) and passes the owner's content lock
 -- (that's the owner only).
+-- A transaction reads a snapshot, so the delete's scan can miss a story write that adds the
+-- theme and commits meanwhile (leaving a submitted story linking a deleted theme). Both write the
+-- theme's themeFence record (story_theme_fence below), so of two overlapping ones the second to
+-- commit fails with a retryable conflict, and its retry sees the other. Per theme: stories adding
+-- other themes never conflict.
+DEFINE TABLE OVERWRITE themeFence SCHEMAFULL PERMISSIONS NONE;    -- id = themeFence:<theme ulid>
+DEFINE FIELD OVERWRITE n ON themeFence TYPE int DEFAULT 0;
+DEFINE FUNCTION OVERWRITE fn::fence::theme($theme: record<theme>) {
+  UPSERT type::record('themeFence', record::id($theme)) SET n += 1 RETURN NONE;
+};
 DEFINE EVENT OVERWRITE theme_delete ON theme
   WHEN $event = 'DELETE'
   THEN {
+    fn::fence::theme($before.id);
+    DELETE type::record('themeFence', record::id($before.id));
     UPDATE story SET themeRefs -= $before.id
       WHERE themeRefs CONTAINS $before.id RETURN NONE;
     UPDATE publicStory SET themeRefs -= $before.id
@@ -980,6 +992,16 @@ DEFINE EVENT OVERWRITE story_fence ON story                       -- create, edi
     -- D71: housekeeping's delete of an expired draft read the forms' retention
     -- (fn::story::draft_expired); a form published meanwhile with a longer one conflicts.
     IF $event = 'DELETE' AND $auth.id = service:housekeeping { fn::fence::legal() };
+  };
+-- A story write that adds themes writes each one's fence (themeFence, above), so it conflicts
+-- with that theme's deletion if the two overlap. A link to a theme already gone needs none (the
+-- submission refuses it).
+DEFINE EVENT OVERWRITE story_theme_fence ON story
+  WHEN $event IN ['CREATE', 'UPDATE']
+  THEN {
+    FOR $t IN array::complement($after.themeRefs ?? [], $before.themeRefs ?? []) {
+      IF record::exists($t) { fn::fence::theme($t) };
+    };
   };
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
   WHEN $event = 'DELETE'

@@ -680,6 +680,7 @@ const THEME_CATEGORIES = [
     id: 'topics',
     name: 'Topics',
     themes: [
+      { id: 'a', name: 'A', highlighted: true }, // one letter: still a 44 px target
       { id: 'faith', name: 'Faith', highlighted: true },
       { id: 'healing', name: 'Healing', highlighted: true },
     ],

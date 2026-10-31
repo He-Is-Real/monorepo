@@ -9,6 +9,7 @@ import { BEHAVIOUR_DEVICES } from './devices';
 import {
   enlargeText,
   expectAllTargets,
+  expectTarget,
   expectNoHorizontalOverflow,
   shots,
 } from './helpers';
@@ -170,6 +171,14 @@ for (const scheme of ['light', 'dark'] as const) {
       await step(page, 'Add some details');
       await page.getByText('Healing', { exact: true }).click();
       await fits('details');
+      // A theme pill is a label round a hidden checkbox, which expectAllTargets skips; a
+      // one-letter theme is the narrowest.
+      await expectTarget(
+        page,
+        page.locator('label', {
+          has: page.getByRole('checkbox', { name: 'A', exact: true }),
+        }),
+      );
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await step(page, 'Review and submit');
       await expect(page.getByText('Anonymous')).toBeVisible();

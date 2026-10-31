@@ -152,7 +152,7 @@ stories['image-story'] = {
 // The themes (apps/dev-seed's catalogue, themes plan v3) and 48 generated published stories,
 // newest first: every kind (video, audio, written with and without an image) and shape, from 1:3
 // (beyond the card clamp) to 2.5:1, with short and long titles and excerpts. Topics' themes and
-// Feelings' Hope are highlighted; Gratitude is highlighted with no story (A14: still listed).
+// Feelings' Hope are highlighted (Topics has a one-letter A); Gratitude is highlighted with no story (A14: still listed).
 // Ids are short words here (the real ones are ULIDs); `?theme=` takes either.
 const CATEGORIES = [
   { id: 'topics', name: 'Topics' },
@@ -180,6 +180,9 @@ const THEMES = [
   ['joy', 'Joy', 'feelings', false],
   ['gratitude', 'Gratitude', 'feelings', true],
   ['waiting', 'Waiting', 'other', false],
+  // One letter: its pill must still be a 44 px target (appended, so the stories' themes above,
+  // picked by position, don't move).
+  ['a', 'A', 'topics', true],
 ].map(([id, name, category, highlighted]) => ({
   id,
   name,

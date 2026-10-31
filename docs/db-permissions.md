@@ -629,7 +629,12 @@ retried`, on both RocksDB and the in-memory engine.
       `themesFence` and `fn::settings::themes_needed()` are removed: deleting a theme or raising
       `themesMin` is never refused because of how many themes there are, and the only settings
       check is `themesMin` ≤ `themesMax` (api-admin `400` on `/themesMin`, and
-      `submissionSettings_check`). Tests: `themes.int-spec.ts` (libs/database: counted at submit only, deleted
+      `submissionSettings_check`). A deleted theme can't be left on a submitted story by a race:
+      the delete (`theme_delete`) and every story write that adds a theme (`story_theme_fence`)
+      write that theme's `themeFence` record (`PERMISSIONS NONE`, keyed by theme id, removed with
+      the theme), so of two overlapping ones the second to commit gets a retryable conflict.
+      api-admin's save retries (and takes the theme off the story); api-user's retry answers
+      `themes_changed`. Per theme, so unrelated submissions never conflict. Tests: `themes.int-spec.ts` (libs/database: counted at submit only, deleted
       theme refused, published story not re-checked), api-user's `stories.int-spec.ts`,
       `submission-limits.int-spec.ts`, api-admin's `submission-settings.int-spec.ts`; suites about other rules
       that start more stories per person mark their people trusted (`trustSubmitters`), and

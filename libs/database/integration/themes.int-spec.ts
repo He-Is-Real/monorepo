@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RecordId, type Surreal } from 'surrealdb';
+import { RecordId, type Surreal, type SurrealTransaction } from 'surrealdb';
 import {
   consentEvent,
   createPeople,
@@ -216,6 +216,112 @@ describe('themes and their categories', () => {
     // Deleting the theme takes it off the story without consent.
     await run(admin, 'DELETE theme:going');
     expect(await themesOf('story', 'cara_draft')).toEqual(['kept']);
+  });
+
+  describe('a theme deleted while a story adds it (snapshot reads): one of the two fails and retries', () => {
+    const CONFLICT = /Transaction conflict.*can be retried/s;
+    const commit = async (tx: SurrealTransaction) => {
+      try {
+        await tx.commit();
+        return 'committed';
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+    };
+    const ADD_AND_SUBMIT = (id: string, refs: string) =>
+      `UPDATE story:${id} SET themeRefs = ${refs}; UPDATE story:${id} SET status = 'pending';`;
+    beforeAll(async () => {
+      await settings(1, 5);
+      await createPeople(t, {
+        dana: 'user_dana',
+        eve: 'user_eve',
+        fay: 'user_fay',
+      });
+      for (const sub of ['user_dana', 'user_eve', 'user_fay']) {
+        await grantAll(await t.person(sub));
+      }
+      await run(
+        admin,
+        `CREATE theme:race1 SET name = 'Race one', category = themeCategory:other;
+         CREATE theme:race2 SET name = 'Race two', category = themeCategory:other;
+         CREATE theme:bystander SET name = 'Bystander', category = themeCategory:other;`,
+      );
+    });
+
+    it('the delete scans first, the owner adds it and submits: the delete conflicts, its retry takes it off', async () => {
+      const dana = await t.person('user_dana');
+      await draft(dana, 'dana_race', { themeRefs: [theme('common')] });
+      const deleting = await admin.beginTransaction();
+      await run(deleting as unknown as Surreal, 'DELETE theme:race1'); // scanned, uncommitted
+      await run(
+        dana,
+        ADD_AND_SUBMIT('dana_race', '[theme:common, theme:race1]'),
+      );
+      expect(await commit(deleting)).toMatch(CONFLICT);
+
+      await run(admin, 'DELETE theme:race1'); // the retry
+      expect(await themesOf('story', 'dana_race')).toEqual(['common']);
+    });
+
+    it('the owner adds it and submits first, the delete commits: the submission conflicts, its retry is refused', async () => {
+      const eve = await t.person('user_eve');
+      await draft(eve, 'eve_race', { themeRefs: [theme('common')] });
+      const submitting = await eve.beginTransaction();
+      await run(
+        submitting as unknown as Surreal,
+        ADD_AND_SUBMIT('eve_race', '[theme:common, theme:race2]'),
+      );
+      await run(admin, 'DELETE theme:race2');
+      expect(await commit(submitting)).toMatch(CONFLICT);
+      expect(
+        await rows(migrator, 'SELECT VALUE status FROM story:eve_race'),
+      ).toEqual(['draft']);
+
+      expect(
+        error(
+          await outcome(
+            eve,
+            ADD_AND_SUBMIT('eve_race', '[theme:common, theme:race2]'),
+          ),
+        ),
+      ).toMatch(/story_themes_changed:/);
+    });
+
+    it('a story adding another theme doesn’t conflict, and nobody can touch a theme’s fence', async () => {
+      const fay = await t.person('user_fay');
+      await draft(fay, 'fay_story', { themeRefs: [theme('common')] });
+      await run(
+        admin,
+        `CREATE theme:other_race SET name = 'Other race', category = themeCategory:other`,
+      );
+      const deleting = await admin.beginTransaction();
+      await run(deleting as unknown as Surreal, 'DELETE theme:other_race');
+      await run(
+        fay,
+        ADD_AND_SUBMIT('fay_story', '[theme:common, theme:bystander]'),
+      );
+      expect(await commit(deleting)).toBe('committed');
+
+      const fence = await rows(migrator, 'SELECT * FROM themeFence:bystander');
+      expect(fence).toHaveLength(1);
+      for (const db of [fay, admin, await t.service('api_user')]) {
+        expect(await rows(db, 'SELECT * FROM themeFence')).toEqual([]);
+        expect(await rows(db, 'UPDATE themeFence:bystander SET n = 0')).toEqual(
+          [],
+        );
+        expect(await rows(db, 'CREATE themeFence:ghost SET n = 1')).toEqual([]);
+      }
+      expect(
+        await rows(migrator, 'SELECT * FROM themeFence:bystander'),
+      ).toEqual(fence);
+      expect(await rows(migrator, 'SELECT * FROM themeFence:ghost')).toEqual(
+        [],
+      );
+      // A deleted theme leaves no fence behind.
+      expect(await rows(migrator, 'SELECT * FROM themeFence:race1')).toEqual(
+        [],
+      );
+    });
   });
 
   it('a published story that falls under the minimum after a delete isn’t re-checked', async () => {
