@@ -10,8 +10,11 @@
 // at 1 to 2 times its size, in thousandths of an em, the widest of all, rounded up.
 // Run after `pnpm nx run web:prune` whenever the font or a text style changes:
 //   node tools/scripts/card-glyph-widths.mjs
+// The table records the font file's SHA-256 and what it was measured with; an e2e test
+// (masonry.e2e.ts) fails once the site serves a different font, so it gets regenerated.
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { chromium, firefox } from '@playwright/test';
 import { CARD } from '../../apps/web/src/lib/card-metrics.ts';
 
@@ -59,7 +62,11 @@ function latinFont() {
   );
 }
 
-const font = readFileSync(latinFont()).toString('base64');
+const fontFile = latinFont();
+const fontBytes = readFileSync(fontFile);
+const font = fontBytes.toString('base64');
+const fontSha256 = createHash('sha256').update(fontBytes).digest('hex');
+const versions = {};
 
 /**
  * In one browser, at each [size, weight, italic]: each character's width in px, and the pairs
@@ -67,6 +74,7 @@ const font = readFileSync(latinFont()).toString('base64');
  */
 async function measure(type, settings) {
   const browser = await type.launch();
+  versions[type.name()] = browser.version();
   const page = await browser.newPage();
   const result = await page.evaluate(
     async ({ font, settings, chars }) => {
@@ -165,6 +173,19 @@ writeFileSync(
 // DM Sans's widths by weight, in thousandths of an em, rounded up (lib/masonry.ts wraps card text
 // with them): each of GLYPH_CHARS in turn (GLYPH_EMS), and how much wider or narrower than its two
 // characters a pair is drawn (KERN_EMS).
+
+/** What the table was measured from and with: regenerate it when the served font changes. */
+export const GLYPH_SOURCE = ${JSON.stringify(
+    {
+      font: basename(fontFile),
+      fontSha256,
+      browsers: versions,
+      styles: STYLES,
+      scales: SCALES,
+    },
+    null,
+    2,
+  )} as const;
 
 export const GLYPH_CHARS = ${JSON.stringify(CHARS.join(''))};
 

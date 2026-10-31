@@ -106,6 +106,14 @@ describe('lineCount (wrapping as the browser does)', () => {
 
   it('counts text with a character it has no width for (emoji, other alphabets) as its most lines', () => {
     expect(lineCount('Joy 🎉', 400, 'title')).toBe(Infinity);
+    // Spaces other than U+0020 and soft hyphens wrap differently (Codex review of #163, round 2).
+    expect(lineCount(Array(25).fill('i').join('\u2003'), 400, 'title')).toBe(
+      Infinity,
+    );
+    expect(lineCount('trans\u00ADfor\u00ADma\u00ADtion', 400, 'title')).toBe(
+      Infinity,
+    );
+    expect(lineCount('A few\n words', 200, 'excerpt')).toBe(1);
     expect(h(card({ title: 'Joy 🎉' }))).toBe(
       h(card({ title: 'word '.repeat(60) })),
     );

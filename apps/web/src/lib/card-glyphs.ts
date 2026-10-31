@@ -3,6 +3,50 @@
 // with them): each of GLYPH_CHARS in turn (GLYPH_EMS), and how much wider or narrower than its two
 // characters a pair is drawn (KERN_EMS).
 
+/** What the table was measured from and with: regenerate it when the served font changes. */
+export const GLYPH_SOURCE = {
+  font: '660acf689794c992-s.p.2_mbdogr7ni8i.woff2',
+  fontSha256:
+    '468d56b6b25b05b70190b6c233d773f6f1770e8579827ce022a57f03fa8002fb',
+  browsers: {
+    chromium: '156.0.8078.4',
+    firefox: '157.0',
+  },
+  styles: {
+    meta: {
+      font: 13,
+      weight: 400,
+      italic: false,
+    },
+    badge: {
+      font: 11,
+      weight: 600,
+      italic: false,
+    },
+    title: {
+      font: 17,
+      weight: 600,
+      italic: false,
+    },
+    excerpt: {
+      font: 15,
+      weight: 400,
+      italic: true,
+    },
+    quote: {
+      font: 18,
+      weight: 400,
+      italic: false,
+    },
+    tags: {
+      font: 12,
+      weight: 400,
+      italic: false,
+    },
+  },
+  scales: [1, 1.25, 1.5, 2],
+} as const;
+
 export const GLYPH_CHARS =
   ' !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ‐‑‒–—―‘’‚“”„†‡•…‰′″‹›€™';
 

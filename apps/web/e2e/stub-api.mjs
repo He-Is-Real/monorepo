@@ -475,8 +475,9 @@ aspectStory('aspect-test-landscape', {
 });
 
 // The masonry's first paint never overlaps (masonry.e2e.ts): cards whose text sits on the edge
-// of a line (Codex review of #163: this one was predicted 2 px short at 688 px), emoji and
-// right-to-left text, with cards below each of them. Listed only under `tag=masonry-test`.
+// of a line (Codex review of #163: this one was predicted 2 px short at 688 px), emoji,
+// right-to-left text, em spaces and soft hyphens, with cards below each of them. Listed only
+// under `tag=masonry-test`.
 const MASONRY_TEST = 'masonry-test';
 const masonryTag = {
   slug: MASONRY_TEST,
@@ -502,6 +503,12 @@ for (const [i, [title, description, format]] of [
   ['My testimony, spoken', 'Test testimony of transformation', 'audio'],
   ['My testimony', 'Test testimony of transformation Test testimony'],
   ['A testimony', 'Test testimony of transformation', 'video'],
+  // Codex review of #163, round 2: spaces other than U+0020 and soft hyphens wrap differently.
+  [Array(25).fill('i').join('\u2003'), 'Spaced\u2003with\u2003em\u2003spaces'],
+  [
+    'Soft\u00ADhyphen\u00ADated',
+    'Ex\u00ADtra\u00ADor\u00ADdi\u00ADnary trans\u00ADfor\u00ADma\u00ADtion, un\u00ADder\u00ADstand\u00ADing and re\u00ADcon\u00ADcil\u00ADi\u00ADa\u00ADtion with every\u00ADone',
+  ],
 ].entries()) {
   const slug = `masonry-test-${i + 1}`;
   stories[slug] = {

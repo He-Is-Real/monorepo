@@ -14,9 +14,16 @@ import { audioSize, cardAspect } from './shape';
 // (BANDS: the list's width in steps of BAND_STEP px per card), and the stylesheet this file
 // writes (MASONRY_CSS) picks the band the list is in with a container query. Within a band the
 // media is predicted at its widest card and the text at its narrowest, so a prediction errs tall
-// by a few pixels and never short: too short would overlap the next card on first paint, and
-// for good without JavaScript. Before the bands, one guess covered 640 to 1023 px and cards
-// jumped up by 100 px or more once measured (Joel, 2026-10-31, option B: guess better).
+// by a few pixels. Before the bands, one guess covered 640 to 1023 px and cards jumped up by 100
+// px or more once measured (Joel, 2026-10-31, option B: guess better).
+//
+// Cards never overlap, whatever the guess: each card's list item fills the rows it spans and
+// clips what doesn't fit (MASONRY_CSS). A guess too short (text in a fallback font while DM Sans
+// loads, or if it never does; text the table can't foresee) clips the card's last line until the
+// page measures it; it can't draw over the next card (Codex review of #163, round 2). Measured
+// spans always hold the card, so nothing is clipped once measured. Without JavaScript nothing is
+// ever measured, so the list is one column in normal flow, nothing predicted or clipped
+// (story-masonry.tsx's <noscript>).
 //
 // Text is wrapped as the browser wraps it, word by word, with DM Sans's own character widths and
 // the pairs it kerns (card-glyphs.ts), never narrower than a browser draws them: the card turns
@@ -52,7 +59,16 @@ const BAND_STEP = 8;
 /** Predictions err tall: a span a little too long leaves a gap; too short would overlap. */
 const SLACK = 2;
 
-const GLYPH_INDEX = new Map([...GLYPH_CHARS].map((ch, i) => [ch, i]));
+/**
+ * Each character's place in the table. Format characters (the soft hyphen U+00AD) are left
+ * out, so text with one counts at its most lines: they change where a line may break (Codex
+ * review of #163, round 2: a soft hyphen wrapped a text one line longer).
+ */
+const GLYPH_INDEX = new Map(
+  [...GLYPH_CHARS]
+    .map((ch, i) => [ch, i] as const)
+    .filter(([ch]) => !/\p{Cf}/u.test(ch)),
+);
 /** By weight: each kerned pair (two characters, then its kerning in thousandths of an em). */
 const KERNS = Object.fromEntries(
   Object.entries(KERN_EMS).map(([weight, pairs]) => [
@@ -85,14 +101,17 @@ const widthAfter = (before: string, text: string, style: TextStyle) =>
 /**
  * How many lines a browser wraps this text into at `width`: word by word at spaces, and a word
  * wider than a line broken anywhere (`overflow-wrap: anywhere` on the card). Infinity (so its
- * most lines) for text with a character the table doesn't have.
+ * most lines) for text with a character the table doesn't have. Only the white space HTML
+ * collapses into a space (space, tab, line breaks) separates words; any other (an em space
+ * U+2003, a no-break space) is a character the table doesn't have (Codex review of #163, round
+ * 2: titles spaced with U+2003 were measured with ordinary spaces).
  */
 export function lineCount(
   text: string,
   width: number,
   style: TextStyle,
 ): number {
-  const words = text.split(/\s+/).filter(Boolean);
+  const words = text.split(/[ \t\n\f\r]+/).filter(Boolean);
   if (words.length === 0) return 0;
   let lines = 1;
   let x = 0;
@@ -347,6 +366,12 @@ const rem = (px: number) => `${px / 16}rem`;
  * band's predicted span (`--s0`…). `dense` stacks each column's cards with no gaps. A list too
  * narrow for three columns' bands keeps two; one too narrow for two (very large text), or a
  * browser without container queries, keeps one column.
+ *
+ * In columns, each list item fills its rows and clips below them (`overflow-y: clip`), so a card
+ * guessed short can't draw over the next one; the card keeps its own height (`height: auto`,
+ * which the page measures). Sideways nothing is clipped, and the item starts 0.25rem above its
+ * rows (padding, so the card doesn't move) to leave room for the card's focus ring above it;
+ * below the card, its span's gap holds the ring.
  */
 export const MASONRY_CSS = [
   `.masonry-box{container-type:inline-size}`,
@@ -357,7 +382,7 @@ export const MASONRY_CSS = [
       const first = BANDS.findIndex((b) => b.columns === n) === i;
       const grid = first
         ? n === 2
-          ? `.masonry{max-width:none;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:${rem(ROW_UNIT)};grid-auto-flow:row dense;gap:0 ${rem(GAP)};align-items:start}`
+          ? `.masonry{max-width:none;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:${rem(ROW_UNIT)};grid-auto-flow:row dense;gap:0 ${rem(GAP)}}.masonry>li{overflow-x:visible;overflow-y:clip;margin-top:-.25rem;padding-top:.25rem}.masonry>li>*{height:auto}`
           : `.masonry{grid-template-columns:repeat(${n},minmax(0,1fr))}`
         : '';
       const column = first ? `grid-column:var(--c${n});` : '';
