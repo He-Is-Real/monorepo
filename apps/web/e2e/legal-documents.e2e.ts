@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
+import { BEHAVIOUR_DEVICES } from './devices';
 import {
+  enlargeText,
   expectAllTargets,
   expectNoHorizontalOverflow,
   expectTarget,
+  shots,
 } from './helpers';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
@@ -129,6 +132,95 @@ test('the sign-up step shows the terms of use and the privacy policy in force, f
     );
     await expect(tab).toHaveURL(`${WEB_SIGNED_IN_URL}${path}`);
     await tab.close();
+  }
+});
+
+// Joel, 2026-10-31: in the share flow the policy's cookie table spilled past both edges of its
+// card, and on /privacy cookie names broke mid-word ("__clie / nt_ua / t"). A table sizes itself
+// to the box it's in: in a card it stacks its rows, and anything still too wide scrolls inside
+// the table's own focusable region, never past the card or the page. On a page with room,
+// each name stays whole.
+test.describe('the policy’s cookie table', () => {
+  // Dark, as Joel saw it; the screenshots are to look at, nothing compares them.
+  test.use({ colorScheme: 'dark' });
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'one phone and one desktop',
+    );
+  });
+
+  for (const zoom of [false, true]) {
+    test(`${zoom ? 'at 200% text, ' : ''}it stays inside the sign-up step’s card, and /privacy keeps each name whole`, async ({
+      page,
+    }, info) => {
+      if (zoom) await enlargeText(page);
+      await useSession(page, `unaccepted-${randomUUID().slice(0, 8)}`);
+      await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
+      await page.getByText('Read the privacy policy', { exact: true }).click();
+      const card = page.locator('details', {
+        has: page.locator('[data-privacy-document]'),
+      });
+      const table = card.getByRole('region', { name: 'Cookies and storage' });
+      await expect(table.getByRole('table')).toBeVisible();
+      // Nothing reaches past the card: its content is no wider than it, and the table's box
+      // lies within it.
+      const fit = await card.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        const t = el.querySelector('[data-legal-table]')!;
+        const inner = t.getBoundingClientRect();
+        return {
+          spill: el.scrollWidth - el.clientWidth,
+          left: inner.left - box.left,
+          right: box.right - inner.right,
+          // The table itself fits its region: nothing to scroll sideways to.
+          scroll: t.scrollWidth - t.clientWidth,
+        };
+      });
+      expect(fit.spill, 'the card’s content is wider than the card').toBe(0);
+      expect(fit.left).toBeGreaterThanOrEqual(0);
+      expect(fit.right).toBeGreaterThanOrEqual(0);
+      expect(fit.scroll, 'the table scrolls inside the card').toBe(0);
+      // A keyboard can reach the region, to scroll a table that one day is too wide.
+      await table.focus();
+      await expect(table).toBeFocused();
+      await expectNoHorizontalOverflow(page);
+      await shots(
+        page,
+        info.project.name,
+        'dark',
+        `consent-privacy-table${zoom ? '-200' : ''}`,
+        { signedIn: true },
+      );
+
+      await page.goto(`${WEB_SIGNED_IN_URL}/privacy`);
+      const names = page
+        .getByRole('region', { name: 'Cookies and storage' })
+        .getByRole('rowheader');
+      await expect(names.first()).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      // On the desktop the table has room: every name on one line, `__client_uat` included.
+      if (info.project.name === 'desktop-1280' && !zoom) {
+        await expect(names.filter({ hasText: '__client_uat' })).toHaveCount(1);
+        const lines = await names.evaluateAll((els) =>
+          els.map((el) => [
+            el.textContent,
+            el.querySelector('code')!.getClientRects().length,
+          ]),
+        );
+        for (const [name, count] of lines)
+          expect(count, `${name} breaks across lines`).toBe(1);
+        // Joel: the Name column wider, Set by narrower.
+        const [name, setBy] = await page
+          .getByRole('region', { name: 'Cookies and storage' })
+          .getByRole('columnheader')
+          .evaluateAll((els) =>
+            els.slice(0, 2).map((el) => el.getBoundingClientRect().width),
+          );
+        expect(name, 'Name is narrower than Set by').toBeGreaterThan(setBy);
+      }
+    });
   }
 });
 

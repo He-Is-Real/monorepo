@@ -263,10 +263,11 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
   FOR update WHERE (submitter = $auth.id AND $auth.gdprDeletedAt = NONE)
     OR $auth.id IN [service:api_admin, service:workflow],
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]   -- erasure
-    -- D71: the owner deletes their own draft, withdrawn or rejected story (DeleteStory), never
-    -- one in moderation's hands or published (pending, in_review, approved, changes_requested).
+    -- D71: the owner deletes their own draft, withdrawn or rejected story (DeleteStory), and one
+    -- sent back for changes (Joel, 2026-10-30: no need to withdraw it first), never one in
+    -- moderation's hands or published (pending, in_review, approved).
     OR (submitter = $auth.id AND $auth.gdprDeletedAt = NONE
-        AND status IN ['draft', 'withdrawn', 'rejected'])
+        AND status IN ['draft', 'changes_requested', 'withdrawn', 'rejected'])
     -- D71: the nightly housekeeping Job deletes a draft nobody has touched for as long as the
     -- testimony forms say (fn::story::draft_expired), and nothing else; the same delete as a
     -- person's own (events and cascade included).
@@ -1277,27 +1278,44 @@ DEFINE FIELD OVERWRITE coversPublicPublishing ON testimonyFormVersion TYPE bool 
 -- D71: untouched drafts are deleted after this many months (the form says so).
 DEFINE FIELD OVERWRITE draftRetentionMonths   ON testimonyFormVersion TYPE int
   ASSERT $value > 0 AND $value <= 120;
--- D71: a draft last touched before this has expired, and housekeeping deletes it (story FOR
--- delete). The longest retention any published or retired testimony form has promised, a month
--- counted as 31 days, so nobody's draft goes earlier than their form said (every form so far: 6
--- months, 186 days). NONE while no form is published: nothing expires.
-DEFINE FUNCTION OVERWRITE fn::story::drafts_expire_before() {
+-- D71: how long an untouched draft is kept: the longest retention any published or retired
+-- testimony form has promised, a month counted as 31 days, so nobody's draft goes earlier than
+-- their form said (every form so far: 6 months, 186 days). NONE while no form is published:
+-- nothing expires.
+DEFINE FUNCTION OVERWRITE fn::story::draft_retention() {
   LET $months = math::max(SELECT VALUE draftRetentionMonths FROM testimonyFormVersion
     WHERE status != 'draft');
   IF $months = NONE OR $months < 1 { RETURN NONE };
-  RETURN time::now() - duration::from_days($months * 31);
+  RETURN duration::from_days($months * 31);
 };
--- D71: whether `$story` is a draft nobody has touched since fn::story::drafts_expire_before():
--- not edited (updatedAt) and no upload link signed for it again (uploadGrant.renewedAt, a resume).
--- story FOR delete (housekeeping) and the chore both ask this. Both writes fence the person
--- (story_fence, uploadGrant_renew), so a resume racing the delete conflicts and one of them loses.
-DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
-  LET $cutoff = fn::story::drafts_expire_before();
-  IF $cutoff = NONE { RETURN false };
+-- D71: a draft last touched before this has expired, and housekeeping deletes it (story FOR
+-- delete). NONE while nothing expires.
+DEFINE FUNCTION OVERWRITE fn::story::drafts_expire_before() {
+  LET $keep = fn::story::draft_retention();
+  RETURN IF $keep = NONE { NONE } ELSE { time::now() - $keep };
+};
+-- D71: when `$story` expires if nobody touches it again: fn::story::draft_retention() after its
+-- last activity, the later of its last edit (updatedAt) and the last time an upload link was
+-- signed for it again (uploadGrant.renewedAt, a resume). NONE if it isn't a draft or nothing
+-- expires. The one rule: housekeeping deletes by it (draft_expired) and the profile shows it
+-- (api-user's StoryMine.draftExpiresAt, R5). The owner's session reads its own grants.
+DEFINE FUNCTION OVERWRITE fn::story::draft_expires_at($story: record<story>) {
+  LET $keep = fn::story::draft_retention();
+  IF $keep = NONE { RETURN NONE };
   LET $s = (SELECT status, updatedAt FROM ONLY $story);
-  IF $s = NONE OR $s.status != 'draft' OR $s.updatedAt >= $cutoff { RETURN false };
-  RETURN array::len(SELECT VALUE id FROM uploadGrant
-    WHERE story = $story AND renewedAt != NONE AND renewedAt >= $cutoff) = 0;
+  IF $s = NONE OR $s.status != 'draft' { RETURN NONE };
+  LET $renewed = array::max(SELECT VALUE renewedAt FROM uploadGrant
+    WHERE story = $story AND renewedAt != NONE);
+  LET $last = IF $renewed != NONE AND $renewed > $s.updatedAt { $renewed } ELSE { $s.updatedAt };
+  RETURN $last + $keep;
+};
+-- D71: whether `$story` is a draft past fn::story::draft_expires_at, i.e. nobody has touched it
+-- since fn::story::drafts_expire_before(). story FOR delete (housekeeping) and the chore both
+-- ask this. Both writes fence the person (story_fence, uploadGrant_renew), so a resume racing
+-- the delete conflicts and one of them loses.
+DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
+  LET $at = fn::story::draft_expires_at($story);
+  RETURN $at != NONE AND $at < time::now();
 };
 DEFINE EVENT OVERWRITE testimonyFormVersion_lifecycle ON testimonyFormVersion
   WHEN true THEN { fn::form::check_change($event, $before, $after); fn::fence::legal() };

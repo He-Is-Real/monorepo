@@ -68,7 +68,11 @@ export function NewBadge() {
   );
 }
 
-function mediaOf(story: StorySummary, uniform: boolean) {
+/**
+ * A card's picture and its clamped shape (D53), as browse shows it; null for a written story
+ * without an image (home's `uniform` gives it a 16:10 placeholder instead).
+ */
+export function cardMedia(story: StorySummary, uniform = false) {
   const { primaryFormat: format, image } = story;
   if (format === 'video')
     return {
@@ -114,7 +118,7 @@ export function StoryCard({
   eager?: boolean;
 }) {
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
-  const media = mediaOf(story, uniform);
+  const media = cardMedia(story, uniform);
   const quote = media === null; // a written story without an image
   const [from, to, accent] = placeholderFor(story.id);
   const initial = [

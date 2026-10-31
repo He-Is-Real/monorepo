@@ -447,6 +447,8 @@ async function listFavourites(req, res, url, mine) {
 // limits, the content lock and D94's limits). A test seeds its session with
 // `POST /__e2e/sessions/<session>` (not part of api-user).
 const WEEK_MS = 7 * 24 * 3600 * 1000;
+/** The stand-in testimony forms keep an untouched draft 6 months, a month counted as 31 days. */
+const DRAFT_RETENTION_MS = 186 * 24 * 3600 * 1000;
 /** The settings' defaults (W3, D112: submissionSettings); a test may seed others. */
 const SETTINGS = {
   storyTextMin: 200,
@@ -628,6 +630,12 @@ function storyMine(id, st) {
     approvedAt: null,
     createdAt: st.createdAt,
     updatedAt: st.updatedAt,
+    // api-user's rule (fn::story::draft_expires_at) with the stand-in forms' 6 months, from the
+    // last edit (this stub doesn't renew uploads).
+    draftExpiresAt:
+      st.status === 'draft'
+        ? new Date(Date.parse(st.updatedAt) + DRAFT_RETENTION_MS).toISOString()
+        : null,
   };
 }
 
@@ -908,10 +916,14 @@ async function handleShare(req, res, path, url, s) {
     if (v !== st.version)
       return shareProblem(res, 412, 'Precondition failed', 'stale_version');
     if (edit) {
-      if (!['draft', 'withdrawn', 'rejected'].includes(st.status))
+      if (
+        !['draft', 'changes_requested', 'withdrawn', 'rejected'].includes(
+          st.status,
+        )
+      )
         return shareProblem(res, 409, 'Conflict', 'story_not_deletable', {
           detail:
-            'Only a draft, or a story that was withdrawn or not accepted, can be deleted. Withdraw it first.',
+            'Only a draft, or a story sent back for changes, withdrawn or not accepted, can be deleted. Withdraw it first.',
         });
       s.stories.delete(id);
       return sendJson(res, 204, undefined);

@@ -424,7 +424,58 @@ for (const name of ['phone-320', 'desktop-1280']) {
   };
 }
 
+// Related previews' shapes (card-playback.e2e.ts): `aspect-test`'s related stories are a 3:4 written
+// picture, a 9:16 video and a 16:9 video, each at its own shape. Test-tagged stories' related
+// lists hold only stories with the same test tag.
+const ASPECT_TEST = 'aspect-test';
+const aspectTag = {
+  slug: ASPECT_TEST,
+  name: 'Aspect test',
+  category: 'theme',
+  version: 1,
+};
+const aspectStory = (slug, over) => {
+  stories[slug] = {
+    ...base,
+    id: slug.replaceAll('-', '_'),
+    slug,
+    description: 'Placeholder story for the related previews test.',
+    body: null,
+    tags: [aspectTag],
+    ...over,
+  };
+};
+aspectStory(ASPECT_TEST, {
+  title: 'Aspect test: the story',
+  body: 'Placeholder text above the related stories.',
+  publishedAt: '2026-10-22T18:00:00Z',
+});
+aspectStory('aspect-test-portrait', {
+  title: 'Aspect test: a 3:4 picture',
+  body: 'Placeholder text for a written story with a portrait picture.',
+  image: {
+    url: sized(900, 1200),
+    width: 900,
+    height: 1200,
+    alt: 'A dummy picture, 900 by 1200',
+  },
+  publishedAt: '2026-10-22T17:00:00Z',
+});
+aspectStory('aspect-test-vertical', {
+  primaryFormat: 'video',
+  title: 'Aspect test: a 9:16 video',
+  media: clip('video', '55555555-5555-4555-8555-555555555555', 360, 640),
+  publishedAt: '2026-10-22T16:00:00Z',
+});
+aspectStory('aspect-test-landscape', {
+  primaryFormat: 'video',
+  title: 'Aspect test: a 16:9 video',
+  media: clip('video', '66666666-6666-4666-8666-666666666666', 1920, 1080),
+  publishedAt: '2026-10-22T15:00:00Z',
+});
+
 const TEST_TAGS = [
+  ASPECT_TEST,
   HIDE_TEST,
   PLAY_TEST,
   PREFETCH_TEST,
@@ -713,7 +764,10 @@ function related(mode, slug, res) {
   if (!story || !onPort(mode, story))
     return problem(res, 404, 'story_not_found');
   if (slug === RELATED_DOWN) return problem(res, 503, 'unavailable');
-  const others = published(mode).filter((s) => s.slug !== slug && !unlisted(s));
+  const own = testTagOf(story);
+  const others = published(mode).filter(
+    (s) => s.slug !== slug && (own ? testTagOf(s) === own : !unlisted(s)),
+  );
   const shared = others.filter((s) =>
     s.tags.some((t) => story.tags.some((x) => x.slug === t.slug)),
   );
