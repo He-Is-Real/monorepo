@@ -64,6 +64,9 @@ export function orphanVideos(
 export const orphanVideosTask: Task = {
   name: 'orphan-videos',
   async run(ctx): Promise<TaskResult> {
+    // Without Bunny's key (start.ts logged why) the sweep waits for the next run.
+    if (!ctx.stream)
+      return { selected: [], deleted: [], failed: [], more: true };
     const { videos, complete } = await ctx.stream.list();
     const referenced = await referencedVideoIds(ctx);
     const orphans = orphanVideos(videos, referenced, ctx.now);

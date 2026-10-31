@@ -8,7 +8,8 @@ import type { StreamLibrary } from './stream';
  */
 export interface TaskContext {
   db: SurrealQueryable;
-  stream: StreamLibrary;
+  /** Bunny Stream, for orphan and queued video deletions; null: they wait. */
+  stream: StreamLibrary | null;
   /** Clerk's users, for queued account deletions; null or absent: they wait. */
   clerk?: ClerkUsers | null;
   /** Only log what would be deleted. */

@@ -645,7 +645,7 @@ describe('housekeeping: erasure requests and queued deletions', () => {
  * deletions don't need Clerk, so they still go; only the Clerk deletions wait, and the run
  * reports the key as an error and answers 1.
  */
-describe('housekeeping startup without Clerk’s key', () => {
+describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
   let t: TestDatabase;
   let migrator: Surreal;
   const PROJECT = 'heisreal-test';
@@ -654,10 +654,9 @@ describe('housekeeping startup without Clerk’s key', () => {
   const GUS_VIDEO = guid();
   const HAL_VIDEO = guid();
 
-  /** Secret Manager, in memory: the Bunny key and the DB password read; Clerk's key as given. */
-  const start = (clerkKey: () => string) => {
+  /** Secret Manager, in memory: the DB password reads; Clerk's and Bunny's keys as given. */
+  const start = (clerkKey: () => string, bunnyKey = () => 'bunny-key') => {
     const payloads: Record<string, string> = {
-      [secret('bunny-stream-api-key')]: 'bunny-key',
       [secret('surreal-password-housekeeping')]:
         t.servicePasswords.get('housekeeping') ?? '',
     };
@@ -666,7 +665,11 @@ describe('housekeeping startup without Clerk’s key', () => {
         {
           payload: {
             data:
-              name === secret('clerk-secret-key') ? clerkKey() : payloads[name],
+              name === secret('clerk-secret-key')
+                ? clerkKey()
+                : name === secret('bunny-stream-api-key')
+                  ? bunnyKey()
+                  : payloads[name],
           },
         },
       ],
@@ -744,6 +747,36 @@ describe('housekeeping startup without Clerk’s key', () => {
     });
   });
   afterAll(() => t?.close());
+
+  // First: the later cases delete the videos this one leaves queued.
+  it('with no usable Bunny key either, still erases, and leaves the video deletions queued, untried', async () => {
+    const { exitCode, library, logs } = start(
+      () => {
+        throw new Error(
+          '9 FAILED_PRECONDITION: Secret Version is in DISABLED state.',
+        );
+      },
+      () => '',
+    );
+    expect(await exitCode).toBe(1);
+    expect(logs[0]).toEqual({
+      severity: 'ERROR',
+      error: expect.stringContaining('bunny-stream-api-key'),
+    });
+    expect(logs[2]).toMatchObject({ stream: false, clerk: false });
+    expect(
+      await rows(migrator, `SELECT VALUE gdprDeletedAt != NONE FROM user:gus`),
+    ).toEqual([true]);
+    expect(library.deleted).toEqual([]);
+    expect(await queued()).toEqual(
+      expect.arrayContaining([
+        { kind: 'bunny_video', ref: GUS_VIDEO, attempts: 0 },
+        { kind: 'bunny_video', ref: HAL_VIDEO, attempts: 0 },
+        { kind: 'clerk_user', ref: 'user_gus', attempts: 0 },
+        { kind: 'clerk_user', ref: 'user_hal', attempts: 0 },
+      ]),
+    );
+  });
 
   it('with no enabled version of the key, erases and deletes at Bunny, and leaves Clerk’s deletions queued, untried', async () => {
     const { exitCode, library, logs, clerkMade } = start(() => {

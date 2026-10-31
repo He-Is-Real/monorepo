@@ -19,9 +19,10 @@ export interface Startup {
 
 /**
  * Reads the keys, connects as service:housekeeping and runs the chores. Answers the exit status
- * (main.ts). Clerk's key is only needed for queued Clerk deletions, so a Clerk key that can't be
- * read (no enabled version, no access, not a Clerk key) is logged as an error and those deletions
- * wait; every other chore still runs, and the run answers 1 so it shows as failed.
+ * (main.ts). Bunny's key is only needed for video deletions and Clerk's for Clerk deletions, so a
+ * key that can't be used (no enabled version, no access, empty, not a Clerk key) is logged as an
+ * error and that work waits; every other chore (erasure requests above all) still runs, and the
+ * run answers 1 so it shows as failed.
  */
 export async function startHousekeeping({
   config,
@@ -31,10 +32,22 @@ export async function startHousekeeping({
   stream = (libraryId, key) => new BunnyStreamLibrary(libraryId, key),
   clerk: clerkUsers = (key) => new ClerkBackendUsers(key),
 }: Startup): Promise<number> {
-  const key = (await secrets.get(config.stream.keySecret)).trim();
-  if (key === '') throw new Error(`Secret ${config.stream.keySecret} is empty`);
+  let library: StreamLibrary | null = null;
+  let keyFailed = false;
+  try {
+    const key = (await secrets.get(config.stream.keySecret)).trim();
+    if (key === '')
+      throw new Error(`Secret ${config.stream.keySecret} is empty`);
+    library = stream(config.stream.libraryId, key);
+  } catch (err) {
+    keyFailed = true;
+    // Cloud Logging reads `severity` from a JSON line: this one shows as an error.
+    log({
+      severity: 'ERROR',
+      error: `Bunny Stream's key (secret ${config.stream.keySecret}) can't be used, so video deletions wait: ${(err as Error).message}`,
+    });
+  }
   let clerk: ClerkUsers | null = null;
-  let clerkFailed = false;
   if (config.clerkKeySecret) {
     try {
       const clerkKey = (await secrets.get(config.clerkKeySecret)).trim();
@@ -45,7 +58,7 @@ export async function startHousekeeping({
       }
       clerk = clerkUsers(clerkKey);
     } catch (err) {
-      clerkFailed = true;
+      keyFailed = true;
       // Cloud Logging reads `severity` from a JSON line: this one shows as an error.
       log({
         severity: 'ERROR',
@@ -59,13 +72,14 @@ export async function startHousekeeping({
       start: chores.map((c) => c.name),
       dryRun: config.dryRun,
       maxDeletions: config.maxDeletions,
+      stream: library !== null,
       clerk: clerk !== null,
     });
     const code = await runTasks(
       chores,
       {
         db,
-        stream: stream(config.stream.libraryId, key),
+        stream: library,
         clerk,
         dryRun: config.dryRun,
         maxDeletions: config.maxDeletions,
@@ -73,7 +87,7 @@ export async function startHousekeeping({
       },
       log,
     );
-    return clerkFailed ? 1 : code;
+    return keyFailed ? 1 : code;
   } finally {
     await db.close().catch(() => undefined);
   }

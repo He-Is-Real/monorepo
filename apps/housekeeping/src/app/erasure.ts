@@ -81,7 +81,11 @@ export const erasureRequestsTask: Task = {
 export const pendingDeletionsTask: Task = {
   name: 'pending-deletions',
   async run(ctx): Promise<TaskResult> {
-    const kinds = ctx.clerk ? ['bunny_video', 'clerk_user'] : ['bunny_video'];
+    // A kind whose key couldn't be read (start.ts logged why) waits, its tries unchanged.
+    const kinds = [
+      ...(ctx.stream ? ['bunny_video'] : []),
+      ...(ctx.clerk ? ['clerk_user'] : []),
+    ];
     const found = await due<PendingDeletion>(ctx, PENDING_DELETIONS_DUE, {
       kinds,
       keys: null,
@@ -97,7 +101,8 @@ export const pendingDeletionsTask: Task = {
     if (ctx.dryRun) return result;
     for (const row of selected) {
       try {
-        if (row.kind === 'bunny_video') await ctx.stream.delete(row.ref);
+        if (row.kind === 'bunny_video' && ctx.stream)
+          await ctx.stream.delete(row.ref);
         else if (row.kind === 'clerk_user' && ctx.clerk)
           await ctx.clerk.delete(row.ref);
         else throw new Error(`Can't delete a ${row.kind} here`);
