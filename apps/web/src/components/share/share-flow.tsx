@@ -1320,23 +1320,40 @@ export function ReviewStep({
   const limits = useLimits();
   const askPublish = !counts(consents, 'publish');
   // O4: sharing beyond heisreal.today is chosen for each story. Offered unless this story already
-  // allows it (sent back for changes, say): an unticked box would wrongly suggest it doesn't.
-  const [alreadyShared, setAlreadyShared] = useState(false);
+  // allows it (sent back for changes, say): an unticked box would wrongly suggest it doesn't. So the
+  // choice waits for the story's sharing state, and if that can't be read, the person retries;
+  // nothing is submitted meanwhile, so the page never shows the state wrongly.
   const storyId = draft.current().draftId;
+  const needsSharing = !!storyId && !!legal.social;
+  const [sharing, setSharing] = useState<
+    'loading' | 'shared' | 'not_shared' | 'error'
+  >(needsSharing ? 'loading' : 'not_shared');
+  const [sharingAttempt, setSharingAttempt] = useState(0);
   useEffect(() => {
-    if (!storyId || !legal.social) return;
+    if (!storyId || !legal.social) {
+      setSharing('not_shared');
+      return;
+    }
     let live = true;
+    setSharing('loading');
     calls
       .story(storyId)
       .then((story) => {
-        if (live) setAlreadyShared(story?.sharing?.granted === true);
+        if (live)
+          setSharing(
+            story?.sharing?.granted === true ? 'shared' : 'not_shared',
+          );
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (live) setSharing('error');
+      });
     return () => {
       live = false;
     };
-  }, [calls, storyId, legal.social]);
-  const askSocial = !!legal.social && !alreadyShared;
+  }, [calls, storyId, legal.social, sharingAttempt]);
+  const alreadyShared = sharing === 'shared';
+  const sharingKnown = sharing === 'shared' || sharing === 'not_shared';
+  const askSocial = !!legal.social && sharing === 'not_shared';
   // D114: the boxes are the versions' own data. Publishing is required, so without its box the
   // story can't be submitted (fail closed); sharing is optional, so without its box it's not offered.
   const publishBox = boxFor(legal.testimony, 'publish');
@@ -1361,7 +1378,7 @@ export function ReviewStep({
   );
 
   async function submit() {
-    if (outdated) return;
+    if (outdated || !sharingKnown) return;
     if (askPublish && !publishBox) {
       setProblem(
         'The publishing consent can’t be shown right now, so your story can’t be submitted yet. It’s saved; please try again later.',
@@ -1612,6 +1629,26 @@ export function ReviewStep({
             a moderator approves them.
           </p>
         )}
+        {sharing === 'loading' && (
+          <p data-sharing="loading" className="text-sm text-secondary-text">
+            Checking this story’s sharing choice…
+          </p>
+        )}
+        {sharing === 'error' && (
+          <div data-sharing="error" role="alert" className="text-destructive">
+            <p>
+              We couldn’t check whether this story may be shared beyond
+              heisreal.today, so it can’t be submitted yet. It’s saved.
+            </p>
+            <button
+              type="button"
+              className="min-h-11 font-semibold text-link underline"
+              onClick={() => setSharingAttempt((n) => n + 1)}
+            >
+              Try again
+            </button>
+          </div>
+        )}
         {alreadyShared && (
           <p data-shared="" className="text-sm text-secondary-text">
             You’ve let us share this story beyond heisreal.today. You can change
@@ -1668,7 +1705,11 @@ export function ReviewStep({
             Reload the page
           </button>
         ) : (
-          <button type="submit" className={primary} disabled={busy}>
+          <button
+            type="submit"
+            className={primary}
+            disabled={busy || !sharingKnown}
+          >
             {busy ? 'Submitting…' : 'Submit for review'}
           </button>
         )}
