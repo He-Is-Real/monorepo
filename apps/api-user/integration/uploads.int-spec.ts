@@ -365,6 +365,7 @@ describe('video and audio uploads', () => {
       const limits = (await call('GET', '/v1/account/limits', 'cat')).body;
       expect(limits.uploads).toMatchObject({
         perHour: 1,
+        usedIn7Days: 1,
         nextAvailableAt: again.body.availableAt,
       });
     } finally {

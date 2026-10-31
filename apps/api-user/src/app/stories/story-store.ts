@@ -90,13 +90,18 @@ export interface SubmissionLimits {
   storyText: { min: number; max: number };
   tags: { min: number; max: number };
   openDrafts: { max: number | null; open: number };
-  submissions: { per7Days: number | null; nextAvailableAt: string | null };
+  submissions: {
+    per7Days: number | null;
+    usedIn7Days: number;
+    nextAvailableAt: string | null;
+  };
   uploads: {
     videoMaxBytes: number;
     audioMaxBytes: number;
     maxDurationSeconds: number;
     perHour: number;
     per7Days: number | null;
+    usedIn7Days: number;
     nextAvailableAt: string | null;
   };
 }
@@ -533,7 +538,9 @@ export class StoryStore {
        RETURN fn::limits::effective($auth);
        RETURN count(SELECT id FROM story WHERE submitter = $auth AND status = 'draft');
        RETURN fn::story::next_submission_at($auth);
-       RETURN fn::upload::next_allowed_at($auth);`,
+       RETURN fn::upload::next_allowed_at($auth);
+       RETURN count(SELECT id FROM submissionLog WHERE person = $auth AND at > time::now() - 7d);
+       RETURN count(SELECT id FROM uploadGrant WHERE person = $auth AND at > time::now() - 7d);`,
     )) as [
       SubmissionSettings,
       number,
@@ -549,14 +556,18 @@ export class StoryStore {
       number,
       string | null | undefined,
       string | null | undefined,
+      number,
+      number,
     ];
-    const [set, themes, mine, open, next, nextUpload] = results;
+    const [set, themes, mine, open, next, nextUpload, submitted, uploaded] =
+      results;
     return {
       storyText: { min: set.storyTextMin, max: set.storyTextMax },
       tags: { min: themesNeeded(set, themes), max: set.tagsMax },
       openDrafts: { max: mine.openDraftsMax ?? null, open },
       submissions: {
         per7Days: mine.submissionsPer7Days ?? null,
+        usedIn7Days: submitted,
         nextAvailableAt: next ? new Date(next).toISOString() : null,
       },
       uploads: {
@@ -565,6 +576,7 @@ export class StoryStore {
         maxDurationSeconds: mine.mediaMaxSeconds,
         perHour: mine.uploadRequestsPerHour,
         per7Days: mine.uploadsPer7Days ?? null,
+        usedIn7Days: uploaded,
         nextAvailableAt: nextUpload ? new Date(nextUpload).toISOString() : null,
       },
     };

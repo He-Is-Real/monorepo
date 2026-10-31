@@ -32,10 +32,17 @@ import {
   type Tag,
   type Themes,
 } from './share-api';
+import {
+  formatWhen,
+  SubmissionsLeft,
+  submissionsState,
+  UploadsLeft,
+  uploadsState,
+} from './allowance';
 import { MoreThemes } from '@/components/themes/more-themes';
 import { splitThemes } from '@/lib/main-themes';
 import { useDraft } from './use-draft';
-import { type FileState, UploadPanel } from './upload-panel';
+import { fileLimits, type FileState, UploadPanel } from './upload-panel';
 
 /**
  * The submit flow for written stories (M2 plan PR 4), from the mockup authenticated/submit.html,
@@ -112,17 +119,6 @@ const needsTestimonyConsent = (c: ConsentState) =>
   !counts(c, 'special_category_religious') ||
   c.testimony.updateAvailable ||
   c.testimony.acceptanceRequired;
-
-/** "one story", "3 stories": the person's weekly allowance, from their limits. */
-const allowance = (n: number | null) =>
-  n === null ? 'stories' : n === 1 ? 'one story' : `${n} stories`;
-
-const dateFormat = new Intl.DateTimeFormat('en-GB', {
-  weekday: 'long',
-  day: 'numeric',
-  month: 'long',
-  timeZone: 'Europe/London',
-});
 
 const button =
   'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
@@ -258,6 +254,24 @@ function SignedInFlow({
     void start();
   }, [start]);
 
+  // After an upload is counted, and back on Choose: the numbers shown and the drafts listed
+  // follow together, so a draft this tab made is offered to carry on even when it filled the
+  // open drafts (the old ones stay if this fails).
+  const refreshLimits = useCallback(
+    () =>
+      void Promise.all([calls.limits(), calls.openDrafts()])
+        .then(([limits, drafts]) =>
+          setLoaded((l) =>
+            l.state === 'ready' ? { ...l, limits, drafts } : l,
+          ),
+        )
+        .catch(() => undefined),
+    [calls],
+  );
+  useEffect(() => {
+    if (step === 'choose' && moved.current) refreshLimits();
+  }, [step, refreshLimits]);
+
   // The draft's id in the address once it exists, so a reload resumes it.
   useEffect(() => {
     if (!draft.draftId) return;
@@ -341,7 +355,6 @@ function SignedInFlow({
     setLoaded({ ...loaded, consents: fresh });
     return fresh;
   };
-
   return (
     <Limits.Provider value={limits}>
       <div>
@@ -428,6 +441,7 @@ function SignedInFlow({
               draft={draft}
               calls={calls}
               owner={owner}
+              refreshLimits={refreshLimits}
               onNext={() => go(after('write'))}
               onBack={() => go(before('write'))}
             />
@@ -458,6 +472,7 @@ function SignedInFlow({
               consents={consents}
               calls={calls}
               refreshConsents={refreshConsents}
+              refreshLimits={refreshLimits}
               onEdit={(s) => go(s)}
               onDone={() => go('done')}
             />
@@ -610,8 +625,17 @@ function ChooseStep({
   onStart: (format: StoryFormat) => void;
   onContinue: (id: string) => Promise<void>;
 }) {
+  const limits = useLimits();
   const [busy, setBusy] = useState(false);
   const [format, setFormat] = useState<StoryFormat>('written');
+  // Starting a story waits at a limit, said plainly (D94, D113): a new draft past the open
+  // drafts allowed, or a video or audio story while no upload can start.
+  const draftsFull =
+    limits.openDrafts.max !== null &&
+    limits.openDrafts.open >= limits.openDrafts.max;
+  const uploadsHeld =
+    format !== 'written' && !!uploadsState(limits.uploads).until;
+  const held = draftsFull || uploadsHeld;
   const options = [
     { id: 'written', label: 'Written', note: 'Write it here' },
     { id: 'video', label: 'Video', note: 'Upload a video file' },
@@ -657,6 +681,36 @@ function ChooseStep({
         Recorded a video or a voice note already? Upload the file. Recording
         straight from this page comes later.
       </p>
+      <section
+        aria-label="What you can share this week"
+        className="mt-4 flex flex-col gap-2 rounded-xl bg-surface px-4 py-3 text-sm text-secondary-text"
+      >
+        <SubmissionsLeft limits={limits} />
+        {format !== 'written' && (
+          <>
+            <UploadsLeft
+              limits={limits.uploads}
+              noun={NOUN[format]}
+              id="start-uploads"
+            />
+            <p data-file-limits="">
+              {format === 'video' ? 'Videos' : 'Audio files'}:{' '}
+              {fileLimits(limits.uploads, format)}
+            </p>
+          </>
+        )}
+        {draftsFull && (
+          <p id="start-drafts" className="text-foreground">
+            You have{' '}
+            {limits.openDrafts.open === 1
+              ? 'a draft'
+              : `${limits.openDrafts.open} drafts`}{' '}
+            on the go, which is as many as you can keep at once. Carry on with
+            {limits.openDrafts.open === 1 ? ' it' : ' one of them'} below, or
+            delete one from your account page to start a new one.
+          </p>
+        )}
+      </section>
       {drafts.length > 0 && (
         <section aria-labelledby="your-drafts" className="mt-8">
           <h3 id="your-drafts" className="mb-3 font-semibold">
@@ -705,6 +759,14 @@ function ChooseStep({
         <button
           type="button"
           className={primary}
+          disabled={held}
+          aria-describedby={
+            draftsFull
+              ? 'start-drafts'
+              : uploadsHeld
+                ? 'start-uploads'
+                : undefined
+          }
           onClick={() => onStart(format)}
         >
           {start[format]}
@@ -1028,6 +1090,7 @@ function MediaStep({
   draft,
   calls,
   owner,
+  refreshLimits,
   onNext,
   onBack,
 }: {
@@ -1035,6 +1098,7 @@ function MediaStep({
   draft: DraftState;
   calls: ReturnType<typeof shareApi>;
   owner: string;
+  refreshLimits: () => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -1134,6 +1198,7 @@ function MediaStep({
             setVersion={draft.setVersion}
             reload={draft.load}
             onState={setFile}
+            onCounted={refreshLimits}
           />
         </div>
       </div>
@@ -1326,6 +1391,7 @@ export function ReviewStep({
   consents,
   calls,
   refreshConsents,
+  refreshLimits,
   onEdit,
   onDone,
 }: {
@@ -1336,6 +1402,8 @@ export function ReviewStep({
   consents: ConsentState;
   calls: ReturnType<typeof shareApi>;
   refreshConsents: () => Promise<ConsentState>;
+  /** The page's limits and drafts read again (when the server's answer shows them stale). */
+  refreshLimits: () => void;
   onEdit: (step: Step) => void;
   onDone: () => void;
 }) {
@@ -1348,6 +1416,8 @@ export function ReviewStep({
   const socialBox = askSocial
     ? boxFor(legal.social, 'share_socials')
     : undefined;
+  // The weekly submissions are used up (D94): submitting waits, said before they try.
+  const waiting = !draft.submittedBefore && !!submissionsState(limits).until;
   const [publish, setPublish] = useState(false);
   const [social, setSocial] = useState(false);
   const [problem, setProblem] = useState<React.ReactNode>(null);
@@ -1364,7 +1434,7 @@ export function ReviewStep({
   const tagNames = f.tagIds.map((s) => tags.find((t) => t.id === s)?.name ?? s);
 
   async function submit() {
-    if (outdated) return;
+    if (outdated || waiting) return;
     if (askPublish && !publishBox) {
       setProblem(
         'The publishing consent can’t be shown right now, so your story can’t be submitted yet. It’s saved; please try again later.',
@@ -1457,8 +1527,10 @@ export function ReviewStep({
           availableAt?: string;
         };
         if (p.code === 'weekly_submission_limit_reached' && p.availableAt) {
+          // The numbers on the page were stale: the server's answer says it, and they follow.
+          refreshLimits();
           setProblem(
-            `You can submit ${allowance(limits.submissions.per7Days)} for review in any 7 days. Your story is saved as a draft: you can submit it from ${dateFormat.format(new Date(p.availableAt))}.`,
+            `You’ve sent as many stories for review as you can this week. Your story is saved as a draft: you can submit it from ${formatWhen(new Date(p.availableAt))}.`,
           );
         } else if (p.code === 'story_text_too_short') {
           setProblem(
@@ -1640,6 +1712,11 @@ export function ReviewStep({
           </div>
         )}
       </div>
+      {waiting && (
+        <div className="mt-4 rounded-xl bg-surface px-4 py-3">
+          <SubmissionsLeft limits={limits} id="submit-waiting" />
+        </div>
+      )}
       {problem && (
         <p role="alert" className="mt-4 text-destructive">
           {problem}
@@ -1662,7 +1739,12 @@ export function ReviewStep({
             Reload the page
           </button>
         ) : (
-          <button type="submit" className={primary} disabled={busy}>
+          <button
+            type="submit"
+            className={primary}
+            disabled={busy || waiting}
+            aria-describedby={waiting ? 'submit-waiting' : undefined}
+          >
             {busy ? 'Submitting…' : 'Submit for review'}
           </button>
         )}

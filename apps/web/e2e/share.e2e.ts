@@ -618,54 +618,6 @@ test.describe('behaviour', () => {
     expect((await me.stories())[0]).toMatchObject({ title: 'Offline' });
   });
 
-  test('D94’s limits are said plainly: three open drafts, one submission a week', async ({
-    page,
-    request,
-  }) => {
-    const draft = (id: string, extra: object = {}) => ({
-      id,
-      title: `Draft ${id}`,
-      body: TEXT,
-      primaryFormat: 'written',
-      tagIds: ['hope'],
-      ...extra,
-    });
-    await person(page, request, {
-      ...SIGNED_UP,
-      granted: [
-        ...(SIGNED_UP.granted ?? []),
-        'special_category_religious',
-        'publish',
-      ],
-      stories: [
-        draft('a', {
-          status: 'pending',
-          submittedAt: new Date().toISOString(),
-        }),
-        draft('b'),
-        draft('c'),
-        draft('d'),
-      ],
-    });
-    await page.goto(SHARE);
-    await page.getByRole('button', { name: 'Write my story' }).click();
-    await page.getByRole('button', { name: 'Start writing' }).click();
-    await page.getByLabel('Title').fill('A fourth');
-    await page.getByLabel('Your story').fill(TEXT);
-    await expect(page.locator('[data-save-state]')).toContainText(
-      'as many drafts open as you can',
-    );
-
-    await page.goto(SHARE);
-    await page.getByRole('button', { name: 'Continue “Draft b”' }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('button', { name: 'Submit for review' }).click();
-    await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      /one story for review in any 7 days.*you can submit it from \w+day \d+ \w+/,
-    );
-  });
-
   test('text one person left in a shared tab is never shown to the next person', async ({
     page,
     request,

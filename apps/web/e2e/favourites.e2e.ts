@@ -1,6 +1,7 @@
 import {
   type APIRequestContext,
   expect,
+  type Locator,
   type Page,
   type Request,
   test,
@@ -55,6 +56,41 @@ async function heartAtStub(
       headers: { authorization: `Bearer ${fixtureToken(session)}` },
     });
     expect(res.status()).toBe(204);
+  }
+}
+
+interface Box {
+  x: number;
+  top: number;
+  bottom: number;
+}
+
+/** Each card's column (left edge) and its top and bottom, from the top of the list. */
+async function masonryBoxes(list: Locator): Promise<Box[]> {
+  return list.locator('> li > article').evaluateAll((cards) => {
+    const top = cards[0]?.closest('ul')?.getBoundingClientRect().top ?? 0;
+    return cards.map((c) => {
+      const r = c.getBoundingClientRect();
+      return { x: Math.round(r.x), top: r.top - top, bottom: r.bottom - top };
+    });
+  });
+}
+
+/**
+ * Browse's masonry: the column count for the width, and in each column a card starting one
+ * gap (24 px, rounded up to the grid's 4 px rows) below the one above it, whatever the heights
+ * beside it.
+ */
+function expectStaggered(boxes: Box[], width: number) {
+  const columns = new Set(boxes.map((b) => b.x));
+  expect(columns.size).toBe(width >= 1024 ? 3 : width >= 640 ? 2 : 1);
+  for (const x of columns) {
+    const column = boxes.filter((b) => b.x === x).sort((a, b) => a.top - b.top);
+    for (let i = 1; i < column.length; i++) {
+      const gap = column[i].top - column[i - 1].bottom;
+      expect(gap).toBeGreaterThanOrEqual(23);
+      expect(gap).toBeLessThanOrEqual(29);
+    }
   }
 }
 
@@ -682,6 +718,97 @@ test.describe('hearts', () => {
     ).toHaveCount(1);
     await expect(heart).toHaveAttribute('aria-pressed', 'false');
   });
+});
+
+// Joel, 2026-10-31: My favourites shows stories as browse does (the same masonry and cards):
+// each card at its media's own clamped shape (D53), a written story without a picture as text
+// only, and the cards stacked in staggered columns, not in even rows. Every device, as the
+// column count changes with the width. Stub: `aspect-test`'s stories (stub-api.mjs).
+test('My favourites keeps each card at its media’s shape, in browse’s masonry', async ({
+  page,
+  request,
+}, info) => {
+  const session = sessionFor(info, 'shapes');
+  await useSession(page, session);
+  const shapes = [
+    ['aspect_test_portrait', 'Aspect test: a 3:4 picture', 3 / 4],
+    ['aspect_test_vertical', 'Aspect test: a 9:16 video', 9 / 16],
+    ['aspect_test_landscape', 'Aspect test: a 16:9 video', 16 / 9],
+    ['aspect_test', 'Aspect test: the story', null],
+  ] as const;
+  await heartAtStub(
+    request,
+    session,
+    shapes.map(([id]) => id),
+  );
+  await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+  const list = page.locator('[data-favourites] ul.masonry');
+  await expect(list.locator('> li')).toHaveCount(shapes.length);
+  await expectNoHorizontalOverflow(page);
+
+  for (const [, title, aspect] of shapes) {
+    const card = list.locator('article').filter({
+      has: page.getByRole('heading', { name: title, exact: true }),
+    });
+    const media = card.locator('[data-card-media]');
+    if (aspect === null) {
+      // Text only: no picture or placeholder box.
+      await expect(media, title).toHaveCount(0);
+      continue;
+    }
+    await expect(media.locator('img'), title).toBeVisible();
+    const box = await media.boundingBox();
+    expect(box && box.width / box.height, title).toBeCloseTo(aspect, 1);
+  }
+
+  // Staggered once the browser has measured the cards (the observer can report late).
+  const width = page.viewportSize()?.width ?? 0;
+  await expect(async () =>
+    expectStaggered(await masonryBoxes(list), width),
+  ).toPass();
+});
+
+// Joel, 2026-10-31: "Show more favourites" adds cards as browse's next pages do: the cards on
+// screen stay where they are, and the new ones continue the staggered columns. A button only,
+// never loading on its own. 30 hearts: a page of 24, then 6.
+test('Show more favourites adds cards under the columns, the others staying put', async ({
+  page,
+  request,
+}, info) => {
+  const session = sessionFor(info, 'more');
+  await useSession(page, session);
+  const ids = Array.from(
+    { length: 30 },
+    (_, i) => `browse_${String(i + 1).padStart(2, '0')}`,
+  );
+  await heartAtStub(request, session, ids);
+  await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+  const list = page.locator('[data-favourites] ul.masonry');
+  const width = page.viewportSize()?.width ?? 0;
+  await expect(list.locator('> li')).toHaveCount(24);
+
+  let before: Box[] = [];
+  await expect(async () => {
+    before = await masonryBoxes(list);
+    expectStaggered(before, width);
+  }).toPass();
+
+  const more = page.getByRole('button', { name: 'Show more favourites' });
+  await more.scrollIntoViewIfNeeded();
+  await expect(list.locator('> li')).toHaveCount(24);
+  await more.click();
+  await expect(list.locator('> li')).toHaveCount(30);
+  await expect(more).toHaveCount(0);
+
+  await expect(async () => {
+    const after = await masonryBoxes(list);
+    expectStaggered(after, width);
+    before.forEach((box, i) => {
+      expect(after[i].x, `card ${i + 1}`).toBe(box.x);
+      expect(Math.abs(after[i].top - box.top), `card ${i + 1}`).toBeLessThan(1);
+    });
+  }).toPass();
+  await expectNoHorizontalOverflow(page);
 });
 
 for (const scheme of ['light', 'dark'] as const) {

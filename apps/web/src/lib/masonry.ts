@@ -6,7 +6,7 @@ import { audioSize, cardAspect } from './shape';
 // currently shortest column; the DOM stays in date order and CSS grid places the cards
 // (`grid-auto-flow: dense`, a column and a row span per card). The server lays out every column
 // count and the stylesheet picks one per breakpoint, so the first paint is already balanced. In
-// the browser, measured heights replace the predicted spans (browse-results.tsx); cards never
+// the browser, measured heights replace the predicted spans (story-masonry.tsx); cards never
 // change column.
 //
 // Text is estimated from character counts (average glyph widths for DM Sans), not measured with

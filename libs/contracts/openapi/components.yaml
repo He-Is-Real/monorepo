@@ -878,11 +878,17 @@ components:
               description: Their stories in `draft` now.
         submissions:
           type: object
-          required: [per7Days, nextAvailableAt]
+          required: [per7Days, usedIn7Days, nextAvailableAt]
           properties:
             per7Days:
               type: [integer, 'null']
               minimum: 1
+            usedIn7Days:
+              type: integer
+              minimum: 0
+              description: |
+                Their submissions for review in the last 7 days, which count against `per7Days` (the
+                share page says how many they have left).
             nextAvailableAt:
               type: [string, 'null']
               format: date-time
@@ -896,6 +902,7 @@ components:
               maxDurationSeconds,
               perHour,
               per7Days,
+              usedIn7Days,
               nextAvailableAt,
             ]
           description: |
@@ -918,6 +925,12 @@ components:
             per7Days:
               type: [integer, 'null']
               minimum: 1
+            usedIn7Days:
+              type: integer
+              minimum: 0
+              description: |
+                The video and audio uploads they started in the last 7 days, which count against
+                `per7Days` (pictures never count).
             nextAvailableAt:
               type: [string, 'null']
               format: date-time
