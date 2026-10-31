@@ -124,7 +124,7 @@ const LINKED: Record<string, LinkedCase> = {
       await run(
         c.migrator,
         `UPDATE story:${c.p}_s SET image = {
-           path: 'images/x.webp', width: 10, height: 10, processing: 'ready' }`,
+           path: 'dev-seed/x.webp', width: 10, height: 10, processing: 'ready' }`,
       );
       await run(
         c.admin,

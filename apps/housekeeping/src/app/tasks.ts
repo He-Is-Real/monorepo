@@ -1,10 +1,11 @@
 import type { SurrealQueryable } from 'surrealdb';
 import type { ClerkUsers } from './clerk';
+import type { ImageZone } from './images';
 import type { StreamLibrary } from './stream';
 
 /**
- * What each chore gets: the database as service:housekeeping, Bunny, Clerk (when its key is
- * set), and the run's limits.
+ * What each chore gets: the database as service:housekeeping, Bunny, Clerk and the images zone
+ * (when their keys are set), and the run's limits.
  */
 export interface TaskContext {
   db: SurrealQueryable;
@@ -12,6 +13,8 @@ export interface TaskContext {
   stream: StreamLibrary | null;
   /** Clerk's users, for queued account deletions; null or absent: they wait. */
   clerk?: ClerkUsers | null;
+  /** The images storage zone, for queued picture deletions; null or absent: they wait. */
+  images?: ImageZone | null;
   /** Only log what would be deleted. */
   dryRun: boolean;
   /** At most this many deletions per chore per run. */

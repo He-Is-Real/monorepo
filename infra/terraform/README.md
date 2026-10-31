@@ -267,13 +267,16 @@ uploaded once by a developer (`apps/dev-seed/README.md`); the Job never talks to
 ## Housekeeping
 
 The `housekeeping` Cloud Run Job (`modules/gcp/housekeeping.tf`, app `apps/housekeeping`) runs
-the nightly chores: abandoned drafts (D71) and orphaned story videos at Bunny
+the nightly chores: erasure requests and queued deletions (videos, pictures, Clerk accounts),
+abandoned drafts (D71) and orphaned story videos at Bunny
 ([docs/media-runbook.md](../../docs/media-runbook.md), "Replaced and orphaned videos"). Cloud
 Scheduler starts it at 03:30 London time; both are in `europe-west2`, written out in OpenTofu.
 
 - **Identities.** `housekeeping` runs the Job: it reads `surreal-housekeeping-password` (granted
-  here) and `bunny-stream-api-key` (granted by the bunny root's `stream_key_readers`, which accepts
-  only this account), and signs in as `service:housekeeping`, whose permissions are in
+  here), `bunny-stream-api-key` (granted by the bunny root's `stream_key_readers`, which accepts
+  only this account) and `bunny-storage-password` (the bunny root's `storage_password_readers`,
+  the same: to delete the images-zone folders of stories that are gone; it gets the zone from
+  `api_user_image_uploads`, and without that, picture deletions wait in the queue), and signs in as `service:housekeeping`, whose permissions are in
   [docs/db-permissions.md](../../docs/db-permissions.md) item 40. `housekeeping-scheduler` is
   Scheduler's: `run.invoker` on this Job only, so it can start it (without overrides) and nothing
   else. Scheduler calls the Cloud Run Admin API's `jobs.run` with an OAuth token (a Google API
@@ -381,8 +384,10 @@ encrypts its state and saved plans; CI gets `tf-bunny` only on `main`, in `tofu-
 Manager (`bunny-account-api-key`, container from the `bootstrap` root) and reaches the provider
 through an `ephemeral` read, so it's in neither state nor plans. The keys the apps will need are
 copied into Secret Manager with write-only versions; apps read them through `libs/secrets`.
-`bunny-stream-api-key` and `bunny-storage-password` (uploads) are read by api-user alone
-(`upload_key_readers`, which accepts nothing but this project's api-user service account).
+`bunny-stream-api-key` and `bunny-storage-password` (uploads) are read by api-user
+(`upload_key_readers`, which accepts nothing but this project's api-user service account) and,
+each on its own grant, by the housekeeping Job (`stream_key_readers`, `storage_password_readers`:
+only this project's housekeeping account).
 `bunny-stream-token-key` and `bunny-images-token-key` (D52) are read by api-public-read and
 api-user (`signing_key_readers`). Each is a grant on one secret, made by this root.
 

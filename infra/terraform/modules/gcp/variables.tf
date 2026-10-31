@@ -167,6 +167,34 @@ variable "api_user_uploads" {
   }
 }
 
+variable "api_user_image_uploads" {
+  description = <<-EOT
+    Image uploads (M2 plan PR 10): api-user signs the browser's S3 presigned PUT
+    to the images storage zone for a path it picked, with the zone password in
+    the bunny-storage-password secret (named here, never its value). Identifiers
+    only: the zone name (also the S3 access key id), its S3 host and SigV4 region
+    (`tf.sh bunny output bunny`: storage_zone_name, storage_s3_hostname). The bunny
+    root must already let api-user read that secret (upload_key_readers): a
+    revision that can't read it doesn't start. null = image uploads answer 503.
+  EOT
+  type = object({
+    storage_zone    = string
+    s3_host         = string
+    s3_region       = string
+    password_secret = optional(string, "bunny-storage-password")
+  })
+  default = null
+  validation {
+    condition = var.api_user_image_uploads == null || (
+      can(regex("^[a-z0-9-]{1,64}$", var.api_user_image_uploads.storage_zone)) &&
+      can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", var.api_user_image_uploads.s3_host)) &&
+      can(regex("^[a-z0-9-]{1,32}$", var.api_user_image_uploads.s3_region)) &&
+      can(regex("^bunny-[a-z0-9-]+$", var.api_user_image_uploads.password_secret))
+    )
+    error_message = "api_user_image_uploads: a zone name, a bare S3 hostname, a region name and a bunny-* secret name."
+  }
+}
+
 variable "site_videos" {
   description = <<-EOT
     Site videos (not stories) api-public-read signs player links for, by key: the

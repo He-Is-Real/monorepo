@@ -154,7 +154,6 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
       }
       if (s.media) p('a written story has no video or audio');
     } else {
-      if (s.image) p('only a written story can have an image');
       if (!s.media && s.status !== 'draft')
         p(`a ${s.format} story needs its ${s.format} once submitted`);
       if (s.media && CLIPS[s.media.clip].kind !== s.format)

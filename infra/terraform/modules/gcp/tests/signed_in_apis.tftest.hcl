@@ -169,6 +169,48 @@ run "uploads_only_on_api_user" {
   }
 }
 
+run "image_uploads_set_the_zone_on_api_user_only" {
+  command = plan
+
+  variables {
+    api_user_image_uploads = {
+      storage_zone = "heisreal-dev-image-store"
+      s3_host      = "uk-s3.storage.bunnycdn.com"
+      s3_region    = "uk"
+    }
+  }
+
+  assert {
+    condition = (
+      { for e in google_cloud_run_v2_service.signed_in_api["api-user"].template[0].containers[0].env :
+        e.name => e.value if startswith(e.name, "BUNNY_STORAGE_")
+        } == {
+        BUNNY_STORAGE_ZONE            = "heisreal-dev-image-store"
+        BUNNY_STORAGE_S3_HOST         = "uk-s3.storage.bunnycdn.com"
+        BUNNY_STORAGE_S3_REGION       = "uk"
+        BUNNY_STORAGE_PASSWORD_SECRET = "bunny-storage-password"
+      } &&
+      length([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
+      e if startswith(e.name, "BUNNY_")]) == 0
+    )
+    error_message = "Only api-user gets the image upload settings: the zone, its S3 endpoint and the password's secret name."
+  }
+}
+
+run "image_uploads_refuse_a_url_for_a_host" {
+  command = plan
+
+  variables {
+    api_user_image_uploads = {
+      storage_zone = "heisreal-dev-image-store"
+      s3_host      = "https://uk-s3.storage.bunnycdn.com"
+      s3_region    = "uk"
+    }
+  }
+
+  expect_failures = [var.api_user_image_uploads]
+}
+
 run "uploads_need_the_library" {
   command = plan
 

@@ -184,10 +184,10 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
        -- A new image on a public story hides it (D59), so publish the row again after it.
        LET $row = (SELECT * FROM ONLY publicStory:dev_seed);
        DELETE publicStory:dev_seed;
-       UPDATE story:dev_seed SET image = { path: 'images/dev-seed.webp', width: 1200, height: 1600,
+       UPDATE story:dev_seed SET image = { path: 'dev-seed/dev-seed.webp', width: 1200, height: 1600,
          processing: 'ready' };
        CREATE publicStory:dev_seed CONTENT object::extend($row, {
-         image: { path: 'images/dev-seed.webp', width: 1200, height: 1600 } });
+         image: { path: 'dev-seed/dev-seed.webp', width: 1200, height: 1600 } });
        COMMIT TRANSACTION;`,
     );
     const story = (await (await fetch(`${url}/v1/stories/${SLUG}`)).json()) as {

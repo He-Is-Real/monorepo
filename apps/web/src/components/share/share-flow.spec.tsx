@@ -120,7 +120,11 @@ describe('ReviewStep', () => {
   };
 
   it('fails closed when publishing is needed and the version has no publish box', () => {
-    const calls = { grant: jest.fn(), submit: jest.fn() };
+    const calls = {
+      grant: jest.fn(),
+      submit: jest.fn(),
+      story: jest.fn().mockResolvedValue({ media: [], image: null }),
+    };
     render(
       <Limits.Provider value={LIMITS}>
         <ReviewStep
@@ -157,6 +161,7 @@ describe('ReviewStep', () => {
         });
       }),
       submit: jest.fn(),
+      story: jest.fn().mockResolvedValue({ media: [], image: null }),
     };
     const forget = jest.fn();
     render(

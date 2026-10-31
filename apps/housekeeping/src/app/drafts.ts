@@ -11,7 +11,11 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * that was ever submitted is moderation's or the person's to remove. The database enforces the
  * same rule on service:housekeeping's delete (docs/db-permissions.md), so this query only picks.
  * The draft's Bunny video then has no story, and the orphan-videos chore deletes it (its upload
- * grant stays for the upload limits, D113).
+ * grant stays for the upload limits, D113). Its delete also queues its folder in the images zone
+ * (story_picture_folder: pendingDeletion `image`, from the story itself, so a picture whose grant
+ * was pruned goes too), which the pending-deletions chore deletes, for the last time once a PUT
+ * link signed before the delete has expired. A draft was never public, so nothing else can show
+ * its pictures.
  *
  * Races: a resume signs its link only once its grant's renewal commits, and that conflicts with
  * this delete (both fence the person), as does a testimony form published meanwhile with a longer
@@ -40,15 +44,17 @@ async function deleteExpiredDraft(
   ctx: Pick<TaskContext, 'db'>,
   id: string,
 ): Promise<boolean> {
-  // One statement, so the check and the delete read the same snapshot.
-  const [gone] = (await retryOnConflict(() =>
+  // One statement, so the check and the delete read the same snapshot; the folder's queueing
+  // (story_picture_folder) commits with it.
+  const results = await retryOnConflict(() =>
     runQuery(
       ctx.db,
-      `DELETE type::record('story', $id) WHERE fn::story::draft_expired(id) RETURN BEFORE`,
+      `RETURN array::len(DELETE type::record('story', $id)
+         WHERE fn::story::draft_expired(id) RETURN BEFORE);`,
       { id },
     ),
-  )) as [unknown[]];
-  return (gone ?? []).length === 1;
+  );
+  return results[results.length - 1] === 1;
 }
 
 export const expiredDraftsTask: Task = {
