@@ -265,20 +265,30 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
     // D50: nothing stays, pass or fail. As the person would: withdraw it if it was submitted,
     // then delete it, which deletes its video at Bunny (D71). The video goes directly too, in
     // case the story never got it or the delete failed.
-    try {
-      if (storyId) await removeStory(page, storyId);
-    } finally {
-      if (videoId) {
-        const res = await stream(`/videos/${videoId}`, 'DELETE');
+    // A cleanup error is reported on its own (soft), so it never hides the test's own failure.
+    const cleanupErrors: string[] = [];
+    const attempt = async (what: string, step: () => Promise<void>) => {
+      try {
+        await step();
+      } catch (err) {
+        cleanupErrors.push(`${what}: ${(err as Error).message}`);
+      }
+    };
+    if (storyId) {
+      const id = storyId;
+      await attempt('remove the story', () => removeStory(page, id));
+    }
+    if (videoId) {
+      const id = videoId;
+      await attempt('remove the video', async () => {
+        const res = await stream(`/videos/${id}`, 'DELETE');
         expect.soft([200, 404], 'delete the video').toContain(res.status);
         expect
-          .soft(
-            (await stream(`/videos/${videoId}`)).status,
-            'the video is gone',
-          )
+          .soft((await stream(`/videos/${id}`)).status, 'the video is gone')
           .toBe(404);
-      }
+      });
     }
+    expect.soft(cleanupErrors, 'cleanup').toEqual([]);
   }
 });
 
