@@ -23,9 +23,13 @@ import {
   WriteNotAppliedError,
 } from '@heisreal/database';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
-import { STORY_IMAGE_PATH } from '@heisreal/story-cards';
+import { type MediaUrls, STORY_IMAGE_PATH } from '@heisreal/story-cards';
 import type { ImageStore, SignedImageUpload } from './bunny-storage';
-import type { BunnyStream, SignedUpload } from './bunny-stream';
+import {
+  BUNNY_FRAME,
+  type BunnyStream,
+  type SignedUpload,
+} from './bunny-stream';
 import { StaleVersionException } from './story-store';
 
 /**
@@ -44,7 +48,7 @@ import { StaleVersionException } from './story-store';
  *   grant is written, and at submit with the limits in force then and Bunny's own length.
  *
  * Images (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's picture or a
- * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's, never set at Bunny). The
+ * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's on our cards). The
  * browser re-encodes it to WebP without metadata and sends its size, pixel size and description;
  * api-user picks its path, `stories/<story id>/<random>.webp`, records the grant (whose event puts
  * it on the draft) and signs an S3 presigned PUT binding that path, the type and the exact size
@@ -118,6 +122,10 @@ const NOT_UPLOADED = [0, 6];
 /** Uploaded, processing, transcoding, finished, couldn't be encoded, just-in-time stages. */
 const ARRIVED = [1, 2, 3, 4, 5, 7, 8];
 const ENCODING_FAILED = 5;
+/** How long Bunny's link to the picture lasts: it fetches it at once (R2: about 1.3 s). */
+const PICTURE_LINK_SECONDS = 10 * 60;
+/** Tries at Bunny's thumbnail call within one submit (repeating it is harmless). */
+const THUMBNAIL_TRIES = 3;
 
 interface FieldError {
   pointer: string;
@@ -280,6 +288,8 @@ export class Uploads {
     private readonly service: SurrealQueryable,
     private readonly bunny: BunnyStream | null,
     private readonly images: ImageStore | null = null,
+    /** Signs the links Bunny fetches a video's own picture (or its own frame) from (D52). */
+    private readonly urls: MediaUrls | null = null,
   ) {}
 
   private stream(): BunnyStream {
@@ -722,6 +732,85 @@ export class Uploads {
         } one, then submit your story.`,
       });
     }
+    if (draft.primaryFormat === 'video') {
+      await this.syncThumbnail(id, draft.videoId, draft.imagePath);
+    }
+  }
+
+  /**
+   * O1 a (Joel, 2026-10-31): a video's own picture becomes its thumbnail at Bunny at submit, so
+   * Bunny's player shows it too, and the moderator reviews exactly that. Bunny keeps a picture set
+   * before it finishes processing (R1, tested on dev). A picture removed since the last submit
+   * gives way to one of Bunny's own frames. Once Bunny answered OK, api-user's login records it
+   * (streamThumbnail), which approval waits for. Already done for this video and picture: nothing
+   * to do. Bunny still failing after a few tries: `503 thumbnail_unavailable`, submit again.
+   */
+  private async syncThumbnail(
+    id: string,
+    videoId: string,
+    imagePath: string | undefined,
+  ): Promise<void> {
+    const [set] = (await runQuery(
+      this.service,
+      `SELECT videoId, imagePath FROM ONLY type::record('streamThumbnail', $id)`,
+      { id },
+    )) as [{ videoId: string; imagePath: string } | null];
+    const onThisVideo = set?.videoId === videoId;
+    if (imagePath) {
+      if (onThisVideo && set?.imagePath === imagePath) return;
+      const picture = this.urls
+        ?.expiringIn(PICTURE_LINK_SECONDS)
+        .imageUrl(imagePath);
+      await this.atBunny(videoId, picture, (url) =>
+        this.stream().setThumbnail(videoId, url),
+      );
+      await runQuery(
+        this.service,
+        `UPSERT type::record('streamThumbnail', $id) SET story = type::record('story', $id),
+           videoId = $videoId, imagePath = $imagePath RETURN NONE`,
+        { id, videoId, imagePath },
+      );
+      return;
+    }
+    if (!set) return;
+    if (onThisVideo) {
+      const frame = this.urls
+        ?.expiringIn(PICTURE_LINK_SECONDS)
+        .thumbnailUrl(videoId, `${videoId}/${BUNNY_FRAME}`);
+      await this.atBunny(videoId, frame, (url) =>
+        this.stream().resetThumbnail(videoId, url),
+      );
+    }
+    // Gone from this video (or set on a video the draft no longer has, deleted at Bunny then).
+    await runQuery(
+      this.service,
+      `DELETE type::record('streamThumbnail', $id)`,
+      { id },
+    );
+  }
+
+  /** One thumbnail call at Bunny, tried a few times; `503` if signing is off or it keeps failing. */
+  private async atBunny(
+    videoId: string,
+    url: string | null | undefined,
+    call: (url: string) => Promise<void>,
+  ): Promise<void> {
+    let last: unknown = new Error('media signing is off');
+    for (let i = 0; url && i < THUMBNAIL_TRIES; i++) {
+      try {
+        return await call(url);
+      } catch (err) {
+        last = err;
+      }
+    }
+    this.logger.warn(
+      `Couldn’t set video ${videoId}’s thumbnail at Bunny: ${String(last)}`,
+    );
+    throw new ServiceUnavailableException({
+      code: 'thumbnail_unavailable',
+      message:
+        'We couldn’t save your picture with the video just now. Your story is saved; please press Submit again.',
+    });
   }
 
   /** Submit's picture check: asks the zone unless this instance has seen the file arrive. */

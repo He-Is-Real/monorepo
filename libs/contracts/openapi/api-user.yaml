@@ -306,15 +306,16 @@ paths:
           Clerk's Backend API at the time of the request (D16, D81: the data download is one of the
           three server jobs that may use Clerk's secret key); nothing from Clerk is stored.
         - **Media never passes through our servers.** Each video or audio item carries its Bunny
-          Stream id and a signed player link, and each published picture a signed link (never a draft's
-          path, which is the person's own write), valid for one hour
-          (`about.linksExpireAt`; `null` links while media signing is off). We keep no original upload
-          and no downloadable file of a video (Bunny's settings), so the player is how to watch it.
+          Stream id, a signed player link and, where Bunny kept it, a signed link to download the file
+          as uploaded (`originalFileUrl`; O2 B, Joel 2026-10-31: the library keeps originals from then
+          on, so older files have none, and api-user asks Bunny which it kept). Each picture has a
+          signed link. Every link works for 7 days (Joel, 2026-10-31; `about.linksExpireAt`; `null`
+          links while media signing is off).
         - The audit log (ids only, D38) isn't included; `about.notIncluded` says so.
 
         No `ETag`: every copy is new, with fresh links. `Content-Disposition` names the file. Needs no
         consent: access to your own data is always possible (Art 15). `503` `export_unavailable` when
-        Clerk can't be reached: we send the whole file or nothing.
+        Clerk, or Bunny (which originals it kept), can't be reached: we send the whole file or nothing.
       x-required-role: User
       x-milestone: M2
       responses:
@@ -337,8 +338,8 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '503':
           description: |
-            `export_unavailable`: the sign-in details couldn't be read from Clerk just now. Try again in
-            a moment.
+            `export_unavailable`: the sign-in details couldn't be read from Clerk, or the videos'
+            details from Bunny, just now. Try again in a moment.
           content:
             application/problem+json:
               schema:
@@ -938,6 +939,12 @@ paths:
         **A picture (M2 plan PR 10), on any type:** api-user checks its file arrived in the images
         zone: `400` `image_not_uploaded` if it never did (the person adds it again, or removes it),
         `503` `uploads_unavailable` when the zone gives no clear answer.
+
+        **A video's own picture (O1 a, Joel 2026-10-31):** once the checks above pass, api-user makes
+        it the video's thumbnail at Bunny Stream (Bunny fetches it by a 10-minute signed link), so
+        Bunny's own player shows it too; a picture removed since the last submit gives way to one of
+        Bunny's own frames. api-admin can't approve the story until that succeeded. Bunny failing
+        after a few tries: `503` `thumbnail_unavailable`; the story is unchanged, submit again.
       x-required-role: User
       x-requires-consent:
         subject: caller

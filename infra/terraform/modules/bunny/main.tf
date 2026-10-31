@@ -26,12 +26,15 @@ resource "bunnynet_stream_library" "media" {
   name = "${local.name}-media"
 
   # Encoding: free tier, x264 only, a small resolution ladder, no extra copies.
-  encoding_tier                     = "Free"
-  jit_encoding                      = false # premium only
-  output_codecs                     = ["x264"]
-  resolutions                       = var.stream_resolutions
-  mp4_fallback_enabled              = false # would store an MP4 per resolution
-  original_files_keep               = false # don't keep the upload after encoding
+  encoding_tier        = "Free"
+  jit_encoding         = false # premium only
+  output_codecs        = ["x264"]
+  resolutions          = var.stream_resolutions
+  mp4_fallback_enabled = false # would store an MP4 per resolution
+  # O2 B (Joel, 2026-10-31): keep each upload as it arrived, so "Download my data" can give the
+  # person their own file back (a signed link to <video id>/original, api-user's export). Only
+  # videos uploaded after this is applied have one. Costs storage (Frankfurt, D89).
+  original_files_keep               = true
   multi_audio_track_support_enabled = false
   early_play_enabled                = false # also exposes originals via the CDN
 

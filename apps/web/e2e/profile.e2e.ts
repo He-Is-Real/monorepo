@@ -232,7 +232,7 @@ test.describe('behaviour', () => {
     // Laid out to be read, not one long line.
     expect(text.split('\n').length).toBeGreaterThan(20);
     await expect(card.getByRole('status')).toHaveText(
-      /^Your file he-is-real-my-data-.+\.json is saved to your downloads\. Its links to your videos and pictures work for one hour\.$/,
+      /^Your file he-is-real-my-data-.+\.json is saved to your downloads\. Its links to your videos and pictures work for 7 days\.$/,
     );
   });
 

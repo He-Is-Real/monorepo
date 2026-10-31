@@ -35,6 +35,12 @@ describe('Bunny Stream calls never follow a redirect with the library key', () =
     ['create', () => api.createVideo('story-id')],
     ['read', () => api.video(ID)],
     ['delete', () => api.deleteVideo(ID)],
+    ['set thumbnail', () => api.setThumbnail(ID, 'https://images.example/p')],
+    // The frame's own fetch (a redirect there fails too), then the upload to Bunny's API.
+    [
+      'reset thumbnail',
+      () => api.resetThumbnail(ID, 'https://video.bunnycdn.com/frame.jpg'),
+    ],
   ])('%s', async (_, call) => {
     await expect(call()).rejects.toThrow();
     expect(reachedElsewhere).toEqual([]);

@@ -35,6 +35,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   submitterLimits: 'linked', // user (D112: limits, trusted mark)
   submissionLog: 'linked', // person (D113: recent submissions)
   uploadGrant: 'linked', // person, story (D80: the Bunny videos api-user made for them)
+  streamThumbnail: 'linked', // story → submitter (O1 a: a video's own picture set at Bunny)
   submissionSettings: 'none', // the limits an admin sets (W3, D112)
   // D82: the sha256 of an erased Clerk id, so it never gets a row again; no link, no date.
   erasedIdentity: 'kept',
@@ -203,6 +204,20 @@ const LINKED: Record<string, LinkedCase> = {
       }),
     landed: (c) =>
       `SELECT VALUE id FROM uploadGrant WHERE person = user:${c.p}`,
+  },
+  streamThumbnail: {
+    // O1 a: api-user's login records a video's own picture as set at Bunny, at submit.
+    setup: (c) =>
+      draft(c.person, `${c.p}_v`, { primaryFormat: 'video', body: undefined }),
+    writer: (c) => c.apiUser,
+    write: (c, db) =>
+      run(
+        db(c),
+        `UPSERT streamThumbnail:${c.p}_v SET story = story:${c.p}_v,
+           videoId = '0f0e0d0c-0b0a-4908-8706-000000000001',
+           imagePath = 'stories/${c.p}_v/${'a'.repeat(32)}.webp'`,
+      ),
+    landed: (c) => `SELECT VALUE id FROM streamThumbnail:${c.p}_v`,
   },
   submissionLog: {
     // Written by story_limits when the person first submits a story. livePerson's own

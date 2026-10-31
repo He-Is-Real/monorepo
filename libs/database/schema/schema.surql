@@ -748,6 +748,12 @@ DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever app
   THEN {
     LET $problem = fn::story::approval_problem($after);
     IF $problem != NONE { THROW $problem };
+    -- O1 a: a video's own picture is its thumbnail at Bunny before anyone approves it. System
+    -- users (the migrator, dev's dummy data) load stories as given, as story_media_granted does.
+    IF $auth != NONE {
+      LET $thumbnail = fn::story::thumbnail_problem($after);
+      IF $thumbnail != NONE { THROW $thumbnail };
+    };
   };
 -- Joel, 2026-10-23: an approved story stays approved when its media stops being ready ('failed',
 -- back to 'processing', a size fact removed): "we need to ... get it loading again instead of
@@ -907,6 +913,7 @@ DEFINE EVENT OVERWRITE story_erasure_cascade ON story
     DELETE type::record('hiddenStory', record::id($before.id));
     DELETE moderationReview WHERE story = $before.id;
     DELETE favourite WHERE story = $before.id;                  -- others' hearts on it
+    DELETE type::record('streamThumbnail', record::id($before.id));
   };
 -- Every deleted story's picture folder in the images zone (M2 plan PR 10, D82, D40), whoever
 -- deletes it (its owner, erasure, housekeeping's expired drafts, dev-seed): every picture of a
@@ -2338,6 +2345,47 @@ DEFINE EVENT OVERWRITE uploadGrant_renew ON uploadGrant
 DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: record<user>, $video: string) {
   RETURN (UPDATE type::record('uploadGrant', $video) SET renewedAt = time::now()
     WHERE story = $story AND person = $person RETURN VALUE renewedAt)[0];
+};
+
+-- ---------------------------------------------------------------- streamThumbnail (O1 a)
+-- id = streamThumbnail:<story id>: a video story's own picture (story.image) that api-user has set
+-- as the video's thumbnail at Bunny Stream (Joel, 2026-10-31, "O1 a": set at Submit, so Bunny's
+-- own player shows it too). Written only by api-user's login, after Bunny answered OK, never by
+-- the person's session, and never on the story itself (a write there would step its version, and
+-- media writes never touch story.image). It vouches only for the video and the picture it names:
+-- fn::story::thumbnail_problem compares both with the story as it is, so a replaced video or
+-- picture is never vouched for by an old row. Deleted with its story (story_erasure_cascade).
+DEFINE TABLE OVERWRITE streamThumbnail SCHEMAFULL PERMISSIONS
+  FOR select, create, update, delete WHERE $auth.id = service:api_user;
+DEFINE FIELD OVERWRITE story     ON streamThumbnail TYPE record<story> READONLY;
+DEFINE FIELD OVERWRITE videoId   ON streamThumbnail TYPE string;      -- the Bunny video it was set on
+DEFINE FIELD OVERWRITE imagePath ON streamThumbnail TYPE string;      -- the story.image.path it shows
+DEFINE FIELD OVERWRITE at        ON streamThumbnail TYPE datetime VALUE time::now();
+-- Person-linked through its story: a row needs the story's submitter live, and bumps their fence,
+-- so a write racing erasure loses at commit (fn::person::live; NONE once the story is gone).
+DEFINE EVENT OVERWRITE streamThumbnail_own_story ON streamThumbnail
+  WHEN $event IN ['CREATE', 'UPDATE'] THEN {
+    IF record::id($after.id) != record::id($after.story) {
+      THROW 'streamThumbnail: its id is its story’s';
+    };
+    fn::person::live((SELECT VALUE submitter FROM ONLY $after.story));
+  };
+-- O1 a: what keeps a video story from being approved because of its own picture at Bunny, or
+-- NONE. With a picture, Bunny must show that picture on that video; without one, Bunny must not
+-- still show one set earlier (the next Submit puts one of Bunny's own frames back). Only for a
+-- video: an audio story's picture becomes its thumbnail through processing (M7). Checked when a
+-- story is approved, not for one already published (the person can't change it after submit).
+DEFINE FUNCTION OVERWRITE fn::story::thumbnail_problem($s: any) {
+  LET $video = ($s.media ?? []).find(|$m| $m.format = 'video').bunnyVideoId;
+  IF $video = NONE { RETURN NONE };
+  LET $set = (SELECT videoId, imagePath FROM ONLY type::record('streamThumbnail', record::id($s.id)));
+  IF $s.image != NONE AND ($set.videoId != $video OR $set.imagePath != $s.image.path) {
+    RETURN 'media_not_ready: the video’s own picture isn’t its thumbnail at Bunny yet';
+  };
+  IF $s.image = NONE AND $set.videoId = $video {
+    RETURN 'media_not_ready: Bunny still shows a picture the person removed from the video';
+  };
+  RETURN NONE;
 };
 
 -- ---------------------------------------------------------------- erasedIdentity (D82 tombstone)

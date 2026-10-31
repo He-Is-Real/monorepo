@@ -2111,6 +2111,7 @@ components:
                       bunnyVideoId,
                       playbackUrl,
                       thumbnailUrl,
+                      originalFileUrl,
                       width,
                       height,
                       durationSeconds,
@@ -2128,6 +2129,14 @@ components:
                     thumbnailUrl:
                       type: [string, 'null']
                       format: uri
+                    originalFileUrl:
+                      type: [string, 'null']
+                      format: uri
+                      description: |
+                        The file as the person uploaded it (O2 B, Joel 2026-10-31), at
+                        `https://{stream pull zone}/{bunnyVideoId}/original`, signed like Bunny's other Stream
+                        files (`token=HS256-…&expires=…`). `null` when Bunny didn't keep it (files uploaded before
+                        the library kept originals, 2026-10-31) or signing is off.
                     width:
                       type: [integer, 'null']
                     height:
@@ -2145,8 +2154,8 @@ components:
                     type: [string, 'null']
                     format: uri
                     description: |
-                      A one-hour link to the picture as published; `null` while the story isn't on the site
-                      (a draft's path is the person's own write, so it is never signed).
+                      A 7-day link to the person's own picture (the database keeps every story's picture in
+                      that story's own folder); `null` while signing is off.
                   width:
                     type: integer
                   height:
