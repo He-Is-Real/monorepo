@@ -204,9 +204,10 @@ test.describe('phone menu without JavaScript', () => {
   });
 });
 
-// With text at 200% on the small phones (under 480 px), signed out and signed in, every header
-// control is on screen and none covers another: the account slot's fixed width must never push
-// the theme toggle or the menu off the screen (Codex review of #83).
+// With text at 200% on every device, signed out and signed in, every header control is on
+// screen and none covers another, and the page neither scrolls sideways nor zooms out: the
+// account slot's width must never push Share, the theme toggle or the menu off the screen
+// (Codex review of #83; the tablets and landscape phones overflowed until the fix).
 for (const [state, baseURL, resolved] of [
   ['signed out', undefined, { role: 'link', name: 'Sign in' }],
   [
@@ -218,27 +219,31 @@ for (const [state, baseURL, resolved] of [
   test(`200% text, ${state}: every header control is on screen`, async ({
     page,
   }) => {
-    test.skip(
-      (page.viewportSize()?.width ?? 0) >= 480,
-      'the small phones, under 480 px',
-    );
     await enlargeText(page);
     await page.goto(`${baseURL ?? ''}/`);
     await expect(
       page.getByRole(resolved.role, { name: resolved.name }),
     ).toBeVisible();
     const header = page.getByRole('banner');
+    const width = page.viewportSize()?.width ?? 0;
+    // Share is in the header from 640 px; below that it's in the menu.
     const controls = {
       home: header.getByRole('link', { name: 'He Is Real Today, home' }),
       theme: header.getByRole('button', { name: /theme/i }),
       account: header.getByRole(resolved.role, { name: resolved.name }),
-      menu: header.getByRole('button', { name: 'Menu' }),
+      ...(width < 640
+        ? { menu: header.getByRole('button', { name: 'Menu' }) }
+        : {
+            share: header
+              .locator('[data-header-actions]')
+              .getByRole('link', { name: 'Share your story' }),
+          }),
     };
-    const width = page.viewportSize()?.width ?? 0;
     type Box = { x: number; y: number; width: number; height: number };
     const boxes: [string, Box][] = [];
     for (const [name, control] of Object.entries(controls)) {
       await expect(control, `${name} is shown`).toBeVisible();
+      await expectTarget(page, control);
       const box = await control.boundingBox();
       if (!box) throw new Error(`${name} not rendered`);
       expect(box.x, `${name} starts off screen`).toBeGreaterThanOrEqual(0);
