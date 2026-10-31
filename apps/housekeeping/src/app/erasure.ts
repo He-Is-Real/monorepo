@@ -29,7 +29,8 @@ async function due<T>(
  * Erasure requests (consent_withdrawal_requests_erasure): someone withdrew their testimony or
  * sign-up consent and api-user didn't get to erase them (it failed, or the instance stopped).
  * Deleting the request erases the person, in the database, in the same transaction
- * (erasureRequest_erases), and queues their Bunny videos and Clerk account for the next chore.
+ * (erasureRequest_erases), and queues their Bunny videos, pictures and Clerk account for the next
+ * chore.
  */
 export const erasureRequestsTask: Task = {
   name: 'erasure-requests',
@@ -74,9 +75,10 @@ export const erasureRequestsTask: Task = {
 };
 
 /**
- * Queued deletions outside the database (pendingDeletion) that api-user couldn't finish: a
- * person's Bunny videos, and their Clerk account when the Clerk key is set here. Pictures wait
- * for the images PR (M2 plan PR 10), which brings their storage zone's client.
+ * Queued deletions outside the database (pendingDeletion) that api-user couldn't finish, or that
+ * the expired-drafts chore queued: a person's Bunny videos, their pictures (a gone story's folder
+ * in the images zone) when the zone's password is set here, and their Clerk account when the
+ * Clerk key is.
  */
 export const pendingDeletionsTask: Task = {
   name: 'pending-deletions',
@@ -84,6 +86,7 @@ export const pendingDeletionsTask: Task = {
     // A kind whose key couldn't be read (start.ts logged why) waits, its tries unchanged.
     const kinds = [
       ...(ctx.stream ? ['bunny_video'] : []),
+      ...(ctx.images ? ['image'] : []),
       ...(ctx.clerk ? ['clerk_user'] : []),
     ];
     const found = await due<PendingDeletion>(ctx, PENDING_DELETIONS_DUE, {
@@ -103,6 +106,8 @@ export const pendingDeletionsTask: Task = {
       try {
         if (row.kind === 'bunny_video' && ctx.stream)
           await ctx.stream.delete(row.ref);
+        else if (row.kind === 'image' && ctx.images)
+          await ctx.images.deleteFolder(row.ref);
         else if (row.kind === 'clerk_user' && ctx.clerk)
           await ctx.clerk.delete(row.ref);
         else throw new Error(`Can't delete a ${row.kind} here`);

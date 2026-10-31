@@ -107,3 +107,16 @@ resource "google_secret_manager_secret_iam_member" "stream_key_readers" {
   role      = "roles/secretmanager.secretAccessor"
   member    = each.value
 }
+
+# Housekeeping (M2 plan PR 10): the nightly Job deletes the images-zone folders of stories that
+# are gone (erasure's queued pictures it retries, and abandoned drafts' pictures) with the zone
+# password, through Bunny's Edge Storage API (docs/media-runbook.md). Only this project's
+# housekeeping service account, as for the library key above.
+resource "google_secret_manager_secret_iam_member" "storage_password_readers" {
+  for_each = toset(var.storage_password_readers)
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.app["bunny-storage-password"].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value
+}

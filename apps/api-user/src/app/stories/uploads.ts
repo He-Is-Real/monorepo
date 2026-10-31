@@ -257,8 +257,18 @@ interface DraftMedia {
 
 const EDITABLE = ['draft', 'changes_requested'];
 
+/** How many arrived pictures each instance remembers (GetStory skips the zone for them). */
+const ARRIVED_REMEMBERED = 10_000;
+
 export class Uploads {
   private readonly logger = new Logger('Uploads');
+  /**
+   * Pictures this instance has seen arrive. A path is only ever written once (its PUT is one use,
+   * and a new picture gets a new path), and its file goes only with its story, so once there it
+   * stays there for as long as anyone can read the story: no need to ask the zone again. Oldest
+   * forgotten first, past ARRIVED_REMEMBERED.
+   */
+  private readonly arrived = new Set<string>();
 
   constructor(
     /** api-user's own login: only it creates upload grants (D80). */
@@ -483,18 +493,29 @@ export class Uploads {
   /**
    * Whether the draft's picture's file has arrived (GetStory, for its owner; Codex #140 round 3):
    * what the page counts as finished, never its own memory. null with image uploads off. An
-   * unclear answer counts as not arrived: the page offers to add it again.
+   * unclear answer counts as not arrived: the page offers to add it again. Asks the zone only
+   * until the picture is known to have arrived.
    */
   async imageArrived(path: string): Promise<boolean | null> {
     if (!this.images) return null;
+    if (this.arrived.has(path)) return true;
     try {
-      return await this.images.exists(path);
+      const there = await this.images.exists(path);
+      if (there) this.remember(path);
+      return there;
     } catch (err) {
       this.logger.warn(
         `Couldn’t check whether picture ${path} arrived (counted as not): ${String(err)}`,
       );
       return false;
     }
+  }
+
+  private remember(path: string) {
+    if (this.arrived.size >= ARRIVED_REMEMBERED) {
+      this.arrived.delete(this.arrived.values().next().value as string);
+    }
+    this.arrived.add(path);
   }
 
   /**
@@ -634,13 +655,16 @@ export class Uploads {
   }
 
   /**
-   * SubmitStory's checks on a video or audio story (D80, D113): its file has arrived at Bunny
-   * (`409 media_not_uploaded`), Bunny could read it (`409 media_failed`), and it's within the
-   * limits in force now (`409 media_over_limit`): "new rules apply to everyone" (Joel,
-   * 2026-10-30), so a draft started under older limits is checked against today's.
+   * SubmitStory's checks on a story's files. Its picture, if it has one, has arrived in the images
+   * zone (`400 image_not_uploaded`; `503 uploads_unavailable` when the zone can't say). A video or
+   * audio story's file (D80, D113) has arrived at Bunny (`409 media_not_uploaded`), Bunny could
+   * read it (`409 media_failed`), and it's within the limits in force now (`409
+   * media_over_limit`): "new rules apply to everyone" (Joel, 2026-10-30), so a draft started
+   * under older limits is checked against today's.
    */
   async checkBeforeSubmit(person: SurrealQueryable, id: string): Promise<void> {
     const draft = await this.draft(person, id);
+    if (draft.imagePath) await this.checkImageArrived(draft.imagePath);
     if (draft.primaryFormat === 'written') return;
     const bunny = this.stream();
     const notUploaded = () =>
@@ -693,6 +717,34 @@ export class Uploads {
         } one, then submit your story.`,
       });
     }
+  }
+
+  /** Submit's picture check: asks the zone unless this instance has seen the file arrive. */
+  private async checkImageArrived(path: string): Promise<void> {
+    const images = this.imageStore();
+    let there = this.arrived.has(path);
+    if (!there) {
+      try {
+        there = await images.exists(path);
+      } catch (err) {
+        this.logger.warn(
+          `Couldn’t check whether picture ${path} arrived before submit: ${String(err)}`,
+        );
+        throw new ServiceUnavailableException({
+          code: 'uploads_unavailable',
+          message:
+            'We couldn’t check your picture just now. Your story is saved; please try again.',
+        });
+      }
+    }
+    if (!there) {
+      throw new BadRequestException({
+        code: 'image_not_uploaded',
+        message:
+          'Your picture hasn’t finished uploading. Add it again, or remove it, then submit your story.',
+      });
+    }
+    this.remember(path);
   }
 
   private async draft(

@@ -473,7 +473,8 @@ components:
               type: [boolean, 'null']
               description: |
                 Whether its file has arrived in the storage zone: GetStory checks the zone itself
-                (`false` until the browser's `PUT` landed, or when the zone gave no clear answer).
+                until it has (`false` until the browser's `PUT` landed, or when the zone gave no
+                clear answer; once there, a file stays as long as its story).
                 Its arrival doesn't step the story's version, so GetStory never answers `304` while
                 it's `false`. `null` where it isn't checked: lists, and with image uploads off.
 

@@ -28,6 +28,7 @@ import {
   type ClerkBackend,
   createClerkBackend,
 } from './clerk-backend';
+import { BUNNY_STORAGE } from '../stories/bunny-storage';
 import { Erasure, IMAGE_DELETER } from './erasure';
 import { SvixVerificationError, verifySvix } from './svix';
 
@@ -129,8 +130,8 @@ export class ClerkWebhookController {
       inject: [SecretsService],
       useFactory: (secrets: SecretsService) => createClerkBackend(secrets),
     },
-    // The images PR (M2 plan PR 10) provides the storage zone's deleter here.
-    { provide: IMAGE_DELETER, useValue: null },
+    // The images storage zone (M2 plan PR 10); null with image uploads off.
+    { provide: IMAGE_DELETER, useExisting: BUNNY_STORAGE },
     {
       provide: CONSENT_WITHDRAWAL_ERASURE,
       inject: [Erasure],

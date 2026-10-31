@@ -144,3 +144,38 @@ run "bounded_deletions" {
   }
   expect_failures = [var.housekeeping]
 }
+
+# Picture deletions (M2 plan PR 10): with the images zone set, the Job gets the zone, its S3 host
+# and its password's secret name (never a value); without it, none of them.
+run "images_zone_with_image_uploads" {
+  command = plan
+  variables {
+    api_user_image_uploads = {
+      storage_zone = "heisreal-dev-image-store"
+      s3_host      = "uk-s3.storage.bunnycdn.com"
+      s3_region    = "uk"
+    }
+  }
+
+  assert {
+    condition = (
+      { for e in google_cloud_run_v2_job.housekeeping[0].template[0].template[0].containers[0].env :
+        e.name => e.value if startswith(e.name, "BUNNY_STORAGE_") } == {
+        BUNNY_STORAGE_ZONE            = "heisreal-dev-image-store"
+        BUNNY_STORAGE_S3_HOST         = "uk-s3.storage.bunnycdn.com"
+        BUNNY_STORAGE_PASSWORD_SECRET = "bunny-storage-password"
+      }
+    )
+    error_message = "With image uploads on, housekeeping gets the images zone and its password's secret name."
+  }
+}
+
+run "no_images_zone_without_image_uploads" {
+  command = plan
+
+  assert {
+    condition = length([for e in google_cloud_run_v2_job.housekeeping[0].template[0].template[0].containers[0].env :
+    e if startswith(e.name, "BUNNY_STORAGE_")]) == 0
+    error_message = "Without image uploads, housekeeping gets no images zone; picture deletions wait."
+  }
+}

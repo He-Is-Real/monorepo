@@ -1,6 +1,10 @@
 import { Logger } from '@nestjs/common';
 import type { SecretsService } from '@heisreal/secrets';
-import { presignStorageUrl, type StorageZone } from '@heisreal/story-cards';
+import {
+  deleteStoryFolder,
+  presignStorageUrl,
+  type StorageZone,
+} from '@heisreal/story-cards';
 
 /**
  * The images storage zone for uploads (M2 plan PR 10; D68, D80): api-user signs the browser's S3
@@ -9,8 +13,9 @@ import { presignStorageUrl, type StorageZone } from '@heisreal/story-cards';
  * answers 412). The zone password (`bunny-storage-password`, which only api-user may read:
  * `upload_key_readers`, bunny root) comes from Secret Manager at startup and is never logged.
  * Without `BUNNY_STORAGE_PASSWORD_SECRET`, image uploads are off and RequestUpload answers `503`.
- * api-user never deletes images: a replaced or removed one may still be on an approved story's
- * public copy, so the clean-up sweep removes orphans (media-runbook).
+ * api-user never deletes a replaced or removed picture (one may still be on an approved story's
+ * public copy; the clean-up sweep removes orphans, media-runbook), only the folders of stories that
+ * are gone, from erasure's queue (D40).
  */
 export const BUNNY_STORAGE = Symbol('BUNNY_STORAGE');
 
@@ -29,6 +34,11 @@ export interface ImageStore {
   sign(path: string, sizeBytes: number, now?: number): SignedImageUpload;
   /** Whether the file at that path has arrived; throws when the zone gives no clear answer. */
   exists(path: string): Promise<boolean>;
+  /**
+   * Erasure's queued picture (D40): deletes that picture's story's whole folder, which is gone
+   * with the story (`deleteStoryFolder`). Throws unless it's done.
+   */
+  deleteImage(path: string): Promise<void>;
 }
 
 export class BunnyImageStore implements ImageStore {
@@ -39,19 +49,26 @@ export class BunnyImageStore implements ImageStore {
   }
 
   /**
-   * A presigned GET, as dev-seed's upload spike proves it (200 when there, 404 when not); the
-   * body isn't read. A file only arrives through its PUT (one use), so once there it's the
-   * picture the grant named.
+   * A presigned HEAD: no body. Checked on dev 2026-10-31: 200 when the file is there, 404 when
+   * not (and 403 for a HEAD on a link signed for GET, so it's signed as a HEAD). A file only
+   * arrives through its PUT (one use), so once there it's the picture the grant named.
    */
   async exists(path: string): Promise<boolean> {
     const res = await fetch(
-      presignStorageUrl(this.zone, { method: 'GET', key: path, expiresIn: 60 }),
-      { signal: AbortSignal.timeout(5000) },
+      presignStorageUrl(this.zone, {
+        method: 'HEAD',
+        key: path,
+        expiresIn: 60,
+      }),
+      { method: 'HEAD', signal: AbortSignal.timeout(5000) },
     );
-    await res.body?.cancel().catch(() => undefined);
     if (res.status === 200) return true;
     if (res.status === 404) return false;
     throw new Error(`The images zone answered ${res.status} for a picture`);
+  }
+
+  deleteImage(path: string): Promise<void> {
+    return deleteStoryFolder(this.zone, path);
   }
 }
 

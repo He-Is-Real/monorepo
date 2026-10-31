@@ -2313,15 +2313,20 @@ DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
 -- What erasure must still delete outside the database, written in the erasure transaction and
 -- deleted row by row once done: kind 'bunny_video' (a Stream video api-user made: the person's
 -- upload grants, never seeded media), 'image' (a picture in the images storage zone, from an image
--- upload grant), 'clerk_user' (the Clerk account, for in-app deletion and Art 9 withdrawal; the
--- only place a Clerk id outlives erasure, until Clerk confirms). No person link: the person is
--- gone. api-user deletes them straight after the commit; the nightly housekeeping retries the
--- rest. A failed try counts in `attempts` and waits (fn::erasure::retry_after), so rows that keep
--- failing go to the back and never hold up the others. Only api-user and housekeeping read,
--- delete or count tries on it; only an erasure writes one.
+-- upload grant: its story's whole folder goes, M2 plan PR 10), 'clerk_user' (the Clerk account,
+-- for in-app deletion and Art 9 withdrawal; the only place a Clerk id outlives erasure, until
+-- Clerk confirms). No person link: the person is gone. api-user deletes them straight after the
+-- commit; the nightly housekeeping retries the rest. A failed try counts in `attempts` and waits
+-- (fn::erasure::retry_after), so rows that keep failing go to the back and never hold up the
+-- others. Only api-user and housekeeping read, delete or count tries on it. An erasure writes
+-- them; housekeeping writes one more kind: an 'image' row for a draft it deleted as abandoned,
+-- only for an image grant whose story is gone (in the delete's own transaction), since deleting
+-- it takes the story's whole folder.
 DEFINE TABLE OVERWRITE pendingDeletion SCHEMAFULL PERMISSIONS
   FOR select, update, delete WHERE $auth.id IN [service:api_user, service:housekeeping],
-  FOR create WHERE $auth.id = service:api_user;
+  FOR create WHERE $auth.id = service:api_user
+    OR ($auth.id = service:housekeeping AND kind = 'image'
+      AND fn::erasure::gone_story_image(ref));
 DEFINE FIELD OVERWRITE kind ON pendingDeletion TYPE string READONLY
   ASSERT $value IN ['bunny_video', 'image', 'clerk_user'];
 DEFINE FIELD OVERWRITE ref  ON pendingDeletion TYPE string READONLY
@@ -2331,6 +2336,11 @@ DEFINE FIELD OVERWRITE attempts      ON pendingDeletion TYPE int DEFAULT 0 ASSER
 DEFINE FIELD OVERWRITE nextAttemptAt ON pendingDeletion TYPE datetime DEFAULT time::now();
 DEFINE INDEX OVERWRITE pendingDeletion_at ON pendingDeletion FIELDS at;
 DEFINE INDEX OVERWRITE pendingDeletion_due ON pendingDeletion FIELDS nextAttemptAt;
+-- Whether $path is an image upload grant whose story is gone (no such grant: no).
+DEFINE FUNCTION OVERWRITE fn::erasure::gone_story_image($path: string) {
+  LET $g = (SELECT story, format FROM ONLY type::record('uploadGrant', $path));
+  RETURN $g != NONE AND $g.format = 'image' AND !record::exists($g.story);
+};
 -- How long a queued deletion or an erasure request waits after its $attempts-th failed try: 1 h,
 -- then doubling, at most a week. Set together with the count, from its value before the try.
 DEFINE FUNCTION OVERWRITE fn::erasure::retry_after($attempts: int) {

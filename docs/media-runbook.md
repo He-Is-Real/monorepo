@@ -142,9 +142,25 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
 
 ## Replaced and orphaned images
 
-Pictures (M2 plan PR 10) work like videos, but api-user **never deletes one**: a story sent back
-for changes still has its approved copy public, and that copy may show the old picture. So each of
-these leaves an orphan file in the images zone until the clean-up sweep (D40):
+Pictures (M2 plan PR 10) work like videos, but api-user **never deletes a replaced or removed
+one**: a story sent back for changes still has its approved copy public, and that copy may show
+the old picture. Pictures go only with their story, a whole folder (`stories/<story id>/`) at a
+time, through the deletion queue (`pendingDeletion`, kind `image`):
+
+- **Erasure** (D39, D40) queues every picture the person was granted; api-user deletes their
+  stories' folders straight after the commit, and the nightly housekeeping retries what failed.
+- **Abandoned drafts** (D71): when housekeeping deletes one that ever had a picture, the same
+  transaction queues its folder, deleted by the next night's pending-deletions chore (the
+  dry-run rule applies: in a dry run it only logs it).
+- **A person deleting their own story** doesn't yet: its folder stays until the clean-up sweep.
+
+Deleting a folder deletes everything in it (Bunny's Edge Storage API,
+`DELETE https://uk.storage.bunnycdn.com/<zone>/stories/<story id>/` with the zone password as
+`AccessKey`; 200, or 404 once gone), so the picture and any it replaced go together. Housekeeping
+reads the zone password through the bunny root's `storage_password_readers`; without it, picture
+deletions wait in the queue and the run logs an error.
+
+Otherwise each of these leaves an orphan file in the images zone until the clean-up sweep (D40):
 
 - **Replaced:** a new picture for the same story (its grant row stays 7 days for the hourly
   limit; pictures never count towards the weekly one, Joel 2026-10-30).

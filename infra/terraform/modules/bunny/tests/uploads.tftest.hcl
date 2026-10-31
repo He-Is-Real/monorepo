@@ -127,3 +127,55 @@ run "stream_key_never_public" {
   }
   expect_failures = [var.stream_key_readers]
 }
+
+# Housekeeping (M2 plan PR 10): the nightly Job may read the images zone's password alone, to
+# delete gone stories' folders, and only this project's housekeeping service account may.
+run "housekeeping_reads_the_zone_password" {
+  command = plan
+  variables {
+    storage_password_readers = ["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"]
+  }
+
+  assert {
+    condition = (
+      length(google_secret_manager_secret_iam_member.storage_password_readers) == 1 &&
+      google_secret_manager_secret_iam_member.storage_password_readers["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"].secret_id == "bunny-storage-password" &&
+      google_secret_manager_secret_iam_member.storage_password_readers["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"].role == "roles/secretmanager.secretAccessor" &&
+      google_secret_manager_secret_iam_member.storage_password_readers["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"].project == "heisreal-dev"
+    )
+    error_message = "housekeeping may read the images zone password, as secretAccessor, and nothing else through this grant."
+  }
+}
+
+run "no_zone_password_reader_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.storage_password_readers) == 0
+    error_message = "Without a reader there is no zone password grant."
+  }
+}
+
+run "zone_password_only_for_housekeeping" {
+  command = plan
+  variables {
+    storage_password_readers = ["serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com"]
+  }
+  expect_failures = [var.storage_password_readers]
+}
+
+run "zone_password_never_public" {
+  command = plan
+  variables {
+    storage_password_readers = ["allUsers"]
+  }
+  expect_failures = [var.storage_password_readers]
+}
+
+run "another_projects_housekeeping_refused_the_zone_password" {
+  command = plan
+  variables {
+    storage_password_readers = ["serviceAccount:housekeeping@heisreal-prod.iam.gserviceaccount.com"]
+  }
+  expect_failures = [var.storage_password_readers]
+}

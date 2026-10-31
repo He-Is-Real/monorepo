@@ -93,7 +93,9 @@ function withFaults(db: Surreal): Surreal {
 /** The images zone: signs as Bunny's does; a file is there once the test says it arrived. */
 class FakeImageStore extends BunnyImageStore {
   readonly arrived = new Set<string>();
+  asked = 0;
   override async exists(path: string) {
+    this.asked++;
     return this.arrived.has(path);
   }
 }
@@ -561,6 +563,10 @@ describe('video and audio uploads', () => {
     expect(unchanged.status).toBe(200);
     images.arrived.add(path);
     expect(await mine()).toMatchObject({ path, uploaded: true });
+    // Once it's known to be there, reading the story doesn't ask the zone again.
+    const asked = images.asked;
+    expect(await mine()).toMatchObject({ path, uploaded: true });
+    expect(images.asked).toBe(asked);
     // A lost answer's retry: the same path, nothing new counted.
     const again = await upload('pia', id, 1, PICTURE, k);
     expect(new URL(again.body.uploadUrl).pathname).toBe(link.pathname);
@@ -586,6 +592,34 @@ describe('video and audio uploads', () => {
     } finally {
       await settings({ uploadsPer7Days: 5 });
     }
+  });
+
+  it('submit refuses a story whose picture’s file never arrived, and takes it once it has', async () => {
+    await person('pam');
+    const created = await call('POST', '/v1/stories', 'pam', {
+      body: {
+        title: 'Words',
+        primaryFormat: 'written',
+        body: 'x'.repeat(250),
+        tagSlugs: ['healing'],
+      },
+      headers: { 'idempotency-key': key() },
+    });
+    const id = created.body.id as string;
+    const granted = await upload('pam', id, 1, {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes: 40_000,
+      width: 1200,
+      height: 900,
+      expectedImage: null,
+    });
+    expect(granted.status).toBe(200);
+    const refused = await submit('pam', id, 2);
+    expect(refused.status).toBe(400);
+    expect(refused.body.code).toBe('image_not_uploaded');
+    images.arrived.add(granted.body.path);
+    expect((await submit('pam', id, 2)).status).toBe(200);
   });
 
   it('a written story takes no upload', async () => {

@@ -764,7 +764,13 @@ retried`, on both RocksDB and the in-memory engine.
     - **After erasure (M2 plan PR 11, item 41):** it reads, counts failed tries on (`attempts`,
       `nextAttemptAt`) and deletes `pendingDeletion` rows (retrying Bunny and Clerk deletions)
       and `erasureRequest` rows (deleting one erases that person, through the database's own
-      event, not its rights). It can't create either.
+      event, not its rights). It can't create an `erasureRequest`.
+    - **Queues an abandoned draft's pictures (M2 plan PR 10):** its expired-draft delete runs in
+      one transaction with the `pendingDeletion` row (kind `image`, ref: one of the draft's image
+      upload grants) that has the draft's folder deleted in the images zone, or not at all. It
+      may create no other row: only kind `image`, and only for an image grant whose story no
+      longer exists (`fn::erasure::gone_story_image`), since that row's deletion takes the
+      story's whole folder. So it can't queue a live story's picture, or a video or account.
     - **Nothing else:** no other create, update or delete.
     - **`story.updatedAt`:** still the server's time on every write, except that a system user
       (`$auth = NONE`: the migrator, dev's seed) may keep or supply one, so a migration doesn't
@@ -797,9 +803,11 @@ retried`, on both RocksDB and the in-memory engine.
     - **`pendingDeletion` (D40):** what must still go outside the database, written in the same
       transaction: `bunny_video` (each of the person's video or audio upload grants: only videos
       api-user made, never seeded media), `image` (an image upload grant, whose id is its path in
-      the images storage zone; nothing writes one until the images PR) and `clerk_user` (the
-      Clerk account, unless Clerk's own `user.deleted` started the erasure). No person link.
-      Only an erasure creates rows. api-user deletes them straight after the commit, each row
+      the images storage zone; deleting it deletes that story's whole folder,
+      `stories/<story id>/`, the picture and any it replaced, M2 plan PR 10) and `clerk_user`
+      (the Clerk account, unless Clerk's own `user.deleted` started the erasure). No person link.
+      Only an erasure creates rows, and housekeeping an `image` row for a draft it deleted as
+      abandoned (item 40). api-user deletes them straight after the commit, each row
       once its deletion is done; a failure counts in `attempts` and waits (`nextAttemptAt`:
       1 h, doubling, at most a week; `fn::erasure::retry_after`). api-user and
       service:housekeeping read, update (those two fields; the rest is `READONLY`) and delete

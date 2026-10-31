@@ -37,7 +37,7 @@ export interface StorageZone {
 }
 
 export interface Presign {
-  method: 'PUT' | 'GET' | 'DELETE';
+  method: 'PUT' | 'GET' | 'HEAD' | 'DELETE';
   /** Object key inside the zone; api-user picks it (D80). */
   key: string;
   /** Seconds the link is valid; Bunny refuses more than 7 days (400). */
@@ -102,4 +102,43 @@ export function presignStorageUrl(zone: StorageZone, p: Presign): string {
   for (const part of [zone.region, 's3', 'aws4_request']) key = hmac(key, part);
   const signature = createHmac('sha256', key).update(toSign).digest('hex');
   return `https://${zone.host}${path}?${query}&X-Amz-Signature=${signature}`;
+}
+
+/** A story's picture's path in the images zone, as api-user names it (D80). */
+export const STORY_IMAGE_PATH =
+  /^stories\/([A-Za-z0-9_]{1,64})\/[0-9a-f]{32}\.webp$/;
+
+/**
+ * Deletes a story's whole folder in the images zone (`stories/<story id>/`, found from the path of
+ * any picture in it), with everything in it: the story's picture and any it replaced. Only for a
+ * story that is gone (erasure; a draft deleted as abandoned). Through Bunny's Edge Storage API
+ * (`uk.storage.bunnycdn.com` for the zone's S3 host `uk-s3.storage.bunnycdn.com`), the zone's
+ * password as its `AccessKey`: S3 has no folders, and deleting a folder's last object by S3 leaves
+ * the folder behind (media-runbook.md; proven on dev by dev-seed's upload spike). Done on 200, or
+ * 404 (already gone); anything else throws.
+ */
+export async function deleteStoryFolder(
+  zone: Pick<StorageZone, 'name' | 'password' | 'host'>,
+  imagePath: string,
+): Promise<void> {
+  const story = STORY_IMAGE_PATH.exec(imagePath)?.[1];
+  if (!story) throw new Error('Not a story picture’s path');
+  const region = /^([a-z0-9]+)-s3\.storage\.bunnycdn\.com$/.exec(
+    zone.host,
+  )?.[1];
+  if (!region) throw new Error(`No Edge Storage host for ${zone.host}`);
+  const res = await fetch(
+    `https://${region}.storage.bunnycdn.com/${uriEncode(zone.name)}/stories/${story}/`,
+    {
+      method: 'DELETE',
+      headers: { AccessKey: zone.password },
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  await res.body?.cancel().catch(() => undefined);
+  if (res.status !== 200 && res.status !== 404) {
+    throw new Error(
+      `The images zone answered ${res.status} to deleting a story’s folder`,
+    );
+  }
 }

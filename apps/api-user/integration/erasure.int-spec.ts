@@ -10,6 +10,7 @@ import {
   createPeople,
   draft,
   grantAll,
+  grantImage,
   grantUpload,
   publishDpa,
   rows,
@@ -24,6 +25,10 @@ import {
   CLERK_BACKEND,
   type ClerkBackend,
 } from '../src/app/erasure/clerk-backend';
+import {
+  BUNNY_STORAGE,
+  BunnyImageStore,
+} from '../src/app/stories/bunny-storage';
 import {
   BUNNY_STREAM,
   type BunnyStream,
@@ -51,6 +56,14 @@ class FakeStream implements BunnyStream {
   }
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
+  }
+}
+
+/** The images zone: records the pictures whose story's folder it was asked to delete. */
+class FakeImages extends BunnyImageStore {
+  readonly deleted: string[] = [];
+  override async deleteImage(path: string) {
+    this.deleted.push(path);
   }
 }
 
@@ -96,6 +109,12 @@ function breakable(db: Surreal) {
 describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.deleted', () => {
   const contract = new Contract('api-user.yaml');
   const bunny = new FakeStream();
+  const images = new FakeImages({
+    name: 'test-zone',
+    password: 'zone-password',
+    host: 'uk-s3.storage.bunnycdn.com',
+    region: 'uk',
+  });
   const clerkApi = new FakeClerk();
   let breaks: { failing: string | null };
   let t: TestDatabase;
@@ -152,7 +171,10 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     return res.status;
   }
 
-  /** A person with a published written story, Bob's heart on it, and a video draft with its video. */
+  /**
+   * A person with a published written story, Bob's heart on it, and a video draft with its video
+   * and its own thumbnail.
+   */
   async function personWithStories(who: string) {
     await createPeople(t, { [who]: `user_${who}` });
     const session = await t.person(`user_${who}`);
@@ -184,7 +206,16 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
         version: 1,
       }),
     ).toMatchObject({ ok: true });
-    return { video };
+    const picture = `stories/${who}_video/${'b'.repeat(32)}.webp`;
+    expect(
+      await grantImage(apiUser, {
+        story: `${who}_video`,
+        person: who,
+        version: 2,
+        path: picture,
+      }),
+    ).toMatchObject({ ok: true });
+    return { video, picture };
   }
 
   /** What the database still holds of the person. */
@@ -234,6 +265,8 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
       .useValue('test-project')
       .overrideProvider(BUNNY_STREAM)
       .useValue(bunny)
+      .overrideProvider(BUNNY_STORAGE)
+      .useValue(images)
       .overrideProvider(CLERK_BACKEND)
       .useValue(clerkApi)
       .compile();
@@ -249,8 +282,8 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     await t?.close();
   });
 
-  it('deletes my account: stories, hearts, video and Clerk account go; the ledger stays; my token is refused', async () => {
-    const { video } = await personWithStories('ann');
+  it('deletes my account: stories, hearts, video, picture and Clerk account go; the ledger stays; my token is refused', async () => {
+    const { video, picture } = await personWithStories('ann');
     expect((await call('GET', '/v1/account', 'ann')).status).toBe(200);
 
     expect(await call('DELETE', '/v1/account', 'ann')).toEqual({
@@ -270,6 +303,7 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     });
     expect((await left('ann')).ledger).toBeGreaterThan(0);
     expect(bunny.deleted).toContain(video);
+    expect(images.deleted).toEqual([picture]);
     expect(clerkApi.deleted).toEqual(['user_ann']);
 
     // #44: the same, still-valid token neither signs in nor recreates the person, however often.
@@ -310,7 +344,7 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
   });
 
   it('answers 202 once the account is erased, even if the deletion queue then fails: the deletions wait', async () => {
-    const { video } = await personWithStories('ida');
+    const { video, picture } = await personWithStories('ida');
     breaks.failing = 'pendingDeletion';
     try {
       expect(await call('DELETE', '/v1/account', 'ida')).toEqual({
@@ -330,8 +364,9 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
         migrator,
         `SELECT VALUE ref FROM pendingDeletion ORDER BY ref`,
       ),
-    ).toEqual([video, 'user_ida'].sort());
+    ).toEqual([video, picture, 'user_ida'].sort());
     expect(bunny.deleted).not.toContain(video);
+    expect(images.deleted).not.toContain(picture);
     expect((await call('GET', '/v1/account', 'ida')).status).toBe(401);
     await run(migrator, `DELETE pendingDeletion`);
   });

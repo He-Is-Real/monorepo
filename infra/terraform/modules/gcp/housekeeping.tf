@@ -2,13 +2,16 @@
 # a list of small chores, started by Cloud Scheduler. Both in London (var.region), like
 # everything here. Chores: D71's abandoned drafts (untouched for 6 months) and orphaned Bunny
 # Stream videos; and after erasure (M2 plan PR 11), erasure requests api-user didn't finish and
-# the queued Bunny and Clerk deletions it couldn't do. Images orphans join the list later.
+# the queued Bunny, picture and Clerk deletions it couldn't do (an abandoned draft's pictures are
+# queued too, M2 plan PR 10). Orphaned images join the list later.
 #
 # Least privilege:
 #   housekeeping            the Job's runtime identity. Reads its own database password and,
 #                           through the bunny root's stream_key_readers grant, the Stream library
 #                           key, and Clerk's secret key (secrets.tf; only to delete the Clerk
-#                           account of someone erased: D39, D81). Signs in as
+#                           account of someone erased: D39, D81), and through the bunny root's
+#                           storage_password_readers grant the images zone's password (only to
+#                           delete a gone story's pictures: erasure, abandoned drafts). Signs in as
 #                           service:housekeeping, whose table permissions allow reading stories'
 #                           ids, status, dates and media ids (never their words), deleting a
 #                           draft untouched for 6 months, and seeing, retrying and deleting
@@ -122,6 +125,20 @@ resource "google_cloud_run_v2_job" "housekeeping" {
         env {
           name  = "CLERK_SECRET_KEY_SECRET"
           value = google_secret_manager_secret.clerk_secret_key.secret_id
+        }
+        # The images zone api-user's pictures go to (api_user_image_uploads), and its password's
+        # secret (a name, never the value; the bunny root's storage_password_readers grant):
+        # queued picture deletions, a gone story's folder. Without it they wait in the queue.
+        dynamic "env" {
+          for_each = var.api_user_image_uploads == null ? {} : {
+            BUNNY_STORAGE_ZONE            = var.api_user_image_uploads.storage_zone
+            BUNNY_STORAGE_S3_HOST         = var.api_user_image_uploads.s3_host
+            BUNNY_STORAGE_PASSWORD_SECRET = var.api_user_image_uploads.password_secret
+          }
+          content {
+            name  = env.key
+            value = env.value
+          }
         }
         # true: only logs what it would delete.
         env {

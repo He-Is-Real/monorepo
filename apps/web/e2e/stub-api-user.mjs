@@ -1088,6 +1088,12 @@ async function handleShare(req, res, path, url, s) {
             },
           ],
         });
+      // As api-user: a picture whose file never arrived can't be submitted.
+      if (st.image?.path && !s.images.get(st.image.path)?.bytes)
+        return p(400, 'Bad request', 'image_not_uploaded', {
+          detail:
+            'Your picture hasn’t finished uploading. Add it again, or remove it, then submit your story.',
+        });
       if ((st.primaryFormat ?? 'written') !== 'written') {
         const video = st.videoId ? s.videos.get(st.videoId) : undefined;
         if (!video?.done)

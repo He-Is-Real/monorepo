@@ -1594,6 +1594,19 @@ export function ReviewStep({
               </button>
             </>,
           );
+        } else if (p.code === 'image_not_uploaded') {
+          setProblem(
+            <>
+              {plainMessage(err, 'Your picture hasn’t finished uploading.')}{' '}
+              <button
+                type="button"
+                className="min-h-11 font-semibold text-link underline"
+                onClick={() => onEdit('write')}
+              >
+                Go to your picture
+              </button>
+            </>,
+          );
         } else if (p.code === 'tags_required') {
           setProblem(
             <>

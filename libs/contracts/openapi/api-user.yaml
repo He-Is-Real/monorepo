@@ -871,6 +871,10 @@ paths:
         limits in force now (D113; "new rules apply to everyone", Joel 2026-10-30), from the
         size the browser declared and Bunny's own length. `503` `uploads_unavailable` when api-user
         can't reach Bunny's settings.
+
+        **A picture (M2 plan PR 10), on any type:** api-user checks its file arrived in the images
+        zone: `400` `image_not_uploaded` if it never did (the person adds it again, or removes it),
+        `503` `uploads_unavailable` when the zone gives no clear answer.
       x-required-role: User
       x-requires-consent:
         subject: caller
