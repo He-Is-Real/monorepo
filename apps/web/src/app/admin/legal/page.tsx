@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { connection } from 'next/server';
+import { AdminNav } from '@/components/admin/admin-access';
 import { AdminLegal } from '@/components/admin/admin-legal';
 import { WideColumn } from '@/components/page/page-header';
 import { apiAdminUrl } from '@/lib/config';
@@ -30,6 +31,7 @@ export default async function AdminLegalPage() {
   return (
     <main id="main" className="flex-1 py-10 sm:py-16">
       <WideColumn>
+        <AdminNav />
         <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
           Legal documents
         </h1>

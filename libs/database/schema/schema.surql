@@ -238,6 +238,32 @@ DEFINE FIELD OVERWRITE name      ON tag TYPE string ASSERT string::len($value) >
 DEFINE FIELD OVERWRITE category  ON tag TYPE string ASSERT $value IN ['theme', 'journey', 'emotion'];
 DEFINE FIELD OVERWRITE version       ON tag TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now() READONLY;
+-- Submitting needs at least submissionSettings.tagsMin themes (api-user), so a catalogue with fewer
+-- themes than that would refuse every submission. A theme is any tag (there's no hidden or retired
+-- flag, and the category doesn't matter), so the only way to lose one is a DELETE: api-admin's
+-- login may not delete a tag that would leave fewer than tagsMin (`too_few_themes:<tagsMin>`), and
+-- submissionSettings_check refuses raising tagsMin above the tags there are. Both read a snapshot,
+-- so every tag deletion and every settings write also write themesFence:current: of a deletion
+-- and a save (or two deletions) that overlap, the second to commit fails with a retryable
+-- conflict, and its retry sees the other's result. System users (the migrator, dev-seed's reset,
+-- which deletes and re-creates the tags in one transaction) aren't checked, so the themes can
+-- still drop below tagsMin that way (Codex, admin limits review round 3). Submitting therefore
+-- needs fn::settings::themes_needed(), never more themes than there are: a lock-out can't happen
+-- whatever deletes them, and the admin checks above keep an admin from making it happen on purpose.
+DEFINE TABLE OVERWRITE themesFence SCHEMAFULL PERMISSIONS NONE;   -- id = themesFence:current
+DEFINE FIELD OVERWRITE n ON themesFence TYPE int DEFAULT 0;
+DEFINE FUNCTION OVERWRITE fn::fence::themes() {
+  UPSERT themesFence:current SET n += 1 RETURN NONE;
+};
+DEFINE EVENT OVERWRITE tag_delete ON tag
+  WHEN $event = 'DELETE'
+  THEN {
+    fn::fence::themes();
+    LET $min = fn::settings::submission().tagsMin;
+    IF $auth != NONE AND count(SELECT VALUE id FROM tag) < $min {
+      THROW 'too_few_themes:' + <string>$min;
+    };
+  };
 
 -- ---------------------------------------------------------------- story (write model)
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
@@ -656,7 +682,7 @@ DEFINE EVENT OVERWRITE story_limits ON story
 --   - submitting (entering pending, in_review or approved from an editable status, or created
 --     there by a system user) needs the minimum and maximum length, and at most the maximum
 --     number of themes, as they are now. The minimum number of themes is api-user's check at
---     submit (tests and data loaded before it have none).
+--     submit, against fn::settings::themes_needed() (tests and data loaded before it have none).
 -- Hard ceilings stay on the fields (body, tagRefs). Messages start with a code for api-user.
 DEFINE EVENT OVERWRITE story_text_limits ON story
   WHEN $event IN ['CREATE', 'UPDATE']
@@ -1918,8 +1944,9 @@ DEFINE EVENT OVERWRITE user_erasure_favourites ON user
 --   checked when an upload is granted (uploadGrant_attach) and again at submit by api-user, with
 --   the values in force then ("new rules apply to everyone", Joel 2026-10-30).
 -- Everyone reads it (the submit page shows the numbers); only api-admin's login, naming the admin
--- in changedBy, and the migrator change it, never delete it. Every change is audit-logged. No
--- admin route or page yet: they come with M3's admin screens.
+-- in changedBy, and the migrator change it, never delete it. Every change is audit-logged. Admins
+-- change it at /admin/limits (api-admin's GET/PUT /v1/admin/submission-settings, If-Match on
+-- `version`).
 -- These are anti-spam and cost controls, not invariants (coordinator, Codex #118 round 2): a
 -- change applies to writes that start after it commits; a write already in flight may finish
 -- under the old values. No fence ties settings writes to story writes (it would touch every
@@ -1949,6 +1976,10 @@ DEFINE FIELD OVERWRITE audioMaxBytes ON submissionSettings TYPE int DEFAULT 5242
 DEFINE FIELD OVERWRITE mediaMaxSeconds ON submissionSettings TYPE int DEFAULT 900        -- 15 minutes
   ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().mediaMaxSeconds;
 DEFINE FIELD OVERWRITE changedBy     ON submissionSettings TYPE option<record<user>>;
+-- The admin's role when they made the change (a snapshot of the Clerk claim, D1), for the audit
+-- row's actorRole as PublishLegalDocument records it; api-admin sets it with changedBy.
+DEFINE FIELD OVERWRITE changedByRole ON submissionSettings TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
 DEFINE FIELD OVERWRITE version       ON submissionSettings TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE updatedAt     ON submissionSettings TYPE datetime VALUE time::now();
 DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
@@ -1958,9 +1989,15 @@ DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
     IF $after.storyTextMin > $after.storyTextMax { THROW 'storyTextMin is more than storyTextMax' };
     IF $after.tagsMin > $after.tagsMax { THROW 'tagsMin is more than tagsMax' };
     IF $after.changedBy = NONE AND $auth != NONE { THROW 'a settings change names the admin who made it (changedBy)' };
+    -- tagsMin can't be raised above the themes there are (else nobody could submit); see tag_delete.
+    fn::fence::themes();
+    IF $auth != NONE AND $after.tagsMin > ($before.tagsMin ?? 0)
+      AND $after.tagsMin > count(SELECT VALUE id FROM tag) {
+      THROW 'too_few_themes:' + <string>count(SELECT VALUE id FROM tag);
+    };
     CREATE auditLog CONTENT {
       service: fn::audit::service(), action: 'UpdateSubmissionSettings',
-      entity: $after.id, actor: $after.changedBy
+      entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
     };
   };
 -- The settings in force, with the defaults for anything missing (also before data/0006 ran).
@@ -1975,6 +2012,12 @@ DEFINE FUNCTION OVERWRITE fn::settings::submission() {
     videoMaxBytes: $s.videoMaxBytes ?? 4294967296, audioMaxBytes: $s.audioMaxBytes ?? 524288000,
     mediaMaxSeconds: $s.mediaMaxSeconds ?? 900
   };
+};
+-- The fewest themes a story needs to be submitted: tagsMin, or every theme there is if there are
+-- fewer (a system user may delete themes below tagsMin; see tag_delete). api-user checks it at
+-- submit and reports it as the limit; anyone may call it (everyone reads tags and the settings).
+DEFINE FUNCTION OVERWRITE fn::settings::themes_needed() {
+  RETURN math::min([fn::settings::submission().tagsMin, count(SELECT VALUE id FROM tag)]);
 };
 -- The most any setting may allow for one upload, and what a trusted submitter gets: 10 GiB of
 -- video, 2 GiB of audio, 3 hours (a cost ceiling, not a product rule).
