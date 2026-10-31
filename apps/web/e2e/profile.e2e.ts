@@ -29,7 +29,13 @@ const LONG =
 
 /** A story of each status, as the stub keeps them. */
 const EVERY_STATUS = [
-  { id: 's_draft', status: 'draft', title: 'My draft' },
+  // Last changed 29 October 2026: kept 186 days (api-user's draftExpiresAt; the stub's 6 months).
+  {
+    id: 's_draft',
+    status: 'draft',
+    title: 'My draft',
+    updatedAt: '2026-10-29T12:00:00.000Z',
+  },
   { id: 's_pending', status: 'pending', title: 'Waiting one' },
   { id: 's_review', status: 'in_review', title: 'In review one' },
   {
@@ -142,7 +148,7 @@ test.describe('behaviour', () => {
     });
     expect(await offers('Sent back one')).toEqual({
       status: 'Changes requested',
-      actions: ['Withdraw'],
+      actions: ['Withdraw', 'Delete'],
     });
     expect(await offers('Not accepted one')).toEqual({
       status: 'Not published',
@@ -155,6 +161,13 @@ test.describe('behaviour', () => {
     await expect(
       row(page, 'Sent back one').locator('[data-feedback]'),
     ).toContainText(FEEDBACK);
+    // Only a draft says when it goes if nobody touches it.
+    await expect(
+      row(page, 'My draft').locator('[data-draft-expiry]'),
+    ).toHaveText(
+      'We’ll keep this draft until 3 May 2027. If you don’t change it before then, it will be deleted.',
+    );
+    await expect(page.locator('[data-draft-expiry]')).toHaveCount(1);
     await expect(
       row(page, 'Published one').getByRole('link', { name: 'View' }),
     ).toHaveAttribute('href', '/stories/published-one');
@@ -182,6 +195,34 @@ test.describe('behaviour', () => {
     await expect(story.locator('[data-status]')).toHaveText('Withdrawn');
     await expect(story.getByRole('button', { name: 'Delete' })).toBeVisible();
     expect(await me.stories()).toEqual([['w1', 'withdrawn']]);
+  });
+
+  test('delete a story sent back for changes, without withdrawing it first', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      stories: [
+        {
+          id: 'cr1',
+          status: 'changes_requested',
+          title: 'Sent back one',
+          rejectionFeedback: FEEDBACK,
+        },
+      ],
+    });
+    await page.goto(PROFILE);
+    const story = row(page, 'Sent back one');
+    await story.getByRole('button', { name: 'Delete' }).click();
+    await expect(story.locator('[data-confirm]')).toContainText(
+      'Delete this story for good?',
+    );
+    await story.getByRole('button', { name: 'Delete story' }).click();
+    await expect(page.locator('[data-notice]')).toContainText(
+      '“Sent back one” is deleted.',
+    );
+    await expect(page.locator('[data-submission]')).toHaveCount(0);
+    expect(await me.stories()).toEqual([]);
   });
 
   test('delete a draft, after saying so; “Keep it” keeps it', async ({

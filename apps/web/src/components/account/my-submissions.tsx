@@ -23,6 +23,8 @@ export interface MyStoryRow {
   tags: { slug: string; name: string }[];
   rejectionFeedback: string | null;
   createdAt: string;
+  /** A draft's deletion date if nobody touches it (api-user's rule; never recomputed here). */
+  draftExpiresAt?: string | null;
 }
 
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -39,13 +41,20 @@ const STATUS: Record<string, { label: string; tone: string }> = {
 };
 /** api-user's own rules (story-store.ts): what each status offers. */
 const WITHDRAWABLE = ['pending', 'in_review', 'approved', 'changes_requested'];
-const DELETABLE = ['draft', 'withdrawn', 'rejected'];
+const DELETABLE = ['draft', 'changes_requested', 'withdrawn', 'rejected'];
 
 const FORMAT = { video: 'Video', audio: 'Audio', written: 'Written' };
 const DATE = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
   month: 'short',
   year: 'numeric',
+});
+/** The day a draft goes, as the UK sees it (where the site and its nightly clean-up run). */
+const LONG_DATE = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'Europe/London',
 });
 /** A person has few stories (D94's limits); a bound in case. */
 const MAX_PAGES = 10;
@@ -98,8 +107,9 @@ type Command = 'withdraw' | 'delete';
 
 /**
  * "My submissions" (M2 plan PR 8): the person's stories with their status, a moderator's
- * feedback when there is some, and what they can do with each: continue or delete a draft,
- * withdraw a story waiting for review or published, delete one withdrawn or not published (D71).
+ * feedback when there is some, and what they can do with each: continue or delete a draft (and
+ * see when it goes if left untouched), withdraw a story waiting for review or published, delete
+ * one sent back for changes, withdrawn or not published (D71).
  * Filled in by the browser from api-user (D83), with its space kept while it loads.
  */
 export function MySubmissions() {
@@ -318,6 +328,13 @@ function StoryRow({
             {story.rejectionFeedback}
           </p>
         </div>
+      )}
+      {story.status === 'draft' && story.draftExpiresAt && (
+        <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+          We’ll keep this draft until{' '}
+          {LONG_DATE.format(new Date(story.draftExpiresAt))}. If you don’t
+          change it before then, it will be deleted.
+        </p>
       )}
       {story.status === 'withdrawn' && (
         <p className="mb-3 text-sm text-secondary-text">

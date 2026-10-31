@@ -86,7 +86,8 @@ paths:
       description: |
         Drafts, pending, feedback and approved, newest first (by creation), read as the person (D27).
         `status` narrows it to one status: the submit flow lists the person's open drafts
-        (`?status=draft`) to continue one.
+        (`?status=draft`) to continue one. Each draft carries `draftExpiresAt`, when it will be
+        deleted if nobody touches it (the profile shows it, R5).
       x-required-role: User
       x-milestone: M2
       parameters:
@@ -714,14 +715,14 @@ paths:
     delete:
       tags: [Submission]
       operationId: deleteStory
-      summary: Delete my draft, withdrawn or rejected story
+      summary: Delete my draft, changes-requested, withdrawn or rejected story
       description: |
         Command `DeleteStory` (D71): the person deletes their own story while it's a `draft`,
-        `withdrawn` or `rejected`, in their own session (D27). It goes everywhere in the same
+        `changes_requested` (R8: sent back for changes, no need to withdraw it first), `withdrawn`
+        or `rejected`, in their own session (D27). It goes everywhere in the same
         transaction: the story, its `publicStory` and `hiddenStory` rows, its moderation reviews and
         other people's hearts on it. The database's story permission refuses any other status
-        (`pending`, `in_review`, `approved`, `changes_requested`: `409 story_not_deletable`, withdraw
-        it first) and anyone else's story (`404`, as if it didn't exist). Needs no consent (Art 17).
+        (`pending`, `in_review`, `approved`: `409 story_not_deletable`, withdraw it first) and anyone else's story (`404`, as if it didn't exist). Needs no consent (Art 17).
 
         Its video or audio at Bunny is deleted straight after the database commits: only the videos
         api-user made for this story (its upload grants, D80), never seeded or shared media. If Bunny

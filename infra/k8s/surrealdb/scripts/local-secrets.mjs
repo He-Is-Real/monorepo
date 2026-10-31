@@ -35,6 +35,7 @@ const SERVICE_SECRETS = {
   api_user: 'surreal-api-user-password',
   api_admin: 'surreal-api-admin-password',
   workflow: 'surreal-workflow-password',
+  housekeeping: 'surreal-housekeeping-password',
   backup: 'surreal-backup-password',
   migrator: 'surreal-migrator-password',
 };
@@ -135,6 +136,7 @@ applySecret('surrealdb-init', {
       api_user: passwords.api_user,
       api_admin: passwords.api_admin,
       workflow: passwords.workflow,
+      housekeeping: passwords.housekeeping,
     },
   }),
 });

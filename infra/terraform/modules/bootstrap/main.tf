@@ -14,6 +14,7 @@ locals {
     "cloudkms.googleapis.com", # state and plan encryption (kms.tf)
     "cloudquotas.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "cloudscheduler.googleapis.com", # starts the nightly housekeeping Job (modules/gcp/housekeeping.tf)
     "compute.googleapis.com",
     "container.googleapis.com",
     "dns.googleapis.com",

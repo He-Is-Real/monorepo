@@ -93,3 +93,37 @@ run "another_projects_api_user_refused" {
   }
   expect_failures = [var.upload_key_readers]
 }
+
+# Housekeeping (M2): the nightly Job reads the Stream library key alone, and only this project's
+# housekeeping service account may.
+run "housekeeping_reads_only_the_stream_key" {
+  command = plan
+  variables {
+    stream_key_readers = ["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"]
+  }
+
+  assert {
+    condition = (
+      length(google_secret_manager_secret_iam_member.stream_key_readers) == 1 &&
+      google_secret_manager_secret_iam_member.stream_key_readers["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"].secret_id == "bunny-stream-api-key" &&
+      google_secret_manager_secret_iam_member.stream_key_readers["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"].role == "roles/secretmanager.secretAccessor"
+    )
+    error_message = "housekeeping may read the Stream library key and no other bunny-* secret."
+  }
+}
+
+run "stream_key_only_for_housekeeping" {
+  command = plan
+  variables {
+    stream_key_readers = ["serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com"]
+  }
+  expect_failures = [var.stream_key_readers]
+}
+
+run "stream_key_never_public" {
+  command = plan
+  variables {
+    stream_key_readers = ["allUsers"]
+  }
+  expect_failures = [var.stream_key_readers]
+}
