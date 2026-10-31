@@ -144,9 +144,10 @@ DEFINE EVENT OVERWRITE user_clerk_binding ON user
      -- link a legacy person who has no Clerk account yet (api-admin; the migrator)
      ($before.clerkUserId = NONE AND $before.gdprDeletedAt = NONE AND $after.gdprDeletedAt = NONE
        AND $auth != service:api_user)
-     -- erasure: api-user clears it once, at the moment gdprDeletedAt is set
+     -- erasure: api-user clears it once, at the moment gdprDeletedAt is set; or housekeeping's
+     -- delete of an erasure request does (erasureRequest_erases: housekeeping can't update a user)
      OR ($after.clerkUserId = NONE AND $before.gdprDeletedAt = NONE AND $after.gdprDeletedAt != NONE
-       AND $auth = service:api_user)
+       AND $auth IN [service:api_user, service:housekeeping])
    )
   THEN { THROW 'clerkUserId can only be linked once, or cleared once at erasure' };
 -- Erasure is final and always leaves a stub without a Clerk id (D37).
@@ -166,6 +167,26 @@ DEFINE FIELD OVERWRITE gdprDeletedAt ON user TYPE option<datetime>
         ELSE IF $auth = NONE { $value }
         ELSE { time::now() };
 DEFINE INDEX OVERWRITE user_clerk    ON user FIELDS clerkUserId UNIQUE;
+-- D82: an erased Clerk id never gets a row again, whoever writes it (erasedIdentity below). A token
+-- minted before erasure lives 60 s, and a Clerk user whose deletion failed can still sign in, so
+-- api-user's first-use create (provisionPerson) and a legacy link are both refused here.
+-- Both sides write identityFence:<fingerprint>, so a first-use create racing the erasure of a Clerk
+-- id it can't see yet (Clerk's user.deleted for someone who never used the API) conflicts at commit;
+-- the retry then sees the tombstone, or the erasure's retry sees the row and erases it.
+DEFINE EVENT OVERWRITE user_not_erased_identity ON user
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.clerkUserId != NONE
+   AND $after.clerkUserId != $before.clerkUserId
+  THEN {
+    fn::fence::identity(crypto::sha256($after.clerkUserId));
+    IF record::exists(type::record('erasedIdentity', crypto::sha256($after.clerkUserId))) {
+      THROW 'identity_erased: this Clerk account was deleted';
+    };
+  };
+DEFINE TABLE OVERWRITE identityFence SCHEMAFULL PERMISSIONS NONE; -- id = identityFence:<fingerprint>
+DEFINE FIELD OVERWRITE n ON identityFence TYPE int DEFAULT 0;    -- a counter, nothing else
+DEFINE FUNCTION OVERWRITE fn::fence::identity($fingerprint: string) {
+  UPSERT type::record('identityFence', $fingerprint) SET n += 1 RETURN NONE;
+};
 
 -- ---------------------------------------------------------------- personFence (write fence)
 -- Transactions read a snapshot, so a check like "consent is granted" or "not erased" can pass
@@ -1681,6 +1702,17 @@ DEFINE EVENT OVERWRITE consent_withdrawal_unhides ON consent
       DELETE type::record('hiddenStory', record::id($s));
     };
   };
+-- D88, D73: withdrawing the testimony (Art 9) or sign-up consent deletes the account. The
+-- withdrawal and an erasureRequest commit together (below), so the erasure can't be lost between
+-- them: api-user erases straight after the commit, and the nightly housekeeping erases whoever it
+-- missed. libs/consent's ERASING_WITHDRAWALS lists the same two.
+DEFINE EVENT OVERWRITE consent_withdrawal_requests_erasure ON consent
+  WHEN $event = 'CREATE' AND $after.event = 'withdrawn'
+   AND $after.type IN ['special_category_religious', 'account_data']
+  THEN {
+    LET $request = type::record('erasureRequest', record::id($after.subject));
+    IF !record::exists($request) { CREATE $request SET user = $after.subject RETURN NONE };
+  };
 -- Every consent event writes legalFence: a grant checked against the form version in force
 -- can't commit on a snapshot from before a publication or retirement (consent_form, and the
 -- API's in-transaction check). Nothing is restored on a grant (D93: no form version hides).
@@ -1780,7 +1812,8 @@ DEFINE TABLE OVERWRITE auditLog SCHEMAFULL PERMISSIONS
   FOR select WHERE $auth.id = service:api_admin,
   FOR create WHERE $auth.id IN [service:api_user, service:api_admin, service:workflow],
   FOR update, delete NONE;                                              -- pruning: migrator only
-DEFINE FIELD OVERWRITE service    ON auditLog TYPE string ASSERT $value IN ['api-user', 'api-admin', 'workflow', 'migrator'];
+DEFINE FIELD OVERWRITE service    ON auditLog TYPE string
+  ASSERT $value IN ['api-user', 'api-admin', 'workflow', 'migrator', 'housekeeping'];  -- housekeeping: erasureRequest
 DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
   -- api-user (M2)
   'CreateDraftStory', 'EditStory', 'RequestUpload', 'SubmitStory', 'WithdrawStory',
@@ -2171,6 +2204,118 @@ DEFINE EVENT OVERWRITE uploadGrant_renew ON uploadGrant
 DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: record<user>, $video: string) {
   RETURN (UPDATE type::record('uploadGrant', $video) SET renewedAt = time::now()
     WHERE story = $story AND person = $person RETURN VALUE renewedAt)[0];
+};
+
+-- ---------------------------------------------------------------- erasedIdentity (D82 tombstone)
+-- id = erasedIdentity:<sha256 of the Clerk user id>: a retained fingerprint of an erased identity,
+-- and nothing else (no date, no user link). It is not anonymous: whoever holds the Clerk id can
+-- hash it and match the row, so it stays personal data (pseudonymous), kept on purpose and named
+-- in the privacy notes. Written by the erasure (fn::account::erase), even for a Clerk id that
+-- never had a row (Clerk's user.deleted for someone who never used the API).
+-- user_not_erased_identity refuses that Clerk id for ever after, so a still-valid token can't
+-- recreate the person (#44's reproduction). Kept: dropping one would let a leftover Clerk account
+-- back in. Only api-user's login reads or writes it (and the erasure request's event).
+DEFINE TABLE OVERWRITE erasedIdentity SCHEMAFULL PERMISSIONS
+  FOR select, create WHERE $auth.id = service:api_user,
+  FOR update, delete NONE;
+DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
+  WHEN $event = 'CREATE'
+  THEN {
+    IF !string::matches(<string> record::id($after.id), '^[0-9a-f]{64}$') {
+      THROW 'an erased identity is a sha256 fingerprint only';
+    };
+    fn::fence::identity(record::id($after.id));                 -- see user_not_erased_identity
+  };
+
+-- ---------------------------------------------------------------- pendingDeletion (D40)
+-- What erasure must still delete outside the database, written in the erasure transaction and
+-- deleted row by row once done: kind 'bunny_video' (a Stream video api-user made: the person's
+-- upload grants, never seeded media), 'image' (a picture in the images storage zone, from an image
+-- upload grant), 'clerk_user' (the Clerk account, for in-app deletion and Art 9 withdrawal; the
+-- only place a Clerk id outlives erasure, until Clerk confirms). No person link: the person is
+-- gone. api-user deletes them straight after the commit; the nightly housekeeping retries the
+-- rest. A failed try counts in `attempts` and waits (fn::erasure::retry_after), so rows that keep
+-- failing go to the back and never hold up the others. Only api-user and housekeeping read,
+-- delete or count tries on it; only an erasure writes one.
+DEFINE TABLE OVERWRITE pendingDeletion SCHEMAFULL PERMISSIONS
+  FOR select, update, delete WHERE $auth.id IN [service:api_user, service:housekeeping],
+  FOR create WHERE $auth.id = service:api_user;
+DEFINE FIELD OVERWRITE kind ON pendingDeletion TYPE string READONLY
+  ASSERT $value IN ['bunny_video', 'image', 'clerk_user'];
+DEFINE FIELD OVERWRITE ref  ON pendingDeletion TYPE string READONLY
+  ASSERT string::len($value) > 0 AND string::len($value) <= 500;
+DEFINE FIELD OVERWRITE at   ON pendingDeletion TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE FIELD OVERWRITE attempts      ON pendingDeletion TYPE int DEFAULT 0 ASSERT $value >= 0;
+DEFINE FIELD OVERWRITE nextAttemptAt ON pendingDeletion TYPE datetime DEFAULT time::now();
+DEFINE INDEX OVERWRITE pendingDeletion_at ON pendingDeletion FIELDS at;
+DEFINE INDEX OVERWRITE pendingDeletion_due ON pendingDeletion FIELDS nextAttemptAt;
+-- How long a queued deletion or an erasure request waits after its $attempts-th failed try: 1 h,
+-- then doubling, at most a week. Set together with the count, from its value before the try.
+DEFINE FUNCTION OVERWRITE fn::erasure::retry_after($attempts: int) {
+  RETURN duration::from_hours(<int> math::min([math::pow(2, $attempts), 168]));
+};
+
+-- ---------------------------------------------------------------- erasureRequest (D88, D73)
+-- id = erasureRequest:<the user's id>: a withdrawal of the testimony or sign-up consent that
+-- hasn't erased the account yet. Written only by consent_withdrawal_requests_erasure, in the
+-- withdrawal's own transaction. Deleting it erases the person (erasureRequest_erases, below, on
+-- the database's own rights), so housekeeping needs no right to delete anyone's data: only to
+-- see and delete these. api-user's erasure deletes the person's request in its own transaction.
+-- A failed try counts in `attempts` and waits, as for pendingDeletion.
+DEFINE TABLE OVERWRITE erasureRequest SCHEMAFULL PERMISSIONS
+  FOR select, update, delete WHERE $auth.id IN [service:api_user, service:housekeeping],
+  FOR create NONE;
+DEFINE FIELD OVERWRITE user ON erasureRequest TYPE record<user> READONLY;
+DEFINE FIELD OVERWRITE at   ON erasureRequest TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE FIELD OVERWRITE attempts      ON erasureRequest TYPE int DEFAULT 0 ASSERT $value >= 0;
+DEFINE FIELD OVERWRITE nextAttemptAt ON erasureRequest TYPE datetime DEFAULT time::now();
+DEFINE INDEX OVERWRITE erasureRequest_due ON erasureRequest FIELDS nextAttemptAt;
+DEFINE EVENT OVERWRITE erasureRequest_erases ON erasureRequest
+  WHEN $event = 'DELETE'
+  THEN {
+    LET $clerkUserId = $before.user.clerkUserId;
+    -- Already erased (api-user's erasure, which deletes the request itself): nothing to do.
+    IF $clerkUserId != NONE AND $before.user.gdprDeletedAt = NONE {
+      fn::account::erase($clerkUserId, 'consent_withdrawn',
+        IF $auth.id = service:housekeeping { 'housekeeping' } ELSE { 'api-user' });
+    };
+  };
+
+-- ---------------------------------------------------------------- EraseAccount (D39, D82, D40)
+-- The database half of erasing a person, in the caller's transaction: api-user's ERASE_ACCOUNT
+-- (libs/database erasure.ts, on its own login) and erasureRequest_erases. Answers [user, keys]:
+-- the erased user (or NONE: already erased, or never known) and the pendingDeletion keys written.
+-- - The erased-identity tombstone (D82): the sha256 of the Clerk id, written even when nobody has
+--   that id, so provisioning refuses it from now on (user_not_erased_identity).
+-- - What must go outside the database (D40): each of the person's upload grants (bunny_video, or
+--   image), and, unless Clerk has already deleted the person ($reason clerk_user_deleted), their
+--   Clerk account.
+-- - Then the stories (the cascade takes publicStory, hiddenStory, reviews and others' hearts),
+--   idempotency keys, limits, submission log and grants; the user row becomes a stub (D37) and
+--   their own hearts go with it (user_erasure_favourites); an EraseAccount audit row.
+-- The consent ledger stays, as proof (D38). On a caller's own permissions (api-user's grants are
+-- exactly these); anyone else's leave nothing done.
+DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: string, $service: string) {
+  LET $fingerprint = type::record('erasedIdentity', crypto::sha256($clerkUserId));
+  IF !record::exists($fingerprint) { CREATE $fingerprint RETURN NONE };
+  LET $u = (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId AND gdprDeletedAt = NONE)[0];
+  LET $media = (SELECT VALUE { kind: IF format = 'image' { 'image' } ELSE { 'bunny_video' },
+      ref: <string> record::id(id) } FROM uploadGrant WHERE $u != NONE AND person = $u);
+  LET $account = IF $u = NONE OR $reason = 'clerk_user_deleted' { [] }
+    ELSE { [{ kind: 'clerk_user', ref: $clerkUserId }] };
+  LET $pending = IF array::len(array::concat($media, $account)) = 0 { [] }
+    ELSE { (INSERT INTO pendingDeletion array::concat($media, $account) RETURN VALUE record::id(id)) };
+  IF $u != NONE {
+    DELETE story WHERE submitter = $u;              -- cascades publicStory, hiddenStory, reviews, hearts
+    DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
+    DELETE submitterLimits WHERE user = $u;         -- D112: their limits and trusted mark
+    DELETE submissionLog WHERE person = $u;         -- D113: their recent submissions
+    DELETE uploadGrant WHERE person = $u;           -- D80, D113: their uploads (queued above, D40)
+    UPDATE $u SET gdprDeletedAt = time::now(), clerkUserId = NONE;   -- D37: a stub remains
+    CREATE auditLog CONTENT { service: $service, action: 'EraseAccount', entity: $u,
+      reason: $reason };
+  };
+  RETURN [$u, $pending];
 };
 
 -- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),

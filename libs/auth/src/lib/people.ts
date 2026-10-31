@@ -13,6 +13,18 @@ import { retryOnConflict, runQuery } from '@heisreal/database';
 const FIND = `SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId LIMIT 1`;
 const CREATE = `CREATE user SET clerkUserId = $clerkUserId RETURN VALUE id`;
 
+/**
+ * The database refused the Clerk id because that account was erased (D82: `erasedIdentity`,
+ * `user_not_erased_identity`). A token minted before erasure, or a Clerk account whose deletion
+ * hasn't gone through yet, never gets a row again.
+ */
+export class ErasedIdentityError extends Error {
+  override name = 'ErasedIdentityError';
+}
+
+const isErasedIdentity = (err: unknown) =>
+  /identity_erased/.test(err instanceof Error ? err.message : String(err));
+
 const isUniqueViolation = (err: unknown) =>
   /user_clerk|already contains/i.test(
     err instanceof Error ? err.message : String(err),
@@ -30,7 +42,8 @@ export async function findPerson(
 /**
  * api-user only: the person's `user` id, creating the row on first use. Concurrent first
  * requests are safe: the `user_clerk` unique index lets one create win, and the loser reads
- * the winner's row. A fence conflict (`user_fence`) is retried.
+ * the winner's row. A fence conflict (`user_fence`) is retried. An erased Clerk id is refused
+ * by the database: {@link ErasedIdentityError}.
  */
 export async function provisionPerson(
   db: SurrealQueryable,
@@ -45,6 +58,7 @@ export async function provisionPerson(
       ];
       if (created.length === 1) return created[0];
     } catch (err) {
+      if (isErasedIdentity(err)) throw new ErasedIdentityError(clerkUserId);
       if (!isUniqueViolation(err)) throw err;
     }
     // Lost a race to another request for the same person, or the create was refused.

@@ -76,6 +76,36 @@ run "clerk_and_cors_settings" {
   }
 }
 
+run "only_api_user_reads_the_clerk_secrets" {
+  command = plan
+
+  assert {
+    condition = (
+      { for k, m in google_secret_manager_secret_iam_member.api_user_clerk : k => m.secret_id } == {
+        key     = "clerk-secret-key"
+        webhook = "clerk-webhook-signing-secret"
+      } &&
+      alltrue([for m in google_secret_manager_secret_iam_member.api_user_clerk :
+      m.member == google_service_account.signed_in_api["api-user"].member])
+    )
+    error_message = "Of the signed-in APIs, api-user alone may read Clerk's secret key and the webhook's signing secret (erasure, D81)."
+  }
+
+  assert {
+    condition = (
+      { for e in google_cloud_run_v2_service.signed_in_api["api-user"].template[0].containers[0].env :
+        e.name => e.value if startswith(e.name, "CLERK_") && endswith(e.name, "_SECRET")
+        } == {
+        CLERK_SECRET_KEY_SECRET     = "clerk-secret-key"
+        CLERK_WEBHOOK_SECRET_SECRET = "clerk-webhook-signing-secret"
+      } &&
+      length([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
+      e if endswith(e.name, "_SECRET") && startswith(e.name, "CLERK_")]) == 0
+    )
+    error_message = "api-user gets the Clerk secrets' names (never values); api-admin gets none."
+  }
+}
+
 run "private_by_default" {
   command = plan
 

@@ -77,6 +77,7 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
       'consent_legacy_only_migrator',
       'consent_legal_fence',
       'consent_published_dpa',
+      'consent_withdrawal_requests_erasure',
       'consent_withdrawal_unhides',
     ]);
     expect(

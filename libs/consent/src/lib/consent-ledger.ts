@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   DatabaseQueryError,
   type IdempotencyScope,
@@ -187,8 +187,6 @@ const NOT_IN_FORCE =
  */
 @Injectable()
 export class ConsentLedger {
-  private readonly logger = new Logger(ConsentLedger.name);
-
   async state(person: SurrealQueryable): Promise<ConsentState> {
     const results = (await runQuery(
       person,
@@ -351,24 +349,18 @@ export class ConsentLedger {
    * channels and stops paid promotion (nothing posts yet, so there is nothing to automate).
    * Withdrawing again re-affirms it. Never granted: `ConsentConflictError`.
    *
-   * Staged (review round 1): withdrawing Art 9 doesn't start erasure yet (D39, an M2
-   * prerequisite), nor does withdrawing account_data delete the account (D73, D82). Until then
-   * the database's consent gates stop all further processing, and the data stays stored.
+   * Withdrawing Art 9 or account_data then erases the account (D39, D88, D73): the database
+   * commits an erasure request with the withdrawal, and the HTTP endpoint runs the service's
+   * erasure after this has committed (`ERASING_WITHDRAWALS`); housekeeping erases anyone missed.
    */
   async withdraw(
     person: SurrealQueryable,
     type: ConsentType,
     idempotency?: IdempotencyOptions,
   ): Promise<CommandOutcome> {
-    const outcome = await this.execute(person, idempotency, () =>
+    return this.execute(person, idempotency, () =>
       this.prepareWithdraw(person, type),
     );
-    if (type === 'special_category_religious' && !outcome.replayed) {
-      this.logger.warn(
-        `Art 9 consent withdrawn (consent:${outcome.id}); erasure (D39) isn't built yet, so it wasn't started`,
-      );
-    }
-    return outcome;
   }
 
   private async prepareGrant(

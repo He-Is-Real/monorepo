@@ -9,6 +9,8 @@ export interface HousekeepingConfig {
   project: string;
   database: DatabaseConfig;
   stream: { libraryId: string; keySecret: string };
+  /** Clerk's secret key's secret (CLERK_SECRET_KEY_SECRET), or null: Clerk deletions wait. */
+  clerkKeySecret: string | null;
   /** Only log what would be deleted. On unless HOUSEKEEPING_DRY_RUN is exactly `false`. */
   dryRun: boolean;
   /** Each chore deletes at most this many per run. */
@@ -45,6 +47,10 @@ export function housekeepingConfig(
       'BUNNY_STREAM_LIBRARY_ID must be numeric and BUNNY_STREAM_API_KEY_SECRET a secret name',
     );
   }
+  const clerkKeySecret = env['CLERK_SECRET_KEY_SECRET']?.trim() || null;
+  if (clerkKeySecret !== null && !SECRET.test(clerkKeySecret)) {
+    throw new RefusedError('CLERK_SECRET_KEY_SECRET must be a secret name');
+  }
   return {
     project: need('GCP_PROJECT'),
     database: {
@@ -55,6 +61,7 @@ export function housekeepingConfig(
       passwordSecret: need('SURREAL_PASSWORD_SECRET'),
     },
     stream: { libraryId, keySecret },
+    clerkKeySecret,
     dryRun: dryRun === 'true',
     maxDeletions: max,
   };

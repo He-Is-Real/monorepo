@@ -82,7 +82,7 @@ export function useOwnData<T>(read: (api: ApiUser) => Promise<T>) {
 }
 
 /** This person's session, if they are the one signed in right now (the live state, not a render's). */
-function signedInAs(owner: string): SignedIn | null {
+export function signedInAs(owner: string): SignedIn | null {
   const now = personalSession();
   return now.status === 'signed-in' && now.userId === owner ? now : null;
 }

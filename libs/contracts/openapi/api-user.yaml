@@ -260,15 +260,26 @@ paths:
       operationId: eraseAccount
       summary: Erase my account (GDPR)
       description: |
-        Command `EraseAccount`. Deletes the person's stories, `publicStory` rows, reviews, edges and
-        Clerk user; the consent ledger is kept as proof without personal data. Continues asynchronously.
+        Command `EraseAccount` ("Delete my account", D39, D82). On api-user's own login, in one
+        transaction: the person's stories (with their `publicStory` rows, reviews and others' hearts),
+        their own hearts, limits, upload grants and idempotency keys go; the user record becomes a stub
+        without the Clerk id, and a fingerprint of the Clerk id is kept so no token can recreate the
+        account (D82). The consent ledger is kept as proof (Art 7(1)); an audit row records the erasure.
+        Then the person's videos and pictures at Bunny and their Clerk account are deleted (D40); one
+        that fails is retried later. `202` once the database half has committed; afterwards the
+        person's token gets `401`. No `If-Match` or `Idempotency-Key` (a listed exception to D29): a
+        repeat finds nothing to erase.
       x-required-role: User
       x-milestone: M2
       responses:
         '202':
-          $ref: './components.yaml#/components/responses/Accepted'
+          description: Erased; the deletions at Bunny and Clerk continue. No body.
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/account/consents:
     get:
@@ -354,9 +365,11 @@ paths:
         processing step that needs that consent. Withdrawing again re-affirms it; a type that was never
         granted answers `409`.
 
-        **Staged:** withdrawing `special_category_religious` will also start erasure (D39), continuing
-        asynchronously. That is built in M2 and must be wired before real testimonies are accepted; until
-        then the person's stories stay stored, unpublished and unprocessable.
+        Withdrawing `special_category_religious` (the testimony consent, D88) or `account_data` (the
+        sign-up consent to store the account, D73) then deletes the whole account, exactly as
+        `DELETE /v1/account` does (D39); the withdrawal stays on the ledger as proof. Withdrawing
+        `publish` takes every one of the person's stories off the site but keeps them in the account
+        ("Take all my stories off the site", R6).
       x-required-role: User
       x-milestone: M0
       parameters:
@@ -943,10 +956,14 @@ paths:
     post:
       tags: [Webhooks]
       operationId: clerkWebhook
-      summary: Clerk events (user.created, user.updated, user.deleted)
+      summary: Clerk events (user.deleted erases the person)
       description: |
-        Verified with the Svix signature headers, not a Clerk JWT. Deduplicated on `svix-id` in the
+        Verified with the Svix signature headers over the raw body (5 minutes' tolerance), not a Clerk
+        JWT; a bad signature answers `400`. `user.deleted` erases the person exactly as
+        `DELETE /v1/account` does, without deleting them at Clerk again (D39); every other event is
+        acknowledged and ignored (nothing from Clerk is stored, D16). Deduplicated on `svix-id` in the
         `idempotencyKey` table (D29): a redelivered event is acknowledged without being applied again.
+        `503` until the endpoint's signing secret is set (Svix retries).
       security: []
       x-milestone: M2
       parameters:
@@ -974,9 +991,11 @@ paths:
               description: Raw Clerk event payload.
       responses:
         '204':
-          description: Acknowledged (including duplicates).
+          description: Acknowledged (including duplicates, and events other than `user.deleted`).
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/webhooks/stripe:
     post:

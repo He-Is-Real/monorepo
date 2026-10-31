@@ -1,4 +1,5 @@
 import type { SurrealQueryable } from 'surrealdb';
+import { ERASE_ACCOUNT } from '../../src/lib/erasure';
 import {
   createPeople,
   grantAll,
@@ -179,21 +180,5 @@ export async function buildWorld(t: TestDatabase) {
   return { admin, ann, bob };
 }
 
-/**
- * EraseAccount (D39) as api-user will run it on its service login, one transaction. Idempotent
- * in effect: a retry after a conflict finds whatever was committed meanwhile and erases it too.
- * Bind $clerkUserId and $reason.
- */
-export const ERASE = `
-  BEGIN TRANSACTION;
-  LET $u = (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId AND gdprDeletedAt = NONE)[0];
-  IF $u = NONE { THROW 'unknown or already erased' };
-  DELETE story WHERE submitter = $u;              -- cascades publicStory + moderationReview
-  DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
-  DELETE submitterLimits WHERE user = $u;         -- D112: their limits and trusted mark
-  DELETE submissionLog WHERE person = $u;         -- D113: their recent submissions
-  DELETE uploadGrant WHERE person = $u;           -- D80, D113: their uploads (Bunny's go too, D82)
-  UPDATE $u SET gdprDeletedAt = time::now(), clerkUserId = NONE;   -- D37: a stub remains
-  CREATE auditLog CONTENT { service: 'api-user', action: 'EraseAccount', entity: $u,
-    reason: $reason };
-  COMMIT TRANSACTION;`;
+/** EraseAccount (D39) exactly as api-user runs it (libs/database erasure.ts). Bind $clerkUserId and $reason. */
+export const ERASE = ERASE_ACCOUNT;

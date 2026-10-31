@@ -65,11 +65,11 @@ resource "google_service_account_iam_member" "surrealdb_secrets_wi" {
 
 # Clerk's Backend API secret key (decisions 4 and 13). Terraform owns the
 # container; the value is human-supplied from the Clerk CLI as a new version
-# (runbook: infra/clerk/README.md). Nothing reads it yet: api-user and
-# api-admin verify session tokens without the network against the pinned
-# public key, so no service account is granted access. M2 (account settings,
-# webhooks) and M3 (role assignment) add accessors for the services that call
-# the Backend API.
+# (runbook: infra/clerk/README.md). api-user and api-admin verify session tokens
+# without the network against the pinned public key. Only api-user reads it, to
+# delete an erased person's Clerk account (M2 plan PR 11, D39, D81), and the
+# nightly housekeeping, to retry such a deletion that failed (housekeeping.tf);
+# M3's role assignment adds api-admin then.
 resource "google_secret_manager_secret" "clerk_secret_key" {
   project   = var.project_id
   secret_id = "clerk-secret-key"
@@ -82,4 +82,37 @@ resource "google_secret_manager_secret" "clerk_secret_key" {
       }
     }
   }
+}
+
+# The signing secret (whsec_…) of Clerk's webhook endpoint for api-user's
+# POST /v1/webhooks/clerk (user.deleted → erasure, D39). The owner creates the
+# endpoint in Clerk's dashboard and adds the secret as a version
+# (infra/clerk/README.md, "Webhook"); api-user reads it when a webhook comes, and
+# again every five minutes, so until then webhooks answer 503 and Svix retries.
+resource "google_secret_manager_secret" "clerk_webhook_signing_secret" {
+  project   = var.project_id
+  secret_id = "clerk-webhook-signing-secret"
+  labels    = merge(local.labels, { component = "clerk" })
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region # GDPR: stays in the UK
+      }
+    }
+  }
+}
+
+# api-user alone reads both Clerk secrets (erasure, D81: account deletion is one
+# of the three server jobs that may use Clerk's secret key).
+resource "google_secret_manager_secret_iam_member" "api_user_clerk" {
+  for_each = {
+    key     = google_secret_manager_secret.clerk_secret_key.secret_id
+    webhook = google_secret_manager_secret.clerk_webhook_signing_secret.secret_id
+  }
+
+  project   = var.project_id
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.signed_in_api["api-user"].member
 }

@@ -22,7 +22,9 @@
 //   arrived, as api-user asks Bunny.
 // - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
 //   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
-//   carry its `status`, `slug` and moderator's `rejectionFeedback`.
+//   carry its `status`, `slug` and moderator's `rejectionFeedback`. Erasure (PR 11):
+//   `DELETE /v1/account`, and withdrawing the testimony or sign-up consent, erase the session:
+//   its token gets 401 afterwards.
 // - Hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and `GET /v1/account/favourites`
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
@@ -100,6 +102,10 @@ const MECHANISMS = [
 /** Idempotency-Key → { body, answer } (D29). */
 const replies = new Map();
 let events = 0;
+/** Sessions whose account was erased (`DELETE /v1/account`, or an erasing withdrawal): 401 after. */
+const erased = new Set();
+/** api-user's ERASING_WITHDRAWALS (D88, D73). */
+const ERASING = ['special_category_religious', 'account_data'];
 
 const send = (res, status, body) => {
   res.writeHead(status, {
@@ -504,6 +510,8 @@ function newSession(id, seed = {}) {
     uploadTimes: [],
     uploadRequests: 0,
     tus: { fail: 0, hold: false },
+    // Erasure: `DELETE /v1/account` erases, then answers 500 (the queue failed after the commit).
+    eraseThenFail: seed.eraseThenFail ?? false,
   };
   for (const story of seed.stories ?? []) {
     const now = new Date().toISOString();
@@ -1352,7 +1360,7 @@ createServer(async (req, res) => {
   }
   const token = sessionOf(req.headers.authorization);
   const signedIn = () => {
-    if (token === null) {
+    if (token === null || erased.has(token)) {
       problem(res, 401, 'Unauthorized');
       return null;
     }
@@ -1360,6 +1368,16 @@ createServer(async (req, res) => {
     return hearts.get(token);
   };
 
+  // Erasure (M2 plan PR 11): the account is gone, and the session's token gets 401 from now on.
+  if (path === '/v1/account' && req.method === 'DELETE') {
+    if (!signedIn()) return;
+    erased.add(token);
+    if (shareSession(token).eraseThenFail) {
+      return problem(res, 500, 'Internal Server Error');
+    }
+    res.writeHead(202, { 'cache-control': 'no-store' });
+    return res.end();
+  }
   if (path === '/v1/account' && req.method === 'GET') {
     if (!signedIn()) return;
     // The sign-up consent is accepted, except for the `unaccepted…` sessions; `admin…`
@@ -1432,6 +1450,7 @@ createServer(async (req, res) => {
     events += 1;
     const answer = { id: `stubconsent${events}`, version: null };
     replies.set(key, { text: '', answer });
+    if (ERASING.includes(type)) erased.add(token);
     return send(res, 202, answer);
   }
   if (path === '/v1/account/favourites' && req.method === 'GET') {

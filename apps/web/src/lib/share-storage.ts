@@ -26,3 +26,16 @@ export function forgetShareStorageExcept(owner: string | null) {
     // storage blocked: nothing kept to forget
   }
 }
+
+/** Forgets what the submit flow kept in this tab for `owner` only (their account was deleted). */
+export function forgetShareStorageOf(owner: string) {
+  try {
+    const store = window.sessionStorage;
+    for (let i = store.length - 1; i >= 0; i--) {
+      const key = store.key(i);
+      if (key?.startsWith(`${PREFIX}${owner}:`)) store.removeItem(key);
+    }
+  } catch {
+    // storage blocked: nothing kept to forget
+  }
+}
