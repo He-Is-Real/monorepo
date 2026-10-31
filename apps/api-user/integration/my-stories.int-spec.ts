@@ -29,7 +29,8 @@ import {
  * AppModule as /account calls them: WithdrawStory and DeleteStory (D71). The database is the
  * behaviour: what may be deleted is its story permission, and a delete reaches every copy
  * (story_erasure_cascade). Bunny Stream is an in-memory stand-in that records deletes. Every
- * answer is checked against api-user.yaml.
+ * answer is checked against api-user.yaml. The list also says when each draft will be deleted
+ * (fn::story::draft_expires_at, the rule housekeeping deletes by).
  */
 class FakeStream implements BunnyStream {
   readonly deleted: string[] = [];
@@ -258,6 +259,70 @@ describe('my stories: withdraw and delete', () => {
         { v: videoId },
       ),
     ).toEqual([videoId]);
+  });
+
+  it('deletes a story sent back for changes without withdrawing it, and its video at Bunny', async () => {
+    const id = await create('ann', 'video');
+    const upload = await call('POST', `/v1/stories/${id}/upload-url`, 'ann', {
+      body: {
+        format: 'video',
+        contentType: 'video/mp4',
+        fileSizeBytes: 2_000_000,
+        durationSeconds: 30,
+      },
+      headers: { 'if-match': '"1"', 'idempotency-key': key() },
+    });
+    expect(upload.status).toBe(200);
+    const videoId = upload.body.headers.VideoId as string;
+    await moderate(id, 'changes_requested');
+
+    expect((await remove('ann', id, await versionOf(id))).status).toBe(204);
+    expect(await statusOf(id)).toBeUndefined();
+    expect(bunny.deleted).toContain(videoId);
+  });
+
+  it('tells the owner when each draft will be deleted: 186 days after its last edit or resumed upload', async () => {
+    const DAY = 864e5;
+    const written = await create('ann');
+    const video = await create('ann', 'video');
+    const upload = await call(
+      'POST',
+      `/v1/stories/${video}/upload-url`,
+      'ann',
+      {
+        body: {
+          format: 'video',
+          contentType: 'video/mp4',
+          fileSizeBytes: 2_000_000,
+          durationSeconds: 30,
+        },
+        headers: { 'if-match': '"1"', 'idempotency-key': key() },
+      },
+    );
+    expect(upload.status).toBe(200);
+    const submitted = await create('ann');
+    expect((await submit('ann', submitted, 1)).status).toBe(200);
+    // The upload is resumed later (api-user renews its grant): that counts as activity.
+    const [renewedAt] = await rows<string>(
+      migrator,
+      `UPDATE type::record('uploadGrant', $v) SET renewedAt = time::now() RETURN VALUE <string> time::floor(renewedAt, 1ms)`,
+      { v: upload.body.headers.VideoId },
+    );
+
+    const { status, body } = await call('GET', '/v1/account/stories', 'ann');
+    expect(status).toBe(200);
+    const byId = new Map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (body.data as any[]).map((s) => [s.id, s]),
+    );
+    const mine = byId.get(written);
+    expect(Date.parse(mine.draftExpiresAt)).toBe(
+      Date.parse(mine.updatedAt) + 186 * DAY,
+    );
+    expect(Date.parse(byId.get(video).draftExpiresAt)).toBe(
+      Date.parse(renewedAt) + 186 * DAY,
+    );
+    expect(byId.get(submitted).draftExpiresAt).toBeNull();
   });
 
   it('refuses to delete a story under review or published, or someone else’s, changing nothing', async () => {
