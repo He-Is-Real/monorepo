@@ -509,7 +509,8 @@ function newSession(id, seed = {}) {
     // Uploads: the videos made for this session's drafts, when new ones were started, and
     // what the TUS server should do with the next PATCHes.
     videos: new Map(),
-    uploadTimes: [],
+    // `uploadsAgo`: video or audio uploads started that many ms before the session began.
+    uploadTimes: (seed.uploadsAgo ?? []).map((ms) => Date.now() - ms),
     uploadRequests: 0,
     tus: { fail: 0, hold: false },
     // Erasure: `DELETE /v1/account` erases, then answers 500 (the queue failed after the commit).
@@ -774,7 +775,11 @@ function limitsOf(s) {
       max: s.settings.tagsMax,
     },
     openDrafts: { max: s.trusted ? null : s.settings.openDraftsMax, open },
-    submissions: { per7Days, nextAvailableAt: next },
+    submissions: {
+      per7Days,
+      usedIn7Days: recent.length,
+      nextAvailableAt: next,
+    },
     uploads: uploadLimitsOf(s),
   };
 }
@@ -801,6 +806,7 @@ function uploadLimitsOf(s) {
     maxDurationSeconds: s.trusted ? 10800 : s.settings.mediaMaxSeconds,
     perHour,
     per7Days,
+    usedIn7Days: week.length,
     nextAvailableAt: next ? new Date(next).toISOString() : null,
   };
 }

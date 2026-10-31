@@ -40,7 +40,7 @@ const LIMITS: SubmissionLimits = {
   storyText: { min: 200, max: 10000 },
   tags: { min: 1, max: 5 },
   openDrafts: { max: 3, open: 1 },
-  submissions: { per7Days: 1, nextAvailableAt: null },
+  submissions: { per7Days: 1, usedIn7Days: 0, nextAvailableAt: null },
 };
 
 describe('ConsentStep', () => {
@@ -96,6 +96,7 @@ describe('ReviewStep', () => {
       tagSlugs: ['hope'],
     },
     status: 'saved' as const,
+    submittedBefore: false,
     error: null,
     conflict: null,
     update: jest.fn(),

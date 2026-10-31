@@ -378,13 +378,14 @@ describe('the submit flow for written stories', () => {
       storyText: { min: 200, max: 10000 },
       tags: { min: 1, max: 5 },
       openDrafts: { max: 3, open: 0 },
-      submissions: { per7Days: 1, nextAvailableAt: null },
+      submissions: { per7Days: 1, usedIn7Days: 0, nextAvailableAt: null },
       uploads: {
         videoMaxBytes: 4294967296,
         audioMaxBytes: 524288000,
         maxDurationSeconds: 900,
         perHour: 10,
         per7Days: 5,
+        usedIn7Days: 0,
         nextAvailableAt: null,
       },
     });
@@ -422,9 +423,10 @@ describe('the submit flow for written stories', () => {
       expect(ok.status).toBe(201);
       expect((await create('lims')).body.code).toBe('draft_limit_reached');
       expect((await submit('lims', ok.body.id, 1)).status).toBe(200);
-      expect((await read()).submissions.nextAvailableAt).toEqual(
-        expect.any(String),
-      );
+      expect((await read()).submissions).toMatchObject({
+        usedIn7Days: 1,
+        nextAvailableAt: expect.any(String),
+      });
     } finally {
       await run(
         admin,

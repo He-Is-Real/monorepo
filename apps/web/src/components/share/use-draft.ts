@@ -77,6 +77,11 @@ export interface Draft {
   setFormat: (format: StoryFormat) => void;
   fields: StoryFields;
   status: SaveStatus;
+  /**
+   * The loaded story went for review before (sent back for changes, or withdrawn): submitting it
+   * again doesn't count against the weekly limit (D94, D113).
+   */
+  submittedBefore: boolean;
   error: string | null;
   conflict: StoryFields | null;
   update: (change: Partial<StoryFields>) => void;
@@ -206,6 +211,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
+  const [submittedBefore, setSubmittedBefore] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const running = useRef<Promise<boolean> | null>(null);
   const again = useRef(false);
@@ -414,6 +420,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         }
         return false;
       }
+      setSubmittedBefore(!!story.submittedAt);
       const server = fieldsOf(story);
       const stored = readStored(owner, id);
       if (!stored) {
@@ -546,6 +553,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     setFormat,
     fields: state.current.local,
     status,
+    submittedBefore,
     error,
     conflict: conflict?.fields ?? null,
     update,
