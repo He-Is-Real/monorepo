@@ -517,11 +517,6 @@ describe('video and audio uploads', () => {
       height: 1200,
       alt: 'A hill at dawn',
     };
-    // A written story's picture needs its description; checked before anything is written.
-    const bare = await upload('pia', id, 1, { ...PICTURE, alt: undefined });
-    expect(bare.body.errors).toEqual([
-      { pointer: '/alt', message: 'a short description of the picture' },
-    ]);
     const k = key();
     const res = await upload('pia', id, 1, PICTURE, k);
     expect(res.status).toBe(200);

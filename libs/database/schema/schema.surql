@@ -2125,9 +2125,6 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
           OR !fn::shape::allowed($after.width, $after.height) {
           THROW 'upload_refused: an image’s pixel size or shape is outside what we take (D53)';
         };
-        IF $s.primaryFormat = 'written' AND fn::text::trimmed_length($after.alt) = 0 {
-          THROW 'upload_refused: a written story’s image needs its description';
-        };
       } ELSE {
         IF $s.primaryFormat != $after.format {
           THROW 'upload_refused: a ' + $s.primaryFormat + ' story takes no ' + $after.format;

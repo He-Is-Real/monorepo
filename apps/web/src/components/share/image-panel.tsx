@@ -23,7 +23,7 @@ import {
  * The browser re-encodes the chosen photo to WebP on a canvas, at most 2048 px on its longer side.
  * A canvas carries no metadata, so EXIF (the camera, the time, GPS) never leaves the device; the
  * photo's own orientation is applied first. It checks the shape (1:3..3:1) and size (D53) and
- * shows the result at its real shape with a description box (required for a written story).
+ * shows the result at its real shape with an optional description box (never required, Joel 2026-10-30).
  * "Add this picture" asks api-user for the upload (RequestUpload with `format: image`, the
  * same idempotent request as a video's: upload-request.ts), which puts the picture on the draft,
  * then PUTs the WebP straight to Bunny's storage with the presigned link. Replacing or removing
@@ -194,7 +194,6 @@ export function ImagePanel({
   onState?: (state: PictureState) => void;
 }) {
   const noun = NOUN[format];
-  const altRequired = format === 'written';
   const [phase, setPhase] = useState<Phase>({ at: 'idle' });
   /** The picture on the draft at the server, as last known: what a removal takes off. */
   const [attached, setAttached] = useState<Shown | null>(null);
@@ -202,7 +201,6 @@ export function ImagePanel({
   const [savedAlt, setSavedAlt] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [altProblem, setAltProblem] = useState<string | null>(null);
   const { begin } = useRuns();
   /** The blob: links this panel made, freed once nothing shows them and the draft hasn't them. */
   const blobs = useRef(new Set<string>());
@@ -298,19 +296,11 @@ export function ImagePanel({
       return;
     }
     blobs.current.add(prepared.url);
-    setAltProblem(null);
     setPhase({ at: 'preview', picture: prepared, granted: false });
   }
 
   async function add(picture: Prepared, granted: boolean) {
     const description = alt.trim();
-    if (altRequired && !description) {
-      setAltProblem(
-        'Describe your picture in a few words, for people who can’t see it.',
-      );
-      return;
-    }
-    setAltProblem(null);
     setProblem(null);
     const gone = begin();
     setPhase({ at: 'sending', picture });
@@ -419,7 +409,6 @@ export function ImagePanel({
     if (fileInput.current) fileInput.current.value = '';
     // A replacement not granted yet is only on this device: the story's picture stays.
     if (phase.at === 'preview' && !phase.granted && attached) {
-      setAltProblem(null);
       setAlt(savedAlt);
       setPhase({ at: 'done', ...attached });
       return;
@@ -444,13 +433,6 @@ export function ImagePanel({
 
   async function saveAlt() {
     const description = alt.trim();
-    if (altRequired && !description) {
-      setAltProblem(
-        'Describe your picture in a few words, for people who can’t see it.',
-      );
-      return;
-    }
-    setAltProblem(null);
     const gone = begin();
     if (await edit({ image: { alt: description || null } }, gone)) {
       setSavedAlt(description);
@@ -484,15 +466,13 @@ export function ImagePanel({
       {shown && (
         <div>
           <label htmlFor={altId} className="mb-1.5 block font-semibold">
-            Describe the {noun}
-            {altRequired ? '' : ' (optional)'}
+            Describe the {noun} (optional)
           </label>
           <input
             id={altId}
             className={input}
             maxLength={500}
             value={alt}
-            aria-invalid={!!altProblem}
             aria-describedby={`${altId}-hint`}
             onChange={(e) => setAlt(e.target.value)}
           />
@@ -500,11 +480,6 @@ export function ImagePanel({
             A few words for people who can’t see it, such as “Our church at
             sunrise”.
           </p>
-          {altProblem && (
-            <p role="alert" className="mt-1 text-sm text-destructive">
-              {altProblem}
-            </p>
-          )}
         </div>
       )}
       <div className="flex flex-wrap gap-3">

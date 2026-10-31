@@ -138,15 +138,12 @@ test('a written story’s picture: previewed at its real shape, described, and u
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
 
-  // A written story's picture needs its description.
-  await page.getByRole('button', { name: 'Add this picture' }).click();
-  await expect(
-    alert(page, 'Describe your picture in a few words'),
-  ).toBeVisible();
-  expect((await me.uploads()).requests).toBe(0);
-  await page.getByLabel('Describe the picture').fill('A green hill at dawn');
+  // The description is never required (Joel, 2026-10-30); it can be added afterwards.
   await page.getByRole('button', { name: 'Add this picture' }).click();
   await expect(page.getByText('Picture added.')).toBeVisible();
+  await page.getByLabel('Describe the picture').fill('A green hill at dawn');
+  await page.getByRole('button', { name: 'Save description' }).click();
+  await expect(page.getByText('Description saved.')).toBeVisible();
 
   const { images } = await me.uploads();
   expect(images).toHaveLength(1);

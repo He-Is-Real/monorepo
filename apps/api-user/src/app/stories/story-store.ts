@@ -345,9 +345,6 @@ export class StoryStore {
           if (!current.image) {
             fail400('/image', 'this story has no picture to describe');
           }
-          if (current.primaryFormat === 'written' && !patch.image.alt) {
-            fail400('/image/alt', 'a short description of the picture');
-          }
           sets.push(patch.image.alt ? 'image.alt = $alt' : 'image.alt = NONE');
           if (patch.image.alt) vars['alt'] = patch.image.alt;
         }

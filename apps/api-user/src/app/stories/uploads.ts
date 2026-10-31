@@ -58,7 +58,7 @@ export interface UploadRequest {
   fileSizeBytes: number;
   durationSeconds?: number;
   resume: boolean;
-  /** Images: the real pixel size (D53) and the description (required on a written story). */
+  /** Images: the real pixel size (D53) and its optional description. */
   width?: number;
   height?: number;
   alt?: string;
@@ -566,7 +566,7 @@ export class Uploads {
     if (draft.version !== ifMatch) throw new StaleVersionException();
     if (!EDITABLE.includes(draft.status)) throw locked();
     if (input.format === 'image') {
-      checkImage(input, draft.primaryFormat);
+      checkImage(input);
       return draft;
     }
     if (draft.primaryFormat !== input.format) {
@@ -744,8 +744,8 @@ export class Uploads {
     if (/story_cmd:stale_version/.test(message))
       return new StaleVersionException();
     if (/story_cmd:locked/.test(message)) return locked();
-    // The database's own checks of an image (its folder, type, size, shape, description).
-    if (/upload_refused: (an image|a written story’s image)/.test(message)) {
+    // The database's own checks of an image (its folder, type, size, shape).
+    if (/upload_refused: an image/.test(message)) {
       return new BadRequestException({
         code: 'validation_failed',
         message: 'The upload isn’t valid',
@@ -764,10 +764,11 @@ export class Uploads {
 
 /**
  * An image's checks before anything is written (D53; the database checks them again): a written
- * story's image, an audio story's picture or a video's own thumbnail (Joel, 2026-10-30), within the fixed size and pixel bounds, 1:3..3:1,
- * and a written story's needs its description.
+ * story's image, an audio story's picture or a video's own thumbnail (Joel, 2026-10-30), within
+ * the fixed size and pixel bounds, 1:3..3:1. Its description is never required (Joel,
+ * 2026-10-30).
  */
-function checkImage(input: UploadRequest, primaryFormat: string) {
+function checkImage(input: UploadRequest) {
   const errors: FieldError[] = [];
   const { width = 0, height = 0 } = input;
   if (input.fileSizeBytes > IMAGE_LIMITS.maxBytes) {
@@ -791,12 +792,6 @@ function checkImage(input: UploadRequest, primaryFormat: string) {
     errors.push({
       pointer: '/width',
       message: 'no wider than 3:1 and no taller than 1:3',
-    });
-  }
-  if (primaryFormat === 'written' && !input.alt) {
-    errors.push({
-      pointer: '/alt',
-      message: 'a short description of the picture',
     });
   }
   if (errors.length) invalid(errors, 'The picture can’t be used');

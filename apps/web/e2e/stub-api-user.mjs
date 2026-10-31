@@ -886,8 +886,6 @@ async function handleShare(req, res, path, url, s) {
     if (b && 'image' in b && b.image !== null) {
       if (!st.image)
         errors.push({ pointer: '/image', message: 'no picture to describe' });
-      else if (st.primaryFormat === 'written' && !trimmed(b.image?.alt))
-        errors.push({ pointer: '/image/alt', message: 'a description' });
     }
     if (b && 'body' in b && !trimmed(b.body))
       errors.push({
@@ -1054,8 +1052,6 @@ async function handleShare(req, res, path, url, s) {
             pointer: '/width',
             message: 'a size and shape we take',
           });
-        if (st.primaryFormat === 'written' && !trimmed(b.alt))
-          errors.push({ pointer: '/alt', message: 'a description' });
         if (errors.length)
           return p(400, 'Bad request', 'validation_failed', { errors });
         // Per hour only: pictures never count towards the weekly limit (Joel, 2026-10-30).

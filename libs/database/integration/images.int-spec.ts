@@ -14,7 +14,7 @@ import { draft, grantImage, grantUpload } from './support/world';
  * server-assigned like a video. api-user names the file `stories/<story>/<random>.webp` and records
  * an upload grant on its own login; the grant's event puts the path, size and description on the
  * draft. Nothing else puts an image on a story: the person's session may only change the
- * description or remove it.
+ * description (never required) or remove it.
  */
 describe('images: server-assigned, in the story’s own folder, only through a grant (D65, D80)', () => {
   let t: TestDatabase;
@@ -64,7 +64,19 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       },
     });
 
-    // An audio story's picture needs no description (it becomes the clip's thumbnail).
+    // A description is never required, on any type (Joel, 2026-10-30).
+    await draft(ann, 'ann_w2');
+    expect(
+      await grantImage(apiUser, {
+        story: 'ann_w2',
+        person: 'ann',
+        version: 1,
+        alt: null,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await image('ann_w2')).image).not.toHaveProperty('alt');
+
+    // An audio story's picture (it becomes the clip's thumbnail).
     await draft(ann, 'ann_a', { primaryFormat: 'audio', body: undefined });
     expect(
       await grantImage(apiUser, {
@@ -137,7 +149,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     ).toEqual([]);
   });
 
-  it('refuses another type, too big, the wrong shape or size, and a written image with no description', async () => {
+  it('refuses another type, too big, or the wrong shape or size', async () => {
     const dan = await person('dan');
     await draft(dan, 'dan_w');
     const cases: [Partial<Parameters<typeof grantImage>[1]>, RegExp][] = [
@@ -146,8 +158,6 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       [{ width: 3700, height: 1200 }, /pixel size or shape/], // wider than 3:1
       [{ width: 150, height: 300 }, /pixel size or shape/],
       [{ width: 4097, height: 4000 }, /pixel size or shape/],
-      [{ alt: '   ' }, /needs its description/],
-      [{ alt: null }, /needs its description/],
     ];
     for (const [g, refused] of cases) {
       expect(

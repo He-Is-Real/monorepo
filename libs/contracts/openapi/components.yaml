@@ -800,8 +800,8 @@ components:
         image:
           description: |
             M2 plan PR 10: `null` removes the story's image (its file stays for the clean-up sweep: an
-            approved copy may still show it); `{ alt }` changes its description (`400` `/image` if the
-            story has none; a written story's can't be blank, `/image/alt`). Only `/upload-url` puts an
+            approved copy may still show it); `{ alt }` changes its description, `null` or blank
+            clearing it (`400` `/image` if the story has none; a description is never required). Only `/upload-url` puts an
             image on a story (D80).
           oneOf:
             - type: 'null'
@@ -911,8 +911,8 @@ components:
 
         **Images (M2 plan PR 10; D53):** `format: image`, `contentType: image/webp`, the WebP's exact
         `fileSizeBytes` (at most 5 MiB; the PUT binds it), its real `width` and `height` (200 to 4096
-        pixels each, within 1:3..3:1) and `alt`, its description (required on a written story, `400`
-        `/alt`; optional for an audio story's picture). The browser re-encodes the picture to WebP
+        pixels each, within 1:3..3:1) and optionally `alt`, its description (never required, on any
+        story type: Joel, 2026-10-30). The browser re-encodes the picture to WebP
         without metadata (no EXIF or GPS), at most 2048 pixels on its longer side. No `resume` or
         `durationSeconds`.
       required: [format, contentType, fileSizeBytes]
@@ -922,8 +922,8 @@ components:
           type: string
           enum: [video, audio, image]
           description: |
-            The story's own `primaryFormat`, or `image` for a written story's image or an audio story's
-            picture.
+            The story's own `primaryFormat`, or `image` for a story's own picture (a written story's
+            image, an audio story's picture or a video's own thumbnail).
         contentType:
           type: string
           description: |
@@ -944,7 +944,7 @@ components:
         alt:
           type: string
           maxLength: 500
-          description: Images only; the person's short description of the picture.
+          description: Images only, optional on every story type; the person's short description of the picture.
         durationSeconds:
           type: integer
           minimum: 1
