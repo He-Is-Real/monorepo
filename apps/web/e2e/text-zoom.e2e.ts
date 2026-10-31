@@ -107,3 +107,18 @@ test('200% text: /admin/legal with its preview and confirmation fits on a 320 px
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
+
+test('200% text: /admin/limits with its confirmation fits on a 320 px phone', async ({
+  page,
+}) => {
+  await enlarge(page);
+  await page.addInitScript(() =>
+    window.localStorage.setItem('e2e-session', 'admin-text-zoom-limits'),
+  );
+  await page.goto(`${WEB_SIGNED_IN_URL}/admin/limits`);
+  await page.getByLabel('Largest video file').fill('10240');
+  await page.getByLabel('Upload attempts one person can start').fill('10000');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});

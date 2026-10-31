@@ -39,6 +39,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
+  themesFence: 'none', // one counter for tag deletions and settings writes (tagsMin); events only
   tag: 'none',
   // The legal documents (D121): the publishing admin's user id only (publishedBy, read by
   // api-admin alone), like an audit row's actor; kept for ever, never testimony.

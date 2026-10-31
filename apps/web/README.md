@@ -103,3 +103,7 @@ stub session (localStorage `e2e-session`), so parallel tests never share hearts.
   If another admin published meanwhile, api-admin answers `409` and the page asks to reload. It
   calls api-admin from the browser through the same client as api-user (`src/lib/api-user.ts`,
   with `API_ADMIN_URL`), so the token boundary above is unchanged.
+- `/admin/limits` (Admins): the submission limits in plain words with their units, pre-filled
+  with the values in force; Save lists the changes and asks to confirm. If another admin saved
+  meanwhile, api-admin answers `412` and the page asks to reload. The admin pages share one
+  gate and link each other (`src/components/admin/admin-access.tsx`).
