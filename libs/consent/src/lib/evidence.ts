@@ -23,6 +23,11 @@ export interface EvidenceInput {
    * with a form's statements data since; the terms of use version shown, with its words' sha256.
    */
   terms?: { version: string; contentHash: string } | null;
+  /**
+   * Evidence v5 (O4): the story a sharing event is about (its id, without the table), on every
+   * event naming one; v4's fields plus this. Absent on every other event.
+   */
+  story?: string;
   /** The statement: a consent type. */
   type: string;
   event: 'granted' | 'withdrawn';
@@ -34,6 +39,8 @@ export interface EvidenceInput {
  * presented and chosen. Every text is identified by its own sha256 (the form's `textHash`, the
  * DPA's `contentHash`, both computed from libs/legal), so the hash can be recomputed later from
  * the repo, or the copies in the database, and the ledger alone.
+ *   - v5 (O4, every share_socials event since sharing became per story): v4 plus the story's id,
+ *     so the ledger proves which story the person chose for (consent.evidenceVersion = 5);
  *   - v4 (D125, every event with statements data since): v3 plus, on a sign-up version asking
  *     for them, the terms of use version with its words' sha256 (null otherwise), so the ledger
  *     proves both documents in force (consent.evidenceVersion = 4);
@@ -46,54 +53,64 @@ export interface EvidenceInput {
  *     type, the event and the mechanism.
  */
 export function evidenceHash(e: EvidenceInput): string {
-  const canonical =
-    e.form?.statementsHash && e.terms !== undefined
+  const f = e.form;
+  const v4 =
+    f?.statementsHash && e.terms !== undefined
       ? [
-          'heisreal-consent-evidence/v4',
-          e.form.kind,
-          e.form.version,
-          e.form.textHash,
-          e.form.statementsHash,
+          f.kind,
+          f.version,
+          f.textHash,
+          f.statementsHash,
           e.dpaVersion,
           e.dpaContentHash,
           e.terms?.version ?? null,
           e.terms?.contentHash ?? null,
+        ]
+      : null;
+  const canonical =
+    v4 && e.story !== undefined
+      ? [
+          'heisreal-consent-evidence/v5',
+          ...v4,
+          e.story,
           e.type,
           e.event,
           e.mechanism,
         ]
-      : e.form?.statementsHash
-        ? [
-            'heisreal-consent-evidence/v3',
-            e.form.kind,
-            e.form.version,
-            e.form.textHash,
-            e.form.statementsHash,
-            e.dpaVersion,
-            e.dpaContentHash,
-            e.type,
-            e.event,
-            e.mechanism,
-          ]
-        : e.form
+      : v4
+        ? ['heisreal-consent-evidence/v4', ...v4, e.type, e.event, e.mechanism]
+        : e.form?.statementsHash
           ? [
-              'heisreal-consent-evidence/v2',
+              'heisreal-consent-evidence/v3',
               e.form.kind,
               e.form.version,
               e.form.textHash,
+              e.form.statementsHash,
               e.dpaVersion,
               e.dpaContentHash,
               e.type,
               e.event,
               e.mechanism,
             ]
-          : [
-              'heisreal-consent-evidence/v1',
-              e.dpaVersion,
-              e.dpaContentHash,
-              e.type,
-              e.event,
-              e.mechanism,
-            ];
+          : e.form
+            ? [
+                'heisreal-consent-evidence/v2',
+                e.form.kind,
+                e.form.version,
+                e.form.textHash,
+                e.dpaVersion,
+                e.dpaContentHash,
+                e.type,
+                e.event,
+                e.mechanism,
+              ]
+            : [
+                'heisreal-consent-evidence/v1',
+                e.dpaVersion,
+                e.dpaContentHash,
+                e.type,
+                e.event,
+                e.mechanism,
+              ];
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }

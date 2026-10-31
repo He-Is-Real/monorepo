@@ -631,7 +631,8 @@ components:
       description: |
         The submitter's own view (read as the person, D27), including lifecycle and moderation feedback.
         No consent object: a story stores no consent (D86); the person's consent is
-        `GET /v1/account/consents`. A video or audio story's `media` holds its uploaded file once
+        `GET /v1/account/consents`. The one consent chosen per story, sharing beyond heisreal.today (O4),
+        is `sharing`, read from the ledger. A video or audio story's `media` holds its uploaded file once
         `/upload-url` has put one on it (M2 plan PR 7), but isn't signed for the person yet
         (`playbackUrl` and `thumbnailUrl` are `null`; a preview of your own upload comes later),
         and a written story's `image` is `null` until images.
@@ -695,6 +696,34 @@ components:
             was signed for it again. `null` for anything that isn't a draft, or while no testimony
             form is published (nothing expires). Clients show it as it is; they never recompute it.
             Sent by api-user only.
+        sharing:
+          $ref: '#/components/schemas/StorySharing'
+
+    StorySharing:
+      type: object
+      description: |
+        O4 (Joel, 2026-10-31): whether the person lets the media team share this story beyond
+        heisreal.today, chosen per story on the social sharing form: this story's own latest `share_socials`
+        event (`fn::consent::story_sharing`). Granted at submit or from My submissions
+        (`POST /v1/account/consents` with `storyId`), withdrawn as easily
+        (`POST /v1/account/consents/share_socials/withdraw` with `storyId`). Account-wide sharing events
+        from before O4 name no story, so they count for none. Anything is shared only while the story is
+        public on heisreal.today.
+      additionalProperties: false
+      required: [granted, counts, formVersion, occurredAt]
+      properties:
+        granted:
+          type: boolean
+          description: The latest event for this story is a grant.
+        counts:
+          type: boolean
+          description: Granted, on a social sharing version that is published or retired (`fn::consent::valid`).
+        formVersion:
+          type: [string, 'null']
+          description: The social sharing version of the latest event; `null` if never chosen.
+        occurredAt:
+          type: [string, 'null']
+          format: date-time
 
     StoryModeration:
       description: Moderator view of the story write model, including lock state and the submitter reference.
@@ -1080,7 +1109,17 @@ components:
       type: object
       description: One immutable event from the append-only consent ledger.
       required:
-        [id, type, event, form, formVersion, dpaVersion, mechanism, occurredAt]
+        [
+          id,
+          type,
+          event,
+          form,
+          formVersion,
+          dpaVersion,
+          mechanism,
+          storyId,
+          occurredAt,
+        ]
       properties:
         id:
           type: string
@@ -1108,6 +1147,11 @@ components:
               reconsent_prompt,
               legacy_import,
             ]
+        storyId:
+          type: [string, 'null']
+          description: |
+            O4: the story a `share_socials` event is about (sharing beyond heisreal.today is chosen per
+            story); `null` on every other event.
         occurredAt:
           type: string
           format: date-time
@@ -1119,7 +1163,10 @@ components:
       properties:
         current:
           type: array
-          description: Latest state per consent type, one entry for every type (the one definition is `fn::consent::current`, D17).
+          description: |
+            Latest state per consent type, one entry for every type the person gives for all their stories
+            (the one definition is `fn::consent::current`, D17): every type but `share_socials`, which is
+            chosen per story (O4) and is each story's `StoryMine.sharing`.
           items:
             type: object
             required:
@@ -1197,6 +1244,8 @@ components:
         hash (`heisreal-consent-evidence/v4`, D125): sha256 of the form, its version, its text's and
         statements file's sha256, the privacy policy version with its words' sha256, the terms of use
         version with theirs (or nulls), the statement, the event and the mechanism. No IP address (D19).
+        O4: a `share_socials` grant is for one story of the person's own, named in `storyId`, and its
+        evidence is `heisreal-consent-evidence/v5`: v4 with the story's id after the terms of use.
       required: [form, formVersion, statement, mechanism, privacyPolicyVersion]
       properties:
         form:
@@ -1218,6 +1267,24 @@ components:
           description: |
             D122, the terms of use version the page showed. Required on a sign-up version that asks for
             them (missing answers `409 legal_document_not_in_force`); ignored on other forms.
+        storyId:
+          type: string
+          pattern: '^[A-Za-z0-9_]{1,64}$'
+          description: |
+            O4: the story this sharing choice is for. Required with `share_socials` and refused with
+            any other statement (`400`); a story that isn't the person's answers `404 story_not_found`.
+
+    WithdrawConsent:
+      type: object
+      description: |
+        O4: the body of `POST /v1/account/consents/share_socials/withdraw`, naming the story whose sharing
+        beyond heisreal.today is withdrawn. Every other type takes no body (`400` if it names a story).
+      additionalProperties: false
+      required: [storyId]
+      properties:
+        storyId:
+          type: string
+          pattern: '^[A-Za-z0-9_]{1,64}$'
 
     DpaVersion:
       type: object
@@ -1933,6 +2000,7 @@ components:
                 approvedAt,
                 publishedAt,
                 draftExpiresAt,
+                sharing,
               ]
             properties:
               id:
@@ -2056,6 +2124,8 @@ components:
               draftExpiresAt:
                 type: [string, 'null']
                 format: date-time
+              sharing:
+                $ref: '#/components/schemas/StorySharing'
         consents:
           type: array
           description: The consent ledger, oldest first, with the words of each box ticked.
@@ -2072,6 +2142,7 @@ components:
                 formVersion,
                 privacyPolicyVersion,
                 termsVersion,
+                storyId,
                 mechanism,
                 evidenceHash,
                 evidenceVersion,
@@ -2099,6 +2170,11 @@ components:
                 type: string
               termsVersion:
                 type: [string, 'null']
+              storyId:
+                type: [string, 'null']
+                description: |
+                  O4: the story a `share_socials` event is about (sharing beyond heisreal.today is chosen per
+                  story); `null` on every other event. It may name a story since deleted.
               mechanism:
                 type: string
               evidenceHash:

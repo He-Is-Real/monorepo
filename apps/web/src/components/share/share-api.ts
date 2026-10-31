@@ -54,6 +54,8 @@ export interface MyStory {
   tags: Tag[];
   submittedAt: string | null;
   updatedAt: string;
+  /** O4: whether this story may go beyond heisreal.today (its own choice). */
+  sharing?: { granted: boolean };
 }
 
 /** The contract's `ConsentState`, the parts the flow uses. */
@@ -257,13 +259,17 @@ export function shareApi(api: ApiUser) {
     story: async (id: string) =>
       (await api.get<MyStory>(`/v1/account/stories/${encodeURIComponent(id)}`))
         .data as MyStory,
-    /** GrantConsent on the version in force shown (D84); one key per tick. */
+    /**
+     * GrantConsent on the version in force shown (D84); one key per tick. Sharing beyond
+     * heisreal.today names its story (O4: chosen per story).
+     */
     grant: (
       form: 'testimony' | 'social',
       formVersion: string,
       privacyPolicyVersion: string,
       statement: string,
       idempotencyKey = newIdempotencyKey(),
+      storyId?: string,
     ) =>
       api.command('/v1/account/consents', {
         method: 'POST',
@@ -274,6 +280,7 @@ export function shareApi(api: ApiUser) {
           statement,
           mechanism: 'web_form_submission',
           privacyPolicyVersion,
+          ...(storyId === undefined ? {} : { storyId }),
         },
         idempotencyKey,
       }),

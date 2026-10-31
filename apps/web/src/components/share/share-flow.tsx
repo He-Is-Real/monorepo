@@ -1319,7 +1319,24 @@ export function ReviewStep({
 }) {
   const limits = useLimits();
   const askPublish = !counts(consents, 'publish');
-  const askSocial = !counts(consents, 'share_socials') && !!legal.social;
+  // O4: sharing beyond heisreal.today is chosen for each story. Offered unless this story already
+  // allows it (sent back for changes, say): an unticked box would wrongly suggest it doesn't.
+  const [alreadyShared, setAlreadyShared] = useState(false);
+  const storyId = draft.current().draftId;
+  useEffect(() => {
+    if (!storyId || !legal.social) return;
+    let live = true;
+    calls
+      .story(storyId)
+      .then((story) => {
+        if (live) setAlreadyShared(story?.sharing?.granted === true);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [calls, storyId, legal.social]);
+  const askSocial = !!legal.social && !alreadyShared;
   // D114: the boxes are the versions' own data. Publishing is required, so without its box the
   // story can't be submitted (fail closed); sharing is optional, so without its box it's not offered.
   const publishBox = boxFor(legal.testimony, 'publish');
@@ -1380,9 +1397,10 @@ export function ReviewStep({
           legal.social.privacyVersion,
           'share_socials',
           keys.current.social,
+          draftId,
         );
       }
-      if (askPublish || (socialBox && social)) await refreshConsents();
+      if (askPublish) await refreshConsents();
       // The submission being tried, kept by the draft (per person and draft, in this tab's
       // storage) across failures that leave its outcome unknown: no answer, an unreadable one,
       // or a server error. Trying again, after Back or a reload too, replays it, even if it went
@@ -1594,6 +1612,12 @@ export function ReviewStep({
             a moderator approves them.
           </p>
         )}
+        {alreadyShared && (
+          <p data-shared="" className="text-sm text-secondary-text">
+            You’ve let us share this story beyond heisreal.today. You can change
+            that for this story in My submissions on your profile.
+          </p>
+        )}
         {socialBox && legal.social && (
           <div
             data-grant="share_socials"
@@ -1601,7 +1625,9 @@ export function ReviewStep({
           >
             <Checkbox checked={social} onChange={setSocial}>
               {socialBox.label}{' '}
-              <span className="text-secondary-text">(optional)</span>
+              <span className="text-secondary-text">
+                (optional, for this story only)
+              </span>
             </Checkbox>
             <details className="mt-2">
               <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-link">

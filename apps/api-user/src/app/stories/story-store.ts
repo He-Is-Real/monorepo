@@ -21,7 +21,7 @@ import {
   submissionLimitOf,
   trimmedTextLength,
 } from '@heisreal/database';
-import { recordKey } from '@heisreal/consent';
+import { recordKey, type StorySharing, storySharing } from '@heisreal/consent';
 import type { SurrealQueryable } from 'surrealdb';
 import {
   type CreateInput,
@@ -82,6 +82,8 @@ export interface StoryMine {
   updatedAt: string;
   /** A draft's deletion date if nobody touches it (D71; fn::story::draft_expires_at). */
   draftExpiresAt: string | null;
+  /** O4: whether this story may go beyond heisreal.today: its own share_socials choice. */
+  sharing: StorySharing;
 }
 
 /** The contract's `SubmissionLimits`: what the submit page shows and checks (W3, D112). */
@@ -170,11 +172,19 @@ interface RawStory {
   createdAt: string;
   updatedAt: string;
   draftExpiresAt?: string | null;
+  sharing?: {
+    event?: string;
+    form?: string | null;
+    occurredAt?: string;
+  } | null;
+  sharingCounts?: boolean | null;
 }
 
 const STORY_FIELDS = `<string> id AS id, version, slug, status, title, description, body,
   bylineName, primaryFormat, tagRefs.map(|$t| <string> $t) AS tagRefs, media, rejectionFeedback,
-  submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt`;
+  submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
+  fn::consent::story_sharing(submitter, id) AS sharing,
+  fn::consent::valid(fn::consent::story_sharing(submitter, id)) AS sharingCounts`;
 
 const iso = (d: string | null | undefined) =>
   d ? new Date(d).toISOString() : null;
@@ -655,6 +665,7 @@ export class StoryStore {
       createdAt: iso(r.createdAt) as string,
       updatedAt: iso(r.updatedAt) as string,
       draftExpiresAt: iso(r.draftExpiresAt),
+      sharing: storySharing(r.sharing, r.sharingCounts),
     }));
   }
 

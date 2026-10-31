@@ -25,6 +25,7 @@ const TEXT =
   'I was lost for years, and I did not think anyone could reach me. '.repeat(5);
 const ART9 = /storing and processing my story/;
 const PUBLISH = /Publish my story on heisreal\.today/;
+const SOCIAL = /share my published story in the ways this form lists/;
 
 interface Seed {
   settings?: Record<string, number>;
@@ -63,6 +64,7 @@ async function person(page: Page, request: APIRequestContext, seed: Seed) {
         body: string;
         bylineName: string | null;
         tags: { slug: string }[];
+        sharing: { granted: boolean };
       }[],
     consents: async () =>
       (
@@ -321,6 +323,31 @@ test.describe('behaviour', () => {
     // The stub accepts only grants naming version 2 (dev_policy).
     await step(page, 'Thank you for sharing your story');
     expect(await me.consents()).toContain('publish');
+  });
+
+  test('sharing beyond heisreal.today is offered unticked, and ticking it is for this story only', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Further afield');
+    await page.getByLabel('Your story').fill(TEXT);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    const social = page.locator('[data-grant="share_socials"]');
+    await expect(social).toContainText('(optional, for this story only)');
+    await expect(social.getByRole('checkbox')).not.toBeChecked();
+    await tick(page, PUBLISH);
+    await tick(page, SOCIAL);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    const [story] = await me.stories();
+    expect([story.status, story.sharing.granted]).toEqual(['pending', true]);
+    // It's the story's choice (O4), not one of the person's own consents.
+    expect(await me.consents()).not.toContain('share_socials');
   });
 
   test('without the sign-up consent, the page sends people to finish setting up', async ({

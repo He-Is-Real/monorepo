@@ -540,6 +540,36 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
   expect((await remove(id, 3)).status).toBe(409); // pending: withdraw it first
   expect((await withdraw(id)).status).toBe(428);
   expect((await withdraw(id, 2)).status).toBe(412);
+  // O4: sharing beyond heisreal.today is granted and withdrawn per story, and listed on it.
+  const sharing = (data: unknown) =>
+    call('POST', '/v1/account/consents', {
+      headers: { 'idempotency-key': key() },
+      data,
+    });
+  const SHARE = {
+    form: 'social',
+    formVersion: 'v2',
+    statement: 'share_socials',
+    mechanism: 'account_settings',
+    privacyPolicyVersion: 'dev_policy',
+  };
+  expect((await sharing(SHARE)).status).toBe(400); // no story named
+  expect((await sharing({ ...SHARE, storyId: 'nosuch' })).status).toBe(404);
+  expect((await sharing({ ...SHARE, storyId: id })).status).toBe(201);
+  expect(
+    (await call('GET', `/v1/account/stories/${id}`)).body.sharing,
+  ).toMatchObject({ granted: true, counts: true });
+  const stopSharing = (data?: unknown) =>
+    call('POST', '/v1/account/consents/share_socials/withdraw', {
+      headers: { 'idempotency-key': key() },
+      data,
+    });
+  expect((await stopSharing()).status).toBe(400);
+  expect((await stopSharing({ storyId: 'nosuch' })).status).toBe(404);
+  // Never shared: nothing to withdraw.
+  expect((await stopSharing({ storyId: short.body.id })).status).toBe(409);
+  expect((await stopSharing({ storyId: id })).status).toBe(202);
+  expect((await call('GET', '/v1/account/export')).status).toBe(200);
   expect((await withdraw(id, 3)).status).toBe(200);
   expect((await withdraw(id, 4)).status).toBe(409);
   expect((await remove(id, 4)).status).toBe(204);
@@ -550,7 +580,6 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     call('POST', `/v1/account/consents/${type}/withdraw`, {
       headers: { 'idempotency-key': key() },
     });
-  expect((await withdrawConsent('share_socials')).status).toBe(409);
   expect((await withdrawConsent('publish')).status).toBe(202);
   // Erasure (M2 plan PR 11): the account goes, and its token gets 401 from then on.
   expect((await call('DELETE', '/v1/account')).status).toBe(202);

@@ -12,7 +12,11 @@ import {
 } from '@heisreal/database/integration-testing';
 import { RecordId, type Surreal } from 'surrealdb';
 import { ConsentLedger } from '../src/lib/consent-ledger';
-import { type ConsentType, STATEMENT_FORM } from '../src/lib/consent.types';
+import {
+  type AccountConsentType,
+  type ConsentType,
+  STATEMENT_FORM,
+} from '../src/lib/consent.types';
 
 /**
  * D29: an `Idempotency-Key` commits in the same transaction as the consent event, so a retry
@@ -60,7 +64,7 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
       ledger.grant(s, input, idem),
     );
   };
-  const withdraw = (person: string, k: string, type: ConsentType) =>
+  const withdraw = (person: string, k: string, type: AccountConsentType) =>
     command(person, k, ['POST', 'withdraw', type], (s, idem) =>
       ledger.withdraw(s, type, idem),
     );
@@ -147,7 +151,7 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
     const k = key();
     const settled = await Promise.allSettled([
       grant('dan', k, 'publish'),
-      grant('dan', k, 'share_socials'),
+      grant('dan', k, 'account_data'),
     ]);
     expect(settled.map((s) => s.status).sort()).toEqual([
       'fulfilled',
@@ -159,7 +163,7 @@ describe('Idempotency-Key commits atomically with the consent command (D29)', ()
     );
     const applied =
       (await events('dan', 'publish')).length +
-      (await events('dan', 'share_socials')).length;
+      (await events('dan', 'account_data')).length;
     expect(applied).toBe(1);
     // And sequentially, once the key is stored.
     await expect(grant('dan', k, 'age_18plus')).rejects.toBeInstanceOf(

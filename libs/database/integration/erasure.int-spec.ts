@@ -1,6 +1,11 @@
 import type { Surreal } from 'surrealdb';
 import { outcome, rows, run, TestDatabase } from './support/harness';
-import { consentEvent, createPeople, grantAll } from './support/harness';
+import {
+  consentEvent,
+  createPeople,
+  grantAll,
+  shareStory,
+} from './support/harness';
 import { createHash } from 'node:crypto';
 import {
   approve,
@@ -33,6 +38,8 @@ describe('erasure on api_user’s service login', () => {
     await draft(ann, 'ann_live');
     await submit(ann, 'ann_live');
     await approve(admin, 'ann_live');
+    // O4: she lets this story go beyond heisreal.today.
+    expect(await shareStory(ann, 'story:ann_live', 'granted')).toHaveLength(1);
     migrator = await t.migrator();
     apiUser = await t.service('api_user');
     // Ann's video draft, its video made by api-user (an upload grant, D80).
@@ -166,6 +173,13 @@ describe('erasure on api_user’s service login', () => {
       'share_socials',
       'special_category_religious',
     ]);
+    // A story's sharing event keeps the story's id (O4), like auditLog: the story itself is gone.
+    expect(
+      await truth(
+        `SELECT VALUE [story, record::exists(story)] FROM consent
+           WHERE subject = user:ann AND type = 'share_socials'`,
+      ),
+    ).toEqual([['story:ann_live', false]]);
     // The stub: internal id, createdAt and gdprDeletedAt. The Clerk id is cleared.
     const [user] = await truth<Record<string, unknown>>(
       'SELECT * FROM user:ann',
