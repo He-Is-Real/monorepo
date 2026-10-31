@@ -474,14 +474,16 @@ describe('housekeeping: erasure requests and queued deletions', () => {
   let migrator: Surreal;
   let housekeeping: Surreal;
   let library: FakeLibrary;
-  const clerk = {
-    deleted: [] as string[],
-    failing: new Set<string>(),
+  /** Clerk's users, in memory: the deletes, and which of them fail. */
+  class FakeClerk implements ClerkUsers {
+    deleted: string[] = [];
+    failing = new Set<string>();
     async delete(id: string) {
       if (this.failing.has(id)) throw new Error('Clerk answered 503');
       this.deleted.push(id);
-    },
-  } satisfies ClerkUsers & Record<string, unknown>;
+    }
+  }
+  const clerk = new FakeClerk();
   const logs: Record<string, unknown>[] = [];
   const EVA_VIDEO = guid();
   const FRED_VIDEO = guid();
