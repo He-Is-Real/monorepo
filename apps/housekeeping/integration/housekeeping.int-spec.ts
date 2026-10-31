@@ -1,6 +1,9 @@
+import { ERASE_ACCOUNT } from '@heisreal/database';
 import {
+  consentEvent,
   createPeople,
   grantAll,
+  grantUpload,
   outcome,
   publishDpa,
   publishForm,
@@ -11,6 +14,8 @@ import {
 } from '@heisreal/database/integration-testing';
 import type { Surreal, SurrealTransaction } from 'surrealdb';
 import { CHORES } from '../src/app/chores';
+import type { ClerkUsers } from '../src/app/clerk';
+import { erasureRequestsTask, pendingDeletionsTask } from '../src/app/erasure';
 import type { LibraryVideo, StreamLibrary } from '../src/app/stream';
 import { runTasks, type TaskContext } from '../src/app/tasks';
 
@@ -455,5 +460,178 @@ describe('housekeeping racing a resumed upload or a form publication', () => {
 
     expect(await sweep(new FakeLibrary([]))).toBe(0);
     expect(await exists('outlived')).toBe(true);
+  });
+});
+
+/**
+ * What erasure left to do (D39, D40, D88): a withdrawal api-user never got to erase, and
+ * deletions at Bunny and Clerk that failed. Housekeeping retries them every night, at most
+ * maxDeletions each, and a row that keeps failing waits longer each time instead of holding up
+ * the rest.
+ */
+describe('housekeeping: erasure requests and queued deletions', () => {
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let housekeeping: Surreal;
+  let library: FakeLibrary;
+  const clerk = {
+    deleted: [] as string[],
+    failing: new Set<string>(),
+    async delete(id: string) {
+      if (this.failing.has(id)) throw new Error('Clerk answered 503');
+      this.deleted.push(id);
+    },
+  } satisfies ClerkUsers & Record<string, unknown>;
+  const logs: Record<string, unknown>[] = [];
+  const EVA_VIDEO = guid();
+  const FRED_VIDEO = guid();
+
+  const sweep = (over: Partial<TaskContext> = {}) =>
+    runTasks(
+      [erasureRequestsTask, pendingDeletionsTask],
+      {
+        db: housekeeping,
+        stream: library,
+        clerk,
+        dryRun: false,
+        maxDeletions: 50,
+        now: NOW,
+        ...over,
+      },
+      (entry) => logs.push(entry),
+    );
+  const queued = () =>
+    rows<{ ref: string; attempts: number }>(
+      migrator,
+      `SELECT ref, attempts FROM pendingDeletion ORDER BY ref`,
+    );
+  const erased = async (who: string) =>
+    (
+      await rows(
+        migrator,
+        `SELECT VALUE gdprDeletedAt != NONE FROM ONLY type::record('user', $who)`,
+        { who },
+      )
+    )[0];
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    housekeeping = await t.service('housekeeping');
+    const apiUser = await t.service('api_user');
+    await publishDpa(t, 'v1');
+    await createPeople(t, { eva: 'user_eva', fred: 'user_fred' });
+    await trustSubmitters(t, 'eva', 'fred');
+    for (const [who, video] of [
+      ['eva', EVA_VIDEO],
+      ['fred', FRED_VIDEO],
+    ]) {
+      const person = await t.person(`user_${who}`);
+      await grantAll(person);
+      await createDraft(person, `${who}_video`, 'video');
+      expect(
+        await grantUpload(apiUser, {
+          video,
+          story: `${who}_video`,
+          person: who,
+          version: 1,
+        }),
+      ).toMatchObject({ ok: true });
+    }
+    // Eva withdrew her testimony consent, and api-user stopped before erasing her.
+    await consentEvent(
+      await t.person('user_eva'),
+      'special_category_religious',
+      'withdrawn',
+    );
+    // Fred deleted his account; Bunny and Clerk couldn't be reached, so both deletions wait.
+    await run(apiUser, ERASE_ACCOUNT, {
+      clerkUserId: 'user_fred',
+      reason: 'account_deleted',
+    });
+    library = new FakeLibrary([
+      story(EVA_VIDEO, ago(1)),
+      story(FRED_VIDEO, ago(1)),
+    ]);
+  });
+  afterAll(() => t?.close());
+
+  it('in a dry run, only reports what it would do', async () => {
+    expect(await sweep({ dryRun: true })).toBe(0);
+    expect(logs.slice(-2)).toEqual([
+      expect.objectContaining({
+        task: 'erasure-requests',
+        selected: 1,
+        deleted: 0,
+        ids: ['eva'],
+      }),
+      expect.objectContaining({
+        task: 'pending-deletions',
+        selected: 2,
+        deleted: 0,
+      }),
+    ]);
+    expect(await erased('eva')).toBe(false);
+    expect(await queued()).toHaveLength(2);
+  });
+
+  it('without Clerk’s key, leaves Clerk deletions waiting, untried', async () => {
+    expect(await sweep({ clerk: null, maxDeletions: 1, dryRun: true })).toBe(0);
+    expect(logs.at(-1)).toMatchObject({
+      task: 'pending-deletions',
+      selected: 1,
+      more: false,
+    });
+  });
+
+  it('erases whoever is still requested, then works through the queue, a failure pushed back', async () => {
+    clerk.failing.add('user_fred');
+    expect(await sweep()).toBe(1);
+    expect(await erased('eva')).toBe(true);
+    expect(
+      await rows(
+        migrator,
+        `SELECT service, reason FROM auditLog WHERE entity = user:eva AND action = 'EraseAccount'`,
+      ),
+    ).toEqual([{ service: 'housekeeping', reason: 'consent_withdrawn' }]);
+    expect(await rows(migrator, `SELECT VALUE id FROM erasureRequest`)).toEqual(
+      [],
+    );
+    // Eva's erasure queued her video and Clerk account; both go the same night.
+    expect(library.deleted.sort()).toEqual([EVA_VIDEO, FRED_VIDEO].sort());
+    expect(clerk.deleted).toEqual(['user_eva']);
+    expect(await queued()).toEqual([{ ref: 'user_fred', attempts: 1 }]);
+    expect(logs.at(-1)).toMatchObject({
+      task: 'pending-deletions',
+      selected: 4,
+      deleted: 3,
+      failed: 1,
+    });
+  });
+
+  it('doesn’t try a pushed-back row again before its time, and does once it’s due', async () => {
+    clerk.failing.clear();
+    expect(await sweep()).toBe(0);
+    expect(logs.at(-1)).toMatchObject({
+      task: 'pending-deletions',
+      selected: 0,
+    });
+    expect(clerk.deleted).toEqual(['user_eva']);
+
+    await run(
+      migrator,
+      `UPDATE pendingDeletion SET nextAttemptAt = time::now()`,
+    );
+    expect(await sweep()).toBe(0);
+    expect(clerk.deleted).toEqual(['user_eva', 'user_fred']);
+    expect(await queued()).toEqual([]);
+  });
+
+  it('can see and change nothing of the queue but its retries', async () => {
+    await run(
+      housekeeping,
+      `CREATE pendingDeletion CONTENT { kind: 'clerk_user', ref: 'user_x' }`,
+    );
+    expect(await queued()).toEqual([]);
   });
 });

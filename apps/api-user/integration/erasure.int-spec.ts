@@ -69,10 +69,35 @@ class FakeClerk implements ClerkBackend {
   }
 }
 
+/**
+ * api-user's database login, made to fail on demand: `failing` names a piece of SurrealQL whose
+ * queries throw (the database half of erasure, or the deletion queue).
+ */
+function breakable(db: Surreal) {
+  const breaks = { failing: null as string | null };
+  const proxy = new Proxy(db, {
+    get(target, prop) {
+      if (prop === 'query') {
+        return (sql: string, vars?: Record<string, unknown>) =>
+          target.query(
+            breaks.failing && sql.includes(breaks.failing)
+              ? `THROW 'the database is unavailable'`
+              : sql,
+            vars,
+          );
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return { db: proxy, breaks };
+}
+
 describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.deleted', () => {
   const contract = new Contract('api-user.yaml');
   const bunny = new FakeStream();
   const clerkApi = new FakeClerk();
+  let breaks: { failing: string | null };
   let t: TestDatabase;
   let clerk: TestClerk;
   let migrator: Surreal;
@@ -190,9 +215,11 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     migrator = await t.migrator();
     admin = await t.service('api_admin');
     apiUser = await t.service('api_user');
+    const broken = breakable(apiUser);
+    breaks = broken.breaks;
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
-      .useValue(apiUser)
+      .useValue(broken.db)
       .overrideProvider(CLERK_CONFIG)
       .useValue(
         parseClerkConfig({
@@ -253,25 +280,60 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     expect((await left('ann')).rowsForClerkId).toEqual([]);
   });
 
-  it('keeps a Clerk deletion that failed queued, and the next erasure retries it (D40)', async () => {
+  it('keeps a Clerk deletion that failed queued, pushed back, without holding up the next erasure (D40)', async () => {
     await personWithStories('cat');
     clerkApi.failing = true;
     expect((await call('DELETE', '/v1/account', 'cat')).status).toBe(202);
-    // The database half is done; only the Clerk account waits.
+    // The database half is done; only the Clerk account waits, an hour at first (housekeeping).
     expect(await left('cat')).toMatchObject({
       stories: [],
       user: [undefined, true],
       queued: [expect.stringMatching(/^pendingDeletion:/)],
     });
+    expect(
+      await rows(
+        migrator,
+        `SELECT attempts, nextAttemptAt > time::now() + 50m AS later FROM pendingDeletion`,
+      ),
+    ).toEqual([{ attempts: 1, later: true }]);
     expect((await call('GET', '/v1/account', 'cat')).status).toBe(401);
 
     clerkApi.failing = false;
     await personWithStories('dan');
     expect((await call('DELETE', '/v1/account', 'dan')).status).toBe(202);
-    expect(clerkApi.deleted).toEqual(
-      expect.arrayContaining(['user_cat', 'user_dan']),
-    );
-    expect((await left('dan')).queued).toEqual([]);
+    expect(clerkApi.deleted).toContain('user_dan');
+    expect(clerkApi.deleted).not.toContain('user_cat');
+    expect(
+      await rows(migrator, `SELECT VALUE ref FROM pendingDeletion`),
+    ).toEqual(['user_cat']);
+    await run(migrator, `DELETE pendingDeletion`);
+  });
+
+  it('answers 202 once the account is erased, even if the deletion queue then fails: the deletions wait', async () => {
+    const { video } = await personWithStories('ida');
+    breaks.failing = 'pendingDeletion';
+    try {
+      expect(await call('DELETE', '/v1/account', 'ida')).toEqual({
+        status: 202,
+        body: undefined,
+      });
+    } finally {
+      breaks.failing = null;
+    }
+    expect(await left('ida')).toMatchObject({
+      stories: [],
+      user: [undefined, true],
+      erasedBy: ['account_deleted'],
+    });
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE ref FROM pendingDeletion ORDER BY ref`,
+      ),
+    ).toEqual([video, 'user_ida'].sort());
+    expect(bunny.deleted).not.toContain(video);
+    expect((await call('GET', '/v1/account', 'ida')).status).toBe(401);
+    await run(migrator, `DELETE pendingDeletion`);
   });
 
   it('withdrawing the testimony consent deletes the account, with the withdrawal kept as proof (D88)', async () => {
@@ -290,6 +352,9 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
       erasedBy: ['consent_withdrawn'],
       queued: [],
     });
+    expect(await rows(migrator, `SELECT VALUE id FROM erasureRequest`)).toEqual(
+      [],
+    );
     expect(
       await rows(
         migrator,
@@ -299,6 +364,36 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     ).toEqual(['withdrawn']);
     expect(bunny.deleted).toContain(video);
     expect(clerkApi.deleted).toContain('user_eve');
+  });
+
+  it('a withdrawal whose erasure fails still answers 202, and the erasure stays requested with it (D88)', async () => {
+    await personWithStories('jo');
+    breaks.failing = 'fn::account::erase';
+    try {
+      const res = await call(
+        'POST',
+        '/v1/account/consents/account_data/withdraw',
+        'jo',
+        { 'idempotency-key': `withdraw-jo-${'x'.repeat(16)}` },
+      );
+      expect(res.status).toBe(202);
+    } finally {
+      breaks.failing = null;
+    }
+    expect(await left('jo')).toMatchObject({
+      user: ['user_jo', false],
+      erasedBy: [],
+    });
+    // Committed with the withdrawal: housekeeping erases Jo tonight if nobody does first.
+    expect(
+      await rows(migrator, `SELECT VALUE id FROM erasureRequest:jo`),
+    ).toEqual(['erasureRequest:jo']);
+    // Jo deleting their account meanwhile settles it.
+    expect((await call('DELETE', '/v1/account', 'jo')).status).toBe(202);
+    expect(await rows(migrator, `SELECT VALUE id FROM erasureRequest`)).toEqual(
+      [],
+    );
+    expect((await left('jo')).erasedBy).toEqual(['account_deleted']);
   });
 
   it('taking all my stories off the site (withdrawing publish) keeps the account and the stories', async () => {

@@ -5,14 +5,18 @@ import { svixKey } from './svix';
 /**
  * Clerk's Backend API, for erasure only (D39, D81: account deletion is one of the three server jobs
  * that may use Clerk's secret key). The key (`clerk-secret-key`, which only api-user may read)
- * and the webhook's signing secret come from Secret Manager the first time they're needed, not at
- * startup: a secret with no version yet (before the owner adds it) then turns off only what needs
- * it, and a version added later works without a redeploy. Neither is ever logged.
+ * and the webhook's signing secret come from Secret Manager when needed, not at startup, and are
+ * read again once they are more than `SECRET_MAX_AGE_MS` old: a secret with no version yet
+ * (before the owner adds it) turns off only what needs it, and a version added, corrected or
+ * rotated later is used within five minutes, on every instance, without a redeploy (the old
+ * version must stay enabled until then). Neither is ever logged.
  */
 export const CLERK_BACKEND = Symbol('CLERK_BACKEND');
 
 const API = 'https://api.clerk.com/v1';
 const TIMEOUT_MS = 15_000;
+/** How long a Clerk secret read from Secret Manager is used before it is read again. */
+export const SECRET_MAX_AGE_MS = 5 * 60_000;
 /** Clerk's user ids; anything else never reaches a URL. */
 export const CLERK_USER_ID = /^user_[A-Za-z0-9]{1,64}$/;
 
@@ -47,7 +51,11 @@ export class ClerkBackendApi implements ClerkBackend {
     if (!this.keySecret) {
       throw new Error('Clerk deletion is off (no CLERK_SECRET_KEY_SECRET)');
     }
-    const key = (await this.secrets.get(this.keySecret)).trim();
+    const key = (
+      await this.secrets.get(this.keySecret, 'latest', {
+        maxAgeMs: SECRET_MAX_AGE_MS,
+      })
+    ).trim();
     if (!/^sk_(test|live)_/.test(key)) {
       throw new Error(`Secret ${this.keySecret} isn't a Clerk secret key`);
     }
@@ -66,7 +74,11 @@ export class ClerkBackendApi implements ClerkBackend {
   async webhookKey(): Promise<Buffer | null> {
     if (!this.webhookSecret) return null;
     try {
-      return svixKey(await this.secrets.get(this.webhookSecret));
+      return svixKey(
+        await this.secrets.get(this.webhookSecret, 'latest', {
+          maxAgeMs: SECRET_MAX_AGE_MS,
+        }),
+      );
     } catch (err) {
       // No version yet, or not a whsec_ secret: Svix retries until the owner adds it.
       this.logger.warn(

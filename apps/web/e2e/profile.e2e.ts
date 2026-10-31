@@ -417,6 +417,29 @@ test.describe('behaviour', () => {
     expect(gone.status()).toBe(401);
   });
 
+  test('delete my account when the server fails after deleting it: it checks, finds it gone, and signs out', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      granted: ['special_category_religious', 'publish'],
+      eraseThenFail: true,
+    });
+    await page.goto(PROFILE);
+    await expect(page.locator('[data-publishing="on"]')).toBeVisible();
+    const card = page.locator('[data-delete-account]');
+    await card.getByRole('button', { name: 'Delete my account' }).click();
+    await card.getByLabel('Type delete to confirm').fill('delete');
+    await card
+      .getByRole('button', { name: 'Delete my account for good' })
+      .click();
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/`);
+    const gone = await request.get(`${STUB_USER_URL}/v1/account`, {
+      headers: { authorization: `Bearer ${fixtureToken(me.id)}` },
+    });
+    expect(gone.status()).toBe(401);
+  });
+
   test('withdraw sharing beyond heisreal.today', async ({ page, request }) => {
     const me = await person(page, request, {
       granted: ['special_category_religious', 'publish', 'share_socials'],

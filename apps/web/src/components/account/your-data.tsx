@@ -11,10 +11,14 @@ import {
   newIdempotencyKey,
   NotSignedIn,
 } from '@/lib/api-user';
-import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
-import { forgetShareStorageExcept } from '@/lib/share-storage';
+import {
+  personalApiUser,
+  SomeoneElseSignedIn,
+  usePersonalSession,
+} from '@/lib/personal-session';
+import { forgetShareStorageOf } from '@/lib/share-storage';
 import { PUBLISHING_CHANGED } from './my-submissions';
-import { useOwnData, useOwnNotice } from './use-own-data';
+import { signedInAs, useOwnData, useOwnNotice } from './use-own-data';
 
 /** What the person types to delete their account (D88: a typed confirmation). */
 const CONFIRM_WORD = 'delete';
@@ -27,14 +31,21 @@ async function readPublishing(api: ApiUser): Promise<boolean> {
   return data.current.some((c) => c.type === 'publish' && c.granted);
 }
 
+/**
+ * After `owner`'s account is deleted: their unsaved submit-flow state goes, and they're signed
+ * out, but only if they are still the one signed in here. Someone else who signed in on this
+ * browser while the deletion was on its way keeps their session and their drafts.
+ */
+type AfterDeletion = (owner: string) => Promise<void>;
+
 /** "Your data" with Clerk's session: deleting the account ends with Clerk's sign-out. */
 export function ClerkYourData() {
   const clerk = useClerk();
   return (
     <YourData
-      signOut={async () => {
-        forgetShareStorageExcept(null);
-        await clerk.signOut({ redirectUrl: '/' });
+      afterDeletion={async (owner) => {
+        forgetShareStorageOf(owner);
+        if (signedInAs(owner)) await clerk.signOut({ redirectUrl: '/' });
       }}
     />
   );
@@ -43,8 +54,25 @@ export function ClerkYourData() {
 /** e2e only (E2E_FIXTURES): the same, going home in place of Clerk's sign-out. */
 export function FixtureYourData() {
   const router = useRouter();
-  return <YourData signOut={async () => router.push('/')} />;
+  return (
+    <YourData
+      afterDeletion={async (owner) => {
+        forgetShareStorageOf(owner);
+        if (signedInAs(owner)) router.push('/');
+      }}
+    />
+  );
 }
+
+/** The answer says the person's session no longer opens: their account is gone. */
+const accountGone = (err: unknown) =>
+  (err instanceof NotSignedIn && !(err instanceof SomeoneElseSignedIn)) ||
+  (err instanceof ApiUserProblem && err.status === 401);
+
+/** No answer, or the server failed: the deletion may have happened. */
+const outcomeUnknown = (err: unknown) =>
+  err instanceof ApiUserUnavailable ||
+  (err instanceof ApiUserProblem && err.status >= 500);
 
 /**
  * Your data (R6, Joel 2026-10-30): the profile's serious choices about the person's data, in one
@@ -53,7 +81,7 @@ export function FixtureYourData() {
  * plan PR 12); "Delete my account" erases everything (D39, D82) after a typed confirmation, and
  * signs them out. Filled in by the browser (D83).
  */
-export function YourData({ signOut }: { signOut: () => Promise<void> }) {
+export function YourData({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   const session = usePersonalSession();
   const owner = session.status === 'signed-in' ? session.userId : null;
   if (session.status === 'signed-out') return null;
@@ -74,7 +102,7 @@ export function YourData({ signOut }: { signOut: () => Promise<void> }) {
             Get a copy of everything we hold about you. Coming soon.
           </p>
         </li>
-        <DeleteAccount signOut={signOut} />
+        <DeleteAccount afterDeletion={afterDeletion} />
       </ul>
     </section>
   );
@@ -212,7 +240,7 @@ function TakeStoriesOff() {
   );
 }
 
-function DeleteAccount({ signOut }: { signOut: () => Promise<void> }) {
+function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   const session = usePersonalSession();
   const owner = session.status === 'signed-in' ? session.userId : null;
   const [open, setOpen] = useState(false);
@@ -220,29 +248,47 @@ function DeleteAccount({ signOut }: { signOut: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const { notice: error, say } = useOwnNotice<string>();
-  // An earlier try whose answer never came may have deleted the account already.
+  // An earlier try whose outcome is unknown (no answer, or a server error) may have deleted the
+  // account already: then a refused session means it's gone.
   const uncertain = useRef(false);
   const inputId = useId();
   const ready = typed.trim().toLowerCase() === CONFIRM_WORD;
 
+  /** Whether the account is gone, asked again after an unknown outcome; null if still unknown. */
+  const recheck = async (api: ApiUser): Promise<boolean | null> => {
+    try {
+      await api.get('/v1/account');
+      return false;
+    } catch (err) {
+      if (accountGone(err)) return true;
+      return outcomeUnknown(err) ? null : false;
+    }
+  };
+
   const remove = async () => {
     if (!owner || session.status !== 'signed-in' || !ready) return;
+    const api = personalApiUser(session);
     setBusy(true);
     say(owner, undefined);
     let deleted = false;
     try {
-      await personalApiUser(session).command('/v1/account', {
-        method: 'DELETE',
-      });
+      await api.command('/v1/account', { method: 'DELETE' });
       deleted = true;
     } catch (err) {
-      const gone =
-        err instanceof NotSignedIn ||
-        (err instanceof ApiUserProblem && err.status === 401);
-      if (uncertain.current && gone) {
+      if (accountGone(err) && uncertain.current) {
         deleted = true;
+      } else if (outcomeUnknown(err)) {
+        uncertain.current = true;
+        const gone = await recheck(api);
+        if (gone) deleted = true;
+        else
+          say(
+            owner,
+            gone === null
+              ? 'We couldn’t tell whether your account was deleted. Please try again in a moment.'
+              : 'We couldn’t delete your account just now. Please try again in a moment.',
+          );
       } else {
-        if (err instanceof ApiUserUnavailable) uncertain.current = true;
         say(
           owner,
           'We couldn’t delete your account just now. Please try again in a moment.',
@@ -253,8 +299,10 @@ function DeleteAccount({ signOut }: { signOut: () => Promise<void> }) {
       setBusy(false);
       return;
     }
-    setDone(true);
-    await signOut();
+    // Only for the person who asked: if someone else signed in meanwhile, this card is
+    // already theirs (keyed by owner), and afterDeletion leaves them signed in.
+    if (signedInAs(owner)) setDone(true);
+    await afterDeletion(owner);
   };
 
   return (
@@ -285,7 +333,10 @@ function DeleteAccount({ signOut }: { signOut: () => Promise<void> }) {
             It can’t be undone. It’s also how you withdraw your consent for us
             to keep your stories: we can’t keep your account without it. We keep
             only the record of the consents you gave and withdrew, with none of
-            your stories, for six years, as proof that we asked.
+            your stories, for six years, as proof that we asked. We also keep a
+            fingerprint of your sign-in’s id, so the deleted sign-in can’t make
+            a new account here. It isn’t your name or email, but it isn’t
+            anonymous: it can be matched to that id.
           </p>
           <form
             onSubmit={(e) => {

@@ -67,8 +67,9 @@ resource "google_service_account_iam_member" "surrealdb_secrets_wi" {
 # container; the value is human-supplied from the Clerk CLI as a new version
 # (runbook: infra/clerk/README.md). api-user and api-admin verify session tokens
 # without the network against the pinned public key. Only api-user reads it, to
-# delete an erased person's Clerk account (M2 plan PR 11, D39, D81); M3's role
-# assignment adds api-admin then.
+# delete an erased person's Clerk account (M2 plan PR 11, D39, D81), and the
+# nightly housekeeping, to retry such a deletion that failed (housekeeping.tf);
+# M3's role assignment adds api-admin then.
 resource "google_secret_manager_secret" "clerk_secret_key" {
   project   = var.project_id
   secret_id = "clerk-secret-key"
@@ -86,8 +87,8 @@ resource "google_secret_manager_secret" "clerk_secret_key" {
 # The signing secret (whsec_…) of Clerk's webhook endpoint for api-user's
 # POST /v1/webhooks/clerk (user.deleted → erasure, D39). The owner creates the
 # endpoint in Clerk's dashboard and adds the secret as a version
-# (infra/clerk/README.md, "Webhook"); api-user reads it on the first webhook, so
-# until then webhooks answer 503 and Svix retries.
+# (infra/clerk/README.md, "Webhook"); api-user reads it when a webhook comes, and
+# again every five minutes, so until then webhooks answer 503 and Svix retries.
 resource "google_secret_manager_secret" "clerk_webhook_signing_secret" {
   project   = var.project_id
   secret_id = "clerk-webhook-signing-secret"

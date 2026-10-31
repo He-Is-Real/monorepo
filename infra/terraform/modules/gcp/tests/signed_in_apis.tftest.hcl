@@ -88,7 +88,7 @@ run "only_api_user_reads_the_clerk_secrets" {
       alltrue([for m in google_secret_manager_secret_iam_member.api_user_clerk :
       m.member == google_service_account.signed_in_api["api-user"].member])
     )
-    error_message = "api-user alone may read Clerk's secret key and the webhook's signing secret (erasure, D81)."
+    error_message = "Of the signed-in APIs, api-user alone may read Clerk's secret key and the webhook's signing secret (erasure, D81)."
   }
 
   assert {

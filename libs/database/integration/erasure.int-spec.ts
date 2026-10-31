@@ -116,7 +116,7 @@ describe('erasure on api_user’s service login', () => {
       { kind: 'clerk_user', ref: 'user_ann' },
     ]);
     expect(await truth('SELECT * FROM uploadGrant')).toEqual([]);
-    // Only api-user's login sees or changes the queue.
+    // Only api-user's (and housekeeping's, for retries) login sees or changes the queue.
     for (const name of ['api_admin', 'workflow', 'api_public_read'] as const) {
       expect(
         await rows(await t.service(name), 'SELECT * FROM pendingDeletion'),
@@ -332,6 +332,10 @@ describe('erasure on api_user’s service login', () => {
     await draft(cara, 'cara_story');
     await submit(cara, 'cara_story');
     await consentEvent(cara, 'special_category_religious', 'withdrawn');
+    // The withdrawal committed an erasure request with it (D88), which the erasure settles.
+    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([
+      'erasureRequest:cara',
+    ]);
     await run(apiUser, ERASE, {
       clerkUserId: 'user_cara',
       reason: 'consent_withdrawn',
@@ -342,6 +346,82 @@ describe('erasure on api_user’s service login', () => {
     expect(
       await truth('SELECT VALUE reason FROM auditLog WHERE entity = user:cara'),
     ).toEqual(['consent_withdrawn']);
+    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([]);
+  });
+
+  it('a withdrawal api-user never got to erase stays requested, and housekeeping deleting the request erases the person (D88, D73)', async () => {
+    await createPeople(t, { dan: 'user_dan' });
+    const dan = await t.person('user_dan');
+    await grantAll(dan);
+    await draft(dan, 'dan_story');
+    await submit(dan, 'dan_story');
+    await consentEvent(dan, 'account_data', 'withdrawn');
+    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([
+      'erasureRequest:dan',
+    ]);
+    const housekeeping = await t.service('housekeeping');
+    // Nobody makes one by hand, and the person can't see or cancel theirs.
+    for (const db of [housekeeping, apiUser]) {
+      await outcome(db, `CREATE erasureRequest:bob SET user = user:bob`);
+    }
+    await outcome(dan, 'DELETE erasureRequest:dan');
+    expect(await rows(dan, 'SELECT * FROM erasureRequest')).toEqual([]);
+    // Housekeeping may queue nothing itself either.
+    await outcome(
+      housekeeping,
+      `CREATE pendingDeletion CONTENT { kind: 'clerk_user', ref: 'user_bob' }`,
+    );
+    expect(
+      await truth(
+        `SELECT VALUE id FROM pendingDeletion WHERE ref = 'user_bob'`,
+      ),
+    ).toEqual([]);
+    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([
+      'erasureRequest:dan',
+    ]);
+    expect(
+      await truth('SELECT VALUE id FROM story WHERE submitter = user:dan'),
+    ).toHaveLength(1);
+
+    await run(housekeeping, 'DELETE erasureRequest:dan');
+    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([]);
+    expect(
+      await truth('SELECT VALUE id FROM story WHERE submitter = user:dan'),
+    ).toEqual([]);
+    expect(
+      await truth(
+        'SELECT VALUE [clerkUserId, gdprDeletedAt != NONE] FROM ONLY user:dan',
+      ),
+    ).toEqual([undefined, true]);
+    expect(
+      await truth(
+        `SELECT service, reason FROM auditLog WHERE entity = user:dan AND action = 'EraseAccount'`,
+      ),
+    ).toEqual([{ service: 'housekeeping', reason: 'consent_withdrawn' }]);
+    expect(
+      await truth(
+        `SELECT VALUE kind FROM pendingDeletion WHERE ref = 'user_dan'`,
+      ),
+    ).toEqual(['clerk_user']);
+    expect(
+      await truth('SELECT VALUE id FROM type::record($id)', {
+        id: `erasedIdentity:${fingerprint('user_dan')}`,
+      }),
+    ).toHaveLength(1);
+    // The withdrawal stays on the ledger as proof (D38).
+    expect(
+      await truth(
+        `SELECT VALUE event FROM consent WHERE subject = user:dan AND type = 'account_data'
+           ORDER BY occurredAt DESC LIMIT 1`,
+      ),
+    ).toEqual(['withdrawn']);
+  });
+
+  it('pushes a queued deletion back after each failed try: 1 h, then doubling, at most a week', async () => {
+    const waits = await truth<number>(
+      'RETURN [0, 1, 2, 7, 8, 30].map(|$n| duration::hours(fn::erasure::retry_after($n)))',
+    );
+    expect(waits).toEqual([1, 2, 4, 128, 168, 168]);
   });
 
   describe('audit rows are typed, with nowhere to put testimony text (D38)', () => {

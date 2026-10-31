@@ -410,6 +410,8 @@ function newSession(id, seed = {}) {
     uploadTimes: [],
     uploadRequests: 0,
     tus: { fail: 0, hold: false },
+    // Erasure: `DELETE /v1/account` erases, then answers 500 (the queue failed after the commit).
+    eraseThenFail: seed.eraseThenFail ?? false,
   };
   for (const story of seed.stories ?? []) {
     const now = new Date().toISOString();
@@ -1265,6 +1267,9 @@ createServer(async (req, res) => {
   if (path === '/v1/account' && req.method === 'DELETE') {
     if (!signedIn()) return;
     erased.add(token);
+    if (shareSession(token).eraseThenFail) {
+      return problem(res, 500, 'Internal Server Error');
+    }
     res.writeHead(202, { 'cache-control': 'no-store' });
     return res.end();
   }

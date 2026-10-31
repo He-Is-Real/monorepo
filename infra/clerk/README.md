@@ -99,8 +99,13 @@ config-as-code, like the rest of this folder):
    ```
 
 Until the version exists, api-user answers the webhook `503` and Svix keeps retrying for days,
-so nothing is lost; api-user reads the secret on the next delivery, with no redeploy. Rotating
-it in the dashboard means adding the new secret as a new version straight away.
+so nothing is lost. api-user reads the secret when a delivery comes and reads it again every five
+minutes (`SECRET_MAX_AGE_MS`), so a version added, corrected or rotated later is used within five
+minutes on every instance, with no redeploy. Rotating it in the dashboard means adding the new
+secret as a new version straight away; deliveries in those few minutes may be refused (`400`)
+and Svix retries them. The same holds for `clerk-secret-key`, which api-user (erasure) and the
+nightly housekeeping (retrying a Clerk deletion that failed) read; housekeeping reads it once per
+run.
 
 The production instance needs a domain we own, so it waits for the domain cutover (D7). It gets
 its own `prod.json`, keys and PEM.

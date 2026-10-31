@@ -725,7 +725,11 @@ retried`, on both RocksDB and the in-memory engine.
       and `story_erasure_cascade` removes what hangs off it. Its upload grants stay for the
       upload limits (D113); the job deletes the video at Bunny once nothing names it
       (`docs/media-runbook.md`).
-    - **Nothing else:** no create or update anywhere, no other delete.
+    - **After erasure (M2 plan PR 11, item 41):** it reads, counts failed tries on (`attempts`,
+      `nextAttemptAt`) and deletes `pendingDeletion` rows (retrying Bunny and Clerk deletions)
+      and `erasureRequest` rows (deleting one erases that person, through the database's own
+      event, not its rights). It can't create either.
+    - **Nothing else:** no other create, update or delete.
     - **`story.updatedAt`:** still the server's time on every write, except that a system user
       (`$auth = NONE`: the migrator, dev's seed) may keep or supply one, so a migration doesn't
       make a draft look touched and tests can age a draft.
@@ -736,11 +740,15 @@ retried`, on both RocksDB and the in-memory engine.
 
 ### M2 erasure (D39, D40, D82; M2 plan PR 11)
 
-41. **Erasure runs, and an erased Clerk id never comes back.** `ERASE_ACCOUNT`
-    (`libs/database/src/lib/erasure.ts`) is the one transaction behind every caller, on api-user's
-    login (see "Erasure" below for what it deletes and what stays).
+41. **Erasure runs, and an erased Clerk id never comes back.** `fn::account::erase` (schema) is
+    the one erasure behind every caller: api-user runs it on its own login in one transaction
+    (`ERASE_ACCOUNT`, `libs/database/src/lib/erasure.ts`), and deleting an erasure request runs it
+    in the database's own event (see "Erasure" below for what it deletes and what stays).
     - **`erasedIdentity` (D82, the tombstone):** id = the sha256 of the Clerk user id, nothing
-      else (no date, no link to the stub). Erasure writes it even for a Clerk id that never had a
+      else (no date, no link to the stub). This is a **retained identity fingerprint, not
+      anonymous data**: anyone who holds the Clerk id can hash it and find the row, so it is
+      still (pseudonymous) personal data, kept on purpose so a deleted sign-in can't come back,
+      and the privacy policy must say so. Erasure writes it even for a Clerk id that never had a
       row. `user_not_erased_identity` refuses that Clerk id on any `user` create or update, so a
       still-valid 60-second token, or a Clerk account whose deletion hasn't gone through, can't
       recreate the person (#44's reproduction, now refused: api-user answers 401). Only api-user's
@@ -755,11 +763,29 @@ retried`, on both RocksDB and the in-memory engine.
       api-user made, never seeded media), `image` (an image upload grant, whose id is its path in
       the images storage zone; nothing writes one until the images PR) and `clerk_user` (the
       Clerk account, unless Clerk's own `user.deleted` started the erasure). No person link.
-      Only api-user's login reads, creates and deletes rows; nobody updates them. api-user
-      drains them straight after the commit and deletes each row once its deletion is done; a
-      failure stays queued for the next erasure's drain.
+      Only an erasure creates rows. api-user deletes them straight after the commit, each row
+      once its deletion is done; a failure counts in `attempts` and waits (`nextAttemptAt`:
+      1 h, doubling, at most a week; `fn::erasure::retry_after`). api-user and
+      service:housekeeping read, update (those two fields; the rest is `READONLY`) and delete
+      rows: the nightly housekeeping retries whatever is due, longest-waiting first, so rows that
+      keep failing never hold up the others. If the queue itself fails after the commit, api-user
+      still answers `202` (the person is erased) and the rows wait for housekeeping.
+    - **`erasureRequest` (D88, D73):** withdrawing the testimony (Art 9) or sign-up
+      (`account_data`) consent runs in the person's own session, which can't erase, so
+      `consent_withdrawal_requests_erasure` writes `erasureRequest:<user id>` in the
+      withdrawal's own transaction: the withdrawal can't commit without it. api-user erases
+      straight after (its `ERASE_ACCOUNT` deletes the request); if that fails or the instance
+      stops, housekeeping deletes the request at night, and `erasureRequest_erases` runs
+      `fn::account::erase` in that delete's transaction, on the database's own rights. So
+      housekeeping holds no right over anyone's data: only to see, retry-count and delete
+      requests. Nobody creates one by hand; the person can't see or cancel theirs.
+      `user_clerk_binding` lets that event clear the Clerk id at erasure, as api-user's
+      erasure does.
     - Tests: `libs/database/integration/erasure.int-spec.ts` (the tombstone refusing a create or
-      relink, its race with a first sign-in in both orders, the queue's permissions),
+      relink, its race with a first sign-in in both orders, the queue's permissions, the erasure
+      request and housekeeping's delete of it, the backoff),
+      `apps/housekeeping/integration/housekeeping.int-spec.ts` (requests and queued deletions
+      retried, dry run, a failure pushed back),
       `libs/auth/integration/clerk-session.int-spec.ts` (an erased person's token is refused),
       `apps/api-user/integration/erasure.int-spec.ts` (the three callers end to end).
 
@@ -782,8 +808,9 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | `personFence`                                                                                                                                                                                              | a counter keyed by user id                                                                                                     | none       | written by events only; `PERMISSIONS NONE`                                                                                             | stays (no data); can go with the stub                             |
 | `legalFence`                                                                                                                                                                                               | one counter (`legalFence:forms`)                                                                                               | none       | written by events only; `PERMISSIONS NONE`                                                                                             | —                                                                 |
 | `identityFence`                                                                                                                                                                                            | a counter keyed by a Clerk id's fingerprint (D82)                                                                              | none       | written by events only; `PERMISSIONS NONE`                                                                                             | stays (no data)                                                   |
-| `erasedIdentity`                                                                                                                                                                                           | the sha256 of an erased Clerk id (D82); no link, no date                                                                       | kept       | api-user's login creates and reads; nobody updates or deletes                                                                          | kept for ever (item 41)                                           |
-| `pendingDeletion`                                                                                                                                                                                          | Bunny ids, image paths, a Clerk id until Clerk confirms (D40); no person link                                                  | kept       | api-user's login only; written by erasure                                                                                              | gone once each deletion is done (item 41)                         |
+| `erasedIdentity`                                                                                                                                                                                           | a retained fingerprint (sha256) of an erased Clerk id (D82): pseudonymous, not anonymous; no link, no date                     | kept       | api-user's login creates and reads (and the erasure request's event); nobody updates or deletes                                        | kept for ever (item 41)                                           |
+| `pendingDeletion`                                                                                                                                                                                          | Bunny ids, image paths, a Clerk id until Clerk confirms (D40); no person link                                                  | kept       | written by erasure only; api-user and housekeeping read, count tries and delete                                                        | gone once each deletion is done (item 41)                         |
+| `erasureRequest`                                                                                                                                                                                           | a user link: a withdrawal (Art 9 or sign-up) not erased yet (D88, D73)                                                         | kept       | written by the withdrawal's event only; api-user and housekeeping read, count tries and delete (deleting erases)                       | gone once the person is erased (item 41)                          |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------                                                                 | ---------- | ------------------------------------------------------------------------------------------------                                       | ----------------------------------------------------------------- |
 | `submitterLimits`                                                                                                                                                                                          | D112's per-person limits and trusted mark; `user`, `changedBy`                                                                 | linked     | user live + fence; `changedBy` required from api-admin; `devSeed` dev only; audit row per change                                       |
 | `submissionLog`                                                                                                                                                                                            | D113's recent submissions; `person`                                                                                            | linked     | written by `story_limits` only; person live + fence                                                                                    |
@@ -972,6 +999,8 @@ Clerk) is application ordering (D39/D40).
 - the consent ledger, proof of consent (Art 7(1)); nobody but the migrator can delete it;
 - a stub `user` row (internal id, `createdAt`, `gdprDeletedAt`) that the ledger points to; no
   Clerk id (D37);
+- the tombstone: a sha256 fingerprint of the Clerk id (item 41), a retained identity fingerprint
+  (pseudonymous personal data, not anonymous), kept so that sign-in can't come back;
 - audit rows, typed, with ids only, including the deleted stories' ids (D38).
 
 **Retention (D38, decided 2026-10-19).** Audit and consent records are kept 6 years (the usual UK
@@ -988,14 +1017,17 @@ The job itself isn't built yet; it will run as the migrator.
 
 - **D39.** One idempotent erasure with three callers, each answering 202: "Delete my account"
   (`DELETE /v1/account`), withdrawing the testimony (Art 9) or sign-up (`account_data`) consent
-  (the withdrawal is on the ledger first, then the account goes), and Clerk's `user.deleted`
-  webhook (`POST /v1/webhooks/clerk`: Svix signature over the raw body, deduplicated on
-  `svix-id`). The database half above runs first, retried on conflict; then the queue drains.
+  (the withdrawal and an erasure request commit together, then the account goes; item 41), and
+  Clerk's `user.deleted` webhook (`POST /v1/webhooks/clerk`: Svix signature over the raw body,
+  deduplicated on `svix-id`). The database half above runs first, retried on conflict; then the
+  queue drains. Once the database half has committed the answer is `202`, even if the queue then
+  fails.
 - **D40.**
   - The queue: Bunny videos are deleted as the story delete does (only grant-named videos);
     pictures through the images PR's deleter (until then, nobody can upload one); the Clerk
-    user last, which ends their sessions. A failure stays queued and the next erasure retries
-    the oldest; a Bunny video is also an orphan for the nightly housekeeping sweep (item 40).
+    user last, which ends their sessions. A failure stays queued, pushed back, and the nightly
+    housekeeping retries it (item 41; it holds Clerk's secret key for this alone); a Bunny video
+    is also an orphan for the nightly orphan sweep (item 40).
   - Backups age out after `backup_retention_days`.
   - Each erasure logs internal ids only (`Erased user:… (reason); n deletion(s) queued`), and
     the restore runbook replays those entries.
@@ -1096,8 +1128,8 @@ wanted.
   handle all three.
 - **Races outside one database transaction.** The fence covers everything inside SurrealDB.
   These are application-level ordering, not database races:
-  - Bunny and image deletions (item 41's queue; a failure waits for the next erasure, or the
-    nightly orphan sweep for a video);
+  - Bunny and image deletions (item 41's queue; a failure waits for the nightly housekeeping's
+    retry, with backoff, and a video is also an orphan for the nightly sweep);
   - Clerk deletion (D39: database first; a failed one waits in the queue, and the tombstone
     refuses that Clerk account meanwhile);
   - an upload to Bunny that finishes after erasure: its id is written by a later story update,

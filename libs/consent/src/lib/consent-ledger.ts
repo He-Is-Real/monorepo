@@ -349,8 +349,9 @@ export class ConsentLedger {
    * channels and stops paid promotion (nothing posts yet, so there is nothing to automate).
    * Withdrawing again re-affirms it. Never granted: `ConsentConflictError`.
    *
-   * Withdrawing Art 9 or account_data then erases the account (D39, D88, D73): the HTTP endpoint
-   * runs the service's erasure after this has committed (`ERASING_WITHDRAWALS`).
+   * Withdrawing Art 9 or account_data then erases the account (D39, D88, D73): the database
+   * commits an erasure request with the withdrawal, and the HTTP endpoint runs the service's
+   * erasure after this has committed (`ERASING_WITHDRAWALS`); housekeeping erases anyone missed.
    */
   async withdraw(
     person: SurrealQueryable,

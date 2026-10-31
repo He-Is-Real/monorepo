@@ -1,14 +1,18 @@
 # Housekeeping (M2; Joel, 2026-10-30): one nightly Cloud Run Job (apps/housekeeping) that runs
 # a list of small chores, started by Cloud Scheduler. Both in London (var.region), like
 # everything here. Chores: D71's abandoned drafts (untouched for 6 months) and orphaned Bunny
-# Stream videos; images orphans and post-erasure clean-up join the same list later.
+# Stream videos; and after erasure (M2 plan PR 11), erasure requests api-user didn't finish and
+# the queued Bunny and Clerk deletions it couldn't do. Images orphans join the list later.
 #
 # Least privilege:
 #   housekeeping            the Job's runtime identity. Reads its own database password and,
 #                           through the bunny root's stream_key_readers grant, the Stream library
-#                           key. Signs in as service:housekeeping, whose table permissions allow
-#                           reading stories' ids, status, dates and media ids (never their words)
-#                           and deleting a draft untouched for 6 months, nothing else
+#                           key, and Clerk's secret key (secrets.tf; only to delete the Clerk
+#                           account of someone erased: D39, D81). Signs in as
+#                           service:housekeeping, whose table permissions allow reading stories'
+#                           ids, status, dates and media ids (never their words), deleting a
+#                           draft untouched for 6 months, and seeing, retrying and deleting
+#                           erasure requests and queued deletions, nothing else
 #                           (docs/db-permissions.md).
 #   housekeeping-scheduler  Cloud Scheduler's identity. May start this one Job (run.invoker on
 #                           the Job only), with no overrides; nothing else.
@@ -27,6 +31,17 @@ resource "google_secret_manager_secret_iam_member" "housekeeping" {
 
   project   = var.project_id
   secret_id = google_secret_manager_secret.surreal["surreal-housekeeping-password"].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.housekeeping[0].member
+}
+
+# Clerk's secret key, only to retry deleting an erased person's Clerk account (D39, D81: account
+# deletion is one of the server jobs that may use it). No other Clerk secret.
+resource "google_secret_manager_secret_iam_member" "housekeeping_clerk" {
+  count = var.housekeeping == null ? 0 : 1
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.clerk_secret_key.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = google_service_account.housekeeping[0].member
 }
@@ -103,6 +118,11 @@ resource "google_cloud_run_v2_job" "housekeeping" {
           name  = "BUNNY_STREAM_API_KEY_SECRET"
           value = "bunny-stream-api-key"
         }
+        # Clerk's secret key's secret (a name, never the value): queued Clerk account deletions.
+        env {
+          name  = "CLERK_SECRET_KEY_SECRET"
+          value = google_secret_manager_secret.clerk_secret_key.secret_id
+        }
         # true: only logs what it would delete.
         env {
           name  = "HOUSEKEEPING_DRY_RUN"
@@ -124,7 +144,10 @@ resource "google_cloud_run_v2_job" "housekeeping" {
     }
   }
 
-  depends_on = [google_secret_manager_secret_iam_member.housekeeping]
+  depends_on = [
+    google_secret_manager_secret_iam_member.housekeeping,
+    google_secret_manager_secret_iam_member.housekeeping_clerk,
+  ]
 }
 
 resource "google_service_account" "housekeeping_scheduler" {

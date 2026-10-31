@@ -12,6 +12,7 @@ import { connectDatabase } from '@heisreal/database';
 import { SecretsService } from '@heisreal/secrets';
 import { Surreal } from 'surrealdb';
 import { CHORES } from './app/chores';
+import { CLERK_SECRET_KEY, ClerkBackendUsers } from './app/clerk';
 import { housekeepingConfig, RefusedError } from './app/config';
 import { BunnyStreamLibrary } from './app/stream';
 import { runTasks } from './app/tasks';
@@ -37,18 +38,30 @@ async function main(): Promise<number> {
   );
   const key = (await secrets.get(config.stream.keySecret)).trim();
   if (key === '') throw new Error(`Secret ${config.stream.keySecret} is empty`);
+  let clerk: ClerkBackendUsers | null = null;
+  if (config.clerkKeySecret) {
+    const clerkKey = (await secrets.get(config.clerkKeySecret)).trim();
+    if (!CLERK_SECRET_KEY.test(clerkKey)) {
+      throw new Error(
+        `Secret ${config.clerkKeySecret} isn't a Clerk secret key`,
+      );
+    }
+    clerk = new ClerkBackendUsers(clerkKey);
+  }
   const db = await connectDatabase(new Surreal(), config.database, secrets);
   try {
     log({
       start: CHORES.map((c) => c.name),
       dryRun: config.dryRun,
       maxDeletions: config.maxDeletions,
+      clerk: clerk !== null,
     });
     return await runTasks(
       CHORES,
       {
         db,
         stream: new BunnyStreamLibrary(config.stream.libraryId, key),
+        clerk,
         dryRun: config.dryRun,
         maxDeletions: config.maxDeletions,
         now: new Date(),

@@ -43,8 +43,10 @@ import { PersonSessions } from './person';
 
 /**
  * Withdrawing these deletes the whole account (D39, D88: the testimony consent, Art 9; D73: the
- * sign-up consent to store the account). The ledger records the withdrawal first, then the
- * service's erasure runs. Withdrawing anything else (publishing, social sharing, 18+, the terms)
+ * sign-up consent to store the account). The database commits an erasure request with the
+ * withdrawal (consent_withdrawal_requests_erasure, which lists the same two), so the erasure
+ * can't be lost: the service's erasure runs straight after, and the nightly housekeeping erases
+ * anyone it missed. Withdrawing anything else (publishing, social sharing, 18+, the terms)
  * deletes nothing.
  */
 export const ERASING_WITHDRAWALS: readonly ConsentType[] = [
@@ -255,12 +257,16 @@ export class AccountConsentsController {
         this.ledger.withdraw(session, type, idempotency),
     );
     if (ERASING_WITHDRAWALS.includes(type)) {
-      // D88, D73: the account goes, after the withdrawal is on the ledger (kept as proof).
-      if (!this.erasure) {
-        this.logger.error(`Withdrew ${type}, but this service can't erase`);
-      } else {
+      // D88, D73: the account goes. The withdrawal is on the ledger (kept as proof) with an
+      // erasure request; erase now, or housekeeping does it tonight.
+      try {
+        if (!this.erasure) throw new Error('this service can’t erase');
         const { clerkUserId } = await this.people.authenticate(req);
         await this.erasure.erase(clerkUserId);
+      } catch (err) {
+        this.logger.error(
+          `Withdrew ${type}; the erasure stays requested for housekeeping: ${err instanceof Error ? err.message : 'error'}`,
+        );
       }
     }
     return result;

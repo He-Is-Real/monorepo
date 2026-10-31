@@ -1,15 +1,21 @@
 import { expiredDraftsTask } from './drafts';
+import { erasureRequestsTask, pendingDeletionsTask } from './erasure';
 import type { Task } from './tasks';
 import { orphanVideosTask } from './videos';
 
 /**
- * The nightly chores, run in this order. Expired drafts go first, so their videos are orphans
+ * The nightly chores, run in this order. Erasure requests go first, so the deletions they queue
+ * are tried the same night; expired drafts before orphaned videos, so their videos are orphans
  * the same night.
  *
  * To add a chore: a Task in its own file, listed here, with the database permission it needs
  * for service:housekeeping (docs/db-permissions.md) and any secret granted to the housekeeping
  * service account in OpenTofu. Next, not built yet:
- * - orphaned images in the images storage zone (M2 plan PR 10);
- * - clean-up after an erasure, e.g. Bunny media a failed delete left behind (M2 plan PR 11).
+ * - orphaned images in the images storage zone, and queued picture deletions (M2 plan PR 10).
  */
-export const CHORES: readonly Task[] = [expiredDraftsTask, orphanVideosTask];
+export const CHORES: readonly Task[] = [
+  erasureRequestsTask,
+  pendingDeletionsTask,
+  expiredDraftsTask,
+  orphanVideosTask,
+];

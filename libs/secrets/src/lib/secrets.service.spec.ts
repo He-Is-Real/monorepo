@@ -23,6 +23,24 @@ describe('SecretsService', () => {
     expect(accessSecretVersion).toHaveBeenCalledTimes(1);
   });
 
+  it('reads a secret again once it is older than maxAgeMs (a rotated value is picked up)', async () => {
+    vi.useFakeTimers();
+    try {
+      const payloads: Record<string, string> = { [NAME]: 'old' };
+      const { client } = fakeClient(payloads);
+      const secrets = new SecretsService(client, 'heisreal-dev');
+      const get = () => secrets.get('db-pass', 'latest', { maxAgeMs: 1000 });
+      expect(await get()).toBe('old');
+      payloads[NAME] = 'new';
+      vi.advanceTimersByTime(999);
+      expect(await get()).toBe('old');
+      vi.advanceTimersByTime(1);
+      expect(await get()).toBe('new');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not cache failures', async () => {
     const { client, accessSecretVersion } = fakeClient({});
     const secrets = new SecretsService(client, 'heisreal-dev');

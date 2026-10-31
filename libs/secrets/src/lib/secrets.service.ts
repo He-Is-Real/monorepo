@@ -24,11 +24,16 @@ export type SecretAccessor = Pick<
  * Authentication is Application Default Credentials (ADC): `gcloud auth
  * application-default login` on a local developer machine, the attached service account on
  * Cloud Run, Workload Identity on GKE and Workload Identity Federation on-prem.
- * Values are cached for the life of the process; rotate by restarting.
+ * Values are cached for the life of the process (rotate by restarting), unless the caller
+ * gives a `maxAgeMs`: then a value older than that is read again, so a corrected or rotated
+ * secret is picked up without a redeploy.
  */
 @Injectable()
 export class SecretsService {
-  private readonly cache = new Map<string, Promise<string>>();
+  private readonly cache = new Map<
+    string,
+    { value: Promise<string>; at: number }
+  >();
 
   constructor(
     @Inject(SECRET_MANAGER_CLIENT) private readonly client: SecretAccessor,
@@ -38,17 +43,30 @@ export class SecretsService {
     private readonly timeoutMs: number = DEFAULT_SECRET_ACCESS_TIMEOUT_MS,
   ) {}
 
-  /** Returns the payload of `secretId` (latest version unless pinned). */
-  get(secretId: string, version = 'latest'): Promise<string> {
+  /**
+   * Returns the payload of `secretId` (latest version unless pinned), read again once it is
+   * older than `maxAgeMs` (if given).
+   */
+  get(
+    secretId: string,
+    version = 'latest',
+    { maxAgeMs }: { maxAgeMs?: number } = {},
+  ): Promise<string> {
     const name = `projects/${this.project}/secrets/${secretId}/versions/${version}`;
-    let value = this.cache.get(name);
-    if (!value) {
-      value = this.access(name);
-      // Don't cache failures, so a later call can retry.
-      value.catch(() => this.cache.delete(name));
-      this.cache.set(name, value);
+    const cached = this.cache.get(name);
+    if (
+      cached &&
+      (maxAgeMs === undefined || Date.now() - cached.at < maxAgeMs)
+    ) {
+      return cached.value;
     }
-    return value;
+    const entry = { value: this.access(name), at: Date.now() };
+    // Don't cache failures, so a later call can retry.
+    entry.value.catch(() => {
+      if (this.cache.get(name) === entry) this.cache.delete(name);
+    });
+    this.cache.set(name, entry);
+    return entry.value;
   }
 
   private async access(name: string): Promise<string> {
