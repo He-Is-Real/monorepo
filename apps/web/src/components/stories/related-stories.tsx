@@ -1,14 +1,23 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
-import { cardLabel, NewBadge, StoryCard } from './story-card';
+import { cardLabel, cardMedia, NewBadge, StoryCard } from './story-card';
+
+/** The small list's picture slot, in px: each picture fits inside it at its own shape. */
+const THUMB = { width: 64, height: 80 } as const;
 
 /**
  * The story page's related stories (GET /v1/stories/{slug}/related: 3 cards), below the story,
  * never beside it (Joel, 2026-10-25). Below 1024 px a small list in the reading column, as it
- * always was on phones; from 1024 px a row of the site's story cards (home's: uniform 16:10
- * media, play in place), in the story's media band. Each layout is hidden at the other's
- * widths (display: none), so only one is ever read or focused.
+ * always was on phones; from 1024 px a row of the site's story cards (browse's: each picture at
+ * its own clamped shape, D53, play in place), in the story's media band. Each layout is hidden
+ * at the other's widths (display: none), so only one is ever read or focused.
+ *
+ * Every preview keeps its shape (Joel, 2026-10-31: all were cropped to one 16:10 strip, and a
+ * 9:16 clip played in a wide black box). The row is one card per column, so it lines up the
+ * cards at the top (with 3 cards that is all browse's masonry would do); a 9:16 clip plays in
+ * its own tall box. The list fits each picture into the same 64 × 80 slot, so the titles still
+ * line up.
  */
 export function RelatedStories({ stories }: { stories: StorySummary[] }) {
   if (stories.length === 0) return null;
@@ -25,7 +34,10 @@ export function RelatedStories({ stories }: { stories: StorySummary[] }) {
       </h2>
       <ul className="space-y-1 lg:hidden">
         {stories.map((s) => {
-          const picture = s.thumbnailUrl ?? s.image?.url ?? null;
+          const media = cardMedia(s);
+          const picture = media?.src ?? null;
+          // Full width for shapes wider than the slot's 4:5, full height for taller ones.
+          const wide = (media?.aspect ?? 1) >= THUMB.width / THUMB.height;
           return (
             <li key={s.id}>
               <Link
@@ -36,22 +48,33 @@ export function RelatedStories({ stories }: { stories: StorySummary[] }) {
               >
                 <span
                   aria-hidden="true"
-                  className="flex h-10 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface text-xs text-faint"
+                  className="flex shrink-0 items-center justify-center"
+                  style={THUMB}
                 >
-                  {picture ? (
-                    <Image
-                      src={picture}
-                      alt=""
-                      width={112}
-                      height={80}
-                      unoptimized
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : s.primaryFormat === 'written' ? (
-                    <span className="font-semibold text-link">Aa</span>
+                  {media && picture ? (
+                    <span
+                      data-related-picture=""
+                      className={`block overflow-hidden rounded-md bg-surface ${wide ? 'w-full' : 'h-full'}`}
+                      style={{ aspectRatio: String(media.aspect) }}
+                    >
+                      <Image
+                        src={picture}
+                        alt=""
+                        width={media.width ?? 640}
+                        height={media.height ?? 400}
+                        unoptimized
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    </span>
                   ) : (
-                    '▶'
+                    <span className="flex h-10 w-full items-center justify-center rounded-md bg-surface text-xs text-faint">
+                      {s.primaryFormat === 'written' ? (
+                        <span className="font-semibold text-link">Aa</span>
+                      ) : (
+                        '▶'
+                      )}
+                    </span>
                   )}
                 </span>
                 {/* Beside the thumbnail; under it once the column would be under 8rem (large
@@ -70,10 +93,10 @@ export function RelatedStories({ stories }: { stories: StorySummary[] }) {
           );
         })}
       </ul>
-      <ul className="hidden grid-cols-3 gap-6 lg:grid">
+      <ul className="hidden grid-cols-3 items-start gap-6 lg:grid">
         {stories.map((s) => (
           <li key={s.id}>
-            <StoryCard story={s} uniform />
+            <StoryCard story={s} />
           </li>
         ))}
       </ul>
