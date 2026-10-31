@@ -47,9 +47,10 @@ export function continueLayout(
   const top = ul.getBoundingClientRect().top;
   const measured = Array(n).fill(0);
   layouts.forEach((layout, i) => {
-    const li = ul.children[i] as HTMLElement | undefined;
-    if (!li) return;
-    const bottom = basePx(li.getBoundingClientRect().bottom - top) + GAP;
+    // The card, not its list item: the item fills its predicted rows (MASONRY_CSS).
+    const card = ul.children[i]?.firstElementChild;
+    if (!card) return;
+    const bottom = basePx(card.getBoundingClientRect().bottom - top) + GAP;
     const col = layout.col[n];
     measured[col] = Math.max(measured[col], bottom);
   });
@@ -144,6 +145,11 @@ export function StoryMasonry({
       <style href="story-masonry" precedence="default">
         {MASONRY_CSS}
       </style>
+      {/* Without JavaScript nothing is measured, so no predicted spans and nothing clipped:
+          no size container, so the list stays one column in normal flow (MASONRY_CSS). */}
+      <noscript>
+        <style>{'.masonry-box{container-type:normal}'}</style>
+      </noscript>
       <div className="masonry-box">
         <ul ref={list} className="masonry">
           {shown.map((story, i) => (
