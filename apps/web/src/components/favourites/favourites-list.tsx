@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StoryCard } from '@/components/stories/story-card';
+import { StoryMasonry } from '@/components/stories/story-masonry';
 import { Button } from '@/components/ui/button';
 import { deviceHeartCards } from '@/app/stories/actions';
 import type { ApiSummary, StorySummary } from '@/lib/browse';
@@ -11,7 +11,7 @@ import { markHearted } from '@/lib/favourites';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
 
-/** Cards per page: fills whole rows of 1, 2 or 3 columns. */
+/** Cards per page. */
 const PAGE_SIZE = 24;
 const PATH = '/account/favourites';
 
@@ -30,9 +30,10 @@ type List =
 type Page = { data: StorySummary[]; nextCursor: string | null };
 
 /**
- * The person's hearted stories, from api-user in the browser (D83), as the site's cards (home's
- * uniform 16:10 pictures, in rows). Newest heart first; "Show more" loads the next page (no
- * infinite scroll). A heart taken off here stays on screen, empty, until the next visit, so a
+ * The person's hearted stories, from api-user in the browser (D83), shown as browse shows stories
+ * (Joel, 2026-10-31): its masonry, each card at its media's own shape, written stories without a
+ * picture as text only. Newest heart first; "Show more" loads the next page (no infinite scroll,
+ * unlike browse's D55). A heart taken off here stays on screen, empty, until the next visit, so a
  * slip can be undone. Space is kept while it loads, so the footer doesn't jump.
  *
  * Only ever the signed-in person's own list (Codex, #117): every answer is tied to the person
@@ -215,7 +216,7 @@ export function FavouritesList() {
   );
 }
 
-/** The cards, in rows, and "Show more favourites" while there are more. */
+/** The cards, in browse's masonry, and "Show more favourites" while there are more. */
 function Cards({
   cards,
   hasMore,
@@ -229,16 +230,9 @@ function Cards({
 }) {
   return (
     <>
-      <ul
-        data-favourites=""
-        className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        {cards.map((story, i) => (
-          <li key={story.id}>
-            <StoryCard story={story} uniform headingLevel={2} eager={i < 3} />
-          </li>
-        ))}
-      </ul>
+      <div data-favourites="">
+        <StoryMasonry cards={cards} headingLevel={2} />
+      </div>
       {hasMore && (
         <div className="mt-10 flex flex-col items-center gap-3">
           {more === 'failed' && (
