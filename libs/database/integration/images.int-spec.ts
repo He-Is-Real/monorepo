@@ -64,18 +64,6 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       },
     });
 
-    // A description is never required, on any type (Joel, 2026-10-30).
-    await draft(ann, 'ann_w2');
-    expect(
-      await grantImage(apiUser, {
-        story: 'ann_w2',
-        person: 'ann',
-        version: 1,
-        alt: null,
-      }),
-    ).toMatchObject({ ok: true });
-    expect((await image('ann_w2')).image).not.toHaveProperty('alt');
-
     // An audio story's picture (it becomes the clip's thumbnail).
     await draft(ann, 'ann_a', { primaryFormat: 'audio', body: undefined });
     expect(
@@ -149,7 +137,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     ).toEqual([]);
   });
 
-  it('refuses another type, too big, or the wrong shape or size', async () => {
+  it('refuses another type, too big, or the wrong shape or size; takes one with no description', async () => {
     const dan = await person('dan');
     await draft(dan, 'dan_w');
     const cases: [Partial<Parameters<typeof grantImage>[1]>, RegExp][] = [
@@ -172,6 +160,16 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       ).toMatch(refused);
     }
     expect((await image('dan_w')).image).toBeUndefined();
+    // A description is never required, on any type (Joel, 2026-10-30).
+    expect(
+      await grantImage(apiUser, {
+        story: 'dan_w',
+        person: 'dan',
+        version: 1,
+        alt: null,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await image('dan_w')).image).not.toHaveProperty('alt');
   });
 
   it('puts an image on a story only through a grant: the person may change only its description, or remove it', async () => {
