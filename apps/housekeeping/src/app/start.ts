@@ -10,7 +10,7 @@ import { type Log, runTasks, type Task } from './tasks';
 /** What startHousekeeping uses from outside; tests replace Bunny and Clerk. */
 export interface Startup {
   config: HousekeepingConfig;
-  secrets: Pick<SecretsService, 'get'>;
+  secrets: SecretsService;
   log: Log;
   chores?: readonly Task[];
   stream?: (libraryId: string, key: string) => StreamLibrary;
