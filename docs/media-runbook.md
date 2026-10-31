@@ -145,14 +145,27 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
 Pictures (M2 plan PR 10) work like videos, but api-user **never deletes a replaced or removed
 one**: a story sent back for changes still has its approved copy public, and that copy may show
 the old picture. Pictures go only with their story, a whole folder (`stories/<story id>/`) at a
-time, through the deletion queue (`pendingDeletion`, kind `image`):
+time, through the deletion queue (`pendingDeletion`, kind `image`). **Every story delete queues
+its folder**, whoever deletes it, in the same transaction (the database event
+`story_picture_folder`, one row per folder): it works from the story itself, never from its
+upload grants, which are pruned 7 days after a picture stops being the story's (Codex #140
+round 4: an erasure built from grants missed those files).
 
-- **Erasure** (D39, D40) queues every picture the person was granted; api-user deletes their
-  stories' folders straight after the commit, and the nightly housekeeping retries what failed.
-- **Abandoned drafts** (D71): when housekeeping deletes one that ever had a picture, the same
-  transaction queues its folder, deleted by the next night's pending-deletions chore (the
-  dry-run rule applies: in a dry run it only logs it).
-- **A person deleting their own story** doesn't yet: its folder stays until the clean-up sweep.
+- **Erasure** (D39, D40): api-user deletes the erased person's stories' folders straight after
+  the commit, and the nightly housekeeping retries what failed.
+- **A person deleting their own story**, and **abandoned drafts** housekeeping deletes (D71): the
+  next night's pending-deletions chore deletes the folder (the dry-run rule applies: in a dry
+  run it only logs it).
+- **Late uploads:** a picture's PUT link lasts 10 minutes, so one signed just before the story's
+  delete could still put a file in the folder after it was deleted. So a folder's row stays
+  queued after a delete until its **final pass**, 15 minutes after the story went
+  (`finalPassAt`); the database refuses to remove the row before then, and the first delete at
+  or after it (housekeeping's next run, or api-user's after a later erasure) removes the row.
+  A failed try still waits and counts as usual; dry runs and the per-run limit apply.
+
+A story that never had a picture costs one delete answering 404; dev-seed's reset queues one per
+seeded story (their pictures live in `dev-seed/`, not in a story folder, so nothing of theirs is
+deleted).
 
 Deleting a folder deletes everything in it (Bunny's Edge Storage API,
 `DELETE https://uk.storage.bunnycdn.com/<zone>/stories/<story id>/` with the zone password as

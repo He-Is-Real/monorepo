@@ -11,9 +11,11 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * that was ever submitted is moderation's or the person's to remove. The database enforces the
  * same rule on service:housekeeping's delete (docs/db-permissions.md), so this query only picks.
  * The draft's Bunny video then has no story, and the orphan-videos chore deletes it (its upload
- * grant stays for the upload limits, D113). If it ever had a picture (an image upload grant
- * still names it), the same transaction queues its folder in the images zone for deletion
- * (pendingDeletion `image`), which the pending-deletions chore does the next night. A draft was never public, so nothing else can show its pictures.
+ * grant stays for the upload limits, D113). Its delete also queues its folder in the images zone
+ * (story_picture_folder: pendingDeletion `image`, from the story itself, so a picture whose grant
+ * was pruned goes too), which the pending-deletions chore deletes, for the last time once a PUT
+ * link signed before the delete has expired. A draft was never public, so nothing else can show
+ * its pictures.
  *
  * Races: a resume signs its link only once its grant's renewal commits, and that conflicts with
  * this delete (both fence the person), as does a testimony form published meanwhile with a longer
@@ -42,28 +44,17 @@ async function deleteExpiredDraft(
   ctx: Pick<TaskContext, 'db'>,
   id: string,
 ): Promise<boolean> {
-  // One statement, so the check and the delete read the same snapshot; the picture's queueing
-  // commits with it or not at all (THROW if the database refuses it).
+  // One statement, so the check and the delete read the same snapshot; the folder's queueing
+  // (story_picture_folder) commits with it.
   const results = await retryOnConflict(() =>
     runQuery(
       ctx.db,
-      `BEGIN TRANSACTION;
-       LET $gone = (DELETE type::record('story', $id) WHERE fn::story::draft_expired(id)
-         RETURN BEFORE);
-       LET $picture = IF array::len($gone) = 1 {
-         (SELECT VALUE record::id(id) FROM uploadGrant
-           WHERE story = type::record('story', $id) AND format = 'image' LIMIT 1)[0]
-       };
-       IF $picture != NONE
-         AND array::len(CREATE pendingDeletion CONTENT { kind: 'image', ref: $picture }) != 1 {
-         THROW 'the expired draft’s picture couldn’t be queued for deletion';
-       };
-       RETURN array::len($gone);
-       COMMIT TRANSACTION;`,
+      `RETURN array::len(DELETE type::record('story', $id)
+         WHERE fn::story::draft_expired(id) RETURN BEFORE);`,
       { id },
     ),
   );
-  return results[results.length - 2] === 1;
+  return results[results.length - 1] === 1;
 }
 
 export const expiredDraftsTask: Task = {

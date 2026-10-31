@@ -109,9 +109,15 @@ export const STORY_IMAGE_PATH =
   /^stories\/([A-Za-z0-9_]{1,64})\/[0-9a-f]{32}\.webp$/;
 
 /**
- * Deletes a story's whole folder in the images zone (`stories/<story id>/`, found from the path of
- * any picture in it), with everything in it: the story's picture and any it replaced. Only for a
- * story that is gone (erasure; a draft deleted as abandoned). Through Bunny's Edge Storage API
+ * A deleted story's folder as the queue names it (pendingDeletion `image`, story_picture_folder),
+ * or the path of a picture in it (rows queued before 2026-10-31 named one).
+ */
+const STORY_FOLDER = /^stories\/([A-Za-z0-9_]{1,64})\/(?:[0-9a-f]{32}\.webp)?$/;
+
+/**
+ * Deletes a story's whole folder in the images zone (`stories/<story id>/`), with everything in
+ * it: the story's picture and any it replaced, or one a late PUT put there. Only for a story that
+ * is gone (its delete queued the folder). Through Bunny's Edge Storage API
  * (`uk.storage.bunnycdn.com` for the zone's S3 host `uk-s3.storage.bunnycdn.com`), the zone's
  * password as its `AccessKey`: S3 has no folders, and deleting a folder's last object by S3 leaves
  * the folder behind (media-runbook.md; proven on dev by dev-seed's upload spike). Done on 200, or
@@ -119,10 +125,10 @@ export const STORY_IMAGE_PATH =
  */
 export async function deleteStoryFolder(
   zone: Pick<StorageZone, 'name' | 'password' | 'host'>,
-  imagePath: string,
+  folder: string,
 ): Promise<void> {
-  const story = STORY_IMAGE_PATH.exec(imagePath)?.[1];
-  if (!story) throw new Error('Not a story picture’s path');
+  const story = STORY_FOLDER.exec(folder)?.[1];
+  if (!story) throw new Error('Not a story’s folder');
   const region = /^([a-z0-9]+)-s3\.storage\.bunnycdn\.com$/.exec(
     zone.host,
   )?.[1];

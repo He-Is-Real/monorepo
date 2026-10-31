@@ -15,7 +15,7 @@ import {
  * Without `BUNNY_STORAGE_PASSWORD_SECRET`, image uploads are off and RequestUpload answers `503`.
  * api-user never deletes a replaced or removed picture (one may still be on an approved story's
  * public copy; the clean-up sweep removes orphans, media-runbook), only the folders of stories that
- * are gone, from erasure's queue (D40).
+ * are gone, from the deletion queue (D40), straight after an erasure.
  */
 export const BUNNY_STORAGE = Symbol('BUNNY_STORAGE');
 
@@ -35,11 +35,11 @@ export interface ImageStore {
   /** Whether the file at that path has arrived; throws when the zone gives no clear answer. */
   exists(path: string): Promise<boolean>;
   /**
-   * Erasure's queued picture (D40), always a path from the database, which keeps every story's
-   * picture in its own folder (fn::media::own_image): deletes that picture's story's whole folder, which is gone
-   * with the story (`deleteStoryFolder`). Throws unless it's done.
+   * A deleted story's queued folder (pendingDeletion `image`, D40), `stories/<id>/`, always from
+   * the database, which queues it when the story goes (story_picture_folder): deletes the folder
+   * with every picture in it (`deleteStoryFolder`). Throws unless it's done.
    */
-  deleteImage(path: string): Promise<void>;
+  deleteFolder(folder: string): Promise<void>;
 }
 
 export class BunnyImageStore implements ImageStore {
@@ -68,8 +68,8 @@ export class BunnyImageStore implements ImageStore {
     throw new Error(`The images zone answered ${res.status} for a picture`);
   }
 
-  deleteImage(path: string): Promise<void> {
-    return deleteStoryFolder(this.zone, path);
+  deleteFolder(folder: string): Promise<void> {
+    return deleteStoryFolder(this.zone, folder);
   }
 }
 

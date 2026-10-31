@@ -59,11 +59,11 @@ class FakeStream implements BunnyStream {
   }
 }
 
-/** The images zone: records the pictures whose story's folder it was asked to delete. */
+/** The images zone: records the story folders it was asked to delete. */
 class FakeImages extends BunnyImageStore {
   readonly deleted: string[] = [];
-  override async deleteImage(path: string) {
-    this.deleted.push(path);
+  override async deleteFolder(folder: string) {
+    this.deleted.push(folder);
   }
 }
 
@@ -235,7 +235,9 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
          erasedBy: (SELECT VALUE reason FROM auditLog
            WHERE action = 'EraseAccount' AND entity = type::record('user', $who)),
          rowsForClerkId: (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId),
-         queued: (SELECT VALUE id FROM pendingDeletion)
+         queued: (SELECT VALUE id FROM pendingDeletion WHERE kind != 'image'),
+         folders: (SELECT VALUE ref FROM pendingDeletion WHERE kind = 'image'
+           AND string::starts_with(ref, 'stories/' + $who + '_') ORDER BY ref)
        }`,
       { who, clerkUserId: `user_${who}` },
     ).then(([r]) => r);
@@ -286,7 +288,8 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
   });
 
   it('deletes my account: stories, hearts, video, picture and Clerk account go; the ledger stays; my token is refused', async () => {
-    const { video, picture } = await personWithStories('ann');
+    const { video } = await personWithStories('ann');
+    const folders = ['stories/ann_live/', 'stories/ann_video/'];
     expect((await call('GET', '/v1/account', 'ann')).status).toBe(200);
 
     expect(await call('DELETE', '/v1/account', 'ann')).toEqual({
@@ -303,10 +306,23 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
       erasedBy: ['account_deleted'],
       rowsForClerkId: [],
       queued: [],
+      // Deleted straight away, and kept for their final pass: a PUT link signed before the
+      // erasure may still put a picture there for 10 minutes (housekeeping's next run).
+      folders,
     });
     expect((await left('ann')).ledger).toBeGreaterThan(0);
     expect(bunny.deleted).toContain(video);
-    expect(images.deleted).toEqual([picture]);
+    expect([...images.deleted].sort()).toEqual(folders);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE [attempts, nextAttemptAt = finalPassAt, finalPassAt > time::now() + 14m]
+         FROM pendingDeletion WHERE kind = 'image'`,
+      ),
+    ).toEqual([
+      [0, true, true],
+      [0, true, true],
+    ]);
     expect(clerkApi.deleted).toEqual(['user_ann']);
 
     // #44: the same, still-valid token neither signs in nor recreates the person, however often.
@@ -330,7 +346,8 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     expect(
       await rows(
         migrator,
-        `SELECT attempts, nextAttemptAt > time::now() + 50m AS later FROM pendingDeletion`,
+        `SELECT attempts, nextAttemptAt > time::now() + 50m AS later FROM pendingDeletion
+         WHERE kind = 'clerk_user'`,
       ),
     ).toEqual([{ attempts: 1, later: true }]);
     expect((await call('GET', '/v1/account', 'cat')).status).toBe(401);
@@ -341,13 +358,17 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     expect(clerkApi.deleted).toContain('user_dan');
     expect(clerkApi.deleted).not.toContain('user_cat');
     expect(
-      await rows(migrator, `SELECT VALUE ref FROM pendingDeletion`),
+      await rows(
+        migrator,
+        `SELECT VALUE ref FROM pendingDeletion WHERE kind != 'image'`,
+      ),
     ).toEqual(['user_cat']);
     await run(migrator, `DELETE pendingDeletion`);
   });
 
   it('answers 202 once the account is erased, even if the deletion queue then fails: the deletions wait', async () => {
-    const { video, picture } = await personWithStories('ida');
+    const { video } = await personWithStories('ida');
+    const folders = ['stories/ida_live/', 'stories/ida_video/'];
     breaks.failing = 'pendingDeletion';
     try {
       expect(await call('DELETE', '/v1/account', 'ida')).toEqual({
@@ -367,9 +388,9 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
         migrator,
         `SELECT VALUE ref FROM pendingDeletion ORDER BY ref`,
       ),
-    ).toEqual([video, picture, 'user_ida'].sort());
+    ).toEqual([...folders, video, 'user_ida'].sort());
     expect(bunny.deleted).not.toContain(video);
-    expect(images.deleted).not.toContain(picture);
+    expect(images.deleted).not.toContain(folders[1]);
     expect((await call('GET', '/v1/account', 'ida')).status).toBe(401);
     await run(migrator, `DELETE pendingDeletion`);
   });

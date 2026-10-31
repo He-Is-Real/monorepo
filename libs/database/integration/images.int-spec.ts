@@ -7,7 +7,8 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { draft, grantImage, grantUpload } from './support/world';
+import { PENDING_DELETION_DONE } from '../src/lib/erasure';
+import { draft, ERASE, grantImage, grantUpload } from './support/world';
 
 /**
  * Images (M2 plan PR 10; D53, D65, D80): a written story's image or an audio story's picture is
@@ -401,5 +402,161 @@ describe('images: server-assigned, in the story’s own folder, only through a g
         }),
       ),
     ).toMatch(/image_changed:/);
+  });
+});
+
+/**
+ * A deleted story's pictures (D82, D40; Codex #140 round 4): every picture of a story lives in
+ * `stories/<its id>/`, so its delete queues that folder from the story row, whoever deletes it,
+ * never from its upload grants (pruned after 7 days once no longer the picture). The row's last
+ * try waits until a PUT link signed before the delete has expired.
+ */
+describe('a deleted story’s picture folder is queued from the story, never its grants (D82)', () => {
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let apiUser: Surreal;
+  const hex = (n: number) => String(n).padStart(32, '0');
+  const queued = () =>
+    rows<Record<string, unknown>>(
+      migrator,
+      `SELECT record::id(id) AS key, kind, ref,
+         finalPassAt != NONE AND finalPassAt > at + 14m AND finalPassAt <= at + 15m AS waits
+       FROM pendingDeletion ORDER BY ref`,
+    );
+  async function person(p: string): Promise<Surreal> {
+    await createPeople(t, { [p]: `user_${p}` });
+    const s = await t.person(`user_${p}`);
+    await grantAll(s);
+    return s;
+  }
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    apiUser = await t.service('api_user');
+    await publishDpa(t, 'v1');
+  });
+  afterAll(() => t?.close());
+  afterEach(() => run(migrator, 'DELETE pendingDeletion'));
+
+  it('erasure queues the folder of a picture whose grant was pruned (Codex #140 round 4)', async () => {
+    const ivy = await person('ivy');
+    await draft(ivy, 'ivy_w');
+    await draft(ivy, 'ivy_x');
+    // A picture uploaded eight days ago (only the database owner can date a grant), then removed.
+    await run(
+      migrator,
+      `DEFINE FIELD OVERWRITE at ON uploadGrant TYPE datetime DEFAULT time::now() - 8d`,
+    );
+    expect(
+      await grantImage(apiUser, {
+        story: 'ivy_w',
+        person: 'ivy',
+        version: 1,
+        name: hex(1),
+      }),
+    ).toMatchObject({ ok: true });
+    await run(
+      migrator,
+      `DEFINE FIELD OVERWRITE at ON uploadGrant TYPE datetime VALUE $before OR time::now() READONLY`,
+    );
+    await run(ivy, `UPDATE story:ivy_w SET image = NONE`);
+    // Another upload prunes the old grant: it is no longer any story's picture.
+    expect(
+      await grantImage(apiUser, {
+        story: 'ivy_x',
+        person: 'ivy',
+        version: 1,
+        name: hex(2),
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await rows(migrator, `SELECT VALUE record::id(id) FROM uploadGrant`),
+    ).toEqual([`stories/ivy_x/${hex(2)}.webp`]);
+
+    const [, pending] = (
+      await run(apiUser, ERASE, {
+        clerkUserId: 'user_ivy',
+        reason: 'account_deleted',
+      })
+    ).at(-2) as [unknown, string[]];
+    const folders = [
+      {
+        key: 'image-ivy_w',
+        kind: 'image',
+        ref: 'stories/ivy_w/',
+        waits: true,
+      },
+      {
+        key: 'image-ivy_x',
+        kind: 'image',
+        ref: 'stories/ivy_x/',
+        waits: true,
+      },
+    ];
+    expect(await queued()).toEqual([
+      ...folders,
+      expect.objectContaining({ kind: 'clerk_user', ref: 'user_ivy' }),
+    ]);
+    // api-user tries them all straight after the commit.
+    expect([...pending].sort()).toEqual(
+      (await queued()).map((r) => r['key']).sort(),
+    );
+  });
+
+  it('a person deleting their own story queues its folder, once', async () => {
+    const jon = await person('jon');
+    await draft(jon, 'jon_w');
+    expect(
+      await grantImage(apiUser, { story: 'jon_w', person: 'jon', version: 1 }),
+    ).toMatchObject({ ok: true });
+    await run(jon, `DELETE story:jon_w`);
+    expect(await queued()).toEqual([
+      { key: 'image-jon_w', kind: 'image', ref: 'stories/jon_w/', waits: true },
+    ]);
+    // Nobody else writes a picture row: not api-user, not housekeeping, not the person.
+    const housekeeping = await t.service('housekeeping');
+    for (const db of [apiUser, housekeeping, jon]) {
+      await run(
+        db,
+        `CREATE pendingDeletion CONTENT { kind: 'image', ref: 'stories/bob_live/' }`,
+      ).catch(() => undefined);
+    }
+    expect(await queued()).toHaveLength(1);
+  });
+
+  it('keeps a folder’s row until its final pass, past a PUT link’s 10 minutes, then lets it go', async () => {
+    const kit = await person('kit');
+    await draft(kit, 'kit_w');
+    await run(kit, `DELETE story:kit_w`);
+    const housekeeping = await t.service('housekeeping');
+    // A delete before the final pass: the row stays, due again at its final pass, tries unchanged.
+    for (const db of [apiUser, housekeeping]) {
+      await run(db, PENDING_DELETION_DONE, { key: 'image-kit_w' });
+      await run(db, `DELETE pendingDeletion:⟨image-kit_w⟩`).catch(
+        () => undefined,
+      );
+      // Nor can a service bring the final pass forward.
+      await run(
+        db,
+        `UPDATE pendingDeletion:⟨image-kit_w⟩ SET finalPassAt = time::now() - 1m`,
+      ).catch(() => undefined);
+    }
+    expect(
+      await rows(
+        migrator,
+        `SELECT attempts, nextAttemptAt = finalPassAt AS waiting,
+           finalPassAt > time::now() + 14m AS later
+         FROM pendingDeletion:⟨image-kit_w⟩`,
+      ),
+    ).toEqual([{ attempts: 0, waiting: true, later: true }]);
+    // Fifteen minutes on, the next delete is its last.
+    await run(
+      migrator,
+      `UPDATE pendingDeletion:⟨image-kit_w⟩ SET finalPassAt = time::now() - 1s,
+         nextAttemptAt = time::now() - 1s`,
+    );
+    await run(apiUser, PENDING_DELETION_DONE, { key: 'image-kit_w' });
+    expect(await queued()).toEqual([]);
   });
 });

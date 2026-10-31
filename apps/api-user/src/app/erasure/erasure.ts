@@ -15,12 +15,12 @@ import { BUNNY_STREAM, type BunnyStream } from '../stories/bunny-stream';
 import { CLERK_BACKEND, type ClerkBackend } from './clerk-backend';
 
 /**
- * Deletes a queued picture's story's whole folder from the images storage zone, the picture and
- * any it replaced (an `image` row is only ever queued for a story that is gone). The images
- * zone's client (bunny-storage.ts); null with image uploads off, when `image` rows wait (logged).
+ * Deletes a deleted story's whole folder from the images storage zone, every picture in it (an
+ * `image` row is only ever queued by a story's delete). The images zone's client
+ * (bunny-storage.ts); null with image uploads off, when `image` rows wait (logged).
  */
 export interface ImageDeleter {
-  deleteImage(path: string): Promise<void>;
+  deleteFolder(folder: string): Promise<void>;
 }
 export const IMAGE_DELETER = Symbol('IMAGE_DELETER');
 
@@ -77,8 +77,10 @@ export class Erasure {
 
   /**
    * Works through queued deletions that are due: `keys` (those of one erasure), or else a few of
-   * the others. Each row goes once its deletion is done; a failure is logged, counted and pushed
-   * back (fn::erasure::retry_after).
+   * the others. Each row goes once its deletion is done, except a story folder's before its final
+   * pass: a PUT link signed before the story went may still put a picture there, so the row waits
+   * for housekeeping's last delete (fn::erasure::pending_done). A failure is logged, counted and
+   * pushed back (fn::erasure::retry_after).
    */
   async drain(keys?: string[]): Promise<void> {
     const [rows] = (await runQuery(this.db, PENDING_DELETIONS_DUE, {
@@ -107,7 +109,7 @@ export class Erasure {
     }
     if (kind === 'image') {
       if (!this.images) throw new Error('the images zone is off here');
-      return this.images.deleteImage(ref);
+      return this.images.deleteFolder(ref);
     }
     return this.clerk.deleteUser(ref);
   }

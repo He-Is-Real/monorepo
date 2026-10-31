@@ -42,11 +42,11 @@ class FakeLibrary implements StreamLibrary {
   }
 }
 
-/** The images zone, in memory: the story folders it was asked to delete (by a picture's path). */
+/** The images zone, in memory: the story folders it was asked to delete. */
 class FakeZone implements ImageZone {
   deleted: string[] = [];
-  async deleteFolder(imagePath: string) {
-    this.deleted.push(imagePath);
+  async deleteFolder(folder: string) {
+    this.deleted.push(folder);
   }
 }
 
@@ -348,13 +348,37 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     );
   });
 
-  it('queues the deleted draft’s picture, and deletes its folder once the images zone can be used', async () => {
-    expect(await queued()).toEqual([{ kind: 'image', ref: OLD_PICTURE }]);
+  it('queues the deleted drafts’ picture folders, and deletes them once the images zone can be used, the last time after a PUT link’s 10 minutes', async () => {
+    const folders = ['stories/old_video_draft/', 'stories/old_written_draft/'];
+    expect(await queued()).toEqual(
+      folders.map((ref) => ({ kind: 'image', ref })),
+    );
     const zone = new FakeZone();
     expect(await sweep({ images: zone, dryRun: true })).toBe(0);
     expect(zone.deleted).toEqual([]);
+    // Straight away: deleted, but a PUT link signed before the draft went may still be used, so
+    // the rows wait for their final pass (fn::erasure::final_pass_after), tries unchanged.
     expect(await sweep({ images: zone })).toBe(0);
-    expect(zone.deleted).toEqual([OLD_PICTURE]);
+    expect(zone.deleted.sort()).toEqual(folders);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE [attempts, nextAttemptAt = finalPassAt, finalPassAt > time::now() + 14m]
+         FROM pendingDeletion`,
+      ),
+    ).toEqual([
+      [0, true, true],
+      [0, true, true],
+    ]);
+    expect(await sweep({ images: zone })).toBe(0);
+    expect(zone.deleted).toHaveLength(2);
+    // Fifteen minutes on: the final pass deletes them again, and they're done.
+    await run(
+      migrator,
+      `UPDATE pendingDeletion SET finalPassAt = time::now() - 1s, nextAttemptAt = time::now() - 1s`,
+    );
+    expect(await sweep({ images: zone })).toBe(0);
+    expect(zone.deleted.slice(2).sort()).toEqual(folders);
     expect(await queued()).toEqual([]);
   });
 
@@ -552,10 +576,11 @@ describe('housekeeping: erasure requests and queued deletions', () => {
       },
       (entry) => logs.push(entry),
     );
+  // Their stories' picture folders wait too (no images zone here): the describes either side.
   const queued = () =>
     rows<{ ref: string; attempts: number }>(
       migrator,
-      `SELECT ref, attempts FROM pendingDeletion ORDER BY ref`,
+      `SELECT ref, attempts FROM pendingDeletion WHERE kind != 'image' ORDER BY ref`,
     );
   const erased = async (who: string) =>
     (
@@ -702,6 +727,7 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
   const GUS_VIDEO = guid();
   const HAL_VIDEO = guid();
   const HAL_PICTURE = `stories/hal_video/${'e'.repeat(32)}.webp`;
+  const FOLDERS = ['stories/gus_video/', 'stories/hal_video/'];
 
   const disabled = () => {
     throw new Error(
@@ -856,7 +882,8 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
       expect.arrayContaining([
         { kind: 'bunny_video', ref: GUS_VIDEO, attempts: 0 },
         { kind: 'bunny_video', ref: HAL_VIDEO, attempts: 0 },
-        { kind: 'image', ref: HAL_PICTURE, attempts: 0 },
+        { kind: 'image', ref: FOLDERS[0], attempts: 0 },
+        { kind: 'image', ref: FOLDERS[1], attempts: 0 },
         { kind: 'clerk_user', ref: 'user_gus', attempts: 0 },
         { kind: 'clerk_user', ref: 'user_hal', attempts: 0 },
       ]),
@@ -877,7 +904,7 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
     ).toEqual([true]);
     expect(library.deleted.sort()).toEqual([GUS_VIDEO, HAL_VIDEO].sort());
     expect(await queued()).toEqual([
-      { kind: 'image', ref: HAL_PICTURE, attempts: 0 },
+      ...FOLDERS.map((ref) => ({ kind: 'image', ref, attempts: 0 })),
       { kind: 'clerk_user', ref: 'user_gus', attempts: 0 },
       { kind: 'clerk_user', ref: 'user_hal', attempts: 0 },
     ]);
@@ -889,10 +916,10 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
     expect(logs[0]).toMatchObject({ severity: 'ERROR' });
     expect(JSON.stringify(logs)).not.toContain('not-a-clerk-key');
     expect(clerkMade).toEqual([]);
-    expect(await queued()).toHaveLength(3);
+    expect(await queued()).toHaveLength(4);
   });
 
-  it('once the images zone’s password can be read, deletes the erased person’s picture folder, never logging the password', async () => {
+  it('once the images zone’s password can be read, deletes the erased people’s picture folders, never logging the password', async () => {
     const { exitCode, logs, zone, zoneMade } = start(
       disabled,
       undefined,
@@ -903,9 +930,12 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
       { name: 'test-zone', host: 'uk-s3.storage.bunnycdn.com' },
     ]);
     expect(logs[1]).toMatchObject({ images: true });
-    expect(zone.deleted).toEqual([HAL_PICTURE]);
+    expect(zone.deleted.sort()).toEqual(FOLDERS);
     expect(JSON.stringify(logs)).not.toContain('zone-password-value');
+    // Deleted, and their final passes still to come.
     expect((await queued()).map((r) => r.kind)).toEqual([
+      'image',
+      'image',
       'clerk_user',
       'clerk_user',
     ]);

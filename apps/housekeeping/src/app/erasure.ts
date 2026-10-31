@@ -76,9 +76,10 @@ export const erasureRequestsTask: Task = {
 
 /**
  * Queued deletions outside the database (pendingDeletion) that api-user couldn't finish, or that
- * the expired-drafts chore queued: a person's Bunny videos, their pictures (a gone story's folder
- * in the images zone) when the zone's password is set here, and their Clerk account when the
- * Clerk key is.
+ * no one tried yet: an erased person's Bunny videos and Clerk account (when the Clerk key is set
+ * here), and every deleted story's folder in the images zone (when the zone's password is). A
+ * folder's row stays after a delete until its final pass, once a PUT link signed before the story
+ * went has expired (fn::erasure::pending_done); that delete is its last.
  */
 export const pendingDeletionsTask: Task = {
   name: 'pending-deletions',

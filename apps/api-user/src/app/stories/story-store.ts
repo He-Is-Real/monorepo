@@ -513,9 +513,10 @@ export class StoryStore {
   /**
    * DeleteStory at `ifMatch` (D71): the person's own draft, withdrawn, rejected or
    * changes-requested story, gone with its read-model rows, reviews and others' hearts
-   * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its upload grants,
-   * D80), for the caller to delete at Bunny once this has committed. The grants themselves stay: the upload limits count them
-   * for 7 days (D113).
+   * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its video and audio
+   * upload grants, D80), for the caller to delete at Bunny once this has committed. Its picture
+   * folder is queued by the delete itself (story_picture_folder), for housekeeping. The grants
+   * themselves stay: the upload limits count them for 7 days (D113).
    */
   async delete(id: string, ifMatch: number): Promise<{ videos: string[] }> {
     try {
@@ -528,7 +529,7 @@ export class StoryStore {
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN $deletable { THROW 'story_cmd:not_deletable' };
            LET $videos = (SELECT VALUE record::id(id) FROM uploadGrant
-             WHERE story = type::record('story', $id));
+             WHERE story = type::record('story', $id) AND format != 'image');
            LET $gone = (DELETE type::record('story', $id) RETURN BEFORE);
            IF array::len($gone) = 0 { THROW 'story_cmd:not_deletable' };
            $videos;

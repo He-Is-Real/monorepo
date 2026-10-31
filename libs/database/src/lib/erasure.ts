@@ -26,7 +26,7 @@ export const ERASE_ACCOUNT = `
   $erased;
   COMMIT TRANSACTION;`;
 
-/** A deletion outside the database that an erasure queued (D40): `pendingDeletion`. */
+/** A deletion outside the database that was queued (D40): `pendingDeletion`. */
 export interface PendingDeletion {
   key: string;
   kind: 'bunny_video' | 'image' | 'clerk_user';
@@ -45,8 +45,12 @@ export const PENDING_DELETIONS_DUE = `
       AND (!type::is_array($keys) OR record::id(id) IN $keys)
     ORDER BY nextAttemptAt LIMIT $limit`;
 
-/** One queued deletion is done (bind `$key`). */
-export const PENDING_DELETION_DONE = `DELETE type::record('pendingDeletion', $key)`;
+/**
+ * One queued deletion is done (bind `$key`): the row goes, or, for a picture folder whose final
+ * pass is still to come (a PUT link signed before the story's delete may still be used), it is due
+ * again then (fn::erasure::pending_done; the database refuses an earlier removal).
+ */
+export const PENDING_DELETION_DONE = `fn::erasure::pending_done($key)`;
 
 /** One try failed (bind `$key`): it counts, and the row waits (fn::erasure::retry_after). */
 export const PENDING_DELETION_FAILED = `

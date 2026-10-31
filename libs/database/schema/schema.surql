@@ -908,6 +908,24 @@ DEFINE EVENT OVERWRITE story_erasure_cascade ON story
     DELETE moderationReview WHERE story = $before.id;
     DELETE favourite WHERE story = $before.id;                  -- others' hearts on it
   };
+-- Every deleted story's picture folder in the images zone (M2 plan PR 10, D82, D40), whoever
+-- deletes it (its owner, erasure, housekeeping's expired drafts, dev-seed): every picture of a
+-- story lives in `stories/<its id>/`, so the folder is queued from the story row itself, never
+-- from its upload grants (a grant that is no longer the story's picture is pruned after 7 days,
+-- Codex #140 r4). One queue row per folder (its key is the story's id), with its final pass
+-- (fn::erasure::final_pass_after): a PUT link signed just before the delete stays valid for
+-- 10 minutes, so the row isn't done until a delete after that (pendingDeletion FOR delete).
+-- A story without pictures costs one delete that answers 404.
+DEFINE EVENT OVERWRITE story_picture_folder ON story
+  WHEN $event = 'DELETE'
+  THEN {
+    LET $key = fn::erasure::folder_key($before.id);
+    IF !record::exists(type::record('pendingDeletion', $key)) {
+      CREATE type::record('pendingDeletion', $key) CONTENT { kind: 'image',
+        ref: 'stories/' + <string> record::id($before.id) + '/',
+        finalPassAt: time::now() + fn::erasure::final_pass_after() } RETURN NONE;
+    };
+  };
 DEFINE INDEX OVERWRITE story_slug      ON story FIELDS slug UNIQUE;
 DEFINE INDEX OVERWRITE story_queue     ON story FIELDS status, submittedAt;
 DEFINE INDEX OVERWRITE story_submitter ON story FIELDS submitter, createdAt;
@@ -2327,23 +2345,24 @@ DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
   };
 
 -- ---------------------------------------------------------------- pendingDeletion (D40)
--- What erasure must still delete outside the database, written in the erasure transaction and
--- deleted row by row once done: kind 'bunny_video' (a Stream video api-user made: the person's
--- upload grants, never seeded media), 'image' (a picture in the images storage zone, from an image
--- upload grant: its story's whole folder goes, M2 plan PR 10), 'clerk_user' (the Clerk account,
--- for in-app deletion and Art 9 withdrawal; the only place a Clerk id outlives erasure, until
--- Clerk confirms). No person link: the person is gone. api-user deletes them straight after the
--- commit; the nightly housekeeping retries the rest. A failed try counts in `attempts` and waits
+-- What must still be deleted outside the database, written in the transaction that made it
+-- needed and deleted row by row once done: kind 'bunny_video' (a Stream video api-user made: an
+-- erased person's upload grants, never seeded media), 'image' (a deleted story's whole folder in
+-- the images storage zone, `stories/<story id>/`: only story_picture_folder writes these, keyed
+-- by the story, M2 plan PR 10), 'clerk_user' (the Clerk account, for in-app deletion and Art 9
+-- withdrawal; the only place a Clerk id outlives erasure, until Clerk confirms). No person link:
+-- the person or story is gone. api-user deletes an erasure's rows straight after the commit; the
+-- nightly housekeeping retries the rest. A failed try counts in `attempts` and waits
 -- (fn::erasure::retry_after), so rows that keep failing go to the back and never hold up the
--- others. Only api-user and housekeeping read, delete or count tries on it. An erasure writes
--- them; housekeeping writes one more kind: an 'image' row for a draft it deleted as abandoned,
--- only for an image grant whose story is gone (in the delete's own transaction), since deleting
--- it takes the story's whole folder.
+-- others. finalPassAt (folders only): a picture's PUT link may still be used until then, so a
+-- delete before it leaves the row, due again at finalPassAt (pendingDeletion_done), and only a
+-- delete from then on removes it. Only api-user and housekeeping read, delete or count tries on it;
+-- only api-user's erasure writes rows itself (never an 'image' one).
 DEFINE TABLE OVERWRITE pendingDeletion SCHEMAFULL PERMISSIONS
-  FOR select, update, delete WHERE $auth.id IN [service:api_user, service:housekeeping],
-  FOR create WHERE $auth.id = service:api_user
-    OR ($auth.id = service:housekeeping AND kind = 'image'
-      AND fn::erasure::gone_story_image(ref));
+  FOR select, update WHERE $auth.id IN [service:api_user, service:housekeeping],
+  FOR delete WHERE $auth.id IN [service:api_user, service:housekeeping]
+    AND (finalPassAt = NONE OR finalPassAt <= time::now()),
+  FOR create WHERE $auth.id = service:api_user AND kind != 'image';
 DEFINE FIELD OVERWRITE kind ON pendingDeletion TYPE string READONLY
   ASSERT $value IN ['bunny_video', 'image', 'clerk_user'];
 DEFINE FIELD OVERWRITE ref  ON pendingDeletion TYPE string READONLY
@@ -2351,12 +2370,29 @@ DEFINE FIELD OVERWRITE ref  ON pendingDeletion TYPE string READONLY
 DEFINE FIELD OVERWRITE at   ON pendingDeletion TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE FIELD OVERWRITE attempts      ON pendingDeletion TYPE int DEFAULT 0 ASSERT $value >= 0;
 DEFINE FIELD OVERWRITE nextAttemptAt ON pendingDeletion TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE finalPassAt   ON pendingDeletion TYPE option<datetime>
+  PERMISSIONS FOR update NONE;                                  -- set by the event only
 DEFINE INDEX OVERWRITE pendingDeletion_at ON pendingDeletion FIELDS at;
 DEFINE INDEX OVERWRITE pendingDeletion_due ON pendingDeletion FIELDS nextAttemptAt;
--- Whether $path is an image upload grant whose story is gone (no such grant: no).
-DEFINE FUNCTION OVERWRITE fn::erasure::gone_story_image($path: string) {
-  LET $g = (SELECT story, format FROM ONLY type::record('uploadGrant', $path));
-  RETURN $g != NONE AND $g.format = 'image' AND !record::exists($g.story);
+REMOVE FUNCTION IF EXISTS fn::erasure::gone_story_image;
+-- A deleted story's folder's queue key: one row per folder, however many deletes ask for it.
+DEFINE FUNCTION OVERWRITE fn::erasure::folder_key($story: record<story>) {
+  RETURN 'image-' + <string> record::id($story);
+};
+-- How long after a story's deletion its folder's last delete waits: past the 10-minute life of a
+-- picture's PUT link (api-user's IMAGE_LINK_SECONDS), with room for a link signed just before.
+DEFINE FUNCTION OVERWRITE fn::erasure::final_pass_after() {
+  RETURN 15m;
+};
+-- One queued deletion is done (`$key`): the row goes, unless its final pass is still to come,
+-- when it waits for that instead, its tries unchanged.
+DEFINE FUNCTION OVERWRITE fn::erasure::pending_done($key: string) {
+  LET $row = type::record('pendingDeletion', $key);
+  IF $row.finalPassAt != NONE AND $row.finalPassAt > time::now() {
+    UPDATE $row SET nextAttemptAt = finalPassAt RETURN NONE;
+  } ELSE {
+    DELETE $row;
+  };
 };
 -- How long a queued deletion or an erasure request waits after its $attempts-th failed try: 1 h,
 -- then doubling, at most a week. Set together with the count, from its value before the try.
@@ -2396,9 +2432,10 @@ DEFINE EVENT OVERWRITE erasureRequest_erases ON erasureRequest
 -- the erased user (or NONE: already erased, or never known) and the pendingDeletion keys written.
 -- - The erased-identity tombstone (D82): the sha256 of the Clerk id, written even when nobody has
 --   that id, so provisioning refuses it from now on (user_not_erased_identity).
--- - What must go outside the database (D40): each of the person's upload grants (bunny_video, or
---   image), and, unless Clerk has already deleted the person ($reason clerk_user_deleted), their
---   Clerk account.
+-- - What must go outside the database (D40): each of the person's video and audio upload grants
+--   (bunny_video), each of their stories' picture folders (image: queued by the story's own
+--   delete, story_picture_folder, from the story rows, so a pruned grant can't hide one), and,
+--   unless Clerk has already deleted the person ($reason clerk_user_deleted), their Clerk account.
 -- - Then the stories (the cascade takes publicStory, hiddenStory, reviews and others' hearts),
 --   idempotency keys, limits, submission log and grants; the user row becomes a stub (D37) and
 --   their own hearts go with it (user_erasure_favourites); an EraseAccount audit row.
@@ -2408,12 +2445,16 @@ DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: stri
   LET $fingerprint = type::record('erasedIdentity', crypto::sha256($clerkUserId));
   IF !record::exists($fingerprint) { CREATE $fingerprint RETURN NONE };
   LET $u = (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId AND gdprDeletedAt = NONE)[0];
-  LET $media = (SELECT VALUE { kind: IF format = 'image' { 'image' } ELSE { 'bunny_video' },
-      ref: <string> record::id(id) } FROM uploadGrant WHERE $u != NONE AND person = $u);
+  LET $media = (SELECT VALUE { kind: 'bunny_video', ref: <string> record::id(id) }
+    FROM uploadGrant WHERE $u != NONE AND person = $u AND format != 'image');
   LET $account = IF $u = NONE OR $reason = 'clerk_user_deleted' { [] }
     ELSE { [{ kind: 'clerk_user', ref: $clerkUserId }] };
   LET $pending = IF array::len(array::concat($media, $account)) = 0 { [] }
     ELSE { (INSERT INTO pendingDeletion array::concat($media, $account) RETURN VALUE record::id(id)) };
+  -- Each story's picture folder is queued by its delete (story_picture_folder), one per story.
+  -- api-user can't read stories, so their keys are the folder rows written from here on (one
+  -- another delete committed in the same instant may join them: trying it early is harmless).
+  LET $since = time::now();
   IF $u != NONE {
     DELETE story WHERE submitter = $u;              -- cascades publicStory, hiddenStory, reviews, hearts
     DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
@@ -2424,7 +2465,9 @@ DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: stri
     CREATE auditLog CONTENT { service: $service, action: 'EraseAccount', entity: $u,
       reason: $reason };
   };
-  RETURN [$u, $pending];
+  LET $folders = IF $u = NONE { [] } ELSE { (SELECT VALUE record::id(id) FROM pendingDeletion
+    WHERE kind = 'image' AND at >= $since) };
+  RETURN [$u, array::concat($pending, $folders)];
 };
 
 -- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),
