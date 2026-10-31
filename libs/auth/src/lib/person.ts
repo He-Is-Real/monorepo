@@ -58,21 +58,30 @@ export class SignInUnavailable implements PersonAuthenticator {
 }
 
 /**
- * How long one unit of a person's work (one `PersonSessions.run`) may need its database session,
- * in seconds (decision T, option B). surrealdb.js 2.0.8 ends a session it can't renew when its
- * token expires, even mid-query (#164), and a browser's Clerk token arrives with 10 to 60 s left,
- * so a unit whose pass has less time left than this runs on a fresh pass from Clerk instead.
- * - `quick`: database work only (most routes, and the consent guard).
- * - `slow`: work that also waits on Bunny or reads everything a person has: submit, an upload
- *   link, the data download. Three Bunny Stream calls at their 15 s timeout, plus the database.
+ * The two kinds of a person's work (one `PersonSessions.run`; decision T, option B).
+ * surrealdb.js 2.0.8 ends a session it can't renew when its token expires, even mid-query (#164),
+ * and a browser's Clerk token arrives with 10 to 60 s left, so each kind says how long its
+ * session must still last when it opens (`sessionSeconds`), and for how long the work may start
+ * new attempts (`retrySeconds`; {@link PersonContext.deadline}).
+ * - `quick`: database work only, whose retries wait milliseconds (most routes, and the consent
+ *   guard). The person's own pass while it lasts 10 s more, else a fresh one.
+ * - `slow`: work that waits on Bunny or reads everything a person has (submit, an upload link,
+ *   the data download). Always a fresh pass, never a guess from the time left: no attempt starts
+ *   after two minutes, and the last one (a Bunny call or two at their 15 s timeout, plus the
+ *   database) has two more before the session's end.
  */
-export const PERSON_WORK_SECONDS = { quick: 10, slow: 50 } as const;
+export const PERSON_WORK = {
+  quick: { sessionSeconds: 10, retrySeconds: 5 },
+  slow: { sessionSeconds: 240, retrySeconds: 120 },
+} as const;
+export type PersonWork = keyof typeof PERSON_WORK;
 
 /**
  * How long Clerk is asked to make a fresh pass last. surrealdb.js 2.0.8 ends a session 60 s
  * before its token's `exp` once the token has over two minutes left (its `expiryMargin`), so six
- * minutes give the database's own five (`DURATION FOR SESSION 5m`, access-clerk.surql), which is
- * also Cloud Run's request timeout: no request outlives it.
+ * minutes give a session of five, the database's own (`DURATION FOR SESSION 5m`,
+ * access-clerk.surql). Cloud Run's timeout ends only the response, not our work: the slow work's
+ * deadline is what stops it well inside those five minutes.
  */
 export const FRESH_PASS_SECONDS = 360;
 
@@ -127,6 +136,11 @@ export interface PersonContext {
   session: SurrealSession;
   /** Their `user` record (`$auth`). */
   user: RecordId;
+  /**
+   * When the work must stop starting new attempts (ms since the epoch), so it ends inside the
+   * session: pass it to `runIdempotent`, which then throws its last retryable error instead.
+   */
+  deadline: number;
 }
 
 /**
@@ -163,25 +177,23 @@ export class PersonSessions {
     return person;
   }
 
-  /**
-   * `seconds`: how long `work` may take ({@link PERSON_WORK_SECONDS}); the person's pass must
-   * last that long, or a fresh one is asked for first.
-   */
+  /** `kind`: {@link PERSON_WORK}; `slow` for anything that waits on Bunny or reads a lot. */
   async run<T>(
     request: Request,
     work: (person: PersonContext) => Promise<T>,
-    seconds: number = PERSON_WORK_SECONDS.quick,
+    kind: PersonWork = 'quick',
   ): Promise<T> {
     const person = await this.authenticate(request);
-    return this.runAs(person, work, seconds);
+    return this.runAs(person, work, kind);
   }
 
   async runAs<T>(
     person: AuthenticatedPerson,
     work: (person: PersonContext) => Promise<T>,
-    seconds: number = PERSON_WORK_SECONDS.quick,
+    kind: PersonWork = 'quick',
   ): Promise<T> {
-    const token = await this.passFor(person, seconds);
+    const token = await this.passFor(person, kind);
+    const deadline = Date.now() + PERSON_WORK[kind].retrySeconds * 1000;
     return withPersonSession(this.connection, token, async (session) => {
       const [user] = (await session.query('RETURN $auth').collect()) as [
         RecordId | undefined,
@@ -189,7 +201,7 @@ export class PersonSessions {
       // A valid token for someone the database doesn't know (or has erased) can't get here:
       // AUTHENTICATE refuses it. Checked anyway, fail closed.
       if (!user) throw new UnauthorizedException('Not signed in');
-      return work({ session, user });
+      return work({ session, user, deadline });
     }).catch((err: unknown) => {
       if (err instanceof PersonSessionRefusedError) {
         throw new UnauthorizedException('The session token was refused');
@@ -199,20 +211,25 @@ export class PersonSessions {
   }
 
   /**
-   * The token to open the person's session with: theirs while it lasts `seconds` more, else a
-   * fresh pass for the same Clerk session (decision T, option B). The caller's token was
+   * The token to open the person's session with: for quick work theirs while it lasts long
+   * enough, else (and always for slow work) a fresh pass for the same Clerk session (decision T,
+   * option B), one per request while it lasts long enough. The caller's token was
    * verified first (signature, `exp`, `iss`, `azp`), which is what proves the session is theirs.
    * Clerk refusing means signed out (401); Clerk not answering fails the request (503, try
    * again), never a silent fall back to a token that can't cover the work.
    */
   private async passFor(
     person: AuthenticatedPerson,
-    seconds: number,
+    kind: PersonWork,
   ): Promise<string> {
+    const { sessionSeconds } = PERSON_WORK[kind];
     const enough = (pass: Pass) =>
-      sessionSecondsLeft(pass.expiresAt - Date.now() / 1000) >= seconds;
+      sessionSecondsLeft(pass.expiresAt - Date.now() / 1000) >= sessionSeconds;
     if (person.expiresAt === undefined) return person.token;
-    if (enough({ token: person.token, expiresAt: person.expiresAt })) {
+    if (
+      kind === 'quick' &&
+      enough({ token: person.token, expiresAt: person.expiresAt })
+    ) {
       return person.token;
     }
     const issuer = this.issuer;

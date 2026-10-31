@@ -35,13 +35,14 @@ import {
  * own can't last as long as the work may take, and the database still does the work as them
  * (D27). Through api-user's real AppModule, real `ClerkBackendApi` and a real SurrealDB; Clerk's
  * Backend API is a stand-in at its HTTP boundary that signs passes with the test instance's key,
- * as Clerk signs them with the dev instance's. Bunny Stream is an in-memory stand-in whose
- * answer about the file can be held back until the person's own pass has expired.
+ * as Clerk signs them with the dev instance's. Bunny Stream is an in-memory stand-in.
+ *
+ * No timing: a pass that "runs out midway" is one api-user checks at a moment of its life (its
+ * Clerk config's clock) but which had expired before the request was sent, so the database
+ * refuses it for any work at all. Only a fresh pass can get the work done.
  */
 class FakeStream implements BunnyStream {
   readonly videos = new Map<string, StreamVideo>();
-  /** When set, `video()` answers only once this time (ms) has passed. */
-  holdUntil?: number;
   asked = 0;
   async createVideo() {
     const id = randomUUID();
@@ -50,10 +51,6 @@ class FakeStream implements BunnyStream {
   }
   async video(id: string) {
     this.asked++;
-    const until = this.holdUntil;
-    if (until !== undefined && Date.now() < until) {
-      await new Promise((r) => setTimeout(r, until - Date.now()));
-    }
     return this.videos.get(id) ?? null;
   }
   async deleteVideo(id: string) {
@@ -121,17 +118,34 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
   let app: INestApplication;
   let url: string;
   let keySeq = 0;
+  /** When set, the time (s) api-user checks tokens at; else the real clock. */
+  let checkedAt: number | undefined;
+  /** A pass's life, long gone by the time any test runs: issued, checked, expired. */
+  const issued = Math.floor(Date.now() / 1000) - 600;
+  const gone = { iat: issued, nbf: issued - 5, exp: issued + 60 };
   const key = () => `fresh-pass-key-${++keySeq}-${'x'.repeat(16)}`;
 
-  /** A pass for a live Clerk session of `who`, with `seconds` left (Clerk's last 60). */
-  function pass(who: string, seconds = 60) {
+  /** A pass for a live Clerk session of `who`, just issued (Clerk's last 60 s). */
+  function pass(who: string) {
     const sessionId = `sess_${who}${randomUUID().replace(/-/g, '')}`;
     clerkApi.sessions.set(sessionId, `user_${who}`);
-    const exp = Math.floor(Date.now() / 1000) + seconds;
+    const exp = Math.floor(Date.now() / 1000) + 60;
     return {
       sessionId,
-      exp,
       token: clerk.token(`user_${who}`, { sid: sessionId, exp }),
+    };
+  }
+
+  /**
+   * A pass for a live Clerk session of `who` that api-user checks halfway through its life, but
+   * that had expired before it was sent: the database refuses it, whenever the request runs.
+   */
+  function expired(who: string) {
+    const sessionId = `sess_${who}${randomUUID().replace(/-/g, '')}`;
+    clerkApi.sessions.set(sessionId, `user_${who}`);
+    return {
+      sessionId,
+      token: clerk.token(`user_${who}`, { sid: sessionId, ...gone }),
     };
   }
 
@@ -191,6 +205,8 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
       status: 4,
       length: 30,
     });
+    // The upload link is slow work too (a fresh pass of its own): tests count from here.
+    clerkApi.asked.length = 0;
     return id;
   }
 
@@ -198,6 +214,15 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     call('POST', `/v1/stories/${id}/submit`, token, {
       headers: { 'if-match': '"2"', 'idempotency-key': key() },
     });
+  /** `submit`, with api-user checking the token while it was still valid (see `expired`). */
+  async function submitLate(id: string, token: string) {
+    checkedAt = gone.iat + 30;
+    try {
+      return await submit(id, token);
+    } finally {
+      checkedAt = undefined;
+    }
+  }
   const statusOf = async (id: string) =>
     (
       await rows(
@@ -220,13 +245,14 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
       .overrideProvider(SURREAL)
       .useValue(await t.service('api_user'))
       .overrideProvider(CLERK_CONFIG)
-      .useValue(
-        parseClerkConfig({
+      .useValue({
+        ...parseClerkConfig({
           issuer: clerk.issuer,
           publicKeyPem: clerk.publicKeyPem,
           authorizedParties: clerk.authorizedParty,
         }),
-      )
+        clock: () => checkedAt ?? Date.now() / 1000,
+      })
       .overrideProvider(SECRET_MANAGER_CLIENT)
       .useValue({})
       .overrideProvider(SECRETS_PROJECT)
@@ -257,41 +283,38 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
   beforeEach(() => {
     clerkApi.asked.length = 0;
     clerkApi.down = false;
-    bunny.holdUntil = undefined;
   });
   afterAll(async () => {
     await app?.close();
     await t?.close();
   });
 
-  it('a submit that is still waiting on Bunny when the person’s pass expires completes as them, on one fresh pass from Clerk', async () => {
+  it('a submit whose pass has run out by the time the database sees it completes as the person, on one fresh pass from Clerk', async () => {
     const id = await readyVideo('ann');
-    // Two seconds left: Bunny answers only after the pass has expired, then submit carries on
-    // in the person's session (their limits, then the submission itself).
-    const short = pass('ann', 2);
-    bunny.holdUntil = (short.exp + 1) * 1000;
+    const late = expired('ann');
     const before = bunny.asked;
 
-    const sent = await submit(id, short.token);
+    const sent = await submitLate(id, late.token);
 
+    // The consent check, the media check at Bunny, the limits and the submission itself all ran
+    // in the person's database session, which their own pass could no longer open.
     expect(sent.status).toBe(200);
     expect(bunny.asked).toBe(before + 1);
-    expect(Date.now()).toBeGreaterThan(short.exp * 1000);
     expect(await statusOf(id)).toBe('pending');
     // One pass for the whole request (the consent guard's session, then submit's), for this
     // session only, lasting the database's five minutes plus surrealdb.js's one-minute margin.
     expect(clerkApi.asked).toEqual([
-      { sessionId: short.sessionId, seconds: 360 },
+      { sessionId: late.sessionId, seconds: 360 },
     ]);
   });
 
   it('a session that has ended (signed out, revoked, blocked or deleted) stops the request: 401, nothing submitted', async () => {
     const id = await readyVideo('bob');
-    const short = pass('bob', 2);
-    clerkApi.sessions.delete(short.sessionId);
+    const late = expired('bob');
+    clerkApi.sessions.delete(late.sessionId);
     const before = bunny.asked;
 
-    const refused = await submit(id, short.token);
+    const refused = await submitLate(id, late.token);
 
     expect(refused.status).toBe(401);
     expect(bunny.asked).toBe(before);
@@ -302,7 +325,7 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     const id = await readyVideo('cat');
     clerkApi.down = true;
 
-    const failed = await submit(id, pass('cat', 2).token);
+    const failed = await submitLate(id, expired('cat').token);
 
     expect([failed.status, failed.body.code]).toEqual([
       503,
@@ -311,14 +334,19 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     expect(await statusOf(id)).toBe('draft');
     // Once Clerk answers again, the same submit goes through.
     clerkApi.down = false;
-    expect((await submit(id, pass('cat', 2).token)).status).toBe(200);
+    expect((await submitLate(id, expired('cat').token)).status).toBe(200);
   });
 
-  it('a pass with enough time left never calls Clerk: quick requests, and a slow one with a just-issued pass', async () => {
+  it('quick requests on a pass with time left never call Clerk; slow ones always take one fresh pass', async () => {
     const id = await readyVideo('dan');
     const account = await call('GET', '/v1/account', pass('dan').token);
     expect(account.status).toBe(200);
-    expect((await submit(id, pass('dan').token)).status).toBe(200);
     expect(clerkApi.asked).toEqual([]);
+
+    const live = pass('dan');
+    expect((await submit(id, live.token)).status).toBe(200);
+    expect(clerkApi.asked).toEqual([
+      { sessionId: live.sessionId, seconds: 360 },
+    ]);
   });
 });

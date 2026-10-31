@@ -71,6 +71,17 @@ describe('runIdempotent', () => {
     expect(calls).toEqual(['lookup', 'transaction', 'lookup']);
   });
 
+  it('starts no attempt after its deadline: the conflict is thrown instead (decision T)', async () => {
+    const { db, calls } = scriptedDb({
+      lookups: [[]],
+      transactions: ['conflict'],
+    });
+    await expect(
+      runIdempotent(db, scope, 'h', async () => command, { deadline: 0 }),
+    ).rejects.toThrow(/can be retried/);
+    expect(calls).toEqual(['lookup', 'transaction']);
+  });
+
   it('after losing the key to a racing request, replays it', async () => {
     const { db } = scriptedDb({
       lookups: [

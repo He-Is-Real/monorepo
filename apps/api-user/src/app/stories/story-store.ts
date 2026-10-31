@@ -470,7 +470,12 @@ export class StoryStore {
   async submit(
     id: string,
     ifMatch: number,
-    idempotency: { scope: IdempotencyScope; requestHash: string },
+    idempotency: {
+      scope: IdempotencyScope;
+      requestHash: string;
+      /** No attempt starts after it (`PersonContext.deadline`): the media check waits on Bunny. */
+      deadline?: number;
+    },
     checkMedia?: () => Promise<void>,
     shareVersion?: number,
   ): Promise<CommandResult> {
@@ -557,6 +562,7 @@ export class StoryStore {
             },
           };
         },
+        { deadline: idempotency.deadline },
       );
       return { id: recordKey(response.id), version: response.version ?? 1 };
     } catch (err) {
