@@ -12,9 +12,9 @@ One transaction, all or nothing (`src/app/seed.ts`):
 
 1. Checks `_setting:consent`: environment `dev`, and a sign-up and a testimony form in force.
 2. Wipes the content: `story` (and with it `publicStory` and `moderationReview`), `auditLog`,
-   `idempotencyKey`, `tag`, and fixture people (`user:seed_*`) no longer in the dataset.
-3. Loads the dataset (`src/app/dataset`): 8 fixture people without Clerk accounts, the browse
-   tags, and 26 stories. Each story is created as a draft and walked to its final state the way
+   `idempotencyKey`, every theme and category but Other, and fixture people (`user:seed_*`) no longer in the dataset.
+3. Loads the dataset (`src/app/dataset`): 8 fixture people without Clerk accounts, the theme
+   categories (Topics, Journeys, Feelings) and their themes, and 26 stories. Each story is created as a draft and walked to its final state the way
    the services will (submit, pick up, decide), so versions, `submittedAt`, locks, feedback and
    reviews look real. Approved stories get their `publicStory` row.
 4. Gives every fixture person real consent (D75; D48's relaxed checks are off in dev): grants
@@ -38,7 +38,8 @@ the real schema on every PR.
 
 `src/app/dataset/index.ts`. 12 video, 3 audio and 11 written stories; 16 approved, 2 pending,
 2 in review, 2 sent back with feedback, 1 rejected, 1 withdrawn, 2 drafts. Edge cases: anonymous
-byline, a 140-character title, 0 and 5 tags, non-Latin text, a long description, written text at
+byline, a 140-character title, 1 and 5 themes, a theme only one story has, a highlighted theme
+with no story, non-Latin text, a long description, written text at
 exactly 200 and 10,000 characters, and a short draft. `dataset.spec.ts` keeps it covering D47 as it
 grows. The walking skeleton's old slug, `test-story-walking-skeleton`, stays published.
 

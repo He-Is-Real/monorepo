@@ -20,8 +20,8 @@ export const LIMITS = {
   descriptionMax: 5000,
   bodyMax: 10_000, // A3
   bodyMinSubmitted: 200, // from submit on (pending, in_review, approved)
-  tagsMax: 5,
-  tagNameMax: 40,
+  themesMax: 5, // the default themesMax: every seeded story can be submitted
+  themeNameMax: 40,
   altMax: 500,
 } as const;
 
@@ -45,7 +45,13 @@ export interface SeedVars {
   /** D112: Clerk user ids of dev's test accounts, marked trusted submitters. */
   testAccounts: string[];
   moderator: string;
-  tags: { id: string; name: string; category: string }[];
+  categories: { id: string; name: string }[];
+  themes: {
+    id: string;
+    name: string;
+    category: string;
+    highlighted: boolean;
+  }[];
   stories: {
     id: string;
     /** user:<id> */
@@ -107,7 +113,8 @@ export function stepsFor(story: StoryFixture): Step[] {
 /** Everything wrong with the dataset (and the uploads it needs), or an empty list. */
 export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
   const problems: string[] = [];
-  const tagIds = new Set(data.tags.map((t) => t.id));
+  const themeKeys = new Set(data.themes.map((t) => t.key));
+  const categoryKeys = new Set(['other', ...data.categories.map((c) => c.key)]);
   const people = new Set(data.people);
   const ids = new Set<string>();
   const slugs = new Set<string>();
@@ -118,12 +125,16 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
     if (!/^seed_[a-z0-9_]+$/.test(id))
       problems.push(`person ${id}: ids start with seed_`);
   }
-  for (const t of data.tags) {
-    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(t.id))
-      problems.push(`tag ${t.id}: not a slug`);
-    if (t.name.length === 0 || t.name.length > LIMITS.tagNameMax) {
-      problems.push(`tag ${t.id}: name length`);
+  const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+  for (const t of [...data.categories, ...data.themes]) {
+    if (!ULID.test(t.id)) problems.push(`${t.key}: its id isn't a ULID`);
+    if (t.name.length === 0 || t.name.length > LIMITS.themeNameMax) {
+      problems.push(`${t.key}: name length`);
     }
+  }
+  for (const t of data.themes) {
+    if (!categoryKeys.has(t.category))
+      problems.push(`${t.key}: unknown category ${t.category}`);
   }
 
   for (const s of data.stories) {
@@ -137,9 +148,11 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
     if (s.title.length === 0 || s.title.length > LIMITS.titleMax)
       p('title length');
     if (s.description.length > LIMITS.descriptionMax) p('description too long');
-    if (s.tags.length > LIMITS.tagsMax) p('more than 5 tags');
-    for (const t of s.tags) if (!tagIds.has(t)) p(`unknown tag ${t}`);
-    if (new Set(s.tags).size !== s.tags.length) p('a tag twice');
+    if (s.themes.length > LIMITS.themesMax) p('more than 5 themes');
+    if (s.status !== 'draft' && s.themes.length === 0)
+      p('a submitted story needs a theme (themesMin)');
+    for (const t of s.themes) if (!themeKeys.has(t)) p(`unknown theme ${t}`);
+    if (new Set(s.themes).size !== s.themes.length) p('a theme twice');
 
     const body = s.body?.trim() ?? '';
     if ((s.body?.length ?? 0) > LIMITS.bodyMax)
@@ -240,7 +253,14 @@ export function buildVars(
     people: data.people,
     testAccounts: data.testAccounts,
     moderator: data.moderator,
-    tags: data.tags.map(({ id, name, category }) => ({ id, name, category })),
+    categories: data.categories.map(({ id, name }) => ({ id, name })),
+    themes: data.themes.map((t) => ({
+      id: t.id,
+      name: t.name,
+      category:
+        data.categories.find((c) => c.key === t.category)?.id ?? 'other',
+      highlighted: t.highlighted === true,
+    })),
     stories: data.stories.map((s) => ({
       id: s.id,
       submitter: s.submitter,
@@ -251,7 +271,9 @@ export function buildVars(
         body: s.body,
         bylineName: s.bylineName,
         primaryFormat: s.format,
-        tagRefs: s.tags,
+        themeRefs: s.themes.map(
+          (key) => data.themes.find((t) => t.key === key)?.id,
+        ),
         media: s.media
           ? [mediaItem(s.media.clip, media, s.media.processing)]
           : [],

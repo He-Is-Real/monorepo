@@ -76,7 +76,7 @@ const story = (id: string, extra: object = {}) => ({
   title: `Draft ${id}`,
   body: TEXT,
   primaryFormat: 'written',
-  tagSlugs: ['hope'],
+  themeIds: ['hope'],
   ...extra,
 });
 const submitted = (id: string, daysAgo: number) =>

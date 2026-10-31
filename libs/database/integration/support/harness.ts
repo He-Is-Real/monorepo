@@ -178,6 +178,9 @@ export async function outcome(
  * OWNER `migrator` system user (as the D14 migration Job will), and one `service` record per
  * service with a random password (argon2-hashed in the database).
  */
+/** The theme TestDatabase.create gives every migrated database (in Other); drafts carry it. */
+export const COMMON_THEME = 'theme:common';
+
 export class TestDatabase {
   readonly keys: SigningKeys = newSigningKeys();
   readonly migratorPassword = randomBytes(18).toString('hex');
@@ -224,8 +227,17 @@ export class TestDatabase {
     if (migrate) {
       await t.migrate(t.params(params));
       await t.createServices();
+      await t.createCommonTheme();
     }
     return t;
+  }
+
+  /** COMMON_THEME, which test stories carry: submitting needs themesMin (1) themes. */
+  async createCommonTheme(): Promise<void> {
+    await run(
+      await this.migrator(),
+      `CREATE ${COMMON_THEME} SET name = 'Common', category = themeCategory:other`,
+    );
   }
 
   /** What OpenTofu would pass, with this database's stand-in Clerk key. */
@@ -848,7 +860,7 @@ export function createDraft(
     person,
     `CREATE story CONTENT object::extend({
        submitter: $auth, slug: $slug, title: 'A story', description: 'How I came to faith',
-       primaryFormat: 'written', body: 'Text' + $padding
+       primaryFormat: 'written', body: 'Text' + $padding, themeRefs: [${COMMON_THEME}]
      }, $fields)`,
     {
       slug: `story-${storySeq}-${randomBytes(3).toString('hex')}`,

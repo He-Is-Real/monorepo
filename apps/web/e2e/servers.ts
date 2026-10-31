@@ -45,7 +45,7 @@ export const SIGNED_IN_NAME = 'Bartholomew Montgomery-Fitzwilliam Smith';
 /**
  * Every e2e server's clock for "new" (E2E_NOW, read only with E2E_FIXTURES; D72: a card says
  * NEW for its story's first 7 days), so the badge is the same locally and in CI, whatever the
- * date. The stub's `tag=new-test` stories are dated around it.
+ * date. The stub's `theme=new_test` stories are dated around it.
  */
 export const E2E_NOW = '2026-10-25T12:00:00Z';
 

@@ -17,7 +17,7 @@ const card: StorySummary = {
   thumbnailHeight: 640,
   image: null,
   textLength: 0,
-  tags: [{ slug: 'hope', name: 'Hope', category: 'emotion', version: 1 }],
+  themes: [{ id: 'hope', name: 'Hope' }],
   publishedAt: '2026-10-21T20:00:00Z',
   isNew: false,
 };
@@ -73,11 +73,9 @@ describe('browse client (api-public-read, server-side only)', () => {
       respond(200, { data: [], nextCursor: null });
       await browseStories({
         q: `${'😀'.repeat(250)}`,
-        tags: ['a', 'b', 'c', 'd', 'e', 'f'],
       });
       const { url } = called();
       expect([...(url.searchParams.get('q') as string)]).toHaveLength(200);
-      expect(url.searchParams.getAll('tag')).toHaveLength(5);
     });
 
     it.each([

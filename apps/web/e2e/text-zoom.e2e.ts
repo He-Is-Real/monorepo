@@ -10,7 +10,7 @@ import { WEB_SIGNED_IN_URL } from './servers';
 const PAGES = [
   '/',
   '/stories',
-  '/stories?tag=healing',
+  '/stories?theme=healing',
   '/stories/video-story',
   '/stories/long-words',
   '/stories/long-story',

@@ -38,7 +38,7 @@ import {
 } from '@heisreal/database';
 import { RequiresRole } from '@heisreal/roles';
 import { SecretsService } from '@heisreal/secrets';
-import { MediaUrls } from '@heisreal/story-cards';
+import { MediaUrls, type ThemeCategory } from '@heisreal/story-cards';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import {
@@ -65,7 +65,6 @@ import {
   type StoryMine,
   StoryStore,
   type SubmissionLimits,
-  type Tag,
 } from './story-store';
 import { parseUploadRequest, type UploadTarget, Uploads } from './uploads';
 
@@ -169,17 +168,17 @@ export class StoriesController {
     this.uploads = new Uploads(service, bunny, images);
   }
 
-  @Get('v1/tags')
+  @Get('v1/themes')
   @NoConsentRequired(
-    'the tag list is the same for everyone and holds no personal data',
+    'the theme list is the same for everyone and holds no personal data',
   )
-  async listStoryTags(
+  async listStoryThemes(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
-  ): Promise<{ data: Tag[] } | undefined> {
+  ): Promise<{ data: ThemeCategory[] } | undefined> {
     const data = await this.people.run(req, ({ session }) =>
-      new StoryStore(session).tags(),
+      new StoryStore(session).themes(),
     );
     return this.collection(res, { data }, ifNoneMatch);
   }

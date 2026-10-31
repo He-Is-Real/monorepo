@@ -89,7 +89,7 @@ const createDraft = (
   run(
     person,
     `CREATE type::record('story', $id) CONTENT {
-       submitter: $auth, slug: $id, title: 'Story ' + $id, description: 'How I came to faith',
+       themeRefs: [theme:common], submitter: $auth, slug: $id, title: 'Story ' + $id, description: 'How I came to faith',
        body: $body, primaryFormat: $format }`,
     {
       id,

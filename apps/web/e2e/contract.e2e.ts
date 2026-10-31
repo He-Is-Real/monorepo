@@ -5,7 +5,7 @@ import { fixtureToken, STUB_URL, STUB_USER_URL } from './servers';
 // T3: the stub api-public-read (stub-api.mjs) answers as libs/contracts/openapi/
 // api-public-read.yaml says, like the real service does in its integration tests
 // (apps/api-public-read/integration/contract.ts). Every kind of answer the stub gives is
-// checked: lists with filters, search and cursors, every story, related, tags, health, the
+// checked: lists with filters, search and cursors, every story, related, health, the
 // old-slug redirect and the errors. One device: none of this depends on the screen.
 
 const STUB = STUB_URL;
@@ -39,12 +39,12 @@ test('every list page, filter and search the stub serves fits the contract', asy
   for (const query of [
     '',
     '?limit=15',
-    '?tag=healing&format=video',
-    '?tag=loss&tag=faith',
+    '?theme=healing&format=video',
+    '?theme=no_such_theme',
     '?format=audio&sort=oldest',
     '?q=placeholder',
     '?q=nothing-matches-this',
-    '?tag=hide-test',
+    '?theme=hide_test',
   ]) {
     let path = `/v1/stories${query}`;
     for (let pages = 0; pages < 10; pages++) {
@@ -71,7 +71,7 @@ test('every list page, filter and search the stub serves fits the contract', asy
   ).toBe(400);
 });
 
-test('every story, its related list and the tags fit the contract', async ({
+test('every story and its related list fit the contract', async ({
   request,
 }) => {
   const slugs: string[] = [];
@@ -89,7 +89,6 @@ test('every story, its related list and the tags fit the contract', async ({
       200,
     );
   }
-  expect((await check(request, '/v1/tags')).status).toBe(200);
   expect((await check(request, '/health')).status).toBe(200);
 });
 
@@ -148,6 +147,7 @@ test('the founder’s video routes fit the contract', async ({ request }) => {
 });
 
 test('the stub’s errors fit the contract', async ({ request }) => {
+  expect((await check(request, '/v1/themes')).status).toBe(200);
   expect((await check(request, '/v1/stories/no-such-story')).status).toBe(404);
   expect(
     (await check(request, '/v1/stories/no-such-story/related')).status,
@@ -196,7 +196,7 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
           id: 'e1',
           status: 'changes_requested',
           title: 'Mine',
-          tagSlugs: ['healing'],
+          themeIds: ['healing'],
           rejectionFeedback: 'A little more, please.',
         },
         {
@@ -399,8 +399,8 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     `contract-key-${Math.random().toString(36).slice(2)}-xxxxxxxx`;
   const text = 'A story long enough to submit. '.repeat(8);
 
-  expect((await call('GET', '/v1/tags')).status).toBe(200);
   expect((await call('GET', '/v1/account/limits')).status).toBe(200);
+  expect((await call('GET', '/v1/themes')).status).toBe(200);
   expect((await call('GET', '/v1/account/consents')).status).toBe(200);
   const draft = { title: 'T', primaryFormat: 'written', body: text };
   // No testimony consent yet: refused.
@@ -458,7 +458,7 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
   );
   expect((await call('GET', `/v1/account/stories/${id}`)).status).toBe(200);
   expect((await call('GET', '/v1/account/stories/none')).status).toBe(404);
-  const patch = (version?: number, data: object = { tagSlugs: ['hope'] }) =>
+  const patch = (version?: number, data: object = { themeIds: ['hope'] }) =>
     call('PATCH', `/v1/stories/${id}`, {
       data,
       headers: {
@@ -512,7 +512,7 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
   ).toMatchObject({ granted: true, counts: true });
   expect((await patch(3)).status).toBe(409); // locked once submitted
   const second = await call('POST', '/v1/stories', {
-    data: { ...draft, tagSlugs: ['hope'] },
+    data: { ...draft, themeIds: ['hope'] },
     headers: { 'idempotency-key': key() },
   });
   const weekly = await call('POST', `/v1/stories/${second.body.id}/submit`, {
@@ -523,7 +523,7 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     body: { code: 'weekly_submission_limit_reached' },
   });
   const short = await call('POST', '/v1/stories', {
-    data: { ...draft, body: 'Short', tagSlugs: ['hope'] },
+    data: { ...draft, body: 'Short', themeIds: ['hope'] },
     headers: { 'idempotency-key': key() },
   });
   expect(
@@ -658,7 +658,7 @@ test('the stub api-user’s uploads fit the contract, answers and errors (M2 pla
     return { status: res.status(), body };
   };
   const created = await call('POST', '/v1/stories', {
-    data: { title: 'My video', primaryFormat: 'video', tagSlugs: ['hope'] },
+    data: { title: 'My video', primaryFormat: 'video', themeIds: ['hope'] },
     headers: { 'idempotency-key': `contract-up-${Date.now()}-xxxxxxxx` },
   });
   expect(created.status).toBe(201);

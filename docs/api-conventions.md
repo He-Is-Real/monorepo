@@ -9,9 +9,9 @@ brackets).
 
 | Service           | Serves                                                                                                                                                | Auth                                | In the database                                  |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
-| `api-public-read` | Anonymous public queries: published stories, tags, the legal documents (privacy policy, terms of use, every version) and consent forms                | None                                | Its own login; sees only public tables           |
+| `api-public-read` | Anonymous public queries: published stories, themes, the legal documents (privacy policy, terms of use, every version) and consent forms              | None                                | Its own login; sees only public tables           |
 | `api-user`        | **Everything that needs to know who you are**: own stories, account, consents, favourites, feed, and the person's commands; Clerk and Stripe webhooks | Clerk JWT (webhooks: signature)     | Runs as the person, with their Clerk token (D27) |
-| `api-admin`       | Moderation, roles, tags, publishing the privacy policy and terms of use (D121)                                                                        | Clerk JWT, role Moderator or higher | Its own login                                    |
+| `api-admin`       | Moderation, roles, themes, publishing the privacy policy and terms of use (D121)                                                                      | Clerk JWT, role Moderator or higher | Its own login                                    |
 
 - **Anything personal goes to `api-user`; anything public goes to `api-public-read`.**
   `api-public-read` has no auth code at all.
@@ -60,12 +60,13 @@ brackets).
 ## Read models (D26)
 
 - **`publicStory` is the only read model.** It holds approved stories only: slug, `slugHistory`,
-  title, description/body, byline, tag links, playback fields, published date and the search text.
+  title, description/body, byline, theme links, playback fields, published date and the search text.
   Never the submitter, consent, raw transcript, moderation data or quality signal.
 - Approve creates it; editing an approved story updates it; withdrawal, erasure and withdrawing
-  `publish` or Art 9 consent delete it, in the same transaction. Tag renames need nothing (tags are
-  fetched by reference, D15).
-- **Anonymous queries read only read models** (and reference data: `tag`, published `dpaVersion`
+  `publish` or Art 9 consent delete it, in the same transaction. Theme renames need nothing (themes are
+  fetched by reference, D15); deleting a theme removes it from every story and published story in
+  the same transaction (`theme_delete` event).
+- **Anonymous queries read only read models** (and reference data: `theme`, `themeCategory`, published `dpaVersion`
   and consent form versions).
   Personal queries read the person's own rows in the write tables, as the person. Moderation reads
   the `story` write model on `api-admin`.
@@ -86,7 +87,7 @@ short-lived upload credentials.
 
 **Naming rules:**
 
-- Collections are plural nouns (`/stories`, `/tags`, `/consents`, `/concerns`); the method says
+- Collections are plural nouns (`/stories`, `/themes`, `/consents`, `/concerns`); the method says
   what happens. Singletons are singular (`/account`, `/feed`, `/moderation/queue`).
 - A verb only as the last segment of a state-changing `POST` that isn't create/replace/delete:
   `/submit`, `/withdraw`, `/approve`, `/reject`, `/request-changes`, `/escalate`, `/lock`,
@@ -98,15 +99,18 @@ short-lived upload credentials.
 
 ## Concurrency and idempotency (D29)
 
-- **Versions:** every aggregate (story, tag, dpaVersion) has a `version`
-  integer, +1 on every command. A query for one resource returns it as a strong
+- **Versions:** every aggregate (story, dpaVersion) has a `version`
+  integer, +1 on every command. Themes have one version for the whole set
+  (`themeCatalog:current`), not one per theme: `PUT /v1/admin/themes` (`SaveThemes`) sends the
+  finished picture with `If-Match` on it (`412`: "Someone else changed themes. Reload to see their
+  changes"). A query for one resource returns it as a strong
   `ETag: "<version>"`.
 - **Collections** (lists, pages, composite views such as consent state) and resources without a
   database version (the account) return a **weak, representation-based `ETag`** (`W/"<hash>"`).
   It is only for `If-None-Match`/`304`; to modify an item, use that item's `version`.
-- **Public reads that embed other resources** (api-public-read's story, with its tags by
+- **Public reads that embed other resources** (api-public-read's story, with its themes by
   reference) return a **strong hash of the response body** (`RepresentationETag`), not the
-  version: renaming a tag changes the story's JSON but not its version (#45 review). Public reads
+  version: renaming a theme changes the story's JSON but not its version (#45 review). Public reads
   take no commands, so nothing sends these back in `If-Match`.
 - **`If-Match` is required on commands that modify an existing resource.** Wrong version → `412`
   (re-read and retry); missing → `428`. This covers the real race: a submitter editing while a
@@ -129,7 +133,7 @@ short-lived upload credentials.
   concerns, and donations later. The `idempotencyKey` table stores key + user +
   request hash + the `{ id, version }` response for 24 hours (pruned nightly). A retry with the same
   body replays the stored response; the same key with a different body → `422`; no key → `400`.
-- Not needed on idempotent methods (`PUT`, `DELETE`) or on creates with a natural key (tags, DPA
+- Not needed on idempotent methods (`PUT`, `DELETE`) or on creates with a natural key (DPA
   versions), where a repeat gets `409`.
 - **Webhooks** deduplicate on the provider's event ID (`svix-id`, Stripe `event.id`) in the same
   table, and acknowledge duplicates without applying them again.

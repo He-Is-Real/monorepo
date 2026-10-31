@@ -9,6 +9,7 @@ import { BEHAVIOUR_DEVICES } from './devices';
 import {
   enlargeText,
   expectAllTargets,
+  expectTarget,
   expectNoHorizontalOverflow,
   shots,
 } from './helpers';
@@ -47,6 +48,15 @@ async function person(page: Page, request: APIRequestContext, seed: Seed) {
   }, id);
   const auth = { authorization: `Bearer ${fixtureToken(id)}` };
   return {
+    /** An admin deletes a theme (in this person's stub session). */
+    deleteTheme: async (theme: string) =>
+      expect(
+        (
+          await request.post(
+            `${STUB_USER_URL}/__e2e/sessions/${id}/delete-theme?id=${theme}`,
+          )
+        ).status(),
+      ).toBe(204),
     /** The person's stories as api-user has them. */
     stories: async () =>
       (
@@ -63,7 +73,7 @@ async function person(page: Page, request: APIRequestContext, seed: Seed) {
         description: string;
         body: string;
         bylineName: string | null;
-        tags: { slug: string }[];
+        themes: { id: string }[];
         sharing: { granted: boolean };
       }[],
     consents: async () =>
@@ -161,6 +171,14 @@ for (const scheme of ['light', 'dark'] as const) {
       await step(page, 'Add some details');
       await page.getByText('Healing', { exact: true }).click();
       await fits('details');
+      // A theme pill is a label round a hidden checkbox, which expectAllTargets skips; a
+      // one-letter theme is the narrowest.
+      await expectTarget(
+        page,
+        page.locator('label', {
+          has: page.getByRole('checkbox', { name: 'A', exact: true }),
+        }),
+      );
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await step(page, 'Review and submit');
       await expect(page.getByText('Anonymous')).toBeVisible();
@@ -227,7 +245,7 @@ test.describe('behaviour', () => {
     );
   });
 
-  test('the story is saved as it’s written, with the first name and themes chosen', async ({
+  test('the story is saved as it’s written, with the first name chosen', async ({
     page,
     request,
   }) => {
@@ -245,8 +263,6 @@ test.describe('behaviour', () => {
     await expect(page).toHaveURL(/\/share\?draft=/);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByLabel(/Your first name/).fill('  Sam ');
-    await page.getByText('Hope', { exact: true }).click();
-    await page.getByText('Faith', { exact: true }).click();
     await saved(page);
     expect(await me.stories()).toMatchObject([
       {
@@ -254,7 +270,6 @@ test.describe('behaviour', () => {
         title: 'Found',
         body: TEXT,
         bylineName: 'Sam',
-        tags: [{ slug: 'hope' }, { slug: 'faith' }],
       },
     ]);
     // The prompts were guidance only: nothing of them is stored.
@@ -389,7 +404,7 @@ test.describe('behaviour', () => {
           title: 'Already shared',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          themeIds: ['hope'],
           shared: true,
         },
       ],
@@ -445,7 +460,7 @@ test.describe('behaviour', () => {
           title: 'Lost answer',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          themeIds: ['hope'],
         },
       ],
     });
@@ -511,7 +526,7 @@ test.describe('behaviour', () => {
           title: 'Stays a draft',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          themeIds: ['hope'],
           shared: true,
         },
       ],
@@ -583,7 +598,7 @@ test.describe('behaviour', () => {
           title: 'Unclear',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          themeIds: ['hope'],
           shared: true,
         },
       ],
@@ -636,7 +651,7 @@ test.describe('behaviour', () => {
     await expect(page).toHaveURL(/\/consent\/sign-up\?redirect_url=%2Fshare$/);
   });
 
-  test('themes and the 200-character minimum are explained, not just refused', async ({
+  test('the 200-character minimum is explained, not just refused', async ({
     page,
     request,
   }) => {
@@ -647,11 +662,7 @@ test.describe('behaviour', () => {
     await expect(page.getByText('17 / 10,000 characters')).toBeVisible();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await step(page, 'Add some details');
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.getByRole('main').getByRole('alert')).toHaveText(
-      'Choose at least one theme.',
-    );
-    await page.getByText('Loss', { exact: true }).click();
+    await page.getByText('Healing', { exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await tick(page, PUBLISH);
     await page.getByRole('button', { name: 'Submit for review' }).click();
@@ -670,7 +681,7 @@ test.describe('behaviour', () => {
     const me = await person(page, request, {
       ...SIGNED_UP,
       granted: [...(SIGNED_UP.granted ?? []), 'publish'],
-      settings: { storyTextMin: 50, storyTextMax: 400, tagsMin: 2, tagsMax: 2 },
+      settings: { storyTextMin: 50, storyTextMax: 400 },
     });
     await toWrite(page);
     await expect(page.getByLabel('Your story')).toHaveAttribute(
@@ -683,18 +694,82 @@ test.describe('behaviour', () => {
       page.getByText('60 / 400 characters. At least 50 to submit.'),
     ).toBeVisible();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.getByText('Choose 2 to 2.')).toBeVisible();
     await page.getByText('Hope', { exact: true }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.getByRole('main').getByRole('alert')).toHaveText(
-      'Choose at least 2 themes.',
-    );
-    await page.getByText('Loss', { exact: true }).click();
-    await expect(page.getByRole('checkbox', { name: 'Faith' })).toBeDisabled();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await step(page, 'Thank you for sharing your story');
     expect((await me.stories())[0].status).toBe('pending');
+  });
+
+  // Themes plan v3 (mockup 2): each category's highlighted themes first; the rest behind "More
+  // themes" with a search; the count is the admin's, checked at submit; a theme deleted while
+  // someone is choosing asks them to choose again (A7).
+  test('choosing themes: highlighted first, More themes with a search, the admin’s count, and a deleted theme asks to choose again', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      granted: [...(SIGNED_UP.granted ?? []), 'publish'],
+      settings: { themesMin: 2, themesMax: 3 },
+    });
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Choosing themes');
+    await page.getByLabel('Your story').fill(TEXT);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    const themes = page.getByRole('group', {
+      name: 'Which themes fit your story?',
+    });
+    await expect(themes).toContainText('Choose 2–3 themes.');
+    await expect(themes.getByRole('heading', { level: 3 })).toHaveText([
+      'Feelings',
+      'Topics',
+    ]);
+    await expect(themes.getByRole('checkbox', { name: 'Doubt' })).toHaveCount(
+      0,
+    );
+    await themes.getByText('Hope', { exact: true }).click();
+    // One is too few: said before the review step.
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(
+      page.getByText('Choose 2–3 themes.', { exact: true }),
+    ).toBeVisible();
+
+    await themes.getByRole('button', { name: 'More themes' }).click();
+    await themes.getByRole('searchbox', { name: 'Search themes' }).fill('DOU');
+    await expect(
+      themes.getByRole('checkbox', { name: 'Addiction' }),
+    ).toHaveCount(0);
+    await themes.getByText('Doubt', { exact: true }).click();
+    await expectNoHorizontalOverflow(page);
+    await themes.getByRole('button', { name: 'Fewer themes' }).click();
+    // Chosen, so still in view with the highlighted ones.
+    await expect(themes.getByRole('checkbox', { name: 'Doubt' })).toBeChecked();
+    await expect(themes).toContainText('2 of 3 chosen.');
+    await saved(page);
+
+    // An admin deletes Doubt before the person submits: it comes off the draft, whose version
+    // moves on, so the submission is stale; the page says why.
+    await me.deleteTheme('doubt');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    const alert = page.getByRole('main').getByRole('alert');
+    await expect(alert).toContainText(
+      'Themes have changed, please choose again',
+    );
+    await expect(alert).not.toContainText('another tab');
+    await page.getByRole('button', { name: 'Choose themes' }).click();
+    await step(page, 'Add some details');
+    await themes.getByRole('button', { name: 'More themes' }).click();
+    await expect(themes.getByRole('checkbox', { name: 'Doubt' })).toHaveCount(
+      0,
+    );
+    await expect(
+      themes.getByRole('checkbox', { name: 'Hope' }),
+    ).not.toBeChecked();
+    expect((await me.stories())[0].status).toBe('draft');
   });
 
   test('a draft resumes after a reload, and the drafts list offers it', async ({
@@ -859,7 +934,7 @@ test.describe('behaviour', () => {
           title: 'Almost there',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          themeIds: ['hope'],
         },
       ],
     });
@@ -970,7 +1045,7 @@ test.describe('behaviour', () => {
           title: 'Almost there',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          themeIds: ['hope'],
         },
       ],
     });
@@ -1073,7 +1148,7 @@ test.describe('behaviour', () => {
           title: 'Written before the change',
           body: TEXT,
           primaryFormat: 'written',
-          tagSlugs: ['hope'],
+          themeIds: ['hope'],
         },
       ],
     });

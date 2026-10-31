@@ -2,28 +2,31 @@ import {
   browseHref,
   type BrowseFilters,
   parseBrowseSearch,
-  toggleTag,
 } from './browse-query';
 
-const none: BrowseFilters = { q: '', tags: [], format: null, sort: 'latest' };
+const none: BrowseFilters = {
+  q: '',
+  theme: null,
+  format: null,
+  sort: 'latest',
+};
 
 describe('parseBrowseSearch (the browse page’s URL)', () => {
   it('defaults to the newest stories, one page', () => {
     expect(parseBrowseSearch({})).toEqual({ filters: none, pages: 1 });
   });
 
-  it('reads a search, tags, format and sort', () => {
+  it('reads a search, format and sort', () => {
     expect(
       parseBrowseSearch({
         q: '  healing  ',
-        tag: ['hope', 'faith'],
         format: 'video',
         sort: 'oldest',
       }),
     ).toEqual({
       filters: {
         q: 'healing',
-        tags: ['hope', 'faith'],
+        theme: null,
         format: 'video',
         sort: 'oldest',
       },
@@ -44,13 +47,11 @@ describe('parseBrowseSearch (the browse page’s URL)', () => {
     );
   });
 
-  it('drops what the API would refuse: bad slugs, repeats, more than 5 tags, bad format', () => {
+  it('drops what the API would refuse: a bad format or sort', () => {
     const { filters } = parseBrowseSearch({
-      tag: ['ok', 'Not A Slug', 'ok', 'b', 'c', 'd', 'e', 'f'],
       format: 'podcast',
       sort: ['latest', 'oldest'],
     });
-    expect(filters.tags).toEqual(['ok', 'b', 'c', 'd', 'e']);
     expect(filters.format).toBeNull();
     expect(filters.sort).toBe('latest');
   });
@@ -73,7 +74,7 @@ describe('parseBrowseSearch (the browse page’s URL)', () => {
   });
 });
 
-describe('browseHref and toggleTag', () => {
+describe('browseHref', () => {
   it('leaves defaults out of the URL', () => {
     expect(browseHref(none)).toBe('/stories');
     expect(browseHref({ ...none, q: 'x', sort: 'relevance' })).toBe(
@@ -84,7 +85,7 @@ describe('browseHref and toggleTag', () => {
   it('round-trips through parseBrowseSearch', () => {
     const f: BrowseFilters = {
       q: 'a b',
-      tags: ['hope', 'joy'],
+      theme: 'TOPIC_1',
       format: 'audio',
       sort: 'oldest',
     };
@@ -99,12 +100,5 @@ describe('browseHref and toggleTag', () => {
 
   it('adds the page count when asked', () => {
     expect(browseHref(none, { pages: 3 })).toBe('/stories?pages=3');
-  });
-
-  it('toggles a tag on and off', () => {
-    expect(toggleTag(none, 'hope').tags).toEqual(['hope']);
-    expect(toggleTag({ ...none, tags: ['hope', 'joy'] }, 'hope').tags).toEqual([
-      'joy',
-    ]);
   });
 });

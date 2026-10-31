@@ -67,7 +67,7 @@ describe('hearts: /v1/account/favourites', () => {
     });
     const world = await buildWorld(t); // bob_live is public; the rest aren't
     for (const id of ['bob_two', 'bob_three']) {
-      await draft(world.bob, id, { tagRefs: [] });
+      await draft(world.bob, id);
       await submit(world.bob, id);
       await approve(world.admin, id);
     }

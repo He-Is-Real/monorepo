@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { TAG_CHIP } from '@/components/browse/tag-filter';
+import { THEME_CHIP } from '@/components/themes/theme-chip';
 import type { StorySummary } from '@/lib/browse';
 import type { PublicStory } from '@/lib/public-stories';
 import { RelatedStories } from './related-stories';
@@ -31,14 +31,14 @@ function Meta({
         <time dateTime={story.publishedAt}>{published(story.publishedAt)}</time>{' '}
         by {story.bylineName ?? 'Anonymous'}
       </p>
-      {story.tags.length > 0 && (
+      {story.themes.length > 0 && (
         <ul
           className={`mt-5 flex flex-wrap gap-2 ${center ? 'justify-center' : ''}`}
-          aria-label="Tags"
+          aria-label="Themes"
         >
-          {story.tags.map((t) => (
-            <li key={t.slug}>
-              <Link href={`/stories?tag=${t.slug}`} className={TAG_CHIP}>
+          {story.themes.map((t) => (
+            <li key={t.id}>
+              <Link href={`/stories?theme=${t.id}`} className={THEME_CHIP}>
                 {t.name}
               </Link>
             </li>
@@ -81,11 +81,11 @@ function KeepExploring({ related }: { related: StorySummary[] }) {
 /**
  * A published story, server-rendered (D32), from the mockups' story pages. Video and audio:
  * the player first, then the title, then the person's own text. Written: a centred header, the
- * description as a pull quote, then the text. Both: share, tags that lead to browse, and, after
+ * description as a pull quote, then the text. Both: share, themes that lead to browse, and, after
  * the story ends, related stories and "Does this resonate?" (below it at every width, never
  * beside it: Joel, 2026-10-25, a sidebar felt like an ad and took space from the story).
  * No breadcrumb (Joel, 2026-10-24; design principles): it could show only one of a story's
- * tags; the header's Stories link and the tag chips are the ways back.
+ * themes; the header's Stories link and the theme chips are the ways back.
  * The person's own heart sits beside Share (M2; filled in by the browser, D83). "This helped
  * me" and "Concern" from the mockups come later (M6).
  */

@@ -95,7 +95,7 @@ describe('my stories: withdraw and delete', () => {
       body: {
         title: 'How I found hope',
         primaryFormat: format,
-        tagSlugs: ['healing'],
+        themeIds: ['healing'],
         ...(format === 'written'
           ? { body: `My story${STORY_TEXT_PADDING}` }
           : {}),
@@ -173,7 +173,7 @@ describe('my stories: withdraw and delete', () => {
     await createPeople(t, { moderator: 'user_mod' });
     await run(
       admin,
-      `CREATE tag:healing SET name = 'Healing', category = 'theme'`,
+      `CREATE theme:healing SET name = 'Healing', category = themeCategory:other`,
     );
     // More stories each than D94's limits let a person start: trusted.
     for (const who of ['ann', 'bob']) {

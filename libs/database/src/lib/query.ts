@@ -98,20 +98,21 @@ export function requireWritten<T>(result: unknown, what: string): T {
 }
 
 /**
- * The hard ceilings on a story (schema.surql `story.body`, `story.tagRefs`). The limits themselves
+ * The hard ceilings on a story (schema.surql `story.body`, `story.themeRefs`). The limits themselves
  * are settings an admin adjusts (W3: `submissionSettings`, read with `SUBMISSION_SETTINGS_SQL`).
  */
 export const STORY_CEILINGS = {
   textLength: 50_000,
-  tags: 20,
+  themes: 20,
 } as const;
 
 /** The submission settings in force (W3, D112), with their defaults: `fn::settings::submission`. */
 export interface SubmissionSettings {
   storyTextMin: number;
   storyTextMax: number;
-  tagsMin: number;
-  tagsMax: number;
+  /** How many themes a story needs when it is submitted (only then). */
+  themesMin: number;
+  themesMax: number;
   openDraftsMax: number;
   submissionsPer7Days: number;
   uploadRequestsPerHour: number;
@@ -153,13 +154,17 @@ export function isStoryTextTooShortError(err: unknown): boolean {
 }
 
 /**
- * The database refused text longer, or more themes, than the settings allow (story_text_limits).
- * api-user answers `400` for `/body` or `/tagSlugs`.
+ * The database refused a story for the settings' limits (story_text_limits): text longer than
+ * allowed (any write), or, at submission, a number of themes outside themesMin–themesMax or a
+ * theme that no longer exists. api-user answers `400` for `/body` or `/themeIds`.
  */
-export function storyLimitOf(err: unknown): 'text' | 'tags' | undefined {
+export function storyLimitOf(
+  err: unknown,
+): 'text' | 'theme_count' | 'themes_changed' | undefined {
   const message = err instanceof Error ? err.message : String(err);
   if (/\bstory_text_too_long:/.test(message)) return 'text';
-  if (/\bstory_too_many_tags:/.test(message)) return 'tags';
+  if (/\bstory_theme_count:/.test(message)) return 'theme_count';
+  if (/\bstory_themes_changed:/.test(message)) return 'themes_changed';
   return undefined;
 }
 
