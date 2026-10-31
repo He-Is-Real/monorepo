@@ -41,6 +41,9 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   // D40: Bunny ids and image paths (and, until Clerk confirms, the Clerk id) erasure still has
   // to delete outside the database; written by erasure itself, gone once done. No person link.
   pendingDeletion: 'kept',
+  // D88, D73: a withdrawal not erased yet (a user link, dates and a count); written by the
+  // withdrawal's event, gone with the erasure it starts.
+  erasureRequest: 'kept',
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
   identityFence: 'none', // a counter keyed by a Clerk id's fingerprint (D82); events only
