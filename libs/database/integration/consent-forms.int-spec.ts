@@ -5,6 +5,7 @@ import {
   trustSubmitters,
   grantAll,
   legalParams,
+  MIGRATION_TIMEOUT_MS,
   outcome,
   publishDpa,
   publishForm,
@@ -965,82 +966,97 @@ describe('dev placeholder privacy document and forms (D75)', () => {
       expect(await accepted(cy, 'cy')).toEqual([true]);
     });
 
-    it('real consent works against them; switched off, they and the grants stop counting', async () => {
-      const ann = await t.person('user_ann');
-      await devGrant(
-        ann,
-        'special_category_religious',
-        'testimonyFormVersion:v2',
-      );
-      await signUp(ann);
-      expect(await accepted(ann, 'ann')).toEqual([true]);
-      expect(await draft(ann, 'ann_story')).toHaveLength(1);
+    // Each test below runs migrations: a test timeout of MIGRATION_TIMEOUT_MS for each one.
+    it(
+      'real consent works against them; switched off, they and the grants stop counting',
+      { timeout: MIGRATION_TIMEOUT_MS },
+      async () => {
+        const ann = await t.person('user_ann');
+        await devGrant(
+          ann,
+          'special_category_religious',
+          'testimonyFormVersion:v2',
+        );
+        await signUp(ann);
+        expect(await accepted(ann, 'ann')).toEqual([true]);
+        expect(await draft(ann, 'ann_story')).toHaveLength(1);
 
-      // As if this database were restored somewhere else, or the switch removed.
-      await placeholders(false);
-      const svc = await t.service('api_public_read');
-      // NONE: rows() gives no row.
-      expect(await rows(svc, 'RETURN fn::legal::dpa_in_force()')).toEqual([]);
-      expect(await rows(svc, `RETURN fn::form::latest('signup')`)).toEqual([]);
-      expect(await accepted(ann, 'ann')).toEqual([false]);
-      expect(await draft(ann, 'ann_second')).toEqual([]);
-    });
+        // As if this database were restored somewhere else, or the switch removed.
+        await placeholders(false);
+        const svc = await t.service('api_public_read');
+        // NONE: rows() gives no row.
+        expect(await rows(svc, 'RETURN fn::legal::dpa_in_force()')).toEqual([]);
+        expect(await rows(svc, `RETURN fn::form::latest('signup')`)).toEqual(
+          [],
+        );
+        expect(await accepted(ann, 'ann')).toEqual([false]);
+        expect(await draft(ann, 'ann_second')).toEqual([]);
+      },
+    );
 
-    it('switched off, a public story is hidden (its consent has no basis left); switched on, it comes back', async () => {
-      await placeholders(true);
-      await createPeople(t, { bo: 'user_bo', moderator: 'user_mod' });
-      // These suites test consent, with more stories per person than D94 lets one start.
-      await trustSubmitters(t, 'bo');
-      const bo = await t.person('user_bo');
-      await signUp(bo);
-      await devGrant(
-        bo,
-        'special_category_religious',
-        'testimonyFormVersion:v2',
-      );
-      await devGrant(bo, 'publish', 'testimonyFormVersion:v2');
-      await draft(bo, 'bo_live');
-      await submit(bo, 'bo_live');
-      await approve(await t.service('api_admin'), 'bo_live');
-      const svc = await t.service('api_public_read');
-      const isPublic = async () =>
-        (await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live')).length;
-      expect(await isPublic()).toBe(1);
+    it(
+      'switched off, a public story is hidden (its consent has no basis left); switched on, it comes back',
+      { timeout: 3 * MIGRATION_TIMEOUT_MS },
+      async () => {
+        await placeholders(true);
+        await createPeople(t, { bo: 'user_bo', moderator: 'user_mod' });
+        // These suites test consent, with more stories per person than D94 lets one start.
+        await trustSubmitters(t, 'bo');
+        const bo = await t.person('user_bo');
+        await signUp(bo);
+        await devGrant(
+          bo,
+          'special_category_religious',
+          'testimonyFormVersion:v2',
+        );
+        await devGrant(bo, 'publish', 'testimonyFormVersion:v2');
+        await draft(bo, 'bo_live');
+        await submit(bo, 'bo_live');
+        await approve(await t.service('api_admin'), 'bo_live');
+        const svc = await t.service('api_public_read');
+        const isPublic = async () =>
+          (await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live')).length;
+        expect(await isPublic()).toBe(1);
 
-      await placeholders(false);
-      expect(await isPublic()).toBe(0);
-      expect(
-        await rows(
-          await t.migrator(),
-          'SELECT VALUE status FROM story:bo_live',
-        ),
-      ).toEqual(['approved']);
+        await placeholders(false);
+        expect(await isPublic()).toBe(0);
+        expect(
+          await rows(
+            await t.migrator(),
+            'SELECT VALUE status FROM story:bo_live',
+          ),
+        ).toEqual(['approved']);
 
-      await placeholders(true);
-      expect(await isPublic()).toBe(1);
-    });
+        await placeholders(true);
+        expect(await isPublic()).toBe(1);
+      },
+    );
 
-    it('leaving dev (a dev backup restored elsewhere) hides a story that stood on dev consent (Codex, #101)', async () => {
-      const svc = await t.service('api_public_read');
-      expect(
-        await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live'),
-      ).toHaveLength(1);
-      await t.migrate(
-        t.params({
-          environment: 'prod',
-          dev_legal_placeholders: false,
-          dev_consent_relaxed: false,
-        }),
-      );
-      expect(
-        await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live'),
-      ).toEqual([]);
-      expect(
-        await rows(
-          await t.migrator(),
-          `SELECT VALUE [status, record::exists(hiddenStory:bo_live)] FROM story:bo_live`,
-        ),
-      ).toEqual([['approved', true]]);
-    });
+    it(
+      'leaving dev (a dev backup restored elsewhere) hides a story that stood on dev consent (Codex, #101)',
+      { timeout: MIGRATION_TIMEOUT_MS },
+      async () => {
+        const svc = await t.service('api_public_read');
+        expect(
+          await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live'),
+        ).toHaveLength(1);
+        await t.migrate(
+          t.params({
+            environment: 'prod',
+            dev_legal_placeholders: false,
+            dev_consent_relaxed: false,
+          }),
+        );
+        expect(
+          await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live'),
+        ).toEqual([]);
+        expect(
+          await rows(
+            await t.migrator(),
+            `SELECT VALUE [status, record::exists(hiddenStory:bo_live)] FROM story:bo_live`,
+          ),
+        ).toEqual([['approved', true]]);
+      },
+    );
   });
 });

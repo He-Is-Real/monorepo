@@ -465,11 +465,17 @@ export class TestDatabase {
     );
   }
 
-  /** A person's session (D27): its own connection, authenticated with their Clerk token. */
-  async person(clerkUserId: string): Promise<Surreal> {
-    const db = await this.connect();
-    await db.authenticate(this.token(clerkUserId));
-    return db;
+  /**
+   * A person's session (D27): its own connection, authenticated with their Clerk token.
+   *
+   * Like a browser's Clerk client, it gets a fresh token (60 s, as Clerk's) whenever the last one
+   * expires: passed to connect(), the token callback is what surrealdb.js 2.0.8 renews through.
+   * A token given to authenticate() instead is dropped at its `exp` (the SDK invalidates the
+   * session), so a file that keeps a person's connection for over a minute, as a busy machine
+   * makes it, would carry on as an anonymous session ("Anonymous access not allowed").
+   */
+  person(clerkUserId: string): Promise<Surreal> {
+    return this.open(() => this.token(clerkUserId));
   }
 
   /** Closes this handle's connections only (e.g. to a server that's gone). */
