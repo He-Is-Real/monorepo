@@ -132,6 +132,7 @@ describe('ReviewStep', () => {
           consents={consents}
           calls={calls as never}
           refreshConsents={jest.fn()}
+          refreshLimits={jest.fn()}
           onEdit={jest.fn()}
           onDone={jest.fn()}
         />
@@ -170,6 +171,7 @@ describe('ReviewStep', () => {
           consents={consents}
           calls={calls as never}
           refreshConsents={jest.fn()}
+          refreshLimits={jest.fn()}
           onEdit={jest.fn()}
           onDone={jest.fn()}
         />

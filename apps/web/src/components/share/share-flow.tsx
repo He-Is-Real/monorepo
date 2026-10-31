@@ -32,6 +32,7 @@ import {
   type Tag,
 } from './share-api';
 import {
+  formatWhen,
   SubmissionsLeft,
   submissionsState,
   UploadsLeft,
@@ -115,17 +116,6 @@ const needsTestimonyConsent = (c: ConsentState) =>
   !counts(c, 'special_category_religious') ||
   c.testimony.updateAvailable ||
   c.testimony.acceptanceRequired;
-
-/** "one story", "3 stories": the person's weekly allowance, from their limits. */
-const allowance = (n: number | null) =>
-  n === null ? 'stories' : n === 1 ? 'one story' : `${n} stories`;
-
-const dateFormat = new Intl.DateTimeFormat('en-GB', {
-  weekday: 'long',
-  day: 'numeric',
-  month: 'long',
-  timeZone: 'Europe/London',
-});
 
 const button =
   'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
@@ -261,6 +251,24 @@ function SignedInFlow({
     void start();
   }, [start]);
 
+  // After an upload is counted, and back on Choose: the numbers shown and the drafts listed
+  // follow together, so a draft this tab made is offered to carry on even when it filled the
+  // open drafts (the old ones stay if this fails).
+  const refreshLimits = useCallback(
+    () =>
+      void Promise.all([calls.limits(), calls.openDrafts()])
+        .then(([limits, drafts]) =>
+          setLoaded((l) =>
+            l.state === 'ready' ? { ...l, limits, drafts } : l,
+          ),
+        )
+        .catch(() => undefined),
+    [calls],
+  );
+  useEffect(() => {
+    if (step === 'choose' && moved.current) refreshLimits();
+  }, [step, refreshLimits]);
+
   // The draft's id in the address once it exists, so a reload resumes it.
   useEffect(() => {
     if (!draft.draftId) return;
@@ -344,15 +352,6 @@ function SignedInFlow({
     setLoaded({ ...loaded, consents: fresh });
     return fresh;
   };
-  // After an upload is counted: the numbers shown follow (the old ones stay if this fails).
-  const refreshLimits = () =>
-    void calls
-      .limits()
-      .then((fresh) =>
-        setLoaded((l) => (l.state === 'ready' ? { ...l, limits: fresh } : l)),
-      )
-      .catch(() => undefined);
-
   return (
     <Limits.Provider value={limits}>
       <div>
@@ -470,6 +469,7 @@ function SignedInFlow({
               consents={consents}
               calls={calls}
               refreshConsents={refreshConsents}
+              refreshLimits={refreshLimits}
               onEdit={(s) => go(s)}
               onDone={() => go('done')}
             />
@@ -1369,6 +1369,7 @@ export function ReviewStep({
   consents,
   calls,
   refreshConsents,
+  refreshLimits,
   onEdit,
   onDone,
 }: {
@@ -1379,6 +1380,8 @@ export function ReviewStep({
   consents: ConsentState;
   calls: ReturnType<typeof shareApi>;
   refreshConsents: () => Promise<ConsentState>;
+  /** The page's limits and drafts read again (when the server's answer shows them stale). */
+  refreshLimits: () => void;
   onEdit: (step: Step) => void;
   onDone: () => void;
 }) {
@@ -1504,8 +1507,10 @@ export function ReviewStep({
           availableAt?: string;
         };
         if (p.code === 'weekly_submission_limit_reached' && p.availableAt) {
+          // The numbers on the page were stale: the server's answer says it, and they follow.
+          refreshLimits();
           setProblem(
-            `You can submit ${allowance(limits.submissions.per7Days)} for review in any 7 days. Your story is saved as a draft: you can submit it from ${dateFormat.format(new Date(p.availableAt))}.`,
+            `You’ve sent as many stories for review as you can this week. Your story is saved as a draft: you can submit it from ${formatWhen(new Date(p.availableAt))}.`,
           );
         } else if (p.code === 'story_text_too_short') {
           setProblem(

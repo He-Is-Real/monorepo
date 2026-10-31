@@ -19,7 +19,8 @@
 //   standing in for Bunny Stream: creation (`POST`, the signed headers checked), `HEAD` and
 //   `PATCH`. A test can make the next PATCHes fail or hold them (`POST /__e2e/sessions/<id>/tus`)
 //   and read what arrived (`GET /__e2e/sessions/<id>/uploads`); submit needs the file to have
-//   arrived, as api-user asks Bunny.
+//   arrived, as api-user asks Bunny. `POST /__e2e/sessions/<id>/settings` changes a session's
+//   settings after its page loaded.
 // - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
 //   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
 //   carry its `status`, `slug` and moderator's `rejectionFeedback`. Erasure (PR 11):
@@ -1444,6 +1445,19 @@ createServer(async (req, res) => {
           ['terms', []],
         ]),
       );
+    res.writeHead(204);
+    return res.end();
+  }
+  // Test set-up only: the session's settings change after the page loaded (an admin lowers a
+  // limit), so the page's numbers are stale and the server's refusal answers instead.
+  const settingsSet = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/settings$/.exec(
+    path,
+  );
+  if (settingsSet && req.method === 'POST') {
+    Object.assign(
+      shareSession(settingsSet[1]).settings,
+      (await readJson(req)) ?? {},
+    );
     res.writeHead(204);
     return res.end();
   }

@@ -9,7 +9,7 @@ import {
   StaleVersion,
 } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
-import { UploadsLeft, uploadsState } from './allowance';
+import { formatWhen, UploadsLeft, uploadsState } from './allowance';
 import type {
   ShareApi,
   SubmissionLimits,
@@ -521,6 +521,19 @@ export function UploadPanel({
 
   async function choose(file: File | undefined) {
     if (!file) return;
+    // At a limit, a new file waits (D113), however it comes (chooser or drop): only the file
+    // this tab started, or a request whose answer was lost, carries on, as neither counts again.
+    const until = uploadsState(limits).until;
+    if (
+      until &&
+      !(kept && !kept.done && sameFile(kept, file)) &&
+      !(draftId && sameFile(readAttempt(owner, draftId), file))
+    ) {
+      setProblem(
+        `You’ve started as many uploads as you can for now. Your story is saved: you can upload your ${noun} from ${formatWhen(until)}.`,
+      );
+      return;
+    }
     setCancelled(false);
     if (phase.at === 'uploading') upload.current?.abort();
     const contentType = contentTypeOf(file, format);
