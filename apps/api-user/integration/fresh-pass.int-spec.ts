@@ -185,7 +185,7 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
       body: {
         title: 'My story',
         primaryFormat: 'video',
-        tagSlugs: ['healing'],
+        themeIds: ['healing'],
       },
       headers: { 'idempotency-key': key() },
     });
@@ -277,7 +277,7 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     await publishDpa(t, 'v1');
     await run(
       await t.service('api_admin'),
-      `UPSERT tag:healing SET name = 'Healing', category = 'theme'`,
+      `UPSERT theme:healing SET name = 'Healing', category = themeCategory:other`,
     );
   });
   beforeEach(() => {
