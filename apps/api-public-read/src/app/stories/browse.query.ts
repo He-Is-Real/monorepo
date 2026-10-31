@@ -21,8 +21,11 @@ export interface CursorKey {
 export interface BrowseQuery {
   /** Full-text search, trimmed; `null` = no search. */
   q: string | null;
-  /** Tag slugs, sorted and unique; a story must have all of them. */
-  tags: string[];
+  /**
+   * A theme's id: only stories that carry it. `null` = any. An id that isn't a theme is ignored
+   * by the query (themes plan v3, A8: a link to a deleted theme shows every story).
+   */
+  theme: string | null;
   format: StoryFormat | null;
   sort: Sort;
   limit: number;
@@ -36,16 +39,22 @@ export interface BrowseQuery {
 
 export const LIMIT = { default: 20, max: 50 } as const;
 export const Q_MAX_CHARS = 200;
-export const TAGS_MAX = 5;
 export const CURSOR_MAX_CHARS = 300;
 /** At most this many ids in one `id` lookup. */
 export const IDS_MAX = 50;
 
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const SLUG_MAX = 60;
+const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
 const SORTS: readonly Sort[] = ['latest', 'oldest', 'relevance'];
 const FORMATS: readonly StoryFormat[] = ['video', 'audio', 'written'];
-const KNOWN = new Set(['q', 'tag', 'format', 'sort', 'limit', 'cursor', 'id']);
+const KNOWN = new Set([
+  'q',
+  'theme',
+  'format',
+  'sort',
+  'limit',
+  'cursor',
+  'id',
+]);
 const ID = /^[A-Za-z0-9_]{1,64}$/;
 // SurrealDB's own datetime text: UTC, up to nanoseconds.
 const DATETIME =
@@ -118,21 +127,9 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
     q = null;
   }
 
-  const rawTags = query['tag'];
-  const tagList =
-    rawTags === undefined
-      ? []
-      : typeof rawTags === 'string'
-        ? [rawTags]
-        : Array.isArray(rawTags) && rawTags.every((t) => typeof t === 'string')
-          ? (rawTags as string[])
-          : null;
-  const tags = [...new Set(tagList ?? [])].sort();
-  if (tagList === null) fail('tag', 'invalid', 'Tag slugs only.');
-  else if (tags.some((t) => !SLUG.test(t) || t.length > SLUG_MAX))
-    fail('tag', 'invalid', 'Tag slugs: lowercase letters, digits and hyphens.');
-  else if (tags.length > TAGS_MAX)
-    fail('tag', 'too_many', `At most ${TAGS_MAX} tags.`);
+  const theme = single('theme') ?? null;
+  if (theme !== null && !THEME_ID.test(theme))
+    fail('theme', 'invalid', 'A theme id: letters, digits and underscores.');
 
   const format = single('format') ?? null;
   if (format !== null && !FORMATS.includes(format as StoryFormat))
@@ -180,7 +177,7 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
   if (errors.length > 0) throw invalid(errors);
   const parsed: BrowseQuery = {
     q,
-    tags,
+    theme,
     format: format as StoryFormat | null,
     sort: sort as Sort,
     limit,
@@ -271,7 +268,7 @@ function isDateTime(text: string): boolean {
 /** What the cursor is bound to: the filters and the sort (not the page size). */
 function fingerprint(query: BrowseQuery): string {
   return createHash('sha256')
-    .update(JSON.stringify([query.q, query.tags, query.format, query.sort]))
+    .update(JSON.stringify([query.q, query.theme, query.format, query.sort]))
     .digest('base64url')
     .slice(0, 16);
 }

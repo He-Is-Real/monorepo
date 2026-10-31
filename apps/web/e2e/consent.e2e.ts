@@ -165,9 +165,9 @@ test.describe('behaviour', () => {
   }) => {
     await answerAccount(page, { signup: false });
     const grants = recordGrants(page);
-    await page.goto(`${WEB_SIGNED_IN_URL}/stories?tag=healing`);
+    await page.goto(`${WEB_SIGNED_IN_URL}/stories?theme=healing`);
     await expect(page).toHaveURL(
-      `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=${encodeURIComponent('/stories?tag=healing')}`,
+      `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=${encodeURIComponent('/stories?theme=healing')}`,
     );
     const agree = page.getByRole('button', { name: 'Agree and continue' });
 
@@ -202,7 +202,7 @@ test.describe('behaviour', () => {
     await agree.click();
     const last = await answered;
     expect(last.status()).toBe(201);
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/stories?tag=healing`);
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/stories?theme=healing`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
     // One grant per box, on the version shown, each with its own key, each naming the privacy

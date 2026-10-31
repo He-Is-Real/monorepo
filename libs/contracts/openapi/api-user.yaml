@@ -656,23 +656,25 @@ paths:
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
 
-  /v1/tags:
+  /v1/themes:
     get:
       tags: [Submission]
-      operationId: listStoryTags
-      summary: Every tag a story can carry (for the submit form)
+      operationId: listStoryThemes
+      summary: Every theme a story can carry (for the share form)
       description: |
-        Every tag, by category (theme, journey, emotion) then name, for choosing a story's themes
-        (how many: `GET /v1/account/limits`).
-        Unlike api-public-read's `/v1/tags` (only tags a published story uses, D63), this lists them all.
-        Read as the person (D27); needs no consent (tags aren't personal data).
+        Every category and its themes, highlighted or not (themes plan v3): categories A–Z with Other
+        last, themes A–Z; a category without themes is left out. The share form shows each
+        category's highlighted themes first and the rest under "More themes" (how many to choose:
+        `GET /v1/account/limits`). Unlike api-public-read's `/v1/themes`, which lists a theme that
+        isn't highlighted only once a published story uses it, this lists them all. Read as the
+        person (D27); needs no consent (themes aren't personal data).
       x-required-role: User
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: Every tag (a few dozen at most, so unpaged).
+          description: Every category with themes (a few dozen themes at most, so unpaged).
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -687,7 +689,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: './components.yaml#/components/schemas/Tag'
+                      $ref: './components.yaml#/components/schemas/ThemeCategory'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '401':
@@ -710,8 +712,9 @@ paths:
 
         **Limits (D94, W3, D112):** open drafts per person (default 3: the admin's setting, or their
         override for this person; none for a trusted submitter); one more answers `409`
-        `draft_limit_reached`. Text longer, or more themes, than the settings allow answers `400`
-        (`/body`, `/tagSlugs`); so do unknown tags. The database enforces all of these too.
+        `draft_limit_reached`. Text longer than the settings allow answers `400` (`/body`); a theme
+        that doesn't exist answers `400` `themes_changed` (`/themeIds`: "Themes have changed, please
+        choose again"). The number of themes is checked only at submit. The database enforces these too.
       x-required-role: User
       x-requires-consent:
         subject: caller
@@ -760,10 +763,10 @@ paths:
         the content once the story leaves `draft`/`changes_requested` (`409` `story_locked`). Needs
         the person's current Art 9 consent (`403`). A stale `If-Match` answers `412`: the client
         re-reads, re-applies its change when nothing it touched has changed, and asks the person only
-        on a real clash (D70). An edit that makes the text longer, or adds themes, beyond the settings'
-        maximum (W3) answers `400` (`/body`, `/tagSlugs`); one that trims a draft that's still over a
-        newly lowered maximum is accepted, so it can be fixed (Joel, 2026-10-30). Unknown tags answer
-        `400` (`/tagSlugs`). Answers `ETag` with the new version. Also accepts
+        on a real clash (D70). An edit that makes the text longer beyond the settings' maximum (W3)
+        answers `400` (`/body`); one that trims a draft that's still over a newly lowered maximum is
+        accepted, so it can be fixed (Joel, 2026-10-30). A theme that doesn't exist answers `400`
+        `themes_changed` (`/themeIds`). Answers `ETag` with the new version. Also accepts
         `application/json`.
       x-required-role: User
       x-requires-consent:
@@ -933,11 +936,13 @@ paths:
         (D17); `403` if any is missing or withdrawn. A written story needs the settings' minimum of
         text (W3: default 200 characters, not counting leading and trailing spaces); shorter is `400`
         with `code: story_text_too_short` and an `errors` entry for `/body`. The database refuses it too.
-        Every story needs the settings' number of themes (default 1–5; `400` `tags_required`,
-        `/tagSlugs`). Every limit in force applies at submit, whatever the limits were when the draft
-        was started (Joel, 2026-10-30: no grandfathering): longer than the text maximum is `400`
-        `story_text_too_long`, more themes than the maximum `400` `too_many_tags`, each with the
-        `limit` and a message that says it, so the person can edit the draft and submit.
+        Every story needs from themesMin to themesMax themes (default 1–5; otherwise `400`
+        `theme_count`, `/themeIds`, "Choose 1–5 themes"), checked only here (themes plan v3); a theme
+        deleted since it was chosen answers `400` `themes_changed` ("Themes have changed, please choose
+        again"). Every limit in force applies at submit, whatever the limits were when the draft was
+        started (Joel, 2026-10-30: no grandfathering): longer than the text maximum is `400`
+        `story_text_too_long` with the `limit` and a message that says it, so the person can edit the
+        draft and submit.
 
         **Limit (D94, D112, D113):** stories submitted for review per rolling 7 days (default 1: the
         admin's setting, or their override for this person; none for a trusted submitter), counted

@@ -27,15 +27,17 @@ import {
 } from './browse.query';
 import { isSlug, notFound } from './slug';
 
-// Only the read model (D26) and tags, on the read-only login. The query text is fixed: one
+// Only the read model (D26) and themes, on the read-only login. The query text is fixed: one
 // variant per sort, chosen here; every value arrives as a bound parameter.
 
 /** Shared by every variant: the filters and the cursor's position, bound once. */
 const PREAMBLE = `
-  LET $tagRefs = $tags.map(|$t| type::record('tag', $t));
+  LET $th = IF $theme != NONE AND record::exists(type::record('theme', $theme)) { $theme };
   LET $at = IF $after != NONE AND $sort != 'relevance' { <datetime> $after.key };
   LET $afterId = IF $after != NONE { type::record('publicStory', $after.id) };`;
-const FILTERS = `($format = NONE OR primaryFormat = $format) AND tagRefs CONTAINSALL $tagRefs`;
+// An unknown theme id ($th NONE) filters nothing (themes plan v3, A8). themeIds, not themeRefs:
+// 3.2.4's CONTAINS over an element index on record links finds nothing (schema.surql gotchas).
+const FILTERS = `($format = NONE OR primaryFormat = $format) AND ($th = NONE OR themeIds CONTAINS $th)`;
 const SEARCH = `searchText @1@ $q`;
 
 /** Newest or oldest first; `id` breaks ties, so the order is total and pages never overlap. */
@@ -74,11 +76,11 @@ const QUERIES = {
 export const RELATED_COUNT = 3;
 
 const RELATED = `
-  LET $s = (SELECT id, tagRefs FROM ONLY publicStory WHERE slug = $slug LIMIT 1);
+  LET $s = (SELECT id, themeRefs FROM ONLY publicStory WHERE slug = $slug LIMIT 1);
   RETURN $s != NONE;
   SELECT VALUE slug FROM publicStory WHERE $s = NONE AND slugHistory CONTAINS $slug LIMIT 1;
   IF $s = NONE { [] } ELSE {
-    SELECT ${SUMMARY_FIELDS}, array::len(array::intersect(tagRefs, $s.tagRefs)) AS shared
+    SELECT ${SUMMARY_FIELDS}, array::len(array::intersect(themeRefs, $s.themeRefs)) AS shared
     FROM publicStory WHERE id != $s.id
     ORDER BY shared DESC, publishedAt DESC, id DESC LIMIT ${RELATED_COUNT}
   };`;
@@ -116,7 +118,7 @@ export class BrowseController {
     }
     const results = await runQuery(this.db, queryFor(browse), {
       q: browse.q ?? undefined,
-      tags: browse.tags,
+      theme: browse.theme ?? undefined,
       format: browse.format ?? undefined,
       sort: browse.sort,
       after: browse.after ?? undefined,

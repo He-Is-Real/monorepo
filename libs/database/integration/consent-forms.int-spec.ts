@@ -596,7 +596,7 @@ describe('testimony versions: new ones gate new submissions, never published sto
     const newDraft = (id: string) =>
       begin(
         `CREATE type::record('story', $id) CONTENT {
-           submitter: $auth, slug: $id, title: 'Story', description: 'd',
+           themeRefs: [theme:common], submitter: $auth, slug: $id, title: 'Story', description: 'd',
            body: $body, primaryFormat: 'written' }`,
         { id, body: storyText(id) },
       );

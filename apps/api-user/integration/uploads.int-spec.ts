@@ -149,12 +149,12 @@ describe('video and audio uploads', () => {
     await grantAll(await t.person(`user_${who}`));
     await run(
       await t.service('api_admin'),
-      `UPSERT tag:healing SET name = 'Healing', category = 'theme'`,
+      `UPSERT theme:healing SET name = 'Healing', category = themeCategory:other`,
     );
   }
   const draft = async (who: string, format: 'video' | 'audio' = 'video') => {
     const res = await call('POST', '/v1/stories', who, {
-      body: { title: 'My story', primaryFormat: format, tagSlugs: ['healing'] },
+      body: { title: 'My story', primaryFormat: format, themeIds: ['healing'] },
       headers: { 'idempotency-key': key() },
     });
     expect(res.status).toBe(201);
@@ -609,7 +609,7 @@ describe('video and audio uploads', () => {
         title: 'Words',
         primaryFormat: 'written',
         body: 'x'.repeat(250),
-        tagSlugs: ['healing'],
+        themeIds: ['healing'],
       },
       headers: { 'idempotency-key': key() },
     });

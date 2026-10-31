@@ -34,7 +34,7 @@ export interface PublicStory {
   primaryFormat: 'video' | 'audio' | 'written';
   media: MediaPlayback[];
   image: StoryImage | null;
-  tags: { slug: string; name: string }[];
+  themes: { id: string; name: string }[];
   publishedAt: string;
   version: number;
 }
@@ -70,7 +70,7 @@ function isPublicStory(value: unknown): value is PublicStory {
     typeof s.slug === 'string' &&
     typeof s.title === 'string' &&
     typeof s.description === 'string' &&
-    Array.isArray(s.tags) &&
+    Array.isArray(s.themes) &&
     (s.media === undefined || Array.isArray(s.media)) &&
     isImage(s.image) &&
     typeof s.publishedAt === 'string'

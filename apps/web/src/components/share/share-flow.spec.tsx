@@ -38,7 +38,7 @@ const ART9 = {
 const PUBLISH = { statement: 'publish' as const, label: 'Publish my story' };
 const LIMITS: SubmissionLimits = {
   storyText: { min: 200, max: 10000 },
-  tags: { min: 1, max: 5 },
+  themes: { min: 1, max: 5 },
   openDrafts: { max: 3, open: 1 },
   submissions: { per7Days: 1, usedIn7Days: 0, nextAvailableAt: null },
 };
@@ -93,7 +93,7 @@ describe('ReviewStep', () => {
       ...EMPTY_FIELDS,
       title: 'T',
       body: 'x'.repeat(250),
-      tagSlugs: ['hope'],
+      themeIds: ['hope'],
     },
     status: 'saved' as const,
     submittedBefore: false,
@@ -132,7 +132,14 @@ describe('ReviewStep', () => {
         <ReviewStep
           heading={createRef()}
           draft={draft}
-          tags={[{ slug: 'hope', name: 'Hope', category: 'emotion' }]}
+          themes={[
+            {
+              id: 'feelings',
+              name: 'Feelings',
+              themes: [{ id: 'hope', name: 'Hope', highlighted: true }],
+            },
+          ]}
+          refreshThemes={() => undefined}
           legal={{ testimony: form([ART9]), social: null }}
           consents={consents}
           api={null as never}
@@ -173,7 +180,14 @@ describe('ReviewStep', () => {
         <ReviewStep
           heading={createRef()}
           draft={{ ...draft, forget }}
-          tags={[{ slug: 'hope', name: 'Hope', category: 'emotion' }]}
+          themes={[
+            {
+              id: 'feelings',
+              name: 'Feelings',
+              themes: [{ id: 'hope', name: 'Hope', highlighted: true }],
+            },
+          ]}
+          refreshThemes={() => undefined}
           legal={{ testimony: form([ART9, PUBLISH]), social: null }}
           consents={consents}
           api={null as never}

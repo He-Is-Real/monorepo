@@ -64,10 +64,6 @@ describe('the D47 dummy dataset', () => {
     expect(
       count((s) => s.title.length === LIMITS.titleMax),
     ).toBeGreaterThanOrEqual(1);
-    expect(count((s) => s.tags.length === 0)).toBeGreaterThanOrEqual(1);
-    expect(
-      count((s) => s.tags.length === LIMITS.tagsMax),
-    ).toBeGreaterThanOrEqual(1);
     expect(
       count((s) =>
         /\p{Script=Greek}|\p{Script=Hangul}|\p{Script=Arabic}/u.test(s.title),
@@ -104,26 +100,6 @@ describe('the D47 dummy dataset', () => {
       (s) => s.slug === 'test-story-walking-skeleton',
     );
     expect(skeleton?.status).toBe('approved');
-  });
-
-  it('uses only the browse tags, in their three categories', () => {
-    expect(new Set(DATASET.tags.map((t) => t.category))).toEqual(
-      new Set(['theme', 'journey', 'emotion']),
-    );
-    for (const name of [
-      'Healing',
-      'Addiction',
-      'Loss',
-      'Depression',
-      'Faith',
-      'Answered Prayers',
-      'Forgiveness',
-      'Relationships',
-      'Loneliness',
-      'Salvation',
-    ]) {
-      expect(DATASET.tags.map((t) => t.name)).toContain(name);
-    }
   });
 
   it('is obviously test content', () => {

@@ -17,7 +17,7 @@ describe('write scope on story fields (D41)', () => {
     (
       await rows<Record<string, unknown>>(
         migrator,
-        `SELECT slug, title, description, body, bylineName, primaryFormat, tagRefs, media, image,
+        `SELECT slug, title, description, body, bylineName, primaryFormat, themeRefs, media, image,
                 status, approvedAt, rejectionFeedback, lockedBy, lockedAt
            FROM type::record('story', $id)`,
         { id },
@@ -31,7 +31,7 @@ describe('write scope on story fields (D41)', () => {
     `bylineName = 'Someone else'`,
     `primaryFormat = 'audio'`,
     `image = { path: 'dev-seed/not-theirs.webp', width: 10, height: 10 }`,
-    `tagRefs = [tag:doubt]`,
+    `themeRefs = [theme:doubt]`,
     `slug = 'hijacked-slug'`,
   ];
 
@@ -193,22 +193,6 @@ describe('write scope on story fields (D41)', () => {
           'SELECT VALUE durationSeconds FROM publicStory:bob_pending',
         ),
       ).toEqual([93]);
-    });
-
-    it('computes tagSlugs from the story’s tags, whatever the writer sends (D63)', async () => {
-      // /v1/tags probes an index over tagSlugs (3.2.4 can't index record elements correctly).
-      const slugs = () =>
-        rows(migrator, 'SELECT VALUE tagSlugs FROM publicStory:bob_pending');
-      const expected = await rows(
-        migrator,
-        'SELECT VALUE tagRefs.map(|$t| record::id($t)) FROM story:bob_pending',
-      );
-      expect(await slugs()).toEqual(expected);
-      await run(
-        admin,
-        `UPDATE publicStory:bob_pending SET tagSlugs = ['not-a-tag']`,
-      );
-      expect(await slugs()).toEqual(expected);
     });
 
     it('follows processing’s corrections of a published clip in the same write', async () => {

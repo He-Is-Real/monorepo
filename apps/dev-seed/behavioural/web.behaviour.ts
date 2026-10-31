@@ -38,7 +38,7 @@ test('a story that isn’t approved is a 404', async ({ page }) => {
   expect(res?.status()).toBe(404);
 });
 
-// M1 step 6b-1: browse, search, tags and related stories on dev, over the D47 dataset.
+// M1 step 6b-1: browse, search and related stories on dev, over the D47 dataset.
 const published = DATASET.stories.filter((s) => s.status === 'approved');
 const unpublished = DATASET.stories.filter((s) => s.status !== 'approved');
 const cards = (page: import('@playwright/test').Page) =>
@@ -60,17 +60,6 @@ test('browse lists the published stories, loads the rest on its own, and nothing
   for (const title of titles)
     expect(published.map((s) => s.title)).toContain(title);
   for (const s of unpublished) expect(titles).not.toContain(s.title);
-});
-
-test('a tag narrows browse to stories with that tag', async ({ page }) => {
-  await page.goto('/stories?tag=hope');
-  await expect(page.getByText('Stories tagged Hope')).toBeVisible();
-  const shown = await cards(page).count();
-  expect(shown).toBeGreaterThan(0);
-  for (const card of await cards(page).all())
-    await expect(card.getByRole('list', { name: 'Tags' })).toContainText(
-      'Hope',
-    );
 });
 
 test('search finds a story by a word in its title', async ({ page }) => {

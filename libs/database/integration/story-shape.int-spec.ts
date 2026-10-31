@@ -56,7 +56,7 @@ describe('story types and shapes (D53)', () => {
     const result = await outcome(
       writer,
       `CREATE type::record('story', $id) CONTENT {
-         submitter: $submitter ?? $auth, slug: $id, title: 'A story', description: 'How I came to faith',
+         themeRefs: [theme:common], submitter: $submitter ?? $auth, slug: $id, title: 'A story', description: 'How I came to faith',
          ${fields}
        } RETURN VALUE id`,
       {
@@ -263,7 +263,7 @@ describe('story types and shapes (D53)', () => {
       expect(
         await outcome(
           migrator,
-          `CREATE story CONTENT { submitter: user:pat, slug: 'mig-short', title: 't', description: 'd',
+          `CREATE story CONTENT { themeRefs: [theme:common], submitter: user:pat, slug: 'mig-short', title: 't', description: 'd',
              primaryFormat: 'written', body: 'Too short', status: 'pending' }`,
         ),
       ).toEqual({
@@ -567,7 +567,7 @@ describe('story types and shapes (D53)', () => {
     expect(
       await outcome(
         migrator,
-        `CREATE story CONTENT { submitter: user:pat, slug: 'mig', title: 't', description: 'd',
+        `CREATE story CONTENT { themeRefs: [theme:common], submitter: user:pat, slug: 'mig', title: 't', description: 'd',
            primaryFormat: 'written', body: 'x', media: [${VIDEO}] }`,
       ),
     ).toEqual({
@@ -596,6 +596,7 @@ describe('data/0004: rows written before D53', () => {
     await rm(join(bundle, 'data', '0004-check-story-shapes.surql'));
     await t.migrate(undefined, { bundleDir: bundle });
     await t.createServices();
+    await t.createCommonTheme();
     await createPeople(t, { old: 'user_old' });
     await trustSubmitters(t, 'old');
     await publishDpa(t, 'v1');
@@ -617,14 +618,14 @@ describe('data/0004: rows written before D53', () => {
         migrator,
         `REMOVE EVENT story_shape ON story;
        REMOVE EVENT publicStory_mirrors_story ON publicStory;
-       CREATE story:old_written CONTENT { submitter: user:old, slug: 'old-written', title: 't',
+       CREATE story:old_written CONTENT { themeRefs: [theme:common], submitter: user:old, slug: 'old-written', title: 't',
          description: 'd', primaryFormat: 'written', body: 'x',
          media: [{ format: 'video', aspectRatio: '9:16' }] };
-       CREATE story:old_video CONTENT { submitter: user:old, slug: 'old-video', title: 't',
+       CREATE story:old_video CONTENT { themeRefs: [theme:common], submitter: user:old, slug: 'old-video', title: 't',
          description: 'd', primaryFormat: 'video', status: 'approved',
          media: [{ format: 'video', width: 1920, height: 1080, durationSeconds: 30, processing: 'ready' }] };
        CREATE publicStory:old_video CONTENT { version: 1, slug: 'old-video', title: 't',
-         description: 'd', primaryFormat: 'video', tagRefs: [], publishedAt: time::now(),
+         description: 'd', primaryFormat: 'video', themeRefs: [theme:common], publishedAt: time::now(),
          media: [{ format: 'video', aspectRatio: '16:9' }] };`,
       );
 

@@ -47,7 +47,7 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
         (n, s) => n + (s.reviews?.length ?? 0),
         0,
       ),
-      tags: DATASET.tags.length,
+      themes: DATASET.themes.length,
       fixturePeople: DATASET.people.length + 1,
     });
   });
@@ -320,7 +320,7 @@ describe('dev-seed refuses anything but dev', () => {
     try {
       await run(
         await t.migrator(),
-        'CREATE tag:keep SET name = "Keep", category = "theme"',
+        'CREATE theme:keep SET name = "Keep", category = themeCategory:other',
       );
       const result = await outcome(
         seeder,
@@ -332,7 +332,7 @@ describe('dev-seed refuses anything but dev', () => {
         error: expect.stringMatching(error),
       });
       expect(
-        await rows(await t.migrator(), 'SELECT VALUE id FROM tag'),
+        await rows(await t.migrator(), 'SELECT VALUE id FROM theme:keep'),
       ).toHaveLength(1);
     } finally {
       await t.close();

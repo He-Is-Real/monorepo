@@ -1,12 +1,17 @@
 import { dummyText } from './text';
-import type { Dataset, StoryFixture, TagFixture } from './types';
+import type {
+  Dataset,
+  StoryFixture,
+  ThemeCategoryFixture,
+  ThemeFixture,
+} from './types';
 
 export * from './text';
 export * from './types';
 
 /**
  * The D47 dummy dataset: about 25 obviously fake stories over every story type (D53), moderation
- * state and edge case, 8 fixture people without Clerk accounts, and the browse tags. It can grow
+ * state and edge case, 8 fixture people without Clerk accounts, and the themes. It can grow
  * during development; `dataset.spec.ts` checks it still covers what D47 asks for and fits the
  * schema's limits, and the integration test loads it into a real SurrealDB.
  *
@@ -25,26 +30,50 @@ const PEOPLE = [
 ];
 const MODERATOR = 'seed_moderator';
 
-// The browse list (project content/browse.md), sorted into theme, journey and emotion.
-const TAGS: TagFixture[] = [
-  { id: 'healing', name: 'Healing', category: 'theme' },
-  { id: 'addiction', name: 'Addiction', category: 'theme' },
-  { id: 'loss', name: 'Loss', category: 'theme' },
-  { id: 'depression', name: 'Depression', category: 'theme' },
-  { id: 'relationships', name: 'Relationships', category: 'theme' },
-  { id: 'loneliness', name: 'Loneliness', category: 'theme' },
-  { id: 'illness', name: 'Illness', category: 'theme' },
-  { id: 'parenting', name: 'Parenting', category: 'theme' },
-  { id: 'faith', name: 'Faith', category: 'journey' },
-  { id: 'answered-prayers', name: 'Answered Prayers', category: 'journey' },
-  { id: 'forgiveness', name: 'Forgiveness', category: 'journey' },
-  { id: 'salvation', name: 'Salvation', category: 'journey' },
-  { id: 'doubt', name: 'Doubt', category: 'journey' },
-  { id: 'hope', name: 'Hope', category: 'emotion' },
-  { id: 'peace', name: 'Peace', category: 'emotion' },
-  { id: 'grief', name: 'Grief', category: 'emotion' },
-  { id: 'joy', name: 'Joy', category: 'emotion' },
+/** A fixed, valid ULID for fixture `n` of a kind, so ids (and ?theme= links) survive resets. */
+const seedId = (kind: 'CATEG' | 'THEME', n: number) =>
+  `01JBSEED${kind}${String(n).padStart(13, '0')}`;
+
+// The categories data script 0008 makes from the old groups (themes plan v3): Topics (the old
+// "theme" group, all highlighted), Journeys and Feelings. Other is the schema's fixed category.
+const CATEGORIES: ThemeCategoryFixture[] = [
+  { key: 'topics', id: seedId('CATEG', 1), name: 'Topics' },
+  { key: 'journeys', id: seedId('CATEG', 2), name: 'Journeys' },
+  { key: 'feelings', id: seedId('CATEG', 3), name: 'Feelings' },
 ];
+
+// The browse list (project content/browse.md). Feelings highlights Hope, so home has more than
+// one row; Gratitude is highlighted with no story yet (A14: shown, "No stories yet"); Waiting is
+// in Other and on one story only (related stories when none share a theme).
+const THEMES: ThemeFixture[] = (
+  [
+    ['healing', 'Healing', 'topics', true],
+    ['addiction', 'Addiction', 'topics', true],
+    ['loss', 'Loss', 'topics', true],
+    ['depression', 'Depression', 'topics', true],
+    ['relationships', 'Relationships', 'topics', true],
+    ['loneliness', 'Loneliness', 'topics', true],
+    ['illness', 'Illness', 'topics', true],
+    ['parenting', 'Parenting', 'topics', true],
+    ['faith', 'Faith', 'journeys', false],
+    ['answered-prayers', 'Answered Prayers', 'journeys', false],
+    ['forgiveness', 'Forgiveness', 'journeys', false],
+    ['salvation', 'Salvation', 'journeys', false],
+    ['doubt', 'Doubt', 'journeys', false],
+    ['hope', 'Hope', 'feelings', true],
+    ['peace', 'Peace', 'feelings', false],
+    ['grief', 'Grief', 'feelings', false],
+    ['joy', 'Joy', 'feelings', false],
+    ['gratitude', 'Gratitude', 'feelings', true],
+    ['waiting', 'Waiting', 'other', false],
+  ] as const
+).map(([key, name, category, highlighted], i) => ({
+  key,
+  id: seedId('THEME', i + 1),
+  name,
+  category,
+  ...(highlighted ? { highlighted: true as const } : {}),
+}));
 
 const FEEDBACK_CHANGES =
   'Thank you for sharing this. It is a test story, so this is test feedback: could you say a little more about what happened next? Take your time; we will read it again when you are ready.';
@@ -70,7 +99,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Ruth (test)',
     submitter: 'seed_ruth',
     format: 'video',
-    tags: ['healing', 'faith', 'hope'],
+    themes: ['healing', 'faith', 'hope'],
     media: { clip: 'clip-01', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
@@ -84,24 +113,24 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Daniel (test)',
     submitter: 'seed_daniel',
     format: 'video',
-    tags: ['answered-prayers'],
+    themes: ['answered-prayers'],
     media: { clip: 'clip-02', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
     publishedDaysAgo: 5,
   },
   {
-    // Sent back once, resubmitted, then approved: a two-review history. Five tags (the maximum).
+    // Sent back once, resubmitted, then approved: a two-review history. Five themes (the maximum).
     id: 'seed_v03',
-    slug: 'test-video-landscape-five-tags',
-    title: 'Test video: landscape, with the maximum of five tags',
+    slug: 'test-video-landscape-five-themes',
+    title: 'Test video: landscape, with the maximum of five themes',
     description:
-      'Dummy 16:9 video story with text and five tags. It was sent back once.',
+      'Dummy 16:9 video story with text and five themes. It was sent back once.',
     body: dummyText(1200, 1),
     bylineName: 'Amara (test)',
     submitter: 'seed_amara',
     format: 'video',
-    tags: ['healing', 'loss', 'faith', 'forgiveness', 'peace'],
+    themes: ['healing', 'loss', 'faith', 'forgiveness', 'peace'],
     media: { clip: 'clip-03', processing: 'ready' },
     status: 'approved',
     reviews: [
@@ -118,7 +147,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Joon (test)',
     submitter: 'seed_joon',
     format: 'video',
-    tags: ['salvation', 'joy'],
+    themes: ['salvation', 'joy'],
     media: { clip: 'clip-04', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
@@ -133,7 +162,7 @@ const STORIES: StoryFixture[] = [
     body: dummyText(420, 2),
     submitter: 'seed_eleni',
     format: 'video',
-    tags: ['addiction', 'forgiveness'],
+    themes: ['addiction', 'forgiveness'],
     media: { clip: 'clip-05', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
@@ -150,23 +179,23 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Ελένη (test)',
     submitter: 'seed_eleni',
     format: 'video',
-    tags: ['relationships'],
+    themes: ['relationships'],
     media: { clip: 'clip-06', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
     publishedDaysAgo: 17,
   },
   {
-    // No tags.
+    // A theme no other story has (a story needs at least one to be submitted).
     id: 'seed_v07',
-    slug: 'test-video-no-tags',
-    title: 'Test video: no tags at all',
-    description: 'Dummy 16:9 video story with text and zero tags.',
+    slug: 'test-video-a-theme-of-its-own',
+    title: 'Test video: a theme no other story has',
+    description: 'Dummy 16:9 video story with text and a theme of its own.',
     body: dummyText(300, 4),
     bylineName: 'Tomasz (test)',
     submitter: 'seed_tomasz',
     format: 'video',
-    tags: [],
+    themes: ['waiting'],
     media: { clip: 'clip-07', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
@@ -182,7 +211,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Grace (test)',
     submitter: 'seed_grace',
     format: 'video',
-    tags: ['loneliness', 'hope'],
+    themes: ['loneliness', 'hope'],
     media: { clip: 'clip-01' },
     status: 'pending',
   },
@@ -195,7 +224,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Daniel (test)',
     submitter: 'seed_daniel',
     format: 'video',
-    tags: ['doubt'],
+    themes: ['doubt'],
     media: { clip: 'clip-03', processing: 'ready' },
     status: 'in_review',
     reviews: [{ decision: 'escalate' }],
@@ -210,7 +239,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Joon (test)',
     submitter: 'seed_joon',
     format: 'video',
-    tags: ['grief', 'loss'],
+    themes: ['grief', 'loss'],
     media: { clip: 'clip-05', processing: 'ready' },
     status: 'changes_requested',
     reviews: [{ decision: 'request_changes', feedback: FEEDBACK_CHANGES }],
@@ -224,7 +253,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Ruth (test)',
     submitter: 'seed_ruth',
     format: 'video',
-    tags: ['parenting'],
+    themes: ['parenting'],
     media: { clip: 'clip-06', processing: 'ready' },
     status: 'withdrawn',
   },
@@ -237,7 +266,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Amara (test)',
     submitter: 'seed_amara',
     format: 'video',
-    tags: [],
+    themes: [],
     status: 'draft',
   },
 
@@ -251,7 +280,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Tomasz (test)',
     submitter: 'seed_tomasz',
     format: 'audio',
-    tags: ['depression', 'hope'],
+    themes: ['depression', 'hope'],
     media: { clip: 'clip-08', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
@@ -265,7 +294,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Grace (test)',
     submitter: 'seed_grace',
     format: 'audio',
-    tags: ['peace'],
+    themes: ['peace'],
     media: { clip: 'clip-09', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
@@ -281,7 +310,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Eleni (test)',
     submitter: 'seed_eleni',
     format: 'audio',
-    tags: ['grief', 'faith', 'healing'],
+    themes: ['grief', 'faith', 'healing'],
     media: { clip: 'clip-10', processing: 'ready' },
     status: 'approved',
     reviews: [{ decision: 'approve' }],
@@ -298,7 +327,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Ruth (test)',
     submitter: 'seed_ruth',
     format: 'written',
-    tags: ['faith', 'answered-prayers'],
+    themes: ['faith', 'answered-prayers'],
     image: {
       file: 'image-01',
       alt: 'A test pattern with a label (dummy image)',
@@ -319,7 +348,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Daniel (test)',
     submitter: 'seed_daniel',
     format: 'written',
-    tags: ['relationships', 'forgiveness'],
+    themes: ['relationships', 'forgiveness'],
     image: { file: 'image-02', processing: 'ready' },
     status: 'in_review',
   },
@@ -334,7 +363,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Amara (test)',
     submitter: 'seed_amara',
     format: 'written',
-    tags: ['salvation'],
+    themes: ['salvation'],
     image: {
       file: 'image-03',
       alt: 'A square test pattern (dummy image)',
@@ -357,7 +386,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Joon (test)',
     submitter: 'seed_joon',
     format: 'written',
-    tags: ['joy', 'hope'],
+    themes: ['joy', 'hope'],
     image: {
       file: 'image-04',
       alt: 'A wide test pattern (dummy image)',
@@ -377,7 +406,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Eleni (test)',
     submitter: 'seed_eleni',
     format: 'written',
-    tags: ['illness', 'healing'],
+    themes: ['illness', 'healing'],
     image: { file: 'image-05', alt: 'A portrait test pattern (dummy image)' },
     status: 'pending',
   },
@@ -393,7 +422,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Test Person',
     submitter: 'seed_tomasz',
     format: 'written',
-    tags: ['faith'],
+    themes: ['faith'],
     status: 'approved',
     reviews: [{ decision: 'approve' }],
     publishedDaysAgo: 0,
@@ -408,7 +437,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Grace (test)',
     submitter: 'seed_grace',
     format: 'written',
-    tags: ['loss', 'grief', 'peace', 'faith'],
+    themes: ['loss', 'grief', 'peace', 'faith'],
     status: 'approved',
     reviews: [{ decision: 'approve' }],
     publishedDaysAgo: 30,
@@ -423,7 +452,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Daniel (test)',
     submitter: 'seed_daniel',
     format: 'written',
-    tags: ['hope'],
+    themes: ['hope'],
     status: 'approved',
     reviews: [{ decision: 'approve' }],
     publishedDaysAgo: 35,
@@ -437,7 +466,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Ruth (test)',
     submitter: 'seed_ruth',
     format: 'written',
-    tags: ['doubt', 'loneliness'],
+    themes: ['doubt', 'loneliness'],
     status: 'rejected',
     reviews: [{ decision: 'reject', feedback: FEEDBACK_REJECT }],
   },
@@ -451,7 +480,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Amara (test)',
     submitter: 'seed_amara',
     format: 'written',
-    tags: ['addiction'],
+    themes: ['addiction'],
     status: 'changes_requested',
     reviews: [{ decision: 'request_changes', feedback: FEEDBACK_CHANGES }],
   },
@@ -465,7 +494,7 @@ const STORIES: StoryFixture[] = [
     bylineName: 'Joon (test)',
     submitter: 'seed_joon',
     format: 'written',
-    tags: ['faith'],
+    themes: ['faith'],
     status: 'draft',
   },
 ];
@@ -485,7 +514,8 @@ const TEST_ACCOUNTS: string[] = [
 export const DATASET: Dataset = {
   people: PEOPLE,
   moderator: MODERATOR,
-  tags: TAGS,
+  categories: CATEGORIES,
+  themes: THEMES,
   stories: STORIES,
   testAccounts: TEST_ACCOUNTS,
 };

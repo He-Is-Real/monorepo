@@ -12,7 +12,7 @@ const field =
 /**
  * Search, sort and format (browse mockup's filter bar). A plain GET form to /stories, so it
  * works without JavaScript; with it, Next navigates without a full reload and the selects apply
- * as soon as they change. The selected tags ride along as hidden fields. Changing a filter
+ * as soon as they change. The chosen theme rides along as a hidden field. Changing a filter
  * starts again from the first page.
  */
 export function BrowseFilters({ filters }: { filters: Filters }) {
@@ -21,16 +21,16 @@ export function BrowseFilters({ filters }: { filters: Filters }) {
   return (
     <Form
       // The fields start from the URL's filters; when those change without a new page (Back,
-      // a tag link), the form starts again so it never disagrees with the list.
+      // a theme link), the form starts again so it never disagrees with the list.
       key={JSON.stringify(filters)}
       action="/stories"
       role="search"
       aria-label="Stories"
       className="flex flex-wrap items-center gap-3"
     >
-      {filters.tags.map((t) => (
-        <input key={t} type="hidden" name="tag" value={t} />
-      ))}
+      {filters.theme && (
+        <input type="hidden" name="theme" value={filters.theme} />
+      )}
       <div className="min-w-[min(100%,16rem)] flex-1 sm:max-w-sm">
         <label htmlFor="browse-q" className="sr-only">
           Search stories

@@ -91,3 +91,4 @@ __pycache__/
 /apps/web/CLAUDE.md
 
 vitest.config.*.timestamp*
+*.tsbuildinfo

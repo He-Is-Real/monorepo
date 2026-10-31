@@ -4,12 +4,12 @@ import Link from 'next/link';
 import { connection } from 'next/server';
 import { BrowseFilters } from '@/components/browse/browse-filters';
 import { BrowseResults } from '@/components/browse/browse-results';
-import { TagFilter } from '@/components/browse/tag-filter';
+import { ThemeFilter } from '@/components/browse/theme-filter';
 import {
   browseStories,
-  listTags,
+  listThemes,
   type StorySummary,
-  type StoryTag,
+  type ThemeCategory,
 } from '@/lib/browse';
 import {
   type BrowseFilters as Filters,
@@ -38,24 +38,23 @@ const KINDS = {
   written: 'written stories',
 } as const;
 
-const joinAnd = (names: string[]) =>
-  names.length < 2
-    ? names.join('')
-    : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-
 /** What the list shows, in words (never a count: api-conventions has no totals). */
-function summaryOf(filters: Filters, tags: StoryTag[]): string | null {
-  const names = filters.tags.map(
-    (slug) => tags.find((t) => t.slug === slug)?.name ?? slug,
-  );
+function summaryOf(
+  filters: Filters,
+  categories: ThemeCategory[],
+): string | null {
+  // A theme that's gone (or never was) filters nothing (A8), so it isn't named either.
+  const theme = categories
+    .flatMap((c) => c.themes)
+    .find((t) => t.id === filters.theme)?.name;
   const kind = filters.format ? KINDS[filters.format] : 'stories';
-  const tagged = names.length ? ` tagged ${joinAnd(names)}` : '';
+  const about = theme ? ` about ${theme}` : '';
   if (filters.q)
     return `Results for “${filters.q}”${
-      filters.format || names.length ? ` in ${kind}${tagged}` : ''
+      filters.format || theme ? ` in ${kind}${about}` : ''
     }`;
-  if (filters.format || names.length)
-    return `${kind[0].toUpperCase()}${kind.slice(1)}${tagged}`;
+  if (filters.format) return `${kind[0].toUpperCase()}${kind.slice(1)}${about}`;
+  if (theme) return `Showing stories about ${theme}`;
   return null;
 }
 
@@ -86,18 +85,18 @@ async function loadPages(filters: Filters, pages: number) {
 }
 
 /**
- * Browse (plan 1.2): every published story, newest first, with search, sort, format and tags,
+ * Browse (plan 1.2): every published story, newest first, with search, sort, format and a theme,
  * in a balanced masonry (D55). Server-rendered from api-public-read (D32) for the URL's filters
  * and page count; BrowseResults loads more.
  */
 export default async function BrowsePage({ searchParams }: Props) {
   await connection();
   const { filters, pages } = parseBrowseSearch(await searchParams);
-  const [tags, result] = await Promise.all([
-    listTags().catch(whenUnavailable('browse', [] as StoryTag[])),
+  const [categories, result] = await Promise.all([
+    listThemes().catch(whenUnavailable('browse', [] as ThemeCategory[])),
     loadPages(filters, pages),
   ]);
-  const summary = summaryOf(filters, tags);
+  const summary = summaryOf(filters, categories);
   const filtered = summary !== null;
 
   return (
@@ -117,7 +116,7 @@ export default async function BrowsePage({ searchParams }: Props) {
 
       <div className="border-b border-border pb-6">
         <BrowseFilters filters={filters} />
-        <TagFilter tags={tags} filters={filters} />
+        <ThemeFilter categories={categories} filters={filters} />
       </div>
 
       {summary && (
@@ -137,7 +136,8 @@ export default async function BrowsePage({ searchParams }: Props) {
         ) : result.cards.length === 0 ? (
           <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
             <p className="text-lg">
-              {filtered
+              {/* A highlighted theme no story uses yet says so plainly (A14). */}
+              {filters.q || filters.format
                 ? 'No stories match these filters yet.'
                 : 'No stories yet.'}
             </p>

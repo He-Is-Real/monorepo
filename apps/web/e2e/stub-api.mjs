@@ -1,7 +1,7 @@
 // A stand-in api-public-read for the e2e tests: the dev seed's story, a story with long
 // unbroken words (overflow check), a long written story (the "Continue reading" preview),
 // video, audio and image stories with stub media, 48 generated browse stories (every kind and
-// shape, D53/D55), the list, related and tags endpoints (step 6a's contract, cursors bound to
+// shape, D53/D55), the list, related and themes endpoints (step 6a's contract, cursors bound to
 // the filters), test-only stories for the hide, withdrawal, card playback and hearts tests, a 503 for
 // "down" and 404 problems for anything else.
 //
@@ -35,7 +35,7 @@ const base = {
   primaryFormat: 'written',
   media: [],
   image: null,
-  tags: [],
+  themes: [],
   publishedAt: '2026-10-21T20:00:00Z',
   version: 1,
 };
@@ -58,9 +58,9 @@ const stories = {
     description:
       'A description with averyveryverylongunbrokenwordthatmustwrapnicelyonsmallphones.',
     body: 'Paragraph one.\n\nhttps://example.com/a/very/long/unbroken/url/that/must/not/push/the/page/sideways/on/a/small/phone',
-    tags: [
-      { slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
-      { slug: 'healing', name: 'Healing', category: 'theme', version: 1 },
+    themes: [
+      { id: 'doubt', name: 'Doubt' },
+      { id: 'healing', name: 'Healing' },
     ],
   },
 };
@@ -149,29 +149,47 @@ stories['image-story'] = {
   },
 };
 
-// The browse tags (apps/dev-seed's list) and 48 generated published stories, newest first:
-// every kind (video, audio, written with and without an image) and shape, from 1:3 (beyond the
-// card clamp) to 2.5:1, with short and long titles and excerpts.
-const TAGS = [
-  ['healing', 'Healing', 'theme'],
-  ['addiction', 'Addiction', 'theme'],
-  ['loss', 'Loss', 'theme'],
-  ['depression', 'Depression', 'theme'],
-  ['relationships', 'Relationships', 'theme'],
-  ['loneliness', 'Loneliness', 'theme'],
-  ['illness', 'Illness', 'theme'],
-  ['parenting', 'Parenting', 'theme'],
-  ['faith', 'Faith', 'journey'],
-  ['answered-prayers', 'Answered Prayers', 'journey'],
-  ['forgiveness', 'Forgiveness', 'journey'],
-  ['salvation', 'Salvation', 'journey'],
-  ['doubt', 'Doubt', 'journey'],
-  ['hope', 'Hope', 'emotion'],
-  ['peace', 'Peace', 'emotion'],
-  ['grief', 'Grief', 'emotion'],
-  ['joy', 'Joy', 'emotion'],
-].map(([slug, name, category]) => ({ slug, name, category, version: 1 }));
-const tag = (slug) => TAGS.find((t) => t.slug === slug);
+// The themes (apps/dev-seed's catalogue, themes plan v3) and 48 generated published stories,
+// newest first: every kind (video, audio, written with and without an image) and shape, from 1:3
+// (beyond the card clamp) to 2.5:1, with short and long titles and excerpts. Topics' themes and
+// Feelings' Hope are highlighted; Gratitude is highlighted with no story (A14: still listed).
+// Ids are short words here (the real ones are ULIDs); `?theme=` takes either.
+const CATEGORIES = [
+  { id: 'topics', name: 'Topics' },
+  { id: 'journeys', name: 'Journeys' },
+  { id: 'feelings', name: 'Feelings' },
+  { id: 'other', name: 'Other' },
+];
+const THEMES = [
+  ['healing', 'Healing', 'topics', true],
+  ['addiction', 'Addiction', 'topics', true],
+  ['loss', 'Loss', 'topics', true],
+  ['depression', 'Depression', 'topics', true],
+  ['relationships', 'Relationships', 'topics', true],
+  ['loneliness', 'Loneliness', 'topics', true],
+  ['illness', 'Illness', 'topics', true],
+  ['parenting', 'Parenting', 'topics', true],
+  ['faith', 'Faith', 'journeys', false],
+  ['answered_prayers', 'Answered prayers', 'journeys', false],
+  ['forgiveness', 'Forgiveness', 'journeys', false],
+  ['salvation', 'Salvation', 'journeys', false],
+  ['doubt', 'Doubt', 'journeys', false],
+  ['hope', 'Hope', 'feelings', true],
+  ['peace', 'Peace', 'feelings', false],
+  ['grief', 'Grief', 'feelings', false],
+  ['joy', 'Joy', 'feelings', false],
+  ['gratitude', 'Gratitude', 'feelings', true],
+  ['waiting', 'Waiting', 'other', false],
+].map(([id, name, category, highlighted]) => ({
+  id,
+  name,
+  category,
+  highlighted,
+}));
+const ref = (id) => {
+  const { name } = THEMES.find((t) => t.id === id);
+  return { id, name };
+};
 const KINDS = [
   { format: 'video', w: 360, h: 640 },
   { format: 'written' },
@@ -203,10 +221,10 @@ const sized = (w, h) =>
 for (let i = 0; i < 48; i++) {
   const kind = KINDS[i % KINDS.length];
   const n = String(i + 1).padStart(2, '0');
-  const tagSlugs = [
-    TAGS[i % 8].slug,
-    ...(i % 3 === 0 ? [TAGS[8 + (i % 5)].slug] : []),
-    ...(i % 4 === 0 ? [TAGS[13 + (i % 4)].slug] : []),
+  const themeIds = [
+    THEMES[i % 8].id,
+    ...(i % 3 === 0 ? [THEMES[8 + (i % 5)].id] : []),
+    ...(i % 4 === 0 ? [THEMES[13 + ((i / 4) % 4)].id] : []),
   ];
   const day = new Date(Date.UTC(2026, 9, 20) - i * 86_400_000);
   const slug = `browse-test-${n}`;
@@ -229,7 +247,7 @@ for (let i = 0; i < 48; i++) {
         : i % 2
           ? 'Placeholder words under a generated clip.'
           : null,
-    tags: tagSlugs.map(tag),
+    themes: themeIds.map(ref),
     publishedAt: day.toISOString().replace('.000', ''),
     media:
       kind.format === 'written'
@@ -260,9 +278,9 @@ for (let i = 0; i < 48; i++) {
 // and /__test/show?slug= withdraw a story from that port's API (every route: the list, related
 // lists and the story itself, which then answers 404) or bring it back. Each port keeps its own
 // set, so the live server's withdrawal test (freshness.e2e.ts) never touches the dev server's.
-// On dev (pages.e2e.ts): stories listed only under `tag=hide-test`, one per device project
+// On dev (pages.e2e.ts): stories listed only under `theme=hide_test`, one per device project
 // (projects run in parallel, so each hides its own). Nothing else lists them.
-const HIDE_TEST = 'hide-test';
+const HIDE_TEST = 'hide_test';
 const hiddenOn = { dev: new Set(), live: new Set(), down: new Set() };
 for (const name of ['phone-320', 'desktop-1280', 'spare']) {
   const slug = `hide-test-${name.replace('.', '-')}`;
@@ -273,22 +291,15 @@ for (const name of ['phone-320', 'desktop-1280', 'spare']) {
     title: `Hide test story (${name})`,
     description: 'Dummy story for the hide test.',
     body: 'Placeholder text.',
-    tags: [
-      { slug: HIDE_TEST, name: 'Hide test', category: 'theme', version: 1 },
-    ],
+    themes: [{ id: HIDE_TEST, name: 'Hide test' }],
     publishedAt: '2026-10-22T20:00:00Z',
   };
 }
 
-// Card playback (card-playback.e2e.ts): stories listed only under `tag=play-test`. Each card
+// Card playback (card-playback.e2e.ts): stories listed only under `theme=play_test`. Each card
 // plays from its media area; "gone" answers 404 and "down" 503 when the player is asked for.
-const PLAY_TEST = 'play-test';
-const playTag = {
-  slug: PLAY_TEST,
-  name: 'Play test',
-  category: 'theme',
-  version: 1,
-};
+const PLAY_TEST = 'play_test';
+const playTheme = { id: PLAY_TEST, name: 'Play test' };
 const playStory = (slug, over) => {
   stories[slug] = {
     ...base,
@@ -296,7 +307,7 @@ const playStory = (slug, over) => {
     slug,
     description: 'Placeholder story for the card playback tests.',
     body: null,
-    tags: [playTag],
+    themes: [playTheme],
     publishedAt: '2026-10-22T19:00:00Z',
     ...over,
   };
@@ -336,9 +347,9 @@ playStory('play-test-down', {
   media: clip('video', '44444444-4444-4444-8444-444444444444', 1080, 1350),
 });
 // Prefetch check (card-playback.e2e.ts): each run makes its own video story (POST /__test/story,
-// `prefetch-test-…`), listed only under `tag=prefetch-test`, so no two tests (or repeats) ever
+// `prefetch-test-…`), listed only under `theme=prefetch_test`, so no two tests (or repeats) ever
 // share its read count. GET /__test/reads?slug= says how often its story was read.
-const PREFETCH_TEST = 'prefetch-test';
+const PREFETCH_TEST = 'prefetch_test';
 const prefetchStory = (slug) => {
   // A UUID-shaped media id of the story's own (the player's links name it).
   const h = createHash('sha256').update(slug).digest('hex');
@@ -346,21 +357,14 @@ const prefetchStory = (slug) => {
   playStory(slug, {
     primaryFormat: 'video',
     title: `Prefetch test ${slug}`,
-    tags: [
-      {
-        slug: PREFETCH_TEST,
-        name: 'Prefetch test',
-        category: 'theme',
-        version: 1,
-      },
-    ],
+    themes: [{ id: PREFETCH_TEST, name: 'Prefetch test' }],
     media: clip('video', id, 1920, 1080),
   });
 };
-// The NEW badge (new-badge.e2e.ts, D72): stories listed only under `tag=new-test`, dated around
+// The NEW badge (new-badge.e2e.ts, D72): stories listed only under `theme=new_test`, dated around
 // the e2e servers' pinned clock (E2E_NOW in servers.ts, 2026-10-25T12:00:00Z). New means less
 // than 7 days old, so exactly 7 days isn't, and one second less is.
-const NEW_TEST = 'new-test';
+const NEW_TEST = 'new_test';
 for (const [slug, title, format, publishedAt] of [
   ['new-test-2-days', 'New test: 2 days old', 'video', '2026-10-23T12:00:00Z'],
   [
@@ -386,7 +390,7 @@ for (const [slug, title, format, publishedAt] of [
     primaryFormat: format,
     title,
     description: 'Placeholder story for the NEW badge tests.',
-    tags: [{ slug: NEW_TEST, name: 'New test', category: 'theme', version: 1 }],
+    themes: [{ id: NEW_TEST, name: 'New test' }],
     publishedAt,
     ...(format === 'written'
       ? { body: 'Placeholder text for the NEW badge tests.' }
@@ -404,10 +408,10 @@ const reads = new Map();
 const UNREADABLE = { 'play-test-gone': 404, 'play-test-down': 503 };
 
 // Hearts (favourites.e2e.ts): a story per behaviour device to heart, listed only under
-// `tag=heart-test`. A test that hides a story makes its own first (POST /__test/story), listed
+// `theme=heart_test`. A test that hides a story makes its own first (POST /__test/story), listed
 // nowhere, so no two tests (or repeats) ever share one.
-const HEART_TEST = 'heart-test';
-const HEART_TMP = 'heart-tmp';
+const HEART_TEST = 'heart_test';
+const HEART_TMP = 'heart_tmp';
 for (const name of ['phone-320', 'desktop-1280']) {
   const slug = `heart-test-${name}`;
   stories[slug] = {
@@ -417,23 +421,16 @@ for (const name of ['phone-320', 'desktop-1280']) {
     title: `Heart test story (${name})`,
     description: 'Dummy story for the hearts test.',
     body: 'Placeholder text.',
-    tags: [
-      { slug: HEART_TEST, name: 'Heart test', category: 'theme', version: 1 },
-    ],
+    themes: [{ id: HEART_TEST, name: 'Heart test' }],
     publishedAt: '2026-10-22T20:00:00Z',
   };
 }
 
 // Related previews' shapes (card-playback.e2e.ts): `aspect-test`'s related stories are a 3:4 written
-// picture, a 9:16 video and a 16:9 video, each at its own shape. Test-tagged stories' related
-// lists hold only stories with the same test tag.
+// picture, a 9:16 video and a 16:9 video, each at its own shape. Test-themed stories' related
+// lists hold only stories with the same test theme.
 const ASPECT_TEST = 'aspect-test';
-const aspectTag = {
-  slug: ASPECT_TEST,
-  name: 'Aspect test',
-  category: 'theme',
-  version: 1,
-};
+const aspectTheme = { id: 'aspect_test', name: 'Aspect test' };
 const aspectStory = (slug, over) => {
   stories[slug] = {
     ...base,
@@ -441,7 +438,7 @@ const aspectStory = (slug, over) => {
     slug,
     description: 'Placeholder story for the related previews test.',
     body: null,
-    tags: [aspectTag],
+    themes: [aspectTheme],
     ...over,
   };
 };
@@ -474,8 +471,8 @@ aspectStory('aspect-test-landscape', {
   publishedAt: '2026-10-22T15:00:00Z',
 });
 
-const TEST_TAGS = [
-  ASPECT_TEST,
+const TEST_THEMES = [
+  aspectTheme.id,
   HIDE_TEST,
   PLAY_TEST,
   PREFETCH_TEST,
@@ -483,8 +480,8 @@ const TEST_TAGS = [
   HEART_TMP,
   NEW_TEST,
 ];
-const testTagOf = (s) =>
-  s.tags.find((t) => TEST_TAGS.includes(t.slug))?.slug ?? null;
+const testThemeOf = (s) =>
+  s.themes.find((t) => TEST_THEMES.includes(t.id))?.id ?? null;
 
 // A story whose related list can't load (503): its page still shows (pages.e2e.ts). Listed
 // nowhere, so the browse counts stay as they are.
@@ -497,7 +494,7 @@ stories[RELATED_DOWN] = {
   description: 'Dummy story whose related list fails.',
   body: 'Placeholder text.',
 };
-const unlisted = (s) => testTagOf(s) !== null || s.slug === RELATED_DOWN;
+const unlisted = (s) => testThemeOf(s) !== null || s.slug === RELATED_DOWN;
 
 // The live server's withdrawal test (freshness.e2e.ts): the newest story, so it's on home, in
 // the sitemap and in other stories' related lists. Only the live port has it, so the dev
@@ -532,9 +529,7 @@ function summaryOf(s) {
     thumbnailHeight: media?.height ?? null,
     image: s.image,
     textLength: (s.body ?? '').length,
-    tags: s.tags.map(
-      (t) => tag(t.slug) ?? { ...t, category: 'theme', version: 1 },
-    ),
+    themes: s.themes.map(({ id, name }) => ({ id, name })),
     publishedAt: s.publishedAt,
   };
 }
@@ -695,7 +690,7 @@ function legal(mode, url, res) {
 const onPort = (mode, s) =>
   (s.slug !== WITHDRAWN || mode === 'live') && !hiddenOn[mode].has(s.slug);
 
-/** GET /v1/stories: tag (all of), format, q, sort, limit, cursor (bound to the filters). */
+/** GET /v1/stories: theme, format, q, sort, limit, cursor (bound to the filters). */
 function listStories(mode, url, res) {
   const p = url.searchParams;
   // Cards by id (hearts kept on a device, M2): the public stories among them, newest first,
@@ -717,11 +712,16 @@ function listStories(mode, url, res) {
     });
   }
   const q = p.get('q')?.toLowerCase() ?? '';
-  const tags = p.getAll('tag');
+  // An id that isn't a theme shows every story (A8).
+  const asked = p.get('theme');
+  const theme =
+    THEMES.some((t) => t.id === asked) || TEST_THEMES.includes(asked)
+      ? asked
+      : null;
   const format = p.get('format');
   const sort = p.get('sort') ?? (q ? 'relevance' : 'latest');
   const limit = Number(p.get('limit') ?? 20);
-  const key = JSON.stringify([q, [...tags].sort(), format, sort]);
+  const key = JSON.stringify([q, asked, format, sort]);
   let offset = 0;
   if (p.get('cursor')) {
     try {
@@ -737,8 +737,8 @@ function listStories(mode, url, res) {
   let list = published(mode).filter(
     (s) =>
       s.slug !== RELATED_DOWN &&
-      (testTagOf(s) === null || tags.includes(testTagOf(s))) &&
-      tags.every((t) => s.tags.some((x) => x.slug === t)) &&
+      (testThemeOf(s) === null || testThemeOf(s) === theme) &&
+      (!theme || s.themes.some((x) => x.id === theme)) &&
       (!format || s.primaryFormat === format) &&
       (!q ||
         `${s.title} ${s.description} ${s.body ?? ''}`
@@ -758,24 +758,51 @@ function listStories(mode, url, res) {
   });
 }
 
-/** GET /v1/stories/{slug}/related: 3 cards sharing a tag, then the newest. */
+/** GET /v1/stories/{slug}/related: 3 cards, the most shared themes first, then the newest. */
 function related(mode, slug, res) {
   const story = stories[slug];
   if (!story || !onPort(mode, story))
     return problem(res, 404, 'story_not_found');
   if (slug === RELATED_DOWN) return problem(res, 503, 'unavailable');
-  const own = testTagOf(story);
+  const own = testThemeOf(story);
   const others = published(mode).filter(
-    (s) => s.slug !== slug && (own ? testTagOf(s) === own : !unlisted(s)),
+    (s) => s.slug !== slug && (own ? testThemeOf(s) === own : !unlisted(s)),
   );
-  const shared = others.filter((s) =>
-    s.tags.some((t) => story.tags.some((x) => x.slug === t.slug)),
-  );
-  const picked = [
-    ...shared,
-    ...others.filter((s) => !shared.includes(s)),
-  ].slice(0, 3);
+  const sharedWith = (s) =>
+    s.themes.filter((t) => story.themes.some((x) => x.id === t.id)).length;
+  // Stable: equal counts stay newest first.
+  const picked = [...others]
+    .sort((a, b) => sharedWith(b) - sharedWith(a))
+    .slice(0, 3);
   json(res, 200, { data: picked.map(summaryOf) });
+}
+
+/**
+ * GET /v1/themes: by category, A–Z with Other last; highlighted themes always, the others once
+ * a story listed on this port uses them (themes plan v3).
+ */
+function listThemes(mode, res) {
+  const used = new Set(
+    published(mode)
+      .filter((s) => !unlisted(s))
+      .flatMap((s) => s.themes.map((t) => t.id)),
+  );
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const data = [...CATEGORIES]
+    .sort(
+      (a, b) =>
+        Number(a.id === 'other') - Number(b.id === 'other') || byName(a, b),
+    )
+    .map((c) => ({
+      ...c,
+      themes: THEMES.filter(
+        (t) => t.category === c.id && (t.highlighted || used.has(t.id)),
+      )
+        .sort(byName)
+        .map(({ id, name, highlighted }) => ({ id, name, highlighted })),
+    }))
+    .filter((c) => c.themes.length > 0);
+  json(res, 200, { data });
 }
 
 const WIDE_SVG =
@@ -822,7 +849,7 @@ const handler = (mode) => (req, res) => {
   const url = new URL(req.url ?? '/', 'http://stub');
   const hook = /^\/__test\/(hide|show)$/.exec(url.pathname);
   // A test's own story: `heart-tmp-…` (favourites.e2e.ts), listed nowhere, or `prefetch-test-…`
-  // (card-playback.e2e.ts), listed under its tag; public on every port.
+  // (card-playback.e2e.ts), listed under its theme; public on every port.
   if (url.pathname === '/__test/story' && req.method === 'POST') {
     const slug = url.searchParams.get('slug') ?? '';
     if (/^prefetch-test-[a-z0-9-]{1,50}$/.test(slug)) {
@@ -839,9 +866,7 @@ const handler = (mode) => (req, res) => {
       title: `Heart temp story ${slug}`,
       description: 'Dummy story a hearts test made for itself.',
       body: 'Placeholder text.',
-      tags: [
-        { slug: HEART_TMP, name: 'Heart temp', category: 'theme', version: 1 },
-      ],
+      themes: [{ id: HEART_TMP, name: 'Heart temp' }],
       publishedAt: '2026-10-22T21:00:00Z',
     };
     res.writeHead(204);
@@ -870,7 +895,7 @@ const handler = (mode) => (req, res) => {
   const site = /^\/v1\/site-videos\/([^/]+)$/.exec(url.pathname);
   if (site) return siteVideo(mode, site[1], res);
   if (url.pathname === '/v1/stories') return listStories(mode, url, res);
-  if (url.pathname === '/v1/tags') return json(res, 200, { data: TAGS });
+  if (url.pathname === '/v1/themes') return listThemes(mode, res);
   const rel = /^\/v1\/stories\/([^/]+)\/related$/.exec(url.pathname);
   if (rel) return related(mode, rel[1], res);
   if (req.url?.startsWith('/images/wide.svg')) {

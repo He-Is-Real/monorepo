@@ -4,7 +4,7 @@ import { safeReturnPath, signInHref } from './return-path';
 // another site (an open redirect) or back to sign-in.
 describe('safeReturnPath', () => {
   it.each([
-    ['/stories/a-story?tag=hope#top', '/stories/a-story?tag=hope#top'],
+    ['/stories/a-story?theme=hope#top', '/stories/a-story?theme=hope#top'],
     ['/about', '/about'],
   ])('keeps a path on this site: %s', (raw, expected) => {
     expect(safeReturnPath(raw)).toBe(expected);
@@ -31,8 +31,8 @@ describe('safeReturnPath', () => {
 
 describe('signInHref', () => {
   it('returns to the page it came from', () => {
-    expect(signInHref('/stories/x?tag=a')).toBe(
-      '/sign-in?redirect_url=%2Fstories%2Fx%3Ftag%3Da',
+    expect(signInHref('/stories/x?theme=a')).toBe(
+      '/sign-in?redirect_url=%2Fstories%2Fx%3Ftheme%3Da',
     );
     expect(signInHref('/')).toBe('/sign-in');
   });

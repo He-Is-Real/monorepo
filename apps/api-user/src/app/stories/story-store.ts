@@ -30,7 +30,14 @@ import {
   storySharing,
 } from '@heisreal/consent';
 import type { SurrealQueryable } from 'surrealdb';
-import type { MediaUrls } from '@heisreal/story-cards';
+import {
+  groupThemes,
+  type MediaUrls,
+  type ThemeCategory,
+  type ThemeRef,
+  THEMES_SQL,
+  type ThemeRow,
+} from '@heisreal/story-cards';
 import {
   type CreateInput,
   slugFor,
@@ -38,28 +45,8 @@ import {
   slugSuffix,
   type StoryFields,
   textRequired,
-  unknownTags,
+  themesChanged,
 } from './story-input';
-
-/** How many themes there are; with the settings read in the same query (see `themesNeeded`). */
-const THEME_COUNT_SQL = 'RETURN count(SELECT VALUE id FROM tag)';
-
-/**
- * The themes a story needs: the setting's `tagsMin`, never more than there are (as
- * fn::settings::themes_needed). Taken from one settings read, so it's never above that read's
- * `tagsMax`.
- */
-function themesNeeded(set: SubmissionSettings, themes: number): number {
-  return Math.min(set.tagsMin, themes);
-}
-
-/** The contract's `Tag`. */
-export interface Tag {
-  slug: string;
-  name: string;
-  category: 'theme' | 'journey' | 'emotion';
-  version: number;
-}
 
 /** The contract's `StoryMine` (components.yaml). */
 export interface StoryMine {
@@ -95,7 +82,7 @@ export interface StoryMine {
      */
     uploaded: boolean | null;
   } | null;
-  tags: Tag[];
+  themes: ThemeRef[];
   rejectionFeedback: string | null;
   submittedAt: string | null;
   approvedAt: string | null;
@@ -110,7 +97,7 @@ export interface StoryMine {
 /** The contract's `SubmissionLimits`: what the submit page shows and checks (W3, D112). */
 export interface SubmissionLimits {
   storyText: { min: number; max: number };
-  tags: { min: number; max: number };
+  themes: { min: number; max: number };
   openDrafts: { max: number | null; open: number };
   submissions: {
     per7Days: number | null;
@@ -160,11 +147,10 @@ export class IfMatchRequiredException extends HttpException {
   }
 }
 
-const CATEGORY_ORDER = ['theme', 'journey', 'emotion'];
 const EDITABLE = ['draft', 'changes_requested'];
 /** Codes the commands THROW inside their transaction, read back from the error. */
 const ERR =
-  /\bstory_cmd:(not_found|stale_version|locked|unknown_tag|not_written|not_withdrawable|not_deletable)\b/;
+  /\bstory_cmd:(not_found|stale_version|locked|not_written|not_withdrawable|not_deletable)\b/;
 /** WithdrawStory: anything submitted and not yet finished with (D61: withdrawn stays withdrawn). */
 const WITHDRAWABLE = ['pending', 'in_review', 'approved', 'changes_requested'];
 /**
@@ -184,7 +170,7 @@ interface RawStory {
   body?: string | null;
   bylineName?: string | null;
   primaryFormat: string;
-  tagRefs: string[];
+  themeRefs: string[];
   media?: {
     format: string;
     width?: number | null;
@@ -208,7 +194,7 @@ interface RawStory {
 }
 
 const STORY_FIELDS = `<string> id AS id, version, slug, status, title, description, body,
-  bylineName, primaryFormat, tagRefs.map(|$t| <string> $t) AS tagRefs, media, image, rejectionFeedback,
+  bylineName, primaryFormat, themeRefs.map(|$t| <string> $t) AS themeRefs, media, image, rejectionFeedback,
   submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
   fn::consent::story_sharing(submitter, id) AS sharing,
   fn::consent::valid(fn::consent::story_sharing(submitter, id)) AS sharingCounts`;
@@ -236,27 +222,33 @@ export class StoryStore {
     private readonly urls?: Pick<MediaUrls, 'imageUrl'>,
   ) {}
 
-  async tags(): Promise<Tag[]> {
-    const [rows] = (await runQuery(
-      this.person,
-      'SELECT record::id(id) AS slug, name, category, version FROM tag',
-    )) as [Tag[]];
-    return rows.sort(
-      (a, b) =>
-        CATEGORY_ORDER.indexOf(a.category) -
-          CATEGORY_ORDER.indexOf(b.category) ||
-        a.name.localeCompare(b.name, 'en'),
-    );
+  /** Every category and its themes, highlighted or not (themes plan v3), in their order. */
+  async themes(): Promise<ThemeCategory[]> {
+    const [categories, themes] = (await runQuery(this.person, THEMES_SQL)) as [
+      { id: string; name: string }[],
+      ThemeRow[],
+    ];
+    return groupThemes(categories, themes);
   }
 
   async get(id: string): Promise<StoryMine | undefined> {
+    const story = await this.read(id);
+    if (!story) return undefined;
+    const { themeRefCount: _, ...mine } = story;
+    return mine;
+  }
+
+  /** The story, with how many themes it links (more than `themes` if one no longer exists). */
+  private async read(
+    id: string,
+  ): Promise<(StoryMine & { themeRefCount: number }) | undefined> {
     const [rows] = (await runQuery(
       this.person,
       `SELECT ${STORY_FIELDS} FROM type::record('story', $id)`,
       { id },
     )) as [RawStory[]];
     if (!rows.length) return undefined;
-    return (await this.withTags(rows))[0];
+    return (await this.withThemes(rows))[0];
   }
 
   /** Newest first (by creation, then id); `cursor` = the last row's position. */
@@ -288,7 +280,9 @@ export class StoryStore {
     const page = rows.slice(0, limit);
     const last = page[page.length - 1];
     return {
-      data: await this.withTags(page),
+      data: (await this.withThemes(page)).map(
+        ({ themeRefCount: _, ...mine }) => mine,
+      ),
       next:
         rows.length > limit && last
           ? { createdAt: last.rawCreatedAt, id: recordKey(last.id) }
@@ -308,13 +302,13 @@ export class StoryStore {
         idempotency.requestHash,
         async () => {
           this.checkLimits(await this.settings(), input);
-          await this.checkTags(input.tagSlugs);
+          await this.checkThemes(input.themeIds);
           return {
             status: 201,
             statements: `LET $story = (CREATE ONLY type::record('story', rand::ulid()) CONTENT {
                 submitter: $auth, slug: $slug, title: $title, description: $description,
                 body: $body, bylineName: $bylineName, primaryFormat: $format,
-                tagRefs: $tags.map(|$t| type::record('tag', $t))
+                themeRefs: $themes.map(|$t| type::record('theme', $t))
               } RETURN id, version);
               IF $story = NONE { THROW 'story_cmd:not_written' };
               LET $result = { id: $story.id, version: $story.version };`,
@@ -325,7 +319,7 @@ export class StoryStore {
               body: input.body ?? undefined,
               bylineName: input.bylineName ?? undefined,
               format: input.primaryFormat,
-              tags: input.tagSlugs ?? [],
+              themes: input.themeIds ?? [],
             },
           };
         },
@@ -355,10 +349,11 @@ export class StoryStore {
         ) {
           textRequired();
         }
-        // An edit over a maximum is refused only if it makes it worse, so a draft over a
-        // newly lowered maximum can be trimmed (Joel, 2026-10-30); submitting needs them all.
+        // An edit over the text maximum is refused only if it makes it longer, so a draft over
+        // a newly lowered maximum can be trimmed (Joel, 2026-10-30); submitting needs them all.
+        // The number of themes is checked at submit only (themes plan v3).
         this.checkLimits(await this.settings(), patch, current);
-        await this.checkTags(patch.tagSlugs);
+        await this.checkThemes(patch.themeIds);
         const sets: string[] = [];
         const vars: Record<string, unknown> = { id, version: ifMatch };
         for (const field of [
@@ -378,9 +373,9 @@ export class StoryStore {
           sets.push('slug = $slug');
           vars['slug'] = slugFor(patch.title, slugSuffix(current.slug));
         }
-        if (patch.tagSlugs) {
-          sets.push("tagRefs = $tags.map(|$t| type::record('tag', $t))");
-          vars['tags'] = patch.tagSlugs;
+        if (patch.themeIds) {
+          sets.push("themeRefs = $themes.map(|$t| type::record('theme', $t))");
+          vars['themes'] = patch.themeIds;
         }
         // The image (M2 plan PR 10): removed, or its description changed. Its file stays at
         // Bunny for the clean-up sweep (an approved copy may still show it). Only RequestUpload
@@ -443,7 +438,7 @@ export class StoryStore {
         idempotency.scope,
         idempotency.requestHash,
         async () => {
-          const current = await this.get(id);
+          const current = await this.read(id);
           if (!current) throw new NotFoundException();
           if (current.version !== ifMatch) throw new StaleVersionException();
           if (!EDITABLE.includes(current.status)) {
@@ -456,20 +451,16 @@ export class StoryStore {
           const set = await this.settings();
           // Submitting needs every limit in force now, minimums and maximums, whatever the
           // limits were when the draft was started (Joel, 2026-10-30: no grandfathering).
-          if (current.tags.length < set.tagsMin) {
-            throw new BadRequestException({
-              code: 'tags_required',
-              message:
-                set.tagsMin === 1
-                  ? 'Choose at least one theme before submitting'
-                  : `Choose at least ${set.tagsMin} themes before submitting`,
-              errors: [
-                {
-                  pointer: '/tagSlugs',
-                  message: `choose at least ${set.tagsMin}`,
-                },
-              ],
-            });
+          // Its themes: all still there (an admin may have deleted one since; A7), and from
+          // themesMin to themesMax of them (themes plan v3: checked here only).
+          if (current.themes.length !== current.themeRefCount) {
+            throw themesChanged();
+          }
+          if (
+            current.themes.length < set.themesMin ||
+            current.themes.length > set.themesMax
+          ) {
+            throw this.themeCount(set);
           }
           if ([...(current.body ?? '')].length > set.storyTextMax) {
             throw this.tooLong(set.storyTextMax);
@@ -479,9 +470,6 @@ export class StoryStore {
             trimmedTextLength(current.body) < set.storyTextMin
           ) {
             throw this.tooShort(set.storyTextMin);
-          }
-          if (current.tags.length > set.tagsMax) {
-            throw this.tooManyTags(set.tagsMax);
           }
           if (!current.submittedAt) {
             const availableAt = await this.nextSubmissionAt();
@@ -575,18 +563,12 @@ export class StoryStore {
     }
   }
 
-  /**
-   * The settings in force (W3), read in the person's session (everyone reads them). `tagsMin` is
-   * the themes a story needs: never more than there are (as fn::settings::themes_needed), so
-   * deleting themes can't lock every submitter out. It's worked out here from the same settings
-   * read as `tagsMax`, so a save in between can't pair a new minimum with an old maximum.
-   */
+  /** The settings in force (W3), read in the person's session (everyone reads them). */
   async settings(): Promise<SubmissionSettings> {
-    const [set, themes] = (await runQuery(
-      this.person,
-      `${SUBMISSION_SETTINGS_SQL}; ${THEME_COUNT_SQL};`,
-    )) as [SubmissionSettings, number];
-    return { ...set, tagsMin: themesNeeded(set, themes) };
+    const [set] = (await runQuery(this.person, SUBMISSION_SETTINGS_SQL)) as [
+      SubmissionSettings,
+    ];
+    return set;
   }
 
   /** What the submit page shows: the settings' text and theme limits, and the person's own. */
@@ -595,7 +577,6 @@ export class StoryStore {
     const results = (await runQuery(
       this.person,
       `RETURN fn::settings::submission();
-       ${THEME_COUNT_SQL};
        RETURN fn::limits::effective($auth);
        RETURN count(SELECT id FROM story WHERE submitter = $auth AND status = 'draft');
        RETURN fn::story::next_submission_at($auth);
@@ -605,7 +586,6 @@ export class StoryStore {
          WHERE person = $auth AND format != 'image' AND at > time::now() - 7d);`,
     )) as [
       SubmissionSettings,
-      number,
       {
         openDraftsMax?: number | null;
         submissionsPer7Days?: number | null;
@@ -621,11 +601,10 @@ export class StoryStore {
       number,
       number,
     ];
-    const [set, themes, mine, open, next, nextUpload, submitted, uploaded] =
-      results;
+    const [set, mine, open, next, nextUpload, submitted, uploaded] = results;
     return {
       storyText: { min: set.storyTextMin, max: set.storyTextMax },
-      tags: { min: themesNeeded(set, themes), max: set.tagsMax },
+      themes: { min: set.themesMin, max: set.themesMax },
       openDrafts: { max: mine.openDraftsMax ?? null, open },
       submissions: {
         per7Days: mine.submissionsPer7Days ?? null,
@@ -648,28 +627,16 @@ export class StoryStore {
   private checkLimits(
     set: SubmissionSettings,
     f: StoryFields,
-    current?: { body: string | null; tags: unknown[] },
+    current?: { body: string | null },
   ) {
     const errors: { pointer: string; message: string }[] = [];
-    const was = {
-      body: [...(current?.body ?? '')].length,
-      tags: current?.tags.length ?? 0,
-    };
+    const was = { body: [...(current?.body ?? '')].length };
     if (typeof f.body === 'string') {
       const len = [...f.body].length;
       if (len > set.storyTextMax && len > was.body) {
         errors.push({
           pointer: '/body',
           message: `at most ${set.storyTextMax} characters`,
-        });
-      }
-    }
-    if (f.tagSlugs) {
-      const n = f.tagSlugs.length;
-      if (n > set.tagsMax && n > was.tags) {
-        errors.push({
-          pointer: '/tagSlugs',
-          message: `at most ${set.tagsMax} themes`,
         });
       }
     }
@@ -684,29 +651,32 @@ export class StoryStore {
     return at ? new Date(at).toISOString() : undefined;
   }
 
-  private async checkTags(slugs: string[] | undefined) {
-    if (!slugs?.length) return;
+  /** Every theme chosen still exists, else `400` `themes_changed` (A7). */
+  private async checkThemes(ids: string[] | undefined) {
+    if (!ids?.length) return;
     const [found] = (await runQuery(
       this.person,
-      `SELECT VALUE id FROM $tags.map(|$t| type::record('tag', $t)) WHERE id != NONE`,
-      { tags: slugs },
+      `SELECT VALUE id FROM $themes.map(|$t| type::record('theme', $t)) WHERE id != NONE`,
+      { themes: ids },
     )) as [unknown[]];
-    if (found.length !== slugs.length) unknownTags();
+    if (found.length !== ids.length) throw themesChanged();
   }
 
-  /** Tag rows for the stories' tagRefs, in each story's order. */
-  private async withTags(rows: RawStory[]): Promise<StoryMine[]> {
-    const refs = [...new Set(rows.flatMap((r) => r.tagRefs))];
-    const [tags] = refs.length
+  /** The themes of the stories' themeRefs, in each story's order (a deleted one left out). */
+  private async withThemes(
+    rows: RawStory[],
+  ): Promise<(StoryMine & { themeRefCount: number })[]> {
+    const refs = [...new Set(rows.flatMap((r) => r.themeRefs))];
+    const [themes] = refs.length
       ? ((await runQuery(
           this.person,
-          `SELECT <string> id AS ref, record::id(id) AS slug, name, category, version
+          `SELECT <string> id AS ref, record::id(id) AS id, name
              FROM $refs.map(|$r| <record> $r)`,
           { refs },
-        )) as [(Tag & { ref: string })[]])
-      : [[] as (Tag & { ref: string })[]];
+        )) as [(ThemeRef & { ref: string })[]])
+      : [[] as (ThemeRef & { ref: string })[]];
     const byRef = new Map(
-      tags.map(({ ref, ...tag }) => [ref, tag satisfies Tag]),
+      themes.map(({ ref, ...theme }) => [ref, theme satisfies ThemeRef]),
     );
     return rows.map((r) => ({
       id: recordKey(r.id),
@@ -737,7 +707,8 @@ export class StoryStore {
             uploaded: null,
           }
         : null,
-      tags: r.tagRefs.flatMap((ref) => byRef.get(ref) ?? []),
+      themes: r.themeRefs.flatMap((ref) => byRef.get(ref) ?? []),
+      themeRefCount: r.themeRefs.length,
       rejectionFeedback: r.rejectionFeedback ?? null,
       submittedAt: iso(r.submittedAt),
       approvedAt: iso(r.approvedAt),
@@ -765,13 +736,20 @@ export class StoryStore {
     });
   }
 
-  /** Over the theme maximum in force at submit (Joel, 2026-10-30). */
-  private tooManyTags(max: number) {
+  /** Outside themesMin–themesMax at submit (themes plan v3): "Choose 1–3 themes". */
+  private themeCount({ themesMin: min, themesMax: max }: SubmissionSettings) {
+    const message =
+      min === max
+        ? `Choose ${max} ${max === 1 ? 'theme' : 'themes'}`
+        : min === 0
+          ? `Choose up to ${max} ${max === 1 ? 'theme' : 'themes'}`
+          : `Choose ${min}–${max} themes`;
     return new BadRequestException({
-      code: 'too_many_tags',
-      message: `Your story has more themes than the current limit of ${max}. Remove some, then submit.`,
-      limit: max,
-      errors: [{ pointer: '/tagSlugs', message: `at most ${max} themes` }],
+      code: 'theme_count',
+      message,
+      errors: [
+        { pointer: '/themeIds', message: `from ${min} to ${max} themes` },
+      ],
     });
   }
 
@@ -801,11 +779,7 @@ export class StoryStore {
       return new BadRequestException({
         code: 'validation_failed',
         message: 'The story is over the limits',
-        errors: [
-          over === 'text'
-            ? { pointer: '/body', message: 'longer than allowed' }
-            : { pointer: '/tagSlugs', message: 'more themes than allowed' },
-        ],
+        errors: [{ pointer: '/body', message: 'longer than allowed' }],
       });
     }
     if (submissionLimitOf(err) === 'open_drafts') {
@@ -887,12 +861,13 @@ export class StoryStore {
       return this.tooShort(set?.storyTextMin ?? 0);
     }
     const over = storyLimitOf(err);
+    if (over === 'themes_changed') return themesChanged();
     if (over) {
-      // The settings changed between the API's check and the submit.
-      const set = await this.settings().catch(() => undefined);
+      // The settings changed (or a theme was deleted) between the API's check and the submit.
+      const set = await this.settings();
       return over === 'text'
-        ? this.tooLong(set?.storyTextMax ?? 0)
-        : this.tooManyTags(set?.tagsMax ?? 0);
+        ? this.tooLong(set.storyTextMax)
+        : this.themeCount(set);
     }
     const code =
       err instanceof DatabaseQueryError

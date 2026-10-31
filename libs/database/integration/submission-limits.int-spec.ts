@@ -34,7 +34,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
   const newDraft = (s: Surreal, id: string) =>
     outcome(
       s,
-      `CREATE type::record('story', $id) CONTENT { submitter: $auth, slug: $id, title: 'T',
+      `CREATE type::record('story', $id) CONTENT { themeRefs: [theme:common], submitter: $auth, slug: $id, title: 'T',
          description: '', body: $body, primaryFormat: 'written' }`,
       { id, body: `Text${STORY_TEXT_PADDING}` },
     );
@@ -70,15 +70,13 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     expect(
       await rows(
         migrator,
-        `SELECT storyTextMin, storyTextMax, tagsMin, tagsMax, openDraftsMax,
+        `SELECT storyTextMin, storyTextMax, openDraftsMax,
            submissionsPer7Days, uploadRequestsPerHour FROM submissionSettings:current`,
       ),
     ).toEqual([
       {
         storyTextMin: 200,
         storyTextMax: 10000,
-        tagsMin: 1,
-        tagsMax: 5,
         openDraftsMax: 3,
         submissionsPer7Days: 1,
         uploadRequestsPerHour: 10,
@@ -222,45 +220,29 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
 
   it('the limits in force apply to every later action: a draft over a new maximum can’t be submitted until edited, and trimming is always saved (Joel, 2026-10-30)', async () => {
     const gus = await person('gus');
-    await run(
-      admin,
-      `CREATE tag:a SET name = 'A', category = 'theme';
-       CREATE tag:b SET name = 'B', category = 'theme';
-       CREATE tag:c SET name = 'C', category = 'theme';`,
-    );
     const long = 'x'.repeat(300);
     await run(
       gus,
       `CREATE story:gus_1 CONTENT { submitter: $auth, slug: 'gus-1', title: 'T',
-         description: '', body: $long, primaryFormat: 'written', tagRefs: [tag:a, tag:b, tag:c] }`,
+         description: '', body: $long, primaryFormat: 'written', themeRefs: [theme:common] }`,
       { long },
     );
     const set = (sql: string, vars?: Record<string, unknown>) =>
       outcome(gus, sql, vars);
     try {
-      await settings({ storyTextMin: 50, storyTextMax: 250, tagsMax: 2 });
+      await settings({ storyTextMin: 50, storyTextMax: 250 });
       // Making it worse is refused...
       expect(
         error(await set(`UPDATE story:gus_1 SET body = $b`, { b: `${long}y` })),
       ).toMatch(/story_text_too_long:/);
-      expect(
-        error(
-          await set(
-            `UPDATE story:gus_1 SET tagRefs = [tag:a, tag:b, tag:c, tag:a]`,
-          ),
-        ),
-      ).toMatch(/story_too_many_tags:/);
       // ...but trimming is saved, even while it's still over (so it can be fixed).
       expect(
         (await set(`UPDATE story:gus_1 SET body = $b`, { b: 'x'.repeat(280) }))
           .ok,
       ).toBe(true);
-      // Submitting needs the limits in force: too long, then too many themes, are refused.
+      // Submitting needs the limits in force: too long is refused.
       expect(error(await pend(gus, 'gus_1'))).toMatch(/story_text_too_long:/);
       await set(`UPDATE story:gus_1 SET body = $b`, { b: 'x'.repeat(240) });
-      expect(error(await pend(gus, 'gus_1'))).toMatch(/story_too_many_tags:/);
-      expect(await status('gus_1')).toBe('draft');
-      await set(`UPDATE story:gus_1 SET tagRefs = [tag:a, tag:b]`);
       expect(await submit(gus, 'gus_1')).toHaveLength(1);
       expect(await status('gus_1')).toBe('pending');
 
@@ -272,7 +254,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
         'a written story needs at least 400 characters',
       );
     } finally {
-      await settings({ storyTextMin: 200, storyTextMax: 10000, tagsMax: 5 });
+      await settings({ storyTextMin: 200, storyTextMax: 10000 });
     }
   });
 
@@ -379,7 +361,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     for (const id of ['jay_1', 'jay_2', 'jay_3', 'jay_4']) {
       await run(
         migrator,
-        `CREATE type::record('story', $id) CONTENT { submitter: user:jay, slug: $id, title: 'T',
+        `CREATE type::record('story', $id) CONTENT { themeRefs: [theme:common], submitter: user:jay, slug: $id, title: 'T',
            description: '', body: 'Text', primaryFormat: 'written' }`,
         { id },
       );

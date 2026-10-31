@@ -6,7 +6,7 @@ import { buildVars, fakeUploads } from '../src/app/plan';
 import { reset } from '../src/app/seed';
 
 export { DATASET } from '../src/app/dataset';
-export type { StoryFixture, TagFixture } from '../src/app/dataset';
+export type { StoryFixture, ThemeFixture } from '../src/app/dataset';
 
 /**
  * A SurrealDB (3.2.4, the real schema) set up the way dev is: the placeholder privacy document
