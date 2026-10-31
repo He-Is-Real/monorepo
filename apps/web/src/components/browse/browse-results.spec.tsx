@@ -81,7 +81,7 @@ async function scrollToEnd() {
   await act(async () => intersect());
 }
 
-describe('BrowseResults (D55): races e2e can’t provoke', () => {
+describe('BrowseResults: races e2e can’t provoke', () => {
   it('rebuilds the pages the URL asks for when Back restores an older render', async () => {
     // Next's router cache can restore the first render (1 page) under a URL with pages=3.
     window.history.replaceState(null, '', '/stories?tag=hope&pages=3');
@@ -94,9 +94,6 @@ describe('BrowseResults (D55): races e2e can’t provoke', () => {
     expect(loadMore).toHaveBeenNthCalledWith(1, filters, 'c1');
     expect(loadMore).toHaveBeenNthCalledWith(2, filters, 'c2');
     expect(screen.getAllByRole('article')).toHaveLength(45);
-    expect(
-      screen.getByRole('button', { name: 'Show more stories' }),
-    ).toBeTruthy();
   });
 
   // Finding 2: a load that finishes after the list is gone changes nothing.

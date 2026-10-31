@@ -768,20 +768,43 @@ test('My favourites keeps each card at its media’s shape, in browse’s masonr
   ).toPass();
 });
 
-// Joel, 2026-10-31: "Show more favourites" adds cards as browse's next pages do: the cards on
-// screen stay where they are, and the new ones continue the staggered columns. A button only,
-// never loading on its own. 30 hearts: a page of 24, then 6.
-test('Show more favourites adds cards under the columns, the others staying put', async ({
+/** `n` of the stub's browse stories, newest first: `browse_01`… */
+const browseIds = (n: number) =>
+  Array.from(
+    { length: n },
+    (_, i) => `browse_${String(i + 1).padStart(2, '0')}`,
+  );
+
+/** Brings the end of My favourites into view, as a reader scrolling down does. */
+async function scrollToEnd(list: Locator) {
+  await list
+    .locator('> li')
+    .last()
+    .evaluate((li) => li.scrollIntoView({ block: 'end', behavior: 'instant' }));
+}
+
+/** The next page's request to api-user (the first has no cursor). */
+const NEXT_PAGE = (url: URL) =>
+  url.href.startsWith(`${STUB_USER_URL}${FAVOURITES}?`) &&
+  url.searchParams.has('cursor');
+
+// Joel, 2026-10-31: the next page of favourites loads on its own near the end, and adds cards
+// as browse's next pages do: the cards on screen stay where they are, and the new ones continue
+// the staggered columns. 30 hearts: a page of 24, then 6. The next page is held back until the
+// first page's places are taken, so a tall screen loading it at once changes nothing.
+test('the next page of favourites adds cards under the columns, the others staying put', async ({
   page,
   request,
 }, info) => {
   const session = sessionFor(info, 'more');
   await useSession(page, session);
-  const ids = Array.from(
-    { length: 30 },
-    (_, i) => `browse_${String(i + 1).padStart(2, '0')}`,
-  );
-  await heartAtStub(request, session, ids);
+  await heartAtStub(request, session, browseIds(30));
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((done) => (release = done));
+  await page.route(NEXT_PAGE, async (route) => {
+    await held;
+    await route.continue();
+  });
   await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
   const list = page.locator('[data-favourites] ul.masonry');
   const width = page.viewportSize()?.width ?? 0;
@@ -793,12 +816,12 @@ test('Show more favourites adds cards under the columns, the others staying put'
     expectStaggered(before, width);
   }).toPass();
 
-  const more = page.getByRole('button', { name: 'Show more favourites' });
-  await more.scrollIntoViewIfNeeded();
-  await expect(list.locator('> li')).toHaveCount(24);
-  await more.click();
+  await scrollToEnd(list);
+  release();
   await expect(list.locator('> li')).toHaveCount(30);
-  await expect(more).toHaveCount(0);
+  await expect(
+    page.getByText('You’ve seen all your favourites.'),
+  ).toBeVisible();
 
   await expect(async () => {
     const after = await masonryBoxes(list);
@@ -809,6 +832,107 @@ test('Show more favourites adds cards under the columns, the others staying put'
     });
   }).toPass();
   await expectNoHorizontalOverflow(page);
+});
+
+test.describe('loading more favourites', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'behaviour is checked on one phone and one desktop',
+    );
+  });
+
+  // 52 hearts (the stub's 48 browse stories and 4 others) are 3 pages (24, 24, 4): each loads
+  // on its own, with no button on the way.
+  test('My favourites loads the next page on its own whenever the end comes near, to the end', async ({
+    page,
+    request,
+  }, info) => {
+    const session = sessionFor(info, 'to-the-end');
+    await useSession(page, session);
+    await heartAtStub(request, session, [
+      ...browseIds(48),
+      'long_story',
+      'video_story',
+      'audio_story',
+      'image_story',
+    ]);
+    await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+    const list = page.locator('[data-favourites] ul.masonry');
+    const cards = list.locator('> li');
+    await expect(cards).toHaveCount(24);
+
+    const end = page.getByText('You’ve seen all your favourites.');
+    while (!(await end.isVisible())) {
+      const shown = await cards.count();
+      await scrollToEnd(list);
+      await expect
+        .poll(async () => (await end.isVisible()) || (await cards.count()))
+        .not.toBe(shown);
+    }
+    await expect(cards).toHaveCount(52);
+    // Newest heart first, so the first heart is last.
+    await expect(cards.last()).toContainText('Browse test story 01');
+    await expect(
+      page.locator('main [role="status"]', { hasText: 'loaded' }),
+    ).toHaveText('More favourites loaded.');
+    await expect(
+      page.getByRole('button', { name: 'Show more favourites' }),
+    ).toHaveCount(0);
+    await expect(page.getByText('Loading more favourites…')).toHaveCount(0);
+    // Loads on their own never take the reader's focus.
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+      'BODY',
+    );
+  });
+
+  test('a failed next page offers Try again, never retries on its own, and Try again works', async ({
+    page,
+    request,
+  }, info) => {
+    const session = sessionFor(info, 'more-fails');
+    await useSession(page, session);
+    await heartAtStub(request, session, browseIds(30));
+    let asked = 0;
+    await page.route(NEXT_PAGE, (route) => {
+      asked += 1;
+      return asked === 1
+        ? route.abort('internetdisconnected')
+        : route.continue();
+    });
+    await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+    const list = page.locator('[data-favourites] ul.masonry');
+    await expect(list.locator('> li')).toHaveCount(24);
+    await scrollToEnd(list);
+    await expect(
+      page.getByText('More favourites couldn’t load.'),
+    ).toBeVisible();
+
+    // At the end of the list again, nothing is asked for until the reader says so.
+    const twoFrames = () =>
+      page.evaluate(
+        () =>
+          new Promise<void>((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => done())),
+          ),
+      );
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await twoFrames();
+    await scrollToEnd(list);
+    await twoFrames();
+    expect(asked).toBe(1);
+
+    const retry = page.getByRole('button', { name: 'Try again' });
+    await expectTarget(page, retry);
+    await retry.click();
+    await expect(list.locator('> li')).toHaveCount(30);
+    await expect(
+      page.getByText('You’ve seen all your favourites.'),
+    ).toBeVisible();
+    // Keyboard and screen-reader users carry on from the first new story.
+    await expect(list.locator('> li').nth(24).getByRole('link')).toBeFocused();
+  });
 });
 
 for (const scheme of ['light', 'dark'] as const) {

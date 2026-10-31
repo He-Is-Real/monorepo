@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StoryMasonry } from '@/components/stories/story-masonry';
+import { useNearEnd } from '@/components/stories/use-near-end';
 import { Button } from '@/components/ui/button';
 import { deviceHeartCards } from '@/app/stories/actions';
 import type { ApiSummary, StorySummary } from '@/lib/browse';
@@ -32,9 +33,9 @@ type Page = { data: StorySummary[]; nextCursor: string | null };
 /**
  * The person's hearted stories, from api-user in the browser (D83), shown as browse shows stories
  * (Joel, 2026-10-31): its masonry, each card at its media's own shape, written stories without a
- * picture as text only. Newest heart first; "Show more" loads the next page (no infinite scroll,
- * unlike browse's D55). A heart taken off here stays on screen, empty, until the next visit, so a
- * slip can be undone. Space is kept while it loads, so the footer doesn't jump.
+ * picture as text only. Newest heart first; the next page loads on its own as the reader nears
+ * the end, as browse's does (Joel, 2026-10-31). A heart taken off here stays on screen, empty,
+ * until the next visit, so a slip can be undone. Space is kept while it loads, so the footer doesn't jump.
  *
  * Only ever the signed-in person's own list (Codex, #117): every answer is tied to the person
  * it was asked for, and one that arrives after someone else signed in (or out) is dropped
@@ -44,6 +45,7 @@ export function FavouritesList() {
   const session = usePersonalSession();
   const [list, setList] = useState<List>({ status: 'loading' });
   const load = useRef(0); // the current load; answers to older ones are dropped
+  const busy = useRef(false); // a next page is on its way: one at a time
 
   // The latest session (Clerk renews getToken); a new person, not a new getToken, means a new list.
   const current = useRef(session);
@@ -117,12 +119,14 @@ export function FavouritesList() {
   }, [userId, start]);
 
   const showMore = () => {
-    if (list.status !== 'ready' || !list.cursor) return;
+    if (busy.current || list.status !== 'ready' || !list.cursor) return;
+    busy.current = true;
     const { owner } = list;
     const mine = load.current;
     setList({ ...list, more: 'loading' });
     fetchPage(owner, list.cursor).then(
       (page) => {
+        busy.current = false;
         if (!stillFor(owner, mine)) return;
         markHearted(
           owner,
@@ -146,6 +150,7 @@ export function FavouritesList() {
         );
       },
       () => {
+        busy.current = false;
         if (stillFor(owner, mine))
           setList((now) =>
             now.status === 'ready' && now.owner === owner
@@ -216,7 +221,12 @@ export function FavouritesList() {
   );
 }
 
-/** The cards, in browse's masonry, and "Show more favourites" while there are more. */
+/**
+ * The cards, in browse's masonry, loading the next page on their own near the end as browse's
+ * do (`useNearEnd`): a loading line, Try again when a page fails (nothing retries on its own),
+ * an end message, and "Show more favourites" only where the browser can't tell when the end is
+ * near. Screen readers hear that more loaded; focus moves only after the reader pressed a button.
+ */
 function Cards({
   cards,
   hasMore,
@@ -228,28 +238,73 @@ function Cards({
   more: 'idle' | 'loading' | 'failed';
   onMore: () => void;
 }) {
+  const list = useRef<HTMLUListElement>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const shown = useRef(cards.length);
+  const focusFrom = useRef<number | null>(null);
+  const { sentinel, auto } = useNearEnd({
+    active: hasMore && more === 'idle',
+    round: cards.length,
+    onNear: onMore,
+  });
+
+  useEffect(() => {
+    if (cards.length <= shown.current) return;
+    const from = focusFrom.current;
+    shown.current = cards.length;
+    focusFrom.current = null;
+    setAnnouncement('More favourites loaded.');
+    if (from === null) return;
+    // After Try again or "Show more favourites", keyboard users carry on from the first new card.
+    // The masonry lays the new cards out in its own render first: focus on the next frame.
+    const frame = requestAnimationFrame(() =>
+      list.current?.children[from]?.querySelector('a')?.focus(),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [cards]);
+
+  const byButton = () => {
+    focusFrom.current = cards.length;
+    onMore();
+  };
+
   return (
     <>
       <div data-favourites="">
-        <StoryMasonry cards={cards} headingLevel={2} />
+        <StoryMasonry cards={cards} headingLevel={2} listRef={list} />
       </div>
-      {hasMore && (
-        <div className="mt-10 flex flex-col items-center gap-3">
-          {more === 'failed' && (
+      <div ref={sentinel} aria-hidden="true" />
+      <p role="status" className="sr-only">
+        {announcement}
+      </p>
+      <div className="mt-10 flex flex-col items-center gap-3 text-center">
+        {more === 'loading' && (
+          <p className="text-sm text-muted-foreground">
+            Loading more favourites…
+          </p>
+        )}
+        {more === 'failed' && (
+          <>
             <p role="alert" className="text-secondary-text">
-              More favourites couldn’t load. Try again in a moment.
+              More favourites couldn’t load.
             </p>
-          )}
-          <Button
-            variant="outline"
-            className="h-11 px-5"
-            onClick={onMore}
-            disabled={more === 'loading'}
-          >
-            {more === 'loading' ? 'Loading…' : 'Show more favourites'}
+            <Button variant="outline" className="h-11 px-5" onClick={byButton}>
+              Try again
+            </Button>
+          </>
+        )}
+        {more === 'idle' && hasMore && !auto && (
+          // Only where the browser can't tell when the end is near (no IntersectionObserver).
+          <Button variant="outline" className="h-11 px-5" onClick={byButton}>
+            Show more favourites
           </Button>
-        </div>
-      )}
+        )}
+        {!hasMore && (
+          <p className="text-secondary-text">
+            You’ve seen all your favourites.
+          </p>
+        )}
+      </div>
     </>
   );
 }
@@ -274,6 +329,7 @@ type DeviceList =
 function DeviceFavourites() {
   const [list, setList] = useState<DeviceList>({ status: 'loading' });
   const load = useRef(0);
+  const busy = useRef(false);
 
   /** The cards for the next page of ids, in the device's order. */
   const fetchCards = async (ids: string[]) => {
@@ -314,12 +370,15 @@ function DeviceFavourites() {
   }, [start]);
 
   const showMore = () => {
-    if (list.status !== 'ready' || list.rest.length === 0) return;
+    if (busy.current || list.status !== 'ready' || list.rest.length === 0)
+      return;
+    busy.current = true;
     const mine = load.current;
     const next = list.rest.slice(0, PAGE_SIZE);
     setList({ ...list, more: 'loading' });
     fetchCards(next).then(
       (cards) => {
+        busy.current = false;
         if (load.current !== mine) return;
         setList((now) =>
           now.status === 'ready'
@@ -336,6 +395,7 @@ function DeviceFavourites() {
         );
       },
       () => {
+        busy.current = false;
         if (load.current === mine)
           setList((now) =>
             now.status === 'ready' ? { ...now, more: 'failed' } : now,
