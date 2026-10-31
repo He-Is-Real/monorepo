@@ -35,7 +35,8 @@ export interface ImageStore {
   /** Whether the file at that path has arrived; throws when the zone gives no clear answer. */
   exists(path: string): Promise<boolean>;
   /**
-   * Erasure's queued picture (D40): deletes that picture's story's whole folder, which is gone
+   * Erasure's queued picture (D40), always a path from the database, which keeps every story's
+   * picture in its own folder (fn::media::own_image): deletes that picture's story's whole folder, which is gone
    * with the story (`deleteStoryFolder`). Throws unless it's done.
    */
   deleteImage(path: string): Promise<void>;

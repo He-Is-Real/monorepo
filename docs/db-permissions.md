@@ -674,6 +674,14 @@ retried`, on both RocksDB and the in-memory engine.
       also carries `expectedImage`, the picture the person's page showed (NONE: none), and is
       refused (`image_changed:`, api-user's `409`) if the story's `image.path` is another one,
       whatever its version: another tab's picture is replaced only by the person's choice.
+    - **A picture's path is always its own story's (PR #151's review):** `story.image.path`'s
+      `ASSERT` (`fn::media::own_image`) takes only `stories/<that story's id>/<32 hex>.webp`,
+      whoever writes, system users included. The one exception is dev-seed's fixed
+      `dev-seed/<name>.webp` files, which only a system user can put on (`story_media_granted`
+      refuses every other writer a new path outside the story's folder). So nothing that signs or deletes a story's picture (the
+      owner's link, erasure, housekeeping) can be pointed at another story's file. The person's
+      own session can't set a path at all (the `image` `VALUE`), and `story_media_granted` also
+      needs a grant naming the story for a new one.
     - **Media fields:** `PERMISSIONS FOR update WHERE $auth = service:workflow`, and the media
       `VALUE` gives any session but workflow, api-user's (the grant's event) and system users their
       stored media back. So a person's write to media, on create or update, is dropped, whatever

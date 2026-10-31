@@ -87,7 +87,7 @@ describe('story types and shapes (D53)', () => {
 
   const VIDEO = `{ format: 'video', bunnyVideoId: 'vid', width: 1080, height: 1920 }`;
   const AUDIO = `{ format: 'audio', bunnyVideoId: 'aud', durationSeconds: 60 }`;
-  const IMAGE = `{ path: 'images/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
+  const IMAGE = `{ path: 'dev-seed/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
   /** A written story's text, long enough to submit (200 characters). */
   const TEXT = `body: '${'Words of the story. '.repeat(11)}'`;
 
@@ -113,15 +113,15 @@ describe('story types and shapes (D53)', () => {
       ],
       [
         'an image without alt text (readers use a neutral default)',
-        `primaryFormat: 'written', body: 'My story', image: { path: 'images/b.webp', width: 800, height: 800 }`,
+        `primaryFormat: 'written', body: 'My story', image: { path: 'dev-seed/b.webp', width: 800, height: 800 }`,
       ],
       [
         'an image at exactly 1:3',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 500, height: 1500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500, height: 1500 }`,
       ],
       [
         'an image at exactly 3:1',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 1500, height: 500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 1500, height: 500 }`,
       ],
     ])('allows %s', async (_name, fields) => {
       await created(fields);
@@ -146,22 +146,22 @@ describe('story types and shapes (D53)', () => {
       ],
       [
         'an image taller than 1:3',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 500, height: 1501 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500, height: 1501 }`,
         'beyond 1:3 or 3:1',
       ],
       [
         'an image wider than 3:1',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 1501, height: 500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 1501, height: 500 }`,
         'beyond 1:3 or 3:1',
       ],
       [
         'an image of zero width',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 0, height: 500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 0, height: 500 }`,
         'image.width',
       ],
       [
         'an image without a height',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 500 }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500 }`,
         'image.height',
       ],
       [
@@ -171,7 +171,7 @@ describe('story types and shapes (D53)', () => {
       ],
       [
         'an image with an aspect-ratio label',
-        `primaryFormat: 'written', body: 'x', image: { path: 'p', width: 5, height: 5, aspectRatio: '1:1' }`,
+        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 5, height: 5, aspectRatio: '1:1' }`,
         'image.aspectRatio',
       ],
     ])('refuses %s', async (_name, fields, message) => {
@@ -432,9 +432,9 @@ describe('story types and shapes (D53)', () => {
       const before = await image();
       for (const set of [
         `image = NONE`,
-        `image = { path: 'other.webp', width: 10, height: 10 }`,
+        `image = { path: 'dev-seed/other.webp', width: 10, height: 10 }`,
         `image.alt = 'Words the person never wrote'`,
-        `image.path = 'someone-elses.webp'`,
+        `image.path = 'dev-seed/someone-elses.webp'`,
       ]) {
         await update(id, set, db());
       }
@@ -494,7 +494,7 @@ describe('story types and shapes (D53)', () => {
           { w },
         ),
       ).toEqual([
-        { path: 'images/a.webp', width: 1200, height: 1600, alt: 'A sunrise' },
+        { path: 'dev-seed/a.webp', width: 1200, height: 1600, alt: 'A sunrise' },
       ]);
       expect(
         await rows(

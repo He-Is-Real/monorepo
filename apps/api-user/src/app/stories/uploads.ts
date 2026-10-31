@@ -23,6 +23,7 @@ import {
   WriteNotAppliedError,
 } from '@heisreal/database';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
+import { STORY_IMAGE_PATH } from '@heisreal/story-cards';
 import type { ImageStore, SignedImageUpload } from './bunny-storage';
 import type { BunnyStream, SignedUpload } from './bunny-stream';
 import { StaleVersionException } from './story-store';
@@ -130,8 +131,12 @@ function invalid(
   throw new BadRequestException({ code: 'validation_failed', message, errors });
 }
 
-/** An image's path as api-user names it: `stories/<story id>/<32 hex>.webp`. */
-const IMAGE_PATH = /^stories\/[A-Za-z0-9_-]{1,64}\/[0-9a-f]{32}\.webp$/;
+/**
+ * An image's path as api-user names it, `stories/<story id>/<32 hex>.webp`: the same rule the
+ * database holds every story's `image.path` to (fn::media::own_image), so a path read from a story
+ * is always in that story's own folder, and the signer and erasure's deleter can rely on it.
+ */
+const IMAGE_PATH = STORY_IMAGE_PATH;
 
 const posInt = (v: unknown) =>
   typeof v === 'number' && Number.isSafeInteger(v) && v > 0;

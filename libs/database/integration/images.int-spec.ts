@@ -137,6 +137,53 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     ).toEqual([]);
   });
 
+  it('keeps a story’s picture path in its own folder whoever writes it, so nothing can be pointed at another story’s file', async () => {
+    const dee = await person('dee');
+    await draft(dee, 'dee_w');
+    await draft(dee, 'dee_x');
+    expect(
+      await grantImage(apiUser, { story: 'dee_x', person: 'dee', version: 1 }),
+    ).toMatchObject({ ok: true });
+    const other = `stories/dee_x/${'a'.repeat(32)}.webp`; // dee_x's real, granted file
+    const outside = [
+      other,
+      `stories/dee_w/../dee_x/${hex(7)}.webp`,
+      `stories/dee_w/sub/${hex(8)}.webp`,
+      `site-assets/${hex(9)}.webp`,
+      `dev-seed/image-01.webp`,
+    ];
+    const set = (who: Surreal, path: string) =>
+      run(
+        who,
+        `UPDATE story:dee_w SET image = { path: $path, width: 900, height: 1200 }`,
+        { path },
+      );
+    // A system user (dev-seed's, which may write anything else) is refused by the field itself;
+    // api-user's login gets nothing on either.
+    for (const path of outside.slice(0, -1)) {
+      await expect(set(migrator, path)).rejects.toThrow(
+        /image\.path|own_image/,
+      );
+      expect((await image('dee_w')).image).toBeUndefined();
+    }
+    for (const path of outside) {
+      await set(apiUser, path).catch(() => undefined);
+      expect((await image('dee_w')).image).toBeUndefined();
+    }
+    // The person's own session can't put any path on (the image's VALUE drops it).
+    await set(dee, other).catch(() => undefined);
+    expect((await image('dee_w')).image).toBeUndefined();
+    // What is taken: the story's own folder, and (system users only) dev-seed's fixed files.
+    await set(migrator, `stories/dee_w/${hex(10)}.webp`);
+    expect((await image('dee_w')).image).toMatchObject({
+      path: `stories/dee_w/${hex(10)}.webp`,
+    });
+    await set(migrator, 'dev-seed/image-01.webp');
+    expect((await image('dee_w')).image).toMatchObject({
+      path: 'dev-seed/image-01.webp',
+    });
+  });
+
   it('refuses another type, too big, or the wrong shape or size; takes one with no description', async () => {
     const dan = await person('dan');
     await draft(dan, 'dan_w');

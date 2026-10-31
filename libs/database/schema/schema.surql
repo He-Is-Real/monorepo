@@ -357,8 +357,14 @@ DEFINE FIELD OVERWRITE image         ON story TYPE option<object>
     ELSE IF $before = NONE { NONE }
     ELSE { object::extend($before, { alt: $value.alt }) }
   PERMISSIONS FOR update WHERE $auth != service:api_admin;
+-- The path is always the story's own folder's, as api-user names it (fn::media::own_image),
+-- whoever writes, so nothing that signs or deletes a story's picture (its owner's link, erasure,
+-- housekeeping) can be pointed at another story's file. The one exception is dev-seed's own fixed
+-- files, `dev-seed/<name>.webp`, which only a system user can put on (story_media_granted refuses
+-- any other writer a new path outside the story's folder); later writes keep them.
 DEFINE FIELD OVERWRITE image.path    ON story TYPE string
-  ASSERT string::len($value) > 0 AND string::len($value) <= 500
+  ASSERT fn::media::own_image($this.id, $value)
+    OR string::matches($value, '^dev-seed/[a-z0-9-]{1,64}[.]webp$')
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE image.width   ON story TYPE int ASSERT $value > 0
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
@@ -521,6 +527,13 @@ DEFINE FUNCTION OVERWRITE fn::media::safe_segment($s: any) {
   RETURN type::is_string($s) AND string::matches($s, '^[A-Za-z0-9._-]+$')
     AND $s NOT IN ['.', '..'];
 };
+-- A story's own picture's path (M2 plan PR 10, D80): `stories/<that story's id>/<32 hex>.webp`,
+-- the only name api-user gives one (uploadGrant_attach checks the same at the grant).
+DEFINE FUNCTION OVERWRITE fn::media::own_image($story: any, $path: any) {
+  RETURN type::is_record($story) AND type::is_string($path)
+    AND string::matches($path, '^stories/[A-Za-z0-9_]{1,64}/[0-9a-f]{32}[.]webp$')
+    AND string::starts_with($path, 'stories/' + <string> record::id($story) + '/');
+};
 DEFINE FUNCTION OVERWRITE fn::media::own_thumbnail($m: any) {
   IF !type::is_string($m.thumbnailPath) OR !type::is_string($m.bunnyVideoId)
     OR string::len($m.thumbnailPath) > 500 { RETURN false };
@@ -576,7 +589,7 @@ DEFINE EVENT OVERWRITE story_media_granted ON story
     -- Its image likewise (M2 plan PR 10): a new path must be in the story's own folder and
     -- granted to it.
     IF $after.image.path != NONE AND $after.image.path != $before.image.path
-      AND (!string::starts_with($after.image.path, 'stories/' + record::id($after.id) + '/')
+      AND (!fn::media::own_image($after.id, $after.image.path)
         OR (SELECT VALUE story FROM ONLY type::record('uploadGrant', $after.image.path)) != $after.id) {
       THROW 'media_not_granted: a story’s image must be one api-user picked for it, in its own folder (D80)';
     };

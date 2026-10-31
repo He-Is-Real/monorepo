@@ -30,7 +30,7 @@ describe('write scope on story fields (D41)', () => {
     `body = 'Words the person never wrote'`,
     `bylineName = 'Someone else'`,
     `primaryFormat = 'audio'`,
-    `image = { path: 'not-theirs.webp', width: 10, height: 10 }`,
+    `image = { path: 'dev-seed/not-theirs.webp', width: 10, height: 10 }`,
     `tagRefs = [tag:doubt]`,
     `slug = 'hijacked-slug'`,
   ];

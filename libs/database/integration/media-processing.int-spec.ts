@@ -33,7 +33,7 @@ describe('approval waits for media processing (A2)', () => {
   const TEXT = `${'Words of the story. '.repeat(11)}`;
   const VIDEO = `{ format: 'video', bunnyVideoId: 'vid' }`;
   const AUDIO = `{ format: 'audio', bunnyVideoId: 'aud' }`;
-  const IMAGE = `{ path: 'images/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
+  const IMAGE = `{ path: 'dev-seed/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
 
   const truth = <T = Record<string, unknown>>(
     sql: string,
@@ -133,7 +133,7 @@ describe('approval waits for media processing (A2)', () => {
       expect(await processing(v)).toEqual({ media: [], image: undefined });
       const w = await create(
         `primaryFormat: 'written', body: 'x',
-         image: { path: 'p', width: 10, height: 10, processing: 'ready' }`,
+         image: { path: 'dev-seed/p.webp', width: 10, height: 10, processing: 'ready' }`,
       );
       expect(await processing(w)).toEqual({ media: [], image: undefined });
     });
@@ -197,7 +197,7 @@ describe('approval waits for media processing (A2)', () => {
         ),
       ).toMatchObject({ ok: true });
       expect((await story(w)).image).toEqual({
-        path: 'images/a.webp',
+        path: 'dev-seed/a.webp',
         width: 1200,
         height: 1600,
         alt: 'A sunrise',
@@ -205,7 +205,7 @@ describe('approval waits for media processing (A2)', () => {
       });
       // Workflow can't remove the person's image either.
       await update(w, `image = NONE`, workflow);
-      expect((await story(w)).image).toMatchObject({ path: 'images/a.webp' });
+      expect((await story(w)).image).toMatchObject({ path: 'dev-seed/a.webp' });
     });
 
     it('refuses an unknown processing state', async () => {
@@ -243,16 +243,16 @@ describe('approval waits for media processing (A2)', () => {
     it.each([
       [
         'another image (dropped: only a grant brings one, D80)',
-        `image = { path: 'images/b.webp', width: 800, height: 800 }`,
+        `image = { path: 'dev-seed/b.webp', width: 800, height: 800 }`,
       ],
-      ['another path (dropped)', `image.path = 'images/c.webp'`],
+      ['another path (dropped)', `image.path = 'dev-seed/c.webp'`],
       ['another alt text', `image.alt = 'Sunrise over the hills'`],
     ])('image: the person’s %s keeps it', async (_name, set) => {
       const id = await written();
       await processed(workflow, id);
       expect(await update(id, set)).toMatchObject({ ok: true });
       expect(await processing(id)).toEqual({ media: [], image: 'ready' });
-      expect((await story(id)).image).toMatchObject({ path: 'images/a.webp' });
+      expect((await story(id)).image).toMatchObject({ path: 'dev-seed/a.webp' });
     });
 
     it('keeps it while the media and image are unchanged', async () => {
@@ -879,7 +879,7 @@ describe('approval waits for media processing (A2)', () => {
       [
         'another image path',
         written,
-        `image.path = 'images/replacement.webp'`,
+        `image.path = 'dev-seed/replacement.webp'`,
         null,
       ],
     ])(
@@ -914,7 +914,7 @@ describe('approval waits for media processing (A2)', () => {
       await update(id, `image.processing = 'failed'`, workflow);
       await update(
         id,
-        `image.path = 'images/replacement.webp', image.processing = 'ready'`,
+        `image.path = 'dev-seed/replacement.webp', image.processing = 'ready'`,
         migrator,
       );
       await expectHidden(id);
