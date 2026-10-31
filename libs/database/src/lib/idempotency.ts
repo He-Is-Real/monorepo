@@ -153,6 +153,8 @@ export async function runIdempotent(
         throw err;
       }
       await new Promise((r) => setTimeout(r, wait));
+      // The timer may fire late (a busy machine): check again before starting the next attempt.
+      if (Date.now() >= deadline) throw err;
     }
   }
 }
