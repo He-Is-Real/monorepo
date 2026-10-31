@@ -117,7 +117,8 @@ export class ClerkWebhookController {
 /**
  * Erasure (M2 plan PR 11; D39, D40, D82): `Erasure` for "Delete my account" (AccountController),
  * the consent withdrawals that delete the account (libs/consent's `ERASING_WITHDRAWALS`) and
- * Clerk's webhook. Global, so the consent endpoints can reach it.
+ * Clerk's webhook. Global, so the consent endpoints can reach it; its Clerk client also serves the
+ * data download (ExportModule).
  */
 @Global()
 @Module({
@@ -139,6 +140,6 @@ export class ClerkWebhookController {
       }),
     },
   ],
-  exports: [Erasure, CONSENT_WITHDRAWAL_ERASURE],
+  exports: [Erasure, CONSENT_WITHDRAWAL_ERASURE, CLERK_BACKEND],
 })
 export class ErasureModule {}

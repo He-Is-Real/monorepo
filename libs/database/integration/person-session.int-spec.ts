@@ -169,6 +169,21 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       }
     });
 
+    it('sees the moderation outcomes on their own story, never who decided (Art 15)', async () => {
+      const bob = await t.person('user_bob');
+      expect(
+        await rows(
+          bob,
+          'SELECT decision, storyVersion, moderator FROM moderationReview',
+        ),
+      ).toEqual([{ decision: 'approve', storyVersion: 3 }]);
+      expect(
+        await rows(bob, 'SELECT VALUE moderator FROM moderationReview'),
+      ).toEqual([undefined]);
+      // Bob's review isn't Ann's to see.
+      expect(await rows(ann, 'SELECT * FROM moderationReview')).toEqual([]);
+    });
+
     it('cannot read someone else’s consent through fn::consent::current', async () => {
       expect(
         await rows(ann, `RETURN fn::consent::current(user:bob, 'publish')`),

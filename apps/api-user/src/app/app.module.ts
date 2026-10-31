@@ -9,6 +9,7 @@ import { SecretsModule } from '@heisreal/secrets';
 import { MediaUrlsModule } from '@heisreal/story-cards';
 import { AccountModule } from './account/account.controller';
 import { ErasureModule } from './erasure/erasure.module';
+import { ExportModule } from './export/export.controller';
 import { FavouritesModule } from './favourites/favourites.controller';
 import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
 
@@ -34,6 +35,8 @@ import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
     // api-public-read's (D52); without the BUNNY_* variables signing is off and links are null.
     MediaUrlsModule,
     FavouritesModule,
+    // M2 plan PR 12: "Download my data" (Art 15, Art 20), with ErasureModule's Clerk client.
+    ExportModule,
     // M2 plan PR 4: the submit flow for written stories.
     StoriesModule,
     HealthModule.forService('api-user'),

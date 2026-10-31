@@ -186,6 +186,39 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
   ).toBe(304);
   expect((await get('/v1/account')).status()).toBe(401);
   expect((await get('/health')).status()).toBe(200);
+  // Download my data (M2 plan PR 12): a session with stories, consents and a video draft.
+  const session = `export${Date.now()}`;
+  await request.post(`${STUB_USER_URL}/__e2e/sessions/${session}`, {
+    data: {
+      granted: ['special_category_religious', 'publish'],
+      stories: [
+        {
+          id: 'e1',
+          status: 'changes_requested',
+          title: 'Mine',
+          tagSlugs: ['healing'],
+          rejectionFeedback: 'A little more, please.',
+        },
+        {
+          id: 'e2',
+          title: 'My video',
+          primaryFormat: 'video',
+          videoId: '00000000-0000-4000-8000-000000000001',
+        },
+      ],
+    },
+  });
+  const mine = { authorization: `Bearer ${fixtureToken(session)}` };
+  expect((await get('/v1/account/export', mine)).status()).toBe(200);
+  const failing = `export-fails${Date.now()}`;
+  expect(
+    (
+      await get('/v1/account/export', {
+        authorization: `Bearer ${fixtureToken(failing)}`,
+      })
+    ).status(),
+  ).toBe(503);
+  expect((await get('/v1/account/export')).status()).toBe(401);
 });
 
 test('the stub api-user’s consent grants fit the contract', async ({

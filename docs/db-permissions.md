@@ -820,6 +820,37 @@ retried`, on both RocksDB and the in-memory engine.
       `libs/auth/integration/clerk-session.int-spec.ts` (an erased person's token is refused),
       `apps/api-user/integration/erasure.int-spec.ts` (the three callers end to end).
 
+### M2 download my data (Art 15, Art 20; M2 plan PR 12)
+
+42. **A person reads everything of theirs in their own session, and the moderation outcomes on
+    their own stories, never who decided.** api-user's `GET /v1/account/export` (`ExportMyData`,
+    `apps/api-user/src/app/export`) reads every person-linked table below in **one query in the
+    person's own session** (D27), so the database, not the query, keeps everyone else's rows out:
+    `user` (their row), `story` (every status), `publicStory` (whether and since when each is
+    public), `moderationReview`, `consent` (with each form version's box words), `favourite`,
+    `submitterLimits` and `fn::limits::effective`, `submissionLog`, `uploadGrant` and their own
+    `idempotencyKey` rows. Their sign-in details come from Clerk's Backend API (D16, D81) and are
+    never stored.
+    - **The one rule added: `moderationReview`'s select now includes the story's owner**
+      (`story.submitter = $auth.id`), and its `moderator` field is readable by api-admin only
+      (`PERMISSIONS FOR select WHERE $auth.id = service:api_admin`), so the owner sees each
+      decision, its `feedbackToSubmitter`, the version reviewed and when, and the moderator reads
+      as absent. Nobody else's reviews (tested: Bob sees his own review without `moderator`; Ann
+      sees none). Create, update and delete are unchanged.
+    - **Not in the file, on purpose:** `auditLog` (ids only, D38; api-admin alone reads it, and a
+      staff member's rows name other people's stories), `hiddenStory` (publish bookkeeping;
+      `onSiteNow` says the same), the story's `lockedBy`/`lockedAt` (a moderator's id; still
+      readable by the owner in their session, a seam for M3), `erasureRequest`,
+      `pendingDeletion` and `erasedIdentity` (only during or after erasure). The file's
+      `about.notIncluded` says so in plain words.
+    - **Media:** each item is its Bunny id and a link signed for one hour (`MediaUrls.expiringIn`,
+      D52's signer, the person's own story media only); no bytes pass through api-user, and Bunny
+      keeps no original upload or MP4 file (`modules/bunny`), so the player is how to watch it.
+    - Tests: `apps/api-user/integration/export.int-spec.ts` (a person with data of every kind:
+      complete against what the database holds, read as the migrator, and nothing of another
+      person whose data touches theirs; Clerk failing is `503`, all or nothing),
+      `person-session.int-spec.ts` (the review rule).
+
 ## Person-linked tables
 
 Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
@@ -831,7 +862,7 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | `publicStory`                                                                                                                                                                                              | published testimony; same id as the story                                                                                      | linked     | story approved + mirrored + consent; submitter live + fence                                                                            | deleted (cascade)                                                 |
 | `hiddenStory`                                                                                                                                                                                              | hidden publish data; same id as story                                                                                          | linked     | event only; submitter live + fence                                                                                                     | deleted (cascade)                                                 |
 | `consent`                                                                                                                                                                                                  | the ledger; `subject`                                                                                                          | linked     | subject live + fence; append-only                                                                                                      | kept as proof (Art 7(1)); pruned 6 years after erasure (migrator) |
-| `moderationReview`                                                                                                                                                                                         | feedback about a story; `story`, `moderator`                                                                                   | linked     | story exists, its submitter live + fence                                                                                               | deleted (cascade)                                                 |
+| `moderationReview`                                                                                                                                                                                         | feedback about a story; `story`, `moderator` (api-admin only; the owner reads the rest, item 42)                               | linked     | story exists, its submitter live + fence                                                                                               | deleted (cascade)                                                 |
 | `idempotencyKey`                                                                                                                                                                                           | `[service, user record, key]`; `{id, version}`                                                                                 | linked     | user live + fence (webhook keys exempt); people: own keys only                                                                         | deleted by erasure; others expire in 24 h                         |
 | `favourite`                                                                                                                                                                                                | a heart; `person`, `story`                                                                                                     | linked     | person + story owner live, fenced; sign-up consent; story public; own rows                                                             | deleted (erasure event; also with the story)                      |
 | `auditLog`                                                                                                                                                                                                 | `actor`, `entity` ids; typed codes                                                                                             | kept (D38) | none: no person-state dependency, and the fields can't hold text                                                                       | kept 6 years; ids point nowhere                                   |
