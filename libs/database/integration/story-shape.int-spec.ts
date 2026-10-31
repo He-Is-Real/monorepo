@@ -494,7 +494,12 @@ describe('story types and shapes (D53)', () => {
           { w },
         ),
       ).toEqual([
-        { path: 'dev-seed/a.webp', width: 1200, height: 1600, alt: 'A sunrise' },
+        {
+          path: 'dev-seed/a.webp',
+          width: 1200,
+          height: 1600,
+          alt: 'A sunrise',
+        },
       ]);
       expect(
         await rows(

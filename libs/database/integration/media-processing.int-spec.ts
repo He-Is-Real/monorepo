@@ -252,7 +252,9 @@ describe('approval waits for media processing (A2)', () => {
       await processed(workflow, id);
       expect(await update(id, set)).toMatchObject({ ok: true });
       expect(await processing(id)).toEqual({ media: [], image: 'ready' });
-      expect((await story(id)).image).toMatchObject({ path: 'dev-seed/a.webp' });
+      expect((await story(id)).image).toMatchObject({
+        path: 'dev-seed/a.webp',
+      });
     });
 
     it('keeps it while the media and image are unchanged', async () => {
