@@ -217,6 +217,29 @@ DEFINE FIELD OVERWRITE name      ON tag TYPE string ASSERT string::len($value) >
 DEFINE FIELD OVERWRITE category  ON tag TYPE string ASSERT $value IN ['theme', 'journey', 'emotion'];
 DEFINE FIELD OVERWRITE version       ON tag TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now() READONLY;
+-- Submitting needs at least submissionSettings.tagsMin themes (api-user), so a catalogue with fewer
+-- themes than that would refuse every submission. A theme is any tag (there's no hidden or retired
+-- flag, and the category doesn't matter), so the only way to lose one is a DELETE: api-admin's
+-- login may not delete a tag that would leave fewer than tagsMin (`too_few_themes:<tagsMin>`), and
+-- submissionSettings_check refuses raising tagsMin above the tags there are. Both read a snapshot,
+-- so every tag deletion and every settings write also write themesFence:current: of a deletion
+-- and a save (or two deletions) that overlap, the second to commit fails with a retryable
+-- conflict, and its retry sees the other's result. System users (the migrator, dev-seed's reset,
+-- which deletes and re-creates the tags in one transaction) aren't checked.
+DEFINE TABLE OVERWRITE themesFence SCHEMAFULL PERMISSIONS NONE;   -- id = themesFence:current
+DEFINE FIELD OVERWRITE n ON themesFence TYPE int DEFAULT 0;
+DEFINE FUNCTION OVERWRITE fn::fence::themes() {
+  UPSERT themesFence:current SET n += 1 RETURN NONE;
+};
+DEFINE EVENT OVERWRITE tag_delete ON tag
+  WHEN $event = 'DELETE'
+  THEN {
+    fn::fence::themes();
+    LET $min = fn::settings::submission().tagsMin;
+    IF $auth != NONE AND count(SELECT VALUE id FROM tag) < $min {
+      THROW 'too_few_themes:' + <string>$min;
+    };
+  };
 
 -- ---------------------------------------------------------------- story (write model)
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
@@ -1912,6 +1935,12 @@ DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
     IF $after.storyTextMin > $after.storyTextMax { THROW 'storyTextMin is more than storyTextMax' };
     IF $after.tagsMin > $after.tagsMax { THROW 'tagsMin is more than tagsMax' };
     IF $after.changedBy = NONE AND $auth != NONE { THROW 'a settings change names the admin who made it (changedBy)' };
+    -- tagsMin can't be raised above the themes there are (else nobody could submit); see tag_delete.
+    fn::fence::themes();
+    IF $auth != NONE AND $after.tagsMin > ($before.tagsMin ?? 0)
+      AND $after.tagsMin > count(SELECT VALUE id FROM tag) {
+      THROW 'too_few_themes:' + <string>count(SELECT VALUE id FROM tag);
+    };
     CREATE auditLog CONTENT {
       service: fn::audit::service(), action: 'UpdateSubmissionSettings',
       entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole

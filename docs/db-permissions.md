@@ -620,7 +620,20 @@ retried`, on both RocksDB and the in-memory engine.
       `changedByRole` (their Clerk role, `Admin` or `SuperAdmin`) on every save, and the
       `submissionSettings_check` event copies both into the `UpdateSubmissionSettings` audit row
       (`actor`, `actorRole`). The version check (`If-Match`) and the write are one transaction;
-      two saves at once conflict at commit. Per-person overrides have no admin route yet. Tests:
+      two saves at once conflict at commit. Per-person overrides have no admin route yet (and
+      can't set a theme minimum).
+      **The themes never drop below `tagsMin` (Codex, admin limits review round 2).** Submitting
+      needs at least `tagsMin` themes, and a theme is any `tag` (no hidden or retired flag; the
+      category doesn't matter), so too few tags would refuse every submission. The `tag_delete`
+      event refuses api-admin's login deleting a tag that would leave fewer than `tagsMin`
+      (`too_few_themes:<tagsMin>`), and `submissionSettings_check` refuses raising `tagsMin`
+      above the tags there are (api-admin's save also checks it first, `400` on `/tagsMin`).
+      Both read a snapshot, so every tag deletion and every settings write also write
+      `themesFence:current` (`PERMISSIONS NONE`, events only): of a deletion and a save, or two
+      deletions, that overlap, the second to commit fails with a retryable conflict (api-admin
+      answers `412`) and its retry sees the other's result. System users (the migrator,
+      dev-seed's reset, which deletes and re-creates the tags in one transaction) aren't
+      checked. Tests: `themes-minimum.int-spec.ts` (sequential and concurrent, deterministic),
       `submission-limits.int-spec.ts`, api-admin's `submission-settings.int-spec.ts`; suites about other rules
       that start more stories per person mark their people trusted (`trustSubmitters`), and
       `buildWorld` makes Ann and Bob trusted.
@@ -753,6 +766,7 @@ Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one is
 | `dpaVersion`, `termsVersion`                                                                                                                                                                               | the privacy policy's and the terms of use's versions (D121); `publishedBy` (the publishing admin's id, read by api-admin only) | kept       | api-admin creates (`PublishPrivacyPolicy`, `PublishTerms`, with an audit row); nobody updates or deletes a published version (item 38) | kept for ever as the record; `publishedBy` points at a stub       |
 | `personFence`                                                                                                                                                                                              | a counter keyed by user id                                                                                                     | none       | written by events only; `PERMISSIONS NONE`                                                                                             | stays (no data); can go with the stub                             |
 | `legalFence`                                                                                                                                                                                               | one counter (`legalFence:forms`)                                                                                               | none       | written by events only; `PERMISSIONS NONE`                                                                                             | —                                                                 |
+| `themesFence`                                                                                                                                                                                              | one counter (`themesFence:current`)                                                                                            | none       | written by events only; `PERMISSIONS NONE`                                                                                             | —                                                                 |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------                                                                 | ---------- | ------------------------------------------------------------------------------------------------                                       | ----------------------------------------------------------------- |
 | `submitterLimits`                                                                                                                                                                                          | D112's per-person limits and trusted mark; `user`, `changedBy`                                                                 | linked     | user live + fence; `changedBy` required from api-admin; `devSeed` dev only; audit row per change                                       |
 | `submissionLog`                                                                                                                                                                                            | D113's recent submissions; `person`                                                                                            | linked     | written by `story_limits` only; person live + fence                                                                                    |
@@ -784,7 +798,8 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
   edit, or two tabs of one person, now conflict. That's intended. One exception crosses people:
   every consent event, every new story and every submission writes `legalFence:forms`, as does
   every write to a consent form version (item 34), so two people's grants, new drafts or
-  submissions at the same moment can conflict too, and one retries. The retries are optimistic
+  submissions at the same moment can conflict too, and one retries. Likewise every tag deletion
+  and every submission-settings write share `themesFence:current` (item 36). The retries are optimistic
   (3 attempts for a plain command, 4 with an `Idempotency-Key`): they can't deadlock, but
   sustained contention could use them up.
 
