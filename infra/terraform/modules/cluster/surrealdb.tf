@@ -8,13 +8,28 @@ locals {
   }
 }
 
+# The NetworkPolicy's Cloud Run range must cover the run subnet, and may be wider: when the
+# subnet grows, the policy is widened first (one apply), then the subnet and its services
+# (the next), so new instances never start outside the policy.
+locals {
+  overlay_run_cidr  = lookup(local.overlay_settings, "RUN_SUBNET_CIDR", "")
+  expected_run_cidr = lookup(var.surrealdb_expected_settings, "RUN_SUBNET_CIDR", "")
+  overlay_covers_run = try(
+    tonumber(split("/", local.overlay_run_cidr)[1]) <= tonumber(split("/", local.expected_run_cidr)[1]) &&
+    cidrhost(format("%s/%s", split("/", local.expected_run_cidr)[0], split("/", local.overlay_run_cidr)[1]), 0) == cidrhost(local.overlay_run_cidr, 0),
+    false
+  )
+}
+
 data "kustomization_overlay" "surrealdb" {
   resources = [var.surrealdb_overlay_path]
 
   lifecycle {
     precondition {
-      condition     = alltrue([for k, v in var.surrealdb_expected_settings : lookup(local.overlay_settings, k, null) == v])
-      error_message = "settings.env in the overlay doesn't match Terraform: expected ${jsonencode(var.surrealdb_expected_settings)}."
+      condition = alltrue([for k, v in var.surrealdb_expected_settings :
+        k == "RUN_SUBNET_CIDR" ? local.overlay_covers_run : lookup(local.overlay_settings, k, null) == v
+      ])
+      error_message = "settings.env in the overlay doesn't match Terraform: expected ${jsonencode(var.surrealdb_expected_settings)} (RUN_SUBNET_CIDR may be wider than the run subnet, never narrower)."
     }
   }
 

@@ -24,6 +24,8 @@ variable "network_cidrs" {
   # room for old and new revisions side by side during a deploy, so /26 (64) ran out when a deploy
   # updated three services and two jobs at once (2026-10-31). /24 gives 256. Grow it only by
   # widening the same base address (an in-place expansion); shrinking would replace the subnet.
+  # The SurrealDB NetworkPolicy (overlay settings.env RUN_SUBNET_CIDR) must already cover the new
+  # range before any service starts in it.
   description = "Address plan. The run subnet is /24 (Cloud Run Direct VPC egress; at least /26)."
   type = object({
     gke      = string
