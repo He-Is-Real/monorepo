@@ -36,6 +36,11 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   submissionLog: 'linked', // person (D113: recent submissions)
   uploadGrant: 'linked', // person, story (D80: the Bunny videos api-user made for them)
   submissionSettings: 'none', // the limits an admin sets (W3, D112)
+  // D82: the sha256 of an erased Clerk id, so it never gets a row again; no link, no date.
+  erasedIdentity: 'kept',
+  // D40: Bunny ids and image paths (and, until Clerk confirms, the Clerk id) erasure still has
+  // to delete outside the database; written by erasure itself, gone once done. No person link.
+  pendingDeletion: 'kept',
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
@@ -336,15 +341,13 @@ describe('person-linked tables (round 3 sweep)', () => {
       .collect();
     await erase(ctx.p); // the webhook's erasure commits first
     await expect(tx.commit()).rejects.toThrow(CONFLICT);
+    // The retry finds the person already erased: nothing more happens.
     expect(
       await outcome(apiUser, ERASE, {
         clerkUserId: `user_${ctx.p}`,
         reason: 'account_deleted',
       }),
-    ).toEqual({
-      ok: false,
-      error: expect.stringContaining('unknown or already erased'),
-    });
+    ).toMatchObject({ ok: true });
     expect(
       await rows(
         migrator,

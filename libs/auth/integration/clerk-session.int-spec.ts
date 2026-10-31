@@ -136,20 +136,25 @@ describe('Clerk sign-in → person session', () => {
       ).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
-    it('an erased person’s still-valid token gets a new, empty row (closed by the user.deleted erasure, D39)', async () => {
+    it('refuses an erased person’s still-valid token with 401, and creates no row (#44, D82)', async () => {
       await createPeople(t, { gone: 'user_gone' });
       await run(apiUser, ERASE, {
         clerkUserId: 'user_gone',
         reason: 'account_deleted',
       });
-      const auth = new ApiUserAuthenticator(config, apiUser);
-      const people = new PersonSessions(apiUser, auth);
-      const user = await people.run(
-        request(clerk.token('user_gone')),
-        async ({ user }) => String(user),
-      );
-      // Not the erased stub: a fresh row with nothing in it. The stub stays erased.
-      expect(user).not.toBe('user:gone');
+      // Erase, then the same token again and again (#44's reproduction): no row each time.
+      for (let i = 0; i < 2; i++) {
+        const auth = new ApiUserAuthenticator(config, apiUser);
+        const people = new PersonSessions(apiUser, auth);
+        await expect(
+          people.run(request(clerk.token('user_gone')), async () => 1),
+        ).rejects.toBeInstanceOf(UnauthorizedException);
+        await run(apiUser, ERASE, {
+          clerkUserId: 'user_gone',
+          reason: 'clerk_user_deleted',
+        });
+      }
+      expect(await usersFor('user_gone')).toEqual([]);
       const [stub] = await rows(
         migrator,
         'SELECT clerkUserId, gdprDeletedAt FROM user:gone',

@@ -1,7 +1,19 @@
 import type { Surreal } from 'surrealdb';
 import { outcome, rows, run, TestDatabase } from './support/harness';
 import { consentEvent, createPeople, grantAll } from './support/harness';
-import { approve, buildWorld, draft, ERASE, submit } from './support/world';
+import { createHash } from 'node:crypto';
+import {
+  approve,
+  buildWorld,
+  draft,
+  ERASE,
+  grantUpload,
+  submit,
+} from './support/world';
+
+const ANN_VIDEO = '0b9e7d36-4a3f-4c3e-9a51-6f1d2c3b4a59';
+const fingerprint = (clerkUserId: string) =>
+  createHash('sha256').update(clerkUserId).digest('hex');
 
 /**
  * Erasure (Art 17): Clerk's signed `user.deleted` webhook reaches api-user, which verifies the
@@ -23,15 +35,25 @@ describe('erasure on api_user’s service login', () => {
     await approve(admin, 'ann_live');
     migrator = await t.migrator();
     apiUser = await t.service('api_user');
+    // Ann's video draft, its video made by api-user (an upload grant, D80).
+    await draft(ann, 'ann_video', { primaryFormat: 'video', body: undefined });
+    expect(
+      await grantUpload(apiUser, {
+        video: ANN_VIDEO,
+        story: 'ann_video',
+        person: 'ann',
+        version: 1,
+      }),
+    ).toMatchObject({ ok: true });
     await run(
       apiUser,
       `CREATE idempotencyKey:['api-user', user:ann, 'k1'] SET requestHash = 'h', status = 201;
        CREATE idempotencyKey:['api-user', user:bob, 'k1'] SET requestHash = 'h', status = 201;`,
     );
-    // Before: Ann has three stories, one live with a review; Bob has three, one live.
+    // Before: Ann has four stories, one live with a review; Bob has three, one live.
     expect(
       await truth('SELECT VALUE id FROM story WHERE submitter = user:ann'),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(await truth('SELECT VALUE id FROM publicStory')).toHaveLength(2);
     expect(await truth('SELECT VALUE id FROM moderationReview')).toHaveLength(
       2,
@@ -63,7 +85,7 @@ describe('erasure on api_user’s service login', () => {
   it('erases the person’s stories, read-model rows, reviews and idempotency keys', async () => {
     await run(apiUser, ERASE, {
       clerkUserId: 'user_ann',
-      reason: 'clerk_user_deleted',
+      reason: 'account_deleted',
     });
     expect(
       await truth('SELECT VALUE id FROM story WHERE submitter = user:ann'),
@@ -84,6 +106,54 @@ describe('erasure on api_user’s service login', () => {
       (await truth('SELECT VALUE id FROM story WHERE submitter = user:bob'))
         .length,
     ).toBe(3);
+  });
+
+  it('queues what must go outside the database: the person’s Bunny video and Clerk account (D40)', async () => {
+    expect(
+      await truth('SELECT kind, ref FROM pendingDeletion ORDER BY kind'),
+    ).toEqual([
+      { kind: 'bunny_video', ref: ANN_VIDEO },
+      { kind: 'clerk_user', ref: 'user_ann' },
+    ]);
+    expect(await truth('SELECT * FROM uploadGrant')).toEqual([]);
+    // Only api-user's login sees or changes the queue.
+    for (const name of ['api_admin', 'workflow', 'api_public_read'] as const) {
+      expect(
+        await rows(await t.service(name), 'SELECT * FROM pendingDeletion'),
+      ).toEqual([]);
+    }
+  });
+
+  it('leaves a fingerprint of the Clerk id, and nothing else, that no one can remove (D82)', async () => {
+    expect(await truth('SELECT * FROM erasedIdentity')).toEqual([
+      { id: `erasedIdentity:${fingerprint('user_ann')}` },
+    ]);
+    expect(
+      await outcome(apiUser, `CREATE erasedIdentity:user_plain`),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('sha256 fingerprint only'),
+    });
+    for (const name of ['api_user', 'api_admin'] as const) {
+      await run(await t.service(name), 'DELETE erasedIdentity');
+    }
+    expect(await truth('SELECT VALUE id FROM erasedIdentity')).toHaveLength(1);
+  });
+
+  it('never gives an erased Clerk id a row again: not api-user’s first use, nor a legacy link (#44)', async () => {
+    expect(
+      await outcome(apiUser, `CREATE user SET clerkUserId = 'user_ann'`),
+    ).toEqual({ ok: false, error: expect.stringContaining('identity_erased') });
+    await run(migrator, 'CREATE user:legacy_ann');
+    expect(
+      await outcome(
+        await t.service('api_admin'),
+        `UPDATE user:legacy_ann SET clerkUserId = 'user_ann'`,
+      ),
+    ).toEqual({ ok: false, error: expect.stringContaining('identity_erased') });
+    expect(
+      await truth(`SELECT VALUE id FROM user WHERE clerkUserId = 'user_ann'`),
+    ).toEqual([]);
   });
 
   it('keeps the consent ledger as proof, pointing at a stub user row (D37)', async () => {
@@ -176,16 +246,34 @@ describe('erasure on api_user’s service login', () => {
     await expect(t.person('user_ann')).rejects.toThrow();
   });
 
-  it('refuses to run twice', async () => {
-    expect(
-      await outcome(apiUser, ERASE, {
-        clerkUserId: 'user_ann',
-        reason: 'clerk_user_deleted',
-      }),
-    ).toEqual({
-      ok: false,
-      error: expect.stringContaining('unknown or already erased'),
+  it('is a no-op the second time (D39: the webhook after an in-app deletion)', async () => {
+    const before = await truth(
+      'RETURN [(SELECT * FROM auditLog), (SELECT * FROM pendingDeletion), (SELECT * FROM erasedIdentity)]',
+    );
+    await run(apiUser, ERASE, {
+      clerkUserId: 'user_ann',
+      reason: 'clerk_user_deleted',
     });
+    expect(
+      await truth(
+        'RETURN [(SELECT * FROM auditLog), (SELECT * FROM pendingDeletion), (SELECT * FROM erasedIdentity)]',
+      ),
+    ).toEqual(before);
+  });
+
+  it('fingerprints a Clerk id nobody here knew, and queues nothing (Clerk’s user.deleted)', async () => {
+    const results = await run(apiUser, ERASE, {
+      clerkUserId: 'user_never_here',
+      reason: 'clerk_user_deleted',
+    });
+    // [user, pending]: nobody erased, nothing queued.
+    expect(results[results.length - 2]).toEqual([undefined, []]);
+    expect(
+      await truth(
+        `SELECT VALUE id FROM type::record('erasedIdentity', $f)`,
+        { f: fingerprint('user_never_here') },
+      ),
+    ).toHaveLength(1);
   });
 
   it('blocks writes from a session opened BEFORE erasure (the webhook race)', async () => {

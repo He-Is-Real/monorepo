@@ -166,6 +166,14 @@ DEFINE FIELD OVERWRITE gdprDeletedAt ON user TYPE option<datetime>
         ELSE IF $auth = NONE { $value }
         ELSE { time::now() };
 DEFINE INDEX OVERWRITE user_clerk    ON user FIELDS clerkUserId UNIQUE;
+-- D82: an erased Clerk id never gets a row again, whoever writes it (erasedIdentity below). A token
+-- minted before erasure lives 60 s, and a Clerk user whose deletion failed can still sign in, so
+-- api-user's first-use create (provisionPerson) and a legacy link are both refused here.
+DEFINE EVENT OVERWRITE user_not_erased_identity ON user
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.clerkUserId != NONE
+   AND $after.clerkUserId != $before.clerkUserId
+   AND record::exists(type::record('erasedIdentity', crypto::sha256($after.clerkUserId)))
+  THEN { THROW 'identity_erased: this Clerk account was deleted' };
 
 -- ---------------------------------------------------------------- personFence (write fence)
 -- Transactions read a snapshot, so a check like "consent is granted" or "not erased" can pass
@@ -2041,6 +2049,38 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
         AND record::id(id) NOT IN (story.media ?? []).map(|$m| $m.bunnyVideoId);
     };
   };
+
+-- ---------------------------------------------------------------- erasedIdentity (D82 tombstone)
+-- id = erasedIdentity:<sha256 of the Clerk user id>: the fingerprint of an erased identity, and
+-- nothing else (no date, no user link). Written by the erasure transaction (libs/database
+-- erasure.ts), even for a Clerk id that never had a row (Clerk's user.deleted for someone who
+-- never used the API). user_not_erased_identity refuses that Clerk id for ever after, so a
+-- still-valid token can't recreate the person (#44's reproduction). Kept: dropping one would let
+-- a leftover Clerk account back in. Only api-user's login reads or writes it.
+DEFINE TABLE OVERWRITE erasedIdentity SCHEMAFULL PERMISSIONS
+  FOR select, create WHERE $auth.id = service:api_user,
+  FOR update, delete NONE;
+DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
+  WHEN $event = 'CREATE' AND !string::matches(<string> record::id($after.id), '^[0-9a-f]{64}$')
+  THEN { THROW 'an erased identity is a sha256 fingerprint only' };
+
+-- ---------------------------------------------------------------- pendingDeletion (D40)
+-- What erasure must still delete outside the database, written in the erasure transaction and
+-- deleted row by row once done (api-user drains them straight after the commit; a failure stays
+-- for the next drain): kind 'bunny_video' (a Stream video api-user made: the person's upload
+-- grants, never seeded media), 'image' (a picture in the images storage zone, from an image
+-- upload grant), 'clerk_user' (the Clerk account, for in-app deletion and Art 9 withdrawal; the
+-- only place a Clerk id outlives erasure, until Clerk confirms). No person link: the person is
+-- gone. Only api-user's login reads, writes or deletes it.
+DEFINE TABLE OVERWRITE pendingDeletion SCHEMAFULL PERMISSIONS
+  FOR select, create, delete WHERE $auth.id = service:api_user,
+  FOR update NONE;
+DEFINE FIELD OVERWRITE kind ON pendingDeletion TYPE string READONLY
+  ASSERT $value IN ['bunny_video', 'image', 'clerk_user'];
+DEFINE FIELD OVERWRITE ref  ON pendingDeletion TYPE string READONLY
+  ASSERT string::len($value) > 0 AND string::len($value) <= 500;
+DEFINE FIELD OVERWRITE at   ON pendingDeletion TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE INDEX OVERWRITE pendingDeletion_at ON pendingDeletion FIELDS at;
 
 -- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),
 -- helped/concern edges + trust/quality fields (M6), embedOrigin (M8).
