@@ -465,11 +465,17 @@ export class TestDatabase {
     );
   }
 
-  /** A person's session (D27): its own connection, authenticated with their Clerk token. */
-  async person(clerkUserId: string): Promise<Surreal> {
-    const db = await this.connect();
-    await db.authenticate(this.token(clerkUserId));
-    return db;
+  /**
+   * A person's session (D27): its own connection, authenticated with their Clerk token.
+   *
+   * Like a browser's Clerk client, it gets a fresh token (60 s, as Clerk's) whenever the last one
+   * expires: passed to connect(), the token callback is what surrealdb.js 2.0.8 renews through.
+   * A token given to authenticate() instead is dropped at its `exp` (the SDK invalidates the
+   * session), so a file that keeps a person's connection for over a minute, as a busy machine
+   * makes it, would carry on as an anonymous session ("Anonymous access not allowed").
+   */
+  person(clerkUserId: string): Promise<Surreal> {
+    return this.open(() => this.token(clerkUserId));
   }
 
   /** Closes this handle's connections only (e.g. to a server that's gone). */
@@ -605,15 +611,17 @@ export function legalParams(): Pick<
 
 // ---------------------------------------------------------------- fixtures
 
-/** What grantAll grants: every statement of the three forms (D93). */
+/**
+ * What grantAll grants: every statement of the sign-up and testimony forms (D93). Sharing beyond
+ * heisreal.today is chosen per story (O4): {@link shareStory}.
+ */
 export const CONSENT_TYPES = [
   'special_category_religious',
   'publish',
-  'share_socials',
   'age_18plus',
   'account_data',
 ] as const;
-export type ConsentType = (typeof CONSENT_TYPES)[number];
+export type ConsentType = (typeof CONSENT_TYPES)[number] | 'share_socials';
 
 /** Creates people the way production does: api-user creates the user record on first use. */
 export async function createPeople(
@@ -778,6 +786,36 @@ export function consentEvent(
       form: formOf(type, dpa),
       hash: sha256(`${type} ${event} ${dpa}`),
       extra,
+    },
+  );
+}
+
+/**
+ * O4: the person grants or withdraws sharing beyond heisreal.today for one story of theirs, on
+ * social sharing version `version` under privacy policy `dpa`, as the ledger records it
+ * (evidence v5 names the story).
+ */
+export function shareStory(
+  person: SurrealQueryable,
+  story: string,
+  event: 'granted' | 'withdrawn',
+  version = 'v1',
+  dpa = 'v1',
+): Promise<Row[]> {
+  return rows(
+    person,
+    `CREATE consent CONTENT {
+       subject: $auth, type: 'share_socials', event: $event,
+       dpaVersion: type::record('dpaVersion', $dpa),
+       form: type::record('socialSharingFormVersion', $version), story: <record> $story,
+       mechanism: 'web_form_submission', evidenceHash: $hash, evidenceVersion: 5
+     }`,
+    {
+      event,
+      dpa,
+      version,
+      story,
+      hash: sha256(`share_socials ${story} ${event} ${version}`),
     },
   );
 }

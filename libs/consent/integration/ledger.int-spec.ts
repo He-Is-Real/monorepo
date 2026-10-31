@@ -20,12 +20,13 @@ import { ConsentChecker } from '../src/lib/consent-checker';
 import {
   ConsentConflictError,
   ConsentLedger,
+  ConsentStoryNotFoundError,
   type GrantConsentInput,
 } from '../src/lib/consent-ledger';
 import { evidenceHash } from '../src/lib/evidence';
 import {
+  ACCOUNT_CONSENT_TYPES,
   CONSENT_REQUIRED,
-  CONSENT_TYPES,
   type ConsentType,
   STATEMENT_FORM,
 } from '../src/lib/consent.types';
@@ -151,8 +152,11 @@ const independentV1 = (r: {
 
 /** Where each statement is ticked (D73, D67, D93). */
 const FORM_OF = STATEMENT_FORM;
-/** The statements v1 of the forms asks for: every type but the terms box (D122, from v2). */
-const V1_TYPES = CONSENT_TYPES.filter((t) => t !== 'terms_of_use');
+/**
+ * The person's own statements v1 of the forms asks for: every type but the terms box (D122, from
+ * v2) and sharing, which is chosen per story (O4).
+ */
+const V1_TYPES = ACCOUNT_CONSENT_TYPES.filter((t) => t !== 'terms_of_use');
 const FORM_TABLE: Record<GrantConsentInput['form'], string> = {
   signup: 'signupFormVersion',
   testimony: 'testimonyFormVersion',
@@ -232,7 +236,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
       const state = await as('user_ann', (s) => ledger.state(s));
       expect(state.history).toEqual([]);
       expect(state.current.map((c) => [c.type, c.granted])).toEqual(
-        CONSENT_TYPES.map((type) => [type, false]),
+        ACCOUNT_CONSENT_TYPES.map((type) => [type, false]),
       );
       expect(state.signup).toEqual({ accepted: false, latestVersion: null });
       expect(await as('user_ann', (s) => asAdmin.callerHas(s, ART9))).toBe(
@@ -395,7 +399,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
     it('derives the current state, the sign-up and testimony status from the latest events (D17, D73, D85)', async () => {
       const state = await as('user_ann', (s) => ledger.state(s));
       expect(state.current).toEqual(
-        CONSENT_TYPES.map((type) =>
+        ACCOUNT_CONSENT_TYPES.map((type) =>
           type === 'terms_of_use'
             ? {
                 type,
@@ -645,15 +649,130 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
         as('user_ann', (s) => ledger.withdraw(s, 'publish')),
       ).resolves.toMatchObject({ id: expect.stringMatching(/^\w+$/) });
       expect(
-        await conflict(
-          as('user_bob', (s) => ledger.withdraw(s, 'share_socials')),
-        ),
+        await conflict(as('user_bob', (s) => ledger.withdraw(s, 'age_18plus'))),
       ).toBe('consent_not_granted');
     });
 
     it('re-consent restores the grant (each story follows the person, D17)', async () => {
       await grant('user_ann', 'publish', 'v1', 'reconsent_prompt');
       expect(await asAdmin.submitterHas('ann_live', PUBLISHABLE)).toBe(true);
+    });
+  });
+
+  describe('sharing beyond heisreal.today, chosen per story (O4)', () => {
+    const share = (who: string, storyId: string) =>
+      as(who, (s) =>
+        ledger.grant(s, {
+          form: 'social',
+          formVersion: 'v1',
+          statement: 'share_socials',
+          mechanism: 'web_form_submission',
+          privacyPolicyVersion: 'v1',
+          storyId,
+        }),
+      );
+    const sharingOf = (story: string) =>
+      rows(
+        admin,
+        `RETURN fn::consent::story_sharing(user:ann, type::record('story', $story)).event ?? 'none'`,
+        { story },
+      );
+    beforeAll(async () => {
+      expect(
+        await draft(await t.person('user_ann'), 'ann_other', { tagRefs: [] }),
+      ).toHaveLength(1);
+    });
+
+    it('a grant names the story, with evidence v5 binding it; the person’s own consents don’t list it', async () => {
+      const { status } = await share('user_ann', 'ann_live');
+      expect(status).toBe(201);
+      expect(await sharingOf('ann_live')).toEqual(['granted']);
+      expect(await sharingOf('ann_other')).toEqual(['none']);
+      const [row] = await rows<Record<string, unknown>>(
+        await t.migrator(),
+        `SELECT *, dpaVersion.contentHash AS dpaHash, form.textHash AS formHash,
+           form.statementsHash AS statementsHash
+           FROM consent WHERE subject = user:ann AND type = 'share_socials'`,
+      );
+      expect(row).toMatchObject({
+        story: 'story:ann_live',
+        form: 'socialSharingFormVersion:v1',
+        evidenceVersion: 5,
+      });
+      expect(row['evidenceHash']).toBe(
+        createHash('sha256')
+          .update(
+            JSON.stringify([
+              'heisreal-consent-evidence/v5',
+              'social',
+              'v1',
+              row['formHash'],
+              row['statementsHash'],
+              'v1',
+              row['dpaHash'],
+              null,
+              null,
+              'ann_live',
+              'share_socials',
+              'granted',
+              'web_form_submission',
+            ]),
+          )
+          .digest('hex'),
+      );
+      const state = await as('user_ann', (s) => ledger.state(s));
+      expect(state.current.map((c) => c.type)).not.toContain('share_socials');
+      expect(state.history.at(-1)).toMatchObject({
+        type: 'share_socials',
+        event: 'granted',
+        storyId: 'ann_live',
+      });
+      expect(
+        state.history
+          .filter((e) => e.type !== 'share_socials')
+          .every((e) => e.storyId === null),
+      ).toBe(true);
+    });
+
+    it('withdrawing it follows that story’s grant only; another story has nothing to withdraw', async () => {
+      const { status } = await as('user_ann', (s) =>
+        ledger.withdraw(s, { type: 'share_socials', storyId: 'ann_live' }),
+      );
+      expect(status).toBe(202);
+      expect(await sharingOf('ann_live')).toEqual(['withdrawn']);
+      expect(
+        await conflict(
+          as('user_ann', (s) =>
+            ledger.withdraw(s, { type: 'share_socials', storyId: 'ann_other' }),
+          ),
+        ),
+      ).toBe('consent_not_granted');
+      const checks = await as('user_ann', (s) => ledger.verifyEvidence(s));
+      expect(checks.slice(-2)).toEqual([
+        expect.objectContaining({ format: 'v5', verified: true }),
+        expect.objectContaining({ format: 'v5', verified: true }),
+      ]);
+    });
+
+    it('nobody chooses for someone else’s story: it reads as missing, and nothing is recorded', async () => {
+      const notFound = async (p: Promise<unknown>) =>
+        expect(await p.catch((e: unknown) => e)).toBeInstanceOf(
+          ConsentStoryNotFoundError,
+        );
+      await notFound(share('user_bob', 'ann_live'));
+      await notFound(share('user_bob', 'no_such_story'));
+      await notFound(
+        as('user_bob', (s) =>
+          ledger.withdraw(s, { type: 'share_socials', storyId: 'ann_live' }),
+        ),
+      );
+      expect(
+        await rows(
+          await t.migrator(),
+          `SELECT VALUE id FROM consent WHERE subject = user:bob AND type = 'share_socials'`,
+        ),
+      ).toEqual([]);
+      expect(await sharingOf('ann_live')).toEqual(['withdrawn']);
     });
   });
 

@@ -25,8 +25,26 @@ const card = (page: Page, title: string) =>
 const playButton = (page: Page, title: string) =>
   page.getByRole('button', { name: `Play ${title}`, exact: true });
 const media = (c: Locator) => c.locator('[data-card-media]');
-// Clicks land where a person's would: on the excerpt, under the title link's stretched area
-// (`force` skips Playwright's "another element would receive the click" check).
+
+/**
+ * Clicks a card where a person's click would land: on `part` (the excerpt, under the title
+ * link's stretched area). The click is on the card, at that part's place in it, so Playwright
+ * still checks the card holds still and is what the pointer hits, and tries again if not: once
+ * the page's script runs, the masonry swaps the server's predicted heights for measured ones and
+ * cards move up (story-masonry.tsx), on a slow machine just as a click lands.
+ */
+async function clickCardAt(c: Locator, part: Locator) {
+  // Both boxes in one go, so the offset is the part's place in the card wherever the card is.
+  const position = await part.evaluate((el) => {
+    const card = el.closest('article')?.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return {
+      x: box.x - (card?.x ?? 0) + box.width / 2,
+      y: box.y - (card?.y ?? 0) + box.height / 2,
+    };
+  });
+  await c.click({ position });
+}
 
 async function size(locator: Locator) {
   const box = await locator.boundingBox();
@@ -68,9 +86,10 @@ test('the media area plays the story in place; the text below opens the story', 
   await expectTarget(page, video.getByRole('button', { name: 'Close player' }));
 
   // The text part still opens the story's page.
-  await video
-    .getByText('Placeholder story for the card playback tests.')
-    .click({ force: true });
+  await clickCardAt(
+    video,
+    video.getByText('Placeholder story for the card playback tests.'),
+  );
   await expect(page).toHaveURL(/\/stories\/play-test-video$/);
   await expect(
     page.getByRole('heading', { level: 1, name: VIDEO }),
@@ -142,9 +161,10 @@ test('written cards open the story from anywhere on the card', async ({
   const written = card(page, 'Play test: written');
   // No player: its only button is the heart (favourites.e2e.ts).
   await expect(written.locator('button:not([data-heart])')).toHaveCount(0);
-  await written
-    .getByText('Placeholder story for the card playback tests.')
-    .click({ force: true });
+  await clickCardAt(
+    written,
+    written.getByText('Placeholder story for the card playback tests.'),
+  );
   await expect(page).toHaveURL(/\/stories\/play-test-written$/);
 });
 

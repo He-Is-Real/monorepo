@@ -392,6 +392,11 @@ paths:
         use in force); a `privacyPolicyVersion` or `termsVersion` that is missing or isn't the one in force
         answers `409 legal_document_not_in_force`. While no form is published no consent can be given. Used at sign-up, at the start of a draft, at submit
         and for re-consent. No `If-Match`: the ledger is append-only, so there is nothing to conflict with.
+
+        O4 (Joel, 2026-10-31): sharing beyond heisreal.today (`share_socials`) is chosen per story: the grant
+        names one story of the person's own in `storyId` (at submit, or from My submissions). A story that
+        isn't theirs answers `404 story_not_found`; `storyId` with any other statement, or `share_socials`
+        without it, `400`.
       x-required-role: User
       x-milestone: M0
       parameters:
@@ -413,6 +418,8 @@ paths:
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
         '422':
@@ -434,13 +441,26 @@ paths:
         Withdrawing `special_category_religious` (the testimony consent, D88) or `account_data` (the
         sign-up consent to store the account, D73) then deletes the whole account, exactly as
         `DELETE /v1/account` does (D39); the withdrawal stays on the ledger as proof. Withdrawing
-        `publish` takes every one of the person's stories off the site but keeps them in the account
-        ("Take all my stories off the site", R6).
+        `publish` takes every one of the person's stories off the site but keeps them in the account.
+        O4 (Joel, 2026-10-31): the profile no longer offers it ("Delete my account" is the one account-wide
+        withdrawal there, and each story is withdrawn or deleted in My submissions); the route stays so
+        the ledger keeps a working withdrawal for every consent it can hold (Art 7(3)).
+
+        Sharing beyond heisreal.today (`share_socials`) is withdrawn per story (O4): the body names the
+        story (`WithdrawConsent`), the withdrawal follows that story's own latest grant, and no other story
+        changes. A story that isn't the person's answers `404 story_not_found`; never granted for that
+        story, `409 consent_not_granted`. Every other type takes no body.
       x-required-role: User
       x-milestone: M0
       parameters:
         - $ref: './components.yaml#/components/parameters/consentType'
         - $ref: './components.yaml#/components/parameters/idempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/WithdrawConsent'
       responses:
         '202':
           $ref: './components.yaml#/components/responses/Accepted'
@@ -448,6 +468,8 @@ paths:
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
         '422':
@@ -940,6 +962,10 @@ paths:
         zone: `400` `image_not_uploaded` if it never did (the person adds it again, or removes it),
         `503` `uploads_unavailable` when the zone gives no clear answer.
 
+        **Sharing beyond heisreal.today (O4):** the optional body's `shareBeyondSite` records this story's
+        `share_socials` grant in the same transaction as the submission (`SubmitStory`). The same key with
+        another body is `422`.
+
         **A video's own picture (O1 a, Joel 2026-10-31):** once the checks above pass, api-user makes
         it the video's thumbnail at Bunny Stream (Bunny fetches it by a 10-minute signed link), so
         Bunny's own player shows it too; a picture removed since the last submit gives way to one of
@@ -954,6 +980,12 @@ paths:
         - $ref: './components.yaml#/components/parameters/storyId'
         - $ref: './components.yaml#/components/parameters/ifMatch'
         - $ref: './components.yaml#/components/parameters/idempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/SubmitStory'
       responses:
         '200':
           $ref: './components.yaml#/components/responses/CommandApplied'

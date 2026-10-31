@@ -56,6 +56,8 @@ export interface MyStory {
   tags: Tag[];
   submittedAt: string | null;
   updatedAt: string;
+  /** O4: whether this story may go beyond heisreal.today (its own choice). */
+  sharing?: { granted: boolean };
 }
 
 /** The contract's `StoryMineImage`: the person's own picture on their draft. */
@@ -139,6 +141,12 @@ export interface UploadRequest {
   alt?: string;
   /** Images: the path of the picture the page showed (null: none); `409 image_changed` if not the story's. */
   expectedImage?: string | null;
+}
+
+/** The contract's `SubmitStory.shareBeyondSite`: the versions shown beside the ticked box. */
+export interface ShareBeyondSite {
+  formVersion: string;
+  privacyPolicyVersion: string;
 }
 
 export interface CommandResult {
@@ -364,11 +372,26 @@ export function shareApi(api: ApiUser) {
       );
       return uploadTarget(res.data);
     },
-    submit: async (id: string, version: number, idempotencyKey: string) =>
+    /**
+     * SubmitStory. `share` (O4): sharing beyond heisreal.today ticked on Review, with the social
+     * sharing form and privacy policy versions shown: recorded with the submission, in its own
+     * transaction, so a replay of the same key and body resolves both at once.
+     */
+    submit: async (
+      id: string,
+      version: number,
+      idempotencyKey: string,
+      share?: ShareBeyondSite,
+    ) =>
       commandResult(
         await api.command<CommandResult>(
           `/v1/stories/${encodeURIComponent(id)}/submit`,
-          { method: 'POST', version, idempotencyKey },
+          {
+            method: 'POST',
+            version,
+            idempotencyKey,
+            ...(share ? { body: { shareBeyondSite: share } } : {}),
+          },
         ),
       ),
   };

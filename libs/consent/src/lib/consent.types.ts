@@ -23,6 +23,15 @@ export const CONSENT_TYPES = [
   'terms_of_use',
 ] as const;
 export type ConsentType = (typeof CONSENT_TYPES)[number];
+/**
+ * O4 (Joel, 2026-10-31): the consents that are the person's, for all their stories at once.
+ * `share_socials` isn't one: sharing beyond heisreal.today is chosen per story, every event naming
+ * the story (`fn::consent::story_sharing`).
+ */
+export const ACCOUNT_CONSENT_TYPES = CONSENT_TYPES.filter(
+  (t): t is Exclude<ConsentType, 'share_socials'> => t !== 'share_socials',
+);
+export type AccountConsentType = (typeof ACCOUNT_CONSENT_TYPES)[number];
 
 /**
  * The three consent forms (D84, D93): `signupFormVersion`, `testimonyFormVersion` and

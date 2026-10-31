@@ -16,6 +16,7 @@ import {
   plainMessage,
   sameField,
   type ShareApi,
+  type ShareBeyondSite,
   type StoryFields,
   type StoryFormat,
 } from './share-api';
@@ -106,16 +107,26 @@ export interface Draft {
    * until it's settled. So a lost answer, then Back and Review again, or a reload, sends the
    * same key and the API replays what happened (Codex #118).
    */
-  beginSubmit: (draftId: string, version: number) => SubmitAttempt;
+  beginSubmit: (
+    draftId: string,
+    version: number,
+    share?: ShareBeyondSite,
+  ) => SubmitAttempt;
+  /** The unresolved submission kept for this draft at `version`, if any (its body is fixed). */
+  keptSubmit: (draftId: string, version: number) => SubmitAttempt | null;
   /** Forget the submission: it succeeded, or was definitely refused. Keep it when unknown. */
   settleSubmit: (draftId: string) => void;
 }
 
-/** A submission being tried: its Idempotency-Key and the story version it was sent at. */
+/**
+ * A submission being tried: its Idempotency-Key, the story version it was sent at and its body
+ * (O4: sharing beyond heisreal.today, if ticked), all sent again as they were.
+ */
 export interface SubmitAttempt {
   key: string;
   draftId: string;
   version: number;
+  share?: ShareBeyondSite;
 }
 
 /**
@@ -489,22 +500,40 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     removeStored(owner, null);
   }, [owner]);
 
-  const beginSubmit = useCallback(
-    (draftId: string, version: number): SubmitAttempt => {
-      const key = SUBMIT_KEY(owner, draftId);
+  const keptSubmit = useCallback(
+    (draftId: string, version: number): SubmitAttempt | null => {
       try {
         const kept = JSON.parse(
-          window.sessionStorage.getItem(key) ?? 'null',
+          window.sessionStorage.getItem(SUBMIT_KEY(owner, draftId)) ?? 'null',
         ) as SubmitAttempt | null;
         // The same draft at the same version: the same submission. A changed draft means the
         // earlier one can't have gone through (a submitted story can't be saved).
-        if (kept && kept.draftId === draftId && kept.version === version) {
-          return kept;
-        }
+        return kept && kept.draftId === draftId && kept.version === version
+          ? kept
+          : null;
       } catch {
-        // unreadable: a new one
+        return null; // unreadable: none
       }
-      const attempt = { key: newIdempotencyKey(), draftId, version };
+    },
+    [owner],
+  );
+
+  const beginSubmit = useCallback(
+    (
+      draftId: string,
+      version: number,
+      share?: ShareBeyondSite,
+    ): SubmitAttempt => {
+      const key = SUBMIT_KEY(owner, draftId);
+      // A submission whose outcome is unknown is sent again exactly as it was.
+      const kept = keptSubmit(draftId, version);
+      if (kept) return kept;
+      const attempt: SubmitAttempt = {
+        key: newIdempotencyKey(),
+        draftId,
+        version,
+        ...(share ? { share } : {}),
+      };
       try {
         window.sessionStorage.setItem(key, JSON.stringify(attempt));
       } catch {
@@ -512,7 +541,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
       }
       return attempt;
     },
-    [owner],
+    [owner, keptSubmit],
   );
 
   const settleSubmit = useCallback(
@@ -563,6 +592,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     forget,
     setVersion,
     beginSubmit,
+    keptSubmit,
     settleSubmit,
     current: () => ({
       draftId: state.current.draftId,

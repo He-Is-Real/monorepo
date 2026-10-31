@@ -10,9 +10,10 @@ import {
 } from '@heisreal/database';
 import type { SurrealQueryable } from 'surrealdb';
 import {
+  ACCOUNT_CONSENT_TYPES,
+  type AccountConsentType,
   type ConsentForm,
   type ConsentMechanism,
-  CONSENT_TYPES,
   type ConsentType,
 } from './consent.types';
 import { evidenceHash } from './evidence';
@@ -34,11 +35,14 @@ export interface ConsentEvent {
   formVersion: string | null;
   dpaVersion: string;
   mechanism: string;
+  /** O4: the story a sharing event is about (its id); `null` on every other event. */
+  storyId: string | null;
   occurredAt: string;
 }
 
 export interface CurrentConsent {
-  type: ConsentType;
+  /** O4: the person's own consents; sharing beyond heisreal.today is per story (`StorySharing`). */
+  type: AccountConsentType;
   /** The latest event is a grant. */
   granted: boolean;
   form: ConsentForm | null;
@@ -75,6 +79,19 @@ export interface TestimonyStatus {
   acceptanceRequired: boolean;
 }
 
+/**
+ * O4: one story's sharing beyond heisreal.today, the contracts' `StorySharing`: its own latest
+ * share_socials event (`fn::consent::story_sharing`).
+ */
+export interface StorySharing {
+  /** The latest event for this story is a grant. */
+  granted: boolean;
+  /** Granted, and it counts (`fn::consent::valid`): on a social sharing version that counts. */
+  counts: boolean;
+  formVersion: string | null;
+  occurredAt: string | null;
+}
+
 /** The contracts' `ConsentState`. */
 export interface ConsentState {
   current: CurrentConsent[];
@@ -97,7 +114,20 @@ export interface GrantConsentInput {
    */
   privacyPolicyVersion?: string;
   termsVersion?: string;
+  /**
+   * O4: the story the person chooses sharing beyond heisreal.today for (its id): required with
+   * `share_socials`, and only with it (the parser's 400; the database refuses it too).
+   */
+  storyId?: string;
 }
+
+/**
+ * What WithdrawConsent withdraws: one of the person's own consents, or (O4) sharing beyond
+ * heisreal.today for one story of theirs.
+ */
+export type WithdrawTarget =
+  | Exclude<ConsentType, 'share_socials'>
+  | { type: 'share_socials'; storyId: string };
 
 /** An `Idempotency-Key` for one command (D29), scoped to the person. */
 export interface IdempotencyOptions {
@@ -127,6 +157,33 @@ export class ConsentConflictError extends Error {
   }
 }
 
+/** O4: the story named isn't one of the person's own (`404`, as if it didn't exist). */
+export class ConsentStoryNotFoundError extends Error {
+  constructor() {
+    super('No story of yours has that id');
+    this.name = 'ConsentStoryNotFoundError';
+  }
+}
+
+/** A story's `fn::consent::story_sharing` and `fn::consent::valid` of it, as `StorySharing`. */
+export function storySharing(
+  latest:
+    | { event?: string; form?: string | null; occurredAt?: string }
+    | null
+    | undefined,
+  valid: boolean | null | undefined,
+): StorySharing {
+  const granted = latest?.event === 'granted';
+  return {
+    granted,
+    counts: granted && valid === true,
+    formVersion: formRef(latest?.form)?.formVersion ?? null,
+    occurredAt: latest?.occurredAt
+      ? new Date(latest.occurredAt).toISOString()
+      : null,
+  };
+}
+
 /** `table:id` → `id`: the contracts' IDs are opaque record keys without the table. */
 export function recordKey(id: string): string {
   const key = id.slice(id.indexOf(':') + 1);
@@ -152,7 +209,7 @@ export function formRef(id: string | null | undefined): FormRef | null {
 /** One ledger row checked against its recomputed evidence hash. */
 export interface EvidenceCheck {
   id: string;
-  format: 'v1' | 'v2' | 'v3' | 'v4';
+  format: 'v1' | 'v2' | 'v3' | 'v4' | 'v5';
   verified: boolean;
 }
 
@@ -162,6 +219,7 @@ interface RawEvent {
   event: 'granted' | 'withdrawn';
   dpaVersion: string;
   form?: string | null;
+  story?: string | null;
   mechanism: string;
   occurredAt: string;
 }
@@ -190,14 +248,14 @@ export class ConsentLedger {
   async state(person: SurrealQueryable): Promise<ConsentState> {
     const results = (await runQuery(
       person,
-      `SELECT id, type, event, dpaVersion, form, mechanism, occurredAt FROM consent
+      `SELECT id, type, event, dpaVersion, form, story, mechanism, occurredAt FROM consent
          WHERE subject = $auth ORDER BY occurredAt ASC;
        RETURN $types.map(|$t| fn::consent::current($auth, $t));
        RETURN $types.map(|$t| fn::consent::valid(fn::consent::current($auth, $t)));
        RETURN fn::consent::signup_accepted($auth);
        RETURN fn::form::latest('signup').id;
        RETURN fn::consent::testimony_status($auth);`,
-      { types: [...CONSENT_TYPES] },
+      { types: [...ACCOUNT_CONSENT_TYPES] },
     )) as [
       RawEvent[],
       (RawSnapshot | null)[],
@@ -213,7 +271,7 @@ export class ConsentLedger {
     ];
     const [history, latest, valid, accepted, signupLatest, testimony] = results;
     return {
-      current: CONSENT_TYPES.map((type, i) => {
+      current: ACCOUNT_CONSENT_TYPES.map((type, i) => {
         const snap = latest[i] ?? null;
         const granted = snap?.event === 'granted';
         const ref = formRef(snap?.form);
@@ -247,6 +305,7 @@ export class ConsentLedger {
           formVersion: ref?.formVersion ?? null,
           dpaVersion: recordKey(e.dpaVersion),
           mechanism: e.mechanism,
+          storyId: e.story ? recordKey(e.story) : null,
           occurredAt: e.occurredAt,
         };
       }),
@@ -263,7 +322,7 @@ export class ConsentLedger {
       `SELECT id, type, event, mechanism, evidenceHash, evidenceVersion, dpaVersion, occurredAt,
          dpaVersion.contentHash AS dpaHash, form,
          form.textHash AS formHash, form.statementsHash AS statementsHash,
-         termsVersion, termsVersion.contentHash AS termsHash
+         termsVersion, termsVersion.contentHash AS termsHash, story
        FROM consent WHERE subject = $auth ORDER BY occurredAt ASC`,
     )) as [
       {
@@ -280,11 +339,13 @@ export class ConsentLedger {
         statementsHash?: string | null;
         termsVersion?: string | null;
         termsHash?: string | null;
+        story?: string | null;
       }[],
     ];
     return found.map((r) => {
       const ref = formRef(r.form);
-      const v4 = r.evidenceVersion === 4;
+      const v5 = r.evidenceVersion === 5;
+      const v4 = r.evidenceVersion === 4 || v5;
       const v3 = r.evidenceVersion === 3 || v4;
       const expected = evidenceHash({
         form: ref
@@ -309,13 +370,15 @@ export class ConsentLedger {
                 : null,
             }
           : {}),
+        // v5 (O4): the story the sharing event is about.
+        ...(v5 ? { story: r.story ? recordKey(r.story) : 'missing' } : {}),
         type: r.type,
         event: r.event,
         mechanism: r.mechanism,
       });
       return {
         id: recordKey(r.id),
-        format: v4 ? 'v4' : v3 ? 'v3' : ref ? 'v2' : 'v1',
+        format: v5 ? 'v5' : v4 ? 'v4' : v3 ? 'v3' : ref ? 'v2' : 'v1',
         verified: expected === r.evidenceHash,
       };
     });
@@ -341,6 +404,38 @@ export class ConsentLedger {
   }
 
   /**
+   * O4: the statements that record a story's sharing beyond heisreal.today, for a command that
+   * runs them in its own transaction (SubmitStory: Review's box is sent with the submission, so
+   * the grant and the submission commit together or not at all). Checked as {@link grant} checks
+   * it: the social sharing form and privacy policy shown must be the ones in force
+   * (`ConsentConflictError`) and the story the person's own (`ConsentStoryNotFoundError`).
+   * Recorded with `web_form_submission` and evidence v5. The statements bind `$event` and leave
+   * `$result` to the caller, which merges `vars` into its own. The transaction's refusal (a
+   * version replaced meanwhile) is {@link consentConflictOf}.
+   */
+  async storySharingGrant(
+    person: SurrealQueryable,
+    input: {
+      formVersion: string;
+      privacyPolicyVersion: string;
+      storyId: string;
+    },
+  ): Promise<{ statements: string; vars: Record<string, unknown> }> {
+    const prepared = await this.prepareGrant(person, {
+      form: 'social',
+      formVersion: input.formVersion,
+      statement: 'share_socials',
+      mechanism: 'web_form_submission',
+      privacyPolicyVersion: input.privacyPolicyVersion,
+      storyId: input.storyId,
+    });
+    return {
+      statements: prepared.statements.replace(EVENT_RESULT, ''),
+      vars: prepared.vars,
+    };
+  }
+
+  /**
    * WithdrawConsent: appends a `withdrawn` event (bound to the form version and DPA of the event
    * it follows) and, for `publish` and `special_category_religious`, deletes the person's
    * `publicStory` rows in the same transaction (D17: every story follows the person's consent).
@@ -352,14 +447,18 @@ export class ConsentLedger {
    * Withdrawing Art 9 or account_data then erases the account (D39, D88, D73): the database
    * commits an erasure request with the withdrawal, and the HTTP endpoint runs the service's
    * erasure after this has committed (`ERASING_WITHDRAWALS`); housekeeping erases anyone missed.
+   *
+   * O4: sharing beyond heisreal.today is withdrawn per story (`{ type: 'share_socials', storyId }`),
+   * following that story's own latest event; another story's choice is untouched. A story that
+   * isn't the person's: `ConsentStoryNotFoundError`.
    */
   async withdraw(
     person: SurrealQueryable,
-    type: ConsentType,
+    target: WithdrawTarget,
     idempotency?: IdempotencyOptions,
   ): Promise<CommandOutcome> {
     return this.execute(person, idempotency, () =>
-      this.prepareWithdraw(person, type),
+      this.prepareWithdraw(person, target),
     );
   }
 
@@ -376,9 +475,11 @@ export class ConsentLedger {
          { id: $f.id, textHash: $f.textHash, statementsHash: $f.statementsHash,
            coversTerms: $f.coversTerms = true, statements: fn::form::statements($f.id),
            dpaVersion: $d, dpaHash: $d.contentHash,
-           termsVersion: $t, termsHash: $t.contentHash }
+           termsVersion: $t, termsHash: $t.contentHash,
+           mine: IF $story { array::len(SELECT VALUE id FROM type::record('story', $story)) = 1 }
+             ELSE { NONE } }
        };`,
-      { form: input.form },
+      { form: input.form, story: input.storyId ?? null },
     );
     const inForce = results[results.length - 1] as {
       id: string;
@@ -390,6 +491,7 @@ export class ConsentLedger {
       dpaHash?: string | null;
       termsVersion?: string | null;
       termsHash?: string | null;
+      mine?: boolean | null;
     } | null;
     if (!inForce || recordKey(inForce.id) !== input.formVersion) {
       throw new ConsentConflictError(
@@ -404,6 +506,10 @@ export class ConsentLedger {
         'statement_not_on_form',
         `The ${input.form} form ${input.formVersion} has no ${input.statement} statement`,
       );
+    }
+    // O4: a story's sharing is its owner's to choose; anyone else's story reads as missing.
+    if (input.storyId !== undefined && inForce.mine !== true) {
+      throw new ConsentStoryNotFoundError();
     }
     if (!inForce.statementsHash) {
       // D114: the migration gives every version its statements data, so this is a bug or a
@@ -447,15 +553,17 @@ export class ConsentLedger {
           THROW '${NOT_IN_FORCE}';
         };
         ${appendEvent('granted')}
-        LET $result = { id: $event.id, version: NONE };`,
+        ${EVENT_RESULT}`,
       vars: {
         form_kind: input.form,
         type: input.statement,
         dpa,
         terms: inForce.coversTerms ? terms : null,
         form: `${FORM_TABLES[input.form]}:${input.formVersion}`,
+        story: input.storyId ?? null,
         mechanism: input.mechanism,
-        evidence_version: 4,
+        // O4: v5 binds the story too.
+        evidence_version: input.storyId === undefined ? 4 : 5,
         hash: evidenceHash({
           form: {
             kind: input.form,
@@ -469,6 +577,7 @@ export class ConsentLedger {
             inForce.coversTerms && terms
               ? { version: terms, contentHash: inForce.termsHash as string }
               : null,
+          ...(input.storyId === undefined ? {} : { story: input.storyId }),
           type: input.statement,
           event: 'granted',
           mechanism: input.mechanism,
@@ -479,25 +588,39 @@ export class ConsentLedger {
 
   private async prepareWithdraw(
     person: SurrealQueryable,
-    type: ConsentType,
+    target: WithdrawTarget,
   ): Promise<PreparedCommand> {
+    const type = typeof target === 'string' ? target : target.type;
+    const story = typeof target === 'string' ? null : target.storyId;
     const results = await runQuery(
       person,
-      `LET $latest = fn::consent::current($auth, $type);
+      `LET $latest = IF $story { fn::consent::story_sharing($auth, type::record('story', $story)) }
+         ELSE { fn::consent::current($auth, $type) };
        RETURN { latest: $latest, contentHash: $latest.dpaVersion.contentHash,
          textHash: $latest.form.textHash, statementsHash: $latest.form.statementsHash,
-         terms: $latest.termsVersion, termsHash: $latest.termsVersion.contentHash };`,
-      { type },
+         terms: $latest.termsVersion, termsHash: $latest.termsVersion.contentHash,
+         mine: IF $story { array::len(SELECT VALUE id FROM type::record('story', $story)) = 1 }
+           ELSE { NONE } };`,
+      { type, story },
     );
-    const { latest, contentHash, textHash, statementsHash, terms, termsHash } =
-      results[results.length - 1] as {
-        latest: RawSnapshot | null;
-        contentHash: string | null;
-        textHash: string | null;
-        statementsHash?: string | null;
-        terms?: string | null;
-        termsHash?: string | null;
-      };
+    const {
+      latest,
+      contentHash,
+      textHash,
+      statementsHash,
+      terms,
+      termsHash,
+      mine,
+    } = results[results.length - 1] as {
+      latest: RawSnapshot | null;
+      contentHash: string | null;
+      textHash: string | null;
+      statementsHash?: string | null;
+      terms?: string | null;
+      termsHash?: string | null;
+      mine?: boolean | null;
+    };
+    if (story !== null && mine !== true) throw new ConsentStoryNotFoundError();
     if (!latest || !contentHash) {
       throw new ConsentConflictError(
         'consent_not_granted',
@@ -506,6 +629,11 @@ export class ConsentLedger {
     }
     const dpa = recordKey(latest.dpaVersion);
     const ref = formRef(latest.form);
+    // O4: a story's sharing grant always has its version's statements data (D114), which v5
+    // needs; without it this is a bug, so nothing is recorded.
+    if (story !== null && !(ref && statementsHash)) {
+      throw new Error('The story’s sharing grant has no statements data');
+    }
     const mechanism = 'account_settings';
     const unpublish =
       type === 'publish' || type === 'special_category_religious';
@@ -518,16 +646,18 @@ export class ConsentLedger {
                FOR $s IN $stories { DELETE type::record('publicStory', record::id($s)); };`
             : ''
         }
-        LET $result = { id: $event.id, version: NONE };`,
+        ${EVENT_RESULT}`,
       vars: {
         type,
         dpa,
         // D122: a withdrawal binds the documents of the grant it follows.
         terms: terms ? recordKey(terms) : null,
         form: latest.form ?? null,
+        story,
         mechanism,
-        // D114, D125: v4 when the withdrawn grant's form version has statements data.
-        evidence_version: ref && statementsHash ? 4 : null,
+        // D114, D125: v4 when the withdrawn grant's form version has statements data; O4: v5
+        // for a story's sharing.
+        evidence_version: story !== null ? 5 : ref && statementsHash ? 4 : null,
         hash: evidenceHash({
           form: ref
             ? {
@@ -549,6 +679,7 @@ export class ConsentLedger {
                   : null,
               }
             : {}),
+          ...(story !== null ? { story } : {}),
           type,
           event: 'withdrawn',
           mechanism,
@@ -595,20 +726,33 @@ export class ConsentLedger {
         };
       });
     } catch (err) {
-      // The database is the backstop (D20, D84): e.g. the version retired in between.
-      if (
-        err instanceof DatabaseQueryError &&
-        (err.message.includes(PUBLISHED_FORM_REFUSED) ||
-          err.message.includes(NOT_IN_FORCE))
-      ) {
-        throw new ConsentConflictError(
-          'form_version_not_in_force',
-          'The form version, privacy policy or terms of use shown is no longer the one in force',
-        );
-      }
-      throw err;
+      throw consentConflictOf(err) ?? err;
     }
   }
+}
+
+/** A ledger command's answer: the event it appended. */
+const EVENT_RESULT = 'LET $result = { id: $event.id, version: NONE };';
+
+/**
+ * The database's refusal of a grant as the 409 it is (the backstop, D20, D84): the form version,
+ * privacy policy or terms shown stopped being the ones in force between the check and the
+ * commit. `undefined` for any other error.
+ */
+export function consentConflictOf(
+  err: unknown,
+): ConsentConflictError | undefined {
+  if (
+    err instanceof DatabaseQueryError &&
+    (err.message.includes(PUBLISHED_FORM_REFUSED) ||
+      err.message.includes(NOT_IN_FORCE))
+  ) {
+    return new ConsentConflictError(
+      'form_version_not_in_force',
+      'The form version, privacy policy or terms of use shown is no longer the one in force',
+    );
+  }
+  return undefined;
 }
 
 /** Appends one ledger event as `$event`; fails the transaction if it wasn't written. */
@@ -618,6 +762,7 @@ function appendEvent(event: 'granted' | 'withdrawn'): string {
       dpaVersion: type::record('dpaVersion', $dpa),
       termsVersion: IF $terms { type::record('termsVersion', $terms) } ELSE { NONE },
       form: IF $form { <record> $form } ELSE { NONE },
+      story: IF $story { type::record('story', $story) } ELSE { NONE },
       mechanism: $mechanism, evidenceHash: $hash,
       evidenceVersion: IF $evidence_version { $evidence_version } ELSE { NONE }
     } RETURN id);

@@ -11,6 +11,7 @@ import {
   draft,
   grantAll,
   grantImage,
+  shareStory,
   grantUpload,
   processed,
   publishDpa,
@@ -332,6 +333,8 @@ describe('download my data', () => {
     await submit(ann, annLive.id);
     await processed(await t.service('workflow'), annLive.id);
     await decide(annLive.id, 'approve');
+    // O4: she lets this story, and only this one, go beyond heisreal.today.
+    await shareStory(ann, `story:${annLive.id}`, 'granted');
     const annVideo = randomUUID();
     await draft(ann, 'ann_video', { primaryFormat: 'video', body: undefined });
     expect(
@@ -493,6 +496,19 @@ describe('download my data', () => {
         },
       ],
     });
+    // O4: each story's own sharing choice, and the ledger event naming it.
+    expect(story(annLive.id).sharing).toEqual({
+      granted: true,
+      counts: true,
+      formVersion: 'v1',
+      occurredAt: expect.any(String),
+    });
+    expect(story(annDraft.id).sharing).toMatchObject({ granted: false });
+    expect(
+      file.consents
+        .filter((c: { type: string }) => c.type === 'share_socials')
+        .map((c: { storyId: string | null }) => c.storyId),
+    ).toEqual([annLive.id]);
     expect(story(annLive.id)).toMatchObject({
       onSiteNow: true,
       publishedAt: expect.any(String),

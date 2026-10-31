@@ -54,3 +54,11 @@ export async function getShareLegal(): Promise<ShareLegal> {
   ]);
   return { testimony, social };
 }
+
+/**
+ * The social sharing form in force, with the privacy policy: what My submissions shows to share a
+ * story beyond heisreal.today (O4: chosen per story). `null` if none is published or it can't be read.
+ */
+export function getSocialSharingForm(): Promise<ShareForm | null> {
+  return shareForm('social');
+}

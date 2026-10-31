@@ -21,7 +21,14 @@ import {
   submissionLimitOf,
   trimmedTextLength,
 } from '@heisreal/database';
-import { recordKey } from '@heisreal/consent';
+import {
+  ConsentConflictError,
+  consentConflictOf,
+  ConsentStoryNotFoundError,
+  recordKey,
+  type StorySharing,
+  storySharing,
+} from '@heisreal/consent';
 import type { SurrealQueryable } from 'surrealdb';
 import type { MediaUrls } from '@heisreal/story-cards';
 import {
@@ -96,6 +103,8 @@ export interface StoryMine {
   updatedAt: string;
   /** A draft's deletion date if nobody touches it (D71; fn::story::draft_expires_at). */
   draftExpiresAt: string | null;
+  /** O4: whether this story may go beyond heisreal.today: its own share_socials choice. */
+  sharing: StorySharing;
 }
 
 /** The contract's `SubmissionLimits`: what the submit page shows and checks (W3, D112). */
@@ -190,11 +199,19 @@ interface RawStory {
   createdAt: string;
   updatedAt: string;
   draftExpiresAt?: string | null;
+  sharing?: {
+    event?: string;
+    form?: string | null;
+    occurredAt?: string;
+  } | null;
+  sharingCounts?: boolean | null;
 }
 
 const STORY_FIELDS = `<string> id AS id, version, slug, status, title, description, body,
   bylineName, primaryFormat, tagRefs.map(|$t| <string> $t) AS tagRefs, media, image, rejectionFeedback,
-  submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt`;
+  submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
+  fn::consent::story_sharing(submitter, id) AS sharing,
+  fn::consent::valid(fn::consent::story_sharing(submitter, id)) AS sharingCounts`;
 
 function fail400(pointer: string, message: string): never {
   throw new BadRequestException({
@@ -405,12 +422,20 @@ export class StoryStore {
   /**
    * SubmitStory: draft/changes_requested → pending, once per Idempotency-Key, at `ifMatch`.
    * `checkMedia`: a video or audio story's file checks (uploads.ts), run with the others.
+   * `shareGrant` (O4): the story's sharing beyond heisreal.today, ticked on Review, as the
+   * ledger's statements (ConsentLedger.storySharingGrant): recorded in the submission's own
+   * transaction, with its Idempotency-Key, so the two commit together or neither does, and a
+   * replay grants nothing again. Submitting never withdraws it.
    */
   async submit(
     id: string,
     ifMatch: number,
     idempotency: { scope: IdempotencyScope; requestHash: string },
     checkMedia?: () => Promise<void>,
+    shareGrant?: () => Promise<{
+      statements: string;
+      vars: Record<string, unknown>;
+    }>,
   ): Promise<CommandResult> {
     try {
       const { response } = await runIdempotent(
@@ -463,6 +488,7 @@ export class StoryStore {
             if (availableAt) throw this.weekly(availableAt);
           }
           await checkMedia?.();
+          const share = await shareGrant?.();
           return {
             status: 200,
             statements: `LET $s = (SELECT version FROM type::record('story', $id))[0];
@@ -471,8 +497,9 @@ export class StoryStore {
               LET $u = (UPDATE ONLY type::record('story', $id) SET status = 'pending'
                 RETURN id, version);
               IF $u = NONE { THROW 'story_cmd:not_written' };
+              ${share?.statements ?? ''}
               LET $result = { id: $u.id, version: $u.version };`,
-            vars: { id, version: ifMatch },
+            vars: { ...share?.vars, id, version: ifMatch },
           };
         },
       );
@@ -717,6 +744,7 @@ export class StoryStore {
       createdAt: iso(r.createdAt) as string,
       updatedAt: iso(r.updatedAt) as string,
       draftExpiresAt: iso(r.draftExpiresAt),
+      sharing: storySharing(r.sharing, r.sharingCounts),
     }));
   }
 
@@ -839,6 +867,17 @@ export class StoryStore {
 
   private async submitProblem(err: unknown): Promise<unknown> {
     if (err instanceof HttpException) return err;
+    // O4: the sharing ticked on Review, refused before or in the transaction (nothing committed).
+    const conflict =
+      err instanceof ConsentConflictError ? err : consentConflictOf(err);
+    if (conflict) {
+      return new ConflictException({
+        code: conflict.code,
+        message: conflict.message,
+      });
+    }
+    if (err instanceof ConsentStoryNotFoundError)
+      return new NotFoundException();
     if (submissionLimitOf(err) === 'weekly_submission') {
       const at = await this.nextSubmissionAt().catch(() => undefined);
       return this.weekly(at ?? new Date(Date.now() + 7 * 864e5).toISOString());

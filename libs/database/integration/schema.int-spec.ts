@@ -72,11 +72,13 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
     expect(Object.keys(consent.events).sort()).toEqual([
       'consent_append_only',
       'consent_evidence_v4',
+      'consent_evidence_v5',
       'consent_fence',
       'consent_form',
       'consent_legacy_only_migrator',
       'consent_legal_fence',
       'consent_published_dpa',
+      'consent_story',
       'consent_withdrawal_requests_erasure',
       'consent_withdrawal_unhides',
     ]);

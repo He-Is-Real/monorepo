@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Surreal, SurrealTransaction } from 'surrealdb';
 import {
   consentEvent,
@@ -5,12 +7,15 @@ import {
   trustSubmitters,
   grantAll,
   legalParams,
+  MIGRATION_TIMEOUT_MS,
   outcome,
   publishDpa,
   publishForm,
   rows,
   run,
+  SCHEMA_DIR,
   sha256,
+  shareStory,
   TestDatabase,
 } from './support/harness';
 import { approve, draft, storyText, submit } from './support/world';
@@ -23,7 +28,8 @@ import { approve, draft, storyText, submit } from './support/world';
  *     version never stops it counting, and never takes a story off the site (D93.1);
  *   - a new draft or a submission needs the sign-up version in force (18+ is there only,
  *     D93.2) and no newer testimony version requiring acceptance for new submissions;
- *   - sharing beyond heisreal.today: the person's social sharing version's columns (D93.3).
+ *   - sharing beyond heisreal.today: each story's own social sharing version's columns (D93.3,
+ *     O4: chosen per story).
  * D75: dev's placeholder privacy document and forms, refused and not counted outside dev.
  */
 
@@ -38,9 +44,10 @@ const granted = (db: Surreal, user: string, types: string[]) =>
     user,
     types,
   });
-const mayShare = (db: Surreal, user: string, use: string) =>
-  rows(db, `RETURN fn::consent::may_share(type::record('user', $user), $use)`, {
-    user,
+/** O4: may this story go beyond heisreal.today in this way (`fn::story::may_share`)? */
+const mayShare = (db: Surreal, story: string, use: string) =>
+  rows(db, `RETURN fn::story::may_share(type::record('story', $story), $use)`, {
+    story,
     use,
   });
 /** The person ticks `types` on form version `form` (e.g. testimonyFormVersion:v3), linking DPA v1. */
@@ -684,65 +691,65 @@ describe('testimony versions: new ones gate new submissions, never published sto
   });
 });
 
-describe('sharing beyond heisreal.today: the uploader’s social sharing version (D93)', () => {
+describe('sharing beyond heisreal.today: chosen per story, on its social sharing version (D93, O4)', () => {
   let t: TestDatabase;
   let svc: Surreal;
+  let admin: Surreal;
   beforeAll(async () => {
     t = await TestDatabase.create();
     svc = await t.service('workflow');
+    admin = await t.service('api_admin');
     await createPeople(t, {
       ann: 'user_ann',
       bob: 'user_bob',
+      cy: 'user_cy',
       moderator: 'user_mod',
     });
     // These suites test consent, with more stories per person than D94 lets one start.
-    await trustSubmitters(t, 'ann', 'bob');
+    await trustSubmitters(t, 'ann', 'bob', 'cy');
     await publishDpa(t, 'v1'); // social v1 allows nothing
   });
   afterAll(() => t?.close());
 
-  it('needs the share tick on a version listing that platform or use: the early-adopter rule', async () => {
+  /** A public story of the person's: drafted, submitted and approved. */
+  const published = async (person: Surreal, id: string) => {
+    await draft(person, id);
+    await submit(person, id);
+    await approve(admin, id);
+  };
+
+  it('needs the story’s own share tick, on a version listing that platform or use: the early-adopter rule', async () => {
     const ann = await t.person('user_ann');
-    await grantAll(ann, 'v1'); // the share tick included, on social v1
-    expect(await mayShare(svc, 'ann', 'shareTikTok')).toEqual([false]);
+    await grantAll(ann, 'v1');
+    await draft(ann, 'ann_s');
+    await shareStory(ann, 'story:ann_s', 'granted', 'v1');
+    // Not public yet: nothing is shared before it's on heisreal.today.
+    expect(await mayShare(svc, 'ann_s', 'shareTikTok')).toEqual([false]);
+    await submit(ann, 'ann_s');
+    await approve(admin, 'ann_s');
+    // Public, but social v1 lists nothing.
+    expect(await mayShare(svc, 'ann_s', 'shareTikTok')).toEqual([false]);
 
     await publishForm(t, 'social', 'v2', {
       shareTikTok: true,
       allowEditingAndClipping: true,
     });
     // Still on v1: a new platform is a new version people opt into.
-    expect(await mayShare(svc, 'ann', 'shareTikTok')).toEqual([false]);
-    await grantOn(ann, 'socialSharingFormVersion:v2', ['share_socials']);
-    expect(await mayShare(svc, 'ann', 'shareTikTok')).toEqual([true]);
-    expect(await mayShare(svc, 'ann', 'allowEditingAndClipping')).toEqual([
+    expect(await mayShare(svc, 'ann_s', 'shareTikTok')).toEqual([false]);
+    await shareStory(ann, 'story:ann_s', 'granted', 'v2');
+    expect(await mayShare(svc, 'ann_s', 'shareTikTok')).toEqual([true]);
+    expect(await mayShare(svc, 'ann_s', 'allowEditingAndClipping')).toEqual([
       true,
     ]);
-    expect(await mayShare(svc, 'ann', 'shareYouTube')).toEqual([false]);
-    expect(await mayShare(svc, 'ann', 'allowPaidPromotion')).toEqual([false]);
+    expect(await mayShare(svc, 'ann_s', 'shareYouTube')).toEqual([false]);
+    expect(await mayShare(svc, 'ann_s', 'allowPaidPromotion')).toEqual([false]);
 
-    // Through a story, as anything that posts one would ask: only once it's public.
-    await draft(ann, 'ann_s');
-    expect(
-      await rows(
-        svc,
-        `RETURN fn::story::may_share(story:ann_s, 'shareTikTok')`,
-      ),
-    ).toEqual([false]);
-    await submit(ann, 'ann_s');
-    await approve(await t.service('api_admin'), 'ann_s');
-    expect(
-      await rows(
-        svc,
-        `RETURN fn::story::may_share(story:ann_s, 'shareTikTok')`,
-      ),
-    ).toEqual([true]);
-
-    // A newer social version changes nothing for her (D93), and withdrawing only stops
+    // A newer social version changes nothing for it (D93), and withdrawing only stops
     // sharing: the story stays public.
     await publishForm(t, 'social', 'v3', { shareYouTube: true });
-    expect(await mayShare(svc, 'ann', 'shareTikTok')).toEqual([true]);
-    await withdrawOn(ann, 'socialSharingFormVersion:v2', 'share_socials');
-    expect(await mayShare(svc, 'ann', 'shareTikTok')).toEqual([false]);
+    expect(await mayShare(svc, 'ann_s', 'shareTikTok')).toEqual([true]);
+    await shareStory(ann, 'story:ann_s', 'withdrawn', 'v2');
+    expect(await mayShare(svc, 'ann_s', 'shareTikTok')).toEqual([false]);
     expect(
       await rows(
         await t.service('api_public_read'),
@@ -751,10 +758,155 @@ describe('sharing beyond heisreal.today: the uploader’s social sharing version
     ).toEqual(['publicStory:ann_s']);
   });
 
-  it('a column added later, an unknown name or an odd one is a “no”, and so is no publish consent', async () => {
+  it('one story can go beyond heisreal.today while another of the same person stays on it only', async () => {
     const bob = await t.person('user_bob');
     await grantAll(bob, 'v1');
-    await grantOn(bob, 'socialSharingFormVersion:v2', ['share_socials']);
+    await published(bob, 'bob_wide');
+    await published(bob, 'bob_home');
+    await shareStory(bob, 'story:bob_wide', 'granted', 'v2');
+    expect(await mayShare(svc, 'bob_wide', 'shareTikTok')).toEqual([true]);
+    expect(await mayShare(svc, 'bob_home', 'shareTikTok')).toEqual([false]);
+    // The story's own consent, as the story shows it to its owner.
+    const share = (id: string) =>
+      rows(
+        bob,
+        `RETURN (SELECT VALUE consent.share FROM ONLY type::record('story', $id)).event ?? 'none'`,
+        { id },
+      );
+    expect(await share('bob_wide')).toEqual(['granted']);
+    expect(await share('bob_home')).toEqual(['none']);
+
+    // Granting the other and withdrawing the first: each follows its own choice only.
+    await shareStory(bob, 'story:bob_home', 'granted', 'v2');
+    await shareStory(bob, 'story:bob_wide', 'withdrawn', 'v2');
+    expect(await mayShare(svc, 'bob_wide', 'shareTikTok')).toEqual([false]);
+    expect(await mayShare(svc, 'bob_home', 'shareTikTok')).toEqual([true]);
+
+    // The person's publish consent still rules every story (no publishing, no sharing).
+    await consentEvent(bob, 'publish', 'withdrawn', 'v1');
+    expect(await mayShare(svc, 'bob_home', 'shareTikTok')).toEqual([false]);
+  });
+
+  it('every sharing event names one story of its subject’s own, and nothing else names a story', async () => {
+    const cy = await t.person('user_cy');
+    await grantAll(cy, 'v1');
+    await draft(cy, 'cy_s');
+    await draft(await t.person('user_ann'), 'ann_other');
+    const event = (
+      type: string,
+      story: string | null,
+      evidenceVersion: number,
+    ) =>
+      outcome(
+        cy,
+        `CREATE consent CONTENT { subject: $auth, type: $type, event: 'granted',
+           dpaVersion: dpaVersion:v1,
+           form: IF $type = 'share_socials' { socialSharingFormVersion:v1 }
+             ELSE { testimonyFormVersion:v1 },
+           story: IF $story { <record> $story } ELSE { NONE },
+           mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: $ev }`,
+        { type, story, ev: evidenceVersion, h: sha256(`${type} ${story}`) },
+      );
+    const cases: [string, string | null, number, string | null][] = [
+      // The pre-O4 shape: an account-wide sharing grant.
+      ['share_socials', null, 4, 'name the story'],
+      ['share_socials', 'story:ann_other', 5, 'chosen by its submitter'],
+      ['share_socials', 'story:nobody', 5, 'chosen by its submitter'],
+      ['publish', 'story:cy_s', 5, 'only sharing beyond heisreal.today'],
+      ['share_socials', 'story:cy_s', 4, 'evidence v5'],
+      ['publish', null, 5, 'evidence v5'],
+      ['share_socials', 'story:cy_s', 5, null],
+    ];
+    for (const [type, story, ev, error] of cases) {
+      expect([type, story, ev, await event(type, story, ev)]).toEqual([
+        type,
+        story,
+        ev,
+        error === null
+          ? expect.objectContaining({ ok: true })
+          : { ok: false, error: expect.stringContaining(error) },
+      ]);
+    }
+    // The system users are held to it too (events run for every writer).
+    expect(
+      await outcome(
+        await t.migrator(),
+        `CREATE consent CONTENT { subject: user:cy, type: 'share_socials', event: 'granted',
+           dpaVersion: dpaVersion:v1, form: socialSharingFormVersion:v1,
+           mechanism: 'web_form_submission', evidenceHash: $h }`,
+        { h: sha256('migrator share') },
+      ),
+    ).toEqual({ ok: false, error: expect.stringContaining('name the story') });
+  });
+
+  it('an account-wide grant from before per-story sharing counts for none of the person’s stories', async () => {
+    const migrator = await t.migrator();
+    const dan = 'dan';
+    await createPeople(t, { [dan]: 'user_dan' });
+    await trustSubmitters(t, dan);
+    const person = await t.person('user_dan');
+    await grantAll(person, 'v1');
+    await published(person, 'dan_s');
+    // Dev's old rows: written before consent_story existed. Stand one in, with the rule off.
+    const schema = readFileSync(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
+    const rule =
+      /DEFINE EVENT OVERWRITE consent_story ON consent[\s\S]*?\n {2}};\n/.exec(
+        schema,
+      )?.[0];
+    expect(rule).toBeTruthy();
+    await run(migrator, 'REMOVE EVENT consent_story ON consent');
+    try {
+      await run(
+        migrator,
+        `CREATE consent CONTENT { subject: user:dan, type: 'share_socials', event: 'granted',
+           dpaVersion: dpaVersion:v1, form: socialSharingFormVersion:v2,
+           mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: 4 }`,
+        { h: sha256('old account-wide grant') },
+      );
+    } finally {
+      await run(migrator, rule as string);
+    }
+    expect(await mayShare(svc, 'dan_s', 'shareTikTok')).toEqual([false]);
+    expect(
+      await rows(
+        person,
+        `RETURN fn::consent::story_sharing(user:dan, story:dan_s) = NONE`,
+      ),
+    ).toEqual([true]);
+  });
+
+  it('a story’s sharing is read by its owner and the services that may, never by anyone else', async () => {
+    const ann = await t.person('user_ann');
+    const bob = await t.person('user_bob');
+    const ofAnn =
+      "RETURN fn::consent::story_sharing(user:ann, story:ann_s).event ?? 'none'";
+    expect(await rows(ann, ofAnn)).toEqual(['withdrawn']);
+    expect(await rows(svc, ofAnn)).toEqual(['withdrawn']);
+    expect(await rows(bob, ofAnn)).toEqual(['none']);
+    expect(await rows(await t.service('api_public_read'), ofAnn)).toEqual([
+      'none',
+    ]);
+    // Nobody but the owner records it, even for a story they can see in public.
+    expect(
+      await rows(
+        bob,
+        `CREATE consent CONTENT { subject: user:ann, type: 'share_socials', event: 'granted',
+           dpaVersion: dpaVersion:v1, form: socialSharingFormVersion:v2, story: story:ann_s,
+           mechanism: 'web_form_submission', evidenceHash: $h, evidenceVersion: 5 }`,
+        { h: sha256('bob for ann') },
+      ),
+    ).toEqual([]);
+    expect(await rows(ann, ofAnn)).toEqual(['withdrawn']);
+  });
+
+  it('a column added later, an unknown name or an odd one is a “no”', async () => {
+    const eve = 'eve';
+    await createPeople(t, { [eve]: 'user_eve' });
+    await trustSubmitters(t, eve);
+    const person = await t.person('user_eve');
+    await grantAll(person, 'v1');
+    await published(person, 'eve_s');
+    await shareStory(person, 'story:eve_s', 'granted', 'v2');
     await run(
       await t.migrator(),
       `DEFINE FIELD shareMastodon ON socialSharingFormVersion TYPE bool DEFAULT ALWAYS false`,
@@ -770,17 +922,18 @@ describe('sharing beyond heisreal.today: the uploader’s social sharing version
         'textHash',
         'status',
       ]) {
-        expect([use, await mayShare(svc, 'bob', use)]).toEqual([use, [false]]);
+        expect([use, await mayShare(svc, 'eve_s', use)]).toEqual([
+          use,
+          [false],
+        ]);
       }
-      expect(await mayShare(svc, 'bob', 'shareTikTok')).toEqual([true]);
+      expect(await mayShare(svc, 'eve_s', 'shareTikTok')).toEqual([true]);
     } finally {
       await run(
         await t.migrator(),
         `REMOVE FIELD shareMastodon ON socialSharingFormVersion`,
       );
     }
-    await consentEvent(bob, 'publish', 'withdrawn', 'v1');
-    expect(await mayShare(svc, 'bob', 'shareTikTok')).toEqual([false]);
   });
 });
 
@@ -965,82 +1118,97 @@ describe('dev placeholder privacy document and forms (D75)', () => {
       expect(await accepted(cy, 'cy')).toEqual([true]);
     });
 
-    it('real consent works against them; switched off, they and the grants stop counting', async () => {
-      const ann = await t.person('user_ann');
-      await devGrant(
-        ann,
-        'special_category_religious',
-        'testimonyFormVersion:v2',
-      );
-      await signUp(ann);
-      expect(await accepted(ann, 'ann')).toEqual([true]);
-      expect(await draft(ann, 'ann_story')).toHaveLength(1);
+    // Each test below runs migrations: a test timeout of MIGRATION_TIMEOUT_MS for each one.
+    it(
+      'real consent works against them; switched off, they and the grants stop counting',
+      { timeout: MIGRATION_TIMEOUT_MS },
+      async () => {
+        const ann = await t.person('user_ann');
+        await devGrant(
+          ann,
+          'special_category_religious',
+          'testimonyFormVersion:v2',
+        );
+        await signUp(ann);
+        expect(await accepted(ann, 'ann')).toEqual([true]);
+        expect(await draft(ann, 'ann_story')).toHaveLength(1);
 
-      // As if this database were restored somewhere else, or the switch removed.
-      await placeholders(false);
-      const svc = await t.service('api_public_read');
-      // NONE: rows() gives no row.
-      expect(await rows(svc, 'RETURN fn::legal::dpa_in_force()')).toEqual([]);
-      expect(await rows(svc, `RETURN fn::form::latest('signup')`)).toEqual([]);
-      expect(await accepted(ann, 'ann')).toEqual([false]);
-      expect(await draft(ann, 'ann_second')).toEqual([]);
-    });
+        // As if this database were restored somewhere else, or the switch removed.
+        await placeholders(false);
+        const svc = await t.service('api_public_read');
+        // NONE: rows() gives no row.
+        expect(await rows(svc, 'RETURN fn::legal::dpa_in_force()')).toEqual([]);
+        expect(await rows(svc, `RETURN fn::form::latest('signup')`)).toEqual(
+          [],
+        );
+        expect(await accepted(ann, 'ann')).toEqual([false]);
+        expect(await draft(ann, 'ann_second')).toEqual([]);
+      },
+    );
 
-    it('switched off, a public story is hidden (its consent has no basis left); switched on, it comes back', async () => {
-      await placeholders(true);
-      await createPeople(t, { bo: 'user_bo', moderator: 'user_mod' });
-      // These suites test consent, with more stories per person than D94 lets one start.
-      await trustSubmitters(t, 'bo');
-      const bo = await t.person('user_bo');
-      await signUp(bo);
-      await devGrant(
-        bo,
-        'special_category_religious',
-        'testimonyFormVersion:v2',
-      );
-      await devGrant(bo, 'publish', 'testimonyFormVersion:v2');
-      await draft(bo, 'bo_live');
-      await submit(bo, 'bo_live');
-      await approve(await t.service('api_admin'), 'bo_live');
-      const svc = await t.service('api_public_read');
-      const isPublic = async () =>
-        (await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live')).length;
-      expect(await isPublic()).toBe(1);
+    it(
+      'switched off, a public story is hidden (its consent has no basis left); switched on, it comes back',
+      { timeout: 3 * MIGRATION_TIMEOUT_MS },
+      async () => {
+        await placeholders(true);
+        await createPeople(t, { bo: 'user_bo', moderator: 'user_mod' });
+        // These suites test consent, with more stories per person than D94 lets one start.
+        await trustSubmitters(t, 'bo');
+        const bo = await t.person('user_bo');
+        await signUp(bo);
+        await devGrant(
+          bo,
+          'special_category_religious',
+          'testimonyFormVersion:v2',
+        );
+        await devGrant(bo, 'publish', 'testimonyFormVersion:v2');
+        await draft(bo, 'bo_live');
+        await submit(bo, 'bo_live');
+        await approve(await t.service('api_admin'), 'bo_live');
+        const svc = await t.service('api_public_read');
+        const isPublic = async () =>
+          (await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live')).length;
+        expect(await isPublic()).toBe(1);
 
-      await placeholders(false);
-      expect(await isPublic()).toBe(0);
-      expect(
-        await rows(
-          await t.migrator(),
-          'SELECT VALUE status FROM story:bo_live',
-        ),
-      ).toEqual(['approved']);
+        await placeholders(false);
+        expect(await isPublic()).toBe(0);
+        expect(
+          await rows(
+            await t.migrator(),
+            'SELECT VALUE status FROM story:bo_live',
+          ),
+        ).toEqual(['approved']);
 
-      await placeholders(true);
-      expect(await isPublic()).toBe(1);
-    });
+        await placeholders(true);
+        expect(await isPublic()).toBe(1);
+      },
+    );
 
-    it('leaving dev (a dev backup restored elsewhere) hides a story that stood on dev consent (Codex, #101)', async () => {
-      const svc = await t.service('api_public_read');
-      expect(
-        await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live'),
-      ).toHaveLength(1);
-      await t.migrate(
-        t.params({
-          environment: 'prod',
-          dev_legal_placeholders: false,
-          dev_consent_relaxed: false,
-        }),
-      );
-      expect(
-        await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live'),
-      ).toEqual([]);
-      expect(
-        await rows(
-          await t.migrator(),
-          `SELECT VALUE [status, record::exists(hiddenStory:bo_live)] FROM story:bo_live`,
-        ),
-      ).toEqual([['approved', true]]);
-    });
+    it(
+      'leaving dev (a dev backup restored elsewhere) hides a story that stood on dev consent (Codex, #101)',
+      { timeout: MIGRATION_TIMEOUT_MS },
+      async () => {
+        const svc = await t.service('api_public_read');
+        expect(
+          await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live'),
+        ).toHaveLength(1);
+        await t.migrate(
+          t.params({
+            environment: 'prod',
+            dev_legal_placeholders: false,
+            dev_consent_relaxed: false,
+          }),
+        );
+        expect(
+          await rows(svc, 'SELECT VALUE id FROM publicStory:bo_live'),
+        ).toEqual([]);
+        expect(
+          await rows(
+            await t.migrator(),
+            `SELECT VALUE [status, record::exists(hiddenStory:bo_live)] FROM story:bo_live`,
+          ),
+        ).toEqual([['approved', true]]);
+      },
+    );
   });
 });

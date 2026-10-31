@@ -5,11 +5,11 @@ import {
   FixtureManageAccount,
 } from '@/components/account/manage-account';
 import { MySubmissions } from '@/components/account/my-submissions';
-import { SocialSharingConsent } from '@/components/account/social-sharing-consent';
 import { ClerkYourData, FixtureYourData } from '@/components/account/your-data';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { clerkPublishableKey, e2eFixtures } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
+import { getSocialSharingForm } from '@/lib/share-legal';
 
 /** Never indexed: it's personal, and the same empty shell for every visitor. */
 export function generateMetadata(): Metadata {
@@ -27,10 +27,12 @@ export function generateMetadata(): Metadata {
  * My profile (M2 plan PR 8; mockup authenticated/profile.html). web's server renders the same
  * shell for everyone (D32); the person's stories and choices are filled in by the browser from
  * api-user (D83), with their space kept so nothing jumps. Personal details are Clerk's own panel
- * (D81): no country, display name or notification settings (no emails in M2, D79).
+ * (D81): no country, display name or notification settings (no emails in M2, D79). The social
+ * sharing form in force is public, read here (D32) for each story's sharing choice (O4).
  */
 export default async function ProfilePage() {
   await connection();
+  const socialForm = await getSocialSharingForm();
   const manage = e2eFixtures() ? (
     <FixtureManageAccount />
   ) : clerkPublishableKey() ? (
@@ -49,7 +51,7 @@ export default async function ProfilePage() {
             that has it, to see it.
           </p>
         </noscript>
-        <MySubmissions />
+        <MySubmissions socialForm={socialForm} />
         {manage && (
           <section aria-labelledby="your-account" className="mb-12">
             <h2 id="your-account" className="mb-5 text-2xl font-normal">
@@ -64,7 +66,6 @@ export default async function ProfilePage() {
             </div>
           </section>
         )}
-        <SocialSharingConsent />
         {e2eFixtures() ? (
           <FixtureYourData />
         ) : clerkPublishableKey() ? (

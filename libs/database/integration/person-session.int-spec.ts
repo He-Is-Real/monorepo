@@ -154,7 +154,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         (
           await rows<{ subject: string }>(ann, 'SELECT subject FROM consent')
         ).map((r) => r.subject),
-      ).toEqual(Array(5).fill('user:ann'));
+      ).toEqual(Array(4).fill('user:ann')); // grantAll: sharing is per story (O4)
       expect(await ids(ann, 'SELECT id FROM user')).toEqual(['user:ann']);
       expect(await ids(ann, 'SELECT id FROM dpaVersion')).not.toContain(
         'dpaVersion:v2_draft',

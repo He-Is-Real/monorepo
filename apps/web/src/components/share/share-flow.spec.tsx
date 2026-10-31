@@ -106,6 +106,7 @@ describe('ReviewStep', () => {
     forget: jest.fn(),
     setVersion: jest.fn(),
     beginSubmit: jest.fn(),
+    keptSubmit: jest.fn(() => null),
     settleSubmit: jest.fn(),
     current: () => ({ draftId: 'd1', version: 2 }),
   };
@@ -134,6 +135,7 @@ describe('ReviewStep', () => {
           tags={[{ slug: 'hope', name: 'Hope', category: 'emotion' }]}
           legal={{ testimony: form([ART9]), social: null }}
           consents={consents}
+          api={null as never}
           calls={calls as never}
           refreshConsents={jest.fn()}
           refreshLimits={jest.fn()}
@@ -174,6 +176,7 @@ describe('ReviewStep', () => {
           tags={[{ slug: 'hope', name: 'Hope', category: 'emotion' }]}
           legal={{ testimony: form([ART9, PUBLISH]), social: null }}
           consents={consents}
+          api={null as never}
           calls={calls as never}
           refreshConsents={jest.fn()}
           refreshLimits={jest.fn()}

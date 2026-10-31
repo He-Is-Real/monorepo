@@ -147,8 +147,8 @@ const LINKED: Record<string, LinkedCase> = {
     write: (c, db) =>
       run(
         db(c),
-        `CREATE consent CONTENT { subject: $auth, type: 'share_socials', event: 'granted',
-           dpaVersion: dpaVersion:v1, form: socialSharingFormVersion:v1,
+        `CREATE consent CONTENT { subject: $auth, type: 'publish', event: 'granted',
+           dpaVersion: dpaVersion:v1, form: testimonyFormVersion:v1,
            mechanism: 'account_settings', evidenceHash: $h }`,
         { h: 'd'.repeat(64) },
       ),

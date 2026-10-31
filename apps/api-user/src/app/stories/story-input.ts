@@ -184,6 +184,71 @@ export function parsePatch(body: unknown): StoryFields {
   return f;
 }
 
+/**
+ * SubmitStory's optional body (O4): `shareBeyondSite`, the social sharing form version and
+ * privacy policy version Review showed beside the ticked box (D122: the grant binds the ones the
+ * page named). No body, or `{}`: the submission leaves the story's sharing as it is.
+ */
+export interface SubmitInput {
+  shareBeyondSite?: { formVersion: string; privacyPolicyVersion: string };
+}
+
+const VERSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+export function parseSubmit(body: unknown): SubmitInput {
+  if (body === undefined || body === null) return {};
+  const b = asObject(body);
+  const errors: FieldError[] = [];
+  for (const key of Object.keys(b)) {
+    if (key !== 'shareBeyondSite') {
+      errors.push({
+        pointer: `/${key}`,
+        message: 'not a field of this command',
+      });
+    }
+  }
+  const share = b['shareBeyondSite'];
+  if (share === undefined) {
+    if (errors.length) fail(errors);
+    return {};
+  }
+  const s =
+    share && typeof share === 'object' && !Array.isArray(share)
+      ? (share as Record<string, unknown>)
+      : null;
+  if (!s) {
+    errors.push({
+      pointer: '/shareBeyondSite',
+      message: 'the social sharing form and privacy policy versions shown',
+    });
+  } else {
+    for (const key of Object.keys(s)) {
+      if (key !== 'formVersion' && key !== 'privacyPolicyVersion') {
+        errors.push({
+          pointer: `/shareBeyondSite/${key}`,
+          message: 'not a field of this command',
+        });
+      }
+    }
+    for (const key of ['formVersion', 'privacyPolicyVersion']) {
+      const v = s[key];
+      if (typeof v !== 'string' || !VERSION.test(v)) {
+        errors.push({
+          pointer: `/shareBeyondSite/${key}`,
+          message: 'the version shown, e.g. v1',
+        });
+      }
+    }
+  }
+  if (errors.length) fail(errors);
+  return {
+    shareBeyondSite: {
+      formVersion: s?.['formVersion'] as string,
+      privacyPolicyVersion: s?.['privacyPolicyVersion'] as string,
+    },
+  };
+}
+
 /** Over the settings' limits (W3): text too long or too many themes (`400`). */
 export function overLimit(errors: FieldError[]): never {
   throw new BadRequestException({
