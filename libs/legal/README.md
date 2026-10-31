@@ -67,6 +67,9 @@ Rules for the form texts:
   consent must be specific and informed): never "any use".
 - An older version keeps counting for what it covered. A new version only gates what it adds
   (D93): a new platform needs a new social sharing version that people opt into.
+- Sharing beyond heisreal.today is chosen per story (O4, Joel 2026-10-31): every `share_socials`
+  grant and withdrawal names one story, so the social sharing form's words speak of "my
+  published story", one story at a time.
 
 ## What's here now
 

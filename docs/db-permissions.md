@@ -470,10 +470,10 @@ retried`, on both RocksDB and the in-memory engine.
     social sharing versions. No environment holds an older such row: the form tables didn't exist
     before this change, so nothing needed withdrawing. `fn::consent::valid` checks the statement
     too, as defence in depth.
-    **Sharing (D93):** `fn::consent::may_share($user, $use)` / `fn::story::may_share($story, $use)`,
-    `$use` a feature column (`share…` or `allow…`): the person's latest `share_socials` event is a
-    grant on a social sharing version that counts and has that column true; Art 9, publish and 18+
-    count (never relaxed by D48); for a story, it is public. Anything else, including an unknown
+    **Sharing (D93; per story since O4, item 43):** `fn::story::may_share($story, $use)`, `$use` a
+    feature column (`share…` or `allow…`): the story's own latest `share_socials` event is a
+    grant on a social sharing version that counts and has that column true; its submitter's Art 9,
+    publish and 18+ count (never relaxed by D48); the story is public. Anything else, including an unknown
     or odd name, is "no". Withdrawing it stops new sharing at once; D107 (A): within 30 days the
     media team removes the story from our own channels and stops paid promotion, while copies
     others made can't be controlled (the form says so). Nothing posts yet, so nothing automates it.
@@ -851,6 +851,35 @@ retried`, on both RocksDB and the in-memory engine.
       complete against what the database holds, read as the migrator, and nothing of another
       person whose data touches theirs; Clerk failing is `503`, all or nothing),
       `person-session.int-spec.ts` (the review rule).
+
+### M2 consent merge (O4; Joel, 2026-10-31)
+
+43. **Sharing beyond heisreal.today is chosen per story; the ledger names the story.** Joel: "a
+    user may want one story only on this platform and another more visible on other platforms".
+    - `consent.story` (`option<record<story>>`, a plain link, no `REFERENCE`): every new
+      `share_socials` event, grant or withdrawal, names one story whose `submitter` is the
+      event's `subject` and which exists when it's written; no other event names a story
+      (`consent_story`, an event, so it holds for the migrator and every service too). The
+      table's permissions are unchanged: a person creates only their own events in their own
+      session, and reads only their own (api-admin and workflow read all), so nobody chooses for,
+      or reads, another person's story.
+    - **Evidence v5** (`consent_evidence_v5`): an event naming a story uses `evidenceVersion` 5,
+      and only those do: v4 plus the story's id, so the ledger proves which story was chosen.
+    - `fn::consent::story_sharing($user, $story)` is the one definition: the latest `share_socials`
+      event naming the story, read through its submitter's own events (the existing
+      `consent_latest` index; no new index, which every migration would rebuild). It runs with the
+      caller's permissions, so anyone who can't read the story or the submitter's ledger gets
+      `NONE` (fail closed; api-public-read and other people do). It feeds `story.consent.share`,
+      `fn::story::may_share` (item 30), api-user's `StoryMine.sharing` and Download my data.
+      The account-wide `fn::consent::may_share` is removed (`REMOVE FUNCTION IF EXISTS`).
+    - **Older account-wide sharing events** (before O4; dev's dummy data only) name no story, so
+      they count for no story. Nothing is migrated or deleted: the ledger is append-only.
+    - Deleting a story leaves its sharing events on the ledger (kept like every consent event,
+      six years after erasure), pointing at an id that no longer exists, like `auditLog`'s. Both
+      writes bump the person's fence, so an event can't commit for a story deleted alongside it.
+    - Tests: `libs/database/integration/consent-forms.int-spec.ts` ("sharing beyond
+      heisreal.today: chosen per story"), `erasure.int-spec.ts` (kept after erasure),
+      `libs/consent/integration/ledger.int-spec.ts`, `apps/api-user/integration/my-stories.int-spec.ts`.
 
 ## Person-linked tables
 

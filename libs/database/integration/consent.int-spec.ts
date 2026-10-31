@@ -215,7 +215,7 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
           { h: LEGACY_SHA256 },
         ),
       ).toEqual([]);
-      const [own] = await consentEvent(ann, 'share_socials', 'granted', 'v2', {
+      const [own] = await consentEvent(ann, 'publish', 'granted', 'v2', {
         occurredAt: new Date('2020-01-01T00:00:00Z'),
       });
       expect(Date.parse(String(own['occurredAt']))).toBeGreaterThan(
@@ -304,9 +304,11 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
         admin,
         'SELECT consent FROM story:legacy_story',
       );
+      // Sharing beyond heisreal.today is chosen per story (O4): none for an import.
       expect(Object.values(story.consent).map(summary)).toEqual(
-        Array(4).fill('granted@dpaVersion:⟨legacy-squarespace⟩'),
+        Array(3).fill('granted@dpaVersion:⟨legacy-squarespace⟩'),
       );
+      expect(story.consent['share']).toBeUndefined();
     });
   });
 });

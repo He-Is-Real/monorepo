@@ -1,4 +1,4 @@
-import { formRef, recordKey } from '@heisreal/consent';
+import { formRef, recordKey, storySharing } from '@heisreal/consent';
 import { runQuery } from '@heisreal/database';
 import type { MediaUrls } from '@heisreal/story-cards';
 import type { SurrealQueryable } from 'surrealdb';
@@ -17,7 +17,9 @@ const HELD_SQL = `
 LET $stories = SELECT id, slug, status, title, description, body, bylineName, primaryFormat,
     tagRefs.map(|$t| { slug: record::id($t), name: $t.name }) AS tags, media, image,
     rejectionFeedback, createdAt, updatedAt, submittedAt, approvedAt,
-    fn::story::draft_expires_at(id) AS draftExpiresAt
+    fn::story::draft_expires_at(id) AS draftExpiresAt,
+    fn::consent::story_sharing(submitter, id) AS sharing,
+    fn::consent::valid(fn::consent::story_sharing(submitter, id)) AS sharingCounts
   FROM story WHERE submitter = $auth ORDER BY createdAt DESC, id DESC;
 LET $mine = $stories.map(|$s| $s.id);
 LET $public = $stories.map(|$s| type::record('publicStory', record::id($s.id)));
@@ -35,7 +37,7 @@ RETURN {
        FROM moderationReview WHERE story IN $mine ORDER BY decidedAt ASC)
   } ELSE { [] },
   consents: (SELECT id, type, event, form, form.statements AS statements, dpaVersion, termsVersion,
-      mechanism, evidenceHash, evidenceVersion, occurredAt, legacyGivenAt
+      story, mechanism, evidenceHash, evidenceVersion, occurredAt, legacyGivenAt
     FROM consent WHERE subject = $auth ORDER BY occurredAt ASC, id ASC),
   hearts: $hearts,
   heartedPublic: IF array::len($hearted) > 0 {
@@ -90,6 +92,8 @@ interface Held {
     submittedAt?: Opt<string>;
     approvedAt?: Opt<string>;
     draftExpiresAt?: Opt<string>;
+    sharing?: Opt<{ event?: string; form?: Opt<string>; occurredAt?: string }>;
+    sharingCounts?: Opt<boolean>;
   }[];
   published: { id: string; publishedAt: string; imagePath?: Opt<string> }[];
   reviews: {
@@ -107,6 +111,7 @@ interface Held {
     statements?: Opt<{ key: string; label: string }[]>;
     dpaVersion: string;
     termsVersion?: Opt<string>;
+    story?: Opt<string>;
     mechanism: string;
     evidenceHash: string;
     evidenceVersion?: Opt<number>;
@@ -158,9 +163,9 @@ const SECTIONS = {
   signIn:
     'What Clerk, the company that runs our sign-in, holds about you: your names, email addresses, phone numbers, any accounts you sign in with (such as Google), your picture if you gave one, and when you made the account and last signed in. We read it from Clerk when you asked for this file; we don’t keep a copy. You can change it under Manage account.',
   stories:
-    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted.',
+    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "sharing" is whether you let our media team share that story beyond heisreal.today (you choose it for each story): "granted" is your latest choice for it, "counts" whether that choice was made on a version of our sharing form that still counts, and "formVersion" and "occurredAt" which version and when. We only ever share a story while it is on the site.',
   consents:
-    'Every time you gave or withdrew a consent, oldest first, with the words of the box you ticked, the form and the version of our privacy policy (and terms of use) it was given under. "evidenceHash" is a fingerprint of exactly what you were shown, so either of us can prove it. We keep this record even after you delete your account, for six years, as proof that we asked.',
+    'Every time you gave or withdrew a consent, oldest first, with the words of the box you ticked, the form and the version of our privacy policy (and terms of use) it was given under. Sharing a story beyond heisreal.today is chosen for each story, so those name the story ("storyId"); every other consent covers all your stories. "evidenceHash" is a fingerprint of exactly what you were shown, so either of us can prove it. We keep this record even after you delete your account, for six years, as proof that we asked.',
   favourites:
     'The stories you hearted, newest first, and when. Hearts are private: nobody else sees them, not even the story’s author. The stories belong to their authors, so this file only says which ones, with their address on the site while they are public.',
   limits:
@@ -280,6 +285,7 @@ export function toExport(
         approvedAt: iso(s.approvedAt),
         publishedAt: iso(publishedAt.get(id)),
         draftExpiresAt: iso(s.draftExpiresAt),
+        sharing: storySharing(s.sharing, s.sharingCounts),
       };
     }),
     consents: held.consents.map((c) => {
@@ -293,6 +299,7 @@ export function toExport(
         formVersion: ref?.formVersion ?? null,
         privacyPolicyVersion: recordKey(c.dpaVersion),
         termsVersion: c.termsVersion ? recordKey(c.termsVersion) : null,
+        storyId: c.story ? recordKey(c.story) : null,
         mechanism: c.mechanism,
         evidenceHash: c.evidenceHash,
         evidenceVersion: or(c.evidenceVersion),
