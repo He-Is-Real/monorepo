@@ -47,7 +47,7 @@ export type Slot = 'upload-request' | 'image-request';
 
 const attemptKey = (owner: string, slot: Slot, draftId: string) =>
   `${PREFIX}${owner}:${slot}:${draftId}`;
-function readAttempt(
+export function readAttempt(
   owner: string,
   slot: Slot,
   draftId: string,

@@ -15,7 +15,12 @@ import type {
   UploadRequest,
   UploadTarget,
 } from './share-api';
-import { sameFile, useRuns, useUploadRequest } from './upload-request';
+import {
+  readAttempt,
+  sameFile,
+  useRuns,
+  useUploadRequest,
+} from './upload-request';
 
 /**
  * A video or audio story's file (M2 plan PR 7; D68, D80, D113): drag and drop or choose a file,
@@ -425,7 +430,9 @@ export function UploadPanel({
     if (
       until &&
       !(kept && !kept.done && sameFile(kept, file)) &&
-      !(draftId && sameFile(readAttempt(owner, draftId), file))
+      !(
+        draftId && sameFile(readAttempt(owner, 'upload-request', draftId), file)
+      )
     ) {
       setProblem(
         `You’ve started as many uploads as you can for now. Your story is saved: you can upload your ${noun} from ${formatWhen(until)}.`,
@@ -498,7 +505,8 @@ export function UploadPanel({
   // on with a file this tab started, or sending again a request whose answer was lost, counts
   // nothing new, so it stays open.
   const carriesOn =
-    (kept && !kept.done) || (!!draftId && !!readAttempt(owner, draftId));
+    (kept && !kept.done) ||
+    (!!draftId && !!readAttempt(owner, 'upload-request', draftId));
   const held = !!uploadsState(limits).until && !carriesOn && !busy;
 
   return (
