@@ -2326,13 +2326,17 @@ components:
                 format: date-time
         uploads:
           type: array
-          description: Each video or audio upload the person started (D80), oldest first.
+          description: |
+            Each upload the person started (D80), oldest first: a video or audio file
+            (`bunnyVideoId`) or a picture (M2 plan PR 10; `imagePath`, its file in the images
+            storage zone). The other one is `null`.
           items:
             type: object
             additionalProperties: false
             required:
               [
                 bunnyVideoId,
+                imagePath,
                 storyId,
                 format,
                 contentType,
@@ -2343,12 +2347,14 @@ components:
               ]
             properties:
               bunnyVideoId:
-                type: string
+                type: [string, 'null']
+              imagePath:
+                type: [string, 'null']
               storyId:
                 type: string
               format:
                 type: string
-                enum: [video, audio]
+                enum: [video, audio, image]
               contentType:
                 type: string
               sizeBytes:

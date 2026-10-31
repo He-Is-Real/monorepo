@@ -168,7 +168,7 @@ const SECTIONS = {
   submissions:
     'When you sent a story for review in the last seven days. We keep these for seven days to apply the weekly limit, then delete them.',
   uploads:
-    'Each video or audio file you started uploading: which story, the kind of file, its size and length, and when. We keep these to apply the upload limits.',
+    'Each video, audio file or picture you started uploading: which story, the kind of file, its size and length, and when. We keep these to apply the upload limits.',
   requestKeys:
     'Codes your browser sent with your recent changes, so that pressing a button twice does a change only once. Each is deleted after 24 hours.',
 } as const;
@@ -321,8 +321,10 @@ export function toExport(
       ),
     },
     submissions: held.submissions.map((s) => ({ at: iso(s.at) as string })),
+    // A grant's id is the Bunny video's id, or a picture's path in the images zone.
     uploads: held.uploads.map((u) => ({
-      bunnyVideoId: u.id,
+      bunnyVideoId: u.format === 'image' ? null : u.id,
+      imagePath: u.format === 'image' ? u.id : null,
       storyId: u.story,
       format: u.format,
       contentType: u.contentType,

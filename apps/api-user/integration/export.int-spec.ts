@@ -413,8 +413,18 @@ describe('download my data', () => {
     expect(file.submissions).toHaveLength(held['submissions'].length);
     expect(held['submissions']).toHaveLength(4);
     expect(
-      file.uploads.map((u: { bunnyVideoId: string }) => u.bunnyVideoId),
+      file.uploads.map(
+        (u: { bunnyVideoId: string | null; imagePath: string | null }) =>
+          u.bunnyVideoId ?? u.imagePath,
+      ),
     ).toEqual(held['uploads']);
+    // Ann's two pictures are uploads too, by their path.
+    expect(
+      file.uploads
+        .filter((u: { format: string }) => u.format === 'image')
+        .map((u: { imagePath: string }) => u.imagePath)
+        .sort(),
+    ).toEqual([draftPicture, livePicture].sort());
     expect(file.requestKeys.map((k: { key: string }) => k.key).sort()).toEqual(
       [...held['keys']].sort(),
     );
@@ -485,7 +495,10 @@ describe('download my data', () => {
     expect(expires).toBe(new Date(file.about.linksExpireAt).getTime());
     expect(expires - before).toBeGreaterThan(HOUR_MS - 60_000);
     expect(expires - before).toBeLessThanOrEqual(HOUR_MS + 60_000);
-    expect(file.uploads[0]).toMatchObject({
+    expect(
+      file.uploads.find((u: { format: string }) => u.format === 'video'),
+    ).toMatchObject({
+      imagePath: null,
       storyId: 'ann_video',
       format: 'video',
       contentType: 'video/mp4',
