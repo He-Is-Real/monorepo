@@ -133,9 +133,9 @@
     "@heisreal/http": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@heisreal/story-cards": "workspace:*",
-    "@nestjs/common": "^12.2.0",
-    "@nestjs/core": "^12.2.0",
-    "@nestjs/platform-express": "^12.2.0",
+    "@nestjs/common": "^12.3.2",
+    "@nestjs/core": "^12.3.2",
+    "@nestjs/platform-express": "^12.3.2",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.2",
     "surrealdb": "^2.0.8",
@@ -144,7 +144,7 @@
   "devDependencies": {
     "@heisreal/contracts": "workspace:*",
     "@heisreal/dev-seed": "workspace:*",
-    "@nestjs/testing": "^12.2.0",
+    "@nestjs/testing": "^12.3.2",
     "@types/express": "^5.0.6"
   }
 }

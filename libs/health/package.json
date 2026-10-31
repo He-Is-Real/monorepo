@@ -29,7 +29,7 @@
     "@heisreal/database": "workspace:*",
     "@heisreal/roles": "workspace:*",
     "@heisreal/secrets": "workspace:*",
-    "@nestjs/common": "^12.2.0"
+    "@nestjs/common": "^12.3.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.6"

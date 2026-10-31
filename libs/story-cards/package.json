@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@heisreal/secrets": "workspace:*",
-    "@nestjs/common": "^12.2.0"
+    "@nestjs/common": "^12.3.2"
   },
   "devDependencies": {
     "@heisreal/contracts": "workspace:*"

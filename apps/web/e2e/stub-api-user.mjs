@@ -34,6 +34,8 @@
 //   carry its `status`, `slug` and moderator's `rejectionFeedback`. Erasure (PR 11):
 //   `DELETE /v1/account`, and withdrawing the testimony or sign-up consent, erase the session:
 //   its token gets 401 afterwards.
+// - Download my data (M2 plan PR 12): `GET /v1/account/export`, the session's own stories,
+//   consents and hearts in api-user's shape (a session starting `export-fails` gets 503).
 // - Hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and `GET /v1/account/favourites`
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
@@ -665,6 +667,108 @@ function storyMine(id, st, uploaded = () => null) {
       st.status === 'draft'
         ? new Date(Date.parse(st.updatedAt) + DRAFT_RETENTION_MS).toISOString()
         : null,
+  };
+}
+
+/**
+ * "Download my data" (M2 plan PR 12): the session's own stories, consents and hearts in
+ * api-user's `AccountExport` shape. Media as the real one gives them: ids and a link, no bytes.
+ */
+function myDataOf(s, token, mine) {
+  const generatedAt = new Date().toISOString();
+  const linksExpireAt = new Date(Date.now() + 3600_000).toISOString();
+  const none = (keys) => Object.fromEntries(keys.map((k) => [k, null]));
+  return {
+    about: {
+      format: 'he-is-real-my-data',
+      formatVersion: 1,
+      generatedAt,
+      linksExpireAt,
+      summary:
+        'Everything He Is Real Today holds about you (the e2e stand-in).',
+      sections: { account: 'Your account.', stories: 'Your stories.' },
+      notIncluded: ['Anyone else’s data.'],
+    },
+    account: { id: ACCOUNT.id, createdAt: ACCOUNT.createdAt, role: 'User' },
+    signIn: {
+      clerkUserId: FIXTURE_USER,
+      firstName: 'Fixture',
+      lastName: null,
+      username: null,
+      emailAddresses: [
+        {
+          emailAddress: `${token || 'fixture'}@example.org`,
+          primary: true,
+          verified: true,
+        },
+      ],
+      phoneNumbers: [],
+      connectedAccounts: [],
+      profileImageUrl: null,
+      twoFactorEnabled: false,
+      createdAt: ACCOUNT.createdAt,
+      lastSignInAt: ACCOUNT.createdAt,
+      lastActiveAt: null,
+    },
+    stories: [...s.stories].reverse().map(([id, st]) => {
+      const { version: _v, tags, media, ...rest } = storyMine(id, st);
+      return {
+        ...rest,
+        onSiteNow: st.status === 'approved',
+        tags: tags.map((t) => ({ slug: t.slug, name: t.name })),
+        media: media.map((m) => ({
+          ...m,
+          bunnyVideoId: st.videoId,
+          playbackUrl: `https://player.mediadelivery.net/embed/1/${st.videoId}?token=stub&expires=1`,
+        })),
+        moderation: st.rejectionFeedback
+          ? [
+              {
+                decision: 'request_changes',
+                feedbackToSubmitter: st.rejectionFeedback,
+                storyVersion: 1,
+                decidedAt: st.updatedAt,
+              },
+            ]
+          : [],
+        publishedAt: null,
+      };
+    }),
+    consents: [...s.granted].map((type, i) => ({
+      id: `stubconsent_${i}`,
+      type,
+      event: 'granted',
+      statement: `The words beside the ${type} box.`,
+      form: FORM_OF[type],
+      formVersion: 'v2',
+      privacyPolicyVersion: 'dev_placeholder',
+      termsVersion: null,
+      mechanism: 'web_form_submission',
+      evidenceHash: '0'.repeat(64),
+      evidenceVersion: 4,
+      occurredAt: '2026-10-26T12:00:00.000Z',
+      legacyGivenAt: null,
+    })),
+    favourites: [...mine].map(([storyId]) => ({
+      storyId,
+      heartedAt: generatedAt,
+      publicPath: null,
+    })),
+    limits: {
+      trusted: s.trusted,
+      overrides: null,
+      overridesChangedAt: null,
+      effective: {
+        ...none(['openDraftsMax', 'submissionsPer7Days', 'uploadsPer7Days']),
+        uploadRequestsPerHour: 10,
+        videoMaxBytes: 4 * 1024 * MIB,
+        audioMaxBytes: 500 * MIB,
+        mediaMaxSeconds: 900,
+      },
+    },
+    submissions: [],
+    uploads: [],
+    requestKeys: [],
   };
 }
 
@@ -1628,6 +1732,18 @@ createServer(async (req, res) => {
     const mine = signedIn();
     if (!mine) return;
     return listFavourites(req, res, url, mine);
+  }
+  // Download my data (M2 plan PR 12). A session starting `export-fails` gets the 503 that
+  // api-user answers when Clerk can't be read.
+  if (path === '/v1/account/export' && req.method === 'GET') {
+    const mine = signedIn();
+    if (!mine) return;
+    if (token.startsWith('export-fails'))
+      return problem(res, 503, 'Service unavailable', 'export_unavailable');
+    return sendJson(res, 200, myDataOf(shareSession(token), token, mine), {
+      'cache-control': 'private, no-store',
+      'content-disposition': `attachment; filename="he-is-real-my-data-${new Date().toISOString().slice(0, 10)}.json"`,
+    });
   }
   const one = /^\/v1\/account\/favourites\/([^/]+)$/.exec(path);
   if (one && (req.method === 'PUT' || req.method === 'DELETE')) {

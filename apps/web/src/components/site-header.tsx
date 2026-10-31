@@ -26,17 +26,18 @@ import {
  * (e.g. local dev without one) there's no sign-in control.
  *
  * Layout (mobile first, 44 px targets): the logo and the actions share the first row and the
- * actions stay right-aligned, signed in or out, whatever the name. Phones get a menu button, in
- * a row that wraps: with large text (200%) the actions move under the logo, and onto more lines
- * if they need to, rather than off the screen. From 640 px it's a three-column grid: the links
- * are a second row; from 1280 px they sit in the middle column of the first row. The header is wider than the page (up to 1440 px, like the
- * mockup's full-width nav), so that row has room.
+ * actions stay right-aligned, signed in or out, whatever the name. It's a row that wraps: with
+ * large text (200%) the actions move under the logo, and onto more lines if they need to, rather
+ * than off the screen. Phones get a menu button; from 640 px the links are a full-width last
+ * row; from 1280 px it's a three-column grid, the links in the middle column of the first row.
+ * The header is wider than the page (up to 1440 px, like the mockup's full-width nav), so that
+ * row has room.
  */
 export function SiteHeader() {
   return (
     <>
       <header className="relative border-b border-border">
-        <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:grid sm:grid-cols-[max-content_minmax(0,1fr)_auto] sm:gap-y-0 sm:px-10">
+        <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:gap-y-0 sm:px-10 xl:grid xl:grid-cols-[max-content_minmax(0,1fr)_auto]">
           <Link
             href="/"
             className="col-start-1 row-start-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-2 justify-self-start rounded-md text-foreground hover:text-foreground"
@@ -47,7 +48,7 @@ export function SiteHeader() {
               He Is Real Today
             </span>
           </Link>
-          <NavLinks className="col-span-3 row-start-2 hidden sm:block sm:border-t sm:border-border xl:col-span-1 xl:col-start-2 xl:row-start-1 xl:justify-self-end xl:border-0" />
+          <NavLinks className="hidden sm:order-last sm:block sm:basis-full sm:border-t sm:border-border xl:order-none xl:col-span-1 xl:col-start-2 xl:row-start-1 xl:justify-self-end xl:border-0" />
           <div
             data-header-actions=""
             className="col-start-3 row-start-1 ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2"
@@ -61,7 +62,7 @@ export function SiteHeader() {
             <ThemeToggle />
             <div
               data-account-slot=""
-              className="flex w-20 shrink-0 justify-end sm:w-44"
+              className="flex w-20 max-w-full shrink-0 justify-end sm:w-44"
             >
               <Suspense fallback={ACCOUNT_PLACEHOLDER}>
                 <HeaderAccount />
@@ -84,6 +85,8 @@ export function SiteHeader() {
  * Clerk loads, and all a visitor without JavaScript gets; "Sign in"; or the signed-in control,
  * whose name truncates to fit), so Share and the theme toggle never move when it resolves:
  * 80 px on phones (Sign in, or the avatar alone), 176 px from 640 px (avatar, first name, ▾).
+ * Its width is in rem, so it grows with the text; on a screen narrower than that it takes the
+ * screen's width instead.
  */
 const ACCOUNT_PLACEHOLDER = <div className="h-11 w-20" aria-hidden="true" />;
 

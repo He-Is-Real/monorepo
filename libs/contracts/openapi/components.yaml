@@ -1877,6 +1877,506 @@ components:
           additionalProperties:
             type: boolean
 
+    AccountExport:
+      type: object
+      description: |
+        "Download my data" (Art 15, Art 20; M2 plan PR 12): everything we hold about the person, read in
+        their own session, with their sign-in details from Clerk. Nothing about anyone else. Times are
+        ISO 8601 in UTC. `about.sections` explains each part in plain words, keyed like the parts.
+      additionalProperties: false
+      required:
+        [
+          about,
+          account,
+          signIn,
+          stories,
+          consents,
+          favourites,
+          limits,
+          submissions,
+          uploads,
+          requestKeys,
+        ]
+      properties:
+        about:
+          type: object
+          additionalProperties: false
+          required:
+            [
+              format,
+              formatVersion,
+              generatedAt,
+              linksExpireAt,
+              summary,
+              sections,
+              notIncluded,
+            ]
+          properties:
+            format:
+              type: string
+              const: he-is-real-my-data
+            formatVersion:
+              type: integer
+              const: 1
+            generatedAt:
+              type: string
+              format: date-time
+            linksExpireAt:
+              type: [string, 'null']
+              format: date-time
+              description: When every media link in the file stops working; `null` while signing is off.
+            summary:
+              type: string
+            sections:
+              type: object
+              description: One plain explanation per part of the file, keyed by the part's name.
+              additionalProperties:
+                type: string
+            notIncluded:
+              type: array
+              description: What we hold or do that this file leaves out, and why.
+              items:
+                type: string
+        account:
+          type: object
+          additionalProperties: false
+          required: [id, createdAt, role]
+          properties:
+            id:
+              type: string
+            createdAt:
+              type: string
+              format: date-time
+            role:
+              $ref: '#/components/schemas/Role'
+        signIn:
+          type: object
+          description: What Clerk, our sign-in provider, holds about the person (read now, never stored).
+          additionalProperties: false
+          required:
+            [
+              clerkUserId,
+              firstName,
+              lastName,
+              username,
+              emailAddresses,
+              phoneNumbers,
+              connectedAccounts,
+              profileImageUrl,
+              twoFactorEnabled,
+              createdAt,
+              lastSignInAt,
+              lastActiveAt,
+            ]
+          properties:
+            clerkUserId:
+              type: string
+            firstName:
+              type: [string, 'null']
+            lastName:
+              type: [string, 'null']
+            username:
+              type: [string, 'null']
+            emailAddresses:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [emailAddress, primary, verified]
+                properties:
+                  emailAddress:
+                    type: string
+                  primary:
+                    type: boolean
+                  verified:
+                    type: boolean
+            phoneNumbers:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [phoneNumber, primary, verified]
+                properties:
+                  phoneNumber:
+                    type: string
+                  primary:
+                    type: boolean
+                  verified:
+                    type: boolean
+            connectedAccounts:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [provider, emailAddress]
+                properties:
+                  provider:
+                    type: string
+                  emailAddress:
+                    type: [string, 'null']
+            profileImageUrl:
+              type: [string, 'null']
+              description: The picture the person gave Clerk; `null` for none (Clerk's default avatar).
+            twoFactorEnabled:
+              type: boolean
+            createdAt:
+              type: [string, 'null']
+              format: date-time
+            lastSignInAt:
+              type: [string, 'null']
+              format: date-time
+            lastActiveAt:
+              type: [string, 'null']
+              format: date-time
+        stories:
+          type: array
+          description: Every story of the person's, in every status, newest first.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              [
+                id,
+                slug,
+                status,
+                onSiteNow,
+                title,
+                description,
+                body,
+                bylineName,
+                primaryFormat,
+                tags,
+                media,
+                image,
+                rejectionFeedback,
+                moderation,
+                createdAt,
+                updatedAt,
+                submittedAt,
+                approvedAt,
+                publishedAt,
+                draftExpiresAt,
+              ]
+            properties:
+              id:
+                type: string
+              slug:
+                type: string
+              status:
+                $ref: '#/components/schemas/StoryStatus'
+              onSiteNow:
+                type: boolean
+              title:
+                type: string
+              description:
+                type: string
+              body:
+                type: [string, 'null']
+              bylineName:
+                type: [string, 'null']
+              primaryFormat:
+                $ref: '#/components/schemas/Format'
+              tags:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [slug, name]
+                  properties:
+                    slug:
+                      type: string
+                    name:
+                      type: string
+              media:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    [
+                      format,
+                      bunnyVideoId,
+                      playbackUrl,
+                      thumbnailUrl,
+                      width,
+                      height,
+                      durationSeconds,
+                      processing,
+                    ]
+                  properties:
+                    format:
+                      type: string
+                      enum: [video, audio]
+                    bunnyVideoId:
+                      type: [string, 'null']
+                    playbackUrl:
+                      type: [string, 'null']
+                      format: uri
+                    thumbnailUrl:
+                      type: [string, 'null']
+                      format: uri
+                    width:
+                      type: [integer, 'null']
+                    height:
+                      type: [integer, 'null']
+                    durationSeconds:
+                      type: [integer, 'null']
+                    processing:
+                      type: [string, 'null']
+              image:
+                type: [object, 'null']
+                additionalProperties: false
+                required: [url, width, height, alt]
+                properties:
+                  url:
+                    type: [string, 'null']
+                    format: uri
+                    description: |
+                      A one-hour link to the picture as published; `null` while the story isn't on the site
+                      (a draft's path is the person's own write, so it is never signed).
+                  width:
+                    type: integer
+                  height:
+                    type: integer
+                  alt:
+                    type: [string, 'null']
+              rejectionFeedback:
+                type: [string, 'null']
+              moderation:
+                type: array
+                description: Each moderation decision on the story, oldest first; never who made it.
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    [decision, feedbackToSubmitter, storyVersion, decidedAt]
+                  properties:
+                    decision:
+                      type: string
+                      enum: [approve, reject, request_changes, escalate]
+                    feedbackToSubmitter:
+                      type: [string, 'null']
+                    storyVersion:
+                      type: integer
+                    decidedAt:
+                      type: string
+                      format: date-time
+              createdAt:
+                type: string
+                format: date-time
+              updatedAt:
+                type: string
+                format: date-time
+              submittedAt:
+                type: [string, 'null']
+                format: date-time
+              approvedAt:
+                type: [string, 'null']
+                format: date-time
+              publishedAt:
+                type: [string, 'null']
+                format: date-time
+              draftExpiresAt:
+                type: [string, 'null']
+                format: date-time
+        consents:
+          type: array
+          description: The consent ledger, oldest first, with the words of each box ticked.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              [
+                id,
+                type,
+                event,
+                statement,
+                form,
+                formVersion,
+                privacyPolicyVersion,
+                termsVersion,
+                mechanism,
+                evidenceHash,
+                evidenceVersion,
+                occurredAt,
+                legacyGivenAt,
+              ]
+            properties:
+              id:
+                type: string
+              type:
+                $ref: '#/components/schemas/ConsentType'
+              event:
+                type: string
+                enum: [granted, withdrawn]
+              statement:
+                type: [string, 'null']
+                description: The words beside the box, from the form version (D114); `null` before boxes.
+              form:
+                oneOf:
+                  - $ref: '#/components/schemas/ConsentForm'
+                  - type: 'null'
+              formVersion:
+                type: [string, 'null']
+              privacyPolicyVersion:
+                type: string
+              termsVersion:
+                type: [string, 'null']
+              mechanism:
+                type: string
+              evidenceHash:
+                type: string
+              evidenceVersion:
+                type: [integer, 'null']
+              occurredAt:
+                type: string
+                format: date-time
+              legacyGivenAt:
+                type: [string, 'null']
+                format: date-time
+        favourites:
+          type: array
+          description: |
+            The person's hearts, newest first: which story and when. The story is its author's, so only
+            its public path while it is public now.
+          items:
+            type: object
+            additionalProperties: false
+            required: [storyId, heartedAt, publicPath]
+            properties:
+              storyId:
+                type: string
+              heartedAt:
+                type: string
+                format: date-time
+              publicPath:
+                type: [string, 'null']
+                description: '`/stories/<slug>` on the site while the story is public; else `null`.'
+        limits:
+          type: object
+          additionalProperties: false
+          required: [trusted, overrides, overridesChangedAt, effective]
+          properties:
+            trusted:
+              type: boolean
+            overrides:
+              type: [object, 'null']
+              description: |
+                An admin's limits for this person only (D112), each `null` where the setting applies;
+                `null` when there's no row for them.
+              additionalProperties: false
+              required:
+                [
+                  openDraftsMax,
+                  submissionsPer7Days,
+                  uploadRequestsPerHour,
+                  uploadsPer7Days,
+                ]
+              properties:
+                openDraftsMax:
+                  type: [integer, 'null']
+                submissionsPer7Days:
+                  type: [integer, 'null']
+                uploadRequestsPerHour:
+                  type: [integer, 'null']
+                uploadsPer7Days:
+                  type: [integer, 'null']
+            overridesChangedAt:
+              type: [string, 'null']
+              format: date-time
+            effective:
+              type: object
+              description: The limits that apply to the person now (`fn::limits::effective`; `null` = no limit).
+              additionalProperties: false
+              required:
+                [
+                  openDraftsMax,
+                  submissionsPer7Days,
+                  uploadRequestsPerHour,
+                  uploadsPer7Days,
+                  videoMaxBytes,
+                  audioMaxBytes,
+                  mediaMaxSeconds,
+                ]
+              properties:
+                openDraftsMax:
+                  type: [integer, 'null']
+                submissionsPer7Days:
+                  type: [integer, 'null']
+                uploadRequestsPerHour:
+                  type: [integer, 'null']
+                uploadsPer7Days:
+                  type: [integer, 'null']
+                videoMaxBytes:
+                  type: [integer, 'null']
+                audioMaxBytes:
+                  type: [integer, 'null']
+                mediaMaxSeconds:
+                  type: [integer, 'null']
+        submissions:
+          type: array
+          description: When the person sent a story for review, in the last 7 days (D113), oldest first.
+          items:
+            type: object
+            additionalProperties: false
+            required: [at]
+            properties:
+              at:
+                type: string
+                format: date-time
+        uploads:
+          type: array
+          description: Each video or audio upload the person started (D80), oldest first.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              [
+                bunnyVideoId,
+                storyId,
+                format,
+                contentType,
+                sizeBytes,
+                durationSeconds,
+                requestedAt,
+                renewedAt,
+              ]
+            properties:
+              bunnyVideoId:
+                type: string
+              storyId:
+                type: string
+              format:
+                type: string
+                enum: [video, audio]
+              contentType:
+                type: string
+              sizeBytes:
+                type: integer
+              durationSeconds:
+                type: [integer, 'null']
+              requestedAt:
+                type: string
+                format: date-time
+              renewedAt:
+                type: [string, 'null']
+                format: date-time
+        requestKeys:
+          type: array
+          description: The idempotency keys of the person's recent commands (D29); each lasts 24 hours.
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, status, expiresAt]
+            properties:
+              key:
+                type: string
+              status:
+                type: integer
+              expiresAt:
+                type: string
+                format: date-time
+
     UserAdmin:
       type: object
       description: Joins the `user` record with Clerk (fetched at read time, never stored, D16).

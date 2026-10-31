@@ -98,6 +98,7 @@ for Bunny's encode and refuses a size or length that doesn't match the spec. Unt
 | Reset and test dev       | Actions → "Dev behavioural tests" → Run workflow (main)                                |
 | Reset dev by hand        | `gcloud run jobs execute dev-seed --region europe-west2 --project heisreal-dev --wait` |
 | Behavioural tests only   | `pnpm nx run dev-seed:behavioural` (after a reset)                                     |
+| Developer tests (dev)    | `pnpm nx run dev-seed:upload-spike` (your gcloud ADC and ffmpeg; `*.developer.ts`)     |
 | Unit / integration tests | `pnpm nx test dev-seed`, `pnpm nx run dev-seed:test-integration` (Docker)              |
 | Dataset in other tests   | `@heisreal/dev-seed/testing`: `devDatabaseWithDataset()` (test-only; a devDependency)  |
 

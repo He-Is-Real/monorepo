@@ -1808,12 +1808,16 @@ DEFINE EVENT OVERWRITE consent_published_dpa ON consent
   THEN { THROW 'consent can only be given against a published DPA version' };  -- D20
 
 -- ---------------------------------------------------------------- moderationReview (audit, M3)
+-- The story's owner reads the outcomes on their own story ("Download my data", Art 15; M2 plan
+-- PR 12), never who decided: `moderator` is api-admin's alone.
 DEFINE TABLE OVERWRITE moderationReview SCHEMAFULL PERMISSIONS
-  FOR select, create WHERE $auth.id = service:api_admin,
+  FOR select WHERE $auth.id = service:api_admin OR story.submitter = $auth.id,
+  FOR create WHERE $auth.id = service:api_admin,
   FOR update NONE,
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
 DEFINE FIELD OVERWRITE story       ON moderationReview TYPE record<story>;
-DEFINE FIELD OVERWRITE moderator   ON moderationReview TYPE record<user>;
+DEFINE FIELD OVERWRITE moderator   ON moderationReview TYPE record<user>
+  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
 DEFINE FIELD OVERWRITE decision    ON moderationReview TYPE string
   ASSERT $value IN ['approve', 'reject', 'request_changes', 'escalate'];  -- one per command (D28)
 DEFINE FIELD OVERWRITE feedbackToSubmitter ON moderationReview TYPE option<string>;

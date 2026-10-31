@@ -283,6 +283,67 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
+  /v1/account/export:
+    get:
+      tags: [Account]
+      operationId: exportMyData
+      summary: Download my data (GDPR Art 15 and Art 20)
+      description: |
+        Query `ExportMyData`, the profile's **Download my data** (M2 plan PR 12): everything we hold about
+        the signed-in person, as one JSON file that explains each part (`about.sections`) and what it
+        leaves out (`about.notIncluded`). Synchronous: the data is small.
+
+        - Read in the person's own database session (D27), so the database shows them their own rows
+          and nobody else's: their `user` row, every story in every status with its text, themes and
+          media, the moderation outcomes on their own stories (the decision, its feedback and when;
+          never the moderator, whose field only api-admin can read), the consent ledger with each
+          ticked box's words, their hearts (only which story and when, and the story's public path
+          while it's public; never another person's words), their submission limits, submission log,
+          upload grants and recent idempotency keys.
+        - Their sign-in details (names, email addresses, phone numbers, connected accounts) come from
+          Clerk's Backend API at the time of the request (D16, D81: the data download is one of the
+          three server jobs that may use Clerk's secret key); nothing from Clerk is stored.
+        - **Media never passes through our servers.** Each video or audio item carries its Bunny
+          Stream id and a signed player link, and each published picture a signed link (never a draft's
+          path, which is the person's own write), valid for one hour
+          (`about.linksExpireAt`; `null` links while media signing is off). We keep no original upload
+          and no downloadable file of a video (Bunny's settings), so the player is how to watch it.
+        - The audit log (ids only, D38) isn't included; `about.notIncluded` says so.
+
+        No `ETag`: every copy is new, with fresh links. `Content-Disposition` names the file. Needs no
+        consent: access to your own data is always possible (Art 15). `503` `export_unavailable` when
+        Clerk can't be reached: we send the whole file or nothing.
+      x-required-role: User
+      x-milestone: M2
+      responses:
+        '200':
+          description: My data.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+            Content-Disposition:
+              description: '`attachment; filename="he-is-real-my-data-<YYYY-MM-DD>.json"`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/AccountExport'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          description: |
+            `export_unavailable`: the sign-in details couldn't be read from Clerk just now. Try again in
+            a moment.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './components.yaml#/components/schemas/Problem'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
   /v1/account/consents:
     get:
       tags: [Consent]
