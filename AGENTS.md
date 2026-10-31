@@ -31,8 +31,6 @@ source of truth, so change them in the same PR as the code.
   - Tests must give the same result locally and in CI: no dependence on timing, machine load, ports or shared state.
   - Remove a flaky test, or one that stubs away the behaviour it claims to check, or rebuild it at the right level. Deleting low-value tests is welcome.
   - TDD belongs at the behaviour level, at the point in our process where that behaviour is defined.
-- **Browse loads at most 2 extra pages automatically,** then shows a "Show more stories" button
-  (D55). It's the only exception to the design principle "no infinite scroll".
 - **All cloud deployments and modifications go through OpenTofu (`infra/terraform`; D54: never Terraform),
   including proofs of concept.** Run it with `tools/scripts/tf.sh <root> …` (locally it acts as the root's
   CI identity; `TF_SH_IDENTITY=self` uses yours). Never use console clicks, `gcloud … create/update`, or
