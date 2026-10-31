@@ -210,7 +210,11 @@ describe('submitting with sharing beyond heisreal.today', () => {
     const session = await t.person('user_dan');
     const ledger = new ConsentLedger();
     const scope = () => ({
-      scope: { service: 'api-user', owner: new RecordId('user', 'dan'), key: key() },
+      scope: {
+        service: 'api-user',
+        owner: new RecordId('user', 'dan'),
+        key: key(),
+      },
       requestHash: key(),
     });
 
