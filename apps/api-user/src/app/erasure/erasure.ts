@@ -36,9 +36,9 @@ interface Pending {
  * transaction on api-user's own login (`ERASE_ACCOUNT`), retried until it commits; it leaves the
  * erased-identity tombstone (D82) and queues what must go elsewhere (D40). Then the queue is
  * drained at once: the person's Bunny videos and pictures, and their Clerk account (which ends
- * their sessions). A deletion that fails stays queued and is retried by the next erasure (and,
- * later, the nightly housekeeping job via `drain`). Logged with internal ids only (D40), for the
- * restore runbook.
+ * their sessions). A deletion that fails stays queued and is retried by the next erasure; a Bunny
+ * video is also caught by the nightly housekeeping's orphan sweep, as no story or grant names it
+ * any more. Logged with internal ids only (D40), for the restore runbook.
  */
 @Injectable()
 export class Erasure {
@@ -95,11 +95,9 @@ export class Erasure {
         );
         continue;
       }
-      await runQuery(
-        this.db,
-        `DELETE type::record('pendingDeletion', $key)`,
-        { key: row.key },
-      );
+      await runQuery(this.db, `DELETE type::record('pendingDeletion', $key)`, {
+        key: row.key,
+      });
     }
   }
 

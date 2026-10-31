@@ -77,6 +77,7 @@ async function person(
   const read = async (path: string) =>
     (await request.get(`${STUB_USER_URL}${path}`, { headers: auth })).json();
   return {
+    id,
     stories: async () =>
       (
         (await read('/v1/account/stories')).data as {
@@ -114,7 +115,10 @@ test.describe('behaviour', () => {
     page,
     request,
   }) => {
-    await person(page, request, { stories: EVERY_STATUS });
+    await person(page, request, {
+      granted: ['special_category_religious', 'publish'],
+      stories: EVERY_STATUS,
+    });
     await page.goto(`${WEB_SIGNED_IN_URL}/about`);
     await page.getByRole('button', { name: /^Account: / }).click();
     await page.getByRole('link', { name: 'My profile' }).click();
@@ -174,8 +178,8 @@ test.describe('behaviour', () => {
     await expect(
       row(page, 'My draft').getByRole('link', { name: 'Continue' }),
     ).toHaveAttribute('href', '/share?draft=s_draft');
-    // Download and deletion come later (M2 plan PRs 11 and 12): a place, nothing to press.
-    await expect(page.locator('[data-coming-soon]')).toHaveCount(2);
+    // Download comes later (M2 plan PR 12): a place, nothing to press.
+    await expect(page.locator('[data-coming-soon]')).toHaveCount(1);
     await expect(
       page.locator('[data-coming-soon]').getByRole('button'),
     ).toHaveCount(0);
@@ -337,6 +341,82 @@ test.describe('behaviour', () => {
     expect(await me.stories()).toEqual([['c1', 'draft']]);
   });
 
+  test('take all my stories off the site: they stay in the account, marked off the site', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      granted: ['special_category_religious', 'publish'],
+      stories: [
+        { id: 't1', status: 'approved', title: 'Live one', slug: 'live-one' },
+        { id: 't2', status: 'pending', title: 'Waiting one' },
+      ],
+    });
+    await page.goto(PROFILE);
+    await expect(
+      row(page, 'Live one').getByRole('link', { name: 'View' }),
+    ).toBeVisible();
+    await page
+      .getByRole('button', { name: 'Take all my stories off the site' })
+      .click();
+    await page.getByRole('button', { name: 'Keep them on' }).click();
+    await page
+      .getByRole('button', { name: 'Take all my stories off the site' })
+      .click();
+    await page.getByRole('button', { name: 'Yes, take them off' }).click();
+    await expect(page.locator('[data-publishing="off"]')).toBeVisible();
+    await expect(
+      page.getByText(
+        'Done. None of your stories are on the site now. They’re still here in your account.',
+      ),
+    ).toHaveRole('status');
+    const live = row(page, 'Live one');
+    await expect(live.locator('[data-status]')).toHaveText('Off the site');
+    await expect(live.getByRole('link', { name: 'View' })).toHaveCount(0);
+    await expect(page.locator('[data-submission]')).toHaveCount(2);
+    expect(await me.granted()).toEqual(['special_category_religious']);
+    expect(await me.stories()).toEqual([
+      ['t2', 'pending'],
+      ['t1', 'approved'],
+    ]);
+  });
+
+  test('delete my account, by keyboard: it asks for the word, then the account is gone', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      granted: ['special_category_religious', 'publish'],
+      stories: [{ id: 'x1', status: 'approved', title: 'Mine', slug: 'mine' }],
+    });
+    await page.goto(PROFILE);
+    // Loaded (and so hydrated) before the keyboard starts.
+    await expect(page.locator('[data-publishing="on"]')).toBeVisible();
+    const card = page.locator('[data-delete-account]');
+    await card.getByRole('button', { name: 'Delete my account' }).focus();
+    await page.keyboard.press('Enter');
+    const word = card.getByLabel('Type delete to confirm');
+    await expect(word).toBeFocused();
+    const go = card.getByRole('button', { name: 'Delete my account for good' });
+    await page.keyboard.type('delet');
+    await expect(go).toBeDisabled();
+    await page.keyboard.press('Enter');
+    await expect(card.locator('[data-deleted]')).toHaveCount(0);
+    // Keep my account closes it and forgets the word.
+    await card.getByRole('button', { name: 'Keep my account' }).click();
+    await card.getByRole('button', { name: 'Delete my account' }).click();
+    await expect(word).toHaveValue('');
+    await page.keyboard.type('Delete');
+    await expect(go).toBeEnabled();
+    await page.keyboard.press('Enter');
+    // Signed out (here, the fixtures go home in Clerk's place) and the token works no more.
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/`);
+    const gone = await request.get(`${STUB_USER_URL}/v1/account`, {
+      headers: { authorization: `Bearer ${fixtureToken(me.id)}` },
+    });
+    expect(gone.status()).toBe(401);
+  });
+
   test('withdraw sharing beyond heisreal.today', async ({ page, request }) => {
     const me = await person(page, request, {
       granted: ['special_category_religious', 'publish', 'share_socials'],
@@ -382,6 +462,10 @@ for (const scheme of ['light', 'dark'] as const) {
       await page
         .locator('[data-submission="draft"]')
         .getByRole('button', { name: 'Delete' })
+        .click();
+      await page
+        .locator('[data-delete-account]')
+        .getByRole('button', { name: 'Delete my account' })
         .click();
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);

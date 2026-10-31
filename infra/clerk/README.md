@@ -48,12 +48,12 @@ with it. About 900 bytes. That token, now expired, is the fixture in
 
 ## Keys
 
-| Key                  | Public? | Where                                                                                                                  |
-| -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Issuer (`iss`)       | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_issuer`): api-user's and api-admin's `CLERK_ISSUER`                     |
-| JWT public key (PEM) | yes     | `infra/terraform/live/dev/cluster/clerk.auto.tfvars`: SurrealDB, and (linked into the gcp root) `CLERK_JWT_PUBLIC_KEY` |
-| Publishable key      | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_publishable_key`): `web`'s `CLERK_PUBLISHABLE_KEY`                      |
-| Secret key           | **no**  | Secret Manager `clerk-secret-key` (container from the `gcp` root). Nobody has access yet: no service uses it (M2/M3)   |
+| Key                  | Public? | Where                                                                                                                     |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Issuer (`iss`)       | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_issuer`): api-user's and api-admin's `CLERK_ISSUER`                        |
+| JWT public key (PEM) | yes     | `infra/terraform/live/dev/cluster/clerk.auto.tfvars`: SurrealDB, and (linked into the gcp root) `CLERK_JWT_PUBLIC_KEY`    |
+| Publishable key      | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_publishable_key`): `web`'s `CLERK_PUBLISHABLE_KEY`                         |
+| Secret key           | **no**  | Secret Manager `clerk-secret-key` (container from the `gcp` root). Only api-user reads it: erasure deletes the Clerk user |
 
 - **PEM from the JWKS** (read-only):
   `clerk api /jwks | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(require('crypto').createPublicKey({key:JSON.parse(s).keys[0],format:'jwk'}).export({type:'spki',format:'pem'})))"`
@@ -74,6 +74,33 @@ with it. About 900 bytes. That token, now expired, is the fixture in
   `.env` files; the merge's `tofu-apply.yml` run redeploys api-user and api-admin (gcp) and
   migrates (cluster). The secret key rotates with the Platform API
   (`rotate_secret_keys`), then gets a new secret version.
+
+## Webhook (erasure, M2 plan PR 11)
+
+Clerk's `user.deleted` event erases the person in our database too (D39): someone who deletes
+their account in Clerk's own panel, or whom an admin deletes in Clerk's dashboard, loses their
+stories and media with it. api-user receives it at `POST /v1/webhooks/clerk`, checks the Svix
+signature with the endpoint's signing secret, and ignores every other event. Webhook endpoints
+aren't part of `clerk config patch`, so this is a one-off dashboard step (an exception to
+config-as-code, like the rest of this folder):
+
+1. Clerk dashboard → the "He Is Real" app, development instance → **Webhooks** → **Add
+   Endpoint**. URL: `https://api-user-jbxp6odnsa-nw.a.run.app/v1/webhooks/clerk`. Subscribe to
+   **`user.deleted` only**. Create.
+2. Copy the endpoint's **Signing Secret** (`whsec_…`) and add it as a version of the Secret
+   Manager secret `clerk-webhook-signing-secret` (the `gcp` root makes the container), without
+   echoing it:
+
+   ```bash
+   t=$(mktemp); gcloud auth application-default print-access-token > "$t"
+   read -rs WHSEC && printf %s "$WHSEC" \
+     | CLOUDSDK_AUTH_ACCESS_TOKEN_FILE="$t" gcloud secrets versions add clerk-webhook-signing-secret --project heisreal-dev --data-file=-
+   unset WHSEC; rm -f "$t"
+   ```
+
+Until the version exists, api-user answers the webhook `503` and Svix keeps retrying for days,
+so nothing is lost; api-user reads the secret on the next delivery, with no redeploy. Rotating
+it in the dashboard means adding the new secret as a new version straight away.
 
 The production instance needs a domain we own, so it waits for the domain cutover (D7). It gets
 its own `prod.json`, keys and PEM.
