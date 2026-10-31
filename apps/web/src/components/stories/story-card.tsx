@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
+import { cardLabel } from '@/lib/card-label';
 import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
 import { CardHeart } from './heart-button';
@@ -15,14 +16,6 @@ import { CardHeart } from './heart-button';
 
 /** Home's uniform media box (the mockup's 16:10). */
 const UNIFORM_ASPECT = 16 / 10;
-/** About 1,000 characters a minute (200 words of 5 letters). */
-const CHARS_PER_MINUTE = 1000;
-
-export const formatDuration = (seconds: number) =>
-  `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-
-export const readingMinutes = (chars: number) =>
-  Math.max(1, Math.ceil(chars / CHARS_PER_MINUTE));
 
 // Quiet placeholders from the mockups, for a card without a signed picture: home's written stories
 // without an image, or any card while signing is off. Audio cards show their thumbnail (U2).
@@ -38,15 +31,6 @@ function placeholderFor(id: string) {
   let hash = 0;
   for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   return PLACEHOLDERS[hash % PLACEHOLDERS.length];
-}
-
-export function cardLabel(story: StorySummary): string {
-  if (story.primaryFormat === 'written')
-    return `Written · ${readingMinutes(story.textLength)} min read`;
-  const kind = story.primaryFormat === 'video' ? 'Video' : 'Audio';
-  return story.durationSeconds
-    ? `${kind} · ${formatDuration(story.durationSeconds)}`
-    : kind;
 }
 
 /**
