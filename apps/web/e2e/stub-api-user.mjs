@@ -32,7 +32,10 @@
 //   story has another), and `GET` of one story says whether its picture's file arrived.
 // - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
 //   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
-//   carry its `status`, `slug` and moderator's `rejectionFeedback`. Erasure (PR 11):
+//   carry its `status`, `slug`, moderator's `rejectionFeedback` and whether it may be `shared`
+//   beyond heisreal.today (O4: chosen per story, granted with `storyId` and withdrawn with
+//   `POST /v1/account/consents/share_socials/withdraw` and `{ storyId }`, or granted with the
+//   submission: submit's `shareBeyondSite`, in the same idempotent command). Erasure (PR 11):
 //   `DELETE /v1/account`, and withdrawing the testimony or sign-up consent, erase the session:
 //   its token gets 401 afterwards.
 // - Download my data (M2 plan PR 12): `GET /v1/account/export`, the session's own stories,
@@ -311,8 +314,11 @@ const readBody = (req) =>
     req.on('end', () => done(text));
   });
 
-/** `POST /v1/account/consents` (GrantConsent), checked like the real service. */
-async function grant(req, res, onGranted) {
+/**
+ * `POST /v1/account/consents` (GrantConsent), checked like the real service. O4: `share_socials`
+ * names one story of the session's own (`hasStory`), and nothing else names one.
+ */
+async function grant(req, res, onGranted, hasStory = () => false) {
   const text = await readBody(req);
   const key = req.headers['idempotency-key'];
   if (typeof key !== 'string' || key.length < 16 || key.length > 128) {
@@ -343,6 +349,7 @@ async function grant(req, res, onGranted) {
     mechanism,
     privacyPolicyVersion,
     termsVersion,
+    storyId,
     ...rest
   } = body ?? {};
   if (
@@ -350,7 +357,10 @@ async function grant(req, res, onGranted) {
     typeof formVersion !== 'string' ||
     typeof statement !== 'string' ||
     !MECHANISMS.includes(mechanism) ||
-    Object.keys(rest).length !== 0
+    Object.keys(rest).length !== 0 ||
+    (statement === 'share_socials'
+      ? typeof storyId !== 'string' || !ID.test(storyId)
+      : storyId !== undefined)
   ) {
     return problem(res, 400, 'Bad request', 'validation_failed');
   }
@@ -368,7 +378,10 @@ async function grant(req, res, onGranted) {
   if (!FORMS[form].includes(statement)) {
     return problem(res, 409, 'Conflict', 'statement_not_on_form');
   }
-  onGranted?.(form, statement);
+  if (storyId !== undefined && !hasStory(storyId)) {
+    return problem(res, 404, 'Not found', 'story_not_found');
+  }
+  onGranted?.(form, statement, storyId);
   events += 1;
   const answer = { id: `stubconsent${events}`, version: null };
   replies.set(key, { text, answer });
@@ -489,10 +502,10 @@ const TAGS = [
   { slug: 'loss', name: 'Loss', category: 'emotion', version: 1 },
   { slug: 'hope', name: 'Hope', category: 'emotion', version: 1 },
 ];
+/** The person's own consents, for all their stories; sharing is per story (O4). */
 const CONSENT_TYPES = [
   'special_category_religious',
   'publish',
-  'share_socials',
   'age_18plus',
   'account_data',
 ];
@@ -526,6 +539,8 @@ function newSession(id, seed = {}) {
     })),
     uploadRequests: 0,
     tus: { fail: 0, hold: false },
+    // O4: which stories' sharing was ever chosen (a withdrawal needs a grant before it).
+    sharingChosen: new Set(),
     // Pictures by path: { story, size, bytes (a Buffer once PUT) }.
     images: new Map(),
     // Erasure: `DELETE /v1/account` erases, then answers 500 (the queue failed after the commit).
@@ -672,8 +687,17 @@ function storyMine(id, st, uploaded = () => null) {
       st.status === 'draft'
         ? new Date(Date.parse(st.updatedAt) + DRAFT_RETENTION_MS).toISOString()
         : null,
+    sharing: sharingOf(st),
   };
 }
+
+/** O4: a story's own sharing beyond heisreal.today, as `StorySharing`. */
+const sharingOf = (st) => ({
+  granted: !!st.shared,
+  counts: !!st.shared,
+  formVersion: st.shared ? 'v2' : null,
+  occurredAt: st.shared ? '2026-10-31T12:00:00.000Z' : null,
+});
 
 /**
  * "Download my data" (M2 plan PR 12): the session's own stories, consents and hearts in
@@ -739,21 +763,43 @@ function myDataOf(s, token, mine) {
         publishedAt: null,
       };
     }),
-    consents: [...s.granted].map((type, i) => ({
-      id: `stubconsent_${i}`,
-      type,
-      event: 'granted',
-      statement: `The words beside the ${type} box.`,
-      form: FORM_OF[type],
-      formVersion: 'v2',
-      privacyPolicyVersion: 'dev_placeholder',
-      termsVersion: null,
-      mechanism: 'web_form_submission',
-      evidenceHash: '0'.repeat(64),
-      evidenceVersion: 4,
-      occurredAt: '2026-10-26T12:00:00.000Z',
-      legacyGivenAt: null,
-    })),
+    consents: [...s.granted]
+      .map((type, i) => ({
+        id: `stubconsent_${i}`,
+        type,
+        event: 'granted',
+        statement: `The words beside the ${type} box.`,
+        form: FORM_OF[type],
+        formVersion: 'v2',
+        privacyPolicyVersion: 'dev_placeholder',
+        termsVersion: null,
+        storyId: null,
+        mechanism: 'web_form_submission',
+        evidenceHash: '0'.repeat(64),
+        evidenceVersion: 4,
+        occurredAt: '2026-10-26T12:00:00.000Z',
+        legacyGivenAt: null,
+      }))
+      .concat(
+        [...s.stories]
+          .filter(([, st]) => st.shared)
+          .map(([storyId]) => ({
+            id: `stubconsent_share_${storyId}`,
+            type: 'share_socials',
+            event: 'granted',
+            statement: 'The words beside the share_socials box.',
+            form: 'social',
+            formVersion: 'v2',
+            privacyPolicyVersion: 'dev_placeholder',
+            termsVersion: null,
+            storyId,
+            mechanism: 'account_settings',
+            evidenceHash: '0'.repeat(64),
+            evidenceVersion: 5,
+            occurredAt: '2026-10-31T12:00:00.000Z',
+            legacyGivenAt: null,
+          })),
+      ),
     favourites: [...mine].map(([storyId]) => ({
       storyId,
       heartedAt: generatedAt,
@@ -1179,7 +1225,26 @@ async function handleShare(req, res, path, url, s) {
         'Precondition required',
         'if_match_required',
       );
-    return idempotent(s, req, res, undefined, () => {
+    // O4: the optional body's sharing beyond heisreal.today, granted with the submission (both
+    // or neither), on the social sharing version and privacy policy in force.
+    const body = await readJson(req);
+    const share = body?.shareBeyondSite;
+    if (
+      body === null ||
+      (body !== undefined &&
+        (typeof body !== 'object' ||
+          Object.keys(body).some((k) => k !== 'shareBeyondSite'))) ||
+      (share !== undefined &&
+        (share === null ||
+          typeof share !== 'object' ||
+          Object.keys(share).some(
+            (k) => k !== 'formVersion' && k !== 'privacyPolicyVersion',
+          ) ||
+          typeof share.formVersion !== 'string' ||
+          typeof share.privacyPolicyVersion !== 'string'))
+    )
+      return shareProblem(res, 400, 'Bad request', 'validation_failed');
+    return idempotent(s, req, res, body, () => {
       const p = (status, title, code, extra = {}) => ({
         status,
         body: { type: 'about:blank', title, status, code, ...extra },
@@ -1187,6 +1252,10 @@ async function handleShare(req, res, path, url, s) {
       });
       if (v !== st.version)
         return p(412, 'Precondition failed', 'stale_version');
+      if (share && share.formVersion !== 'v2')
+        return p(409, 'Conflict', 'form_version_not_in_force');
+      if (share && share.privacyPolicyVersion !== 'dev_policy')
+        return p(409, 'Conflict', 'legal_document_not_in_force');
       if (!['draft', 'changes_requested'].includes(st.status))
         return p(409, 'Conflict', 'story_not_submittable');
       // The minimum at submit; the maximum only when themes change (as api-user does).
@@ -1253,6 +1322,10 @@ async function handleShare(req, res, path, url, s) {
       st.status = 'pending';
       st.submittedAt ??= new Date().toISOString();
       st.version += 1;
+      if (share) {
+        st.shared = true;
+        s.sharingChosen.add(submit[1]);
+      }
       return {
         status: 200,
         body: { id: submit[1], version: st.version },
@@ -1599,7 +1672,8 @@ createServer(async (req, res) => {
   // Test set-up only (not part of api-user): a session's starting state for the submit flow.
   const seed = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})$/.exec(path);
   if (seed && req.method === 'POST') {
-    const body = (await readJson(req)) ?? {};
+    const raw = await readJson(req);
+    const body = raw === undefined ? {} : raw;
     sessions.set(seed[1], newSession(seed[1], body));
     // A fresh environment: no version of either legal document published yet.
     if (body.noLegalDocuments)
@@ -1716,15 +1790,25 @@ createServer(async (req, res) => {
   if (path === '/v1/account/consents' && req.method === 'POST') {
     if (!signedIn()) return;
     const s = shareSession(token);
-    return void grant(req, res, (form, statement) => {
-      s.granted.add(statement);
-      if (
-        form === 'signup' &&
-        s.granted.has('age_18plus') &&
-        s.granted.has('account_data')
-      )
-        s.signup = true;
-    });
+    return void grant(
+      req,
+      res,
+      (form, statement, storyId) => {
+        if (storyId !== undefined) {
+          s.stories.get(storyId).shared = true;
+          s.sharingChosen.add(storyId);
+          return;
+        }
+        s.granted.add(statement);
+        if (
+          form === 'signup' &&
+          s.granted.has('age_18plus') &&
+          s.granted.has('account_data')
+        )
+          s.signup = true;
+      },
+      (storyId) => s.stories.has(storyId),
+    );
   }
   const withdrawConsent = /^\/v1\/account\/consents\/([^/]+)\/withdraw$/.exec(
     path,
@@ -1733,13 +1817,36 @@ createServer(async (req, res) => {
     if (!signedIn()) return;
     const s = shareSession(token);
     const type = withdrawConsent[1];
-    if (!CONSENT_TYPES.includes(type))
+    const raw = await readJson(req);
+    const body = raw === undefined ? {} : raw;
+    const sharing = type === 'share_socials';
+    if (
+      (!CONSENT_TYPES.includes(type) && !sharing) ||
+      body === null ||
+      typeof body !== 'object' ||
+      Object.keys(body).some((k) => k !== 'storyId') ||
+      (sharing
+        ? typeof body.storyId !== 'string' || !ID.test(body.storyId)
+        : body.storyId !== undefined)
+    )
       return problem(res, 400, 'Bad request', 'validation_failed');
     const key = req.headers['idempotency-key'];
     if (typeof key !== 'string' || key.length < 16 || key.length > 128)
       return problem(res, 400, 'Bad request', 'idempotency_key_required');
     const earlier = replies.get(key);
     if (earlier) return send(res, 202, earlier.answer);
+    if (sharing) {
+      // O4: one story's sharing; another story is untouched.
+      const st = s.stories.get(body.storyId);
+      if (!st) return problem(res, 404, 'Not found', 'story_not_found');
+      if (!s.sharingChosen.has(body.storyId) && !st.shared)
+        return problem(res, 409, 'Conflict', 'consent_not_granted');
+      st.shared = false;
+      events += 1;
+      const answer = { id: `stubconsent${events}`, version: null };
+      replies.set(key, { text: '', answer });
+      return send(res, 202, answer);
+    }
     // Withdrawing again re-affirms it; never granted is 409 (api-user.yaml).
     if (!s.granted.has(type) && !s.withdrawn?.has(type))
       return problem(res, 409, 'Conflict', 'consent_not_granted');

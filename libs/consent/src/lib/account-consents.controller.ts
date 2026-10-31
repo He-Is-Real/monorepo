@@ -10,6 +10,7 @@ import {
   Inject,
   Logger,
   Module,
+  NotFoundException,
   Optional,
   Param,
   Post,
@@ -24,8 +25,10 @@ import {
   ConsentConflictError,
   ConsentLedger,
   type ConsentState,
+  ConsentStoryNotFoundError,
   type GrantConsentInput,
   type IdempotencyOptions,
+  type WithdrawTarget,
 } from './consent-ledger';
 import type { PersonContext } from './person';
 import { RequiresRole } from '@heisreal/roles';
@@ -67,6 +70,33 @@ export interface CommandResult {
 }
 
 const FORM_VERSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** A story id as the contracts give it (a record key without the table). */
+const STORY_ID = /^[A-Za-z0-9_]{1,64}$/;
+
+/**
+ * O4: `storyId` names the story a `share_socials` choice is about: required with it, and with
+ * nothing else (sharing beyond heisreal.today is the one consent chosen per story).
+ */
+function checkStoryId(
+  statement: unknown,
+  storyId: unknown,
+  errors: { pointer: string; message: string }[],
+) {
+  if (statement === 'share_socials') {
+    if (typeof storyId !== 'string' || !STORY_ID.test(storyId)) {
+      errors.push({
+        pointer: '/storyId',
+        message:
+          'the story whose sharing this is (O4: sharing is chosen per story)',
+      });
+    }
+  } else if (storyId !== undefined) {
+    errors.push({
+      pointer: '/storyId',
+      message: 'only sharing beyond heisreal.today is chosen per story',
+    });
+  }
+}
 
 export function parseGrantConsent(body: unknown): GrantConsentInput {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -92,6 +122,7 @@ export function parseGrantConsent(body: unknown): GrantConsentInput {
       message: `one of ${CONSENT_TYPES.join(', ')}`,
     });
   }
+  checkStoryId(b['statement'], b['storyId'], errors);
   if (!isConsentMechanism(b['mechanism'])) {
     errors.push({
       pointer: '/mechanism',
@@ -115,6 +146,7 @@ export function parseGrantConsent(body: unknown): GrantConsentInput {
         'mechanism',
         'privacyPolicyVersion',
         'termsVersion',
+        'storyId',
       ].includes(k),
   );
   if (unknown) {
@@ -137,7 +169,48 @@ export function parseGrantConsent(body: unknown): GrantConsentInput {
     ...(typeof b['termsVersion'] === 'string'
       ? { termsVersion: b['termsVersion'] }
       : {}),
+    ...(typeof b['storyId'] === 'string' ? { storyId: b['storyId'] } : {}),
   };
+}
+
+/**
+ * WithdrawConsent's target: the type in the path and, for `share_socials` only (O4), the story
+ * in the body (`{ "storyId": "…" }`). Any other type takes no body.
+ */
+export function parseWithdrawConsent(
+  type: string,
+  body: unknown,
+): WithdrawTarget {
+  if (!isConsentType(type)) {
+    throw new BadRequestException({
+      code: 'validation_failed',
+      errors: [
+        { pointer: '/type', message: `one of ${CONSENT_TYPES.join(', ')}` },
+      ],
+    });
+  }
+  const b =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const errors: { pointer: string; message: string }[] = [];
+  if (body !== undefined && body !== null && b !== body) {
+    errors.push({ pointer: '', message: 'a JSON object, or no body' });
+  }
+  checkStoryId(type, b['storyId'], errors);
+  const unknown = Object.keys(b).find((k) => k !== 'storyId');
+  if (unknown) {
+    errors.push({
+      pointer: `/${unknown}`,
+      message: 'not a field of this command',
+    });
+  }
+  if (errors.length) {
+    throw new BadRequestException({ code: 'validation_failed', errors });
+  }
+  return type === 'share_socials'
+    ? { type, storyId: b['storyId'] as string }
+    : type;
 }
 
 export function parseIdempotencyKey(header: string | undefined): string {
@@ -237,26 +310,23 @@ export class AccountConsentsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Param('type') type: string,
+    @Body() body: unknown,
     @Headers('idempotency-key') key?: string,
   ): Promise<CommandResult> {
-    if (!isConsentType(type)) {
-      throw new BadRequestException({
-        code: 'validation_failed',
-        errors: [
-          { pointer: '/type', message: `one of ${CONSENT_TYPES.join(', ')}` },
-        ],
-      });
-    }
+    const target = parseWithdrawConsent(type, body);
     const idempotencyKey = parseIdempotencyKey(key);
     const result = await this.command(
       req,
       res,
       idempotencyKey,
-      ['POST', 'withdraw', type],
+      // The same key for another story is a different request (422).
+      typeof target === 'string'
+        ? ['POST', 'withdraw', type]
+        : ['POST', 'withdraw', type, target.storyId],
       (session, idempotency) =>
-        this.ledger.withdraw(session, type, idempotency),
+        this.ledger.withdraw(session, target, idempotency),
     );
-    if (ERASING_WITHDRAWALS.includes(type)) {
+    if (typeof target === 'string' && ERASING_WITHDRAWALS.includes(target)) {
       // D88, D73: the account goes. The withdrawal is on the ledger (kept as proof) with an
       // erasure request; erase now, or housekeeping does it tonight.
       try {
@@ -298,6 +368,12 @@ export class AccountConsentsController {
     } catch (err) {
       if (err instanceof ConsentConflictError) {
         throw new ConflictException({ code: err.code, message: err.message });
+      }
+      if (err instanceof ConsentStoryNotFoundError) {
+        throw new NotFoundException({
+          code: 'story_not_found',
+          message: err.message,
+        });
       }
       if (err instanceof IdempotencyKeyReusedError) {
         throw new UnprocessableEntityException({

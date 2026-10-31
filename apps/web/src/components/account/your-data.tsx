@@ -8,7 +8,6 @@ import {
   type ApiUser,
   ApiUserProblem,
   ApiUserUnavailable,
-  newIdempotencyKey,
   NotSignedIn,
 } from '@/lib/api-user';
 import {
@@ -17,19 +16,10 @@ import {
   usePersonalSession,
 } from '@/lib/personal-session';
 import { forgetShareStorageOf } from '@/lib/share-storage';
-import { PUBLISHING_CHANGED } from './my-submissions';
-import { signedInAs, useOwnData, useOwnNotice } from './use-own-data';
+import { signedInAs, useOwnNotice } from './use-own-data';
 
 /** What the person types to delete their account (D88: a typed confirmation). */
 const CONFIRM_WORD = 'delete';
-
-async function readPublishing(api: ApiUser): Promise<boolean> {
-  const { data } = await api.get<{
-    current: { type: string; granted: boolean }[];
-  }>('/v1/account/consents');
-  if (!data) throw new ApiUserUnavailable('No answer');
-  return data.current.some((c) => c.type === 'publish' && c.granted);
-}
 
 /**
  * After `owner`'s account is deleted: their unsaved submit-flow state goes, and they're signed
@@ -76,10 +66,11 @@ const outcomeUnknown = (err: unknown) =>
 
 /**
  * Your data (R6, Joel 2026-10-30): the profile's serious choices about the person's data, in one
- * place. "Take all my stories off the site" withdraws their consent to publish (every story comes
- * off the site at once and stays in the account); "Download my data" saves everything we hold
- * about them as one JSON file (M2 plan PR 12; Art 15, Art 20); "Delete my account" erases everything (D39, D82) after a typed confirmation, and
- * signs them out. Filled in by the browser (D83).
+ * place. "Download my data" saves everything we hold about them as one JSON file (M2 plan PR 12;
+ * Art 15, Art 20); "Delete my account" is how they withdraw their consent and erase everything
+ * (D39, D82, D88; O4, Joel 2026-10-31: the one account-wide withdrawal offered, merged with
+ * deletion) after a typed confirmation, and signs them out. Each story is withdrawn, deleted or
+ * shared beyond heisreal.today on its own in My submissions. Filled in by the browser (D83).
  */
 export function YourData({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   const session = usePersonalSession();
@@ -92,143 +83,10 @@ export function YourData({ afterDeletion }: { afterDeletion: AfterDeletion }) {
       </h2>
       {/* A fresh one for each person: nobody inherits the last person's confirmation or key. */}
       <ul key={owner ?? 'unknown'} className="flex flex-col gap-4">
-        <TakeStoriesOff />
         <DownloadMyData />
         <DeleteAccount afterDeletion={afterDeletion} />
       </ul>
     </section>
-  );
-}
-
-function TakeStoriesOff() {
-  const own = useOwnData(readPublishing);
-  const [confirm, setConfirm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const { notice, say } = useOwnNotice<{ alert: boolean; text: string }>();
-  // One key per withdrawal, kept across retries of it (D29).
-  const [key, setKey] = useState(newIdempotencyKey);
-  const { state } = own;
-
-  const takeOff = async (owner: string) => {
-    const api = own.api(owner);
-    if (!api) return;
-    setBusy(true);
-    say(owner, undefined);
-    try {
-      await api.command('/v1/account/consents/publish/withdraw', {
-        method: 'POST',
-        idempotencyKey: key,
-      });
-      setKey(newIdempotencyKey());
-      setConfirm(false);
-      say(owner, {
-        alert: false,
-        text: 'Done. None of your stories are on the site now. They’re still here in your account.',
-      });
-      window.dispatchEvent(new Event(PUBLISHING_CHANGED));
-      await own.reload(owner);
-    } catch (err) {
-      say(owner, {
-        alert: true,
-        text:
-          err instanceof ApiUserProblem && err.problem.detail
-            ? err.problem.detail
-            : 'We couldn’t do that just now. Please try again in a moment.',
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  let body: React.ReactNode;
-  if (state.status !== 'ready' && state.status !== 'failed') {
-    body = <div aria-busy="true" className="min-h-11" />;
-  } else if (state.status === 'failed') {
-    body = (
-      <div className="min-h-11">
-        <p role="alert" className="mb-3 text-secondary-text">
-          This couldn’t load. Try again in a moment.
-        </p>
-        <Button
-          variant="outline"
-          className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-          onClick={() => own.reload(state.owner, false)}
-        >
-          Try again
-        </Button>
-      </div>
-    );
-  } else if (!state.data) {
-    body = (
-      <p data-publishing="off" className="min-h-11 text-secondary-text">
-        None of your stories can be on the site: you haven’t given us your
-        consent to publish them, or you’ve withdrawn it. You give it when you
-        submit a story.
-      </p>
-    );
-  } else if (confirm) {
-    body = (
-      <div
-        data-confirm="take-off"
-        className="rounded-xl border border-border-hover p-4"
-      >
-        <p className="mb-3">
-          Take every one of your stories off the site? They come off straight
-          away and stay in your account. To publish again, you give your consent
-          again when you next submit a story.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            autoFocus
-            className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-            disabled={busy}
-            onClick={() => takeOff(state.owner)}
-          >
-            {busy ? 'Taking them off…' : 'Yes, take them off'}
-          </Button>
-          <Button
-            variant="outline"
-            className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-            disabled={busy}
-            onClick={() => setConfirm(false)}
-          >
-            Keep them on
-          </Button>
-        </div>
-      </div>
-    );
-  } else {
-    body = (
-      <Button
-        data-publishing="on"
-        variant="outline"
-        className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-        onClick={() => setConfirm(true)}
-      >
-        Take all my stories off the site
-      </Button>
-    );
-  }
-
-  return (
-    <li className="rounded-2xl border border-border bg-card p-5 sm:p-6">
-      <h3 className="mb-1 text-lg font-semibold">
-        Take all my stories off the site
-      </h3>
-      <p className="mb-4 text-secondary-text">
-        Withdraw your consent to publish: every story of yours comes off the
-        site, and stays in your account.
-      </p>
-      {body}
-      {notice && (
-        <p
-          role={notice.alert ? 'alert' : 'status'}
-          className={`mt-3 text-sm ${notice.alert ? 'text-destructive' : ''}`}
-        >
-          {notice.text}
-        </p>
-      )}
-    </li>
   );
 }
 
@@ -398,7 +256,9 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
     >
       <h3 className="mb-1 text-lg font-semibold">Delete my account</h3>
       <p className="mb-4 text-secondary-text">
-        Remove your account and everything we hold about you.
+        Withdraw your consent and delete your account, every story and
+        everything else we hold about you. To take down just one story, use
+        Withdraw or Delete on it in My submissions.
       </p>
       {done ? (
         <p role="status" data-deleted="">
@@ -416,13 +276,14 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
             <li>your favourites.</li>
           </ul>
           <p className="mb-3">
-            It can’t be undone. It’s also how you withdraw your consent for us
-            to keep your stories: we can’t keep your account without it. We keep
-            only the record of the consents you gave and withdrew, with none of
-            your stories, for six years, as proof that we asked. We also keep a
-            fingerprint of your sign-in’s id, so the deleted sign-in can’t make
-            a new account here. It isn’t your name or email, but it isn’t
-            anonymous: it can be matched to that id.
+            It can’t be undone. It withdraws every consent you gave us: to keep
+            and publish your stories, to share any of them beyond
+            heisreal.today, and to keep your account. We keep only the record of
+            the consents you gave and withdrew, with none of your stories, for
+            six years, as proof that we asked. We also keep a fingerprint of
+            your sign-in’s id, so the deleted sign-in can’t make a new account
+            here. It isn’t your name or email, but it isn’t anonymous: it can be
+            matched to that id.
           </p>
           <form
             onSubmit={(e) => {

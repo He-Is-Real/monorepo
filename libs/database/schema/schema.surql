@@ -428,11 +428,14 @@ DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
 -- Not stored, so it can't drift: withdrawing or re-consenting changes every story at once. No
 -- story holds a consent or form version: the ledger's history and submittedAt show which version
 -- the person was on when they submitted.
--- Uses the record's own `submitter`, never $parent (see the 3.2.4 gotchas at the top).
+-- O4 (Joel, 2026-10-31): sharing beyond heisreal.today is the one consent given per story, so
+-- `share` is this story's own latest share_socials event (fn::consent::story_sharing), never the
+-- person's: one story can stay on heisreal.today only while another goes further.
+-- Uses the record's own `submitter` and `id`, never $parent (see the 3.2.4 gotchas at the top).
 DEFINE FIELD OVERWRITE consent ON story COMPUTED {
   religious: fn::consent::current(submitter, 'special_category_religious'),
   publish:   fn::consent::current(submitter, 'publish'),
-  share:     fn::consent::current(submitter, 'share_socials'),
+  share:     fn::consent::story_sharing(submitter, id),
   age18plus: fn::consent::current(submitter, 'age_18plus')
 };
 DEFINE FIELD OVERWRITE submittedAt   ON story TYPE option<datetime>   -- set by the server on first submit
@@ -1606,17 +1609,23 @@ DEFINE FIELD OVERWRITE dpaVersion   ON consent TYPE record<dpaVersion>;
 DEFINE FIELD OVERWRITE termsVersion ON consent TYPE option<record<termsVersion>>;
 -- D84: the form version the person saw (its statement is `type`). NONE only on rows from before
 -- forms (evidence v1), on legacy imports, and on a withdrawal of such a grant (consent_form).
+-- O4 (Joel, 2026-10-31): the story a share_socials event is about, and only those: sharing beyond
+-- heisreal.today is granted and withdrawn per story (consent_story). Every other consent is the
+-- person's, for all their stories. A plain link (no REFERENCE): deleting the story leaves the
+-- event, kept like the rest of the ledger, pointing at an id that no longer exists (as auditLog's).
+DEFINE FIELD OVERWRITE story        ON consent TYPE option<record<story>>;
 DEFINE FIELD OVERWRITE form         ON consent TYPE option<record<signupFormVersion | testimonyFormVersion | socialSharingFormVersion>>;
 DEFINE FIELD OVERWRITE event        ON consent TYPE string ASSERT $value IN ['granted', 'withdrawn'];
 DEFINE FIELD OVERWRITE mechanism    ON consent TYPE string
   ASSERT $value IN ['web_form_submission', 'account_settings', 'reconsent_prompt', 'legacy_import'];
 DEFINE FIELD OVERWRITE evidenceHash ON consent TYPE string ASSERT string::len($value) = 64;  -- sha256(presented text + checkbox states)
 -- Which evidence format evidenceHash follows (libs/consent/src/lib/evidence.ts), so it can be
--- recomputed: 4 (D125: v3 plus the terms of use version with its words' sha256, or none), set
+-- recomputed: 5 (O4: v4 plus the story's id), on every event naming a story and only those
+-- (consent_evidence_v5); 4 (D125: v3 plus the terms of use version with its words' sha256, or none), set
 -- by the API on every event with a form since, and required on any naming terms
 -- (consent_evidence_v4); 3 (D114: v2 plus the statements data) before; NONE on older rows: v2
 -- with a form, v1 without.
-DEFINE FIELD OVERWRITE evidenceVersion ON consent TYPE option<int> ASSERT $value = NONE OR $value IN [3, 4];
+DEFINE FIELD OVERWRITE evidenceVersion ON consent TYPE option<int> ASSERT $value = NONE OR $value IN [3, 4, 5];
 DEFINE FIELD OVERWRITE legacyGivenAt ON consent TYPE option<datetime>;  -- D22: original date, legacy imports only
 DEFINE FIELD OVERWRITE occurredAt   ON consent TYPE datetime VALUE time::now() READONLY;   -- server time only
 DEFINE INDEX OVERWRITE consent_latest ON consent FIELDS subject, type, occurredAt;  -- D18: "latest event" lookup
@@ -1626,6 +1635,19 @@ DEFINE FUNCTION OVERWRITE fn::consent::current($user: option<record<user>>, $typ
   IF $user = NONE { RETURN NONE };
   RETURN array::last((SELECT type, event, dpaVersion, termsVersion, form, occurredAt FROM consent
     WHERE subject = $user AND type = $type ORDER BY occurredAt ASC));
+};
+-- O4: the one definition of a story's sharing beyond heisreal.today: the latest share_socials
+-- event naming it (consent_story: only its submitter's own), NONE if they never chose. Account-wide
+-- share_socials events from before O4 name no story, so they count for none. $user is the
+-- story's submitter, passed in by the caller (reading it here would compute the story's own
+-- `consent` field again: "excessive computation depth"); consent_story makes every event's
+-- subject its story's submitter, so any other $user finds nothing. Read through the person's own
+-- events (consent_latest), with the caller's permissions: whoever can't read their ledger gets
+-- NONE (fail closed).
+DEFINE FUNCTION OVERWRITE fn::consent::story_sharing($user: option<record<user>>, $story: option<record<story>>) {
+  IF $user = NONE OR $story = NONE { RETURN NONE };
+  RETURN array::last((SELECT type, event, dpaVersion, termsVersion, form, story, occurredAt FROM consent
+    WHERE subject = $user AND type = 'share_socials' AND story = $story ORDER BY occurredAt ASC));
 };
 -- D84, D93: whether a latest ledger event ($c, from fn::consent::current) is a grant that counts:
 -- on a form version that counts (published or retired, its privacy document counting) and that
@@ -1712,16 +1734,19 @@ DEFINE FUNCTION OVERWRITE fn::consent::may_submit($user: option<record<user>>) {
 DEFINE FUNCTION OVERWRITE fn::consent::publishable($user: option<record<user>>) {
   RETURN fn::consent::granted($user, ['special_category_religious', 'publish', 'age_18plus']);
 };
--- D93: may a person's stories go beyond heisreal.today in this way? $use names a feature
--- column of the social sharing form: a platform ('shareTikTok', ...) or a use
--- ('allowEditingAndClipping', ...). Answered from their latest share_socials event: a grant on a
--- social sharing version that counts, whose column for $use is true. Missing, withdrawn, a
--- column that version doesn't have (added later: NONE), an unknown or odd name: no. Their
--- stories must also be publishable on consent that really counts: never relaxed by D48.
-DEFINE FUNCTION OVERWRITE fn::consent::may_share($user: option<record<user>>, $use: string) {
-  IF $user = NONE OR !string::matches($use, '^(share|allow)[A-Z][A-Za-z0-9]*$') { RETURN false };
-  LET $share = fn::consent::current($user, 'share_socials');
-  IF !fn::consent::valid($share) OR $share.form = NONE
+-- D93, O4: may this story go beyond heisreal.today in this way? $use names a feature column of
+-- the social sharing form: a platform ('shareTikTok', ...) or a use ('allowEditingAndClipping',
+-- ...). Only while the story is public on heisreal.today, and through its uploader (D86): its own
+-- latest share_socials event (fn::consent::story_sharing) is a grant on a social sharing version
+-- that counts, whose column for $use is true. Missing, withdrawn, a column that version doesn't
+-- have (added later: NONE), an unknown or odd name: no. Its uploader's stories must also be
+-- publishable on consent that really counts: never relaxed by D48.
+DEFINE FUNCTION OVERWRITE fn::story::may_share($story: record<story>, $use: string) {
+  IF !string::matches($use, '^(share|allow)[A-Z][A-Za-z0-9]*$')
+    OR !record::exists(type::record('publicStory', record::id($story))) { RETURN false };
+  LET $user = (SELECT VALUE submitter FROM ONLY $story);
+  LET $share = fn::consent::story_sharing($user, $story);
+  IF $user = NONE OR !fn::consent::valid($share) OR $share.form = NONE
     OR record::tb($share.form) != 'socialSharingFormVersion'
     OR !fn::consent::valid(fn::consent::current($user, 'special_category_religious'))
     OR !fn::consent::valid(fn::consent::current($user, 'publish'))
@@ -1730,11 +1755,8 @@ DEFINE FUNCTION OVERWRITE fn::consent::may_share($user: option<record<user>>, $u
   };
   RETURN (SELECT * FROM ONLY $share.form)[$use] = true;
 };
--- A story is shared only while it's public on heisreal.today, and through its uploader (D86).
-DEFINE FUNCTION OVERWRITE fn::story::may_share($story: record<story>, $use: string) {
-  RETURN record::exists(type::record('publicStory', record::id($story)))
-    AND fn::consent::may_share((SELECT VALUE submitter FROM ONLY $story), $use);
-};
+-- O4: sharing is per story now; the account-wide check is gone, so nothing can still ask it.
+REMOVE FUNCTION IF EXISTS fn::consent::may_share;
 -- Dev only (D48, D75): the switches can take away the basis dev's consent stood on. Run by the
 -- settings event (elevated; it reads every public and hidden story): hides every public story
 -- whose uploader's consent no longer counts, hidden not reverted (as for media, Joel
@@ -1834,6 +1856,30 @@ DEFINE EVENT OVERWRITE consent_form ON consent
       };
     };
   };
+-- O4 (Joel, 2026-10-31): sharing beyond heisreal.today is given and withdrawn per story. Every
+-- new share_socials event names one story of its subject's own, which exists when it's written
+-- (a deleted story has nothing left to share or withdraw); no other event names a story. Checked
+-- for every writer (events run for system users too). The story's submitter can't change
+-- (READONLY), and both writes bump the person's fence (consent_fence, story_fence), so an event
+-- can't commit for a story deleted alongside it.
+DEFINE EVENT OVERWRITE consent_story ON consent
+  WHEN $event = 'CREATE'
+  THEN {
+    IF $after.type = 'share_socials' {
+      IF $after.story = NONE {
+        THROW 'sharing beyond heisreal.today is given and withdrawn per story: name the story (O4)';
+      };
+      IF !record::exists($after.story) OR $after.story.submitter != $after.subject {
+        THROW 'a story’s sharing is chosen by its submitter, for a story that exists (O4)';
+      };
+    } ELSE IF $after.story != NONE {
+      THROW 'only sharing beyond heisreal.today is chosen per story (O4)';
+    };
+  };
+-- O4: evidence v5 binds the story too, so an event naming a story uses it, and only those do.
+DEFINE EVENT OVERWRITE consent_evidence_v5 ON consent
+  WHEN $event = 'CREATE' AND (($after.story != NONE) != ($after.evidenceVersion = 5))
+  THEN { THROW 'consent naming a story uses evidence v5, and only it does (O4)' };
 -- D125: only evidence v4 covers the terms of use, so a row naming terms uses it.
 DEFINE EVENT OVERWRITE consent_evidence_v4 ON consent
   WHEN $event = 'CREATE' AND $after.termsVersion != NONE AND $after.evidenceVersion != 4

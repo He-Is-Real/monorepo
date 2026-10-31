@@ -611,15 +611,17 @@ export function legalParams(): Pick<
 
 // ---------------------------------------------------------------- fixtures
 
-/** What grantAll grants: every statement of the three forms (D93). */
+/**
+ * What grantAll grants: every statement of the sign-up and testimony forms (D93). Sharing beyond
+ * heisreal.today is chosen per story (O4): {@link shareStory}.
+ */
 export const CONSENT_TYPES = [
   'special_category_religious',
   'publish',
-  'share_socials',
   'age_18plus',
   'account_data',
 ] as const;
-export type ConsentType = (typeof CONSENT_TYPES)[number];
+export type ConsentType = (typeof CONSENT_TYPES)[number] | 'share_socials';
 
 /** Creates people the way production does: api-user creates the user record on first use. */
 export async function createPeople(
@@ -784,6 +786,36 @@ export function consentEvent(
       form: formOf(type, dpa),
       hash: sha256(`${type} ${event} ${dpa}`),
       extra,
+    },
+  );
+}
+
+/**
+ * O4: the person grants or withdraws sharing beyond heisreal.today for one story of theirs, on
+ * social sharing version `version` under privacy policy `dpa`, as the ledger records it
+ * (evidence v5 names the story).
+ */
+export function shareStory(
+  person: SurrealQueryable,
+  story: string,
+  event: 'granted' | 'withdrawn',
+  version = 'v1',
+  dpa = 'v1',
+): Promise<Row[]> {
+  return rows(
+    person,
+    `CREATE consent CONTENT {
+       subject: $auth, type: 'share_socials', event: $event,
+       dpaVersion: type::record('dpaVersion', $dpa),
+       form: type::record('socialSharingFormVersion', $version), story: <record> $story,
+       mechanism: 'web_form_submission', evidenceHash: $hash, evidenceVersion: 5
+     }`,
+    {
+      event,
+      dpa,
+      version,
+      story,
+      hash: sha256(`share_socials ${story} ${event} ${version}`),
     },
   );
 }

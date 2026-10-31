@@ -2,7 +2,8 @@ import type { FaqItem } from '@/components/faq/faq-accordion';
 
 // The FAQs (faqs.html's copy). Changed where the mockup disagrees with what we've built or
 // decided: anonymous stories show "Anonymous" (story-view), and sharing on social media is
-// its own consent (`share_socials`, gdpr-consent.md), never implied by submitting.
+// its own consent (`share_socials`, gdpr-consent.md), never implied by submitting, and chosen per
+// story (O4).
 
 export interface FaqGroup {
   id: string;
@@ -43,7 +44,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
         id: 'where-shared',
         question: 'Where will my story appear?',
         answer:
-          'Approved stories appear on this website. We’d also love to share some on our social media channels and YouTube, but only if you say yes. That’s a separate choice, and you can change your mind at any time.',
+          'Approved stories appear on this website. We’d also love to share some on our social media channels and YouTube, but only if you say yes. That’s a separate choice for each story, and you can change your mind at any time from your profile.',
       },
       {
         id: 'edit-remove',

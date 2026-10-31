@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react';
 import { Card } from '@/components/page/card';
+import { StorySharing } from '@/components/account/story-sharing';
 import {
   type ApiUser,
   ApiUserProblem,
@@ -470,6 +471,7 @@ function SignedInFlow({
               tags={tags}
               legal={legal}
               consents={consents}
+              api={api}
               calls={calls}
               refreshConsents={refreshConsents}
               refreshLimits={refreshLimits}
@@ -546,22 +548,25 @@ function Checkbox({
   checked,
   onChange,
   describedBy,
+  disabled = false,
   children,
   className = '',
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   describedBy?: string;
+  disabled?: boolean;
   children: React.ReactNode;
   className?: string;
 }) {
   return (
     <label
-      className={`flex min-h-11 cursor-pointer items-start gap-[12px] has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${className}`}
+      className={`flex min-h-11 items-start gap-[12px] has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${disabled ? 'opacity-70' : 'cursor-pointer'} ${className}`}
     >
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         aria-describedby={describedBy}
         className="peer sr-only"
@@ -1460,6 +1465,7 @@ export function ReviewStep({
   tags,
   legal,
   consents,
+  api,
   calls,
   refreshConsents,
   refreshLimits,
@@ -1471,6 +1477,8 @@ export function ReviewStep({
   tags: Tag[];
   legal: ShareLegal;
   consents: ConsentState;
+  /** For the story's own sharing choice, once given (O4). */
+  api: ApiUser;
   calls: ReturnType<typeof shareApi>;
   refreshConsents: () => Promise<ConsentState>;
   /** The page's limits and drafts read again (when the server's answer shows them stale). */
@@ -1480,7 +1488,46 @@ export function ReviewStep({
 }) {
   const limits = useLimits();
   const askPublish = !counts(consents, 'publish');
-  const askSocial = !counts(consents, 'share_socials') && !!legal.social;
+  // O4: sharing beyond heisreal.today is chosen for each story. The box is part of the submit
+  // command: ticked, it's sent with the submission and recorded in the same transaction, so the
+  // two commit together or not at all, and a lost answer is resolved by replaying the same
+  // submission (same key, same body). It's offered unless this story already allows it (sent
+  // back for changes, say): then Review says so, with the way to stop it, and submitting leaves
+  // it as it is. So the choice waits for the story's sharing state; if that can't be read (no
+  // answer, or one without a yes or no), the person retries, and nothing is submitted meanwhile.
+  const storyId = draft.current().draftId;
+  const needsSharing = !!storyId && !!legal.social;
+  const [sharing, setSharing] = useState<
+    'loading' | 'shared' | 'not_shared' | 'error'
+  >(needsSharing ? 'loading' : 'not_shared');
+  const reads = useRef(0);
+  const readSharing = useCallback(async () => {
+    const mine = ++reads.current;
+    if (!storyId || !legal.social) {
+      setSharing('not_shared');
+      return;
+    }
+    setSharing('loading');
+    let next: 'shared' | 'not_shared' | 'error' = 'error';
+    try {
+      const granted = (await calls.story(storyId))?.sharing?.granted;
+      if (typeof granted === 'boolean')
+        next = granted ? 'shared' : 'not_shared';
+    } catch {
+      // stays 'error'
+    }
+    // Only the latest read speaks (an earlier one's answer is older).
+    if (reads.current === mine) setSharing(next);
+  }, [calls, storyId, legal.social]);
+  useEffect(() => {
+    void readSharing();
+    return () => {
+      reads.current += 1;
+    };
+  }, [readSharing]);
+  const alreadyShared = sharing === 'shared';
+  const sharingKnown = sharing === 'shared' || sharing === 'not_shared';
+  const askSocial = !!legal.social && sharing === 'not_shared';
   // D114: the boxes are the versions' own data. Publishing is required, so without its box the
   // story can't be submitted (fail closed); sharing is optional, so without its box it's not offered.
   const publishBox = boxFor(legal.testimony, 'publish');
@@ -1490,17 +1537,20 @@ export function ReviewStep({
   // The weekly submissions are used up (D94): submitting waits, said before they try.
   const waiting = !draft.submittedBefore && !!submissionsState(limits).until;
   const [publish, setPublish] = useState(false);
-  const [social, setSocial] = useState(false);
+  // A submission whose outcome is unknown (an answer lost) is sent again exactly as it was, so
+  // its sharing choice is shown as sent, and can't change until it's resolved.
+  const [kept, setKept] = useState(() => {
+    const { draftId, version } = draft.current();
+    return draftId && version ? draft.keptSubmit(draftId, version) : null;
+  });
+  const [social, setSocial] = useState(() => !!kept?.share);
   const [problem, setProblem] = useState<React.ReactNode>(null);
   const [busy, setBusy] = useState(false);
   // A form or privacy policy replaced since this page loaded (D122): trying again would send
   // the old version again, so the way on is a reload (the draft is saved and in the address).
   const [outdated, setOutdated] = useState(false);
   // One key per grant, kept while retrying (D29).
-  const keys = useRef({
-    publish: newIdempotencyKey(),
-    social: newIdempotencyKey(),
-  });
+  const publishKey = useRef(newIdempotencyKey());
   const f = draft.fields;
   // The picture as the story has it now (M2 plan PR 10).
   const picture = useEarlierPicture(calls, draft.draftId)?.image ?? null;
@@ -1509,7 +1559,7 @@ export function ReviewStep({
   );
 
   async function submit() {
-    if (outdated || waiting) return;
+    if (outdated || waiting || !sharingKnown) return;
     if (askPublish && !publishBox) {
       setProblem(
         'The publishing consent can’t be shown right now, so your story can’t be submitted yet. It’s saved; please try again later.',
@@ -1535,29 +1585,31 @@ export function ReviewStep({
           legal.testimony.version,
           legal.testimony.privacyVersion,
           'publish',
-          keys.current.publish,
+          publishKey.current,
         );
       }
-      if (socialBox && social && legal.social) {
-        await calls.grant(
-          'social',
-          legal.social.version,
-          legal.social.privacyVersion,
-          'share_socials',
-          keys.current.social,
-        );
-      }
-      if (askPublish || (socialBox && social)) await refreshConsents();
+      if (askPublish) await refreshConsents();
       // The submission being tried, kept by the draft (per person and draft, in this tab's
       // storage) across failures that leave its outcome unknown: no answer, an unreadable one,
       // or a server error. Trying again, after Back or a reload too, replays it, even if it went
       // through and the answer was lost (Codex #118). Settled after a definite refusal, or
-      // replaced when the draft has changed.
-      const tried = draft.beginSubmit(draftId, version);
+      // replaced when the draft has changed. Its body (sharing, O4) is kept with it.
+      const tried = draft.beginSubmit(
+        draftId,
+        version,
+        socialBox && social && legal.social
+          ? {
+              formVersion: legal.social.version,
+              privacyPolicyVersion: legal.social.privacyVersion,
+            }
+          : undefined,
+      );
+      setKept(tried);
       const result = await calls.submit(
         tried.draftId,
         tried.version,
         tried.key,
+        tried.share,
       );
       draft.settleSubmit(draftId);
       draft.setVersion(result.version);
@@ -1568,7 +1620,11 @@ export function ReviewStep({
         err instanceof ApiUserUnavailable ||
         (err instanceof ApiUserProblem && err.status >= 500);
       const { draftId } = draft.current();
-      if (!unknown && draftId) draft.settleSubmit(draftId);
+      if (!unknown && draftId) {
+        // Refused: nothing was submitted or shared; the box is the person's again.
+        draft.settleSubmit(draftId);
+        setKept(null);
+      }
       const changed =
         err instanceof StaleVersion ||
         (err instanceof ApiUserProblem &&
@@ -1733,7 +1789,7 @@ export function ReviewStep({
     >
       <StepHeading heading={heading}>Review and submit</StepHeading>
       <dl>
-        {row('Title', f.title, 'write')}
+        {row('Title', <span id="review-title">{f.title}</span>, 'write')}
         {row('Name shown', f.bylineName.trim() || 'Anonymous', 'details')}
         {row('Description', f.description.trim() || '—', 'details')}
         {row('Themes', tagNames.join(', ') || '—', 'details')}
@@ -1795,15 +1851,66 @@ export function ReviewStep({
             a moderator approves them.
           </p>
         )}
+        {sharing === 'loading' && (
+          <p data-sharing="loading" className="text-sm text-secondary-text">
+            Checking this story’s sharing choice…
+          </p>
+        )}
+        {sharing === 'error' && (
+          <div data-sharing="error" role="alert" className="text-destructive">
+            <p>
+              We couldn’t check whether this story may be shared beyond
+              heisreal.today, so it can’t be submitted yet. It’s saved.
+            </p>
+            <button
+              type="button"
+              className="min-h-11 font-semibold text-link underline"
+              onClick={() => void readSharing()}
+            >
+              Try again
+            </button>
+          </div>
+        )}
+        {alreadyShared && storyId && (
+          // The story's own choice, with the way to stop it (O4): the same as My submissions.
+          // Submitting leaves it as it is.
+          <div data-shared="">
+            <p className="mb-2 font-semibold">
+              Already shared beyond heisreal.today
+            </p>
+            <StorySharing
+              storyId={storyId}
+              titleId="review-title"
+              status="draft"
+              sharing={{ granted: true, counts: true }}
+              form={legal.social}
+              api={() => api}
+              onChanged={readSharing}
+            />
+          </div>
+        )}
         {socialBox && legal.social && (
           <div
             data-grant="share_socials"
             className="rounded-xl border border-border p-[12px] sm:p-4"
           >
-            <Checkbox checked={social} onChange={setSocial}>
+            <Checkbox
+              checked={social}
+              onChange={setSocial}
+              disabled={!!kept}
+              describedBy={kept ? 'social-kept' : undefined}
+            >
               {socialBox.label}{' '}
-              <span className="text-secondary-text">(optional)</span>
+              <span className="text-secondary-text">
+                (optional, for this story only)
+              </span>
             </Checkbox>
+            {kept && (
+              <p id="social-kept" className="mt-2 text-sm text-secondary-text">
+                Kept as you sent it, until we know whether your story was
+                submitted.
+              </p>
+            )}
             <details className="mt-2">
               <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-link">
                 What sharing beyond heisreal.today means
@@ -1851,7 +1958,7 @@ export function ReviewStep({
           <button
             type="submit"
             className={primary}
-            disabled={busy || waiting}
+            disabled={busy || waiting || !sharingKnown}
             aria-describedby={waiting ? 'submit-waiting' : undefined}
           >
             {busy ? 'Submitting…' : 'Submit for review'}

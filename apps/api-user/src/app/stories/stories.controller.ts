@@ -23,6 +23,7 @@ import {
 } from '@nestjs/common';
 import {
   CONSENT_REQUIRED,
+  ConsentLedger,
   ifNoneMatches,
   NoConsentRequired,
   parseIdempotencyKey,
@@ -51,7 +52,12 @@ import {
   createBunnyStream,
 } from './bunny-stream';
 import { mergePatchBody } from './merge-patch-body';
-import { parseCreate, parseIfMatch, parsePatch } from './story-input';
+import {
+  parseCreate,
+  parseIfMatch,
+  parsePatch,
+  parseSubmit,
+} from './story-input';
 import {
   type CommandResult,
   IfMatchRequiredException,
@@ -153,6 +159,7 @@ export class StoriesController {
 
   constructor(
     private readonly people: PersonSessions,
+    private readonly ledger: ConsentLedger,
     @Inject(SURREAL) service: Surreal,
     @Inject(BUNNY_STREAM) bunny: BunnyStream | null,
     @Inject(BUNNY_STORAGE) images: ImageStore | null,
@@ -303,12 +310,14 @@ export class StoriesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Param('id') id: string,
+    @Body() body: unknown,
     @Headers('if-match') ifMatch?: string,
     @Headers('idempotency-key') key?: string,
   ): Promise<CommandResult> {
     const sid = storyId(id);
     const version = ifMatchOf(ifMatch);
     const idempotencyKey = parseIdempotencyKey(key);
+    const { shareBeyondSite: share } = parseSubmit(body);
     const result = await this.people
       .run(req, ({ session, user }) =>
         new StoryStore(session).submit(
@@ -316,9 +325,21 @@ export class StoriesController {
           version,
           {
             scope: { service: 'api-user', owner: user, key: idempotencyKey },
-            requestHash: requestHash(['POST', 'submit', sid, version]),
+            // The same key with or without the sharing is a different request (422).
+            requestHash: requestHash(
+              share
+                ? ['POST', 'submit', sid, version, share]
+                : ['POST', 'submit', sid, version],
+            ),
           },
           () => this.uploads.checkBeforeSubmit(session, sid),
+          // O4: sharing ticked on Review commits with the submission, or neither does.
+          share &&
+            (() =>
+              this.ledger.storySharingGrant(session, {
+                ...share,
+                storyId: sid,
+              })),
         ),
       )
       .catch((err: unknown) => {

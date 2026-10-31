@@ -25,6 +25,7 @@ const TEXT =
   'I was lost for years, and I did not think anyone could reach me. '.repeat(5);
 const ART9 = /storing and processing my story/;
 const PUBLISH = /Publish my story on heisreal\.today/;
+const SOCIAL = /share my published story in the ways this form lists/;
 
 interface Seed {
   settings?: Record<string, number>;
@@ -63,6 +64,7 @@ async function person(page: Page, request: APIRequestContext, seed: Seed) {
         body: string;
         bylineName: string | null;
         tags: { slug: string }[];
+        sharing: { granted: boolean };
       }[],
     consents: async () =>
       (
@@ -206,7 +208,10 @@ test('at 200% text on a 320 px phone, every consent box’s wording has room to 
   await page.getByText('Hope', { exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await step(page, 'Review and submit');
-  // The publish box and the optional social sharing box.
+  // The publish box and the optional social sharing box, shown once the story's sharing is read.
+  await expect(
+    page.locator('[data-grant="share_socials"]').getByRole('checkbox'),
+  ).toBeVisible();
   const review = await labelWidths();
   expect(review).toHaveLength(2);
   for (const w of review) expect(w).toBeGreaterThanOrEqual(MIN_LABEL);
@@ -321,6 +326,303 @@ test.describe('behaviour', () => {
     // The stub accepts only grants naming version 2 (dev_policy).
     await step(page, 'Thank you for sharing your story');
     expect(await me.consents()).toContain('publish');
+  });
+
+  test('sharing beyond heisreal.today is offered unticked, and ticking it is for this story only', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Further afield');
+    await page.getByLabel('Your story').fill(TEXT);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    const social = page.locator('[data-grant="share_socials"]');
+    await expect(social).toContainText('(optional, for this story only)');
+    await expect(social.getByRole('checkbox')).not.toBeChecked();
+    await tick(page, PUBLISH);
+    await tick(page, SOCIAL);
+    // The box is part of the submission: no grant of its own (O4, both or neither).
+    const grants: unknown[] = [];
+    const submits: unknown[] = [];
+    page.on('request', (r) => {
+      if (r.method() !== 'POST') return;
+      if (r.url() === `${STUB_USER_URL}/v1/account/consents`)
+        grants.push(r.postDataJSON());
+      if (r.url().endsWith('/submit')) submits.push(r.postDataJSON());
+    });
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    const [story] = await me.stories();
+    expect([story.status, story.sharing.granted]).toEqual(['pending', true]);
+    expect(submits).toEqual([
+      {
+        shareBeyondSite: {
+          formVersion: 'v2',
+          privacyPolicyVersion: 'dev_policy',
+        },
+      },
+    ]);
+    expect(grants).toEqual([expect.objectContaining({ statement: 'publish' })]);
+    // It's the story's choice (O4), not one of the person's own consents.
+    expect(await me.consents()).not.toContain('share_socials');
+  });
+
+  test('a story already shared beyond heisreal.today never shows an unticked box, even when its sharing can’t be read', async ({
+    page,
+    request,
+  }) => {
+    // Its sharing was granted at an earlier try at submitting (O4: for this story only).
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      granted: [
+        ...(SIGNED_UP.granted ?? []),
+        'special_category_religious',
+        'publish',
+      ],
+      stories: [
+        {
+          id: 'shared',
+          title: 'Already shared',
+          body: TEXT,
+          primaryFormat: 'written',
+          tagSlugs: ['hope'],
+          shared: true,
+        },
+      ],
+    });
+    await page.goto(SHARE);
+    await page
+      .getByRole('button', { name: 'Continue “Already shared”' })
+      .click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    // Review's read of the story fails.
+    const read = `${STUB_USER_URL}/v1/account/stories/shared`;
+    await page.route(read, (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 503, body: '' })
+        : route.fallback(),
+    );
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    await expect(page.locator('[data-sharing="error"]')).toContainText(
+      'can’t be submitted yet',
+    );
+    await expect(page.locator('[data-grant="share_socials"]')).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Submit for review' }),
+    ).toBeDisabled();
+
+    // Trying again once it can be read shows the story's own choice, still with no box.
+    await page.unroute(read);
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect(page.locator('[data-shared]')).toBeVisible();
+    await expect(page.locator('[data-sharing="error"]')).toHaveCount(0);
+    await expect(page.locator('[data-grant="share_socials"]')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    const [story] = await me.stories();
+    expect([story.status, story.sharing.granted]).toEqual(['pending', true]);
+  });
+
+  test('a submission with sharing whose answer is lost is sent again exactly as it was, and both go through once', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      granted: [
+        ...(SIGNED_UP.granted ?? []),
+        'special_category_religious',
+        'publish',
+      ],
+      stories: [
+        {
+          id: 'lost',
+          title: 'Lost answer',
+          body: TEXT,
+          primaryFormat: 'written',
+          tagSlugs: ['hope'],
+        },
+      ],
+    });
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Continue “Lost answer”' }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    // The first submission goes through (the story and its sharing), but its answer is lost.
+    const submit = `${STUB_USER_URL}/v1/stories/lost/submit`;
+    const sent: { key: string | null; body: unknown }[] = [];
+    await page.route(submit, async (route) => {
+      sent.push({
+        key: await route.request().headerValue('idempotency-key'),
+        body: route.request().postDataJSON(),
+      });
+      if (sent.length > 1) return route.fallback();
+      await route.fetch();
+      return route.fulfill({ status: 503, body: '' });
+    });
+    await tick(page, SOCIAL);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(
+      page.getByText('Your story couldn’t be submitted. Please try again.'),
+    ).toBeVisible();
+    // Nothing is shown as decided: the box stays as it was sent, and can't change.
+    const box = page
+      .locator('[data-grant="share_socials"]')
+      .getByRole('checkbox');
+    await expect(box).toBeChecked();
+    await expect(box).toBeDisabled();
+    expect(await me.stories()).toMatchObject([
+      { status: 'pending', sharing: { granted: true } },
+    ]);
+
+    // Trying again replays the same submission: the same key and body, "Thank you".
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(sent[0]);
+    expect(sent[0].body).toEqual({
+      shareBeyondSite: {
+        formVersion: 'v2',
+        privacyPolicyVersion: 'dev_policy',
+      },
+    });
+  });
+
+  test('stopping a story’s sharing on Review never submits it', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      granted: [
+        ...(SIGNED_UP.granted ?? []),
+        'special_category_religious',
+        'publish',
+      ],
+      stories: [
+        {
+          id: 'stay',
+          title: 'Stays a draft',
+          body: TEXT,
+          primaryFormat: 'written',
+          tagSlugs: ['hope'],
+          shared: true,
+        },
+      ],
+    });
+    const submits: string[] = [];
+    page.on('request', (r) => {
+      if (r.method() === 'POST' && r.url().endsWith('/submit'))
+        submits.push(r.url());
+    });
+    await page.goto(SHARE);
+    await page
+      .getByRole('button', { name: 'Continue “Stays a draft”' })
+      .click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    const shared = page.locator('[data-shared]');
+    await expect(shared).toContainText('Already shared beyond heisreal.today');
+    await expect(page.locator('[data-grant="share_socials"]')).toHaveCount(0);
+    // Review's one submit button is "Submit for review": every other button in its form, at
+    // every stage of stopping, is a plain button (Chromium happens not to submit for one that
+    // is replaced or disabled as it's pressed, so this is checked as well as what's sent).
+    const form = page.locator('form');
+    const onlySubmit = async () => {
+      await expect(form.locator('button:not([type="button"])')).toHaveCount(1);
+      await expect(form.locator('button[type="submit"]')).toHaveText(
+        'Submit for review',
+      );
+    };
+    await onlySubmit();
+
+    // Opening, then "Keep sharing": nothing is sent.
+    await shared
+      .getByRole('button', { name: 'Stop sharing beyond heisreal.today' })
+      .click();
+    await onlySubmit();
+    await shared.getByRole('button', { name: 'Keep sharing' }).click();
+    await expect(shared.locator('[data-sharing="on"]')).toBeVisible();
+    // Opening, then "Yes, stop sharing": only the withdrawal; the box comes back unticked.
+    await shared
+      .getByRole('button', { name: 'Stop sharing beyond heisreal.today' })
+      .click();
+    await shared.getByRole('button', { name: 'Yes, stop sharing' }).click();
+    const social = page.locator('[data-grant="share_socials"]');
+    await expect(social.getByRole('checkbox')).not.toBeChecked();
+    await expect(
+      page.getByRole('heading', { name: 'Review and submit' }),
+    ).toBeVisible();
+    expect(submits).toEqual([]);
+    expect(await me.stories()).toMatchObject([
+      { status: 'draft', sharing: { granted: false } },
+    ]);
+  });
+
+  test('an answer without the story’s sharing yes or no is never read as “not shared”', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {
+      ...SIGNED_UP,
+      granted: [
+        ...(SIGNED_UP.granted ?? []),
+        'special_category_religious',
+        'publish',
+      ],
+      stories: [
+        {
+          id: 'unclear',
+          title: 'Unclear',
+          body: TEXT,
+          primaryFormat: 'written',
+          tagSlugs: ['hope'],
+          shared: true,
+        },
+      ],
+    });
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Continue “Unclear”' }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    // Reads of the story answer 200, first with `{}`, then the story without `sharing` (the
+    // picture panel reads it too, so the answers go by phase, not by count).
+    const read = `${STUB_USER_URL}/v1/account/stories/unclear`;
+    let unclear: 'empty' | 'no-sharing' = 'empty';
+    let reads = 0;
+    await page.route(read, async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      reads += 1;
+      if (unclear === 'empty') return route.fulfill({ json: {} });
+      const answer = await route.fetch();
+      const { sharing: _, ...story } = await answer.json();
+      return route.fulfill({ response: answer, json: story });
+    });
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    const error = page.locator('[data-sharing="error"]');
+    await expect(error).toContainText('can’t be submitted yet');
+    await expect(page.locator('[data-grant="share_socials"]')).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Submit for review' }),
+    ).toBeDisabled();
+    unclear = 'no-sharing';
+    const before = reads;
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect.poll(() => reads).toBeGreaterThan(before);
+    await expect(error).toBeVisible();
+    await expect(page.locator('[data-grant="share_socials"]')).toHaveCount(0);
+
+    await page.unroute(read);
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect(page.locator('[data-shared]')).toBeVisible();
+    await expect(error).toHaveCount(0);
   });
 
   test('without the sign-up consent, the page sends people to finish setting up', async ({
