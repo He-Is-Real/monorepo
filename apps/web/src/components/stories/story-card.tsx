@@ -2,12 +2,16 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
 import { cardLabel } from '@/lib/card-label';
+import { CARD_CSS } from '@/lib/card-metrics';
 import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
 import { CardHeart } from './heart-button';
 
-// A story's card (browse, home, related). Its parts and sizes mirror lib/masonry.ts, which
-// predicts its height (D55): change them together. The card's one link is its title, stretched
+// A story's card (browse, home, related). Its sizes come from lib/card-metrics.ts (custom
+// properties, `--card-…`), which lib/masonry.ts predicts its height from (D55); its parts mirror
+// that prediction, so change them together. Its text is drawn without hinting
+// (`geometricPrecision`): Chromium on Linux would otherwise round each letter to whole pixels,
+// wider than the font's own widths the masonry wraps text with (lib/card-glyphs.ts). The card's one link is its title, stretched
 // over the whole card, so the link's name is the story's title and tags stay plain text. On
 // video and audio cards the media area plays the story instead (card-player.tsx), so the link
 // covers only the text below it. No counts or metrics of any kind (design principles).
@@ -44,13 +48,21 @@ export function NewBadge() {
   return (
     <span
       data-new-badge=""
-      className="inline-flex h-5 shrink-0 items-center rounded-full bg-teal/15 px-1.5 text-[0.6875rem] leading-5 font-semibold tracking-wide text-link-hover dark:bg-teal/20"
+      className="inline-flex h-(--card-badge-line) shrink-0 items-center rounded-full bg-teal/15 px-(--card-badge-pad) text-(length:--card-badge-font) leading-(--card-badge-line) font-semibold tracking-(--card-badge-tracking) text-link-hover dark:bg-teal/20"
     >
+      <CardMetrics />
       <span aria-hidden="true">NEW</span>
       <span className="sr-only">New: published in the last week</span>
     </span>
   );
 }
+
+/** The card's sizes (CARD_CSS): React puts them in the page's head, once. */
+const CardMetrics = () => (
+  <style href="story-card" precedence="default">
+    {CARD_CSS}
+  </style>
+);
 
 /**
  * A card's picture and its clamped shape (D53), as browse shows it; null for a written story
@@ -163,7 +175,8 @@ export function StoryCard({
   );
 
   return (
-    <article className="group relative flex h-full flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-border transition-[box-shadow,background-color] [overflow-wrap:anywhere] hover:ring-border-hover has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring">
+    <article className="story-card group relative flex h-full flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-border transition-[box-shadow,background-color] [overflow-wrap:anywhere] [text-rendering:geometricPrecision] hover:ring-border-hover has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring">
+      <CardMetrics />
       {media &&
         (playable ? (
           <CardPlayer
@@ -184,26 +197,26 @@ export function StoryCard({
           </div>
         ))}
       <div
-        className={`flex flex-1 flex-col p-5 ${playable && media ? 'relative' : ''}`}
+        className={`flex flex-1 flex-col p-(--card-pad) ${playable && media ? 'relative' : ''}`}
       >
         {/* One line at normal text sizes: the name shortens with "…" first. It moves to its own line
             only when under 2.5rem would be left, and with large text the label wraps too, so
             nothing is ever clipped by the card. */}
         <p
-          className={`mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[0.8125rem] leading-5 text-muted-foreground ${media ? '' : 'pr-10'}`}
+          className={`mb-(--card-meta-after) flex flex-wrap items-center justify-between gap-x-(--card-meta-gap) gap-y-(--card-meta-row-gap) text-(length:--card-meta-font) leading-(--card-meta-line) text-muted-foreground ${media ? '' : 'pr-(--card-meta-heart)'}`}
         >
           <span
             data-card-label=""
-            className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1"
+            className="flex max-w-full flex-wrap items-center gap-x-(--card-badge-after) gap-y-(--card-meta-row-gap)"
           >
             {story.isNew && <NewBadge />}
             {cardLabel(story)}
           </span>
-          <span className="min-w-0 flex-1 basis-10 truncate text-right">
+          <span className="min-w-0 flex-1 basis-(--card-meta-name) truncate text-right">
             {story.bylineName ?? 'Anonymous'}
           </span>
         </p>
-        <Heading className="mb-1.5 line-clamp-3 text-[1.0625rem] leading-6 font-semibold">
+        <Heading className="mb-(--card-title-after) line-clamp-(--card-title-lines) text-(length:--card-title-font) leading-(--card-title-line) font-semibold">
           <Link
             href={`/stories/${story.slug}`}
             // No prefetch: a story's page reads the story, which signs its player link (D52);
@@ -215,20 +228,23 @@ export function StoryCard({
           </Link>
         </Heading>
         {quote ? (
-          <blockquote className="line-clamp-6 border-l-2 border-teal pl-3 text-lg leading-7 text-secondary-text">
+          <blockquote className="line-clamp-(--card-quote-lines) border-l-(length:--card-quote-border) border-teal pl-(--card-quote-pad) text-(length:--card-quote-font) leading-(--card-quote-line) text-secondary-text">
             {story.excerpt}
           </blockquote>
         ) : (
-          <p className="line-clamp-3 text-[0.9375rem] leading-6 text-secondary-text italic">
+          <p className="line-clamp-(--card-excerpt-lines) text-(length:--card-excerpt-font) leading-(--card-excerpt-line) text-secondary-text italic">
             {story.excerpt}
           </p>
         )}
         {story.tags.length > 0 && (
-          <ul className="mt-3.5 flex flex-wrap gap-1.5" aria-label="Tags">
+          <ul
+            className="mt-(--card-tags-before) flex flex-wrap gap-(--card-tags-gap)"
+            aria-label="Tags"
+          >
             {story.tags.map((t) => (
               <li
                 key={t.slug}
-                className="h-6 truncate rounded-full bg-surface px-2.5 text-xs leading-6 text-muted-foreground"
+                className="h-(--card-tags-row) truncate rounded-full bg-surface px-(--card-tags-pad) text-(length:--card-tags-font) leading-(--card-tags-row) text-muted-foreground"
               >
                 {t.name}
               </li>

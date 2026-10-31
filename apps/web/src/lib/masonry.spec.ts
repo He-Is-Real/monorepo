@@ -97,11 +97,18 @@ describe('predictHeight (D55: fixed parts + clamped media + text)', () => {
 
 describe('lineCount (wrapping as the browser does)', () => {
   it('wraps word by word, and breaks a word longer than the line anywhere', () => {
-    expect(lineCount('', 200, 15)).toBe(0);
-    expect(lineCount('A few words', 200, 15)).toBe(1);
-    expect(lineCount('word '.repeat(20), 200, 15)).toBeGreaterThan(1);
+    expect(lineCount('', 200, 'excerpt')).toBe(0);
+    expect(lineCount('A few words', 200, 'excerpt')).toBe(1);
+    expect(lineCount('word '.repeat(20), 200, 'excerpt')).toBeGreaterThan(1);
     // One unbroken 40-letter word at 15 px is about 330 px: two lines at 200 px.
-    expect(lineCount('a'.repeat(40), 200, 15)).toBe(2);
+    expect(lineCount('a'.repeat(40), 200, 'excerpt')).toBe(2);
+  });
+
+  it('counts text with a character it has no width for (emoji, other alphabets) as its most lines', () => {
+    expect(lineCount('Joy 🎉', 400, 'title')).toBe(Infinity);
+    expect(h(card({ title: 'Joy 🎉' }))).toBe(
+      h(card({ title: 'word '.repeat(60) })),
+    );
   });
 });
 

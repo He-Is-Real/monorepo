@@ -474,8 +474,55 @@ aspectStory('aspect-test-landscape', {
   publishedAt: '2026-10-22T15:00:00Z',
 });
 
+// The masonry's first paint never overlaps (masonry.e2e.ts): cards whose text sits on the edge
+// of a line (Codex review of #163: this one was predicted 2 px short at 688 px), emoji and
+// right-to-left text, with cards below each of them. Listed only under `tag=masonry-test`.
+const MASONRY_TEST = 'masonry-test';
+const masonryTag = {
+  slug: MASONRY_TEST,
+  name: 'Masonry test',
+  category: 'theme',
+  version: 1,
+};
+for (const [i, [title, description, format]] of [
+  [
+    'My testimony',
+    'Test testimony of transformation Test testimony of transformation',
+  ],
+  [
+    'Praise 🙏🏽✨ for every 🎉 answered prayer ❤️‍🔥',
+    '🙏🏽🙏🏽🙏🏽 ✨✨ Joy 🎉🎉🎉🎉 and hope 🌅🌅 after the storm 🌧️🌈 👨‍👩‍👧‍👦👨‍👩‍👧‍👦',
+  ],
+  [
+    'شهادتي: الرجاء بعد الألم ﷽',
+    '﷽ ﷺ كان الطريق طويلا، ولكن الله كان أمينا في كل يوم من أيام حياتي ﷲ ﷻ',
+  ],
+  ['My testimony', 'Test testimony of transformation', 'video'],
+  ['Test testimony of transformation', 'My testimony'],
+  ['My testimony, spoken', 'Test testimony of transformation', 'audio'],
+  ['My testimony', 'Test testimony of transformation Test testimony'],
+  ['A testimony', 'Test testimony of transformation', 'video'],
+].entries()) {
+  const slug = `masonry-test-${i + 1}`;
+  stories[slug] = {
+    ...base,
+    id: slug.replaceAll('-', '_'),
+    slug,
+    primaryFormat: format ?? 'written',
+    title,
+    description,
+    body: 'Placeholder text for the masonry test.',
+    media: format
+      ? clip(format, `77777777-7777-4777-8777-00000000000${i + 1}`)
+      : [],
+    tags: [masonryTag],
+    publishedAt: `2026-10-22T1${9 - i}:00:00Z`,
+  };
+}
+
 const TEST_TAGS = [
   ASPECT_TEST,
+  MASONRY_TEST,
   HIDE_TEST,
   PLAY_TEST,
   PREFETCH_TEST,
