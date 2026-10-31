@@ -820,6 +820,10 @@ components:
             min:
               type: integer
               minimum: 0
+              description: |
+                The themes a story needs to be submitted: the admin's setting, or every theme there is if
+                there are fewer (so deleting themes never stops everyone submitting). Submit checks this
+                same number.
             max:
               type: integer
               minimum: 1

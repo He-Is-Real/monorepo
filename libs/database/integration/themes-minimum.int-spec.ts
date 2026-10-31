@@ -117,6 +117,20 @@ describe('the themes never drop below the fewest a submission needs (tagsMin)', 
     );
   });
 
+  it('a system user may still delete below tagsMin, so a submission needs no more themes than there are', async () => {
+    const person = await t.person('user_admin');
+    const needed = async () =>
+      (await rows<number>(person, 'RETURN fn::settings::themes_needed()'))[0];
+    await rows(admin, SAVE, { min: 3 });
+    expect(await needed()).toBe(3);
+    await rows(migrator, 'DELETE tag:b, tag:c'); // a migration or dev-seed's reset
+    expect(await themes()).toEqual(['a']);
+    expect(await tagsMin()).toBe(3);
+    expect(await needed()).toBe(1);
+    await rows(migrator, 'DELETE tag');
+    expect(await needed()).toBe(0);
+  });
+
   it('nobody can read or write the fence directly', async () => {
     const before = await rows(migrator, 'SELECT * FROM themesFence');
     expect(before).toHaveLength(1);

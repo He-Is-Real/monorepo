@@ -225,7 +225,10 @@ DEFINE FIELD OVERWRITE createdAt ON tag TYPE datetime VALUE $before OR time::now
 -- so every tag deletion and every settings write also write themesFence:current: of a deletion
 -- and a save (or two deletions) that overlap, the second to commit fails with a retryable
 -- conflict, and its retry sees the other's result. System users (the migrator, dev-seed's reset,
--- which deletes and re-creates the tags in one transaction) aren't checked.
+-- which deletes and re-creates the tags in one transaction) aren't checked, so the themes can
+-- still drop below tagsMin that way (Codex, admin limits review round 3). Submitting therefore
+-- needs fn::settings::themes_needed(), never more themes than there are: a lock-out can't happen
+-- whatever deletes them, and the admin checks above keep an admin from making it happen on purpose.
 DEFINE TABLE OVERWRITE themesFence SCHEMAFULL PERMISSIONS NONE;   -- id = themesFence:current
 DEFINE FIELD OVERWRITE n ON themesFence TYPE int DEFAULT 0;
 DEFINE FUNCTION OVERWRITE fn::fence::themes() {
@@ -657,7 +660,7 @@ DEFINE EVENT OVERWRITE story_limits ON story
 --   - submitting (entering pending, in_review or approved from an editable status, or created
 --     there by a system user) needs the minimum and maximum length, and at most the maximum
 --     number of themes, as they are now. The minimum number of themes is api-user's check at
---     submit (tests and data loaded before it have none).
+--     submit, against fn::settings::themes_needed() (tests and data loaded before it have none).
 -- Hard ceilings stay on the fields (body, tagRefs). Messages start with a code for api-user.
 DEFINE EVENT OVERWRITE story_text_limits ON story
   WHEN $event IN ['CREATE', 'UPDATE']
@@ -1958,6 +1961,12 @@ DEFINE FUNCTION OVERWRITE fn::settings::submission() {
     videoMaxBytes: $s.videoMaxBytes ?? 4294967296, audioMaxBytes: $s.audioMaxBytes ?? 524288000,
     mediaMaxSeconds: $s.mediaMaxSeconds ?? 900
   };
+};
+-- The fewest themes a story needs to be submitted: tagsMin, or every theme there is if there are
+-- fewer (a system user may delete themes below tagsMin; see tag_delete). api-user checks it at
+-- submit and reports it as the limit; anyone may call it (everyone reads tags and the settings).
+DEFINE FUNCTION OVERWRITE fn::settings::themes_needed() {
+  RETURN math::min([fn::settings::submission().tagsMin, count(SELECT VALUE id FROM tag)]);
 };
 -- The most any setting may allow for one upload, and what a trusted submitter gets: 10 GiB of
 -- video, 2 GiB of audio, 3 hours (a cost ceiling, not a product rule).

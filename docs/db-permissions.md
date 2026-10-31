@@ -600,8 +600,9 @@ retried`, on both RocksDB and the in-memory engine.
     - **submitting** (entering pending, in_review or approved from an editable status): the
       minimum and maximum length and at most `tagsMax` themes, as they are now (the database
       and api-user; api-user answers `400` `story_text_too_short`, `story_text_too_long` or
-      `too_many_tags`, with the `limit` and a message naming it), plus at least `tagsMin`
-      themes (api-user only: tests and data from before have none);
+      `too_many_tags`, with the `limit` and a message naming it), plus at least
+      `fn::settings::themes_needed()` themes: `tagsMin`, or every theme there is if there are
+      fewer (api-user only: tests and data from before have none);
     - **a new draft:** the open-drafts limit in force; a person over a lowered one keeps their
       drafts and can edit them, but starts no new one until they're under it.
       Other writes to stories (moderation, processing) aren't checked against these. The fields
@@ -633,7 +634,16 @@ retried`, on both RocksDB and the in-memory engine.
       deletions, that overlap, the second to commit fails with a retryable conflict (api-admin
       answers `412`) and its retry sees the other's result. System users (the migrator,
       dev-seed's reset, which deletes and re-creates the tags in one transaction) aren't
-      checked. Tests: `themes-minimum.int-spec.ts` (sequential and concurrent, deterministic),
+      checked, so a migration could still leave fewer themes than `tagsMin`. **Review round 3:
+      the lock-out is impossible by construction.** Submitting needs
+      `fn::settings::themes_needed()` = the smaller of `tagsMin` and the tags there are (anyone
+      may call it), never `tagsMin` itself: with 2 themes and `tagsMin` 3, a story needs both.
+      api-user checks that number at submit and reports it as `tags.min` in
+      `GET /v1/account/limits`, which the share form's hint and check use; the admin page still
+      shows and saves the stored `tagsMin`. The admin checks above stay, so an admin can't make
+      the stored value unreachable on purpose. Tests: `themes-minimum.int-spec.ts` (sequential
+      and concurrent, deterministic; a system user deleting below `tagsMin`),
+      api-user's `stories.int-spec.ts` (submitting with every remaining theme),
       `submission-limits.int-spec.ts`, api-admin's `submission-settings.int-spec.ts`; suites about other rules
       that start more stories per person mark their people trusted (`trustSubmitters`), and
       `buildWorld` makes Ann and Bob trusted.

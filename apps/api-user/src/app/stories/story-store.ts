@@ -488,12 +488,17 @@ export class StoryStore {
     }
   }
 
-  /** The settings in force (W3), read in the person's session (everyone reads them). */
+  /**
+   * The settings in force (W3), read in the person's session (everyone reads them). `tagsMin` is
+   * the themes a story needs: never more than there are (fn::settings::themes_needed), so
+   * deleting themes can't lock every submitter out.
+   */
   async settings(): Promise<SubmissionSettings> {
-    const [set] = (await runQuery(this.person, SUBMISSION_SETTINGS_SQL)) as [
-      SubmissionSettings,
-    ];
-    return set;
+    const [set, needed] = (await runQuery(
+      this.person,
+      `${SUBMISSION_SETTINGS_SQL}; RETURN fn::settings::themes_needed();`,
+    )) as [SubmissionSettings, number];
+    return { ...set, tagsMin: needed };
   }
 
   /** What the submit page shows: the settings' text and theme limits, and the person's own. */
@@ -501,12 +506,14 @@ export class StoryStore {
     const results = (await runQuery(
       this.person,
       `RETURN fn::settings::submission();
+       RETURN fn::settings::themes_needed();
        RETURN fn::limits::effective($auth);
        RETURN count(SELECT id FROM story WHERE submitter = $auth AND status = 'draft');
        RETURN fn::story::next_submission_at($auth);
        RETURN fn::upload::next_allowed_at($auth);`,
     )) as [
       SubmissionSettings,
+      number,
       {
         openDraftsMax?: number | null;
         submissionsPer7Days?: number | null;
@@ -520,10 +527,10 @@ export class StoryStore {
       string | null | undefined,
       string | null | undefined,
     ];
-    const [set, mine, open, next, nextUpload] = results;
+    const [set, tagsNeeded, mine, open, next, nextUpload] = results;
     return {
       storyText: { min: set.storyTextMin, max: set.storyTextMax },
-      tags: { min: set.tagsMin, max: set.tagsMax },
+      tags: { min: tagsNeeded, max: set.tagsMax },
       openDrafts: { max: mine.openDraftsMax ?? null, open },
       submissions: {
         per7Days: mine.submissionsPer7Days ?? null,

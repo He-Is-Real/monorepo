@@ -648,7 +648,8 @@ function limitsOf(s) {
       : null;
   return {
     storyText: { min: s.settings.storyTextMin, max: s.settings.storyTextMax },
-    tags: { min: s.settings.tagsMin, max: s.settings.tagsMax },
+    // Never more themes than there are (fn::settings::themes_needed).
+    tags: { min: Math.min(s.settings.tagsMin, THEME_COUNT), max: s.settings.tagsMax },
     openDrafts: { max: s.trusted ? null : s.settings.openDraftsMax, open },
     submissions: { per7Days, nextAvailableAt: next },
     uploads: uploadLimitsOf(s),
@@ -1007,7 +1008,8 @@ async function handleShare(req, res, path, url, s) {
       if (!['draft', 'changes_requested'].includes(st.status))
         return p(409, 'Conflict', 'story_not_submittable');
       // The minimum at submit; the maximum only when themes change (as api-user does).
-      const { tagsMin, storyTextMin } = s.settings;
+      const { storyTextMin } = s.settings;
+      const tagsMin = Math.min(s.settings.tagsMin, THEME_COUNT);
       if (st.tagSlugs.length < tagsMin)
         return p(400, 'Bad request', 'tags_required', {
           detail: `Choose at least ${tagsMin} themes before submitting`,
