@@ -9,10 +9,7 @@ import {
   personalSession,
   usePersonalSession,
 } from '@/lib/personal-session';
-import {
-  TERMS_AGREEMENT_PATH,
-  withReturn,
-} from '@/components/consent/consent-prompts';
+import { goToTermsAgreement } from '@/components/consent/consent-prompts';
 import {
   hasDeviceHeart,
   onDeviceHearts,
@@ -142,13 +139,7 @@ function register(id: string): () => void {
  */
 function toTermsAgreement(storyId: string) {
   setDeviceHeart(storyId, true);
-  // The step returns to `redirect_url` once the person agrees.
-  window.location.assign(
-    withReturn(
-      TERMS_AGREEMENT_PATH,
-      `${window.location.pathname}${window.location.search}`,
-    ),
-  );
+  goToTermsAgreement();
 }
 
 /**

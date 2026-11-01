@@ -52,7 +52,27 @@ export function signInHref(path: string): string {
  * came from (`redirect_url`, a path on this site), but never a step itself, which would only send
  * them round again.
  */
-export function consentReturnPath(raw: string | string[] | undefined): string {
+export function consentReturnPath(
+  raw: string | string[] | null | undefined,
+): string {
   const path = safeReturnPath(raw);
-  return path === '/consent' || path.startsWith('/consent/') ? '/' : path;
+  return isConsentStep(path) ? '/' : path;
+}
+
+/** Whether `path` (a same-site path, as from {@link safeReturnPath}) is an agreement step. */
+function isConsentStep(path: string): boolean {
+  const { pathname } = new URL(path, 'https://site.invalid');
+  return pathname === '/consent' || pathname.startsWith('/consent/');
+}
+
+/**
+ * Where an agreement step should return to, for someone who is `here` now: this page, or, if they
+ * are already on a step, the page that step returns to. So a second step (or the same one, asked
+ * twice) keeps the page the person started from, and never returns to a step.
+ */
+export function stepReturnPath(here: string): string {
+  const path = safeReturnPath(here);
+  if (!isConsentStep(path)) return path;
+  const { searchParams } = new URL(path, 'https://site.invalid');
+  return consentReturnPath(searchParams.get('redirect_url'));
 }

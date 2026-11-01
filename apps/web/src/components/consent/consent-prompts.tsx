@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
 import { Button } from '@/components/ui/button';
-import { safeReturnPath, SIGN_IN_PATH } from '@/lib/return-path';
+import { SIGN_IN_PATH, stepReturnPath } from '@/lib/return-path';
 
 /** The terms of use on the person's account: at sign-up, and after the terms change (plan 4e). */
 export const TERMS_AGREEMENT_PATH = '/consent/terms';
@@ -27,12 +27,29 @@ const OPEN_BEFORE_TERMS = [
 const LEGAL_DOCUMENT_VERSION =
   /^\/(privacy|terms)\/versions\/(0|[1-9][0-9]{0,8})$/;
 
-/** `path` with `redirect_url` set to where the person is now. */
+/**
+ * The step at `path` with `redirect_url` set to where the person is now (`here`); on a step
+ * already, to the page that step returns to (return-path.ts), so it is never nested.
+ */
 export function withReturn(path: string, here: string): string {
-  const back = safeReturnPath(here);
+  const back = stepReturnPath(here);
   return back === '/'
     ? path
     : `${path}?redirect_url=${encodeURIComponent(back)}`;
+}
+
+/**
+ * To the terms step with a full page load, coming back to where the person is now: for a refusal
+ * from api-user (`terms_agreement_required`). The account check may have taken them to the step
+ * already while the request was on its way (`ConsentPrompts`); then they stay where they are, and
+ * the step keeps its return address.
+ */
+export function goToTermsAgreement(): void {
+  const { pathname, search } = window.location;
+  if (pathname === TERMS_AGREEMENT_PATH) return;
+  window.location.assign(
+    withReturn(TERMS_AGREEMENT_PATH, `${pathname}${search}`),
+  );
 }
 
 // "Not now" on the banner lasts for this page load only (nothing is stored in the browser): the

@@ -13,6 +13,7 @@ import { Card } from '@/components/page/card';
 import { agreementTexts } from '@/app/consent/actions';
 import { AgreementStep } from '@/components/consent/agreement-step';
 import {
+  goToTermsAgreement,
   TERMS_AGREEMENT_PATH,
   withReturn,
 } from '@/components/consent/consent-prompts';
@@ -312,12 +313,7 @@ function SignedInFlow({
   const askAgreement = useCallback(
     async (which: 'testimony-consent' | 'terms-of-use', from: Step) => {
       if (which === 'terms-of-use') {
-        window.location.assign(
-          withReturn(
-            TERMS_AGREEMENT_PATH,
-            `${window.location.pathname}${window.location.search}`,
-          ),
-        );
+        goToTermsAgreement();
         return;
       }
       try {

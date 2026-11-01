@@ -188,6 +188,24 @@ async function holdPut(
   return { seen, release: () => release() };
 }
 
+/**
+ * Holds the page's first account check (`GET /v1/account`, account-bootstrap.ts) until
+ * `release()`, then passes it on to the stub, which answers as the session stands by then; later
+ * checks go straight on.
+ */
+async function holdAccountCheck(page: Page) {
+  let heldOnce = false;
+  let release = () => undefined as void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`${STUB_USER_URL}/v1/account`, async (route) => {
+    if (route.request().method() !== 'GET' || heldOnce) return route.fallback();
+    heldOnce = true;
+    await held;
+    await route.fallback();
+  });
+  return { release: () => release() };
+}
+
 /** Counts the page's requests that match, from now on. */
 function countRequests(page: Page, match: (r: Request) => boolean) {
   let n = 0;
@@ -469,55 +487,81 @@ test.describe('hearts', () => {
     expect(puts()).toBe(0);
   });
 
-  test('a heart made before agreeing to changed terms stays on the device and is offered after agreeing', async ({
-    page,
-    request,
-  }, info) => {
-    const project = info.project.name;
-    const id = `heart_test_${project.replace('-', '_')}`;
-    const session = sessionFor(info, 'terms-first');
-    await useSession(page, session);
-    await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    const heart = cardHeart(page, `Heart test story (${project})`);
-    await expect(heart).toHaveAttribute('data-heart-state', 'off');
-    // Plan 4e: the terms change while the page is open; api-user refuses the heart.
-    await request.post(
-      `${STUB_USER_URL}/__e2e/sessions/${session}/agreements`,
-      {
-        data: { terms: 0 },
-      },
-    );
-    const refused = page.waitForResponse((r) =>
-      isCommand('PUT', id)(r.request()),
-    );
-    await heart.click();
-    expect((await refused).status()).toBe(403);
-    await expect(page).toHaveURL(/\/consent\/terms\?/);
-    expect(await deviceHearts(page)).toEqual([id]);
-    await expect(
-      page.getByRole('heading', {
-        level: 1,
-        name: 'Our terms of use have changed',
-      }),
-    ).toBeVisible();
-    await expect(page.locator('[data-redline] ins').first()).toBeVisible();
-    await page
-      .locator('label')
-      .filter({ hasText: 'I agree to version 2 of the terms of use.' })
-      .click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    const prompt = page.locator('[data-device-hearts-prompt]');
-    await expect(prompt).toContainText(
-      'Add the story you hearted on this device to your account?',
-    );
-    const saved = page.waitForResponse((r) =>
-      isCommand('PUT', id)(r.request()),
-    );
-    await prompt.getByRole('button', { name: 'Add' }).click();
-    expect((await saved).status()).toBe(204);
-    await expect(heart).toHaveAttribute('aria-pressed', 'true');
-  });
+  // Plan 4e: the terms change while the page is open, and api-user refuses the heart. The page's
+  // account check (account-bootstrap.ts) may answer before the change (terms agreed: only the
+  // heart sends the person to the terms step) or after it (consent-prompts.tsx sends them there
+  // too). Both are held in place here, so each runs the same way every time. Left to chance, CI
+  // saw the account check move the page to the terms step just before the click (the heart was
+  // gone from the page: desktop-1280) or just after it (the heart's refusal then nested the terms
+  // step in its own return address, and the person ended at home: phone-320).
+  for (const accountCheck of ['before', 'after'] as const)
+    test(`a heart made before agreeing to changed terms stays on the device and is offered after agreeing (the account check answers ${accountCheck} the change)`, async ({
+      page,
+      request,
+    }, info) => {
+      const project = info.project.name;
+      const id = `heart_test_${project.replace('-', '_')}`;
+      const session = sessionFor(info, `terms-first-${accountCheck}`);
+      await useSession(page, session);
+      const account = await holdAccountCheck(page);
+      const save = await holdPut(page, id);
+      await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
+      const heart = cardHeart(page, `Heart test story (${project})`);
+      await expect(heart).toHaveAttribute('data-heart-state', 'off');
+      if (accountCheck === 'before') {
+        const answered = page.waitForResponse(
+          (r) => r.url() === `${STUB_USER_URL}/v1/account`,
+        );
+        account.release();
+        expect((await answered).status()).toBe(200);
+      }
+      await request.post(
+        `${STUB_USER_URL}/__e2e/sessions/${session}/agreements`,
+        {
+          data: { terms: 0 },
+        },
+      );
+      const refused = page.waitForResponse((r) =>
+        isCommand('PUT', id)(r.request()),
+      );
+      await heart.click();
+      await save.seen;
+      if (accountCheck === 'after') {
+        // The account check's step first; the heart's refusal arrives on it.
+        account.release();
+        await expect(page).toHaveURL(/\/consent\/terms\?/);
+      }
+      save.release();
+      expect((await refused).status()).toBe(403);
+      // One terms step, returning to the page the heart was on.
+      await expect(page).toHaveURL(
+        `${WEB_SIGNED_IN_URL}/consent/terms?redirect_url=${encodeURIComponent(HEART_PAGE)}`,
+      );
+      expect(await deviceHearts(page)).toEqual([id]);
+      await expect(
+        page.getByRole('heading', {
+          level: 1,
+          name: 'Our terms of use have changed',
+        }),
+      ).toBeVisible();
+      await expect(page.locator('[data-redline] ins').first()).toBeVisible();
+      await page
+        .locator('label')
+        .filter({ hasText: 'I agree to version 2 of the terms of use.' })
+        .click();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
+      const prompt = page.locator('[data-device-hearts-prompt]');
+      await expect(prompt).toContainText(
+        'Add the story you hearted on this device to your account?',
+      );
+      const saved = page.waitForResponse((r) =>
+        isCommand('PUT', id)(r.request()),
+      );
+      await prompt.getByRole('button', { name: 'Add' }).click();
+      expect((await saved).status()).toBe(204);
+      await expect(heart).toHaveAttribute('aria-pressed', 'true');
+    });
 
   test('Add waits for a save already on its way, and says so when that fails', async ({
     page,
