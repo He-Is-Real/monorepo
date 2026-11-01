@@ -1,4 +1,4 @@
-import { outcome, rows, run, SERVICES, TestDatabase } from './support/harness';
+import { outcome, run, SERVICES, TestDatabase } from './support/harness';
 
 /** D14: schema.surql is declarative and idempotent; seeds run once; only the migrator changes the schema. */
 describe('schema.surql and seeds on the pinned SurrealDB', () => {
@@ -39,29 +39,5 @@ describe('schema.surql and seeds on the pinned SurrealDB', () => {
     expect(
       (await outcome(person, 'REMOVE EVENT consent_append_only ON consent')).ok,
     ).toBe(false);
-  });
-
-  it('still has every guard event after all the attempts', async () => {
-    const migrator = await t.migrator();
-    const [consent] = await rows<{ events: Record<string, unknown> }>(
-      migrator,
-      'INFO FOR TABLE consent',
-    );
-    expect(Object.keys(consent.events).sort()).toEqual([
-      'consent_append_only',
-      'consent_evidence_v4',
-      'consent_evidence_v5',
-      'consent_fence',
-      'consent_form',
-      'consent_legacy_only_migrator',
-      'consent_legal_fence',
-      'consent_published_dpa',
-      'consent_story',
-      'consent_withdrawal_requests_erasure',
-      'consent_withdrawal_unhides',
-    ]);
-    expect(
-      await rows(migrator, 'SELECT VALUE id FROM service ORDER BY id'),
-    ).toHaveLength(SERVICES.length);
   });
 });

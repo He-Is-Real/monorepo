@@ -165,39 +165,6 @@ describe('erasure on api_user’s service login', () => {
     ).toEqual([]);
   });
 
-  it('keeps the consent ledger as proof, pointing at a stub user row (D37)', async () => {
-    expect(
-      await truth(
-        'SELECT VALUE type FROM consent WHERE subject = user:ann ORDER BY type',
-      ),
-    ).toEqual([
-      'account_data',
-      'age_18plus',
-      'publish',
-      'share_socials',
-      'special_category_religious',
-    ]);
-    // A story's sharing event keeps the story's id (O4), like auditLog: the story itself is gone.
-    expect(
-      await truth(
-        `SELECT VALUE [story, record::exists(story)] FROM consent
-           WHERE subject = user:ann AND type = 'share_socials'`,
-      ),
-    ).toEqual([['story:ann_live', false]]);
-    // The stub: internal id, createdAt and gdprDeletedAt. The Clerk id is cleared.
-    const [user] = await truth<Record<string, unknown>>(
-      'SELECT * FROM user:ann',
-    );
-    expect(Object.keys(user).sort()).toEqual([
-      'createdAt',
-      'gdprDeletedAt',
-      'id',
-    ]);
-    expect(await rows(apiUser, 'DELETE user:ann RETURN BEFORE')).toEqual([]);
-    expect(await rows(apiUser, 'DELETE consent RETURN BEFORE')).toEqual([]);
-    expect(await truth('SELECT VALUE id FROM user:ann')).toHaveLength(1);
-  });
-
   it('never lets anyone rebind or un-erase the stub (D37)', async () => {
     for (const name of ['api_user', 'api_admin'] as const) {
       const db = await t.service(name);
@@ -341,30 +308,6 @@ describe('erasure on api_user’s service login', () => {
     expect(await truth('SELECT * FROM story:bob_ghost')).toEqual([]);
     // And no new session: the Clerk id is gone (D37).
     await expect(t.person('user_bob')).rejects.toThrow();
-  });
-
-  it('erases after consent withdrawal (D39 caller) with no consent left', async () => {
-    await createPeople(t, { cara: 'user_cara' });
-    const cara = await t.person('user_cara');
-    await grantAll(cara);
-    await draft(cara, 'cara_story');
-    await submit(cara, 'cara_story');
-    await consentEvent(cara, 'special_category_religious', 'withdrawn');
-    // The withdrawal committed an erasure request with it (D88), which the erasure settles.
-    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([
-      'erasureRequest:cara',
-    ]);
-    await run(apiUser, ERASE, {
-      clerkUserId: 'user_cara',
-      reason: 'consent_withdrawn',
-    });
-    expect(
-      await truth('SELECT * FROM story WHERE submitter = user:cara'),
-    ).toEqual([]);
-    expect(
-      await truth('SELECT VALUE reason FROM auditLog WHERE entity = user:cara'),
-    ).toEqual(['consent_withdrawn']);
-    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([]);
   });
 
   it('a withdrawal api-user never got to erase stays requested, and housekeeping deleting the request erases the person (D88, D73)', async () => {

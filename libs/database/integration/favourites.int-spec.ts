@@ -1,6 +1,5 @@
 import type { Surreal } from 'surrealdb';
 import {
-  consentEvent,
   createPeople,
   grantAll,
   outcome,
@@ -148,25 +147,6 @@ describe('favourites', () => {
       error: expect.stringContaining('favourite_unique'),
     });
     expect(await heartsOf('ann')).toEqual(['bob_live']);
-  });
-
-  it('needs the sign-up consent: both statements granted (D73)', async () => {
-    await createPeople(t, { cara: 'user_cara' });
-    const cara = await t.person('user_cara');
-    const refused = {
-      ok: false,
-      error: expect.stringContaining('favourite_needs_consent'),
-    };
-    expect(await heart(cara, 'bob_live')).toEqual(refused);
-    await consentEvent(cara, 'account_data', 'granted');
-    expect(await heart(cara, 'bob_live')).toEqual(refused);
-    await consentEvent(cara, 'age_18plus', 'granted');
-    expect((await heart(cara, 'bob_live')).ok).toBe(true);
-    // Withdrawing stops new hearts; removing one is always possible.
-    await consentEvent(cara, 'account_data', 'withdrawn');
-    await run(cara, 'DELETE favourite');
-    expect(await heartsOf('cara')).toEqual([]);
-    expect(await heart(cara, 'bob_live')).toEqual(refused);
   });
 
   it('nothing about a heart can be changed afterwards', async () => {

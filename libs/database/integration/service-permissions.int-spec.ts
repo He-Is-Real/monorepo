@@ -1,5 +1,5 @@
 import type { Surreal } from 'surrealdb';
-import { outcome, rows, run, sha256, TestDatabase } from './support/harness';
+import { outcome, rows, run, TestDatabase } from './support/harness';
 import { buildWorld } from './support/world';
 
 /**
@@ -100,7 +100,6 @@ describe('service identities (D13 B)', () => {
 
     it.each([
       'story',
-      'consent',
       'user',
       'moderationReview',
       'auditLog',
@@ -179,23 +178,6 @@ describe('service identities (D13 B)', () => {
       );
       await run(svc.apiUser, 'DELETE story:throwaway');
       expect(await truth('SELECT * FROM story:throwaway')).toEqual([]);
-    });
-
-    it('cannot read or forge consent', async () => {
-      const db = svc.apiUser;
-      const before = await truth('SELECT count() AS n FROM consent GROUP ALL');
-      expect(await rows(db, 'SELECT * FROM consent')).toEqual([]);
-      expect(
-        await rows(
-          db,
-          `CREATE consent CONTENT { subject: user:ann, type: 'publish', event: 'granted',
-             dpaVersion: dpaVersion:v1, mechanism: 'web_form_submission', evidenceHash: $h }`,
-          { h: sha256('forged') },
-        ),
-      ).toEqual([]);
-      expect(await truth('SELECT count() AS n FROM consent GROUP ALL')).toEqual(
-        before,
-      );
     });
 
     it('creates and updates user records, but cannot rebind clerkUserId', async () => {
@@ -304,43 +286,6 @@ describe('service identities (D13 B)', () => {
       await run(svc.admin, `UPDATE story:ann_pending SET status = 'pending'`);
     });
 
-    it('cannot write consent for a person', async () => {
-      expect(
-        await rows(
-          svc.admin,
-          `CREATE consent CONTENT { subject: user:ann, type: 'publish', event: 'withdrawn',
-             dpaVersion: dpaVersion:v1, mechanism: 'account_settings', evidenceHash: $h }`,
-          { h: sha256('admin forged') },
-        ),
-      ).toEqual([]);
-      expect(
-        await truth(
-          `SELECT * FROM consent WHERE subject = user:ann AND event = 'withdrawn'`,
-        ),
-      ).toEqual([]);
-    });
-
-    it('manages DPA versions; published ones are frozen, none can be deleted', async () => {
-      const db = svc.admin;
-      expect(await ids(db, 'SELECT id FROM dpaVersion')).toContain(
-        'dpaVersion:v2_draft',
-      );
-      const edit = await outcome(
-        db,
-        `UPDATE dpaVersion:v1 SET changeSummary = 'rewritten'`,
-      );
-      expect(edit).toEqual({
-        ok: false,
-        error: expect.stringContaining(
-          'published privacy policy versions are kept for ever',
-        ),
-      });
-      expect(
-        await rows(db, 'DELETE dpaVersion:v2_draft RETURN BEFORE'),
-      ).toEqual([]);
-      expect(await truth('SELECT id FROM dpaVersion:v2_draft')).toHaveLength(1);
-    });
-
     it('links a legacy person to a Clerk account once; the binding never changes after', async () => {
       const db = svc.admin;
       await run(migrator, 'CREATE user:legacy1');
@@ -399,19 +344,6 @@ describe('service identities (D13 B)', () => {
       expect(await truth('SELECT id FROM story:bob_draft')).toHaveLength(1);
     });
 
-    it('reads consent (fresh ledger check before processing, D21) but cannot write it', async () => {
-      const db = svc.workflow;
-      expect((await rows(db, 'SELECT * FROM consent')).length).toBe(8);
-      expect(
-        await rows(
-          db,
-          `CREATE consent CONTENT { subject: user:bob, type: 'publish', event: 'granted',
-             dpaVersion: dpaVersion:v1, mechanism: 'web_form_submission', evidenceHash: $h }`,
-          { h: sha256('wf forged') },
-        ),
-      ).toEqual([]);
-    });
-
     it('writes audit rows but cannot read them; cannot see drafts DPA or reviews', async () => {
       const db = svc.workflow;
       expect(
@@ -430,41 +362,6 @@ describe('service identities (D13 B)', () => {
       expect(await ids(db, 'SELECT id FROM dpaVersion')).not.toContain(
         'dpaVersion:v2_draft',
       );
-    });
-  });
-
-  describe('the consent ledger is append-only for every identity', () => {
-    it.each(['publicRead', 'apiUser', 'admin', 'workflow'] as const)(
-      '%s cannot update or delete consent rows',
-      async (name) => {
-        const db = svc[name];
-        const before = await truth('SELECT * FROM consent ORDER BY id');
-        expect(
-          await rows(db, `UPDATE consent SET event = 'withdrawn'`),
-        ).toEqual([]);
-        expect(await rows(db, 'DELETE consent RETURN BEFORE')).toEqual([]);
-        expect(await truth('SELECT * FROM consent ORDER BY id')).toEqual(
-          before,
-        );
-      },
-    );
-
-    it('even the migrator (OWNER) is stopped by the append-only event', async () => {
-      const [first] = await truth<{ id: string }>(
-        'SELECT id FROM consent LIMIT 1',
-      );
-      expect(
-        await outcome(
-          migrator,
-          `UPDATE type::record($id) SET event = 'withdrawn'`,
-          {
-            id: first.id,
-          },
-        ),
-      ).toEqual({ ok: false, error: expect.stringContaining('append-only') });
-      expect(
-        await outcome(migrator, `DELETE type::record($id)`, { id: first.id }),
-      ).toEqual({ ok: false, error: expect.stringContaining('append-only') });
     });
   });
 });

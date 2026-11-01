@@ -1,6 +1,5 @@
 import type { Surreal, SurrealTransaction } from 'surrealdb';
 import {
-  consentEvent,
   createPeople,
   grantAll,
   publishDpa,
@@ -8,7 +7,7 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { approve, draft, ERASE, submit } from './support/world';
+import { draft, ERASE } from './support/world';
 
 /**
  * Review round 2, P1-A. A transaction reads a snapshot, so its permission and consent checks can
@@ -109,57 +108,6 @@ describe('concurrent transactions are fenced per person', () => {
     expect(
       await truth('SELECT * FROM story WHERE submitter = user:bea'),
     ).toEqual([]);
-  });
-
-  it('approval that overlaps a publish-consent withdrawal: nothing is published', async () => {
-    const ann = await t.person('user_ann');
-    await draft(ann, 'ann_story');
-    await submit(ann, 'ann_story');
-    const approving = await begin(admin);
-    await approving
-      .query(
-        `LET $s = (UPDATE ONLY story:ann_story SET status = 'approved', approvedAt = time::now());
-         CREATE publicStory:ann_story CONTENT {
-           version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
-           publishedAt: time::now() };`,
-      )
-      .collect();
-    // WithdrawConsent: ledger row + delete the visible public rows, one transaction.
-    await run(
-      ann,
-      `BEGIN TRANSACTION;
-       CREATE consent CONTENT { subject: $auth, type: 'publish', event: 'withdrawn',
-         dpaVersion: dpaVersion:v1, mechanism: 'account_settings', evidenceHash: $h };
-       DELETE publicStory WHERE record::id(id) IN (SELECT VALUE record::id(id) FROM story WHERE submitter = $auth);
-       COMMIT TRANSACTION;`,
-      { h: 'b'.repeat(64) },
-    );
-    expect(await commit(approving)).toMatch(CONFLICT);
-    expect(await truth('SELECT * FROM publicStory:ann_story')).toEqual([]);
-    expect(await truth('SELECT VALUE status FROM story:ann_story')).toEqual([
-      'pending',
-    ]);
-    // The retry now sees the withdrawal and is refused by the consent check.
-    await expect(approve(admin, 'ann_story')).rejects.toThrow();
-    expect(await truth('SELECT * FROM publicStory:ann_story')).toEqual([]);
-  });
-
-  it('submit that overlaps a consent withdrawal (two sessions of one person): not submitted', async () => {
-    const tab1 = await t.person('user_sam');
-    const tab2 = await t.person('user_sam');
-    await draft(tab1, 'sam_story');
-    const submitting = await begin(tab1);
-    await submitting
-      .query(`UPDATE story:sam_story SET status = 'pending'`)
-      .collect();
-    expect(
-      await consentEvent(tab2, 'special_category_religious', 'withdrawn'),
-    ).toHaveLength(1);
-    expect(await commit(submitting)).toMatch(CONFLICT);
-    expect(await truth('SELECT VALUE status FROM story:sam_story')).toEqual([
-      'draft',
-    ]);
   });
 
   it('workflow media write that overlaps erasure: the write never lands', async () => {

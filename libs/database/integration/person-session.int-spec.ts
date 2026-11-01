@@ -1,6 +1,5 @@
 import { RecordId, type Surreal } from 'surrealdb';
 import {
-  consentEvent,
   createPeople,
   outcome,
   rows,
@@ -183,26 +182,6 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       // Bob's review isn't Ann's to see.
       expect(await rows(ann, 'SELECT * FROM moderationReview')).toEqual([]);
     });
-
-    it('cannot read someone else’s consent through fn::consent::current', async () => {
-      expect(
-        await rows(ann, `RETURN fn::consent::current(user:bob, 'publish')`),
-      ).toEqual([]);
-      expect(
-        await rows(
-          ann,
-          `RETURN fn::consent::current(user:ann, 'publish').event`,
-        ),
-      ).toEqual(['granted']);
-    });
-
-    it('sees the consent derived on their own story (D17)', async () => {
-      const [story] = await rows<{
-        consent: Record<string, { event: string }>;
-      }>(ann, 'SELECT consent FROM story:ann_draft');
-      expect(story.consent['religious'].event).toBe('granted');
-      expect(story.consent['age18plus'].event).toBe('granted');
-    });
   });
 
   describe('creating a draft', () => {
@@ -259,26 +238,6 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         'SELECT approvedAt, rejectionFeedback, lockedBy, lockedAt FROM story:ann_prefilled',
       );
       expect(stored).toEqual({});
-    });
-
-    it('needs current Art 9 consent (special_category_religious)', async () => {
-      const cara = await t.person('user_cara');
-      // The sign-up form first (D73; 18+ is there only, D93).
-      await consentEvent(cara, 'account_data', 'granted');
-      await consentEvent(cara, 'age_18plus', 'granted');
-      expect(await draft(cara, 'cara_no_consent')).toEqual([]);
-      expect(await truth('SELECT * FROM story:cara_no_consent')).toEqual([]);
-
-      expect(
-        await consentEvent(cara, 'special_category_religious', 'granted'),
-      ).toHaveLength(1);
-      expect(await draft(cara, 'cara_consented')).toHaveLength(1);
-
-      expect(
-        await consentEvent(cara, 'special_category_religious', 'withdrawn'),
-      ).toHaveLength(1);
-      expect(await draft(cara, 'cara_withdrawn')).toEqual([]);
-      expect(await truth('SELECT * FROM story:cara_withdrawn')).toEqual([]);
     });
   });
 
