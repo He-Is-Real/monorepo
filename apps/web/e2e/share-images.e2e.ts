@@ -605,6 +605,45 @@ test.describe('behaviour', () => {
     });
   }
 
+  // A refusal to sign the link again doesn't mean nothing was granted (api-user checks the
+  // agreements after finding the grant): agreeing finishes the same grant, counting nothing new.
+  test('a picture whose upload failed, tried again after the consent changed, is finished at its own path once they agree', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    await saved(page);
+    let fail = true;
+    await page.route(`${STUB_USER_URL}/__s3/**`, async (route) => {
+      if (route.request().method() !== 'PUT' || !fail) return route.fallback();
+      fail = false;
+      return route.fulfill({ status: 500 });
+    });
+    await choose(page, 900, 1200);
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
+    const [granted] = (await me.uploads()).images;
+    await me.agreements({ testimony: 1 });
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await step(page, 'Our testimony consent has changed');
+    await page
+      .locator('label')
+      .filter({ hasText: /I agree to version 3 of the testimony consent/ })
+      .click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    // The grant, the refused replay, the replay after agreeing: one picture, at its own path.
+    const { requests, images } = await me.uploads();
+    expect(requests).toBe(3);
+    expect(images).toEqual([
+      expect.objectContaining({
+        path: granted.path,
+        bytes: expect.any(String),
+      }),
+    ]);
+  });
+
   test('not agreeing for a picture leaves it to add, with the reason, and adding it asks again', async ({
     page,
     request,

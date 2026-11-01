@@ -559,6 +559,46 @@ test.describe('behaviour', () => {
     expect([requests, videos.length]).toEqual([2, 1]);
   });
 
+  test('an upload request whose answer is lost, sent again after the consent changed, carries on with the same video once they agree', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('My video');
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'saved',
+    );
+    const path = clip(info.outputPath('clip.mp4'));
+    // The first request makes the video at api-user; its answer never arrives.
+    let dropped = false;
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/*/upload-url`,
+      async (route) => {
+        if (dropped) return route.fallback();
+        dropped = true;
+        await route.fetch();
+        return route.abort('connectionreset');
+      },
+    );
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(alert(page, 'can’t reach our server')).toBeVisible();
+    await me.agreements({ testimony: 1 });
+    // Its replay is refused until they agree (a 403 that doesn't mean nothing was made).
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await step(page, 'Our testimony consent has changed');
+    await page
+      .locator('label')
+      .filter({ hasText: /I agree to version 3 of the testimony consent/ })
+      .click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    // The lost request, the refused replay, the replay after agreeing: one video, all of it.
+    const { requests, videos } = await me.uploads();
+    expect([requests, videos.length, videos[0].done]).toEqual([3, 1, true]);
+  });
+
   // Plan 4e: a newer testimony consent or terms of use saved while the person was on the page
   // makes api-user refuse the upload request (403). The same agree-again screen a refused save
   // opens (Joel, 2026-11-01, option B), and the upload carries on once they agree.

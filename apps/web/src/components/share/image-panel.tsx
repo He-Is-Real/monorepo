@@ -446,7 +446,8 @@ export function ImagePanel({
       }
       const which = agreementFirst(err);
       if (which) {
-        // Nothing was granted: once they agree, the picture is asked for again.
+        // Once they agree, the picture is asked for again: its kept request is replayed, so a
+        // grant made before the refusal is finished rather than made (and counted) again.
         if (asked < AGREE_ASKS && (await agreeAgain(which))) {
           if (left()) return;
           return add(picture, granted, asked + 1);

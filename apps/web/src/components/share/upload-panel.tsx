@@ -382,7 +382,8 @@ export function UploadPanel({
         if (gone()) return;
         const which = agreementFirst(err);
         if (which) {
-          // Nothing was granted or counted: once they agree, the same file is asked for again.
+          // Once they agree, the same file is asked for again: a kept request is replayed, so a
+          // video made before the refusal carries on rather than being made (and counted) again.
           if (asked < AGREE_ASKS && (await agreeAgain(which))) {
             if (gone()) return;
             return run(file, contentType, durationSeconds, gone, asked + 1);

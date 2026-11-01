@@ -24,6 +24,8 @@ import type { ShareApi, UploadRequest, UploadTarget } from './share-api';
  * (`keep`) is kept past its answer, until its PUT
  * succeeds or finds the file there (`forgetAttempt`): a PUT that failed or whose answer was lost
  * is retried by replaying it, which signs a fresh link for the same path and counts nothing new.
+ * A request refused until the person agrees (`403`) is kept too: a replay is refused so even when
+ * its grant exists, and once they agree it's replayed rather than granted (and counted) again.
  */
 
 /** A new upload's request, until its answer settles it. */
@@ -215,6 +217,9 @@ export function useUploadRequest({
           return { ...target, sent: attempt.request };
         } catch (err) {
           if (outcomeUnknown(err) || gone()) throw err;
+          // Agree first: api-user checks the agreements after finding a replay's grant too, so it
+          // may have granted this one. Kept, it's replayed as it was once they agree.
+          if (agreementFirst(err)) throw err;
           writeAttempt(owner, slot, ready.draftId, null);
           if (!(err instanceof StaleVersion) || again) throw err;
           // Changed elsewhere (another tab, or a request of this one whose answer was lost):
