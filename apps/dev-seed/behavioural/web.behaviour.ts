@@ -9,9 +9,7 @@ const story = (id: string) => {
   return s;
 };
 
-test('the home page shows the three newest stories', async ({
-  page,
-}) => {
+test('the home page shows the three newest stories', async ({ page }) => {
   // Newest first, never a chosen one (Joel, 2026-10-23: no featured stories).
   const newest = DATASET.stories
     .filter((s) => s.status === 'approved')

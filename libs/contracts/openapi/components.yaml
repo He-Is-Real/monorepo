@@ -1202,7 +1202,13 @@ components:
         `testimony-consent` (agreed before a person's first story and again for a newer version; covers every
         story they submit), `social-media-sharing-consent` (the optional box at the end of an upload, per
         story) and `privacy-notice` (shown on the site with its past versions; nobody agrees to it).
-      enum: [terms-of-use, testimony-consent, social-media-sharing-consent, privacy-notice]
+      enum:
+        [
+          terms-of-use,
+          testimony-consent,
+          social-media-sharing-consent,
+          privacy-notice,
+        ]
 
     LegalDocumentVersion:
       type: object

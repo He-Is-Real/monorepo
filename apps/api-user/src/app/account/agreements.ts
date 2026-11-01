@@ -12,7 +12,10 @@ import type { SurrealQueryable } from 'surrealdb';
  */
 export const AGREEMENTS = {
   'terms-of-use': { pointer: 'termsOfUse', table: 'termsOfUseAgreement' },
-  'testimony-consent': { pointer: 'testimonyConsent', table: 'testimonyConsent' },
+  'testimony-consent': {
+    pointer: 'testimonyConsent',
+    table: 'testimonyConsent',
+  },
 } as const;
 export type AgreementName = keyof typeof AGREEMENTS;
 export const isAgreementName = (a: string): a is AgreementName =>

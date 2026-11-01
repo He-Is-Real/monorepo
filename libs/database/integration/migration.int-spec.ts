@@ -1114,7 +1114,10 @@ function previousReleaseParams(
     Object.fromEntries(
       readdirSync(join(legal, dir))
         .filter((f) => f.endsWith('.md') && f !== 'README.md')
-        .map((f) => [f.slice(0, -3), readFileSync(join(legal, dir, f), 'utf8')]),
+        .map((f) => [
+          f.slice(0, -3),
+          readFileSync(join(legal, dir, f), 'utf8'),
+        ]),
     );
   const statements = (dir: string) =>
     Object.fromEntries(
@@ -1187,7 +1190,10 @@ describe('upgrading a database migrated by the previous release (plan 4e)', () =
     previous = join(dir, 'libs/database/schema');
     t = await TestDatabase.create({ migrate: false });
     await t.migrate(
-      previousReleaseParams(t, join(dir, 'libs/legal')) as unknown as MigrationParams,
+      previousReleaseParams(
+        t,
+        join(dir, 'libs/legal'),
+      ) as unknown as MigrationParams,
       { bundleDir: previous, runner: join(previous, 'migrate.py') },
     );
     // What only the old machinery wrote: an audit row of a consent grant.
@@ -1234,9 +1240,9 @@ describe('upgrading a database migrated by the previous release (plan 4e)', () =
     expect(await rows(migrator, 'SELECT * FROM _setting')).toEqual([
       { id: '_setting:current', environment: 'dev' },
     ]);
-    expect(await rows(migrator, 'SELECT VALUE id FROM auditLog:old_grant')).toEqual(
-      [],
-    );
+    expect(
+      await rows(migrator, 'SELECT VALUE id FROM auditLog:old_grant'),
+    ).toEqual([]);
     // The walking-skeleton story stays, without the removed computed consent.
     const [story] = await rows<Record<string, unknown>>(
       migrator,
@@ -1246,7 +1252,12 @@ describe('upgrading a database migrated by the previous release (plan 4e)', () =
     expect(story).not.toHaveProperty('consent');
   });
 
-  it.each(['0001-seed-dpa-v1', '0003-dev-seed-story', '0005-dev-legal-placeholders', '0007-dev-legal-documents'])(
+  it.each([
+    '0001-seed-dpa-v1',
+    '0003-dev-seed-story',
+    '0005-dev-legal-placeholders',
+    '0007-dev-legal-documents',
+  ])(
     'only warns about %s, applied by the old release and gone from the bundle',
     (id) => {
       expect(upgrade.output).toContain(
@@ -1289,7 +1300,9 @@ describe('data/0009 on a database that already has a version 0', () => {
     expect(await t.migrate(t.params())).toMatchObject({
       applied: ['0009-consent-4e'],
     });
-    expect(await rows(migrator, 'SELECT * FROM privacyNotice')).toEqual([saved]);
+    expect(await rows(migrator, 'SELECT * FROM privacyNotice')).toEqual([
+      saved,
+    ]);
     for (const table of LEGAL_TABLES) {
       expect(
         await rows(migrator, 'SELECT VALUE id FROM type::table($table)', {

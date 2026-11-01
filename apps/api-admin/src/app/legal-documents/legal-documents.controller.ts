@@ -103,9 +103,11 @@ function parsePublish(body: unknown): PublishInput {
     );
   }
   const version = b['version'];
-  if (
-    !(typeof version === 'number' && Number.isInteger(version) && version >= 0)
-  ) {
+  if (!(
+    typeof version === 'number' &&
+    Number.isInteger(version) &&
+    version >= 0
+  )) {
     throw invalid(
       '/version',
       'invalid_version',

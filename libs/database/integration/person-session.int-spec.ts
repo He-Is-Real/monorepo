@@ -150,7 +150,10 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
     });
 
     it('sees their own user record with their agreements, and the legal texts', async () => {
-      const mine = await rows<Record<string, unknown>>(ann, 'SELECT * FROM user');
+      const mine = await rows<Record<string, unknown>>(
+        ann,
+        'SELECT * FROM user',
+      );
       expect(mine.map((r) => r['id'])).toEqual(['user:ann']); // never another person's
       expect(mine[0]).toMatchObject({
         termsOfUse: 'termsOfUseAgreement:0',
@@ -158,7 +161,9 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       });
       for (const table of LEGAL_TABLES) {
         expect(
-          await rows(ann, `SELECT VALUE id FROM type::table($table)`, { table }),
+          await rows(ann, `SELECT VALUE id FROM type::table($table)`, {
+            table,
+          }),
         ).toEqual([`${table}:0`]);
       }
       for (const table of [

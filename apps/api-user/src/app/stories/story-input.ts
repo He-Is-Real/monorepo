@@ -230,13 +230,11 @@ export function parseSubmit(body: unknown): SubmitInput {
         });
       }
     }
-    if (
-      !(
-        typeof version === 'number' &&
-        Number.isInteger(version) &&
-        version >= 0
-      )
-    ) {
+    if (!(
+      typeof version === 'number' &&
+      Number.isInteger(version) &&
+      version >= 0
+    )) {
       errors.push({
         pointer: '/socialMediaSharingConsent/version',
         message: 'the version number shown',

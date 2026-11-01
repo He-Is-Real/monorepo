@@ -11,13 +11,7 @@ import {
   shareStory,
   TestDatabase,
 } from './support/harness';
-import {
-  approve,
-  draft,
-  ERASE,
-  grantUpload,
-  submit,
-} from './support/world';
+import { approve, draft, ERASE, grantUpload, submit } from './support/world';
 
 /**
  * Plan 4e (Joel, 2026-10-31 and 2026-11-01): the four immutable version tables, the pointers on
@@ -66,7 +60,11 @@ describe('consent, privacy and terms (plan 4e)', () => {
     it('only api-admin saves a version, as the next number, at the database’s time', async () => {
       const t2 = await TestDatabase.create();
       try {
-        for (const service of ['api_user', 'api_public_read', 'workflow'] as const) {
+        for (const service of [
+          'api_user',
+          'api_public_read',
+          'workflow',
+        ] as const) {
           const r = await outcome(
             await t2.service(service),
             `CREATE privacyNotice:1 CONTENT { content: 'Mine' }`,
@@ -81,7 +79,10 @@ describe('consent, privacy and terms (plan 4e)', () => {
         }
         await createPeople(t2, { eve: 'user_eve' });
         const eve = await t2.person('user_eve');
-        await outcome(eve, `CREATE privacyNotice:1 CONTENT { content: 'Mine' }`);
+        await outcome(
+          eve,
+          `CREATE privacyNotice:1 CONTENT { content: 'Mine' }`,
+        );
         expect(
           await rows(await t2.migrator(), `SELECT VALUE id FROM privacyNotice`),
         ).toHaveLength(1);
@@ -98,9 +99,9 @@ describe('consent, privacy and terms (plan 4e)', () => {
           await t2.service('api_admin'),
           `CREATE privacyNotice:1 CONTENT { content: 'Version one', release_date: d'2001-01-01T00:00:00Z' }`,
         );
-        expect(new Date(saved[0]?.release_date ?? 0).getTime()).toBeGreaterThanOrEqual(
-          before.getTime() - 5000,
-        );
+        expect(
+          new Date(saved[0]?.release_date ?? 0).getTime(),
+        ).toBeGreaterThanOrEqual(before.getTime() - 5000);
         expect(await publishVersion(t2, 'privacyNotice')).toBe(2);
       } finally {
         await t2.close();
@@ -125,7 +126,9 @@ describe('consent, privacy and terms (plan 4e)', () => {
         migrator,
         `UPDATE testimonyConsent:0 SET content = 'Changed'`,
       );
-      expect(!migratorTry.ok && migratorTry.error).toContain('legal_version_kept');
+      expect(!migratorTry.ok && migratorTry.error).toContain(
+        'legal_version_kept',
+      );
     });
   });
 
@@ -144,9 +147,9 @@ describe('consent, privacy and terms (plan 4e)', () => {
         ann,
         `UPDATE user:bob SET termsOfUse = termsOfUseAgreement:0, termsOfUseAgreedAt = time::now()`,
       );
-      expect(
-        await truth(`SELECT VALUE termsOfUse FROM ONLY user:bob`),
-      ).toEqual([]);
+      expect(await truth(`SELECT VALUE termsOfUse FROM ONLY user:bob`)).toEqual(
+        [],
+      );
 
       // A time sent by the client is never kept, and the two travel together.
       const done = await outcome(
@@ -184,7 +187,9 @@ describe('consent, privacy and terms (plan 4e)', () => {
       expect(!tooOld.ok && tooOld.error).toContain('agreement_version_changed');
       expect((await agree(cat, 'testimonyConsent', next)).length).toBe(1);
       expect(
-        await truth(`SELECT VALUE record::id(testimonyConsent) FROM ONLY user:cat`),
+        await truth(
+          `SELECT VALUE record::id(testimonyConsent) FROM ONLY user:cat`,
+        ),
       ).toEqual([next]);
 
       const cleared = await outcome(
@@ -220,12 +225,19 @@ describe('consent, privacy and terms (plan 4e)', () => {
     afterAll(() => t3?.close());
 
     it('stores no story, and no heart, before the latest terms and testimony consent', async () => {
-      const noTerms = await outcome(pat, `CREATE story:p1 CONTENT { submitter: $auth, slug: 'p1', title: 'T', description: 'D', primaryFormat: 'written', body: 'B' }`);
-      expect(!noTerms.ok && noTerms.error).toContain('terms_agreement_required');
+      const noTerms = await outcome(
+        pat,
+        `CREATE story:p1 CONTENT { submitter: $auth, slug: 'p1', title: 'T', description: 'D', primaryFormat: 'written', body: 'B' }`,
+      );
+      expect(!noTerms.ok && noTerms.error).toContain(
+        'terms_agreement_required',
+      );
       await agree(pat, 'termsOfUse');
       const noTestimony = await draft(pat, 'p1').catch((e: Error) => e.message);
       expect(String(noTestimony)).toContain('testimony_consent_required');
-      expect(await rows(await t3.migrator(), `SELECT VALUE id FROM story`)).toEqual([]);
+      expect(
+        await rows(await t3.migrator(), `SELECT VALUE id FROM story`),
+      ).toEqual([]);
       await agree(pat, 'testimonyConsent');
       expect(await draft(pat, 'p1')).toHaveLength(1);
     });
@@ -245,11 +257,18 @@ describe('consent, privacy and terms (plan 4e)', () => {
         person: 'pat',
         version,
       });
-      expect(!upload.ok && upload.error).toContain('testimony_consent_required');
-      const withdraw = await outcome(pat, `UPDATE story:p1 SET status = 'withdrawn'`);
+      expect(!upload.ok && upload.error).toContain(
+        'testimony_consent_required',
+      );
+      const withdraw = await outcome(
+        pat,
+        `UPDATE story:p1 SET status = 'withdrawn'`,
+      );
       expect(withdraw.ok).toBe(true);
       await agree(pat, 'testimonyConsent');
-      expect((await outcome(pat, `UPDATE story:p2 SET title = 'New'`)).ok).toBe(true);
+      expect((await outcome(pat, `UPDATE story:p2 SET title = 'New'`)).ok).toBe(
+        true,
+      );
     });
 
     it('newer terms stop a heart until re-agreed', async () => {
@@ -264,11 +283,19 @@ describe('consent, privacy and terms (plan 4e)', () => {
         await submit(rae, 'r1');
         await approve(await t4.service('api_admin'), 'r1');
         await publishVersion(t4, 'termsOfUseAgreement', 'Terms one');
-        const heart = await outcome(quin, `CREATE favourite SET person = $auth, story = story:r1`);
+        const heart = await outcome(
+          quin,
+          `CREATE favourite SET person = $auth, story = story:r1`,
+        );
         expect(!heart.ok && heart.error).toContain('terms_agreement_required');
         await agree(quin, 'termsOfUse');
         expect(
-          (await outcome(quin, `CREATE favourite SET person = $auth, story = story:r1`)).ok,
+          (
+            await outcome(
+              quin,
+              `CREATE favourite SET person = $auth, story = story:r1`,
+            )
+          ).ok,
         ).toBe(true);
       } finally {
         await t4.close();
@@ -281,14 +308,18 @@ describe('consent, privacy and terms (plan 4e)', () => {
       const dan = await t.person('user_dan');
       await agreeAll(dan);
       await draft(dan, 'd1');
-      const [before] = await truth<{ v: number }>(`SELECT version AS v FROM ONLY story:d1`);
+      const [before] = await truth<{ v: number }>(
+        `SELECT version AS v FROM ONLY story:d1`,
+      );
       // Others can't tick it for the person.
       await outcome(
         admin,
         `UPDATE story:d1 SET socialMediaSharingConsent = socialMediaSharingConsent:0, socialMediaSharingConsentAgreedAt = time::now()`,
       );
       expect(
-        await truth(`SELECT VALUE socialMediaSharingConsent FROM ONLY story:d1`),
+        await truth(
+          `SELECT VALUE socialMediaSharingConsent FROM ONLY story:d1`,
+        ),
       ).toEqual([]);
       const both = await outcome(
         dan,
@@ -328,15 +359,23 @@ describe('consent, privacy and terms (plan 4e)', () => {
            themeRefs: [theme:common] };`,
         { body: 'x'.repeat(250) },
       );
-      const r = await outcome(admin, `UPDATE story:legacy SET status = 'approved', approvedAt = time::now()`);
+      const r = await outcome(
+        admin,
+        `UPDATE story:legacy SET status = 'approved', approvedAt = time::now()`,
+      );
       expect(!r.ok && r.error).toContain('testimony_consent_required');
     });
 
     it('deleting the account is the withdrawal: the stub keeps no agreement', async () => {
       const ann = await t.person('user_ann');
       await agree(ann, 'testimonyConsent');
-      await run(apiUser, ERASE, { clerkUserId: 'user_ann', reason: 'account_deleted' });
-      const [stub] = await truth<Record<string, unknown>>(`SELECT * FROM ONLY user:ann`);
+      await run(apiUser, ERASE, {
+        clerkUserId: 'user_ann',
+        reason: 'account_deleted',
+      });
+      const [stub] = await truth<Record<string, unknown>>(
+        `SELECT * FROM ONLY user:ann`,
+      );
       expect(Object.keys(stub ?? {}).sort()).toEqual([
         'createdAt',
         'gdprDeletedAt',

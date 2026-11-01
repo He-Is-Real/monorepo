@@ -308,7 +308,10 @@ describe('the submit flow for written stories', () => {
     const mine = await call('GET', `/v1/account/stories/${id}`, 'sharer');
     expect(mine.body).toMatchObject({
       status: 'pending',
-      socialMediaSharingConsent: { version: latest, agreedAt: expect.any(String) },
+      socialMediaSharingConsent: {
+        version: latest,
+        agreedAt: expect.any(String),
+      },
     });
     const [stored] = await rows(
       migrator,

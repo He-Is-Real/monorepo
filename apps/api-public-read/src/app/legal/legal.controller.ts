@@ -101,9 +101,7 @@ export class LegalController {
     );
     const versions = results[0] as VersionRow[];
     const latest = results[results.length - 1] as
-      | (VersionRow & { content: string })
-      | null
-      | undefined;
+      (VersionRow & { content: string }) | null | undefined;
     // Every environment has version 0 of each text (data/0009); fail closed without one.
     if (!latest) throw notFound('That legal text');
     const body = {

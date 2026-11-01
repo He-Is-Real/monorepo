@@ -53,9 +53,7 @@ for (const viewport of [
     // Signed in. The test user never agrees to the terms of use, so the header sends them to
     // the terms step (plan 4e), set to return to where they started; its one box is left
     // unticked, so every run sees the same.
-    await expect(page).toHaveURL(
-      `${web}/consent/terms?redirect_url=%2Fabout`,
-    );
+    await expect(page).toHaveURL(`${web}/consent/terms?redirect_url=%2Fabout`);
     await expect(
       page.getByRole('button', { name: /^Account: / }),
     ).toBeVisible();
@@ -65,11 +63,9 @@ for (const viewport of [
     // One box: 18+ is part of the terms. Nothing to tick for the privacy notice, only a link.
     await expect(page.getByRole('main').getByRole('checkbox')).toHaveCount(1);
     await expect(
-      page
-        .getByRole('main')
-        .getByRole('checkbox', {
-          name: 'I am 18 or over and agree to the terms of use.',
-        }),
+      page.getByRole('main').getByRole('checkbox', {
+        name: 'I am 18 or over and agree to the terms of use.',
+      }),
     ).not.toBeChecked();
     await expect(
       page.getByRole('main').getByRole('link', { name: /privacy notice/i }),

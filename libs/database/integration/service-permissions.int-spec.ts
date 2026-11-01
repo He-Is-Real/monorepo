@@ -429,9 +429,9 @@ describe('service identities (D13 B)', () => {
             await outcome(db, sql, { table });
           }
         }
-        expect(await truth(`SELECT * FROM type::table($table)`, { table })).toEqual(
-          before,
-        );
+        expect(
+          await truth(`SELECT * FROM type::table($table)`, { table }),
+        ).toEqual(before);
         if (table !== 'privacyNotice') {
           expect(await publishVersion(t, table)).toBe(next);
         }

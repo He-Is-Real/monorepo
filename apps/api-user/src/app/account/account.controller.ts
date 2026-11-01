@@ -52,9 +52,11 @@ function parseAgree(body: unknown): number {
   const unknown = Object.keys(b).find((k) => k !== 'version');
   if (unknown) throw invalid(`/${unknown}`, 'not a field of this command');
   const version = b['version'];
-  if (
-    !(typeof version === 'number' && Number.isInteger(version) && version >= 0)
-  ) {
+  if (!(
+    typeof version === 'number' &&
+    Number.isInteger(version) &&
+    version >= 0
+  )) {
     throw invalid('/version', 'the version number the page showed');
   }
   return version;
