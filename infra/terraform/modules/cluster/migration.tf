@@ -1,7 +1,7 @@
 # Schema migrations (D14): the migrate Job from the overlay, re-applied as
 # surrealdb-migrate-<hash> with its bundle in surrealdb-migration-<hash>
-# (modules/db-migration). A change to the schema, a data script, a DPA text,
-# the Clerk key, the runner or the Job spec gives a new hash: Terraform deletes
+# (modules/db-migration). A change to the schema, a data script, the
+# environment, the Clerk key, the runner or the Job spec gives a new hash: Terraform deletes
 # the previous Job and ConfigMap and creates the new ones, and the Job runs.
 # No change, no diff. Terraform doesn't wait for the Job: check it with
 # kubectl (infra/k8s/surrealdb/README.md, "Schema migrations").
@@ -17,13 +17,9 @@ module "migration" {
   source = "../db-migration"
 
   schema_dir           = var.schema_dir
-  dpa_dir              = var.dpa_dir
   clerk_jwt_public_key = var.clerk_jwt_public_key
   identity_hash        = module.identity.hash
   environment          = local.environment
-  dev_consent_relaxed  = var.dev_consent_relaxed
-  # D75: dev's placeholder privacy document and consent forms.
-  dev_legal_placeholders = var.dev_legal_placeholders
   # D49: the Job waits for exactly the system users the init creates.
   extra_system_users = var.dev_seed_login ? ["dev_seed"] : []
   job_template       = jsondecode(data.kustomization_overlay.surrealdb.manifests[local.migrate_template_id])

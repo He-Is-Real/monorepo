@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { Surreal, SurrealQueryable } from 'surrealdb';
 import {
+  agree,
+  agreeAll,
   createPeople,
-  grantAll,
   outcome,
-  publishDpa,
+  publishVersion,
   rows,
   run,
+  shareStory,
   TestDatabase,
 } from './support/harness';
 import { draft, ERASE, grantUpload, submit } from './support/world';
@@ -28,7 +30,6 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   story: 'linked', // submitter
   publicStory: 'linked', // same id as the story → submitter
   hiddenStory: 'linked', // same id as the story → submitter
-  consent: 'linked', // subject (kept after erasure as proof; pruned after 6 years)
   moderationReview: 'linked', // story → submitter
   idempotencyKey: 'linked', // id[1] = user record
   favourite: 'linked', // person (hearts, M2); deleted at erasure
@@ -41,31 +42,26 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   // D40: Bunny ids and image paths (and, until Clerk confirms, the Clerk id) erasure still has
   // to delete outside the database; written by erasure itself, gone once done. No person link.
   pendingDeletion: 'kept',
-  // D88, D73: a withdrawal not erased yet (a user link, dates and a count); written by the
-  // withdrawal's event, gone with the erasure it starts.
-  erasureRequest: 'kept',
   auditLog: 'kept', // actor/entity ids, typed fields (D38)
   personFence: 'none', // a counter keyed by user id; events only
   identityFence: 'none', // a counter keyed by a Clerk id's fingerprint (D82); events only
-  legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
   themeCategory: 'none', // admin-managed theme categories: names only
   theme: 'none',
   themeFence: 'none', // a counter keyed by theme id; events only
   themeCatalog: 'none', // the themes' version and who saved them last, like submissionSettings
   tag: 'none', // the old tags, emptied by data/0008 and kept defined until it has run everywhere
-  // The legal documents (D121): the publishing admin's user id only (publishedBy, read by
-  // api-admin alone), like an audit row's actor; kept for ever, never testimony.
-  dpaVersion: 'kept',
-  termsVersion: 'kept',
-  signupFormVersion: 'none', // consent form versions (D84): text and features only
-  testimonyFormVersion: 'none',
-  socialSharingFormVersion: 'none',
+  // Plan 4e: the legal texts' versions, text and date only (who published is in auditLog). The
+  // person's agreements are pointers on their user row and story (POINTERS below).
+  termsOfUseAgreement: 'none',
+  testimonyConsent: 'none',
+  socialMediaSharingConsent: 'none',
+  privacyNotice: 'none',
   service: 'none',
   _migration: 'none',
   _migrationRun: 'none', // the migration fencing token
   _migrationPending: 'none', // a migration step in progress
   _identity: 'none', // the identity config SurrealDB started with
-  _setting: 'none', // settings from OpenTofu (D48's dev-only switch)
+  _setting: 'none', // settings from OpenTofu (the environment's name)
 };
 
 type Ctx = {
@@ -144,19 +140,6 @@ const LINKED: Record<string, LinkedCase> = {
       run(db(c), `UPDATE story:${c.p}_s SET image.processing = 'failed'`),
     landed: (c) => `SELECT VALUE id FROM hiddenStory:${c.p}_s`,
   },
-  consent: {
-    writer: (c) => c.person,
-    write: (c, db) =>
-      run(
-        db(c),
-        `CREATE consent CONTENT { subject: $auth, type: 'publish', event: 'granted',
-           dpaVersion: dpaVersion:v1, form: testimonyFormVersion:v1,
-           mechanism: 'account_settings', evidenceHash: $h }`,
-        { h: 'd'.repeat(64) },
-      ),
-    landed: (c) =>
-      `SELECT VALUE id FROM consent WHERE subject = user:${c.p} AND mechanism = 'account_settings'`,
-  },
   moderationReview: {
     writer: (c) => c.admin,
     write: (c, db) =>
@@ -224,6 +207,36 @@ const LINKED: Record<string, LinkedCase> = {
   },
 };
 
+/**
+ * Plan 4e: a person's agreements are pointers on rows that are already linked (their user row and
+ * their story), written in their own session. The same three checks: agreeing, or ticking a
+ * story's sharing box, after or racing the erasure that clears them never lands.
+ */
+const POINTERS: Record<string, LinkedCase> = {
+  user_termsOfUse: {
+    // Newer terms to agree to (they had agreed to the latest when they started).
+    setup: (c) => publishVersion(c.t, 'termsOfUseAgreement'),
+    writer: (c) => c.person,
+    write: (c, db) =>
+      agree(db(c), 'termsOfUse').then((r) => {
+        if (r.length !== 1) throw new Error('not agreed');
+      }),
+    landed: (c) =>
+      `SELECT VALUE id FROM user:${c.p}
+         WHERE termsOfUse != NONE AND termsOfUse = fn::legal::latest('termsOfUseAgreement')`,
+  },
+  story_socialMediaSharingConsent: {
+    setup: (c) => draft(c.person, `${c.p}_d`),
+    writer: (c) => c.person,
+    write: (c, db) =>
+      shareStory(db(c), `story:${c.p}_d`).then((r) => {
+        if (r.length !== 1) throw new Error('not shared');
+      }),
+    landed: (c) =>
+      `SELECT VALUE id FROM story:${c.p}_d WHERE socialMediaSharingConsent != NONE`,
+  },
+};
+
 const CONFLICT = /Transaction conflict.*can be retried/s;
 
 describe('person-linked tables (round 3 sweep)', () => {
@@ -233,11 +246,11 @@ describe('person-linked tables (round 3 sweep)', () => {
   let apiUser: Surreal;
   let workflow: Surreal;
 
-  /** A live person with full consent and an approved story (no publicStory yet). */
+  /** A live person who agreed to everything, with an approved story (no publicStory yet). */
   async function livePerson(p: string): Promise<Ctx> {
     await createPeople(t, { [p]: `user_${p}` });
     const person = await t.person(`user_${p}`);
-    await grantAll(person);
+    await agreeAll(person);
     await draft(person, `${p}_s`);
     await submit(person, `${p}_s`);
     await run(
@@ -259,7 +272,6 @@ describe('person-linked tables (round 3 sweep)', () => {
     apiUser = await t.service('api_user');
     workflow = await t.service('workflow');
     await createPeople(t, { moderator: 'user_mod' });
-    await publishDpa(t, 'v1');
   });
   afterAll(() => t?.close());
 
@@ -278,8 +290,9 @@ describe('person-linked tables (round 3 sweep)', () => {
     expect(Object.keys(LINKED).sort()).toEqual(linked);
   });
 
-  describe.each(Object.keys(LINKED))('%s', (table) => {
-    const c = LINKED[table];
+  const CASES = { ...LINKED, ...POINTERS };
+  describe.each(Object.keys(CASES))('%s', (table) => {
+    const c = CASES[table];
 
     it('the write works for a live person (control)', async () => {
       const ctx = await livePerson(`${table}_ok`);

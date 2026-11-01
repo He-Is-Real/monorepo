@@ -28,8 +28,8 @@ export const IMAGE_DELETER = Symbol('IMAGE_DELETER');
 const RETRY_EARLIER = 10;
 
 /**
- * EraseAccount (D39) for its three callers: "Delete my account", withdrawing the testimony (Art 9)
- * or sign-up consent (D88, D73), and Clerk's `user.deleted` webhook. The database half is one
+ * EraseAccount (D39) for its two callers: "Delete my account" (also how a person withdraws all
+ * consent, plan 4e) and Clerk's `user.deleted` webhook. The database half is one
  * transaction on api-user's own login (`ERASE_ACCOUNT`), retried until it commits; it leaves the
  * erased-identity tombstone (D82) and queues what must go elsewhere (D40). Then the queue is
  * drained at once: the person's Bunny videos and pictures, and their Clerk account (which ends

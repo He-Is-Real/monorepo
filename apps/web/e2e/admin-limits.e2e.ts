@@ -28,8 +28,8 @@ test.describe('/admin/limits', () => {
     await expect(
       page
         .getByRole('navigation', { name: 'Admin pages' })
-        .getByRole('link', { name: 'Legal documents' }),
-    ).toHaveAttribute('href', '/admin/legal');
+        .getByRole('link', { name: 'Consent & legal' }),
+    ).toHaveAttribute('href', '/admin/consent');
     // Pre-filled with what's in force, in the page's units.
     const video = page.getByLabel('Largest video file');
     await expect(video).toHaveValue('4096');

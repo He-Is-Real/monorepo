@@ -5,7 +5,7 @@ info:
   description: |
     **Anonymous public queries only** (D33, D35). No authentication, no personal reads: anything that
     needs to know who you are is on `api-user`. Reads only read models and reference data
-    (`publicStory`, `theme`, `themeCategory`, published `dpaVersion` and consent form versions, D26, D84), through a database
+    (`publicStory`, `theme`, `themeCategory`, and the four legal texts' versions, D26, plan 4e), through a database
     login that sees nothing else (D13). Scales on its own.
 
     - Called by the browser, and server-side by `web` to prerender pages (D32).
@@ -40,7 +40,7 @@ tags:
   - name: Themes
     description: 'Theme categories and themes.'
   - name: Legal
-    description: 'The legal documents (privacy policy, terms of use) with their numbered versions, and the consent forms.'
+    description: 'The four legal texts (terms of use, testimony consent, social media sharing consent, privacy notice) with their numbered versions (plan 4e).'
   - name: Site
     description: 'Media that is part of the site itself, not stories.'
 
@@ -266,103 +266,18 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
-  /v1/legal/dpa:
-    get:
-      tags: [Legal]
-      operationId: getDpa
-      summary: The privacy document in force, with its words, and its published history
-      description: |
-        The privacy document ("DPA") a person reads before consenting, with its text as published (the
-        database keeps a copy of `libs/legal/dpa/<id>.md`, kept in step by the migration, D84). Published
-        standard versions only (D20); drafts are never visible here. Dev's placeholder version is served in
-        dev only (D75). `history` lists every published version, newest first, without text.
-      x-milestone: M2
-      parameters:
-        - name: version
-          in: query
-          description: A specific version ID (e.g. `v1`); omit for the one in force.
-          schema:
-            type: string
-        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
-      responses:
-        '200':
-          description: The version in force (or the one asked for), and the published history.
-          headers:
-            ETag:
-              $ref: './components.yaml#/components/headers/ETag'
-            Cache-Control:
-              $ref: './components.yaml#/components/headers/CacheControlPublic'
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [current, history]
-                properties:
-                  current:
-                    $ref: './components.yaml#/components/schemas/DpaDocument'
-                  history:
-                    type: array
-                    items:
-                      $ref: './components.yaml#/components/schemas/DpaVersion'
-        '304':
-          $ref: './components.yaml#/components/responses/NotModified'
-        '400':
-          $ref: './components.yaml#/components/responses/BadRequest'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '5XX':
-          $ref: './components.yaml#/components/responses/ServerError'
-
-  /v1/legal/forms/{form}:
-    get:
-      tags: [Legal]
-      operationId: getConsentForm
-      summary: The consent form in force, with its words and features
-      description: |
-        The version of a consent form a person ticks (D84): `signup` after Clerk's sign-up (D73), `testimony`
-        at the start of a draft and at submit (D67), and the optional `social` (sharing beyond
-        heisreal.today, D93) whenever the person chooses. Grants name this version (`POST /v1/account/consents`),
-        so a client shows exactly this text and these statements. Published versions only (D20); dev's
-        placeholder versions in dev only (D75).
-      x-milestone: M2
-      parameters:
-        - name: form
-          in: path
-          required: true
-          description: Which form.
-          schema:
-            $ref: './components.yaml#/components/schemas/ConsentForm'
-        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
-      responses:
-        '200':
-          description: The version in force.
-          headers:
-            ETag:
-              $ref: './components.yaml#/components/headers/ETag'
-            Cache-Control:
-              $ref: './components.yaml#/components/headers/CacheControlPublic'
-          content:
-            application/json:
-              schema:
-                $ref: './components.yaml#/components/schemas/ConsentFormVersion'
-        '304':
-          $ref: './components.yaml#/components/responses/NotModified'
-        '400':
-          $ref: './components.yaml#/components/responses/BadRequest'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '5XX':
-          $ref: './components.yaml#/components/responses/ServerError'
-
   /v1/legal/documents/{document}:
     get:
       tags: [Legal]
       operationId: getLegalDocument
-      summary: A legal document in force, with its words, and every version
+      summary: A legal text's latest version, with its words, and every version
       description: |
-        D121, D125: the privacy policy (`privacy`, the privacy document of D20 and D75) or the terms of use
-        (`terms`). The version in force with the Markdown `/privacy` and `/terms` render, and every version
-        that counts, newest first (their "Previous versions"). Dev's placeholders in dev only (D75).
+        Plan 4e: one of the four legal texts (`terms-of-use`, `testimony-consent`,
+        `social-media-sharing-consent`, `privacy-notice`): the latest version (the one in force: a saved
+        version takes effect at once) with its Markdown, and every version, newest first, without words
+        (the "Previous versions" lists). A page that asks someone to agree shows `latest` and sends its
+        `version` back (api-user `POST /v1/account/agreements/{agreement}`, or the submission's
+        `socialMediaSharingConsent`). Never says who saved a version.
       x-milestone: M2
       parameters:
         - name: document
@@ -373,7 +288,7 @@ paths:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: The document.
+          description: The text.
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -392,14 +307,15 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
-  /v1/legal/documents/{document}/versions/{number}:
+  /v1/legal/documents/{document}/versions/{version}:
     get:
       tags: [Legal]
       operationId: getLegalDocumentVersion
-      summary: One version of a legal document, with its words
+      summary: One version of a legal text, with its words
       description: |
-        D125: any version that counts, by its number, with its Markdown (`/privacy/versions/{number}`,
-        `/terms/versions/{number}`): versions are kept for ever, so a person can read what they agreed to.
+        Any version, by its number (`/privacy/versions/{version}`, `/terms/versions/{version}`; and the
+        version a person agreed to, for the redline from it to the latest): versions are kept for ever,
+        unchanged.
       x-milestone: M2
       parameters:
         - name: document
@@ -407,12 +323,12 @@ paths:
           required: true
           schema:
             $ref: './components.yaml#/components/schemas/LegalDocumentName'
-        - name: number
+        - name: version
           in: path
           required: true
           schema:
             type: integer
-            minimum: 1
+            minimum: 0
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':

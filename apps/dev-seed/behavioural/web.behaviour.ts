@@ -2,16 +2,14 @@ import { expect, test } from '@playwright/test';
 import { DATASET } from '../src/app/dataset';
 
 // web on dev, after a reset: the pages a visitor sees show the dummy dataset through
-// api-public-read (D32), with consent checks enforced (D48 off since D75: no footer note).
+// api-public-read (D32).
 const story = (id: string) => {
   const s = DATASET.stories.find((x) => x.id === id);
   if (!s) throw new Error(`no ${id} in the dataset`);
   return s;
 };
 
-test('the home page shows the three newest stories, without the relaxed-consent note', async ({
-  page,
-}) => {
+test('the home page shows the three newest stories', async ({ page }) => {
   // Newest first, never a chosen one (Joel, 2026-10-23: no featured stories).
   const newest = DATASET.stories
     .filter((s) => s.status === 'approved')
@@ -20,7 +18,6 @@ test('the home page shows the three newest stories, without the relaxed-consent 
     .map((s) => s.title);
   await page.goto('/');
   await expect(page.locator('main article h3')).toHaveText(newest);
-  await expect(page.getByText('Consent checks relaxed (dev)')).toHaveCount(0);
 });
 
 for (const id of ['seed_w07', 'seed_w03', 'seed_v06', 'seed_a03']) {

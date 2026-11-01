@@ -44,7 +44,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
         id: 'where-shared',
         question: 'Where will my story appear?',
         answer:
-          'Approved stories appear on this website. We’d also love to share some on our social media channels and YouTube, but only if you say yes. That’s a separate choice for each story, and you can change your mind at any time from your profile.',
+          'Approved stories appear on this website. We’d also love to share some on our social media channels and YouTube, but only if you say yes. That’s a separate choice for each story, made when you submit it, and it can’t be changed afterwards. Deleting your account withdraws it: we make no new use of your stories, though copies already shared can’t be recalled.',
       },
       {
         id: 'edit-remove',
@@ -74,7 +74,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
         id: 'data',
         question: 'How is my data protected?',
         answer:
-          'We follow UK data protection law. Your email address is never shown publicly, your story is only published with your explicit consent, and you can withdraw it at any time. Our privacy policy has the details.',
+          'We follow UK data protection law. Your email address is never shown publicly, your story is only published with your explicit consent, and you can withdraw it at any time. Our privacy notice has the details.',
       },
     ],
   },

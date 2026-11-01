@@ -1,10 +1,10 @@
 import MarkdownIt from 'markdown-it';
 import type Token from 'markdown-it/lib/token.mjs';
 
-// D125 (Joel, 2026-10-30): the one Markdown renderer for the legal texts: the privacy policy and
-// terms of use on /privacy and /terms (and their earlier versions), the consent forms'
-// introductions, and the admin's live preview at /admin/legal, so what an admin previews is
-// exactly what everyone reads. markdown-it with raw HTML off: headings, paragraphs, **bold**,
+// D125 (Joel, 2026-10-30; plan 4e): the one Markdown renderer for the legal texts: the privacy
+// notice and terms of use on /privacy and /terms (and their earlier versions), the testimony and
+// social media sharing consents where people agree to them, and the admin's live preview at
+// /admin/consent, so what an admin previews is exactly what everyone reads. markdown-it with raw HTML off: headings, paragraphs, **bold**,
 // *italic*, lists, "> " notes, links, tables and `code`. No images, and links only to https:,
 // mailto: and this site. Admins are trusted (vetted staff), so nothing else is scanned.
 // Browser-safe: the admin's preview renders in the browser, the pages on the server.
@@ -239,4 +239,88 @@ export function renderLegalMarkdown(
 ): string {
   instance ??= create();
   return instance.render(markdown, { ...options });
+}
+
+/** One block of a legal text as plain words (lib/redline.ts compares these). */
+export interface TextBlock {
+  /** A heading (a section starts here). */
+  heading: boolean;
+  text: string;
+}
+
+/**
+ * A legal text's Markdown as plain blocks, in order: each heading, paragraph, list item (with its
+ * bullet or number) and table row (its cells joined), without marks, links' addresses or heading
+ * anchors. What "what changed" compares, so a moved link or a bold word reads as words.
+ */
+export function legalTextBlocks(markdown: string): TextBlock[] {
+  instance ??= create();
+  const tokens = instance.parse(markdown, {});
+  const blocks: TextBlock[] = [];
+  const words = (t: Token) =>
+    (t.children ?? [])
+      .map((c) =>
+        c.type === 'text' || c.type === 'code_inline'
+          ? c.content
+          : c.type === 'softbreak' || c.type === 'hardbreak'
+            ? ' '
+            : '',
+      )
+      .join('')
+      .replace(/\s+/g, ' ')
+      .trim();
+  let heading = false;
+  /** Open lists: the next item's number (null for bullets). */
+  const lists: (number | null)[] = [];
+  let bullet = '';
+  let row: string[] | null = null;
+  for (const t of tokens) {
+    switch (t.type) {
+      case 'heading_open':
+        heading = true;
+        break;
+      case 'heading_close':
+        heading = false;
+        break;
+      case 'bullet_list_open':
+        lists.push(null);
+        break;
+      case 'ordered_list_open':
+        lists.push(Number(t.attrGet('start') ?? 1));
+        break;
+      case 'bullet_list_close':
+      case 'ordered_list_close':
+        lists.pop();
+        break;
+      case 'list_item_open': {
+        const n = lists.at(-1);
+        bullet = n == null ? '• ' : `${n}. `;
+        if (n != null) lists[lists.length - 1] = n + 1;
+        break;
+      }
+      case 'tr_open':
+        row = [];
+        break;
+      case 'tr_close':
+        if (row?.some(Boolean))
+          blocks.push({ heading: false, text: row.join(' · ') });
+        row = null;
+        break;
+      case 'inline': {
+        const text = words(t);
+        if (row) row.push(text);
+        else if (text) {
+          blocks.push({ heading, text: `${bullet}${text}` });
+          bullet = '';
+        }
+        break;
+      }
+      case 'fence':
+      case 'code_block':
+        if (t.content.trim())
+          blocks.push({ heading: false, text: t.content.trim() });
+        break;
+    }
+  }
+  return blocks;
 }

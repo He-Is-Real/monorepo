@@ -7,11 +7,11 @@ brackets).
 
 ## Services and who calls them (D31–D33, D35)
 
-| Service           | Serves                                                                                                                                                | Auth                                | In the database                                  |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
-| `api-public-read` | Anonymous public queries: published stories, themes, the legal documents (privacy policy, terms of use, every version) and consent forms              | None                                | Its own login; sees only public tables           |
-| `api-user`        | **Everything that needs to know who you are**: own stories, account, consents, favourites, feed, and the person's commands; Clerk and Stripe webhooks | Clerk JWT (webhooks: signature)     | Runs as the person, with their Clerk token (D27) |
-| `api-admin`       | Moderation, roles, themes, publishing the privacy policy and terms of use (D121)                                                                      | Clerk JWT, role Moderator or higher | Its own login                                    |
+| Service           | Serves                                                                                                                                                         | Auth                                | In the database                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
+| `api-public-read` | Anonymous public queries: published stories, themes and the four legal texts (terms of use, testimony consent, sharing consent, privacy notice), every version | None                                | Its own login; sees only public tables           |
+| `api-user`        | **Everything that needs to know who you are**: own stories, account, agreements, favourites, feed, and the person's commands; Clerk and Stripe webhooks        | Clerk JWT (webhooks: signature)     | Runs as the person, with their Clerk token (D27) |
+| `api-admin`       | Moderation, roles, themes, saving new versions of the four legal texts (plan 4e)                                                                               | Clerk JWT, role Moderator or higher | Its own login                                    |
 
 - **Anything personal goes to `api-user`; anything public goes to `api-public-read`.**
   `api-public-read` has no auth code at all.
@@ -40,8 +40,9 @@ brackets).
   server like every other card.
 - **The account bootstrap:** web's header calls `GET /v1/account` once each time a page loads
   signed in. The first call creates the person's `user` row (so staff can use `api-admin`), and
-  `signupConsent.accepted` says whether the sign-up form still needs accepting (D73). Its
-  failure blocks nothing.
+  `termsOfUse` and `testimonyConsent` say which version the person agreed to and whether it is the
+  latest (plan 4e): not on the latest terms, the header takes them to the terms step. Its failure
+  blocks nothing.
 - Services never call each other. Async work goes out as CloudEvents on Pub/Sub to the worker
   tier (D34); the job payloads are in `worker.yaml`.
 - This phase every service is reached at its generated `*.run.app` URL; no subdomains.
@@ -54,7 +55,7 @@ brackets).
 - **Queries**: query handlers with no side effects.
 - A person sees their own change immediately: the client re-queries, and the read model is already
   current. There is no eventual consistency to handle in `web`.
-- No event store or event sourcing. The consent ledger and `auditLog` are the append-only logs.
+- No event store or event sourcing. `auditLog` is the append-only log.
 - Test every command against the read models it updates.
 
 ## Read models (D26)
@@ -62,12 +63,12 @@ brackets).
 - **`publicStory` is the only read model.** It holds approved stories only: slug, `slugHistory`,
   title, description/body, byline, theme links, playback fields, published date and the search text.
   Never the submitter, consent, raw transcript, moderation data or quality signal.
-- Approve creates it; editing an approved story updates it; withdrawal, erasure and withdrawing
-  `publish` or Art 9 consent delete it, in the same transaction. Theme renames need nothing (themes are
+- Approve creates it; editing an approved story updates it; withdrawal and erasure (which is how a
+  person withdraws their consent) delete it, in the same transaction. Theme renames need nothing (themes are
   fetched by reference, D15); deleting a theme removes it from every story and published story in
   the same transaction (`theme_delete` event).
-- **Anonymous queries read only read models** (and reference data: `theme`, `themeCategory`, published `dpaVersion`
-  and consent form versions).
+- **Anonymous queries read only read models** (and reference data: `theme`, `themeCategory` and the four
+  legal texts' versions).
   Personal queries read the person's own rows in the write tables, as the person. Moderation reads
   the `story` write model on `api-admin`.
 - `publicStory` holds Art 9 data: it is on the erasure checklist.
@@ -80,14 +81,14 @@ brackets).
 | State change (lifecycle, side effects, permissions) | One named command per intent: `POST /v1/<resource>/{id}/<verb>`. **Never `PATCH` a status.**                                                                                |
 
 **What a command returns:** `{ id, version }` and nothing from the read model. Creates answer `201`
-with `Location` (when the resource can be read); work that continues asynchronously (erasure,
-consent withdrawal) answers `202`. `version` is `null` only where the target has none (consent
-ledger events, and what Clerk holds: roles and account settings). The one exception is `/upload-url`, which also returns
+with `Location` (when the resource can be read); work that continues asynchronously (erasure)
+answers `202`. `version` is `null` only where the target has none (what Clerk holds: roles and
+account settings). The one exception is `/upload-url`, which also returns
 short-lived upload credentials.
 
 **Naming rules:**
 
-- Collections are plural nouns (`/stories`, `/themes`, `/consents`, `/concerns`); the method says
+- Collections are plural nouns (`/stories`, `/themes`, `/concerns`); the method says
   what happens. Singletons are singular (`/account`, `/feed`, `/moderation/queue`).
 - A verb only as the last segment of a state-changing `POST` that isn't create/replace/delete:
   `/submit`, `/withdraw`, `/approve`, `/reject`, `/request-changes`, `/escalate`, `/lock`,
@@ -99,13 +100,13 @@ short-lived upload credentials.
 
 ## Concurrency and idempotency (D29)
 
-- **Versions:** every aggregate (story, dpaVersion) has a `version`
+- **Versions:** every aggregate (story) has a `version`
   integer, +1 on every command. Themes have one version for the whole set
   (`themeCatalog:current`), not one per theme: `PUT /v1/admin/themes` (`SaveThemes`) sends the
   finished picture with `If-Match` on it (`412`: "Someone else changed themes. Reload to see their
   changes"). A query for one resource returns it as a strong
   `ETag: "<version>"`.
-- **Collections** (lists, pages, composite views such as consent state) and resources without a
+- **Collections** (lists, pages, composite views such as the account) and resources without a
   database version (the account) return a **weak, representation-based `ETag`** (`W/"<hash>"`).
   It is only for `If-None-Match`/`304`; to modify an item, use that item's `version`.
 - **Public reads that embed other resources** (api-public-read's story, with its themes by
@@ -122,19 +123,22 @@ short-lived upload credentials.
     `api-user` through Clerk's Backend API, and nothing is stored in SurrealDB. They are
     single-owner settings, so the last write wins. `version` is `null`.
   - `POST /v1/admin/users/{id}/assign-role`: the role lives in Clerk (D1).
-  - Appends to the consent ledger (grant, withdraw): nothing to conflict with.
+  - `POST /v1/account/agreements/{agreement}`: the body names the version agreed to, and the
+    database refuses one that is no longer the latest (`409 agreement_version_changed`); agreeing
+    again to the same version changes nothing. No `Idempotency-Key` either.
+  - `POST /v1/admin/legal-documents/{document}/versions`: the body names the version it saves as;
+    the database refuses anything but the next number (`409 document_changed`).
   - `DELETE /v1/account` (`EraseAccount`): erasure must always succeed, whatever the person's
     data looks like at that moment, and there is no single version across everything it deletes.
   - `PUT`/`DELETE /v1/account/favourites/{storyId}` and `/v1/account/helped/{storyId}`: unversioned
     relationships that either exist or don't. The methods are idempotent, and repeating one gives the
     same result, so there is no lost update to prevent.
 - **`Idempotency-Key` is required on non-idempotent `POST`s:** create draft, submit, request an
-  upload (its grant counts against the person's upload limits), grant and withdraw consent,
-  concerns, and donations later. The `idempotencyKey` table stores key + user +
+  upload (its grant counts against the person's upload limits), concerns, and donations later. The `idempotencyKey` table stores key + user +
   request hash + the `{ id, version }` response for 24 hours (pruned nightly). A retry with the same
   body replays the stored response; the same key with a different body → `422`; no key → `400`.
-- Not needed on idempotent methods (`PUT`, `DELETE`) or on creates with a natural key (DPA
-  versions), where a repeat gets `409`.
+- Not needed on idempotent methods (`PUT`, `DELETE`) or on creates with a natural key (a legal
+  text's next version), where a repeat gets `409`.
 - **Webhooks** deduplicate on the provider's event ID (`svix-id`, Stripe `event.id`) in the same
   table, and acknowledge duplicates without applying them again.
 
@@ -146,17 +150,17 @@ short-lived upload credentials.
   `code` and `errors[]` (`pointer`, `message`) for field errors. **Never echo testimony text or other
   personal data in an error.**
 
-  | Status | When                                                                                                                  |
-  | ------ | --------------------------------------------------------------------------------------------------------------------- |
-  | 400    | Malformed or invalid request; missing `Idempotency-Key`                                                               |
-  | 401    | Missing or invalid Clerk token                                                                                        |
-  | 403    | Role, ownership or consent check failed                                                                               |
-  | 404    | Not found, or not visible to the caller                                                                               |
-  | 409    | The resource's state doesn't allow it (not a draft, locked, in use)                                                   |
-  | 412    | `If-Match` doesn't match the current version                                                                          |
-  | 422    | `Idempotency-Key` reused with a different body                                                                        |
-  | 428    | `If-Match` missing                                                                                                    |
-  | 5XX    | The service couldn't answer (e.g. the database is down): a bare `title` and `status`, never the cause (`ServerError`) |
+  | Status | When                                                                                                                      |
+  | ------ | ------------------------------------------------------------------------------------------------------------------------- |
+  | 400    | Malformed or invalid request; missing `Idempotency-Key`                                                                   |
+  | 401    | Missing or invalid Clerk token                                                                                            |
+  | 403    | Role or ownership check failed, or the person must agree first (`terms_agreement_required`, `testimony_consent_required`) |
+  | 404    | Not found, or not visible to the caller                                                                                   |
+  | 409    | The resource's state doesn't allow it (not a draft, locked, in use; `agreement_version_changed`, `document_changed`)      |
+  | 412    | `If-Match` doesn't match the current version                                                                              |
+  | 422    | `Idempotency-Key` reused with a different body                                                                            |
+  | 428    | `If-Match` missing                                                                                                        |
+  | 5XX    | The service couldn't answer (e.g. the database is down): a bare `title` and `status`, never the cause (`ServerError`)     |
 
   Contracts list every status an operation can answer, `5XX` included: api-public-read's
   integration tests and web's e2e stub are checked against the contract (`@heisreal/contracts/testing`).
@@ -175,52 +179,41 @@ short-lived upload credentials.
   `ETag` (weak for collections, see above), accepts `If-None-Match`, and answers `304` with the same
   validator the `200` would carry (RFC 9110 §15.4.5).
 
-## Consent on routes (D21)
+## Agree first: the database's rule (plan 4e)
 
-- `libs/consent` provides `@RequiresConsent({ subject, types })` and `@NoConsentRequired(reason)`,
-  on the handler or its controller. **Every `api-user` and `api-admin` route carries exactly one of
-  them** (the health probe too). Fail closed, three times over: the global `ConsentGuard`
-  (`ConsentModule.forRoot()`) answers `500` for a route with neither or both, the application refuses
-  to start with one, and each app's `routes.spec.ts` lists every registered route with its policy.
-- Use the named requirements in `CONSENT_REQUIRED` (`createDraft`, `editDraft`, `requestUpload`,
-  `submitStory`, `addFavourite`, `approveStory`) rather than spelling types out. Missing consent is `403` with
-  `code: consent_required`; no sign-in is `401`.
-- The check is the database's `fn::consent::granted`, read at that moment: `caller` in the person's
-  own session, `submitter` (the story in the `id` route parameter) on the service's login, which only
-  api-admin can use (on api-user's login it always fails closed). The database's events enforce the
-  same rules on every write; the guard refuses early and makes each route state its choice.
-- The specs mark guarded routes with `x-requires-consent: { subject, types }`: `subject: caller`
-  checks the signed-in person, `subject: submitter` the story's submitter.
-- **No testimony content is stored without current Art 9 consent** (plan task 2.3: consent comes
-  before "create draft story"):
+Joel's Q2 (2026-11-01): the database, not the routes, enforces "agree first". The per-route consent
+decorators, the global consent guard and `x-requires-consent` are gone.
 
-  | Route                                                       | Needs                                                              |
-  | ----------------------------------------------------------- | ------------------------------------------------------------------ |
-  | Create a draft, edit it, request an upload URL (`api-user`) | The caller's `special_category_religious`                          |
-  | `POST /v1/stories/{id}/submit` (`api-user`)                 | The caller's `special_category_religious`, `publish`, `age_18plus` |
-  | `POST /v1/moderation/stories/{id}/approve` (`api-admin`)    | The same three, for the story's submitter                          |
+- A person agrees in their own session to the latest version of the terms of use (before using
+  their account; it includes being 18 or over) and of the testimony consent (before their first
+  story, and again before the next one when a newer version is saved). `POST
+/v1/account/agreements/{agreement}` with `{ version }`: the page sends the version it showed.
+  The social media sharing consent is optional, per story, and travels with the submission
+  (`POST /v1/stories/{id}/submit`, `{ socialMediaSharingConsent: { version } }`); it can't be
+  withdrawn. Nobody agrees to the privacy notice: it is linked beside every box.
+- The database refuses the person's own writes until they have agreed, and its message starts
+  with a code the API turns into a problem:
 
-| Heart a story, `PUT /v1/account/favourites/{storyId}` | The caller's `account_data` and `age_18plus` (sign-up form, D73) |
+  | The person's write                                                 | Needs                                         | Refused as                                                    |
+  | ------------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------- |
+  | Create, edit or submit a story; request an upload URL (`api-user`) | The latest terms of use and testimony consent | `403 terms_agreement_required` / `testimony_consent_required` |
+  | Heart a story, `PUT /v1/account/favourites/{storyId}`              | The latest terms of use                       | `403 terms_agreement_required`                                |
+  | Withdraw a story, delete a story or a heart, delete the account    | Nothing                                       |                                                               |
+  | Agree, or tick sharing, on a version that is no longer the latest  | (refused)                                     | `409 agreement_version_changed`: the page shows what changed  |
 
-- Request bodies never carry consent. It stays in the person's ledger, granted through
-  `POST /v1/account/consents`, and is checked, not carried. A grant names the consent form version
-  shown and the statement ticked (D84); "current" consent is a grant on a published or retired form
-  version that has that statement (`fn::consent::valid`): a newer version never stops it counting
-  and never takes a story off the site (D93). Something new (creating a draft, submitting) also
-  needs the forms in force (`formsInForce` in `CONSENT_REQUIRED`, `fn::consent::may_draft`): the
-  sign-up version in force accepted (18+ is asked there only) and no newer testimony version
-  requiring acceptance for new submissions. Testimony consent is per account (D85) and stories
-  never store a consent version (D86): every check goes through the story's submitter. Sharing
-  beyond heisreal.today is the optional social sharing form (`fn::story::may_share`, D93).
-- Consent is per person and read from the ledger at that moment (D17, D18): no cached copy. A stored
-  story is only processed (approved, transcribed) after a fresh ledger check, not just the one at
-  submission. That includes the M7 workers.
+- Approving (`api-admin`) and publishing need the submitter's testimony consent, any version: an
+  older one still covers the stories it was given for.
+- Request bodies carry only the version a page showed, never a consent decision for someone else:
+  only the person's own session can set their agreements, and only to the latest version, with the
+  database's time. Deleting the account is the withdrawal: their agreements go with it.
+- The other codes (`agreement_not_own`, `agreement_time`, `agreement_kept`, `legal_version_kept`)
+  mean a programming error: `500`.
 
 ## Writing to the database (D13, D27)
 
 - A person's own commands run in a database session **as that person**, opened with their Clerk
   token, so the database enforces ownership. Admin commands run as `api-admin`'s login. In code:
-  `PersonSessions.run(request, ({ session, user }) => …)` (`libs/consent`), built on
+  `PersonSessions.run(request, ({ session, user }) => …)` (`libs/auth`), built on
   `withPersonSession` (`libs/database`). Who the caller is comes from a `PersonAuthenticator`, the
   seam task 0.5 fills with Clerk verification; until then it refuses everyone (`401`).
 - `Idempotency-Key`: `runIdempotent` (`libs/database`) writes the key, the request hash and the
@@ -238,11 +231,10 @@ short-lived upload credentials.
 
 ## Spec extensions
 
-| Extension            | Meaning                                                                       |
-| -------------------- | ----------------------------------------------------------------------------- |
-| `x-required-role`    | Minimum Clerk role (`User`, `Moderator`, `Admin`, `SuperAdmin`); D1           |
-| `x-requires-consent` | The route has `@RequiresConsent`; `subject` and the consent `types` it checks |
-| `x-milestone`        | The delivery milestone that builds the operation (`M0`–`M8`); lint-enforced   |
+| Extension         | Meaning                                                                     |
+| ----------------- | --------------------------------------------------------------------------- |
+| `x-required-role` | Minimum Clerk role (`User`, `Moderator`, `Admin`, `SuperAdmin`); D1         |
+| `x-milestone`     | The delivery milestone that builds the operation (`M0`–`M8`); lint-enforced |
 
 `pnpm nx run contracts:lint-openapi` lints the specs (Redocly, recommended-strict); it also runs as
 part of `lint`, so CI checks it on every PR that touches them.

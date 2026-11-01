@@ -20,14 +20,13 @@ info:
       (last write wins); non-idempotent POSTs need `Idempotency-Key` (`422` on reuse with a different
       body) (D29).
     - Queries return an `ETag` (weak for collections) and `Cache-Control: private, no-store`.
-    - Editing or uploading to a draft needs the caller's Art 9 consent; creating a draft and submitting
-      also need the sign-up form in force accepted (18+ is asked there only, D93) and no newer testimony
-      version requiring acceptance for new submissions; submitting also needs `publish` (D21, plan task
-      2.3). A grant counts on any published or retired version that has its statement: a new version
-      never stops it counting or takes a story off the site (D93). Per account, through each story's
-      submitter; no story stores a consent version (D85, D86).
-    - `x-requires-consent` marks routes guarded by `@RequiresConsent` (D21); every other route carries
-      `@NoConsentRequired(reason)` in code. `x-required-role` is the minimum Clerk role.
+    - **Agree first (plan 4e; Joel, 2026-11-01):** the database refuses the person's own writes until
+      they have agreed to the latest terms of use (`403` `terms_agreement_required`), and their story
+      writes (create, edit, upload, submit) until they have also agreed to the latest testimony consent
+      (`403` `testimony_consent_required`). The page then shows what changed (a redline) and asks again
+      (`POST /v1/account/agreements/{agreement}`). Removing data (deleting a story or a heart,
+      withdrawing a story, deleting the account) never needs either. `x-required-role` is the minimum
+      Clerk role.
     - `x-milestone` on each operation is the delivery milestone that builds it.
 
     Conventions: `docs/api-conventions.md`.
@@ -55,8 +54,8 @@ tags:
     description: 'Create a draft, upload media, submit, edit, withdraw.'
   - name: Account
     description: 'Account settings, erasure, favourites and the feed.'
-  - name: Consent
-    description: 'Explicit, versioned consent (GDPR Art 9): grant and withdraw.'
+  - name: Agreements
+    description: 'The terms of use and the testimony consent the person agrees to (plan 4e).'
   - name: Community
     description: '"This helped me" and concerns.'
   - name: Webhooks
@@ -167,7 +166,7 @@ paths:
         days with when they may next submit (`nextAvailableAt` null = now). How many submissions and
         video or audio uploads they made in the last 7 days (`usedIn7Days`), so the share page can say
         how many they have left before they reach the limit. The submit page shows these numbers;
-        nothing is hard-coded. Read as the person; needs no consent.
+        nothing is hard-coded. Read as the person; needs no agreement.
       x-required-role: User
       x-milestone: M2
       parameters:
@@ -200,9 +199,9 @@ paths:
         Query `GetAccount`, the account bootstrap: web's header calls it once each time a page loads
         signed in. Built from the verified token and the database only, never Clerk's Backend API.
         The person's first call creates their `user` record (only `clerkUserId`, D16), which is also
-        what lets staff use api-admin. Needs no consent: it is how the site learns whether the
-        sign-up form still has to be accepted (`signupConsent`, D73), and whether a newer testimony form
-        needs accepting before a new story (`testimonyConsent`, D85: the banner after sign-in).
+        what lets staff use api-admin. Needs no agreement: it is how the site learns whether the person
+        must agree to the terms of use before using the account (`termsOfUse`), and whether a newer
+        testimony consent needs agreeing before their next story (`testimonyConsent`; plan 4e).
       x-required-role: User
       x-milestone: M2
       parameters:
@@ -268,7 +267,8 @@ paths:
         transaction: the person's stories (with their `publicStory` rows, reviews and others' hearts),
         their own hearts, limits, upload grants and idempotency keys go; the user record becomes a stub
         without the Clerk id, and a fingerprint of the Clerk id is kept so no token can recreate the
-        account (D82). The consent ledger is kept as proof (Art 7(1)); an audit row records the erasure.
+        account (D82). This is also how a person withdraws all consent (plan 4e): the user row's
+        agreements go with it, and nothing kept (the tombstone, the audit row) records consent.
         Then the person's videos and pictures at Bunny and their Clerk account are deleted (D40); one
         that fails is retried later. `202` once the database half has committed; afterwards the
         person's token gets `401`. No `If-Match` or `Idempotency-Key` (a listed exception to D29): a
@@ -298,8 +298,9 @@ paths:
         - Read in the person's own database session (D27), so the database shows them their own rows
           and nobody else's: their `user` row, every story in every status with its text, themes and
           media, the moderation outcomes on their own stories (the decision, its feedback and when;
-          never the moderator, whose field only api-admin can read), the consent ledger with each
-          ticked box's words, their hearts (only which story and when, and the story's public path
+          never the moderator, whose field only api-admin can read), the versions of the terms of use
+          and the testimony consent they agreed to and when (and, per story, the social media sharing
+          consent), their hearts (only which story and when, and the story's public path
           while it's public; never another person's words), their submission limits, submission log,
           upload grants and recent idempotency keys.
         - Their sign-in details (names, email addresses, phone numbers, connected accounts) come from
@@ -313,7 +314,7 @@ paths:
         - The audit log (ids only, D38) isn't included; `about.notIncluded` says so.
 
         No `ETag`: every copy is new, with fresh links. `Content-Disposition` names the file. Needs no
-        consent: access to your own data is always possible (Art 15). `503` `export_unavailable` when
+        agreement: access to your own data is always possible (Art 15). `503` `export_unavailable` when
         Clerk can't be reached: we send the whole file or nothing.
       x-required-role: User
       x-milestone: M2
@@ -346,133 +347,62 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
-  /v1/account/consents:
-    get:
-      tags: [Consent]
-      operationId: getMyConsents
-      summary: My consent state and history
-      description: |
-        The current state per type and the append-only ledger, read in the person's own session (D27).
-        "Current" is the latest ledger event per type (D17, D18), with the form version it was given on
-        (D84); `counts` says whether a grant counts. `signup` says whether the sign-up
-        form in force is accepted (D73: sign-in waits for it); `testimony` is the account's testimony
-        version against the one in force, for the "update your consent" banner (D85).
-      x-required-role: User
-      x-milestone: M0
-      parameters:
-        - $ref: './components.yaml#/components/parameters/ifNoneMatch'
-      responses:
-        '200':
-          description: Consent state.
-          headers:
-            ETag:
-              $ref: './components.yaml#/components/headers/CollectionETag'
-            Cache-Control:
-              $ref: './components.yaml#/components/headers/CacheControlPrivate'
-          content:
-            application/json:
-              schema:
-                $ref: './components.yaml#/components/schemas/ConsentState'
-        '304':
-          $ref: './components.yaml#/components/responses/NotModified'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
+  /v1/account/agreements/{agreement}:
     post:
-      tags: [Consent]
-      operationId: grantConsent
-      summary: Grant (or re-affirm) one statement of the consent form in force
+      tags: [Agreements]
+      operationId: agree
+      summary: Agree to the latest version of the terms of use or the testimony consent
       description: |
-        Command `GrantConsent`: appends one `granted` event to the ledger, in the person's own session: one
-        statement (box) ticked on the form version shown (D84). `formVersion` must be the version of that
-        form in force (`GET /v1/legal/forms/{form}` on api-public-read); a draft, retired, older or unknown
-        version answers `409 form_version_not_in_force` (the database refuses anything but a published
-        version too), and a statement the version doesn't have answers `409 statement_not_on_form`. D122: the
-        event binds the privacy policy in force (and, on a sign-up version with the terms box, the terms of
-        use in force); a `privacyPolicyVersion` or `termsVersion` that is missing or isn't the one in force
-        answers `409 legal_document_not_in_force`. While no form is published no consent can be given. Used at sign-up, at the start of a draft, at submit
-        and for re-consent. No `If-Match`: the ledger is append-only, so there is nothing to conflict with.
+        Command `Agree` (plan 4e), in the person's own session: points their `user.termsOfUse` or
+        `user.testimonyConsent` at `version`, the version the page fetched and showed
+        (`GET /v1/legal/documents/{document}` on api-public-read), with the database's time. The database
+        accepts it only if that version is still the latest: if a newer one was saved meanwhile the answer
+        is `409` `agreement_version_changed`, and the page fetches the latest and shows what changed (the
+        redline) instead of sending the old one again. Agreements only move forward and are never
+        withdrawn here: deleting the account withdraws them (Art 7(3)).
 
-        O4 (Joel, 2026-10-31): sharing beyond heisreal.today (`share_socials`) is chosen per story: the grant
-        names one story of the person's own in `storyId` (at submit, or from My submissions). A story that
-        isn't theirs answers `404 story_not_found`; `storyId` with any other statement, or `share_socials`
-        without it, `400`.
+        Sign-up is one box, "I am 18 or over and agree to the terms of use" (`terms-of-use`); the
+        testimony consent (`testimony-consent`) is agreed before the first story and again when a newer
+        version is out, and covers every story the person submits. Agreeing to the version already agreed
+        changes nothing and answers the same. No `If-Match` or `Idempotency-Key` (a listed exception to
+        D29): the command is idempotent, and the version is the precondition.
       x-required-role: User
-      x-milestone: M0
+      x-milestone: M2
       parameters:
-        - $ref: './components.yaml#/components/parameters/idempotencyKey'
+        - name: agreement
+          in: path
+          required: true
+          schema:
+            $ref: './components.yaml#/components/schemas/AgreementName'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: './components.yaml#/components/schemas/GrantConsent'
+              $ref: './components.yaml#/components/schemas/Agree'
       responses:
-        '201':
-          description: Recorded. `id` is the ledger event; `version` is `null`.
+        '200':
+          description: Agreed (or already agreed to that version).
           content:
             application/json:
               schema:
-                $ref: './components.yaml#/components/schemas/CommandResult'
+                $ref: './components.yaml#/components/schemas/AgreementState'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
         '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-        '422':
-          $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
-
-  /v1/account/consents/{type}/withdraw:
-    post:
-      tags: [Consent]
-      operationId: withdrawConsent
-      summary: Withdraw a consent (as easy as giving it, Art 7(3))
-      description: |
-        Command `WithdrawConsent`: appends a `withdrawn` event, bound to the form version and DPA of the event
-        it follows. Applies
-        to all the person's stories (D17): withdrawing `publish` or `special_category_religious` deletes their
-        `publicStory` rows in the same transaction, and from then on the database refuses every further
-        processing step that needs that consent. Withdrawing again re-affirms it; a type that was never
-        granted answers `409`.
-
-        Withdrawing `special_category_religious` (the testimony consent, D88) or `account_data` (the
-        sign-up consent to store the account, D73) then deletes the whole account, exactly as
-        `DELETE /v1/account` does (D39); the withdrawal stays on the ledger as proof. Withdrawing
-        `publish` takes every one of the person's stories off the site but keeps them in the account.
-        O4 (Joel, 2026-10-31): the profile no longer offers it ("Delete my account" is the one account-wide
-        withdrawal there, and each story is withdrawn or deleted in My submissions); the route stays so
-        the ledger keeps a working withdrawal for every consent it can hold (Art 7(3)).
-
-        Sharing beyond heisreal.today (`share_socials`) is withdrawn per story (O4): the body names the
-        story (`WithdrawConsent`), the withdrawal follows that story's own latest grant, and no other story
-        changes. A story that isn't the person's answers `404 story_not_found`; never granted for that
-        story, `409 consent_not_granted`. Every other type takes no body.
-      x-required-role: User
-      x-milestone: M0
-      parameters:
-        - $ref: './components.yaml#/components/parameters/consentType'
-        - $ref: './components.yaml#/components/parameters/idempotencyKey'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: './components.yaml#/components/schemas/WithdrawConsent'
-      responses:
-        '202':
-          $ref: './components.yaml#/components/responses/Accepted'
-        '400':
-          $ref: './components.yaml#/components/responses/BadRequest'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-        '422':
-          $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
+          description: |
+            `agreement_version_changed`: `version` isn't the latest (a newer version was saved since the
+            page fetched it, or it never existed). Fetch the latest, show what changed, and ask again.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './components.yaml#/components/schemas/Problem'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/account/favourites:
     get:
@@ -545,13 +475,10 @@ paths:
       summary: Heart a story (add it to my favourites)
       description: |
         Idempotent relationship (CRUD, D28): hearting a story already hearted changes nothing. Only a
-        story that is public now (`404` otherwise). Needs the sign-up form's consent, "store my account
-        and favourites" and 18+ (D73; `403 consent_required`: send the person to the sign-up consent
-        step). No `If-Match` (D29: nothing to overwrite).
+        story that is public now (`404` otherwise). Needs the latest terms of use agreed (`403`
+        `terms_agreement_required`: the page keeps the heart on the device and asks the person to agree;
+        plan 4e). No `If-Match` (D29: nothing to overwrite).
       x-required-role: User
-      x-requires-consent:
-        subject: caller
-        types: [account_data, age_18plus]
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/storyIdRelation'
@@ -572,7 +499,7 @@ paths:
       summary: Remove a heart
       description: |
         Idempotent: removing a heart that isn't there changes nothing. Works for any story, public or
-        not, and needs no consent (removing data is always possible).
+        not, and needs no agreement (removing data is always possible).
       x-required-role: User
       x-milestone: M2
       parameters:
@@ -667,7 +594,7 @@ paths:
         category's highlighted themes first and the rest under "More themes" (how many to choose:
         `GET /v1/account/limits`). Unlike api-public-read's `/v1/themes`, which lists a theme that
         isn't highlighted only once a published story uses it, this lists them all. Read as the
-        person (D27); needs no consent (themes aren't personal data).
+        person (D27); needs no agreement (themes aren't personal data).
       x-required-role: User
       x-milestone: M2
       parameters:
@@ -706,9 +633,9 @@ paths:
       description: |
         Command `CreateDraftStory`, in the person's own session. The draft exists before any media
         upload, so an abandoned upload leaves recoverable context. `Location` is the story under
-        `/v1/account/stories/{id}`. A draft is testimony content, so the person's current Art 9
-        consent is checked first (`403` without it; plan task 2.3), with the sign-up form in force
-        accepted and no newer testimony version requiring acceptance (D93).
+        `/v1/account/stories/{id}`. A draft is testimony content, so the database first checks that the
+        person has agreed to the latest terms of use and testimony consent (`403`
+        `terms_agreement_required` / `testimony_consent_required`; plan 4e): nothing is stored before.
 
         **Limits (D94, W3, D112):** open drafts per person (default 3: the admin's setting, or their
         override for this person; none for a trusted submitter); one more answers `409`
@@ -716,9 +643,6 @@ paths:
         that doesn't exist answers `400` `themes_changed` (`/themeIds`: "Themes have changed, please
         choose again"). The number of themes is checked only at submit. The database enforces these too.
       x-required-role: User
-      x-requires-consent:
-        subject: caller
-        types: [special_category_religious]
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/idempotencyKey'
@@ -761,7 +685,7 @@ paths:
       description: |
         CRUD with JSON Merge Patch on the editable fields; never the status (D28). The database locks
         the content once the story leaves `draft`/`changes_requested` (`409` `story_locked`). Needs
-        the person's current Art 9 consent (`403`). A stale `If-Match` answers `412`: the client
+        the latest terms of use and testimony consent agreed (`403`, plan 4e). A stale `If-Match` answers `412`: the client
         re-reads, re-applies its change when nothing it touched has changed, and asks the person only
         on a real clash (D70). An edit that makes the text longer beyond the settings' maximum (W3)
         answers `400` (`/body`); one that trims a draft that's still over a newly lowered maximum is
@@ -769,9 +693,6 @@ paths:
         `themes_changed` (`/themeIds`). Answers `ETag` with the new version. Also accepts
         `application/json`.
       x-required-role: User
-      x-requires-consent:
-        subject: caller
-        types: [special_category_religious]
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
@@ -812,7 +733,7 @@ paths:
         or `rejected`, in their own session (D27). It goes everywhere in the same
         transaction: the story, its `publicStory` and `hiddenStory` rows, its moderation reviews and
         other people's hearts on it. The database's story permission refuses any other status
-        (`pending`, `in_review`, `approved`: `409 story_not_deletable`, withdraw it first) and anyone else's story (`404`, as if it didn't exist). Needs no consent (Art 17).
+        (`pending`, `in_review`, `approved`: `409 story_not_deletable`, withdraw it first) and anyone else's story (`404`, as if it didn't exist). Needs no agreement (Art 17).
 
         Its video or audio at Bunny is deleted straight after the database commits: only the videos
         api-user made for this story (its upload grants, D80), never seeded or shared media. If Bunny
@@ -846,7 +767,9 @@ paths:
       description: |
         Command `RequestUpload` (M2 plan PR 7; D65, D80). The documented exception to "commands
         return `{ id, version }`": it also returns short-lived Bunny Stream TUS credentials, and the
-        client uploads straight to Bunny.net. Needs the person's current Art 9 consent (`403`).
+        client uploads straight to Bunny.net. Needs the latest terms of use and testimony consent agreed
+        (`403`, plan 4e), for a `resume` or a replayed request too: no new link or `PUT` is signed
+        without them.
 
         api-user checks the story is the caller's, still editable (`409` `story_locked`) and at
         `If-Match` (`412`), and that it's a story of that format (`400`). Then, unless `resume`: it
@@ -882,9 +805,6 @@ paths:
         it, so the clean-up sweep removes it later. `503` `uploads_unavailable` when image uploads
         are off.
       x-required-role: User
-      x-requires-consent:
-        subject: caller
-        types: [special_category_religious]
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
@@ -932,8 +852,9 @@ paths:
       summary: Submit my draft for moderation
       description: |
         Command `SubmitStory`: moves `draft`/`changes_requested` → `pending` and publishes
-        `story-submitted` for the worker tier. Needs the person's current Art 9, publish and age consent
-        (D17); `403` if any is missing or withdrawn. A written story needs the settings' minimum of
+        `story-submitted` for the worker tier. Needs the latest terms of use and testimony consent agreed
+        (`403` `terms_agreement_required` / `testimony_consent_required`, plan 4e); the testimony
+        consent covers publishing every story the person submits. A written story needs the settings' minimum of
         text (W3: default 200 characters, not counting leading and trailing spaces); shorter is `400`
         with `code: story_text_too_short` and an `errors` entry for `/body`. The database refuses it too.
         Every story needs from themesMin to themesMax themes (default 1–5; otherwise `400`
@@ -966,13 +887,13 @@ paths:
         zone: `400` `image_not_uploaded` if it never did (the person adds it again, or removes it),
         `503` `uploads_unavailable` when the zone gives no clear answer.
 
-        **Sharing beyond heisreal.today (O4):** the optional body's `shareBeyondSite` records this story's
-        `share_socials` grant in the same transaction as the submission (`SubmitStory`). The same key with
-        another body is `422`.
+        **Social media sharing (plan 4e):** the optional body's `socialMediaSharingConsent` is the box at
+        the end of the upload, ticked, with the version the page showed: it is recorded on this story in
+        the same write as the submission, with the database's time (both or neither; a replay records
+        nothing again). A version that isn't the latest any more is `409` `agreement_version_changed` and
+        nothing is submitted. It can't be withdrawn: withdrawing or deleting the story stops any future
+        use. The same key with another body is `422`.
       x-required-role: User
-      x-requires-consent:
-        subject: caller
-        types: [special_category_religious, publish, age_18plus]
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
@@ -1015,7 +936,7 @@ paths:
         Command `WithdrawStory`: a story waiting for review, in review, sent back for changes or
         published becomes `withdrawn`, in the person's own session (D27). Its `publicStory` row is
         deleted in the same transaction, so it's gone from the site on the next request (D51). Its
-        content is untouched and it needs no consent. Anything else (a draft: delete it instead; a
+        content is untouched and it needs no agreement. Anything else (a draft: delete it instead; a
         rejected or already withdrawn story) answers `409 story_not_withdrawable`. A withdrawn story
         stays withdrawn: publishing it again comes with M3's moderation (D61). Then it can be
         deleted (`DELETE /v1/stories/{id}`).

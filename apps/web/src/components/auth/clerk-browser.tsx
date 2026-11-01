@@ -4,7 +4,7 @@ import { ClerkProvider } from '@clerk/react';
 
 /**
  * The site's one Clerk setup (D115): app/layout.tsx wraps every page in it, so the header, the
- * sign-in page, the consent forms and Share all read the same session through Clerk's own
+ * sign-in page, the agreement steps and Share all read the same session through Clerk's own
  * hooks and components.
  *
  * Clerk runs in the browser only (D32): this client component loads Clerk's browser SDK with

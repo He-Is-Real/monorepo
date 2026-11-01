@@ -2,61 +2,40 @@ import { expect, test } from '@playwright/test';
 import { DATASET } from '../src/app/dataset';
 import { API_URL } from './playwright.config';
 
-// api-public-read on dev, after a reset: it serves exactly the approved dummy stories (D26)
-// with consent checks enforced (D48 off since D75): the stories are public through the fixture
-// people's real ledger consent on dev's placeholder forms, which it also serves.
+// api-public-read on dev, after a reset: it serves exactly the approved dummy stories (D26),
+// public through the fixture people's real agreements (plan 4e), and the four legal texts.
 const approved = DATASET.stories.filter((s) => s.status === 'approved');
 const unpublished = DATASET.stories.filter((s) => s.status !== 'approved');
 
-test('reports the database up and consent checks enforced (D48 off, D75)', async ({
-  request,
-}) => {
+test('reports the database up', async ({ request }) => {
   const res = await request.get(`${API_URL}/health`);
   expect(res.status()).toBe(200);
-  expect(await res.json()).toMatchObject({
-    db: 'up',
-    consentChecksRelaxed: false,
-  });
+  expect(await res.json()).toMatchObject({ db: 'up' });
 });
 
-test('serves dev’s placeholder privacy policy, terms of use and consent forms (D75, D93, D121, D122)', async ({
+test('serves the four legal texts, each with its versions', async ({
   request,
 }) => {
-  const dpa = await request.get(`${API_URL}/v1/legal/dpa`);
-  expect(dpa.status()).toBe(200);
-  const { current } = await dpa.json();
-  expect(current).toMatchObject({ id: 'dev_policy', status: 'published' });
-  // D121, D125: the two legal documents, numbered, each in force with its Markdown, and every
-  // version still readable by its number.
-  for (const [document, number, id] of [
-    ['privacy', 2, 'dev_policy'],
-    ['terms', 1, 'dev_placeholder'],
-  ] as const) {
+  for (const document of [
+    'terms-of-use',
+    'testimony-consent',
+    'social-media-sharing-consent',
+    'privacy-notice',
+  ]) {
     const res = await request.get(`${API_URL}/v1/legal/documents/${document}`);
     expect(res.status(), document).toBe(200);
     const body = await res.json();
-    expect(body.current, document).toMatchObject({ id, number });
-    expect(body.current.text, document).toContain('placeholder');
-    const first = await request.get(
-      `${API_URL}/v1/legal/documents/${document}/versions/1`,
-    );
-    expect([document, first.status()]).toEqual([document, 200]);
-  }
-  for (const form of ['signup', 'testimony', 'social']) {
-    const res = await request.get(`${API_URL}/v1/legal/forms/${form}`);
-    expect(res.status(), form).toBe(200);
-    const body = await res.json();
-    expect(body, form).toMatchObject({ form, id: 'v2' });
-    const boxes = body.boxes.map((b: { statement: string }) => b.statement);
-    // 18+ is asked at sign-up only (D93), with the terms box (D122).
-    expect([form, boxes.includes('age_18plus')]).toEqual([
-      form,
-      form === 'signup',
-    ]);
-    expect([form, boxes.includes('terms_of_use')]).toEqual([
-      form,
-      form === 'signup',
-    ]);
+    expect(body, document).toMatchObject({
+      document,
+      latest: {
+        version: expect.any(Number),
+        releaseDate: expect.any(String),
+        content: expect.any(String),
+      },
+    });
+    expect(body.versions[0], document).toMatchObject({
+      version: body.latest.version,
+    });
   }
 });
 

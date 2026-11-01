@@ -3,13 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RecordId, type Surreal, type SurrealQueryable } from 'surrealdb';
 import {
-  consentEvent,
   createPeople,
   trustSubmitters,
-  grantAll,
+  agreeAll,
   MIGRATION_TIMEOUT_MS,
   outcome,
-  publishDpa,
   rows,
   run,
   SCHEMA_DIR,
@@ -98,9 +96,8 @@ describe('story types and shapes (D53)', () => {
     workflow = await t.service('workflow');
     await createPeople(t, { pat: 'user_pat', moderator: 'user_mod' });
     await trustSubmitters(t, 'pat');
-    await publishDpa(t, 'v1');
     pat = await t.person('user_pat');
-    await grantAll(pat);
+    await agreeAll(pat);
   });
   afterAll(() => t?.close());
 
@@ -441,26 +438,11 @@ describe('story types and shapes (D53)', () => {
       expect(await image()).toEqual(before);
     });
 
-    it('the person changes it on a draft, which needs current Art 9 consent', async () => {
+    it('the person changes it on a draft', async () => {
       expect(
         await update(id, `image.alt = 'Sunrise over the hills'`),
       ).toMatchObject({ ok: true });
       expect(await image()).toMatchObject({ alt: 'Sunrise over the hills' });
-
-      await createPeople(t, { quinn: 'user_quinn' });
-      await trustSubmitters(t, 'quinn');
-      const quinn = await t.person('user_quinn');
-      await grantAll(quinn);
-      const { id: q } = await create(
-        `primaryFormat: 'written', body: 'x'`,
-        quinn,
-      );
-      await update(q, `image = ${IMAGE}`, migrator);
-      await consentEvent(quinn, 'special_category_religious', 'withdrawn');
-      expect(await update(q, `image.alt = 'Changed'`, quinn)).toEqual({
-        ok: false,
-        error: expect.stringContaining('current Art 9 consent'),
-      });
     });
 
     it('is locked with the rest of the content after submit', async () => {
@@ -599,8 +581,7 @@ describe('data/0004: rows written before D53', () => {
     await t.createCommonTheme();
     await createPeople(t, { old: 'user_old' });
     await trustSubmitters(t, 'old');
-    await publishDpa(t, 'v1');
-    await grantAll(await t.person('user_old'));
+    await agreeAll(await t.person('user_old'));
     migrator = await t.migrator();
   });
   afterAll(async () => {

@@ -6,10 +6,9 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agreeAll,
   approve,
   createPeople,
-  grantAll,
-  publishDpa,
   rows,
   run,
   STORY_TEXT_PADDING,
@@ -88,7 +87,7 @@ describe('my stories: withdraw and delete', () => {
   }
   async function person(who: string) {
     await createPeople(t, { [who]: `user_${who}` });
-    await grantAll(await t.person(`user_${who}`));
+    await agreeAll(await t.person(`user_${who}`));
   }
   const create = async (who: string, format = 'written') => {
     const res = await call('POST', '/v1/stories', who, {
@@ -169,7 +168,6 @@ describe('my stories: withdraw and delete', () => {
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
-    await publishDpa(t, 'v1');
     await createPeople(t, { moderator: 'user_mod' });
     await run(
       admin,
@@ -354,82 +352,5 @@ describe('my stories: withdraw and delete', () => {
     );
     expect((await remove('bob', bobs, 7)).status).toBe(412);
     expect(await statusOf(bobs)).toBe('draft');
-  });
-
-  it('sharing beyond heisreal.today is chosen per story: granted, listed and withdrawn for that story only (O4)', async () => {
-    const wide = await create('ann');
-    const home = await create('ann');
-    const sharingOf = async (id: string) => {
-      const res = await call('GET', `/v1/account/stories/${id}`, 'ann');
-      expect(res.status).toBe(200);
-      return res.body.sharing;
-    };
-    const share = (who: string, storyId: string | undefined) =>
-      call('POST', '/v1/account/consents', who, {
-        body: {
-          form: 'social',
-          formVersion: 'v1',
-          statement: 'share_socials',
-          mechanism: 'account_settings',
-          privacyPolicyVersion: 'v1',
-          ...(storyId === undefined ? {} : { storyId }),
-        },
-        headers: { 'idempotency-key': key() },
-      });
-    const stop = (who: string, body: unknown) =>
-      call('POST', '/v1/account/consents/share_socials/withdraw', who, {
-        body,
-        headers: { 'idempotency-key': key() },
-      });
-
-    expect(await sharingOf(wide)).toEqual({
-      granted: false,
-      counts: false,
-      formVersion: null,
-      occurredAt: null,
-    });
-    expect((await share('ann', wide)).status).toBe(201);
-    expect(await sharingOf(wide)).toEqual({
-      granted: true,
-      counts: true,
-      formVersion: 'v1',
-      occurredAt: expect.any(String),
-    });
-    expect((await sharingOf(home)).granted).toBe(false);
-    // The person's own consents never list it: it's not theirs for every story.
-    const consents = await call('GET', '/v1/account/consents', 'ann');
-    expect(
-      consents.body.current.map((c: { type: string }) => c.type),
-    ).not.toContain('share_socials');
-    expect(consents.body.history.at(-1)).toMatchObject({
-      type: 'share_socials',
-      storyId: wide,
-    });
-
-    // No story, or a story on another consent: 400. Someone else's story: as if it didn't exist.
-    expect((await share('ann', undefined)).body.code).toBe('validation_failed');
-    expect((await stop('ann', {})).body.code).toBe('validation_failed');
-    expect(
-      (
-        await call('POST', '/v1/account/consents/publish/withdraw', 'ann', {
-          body: { storyId: wide },
-          headers: { 'idempotency-key': key() },
-        })
-      ).body.code,
-    ).toBe('validation_failed');
-    expect((await share('bob', wide)).status).toBe(404);
-    expect((await stop('bob', { storyId: wide })).status).toBe(404);
-    expect((await sharingOf(wide)).granted).toBe(true);
-
-    // Withdrawing is as easy as granting, and touches that story only.
-    expect((await share('ann', home)).status).toBe(201);
-    expect((await stop('ann', { storyId: wide })).status).toBe(202);
-    expect((await sharingOf(wide)).granted).toBe(false);
-    expect((await sharingOf(home)).granted).toBe(true);
-    // A story whose sharing was never given has nothing to withdraw.
-    const never = await create('ann');
-    expect((await stop('ann', { storyId: never })).body.code).toBe(
-      'consent_not_granted',
-    );
   });
 });

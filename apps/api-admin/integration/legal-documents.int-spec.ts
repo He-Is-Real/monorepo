@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
@@ -16,13 +15,11 @@ import { AppModule } from '../src/app/app.module';
 import { useBodyParser } from '../src/app/body-parser';
 
 /**
- * The legal documents (D121, D125; Joel, 2026-10-30) through api-admin's real AppModule on its
- * own login (D13) and a real SurrealDB 3.2.4, as /admin/legal calls them: publish (the first
- * version, then the next, on the version edited), the versions list. A version is the Markdown
- * the site renders, numbered by the database and kept for ever. Every answer is checked against
- * api-admin.yaml.
+ * The four legal texts (plan 4e) through api-admin's real AppModule on its own login (D13) and a
+ * real SurrealDB, as /admin/consent calls them: read the latest with every version, and save the
+ * next version with its audit row. Every answer is checked against api-admin.yaml.
  */
-describe('legal documents (api-admin)', () => {
+describe('legal texts (api-admin)', () => {
   const contract = new Contract('api-admin.yaml');
   let t: TestDatabase;
   let clerk: TestClerk;
@@ -30,53 +27,29 @@ describe('legal documents (api-admin)', () => {
   let app: NestExpressApplication;
   let url: string;
 
-  const sha256 = (text: string) =>
-    createHash('sha256').update(text).digest('hex');
   const as = (clerkUserId: string, role = 'Admin') => ({
     authorization: `Bearer ${clerk.token(clerkUserId, { role })}`,
   });
+  const PATH = '/v1/admin/legal-documents/testimony-consent/versions';
 
-  async function publish(
-    document: string,
-    body: Record<string, unknown>,
-    who: Record<string, string> = as('user_admin'),
-  ) {
-    const res = await fetch(
-      `${url}/v1/admin/legal-documents/${document}/versions`,
-      {
-        method: 'POST',
-        headers: { ...who, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      },
-    );
+  async function list(who = as('user_admin'), path = PATH) {
+    const res = await fetch(`${url}${path}`, { headers: who });
+    expect(await contract.check('GET', res)).toEqual([]);
+    return res;
+  }
+  async function save(body: unknown, who = as('user_admin'), path = PATH) {
+    const res = await fetch(`${url}${path}`, {
+      method: 'POST',
+      headers: { ...who, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
     expect(await contract.check('POST', res)).toEqual([]);
     return res;
   }
-  const list = async (
-    document: string,
-    who: Record<string, string> = as('user_admin'),
-  ) => {
-    const res = await fetch(
-      `${url}/v1/admin/legal-documents/${document}/versions`,
-      { headers: who },
-    );
-    expect(await contract.check('GET', res)).toEqual([]);
-    return res;
-  };
-  const code = async (res: Response) =>
-    ((await res.json()) as { code: string }).code;
-  const audit = () =>
-    rows<Record<string, unknown>>(
+  const versions = () =>
+    rows(
       migrator,
-      `SELECT action, service, actorRole, record::id(actor) AS actor,
-         record::tb(entity) AS entity, createdAt FROM auditLog
-       WHERE action IN ['PublishPrivacyPolicy', 'PublishTerms'] ORDER BY createdAt`,
-    ).then((r) =>
-      r.map((row) => {
-        const rest = { ...row };
-        delete rest['createdAt']; // only for the order
-        return rest;
-      }),
+      `SELECT VALUE record::id(id) FROM testimonyConsent ORDER BY id`,
     );
 
   beforeAll(async () => {
@@ -86,7 +59,11 @@ describe('legal documents (api-admin)', () => {
       database: t.database,
     });
     migrator = await t.migrator();
-    await createPeople(t, { admin: 'user_admin', moderator: 'user_moderator' });
+    await createPeople(t, {
+      admin: 'user_admin',
+      superadmin: 'user_superadmin',
+      moderator: 'user_moderator',
+    });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
       .useValue(await t.service('api_admin'))
@@ -115,126 +92,99 @@ describe('legal documents (api-admin)', () => {
     await t?.close();
   });
 
-  it('publishes the first terms of use as version 1, in force at once, audited', async () => {
-    const text = '# Terms\r\n\r\nThe **first** words.\r\n';
-    const res = await publish('terms', { text, basedOn: null });
-    expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ number: 1 });
-
-    const [row] = await rows<Record<string, unknown>>(
-      migrator,
-      `SELECT * FROM termsVersion WHERE number = 1`,
-    );
-    // One line ending: the words kept are the ones hashed.
-    const kept = '# Terms\n\nThe **first** words.\n';
-    expect(row).toMatchObject({
-      text: kept,
-      contentHash: sha256(kept),
-      source: 'admin',
-      publishedBy: 'user:admin',
+  it('an admin reads the latest text and saves the next version, in force at once, with its audit row', async () => {
+    const first = await list();
+    expect(first.status).toBe(200);
+    expect(first.headers.get('cache-control')).toBe('private, no-store');
+    const before = await first.json();
+    expect(before).toMatchObject({
+      document: 'testimony-consent',
+      latest: { version: 0, content: expect.any(String) },
+      data: [{ version: 0 }],
     });
+
+    const saved = await save({
+      version: 1,
+      content: '## Testimony consent\r\n\r\nVersion 1.',
+    });
+    expect(saved.status).toBe(201);
+    expect(saved.headers.get('location')).toBe(PATH);
+    const { version, releaseDate } = await saved.json();
+    expect(version).toBe(1);
+
+    const after = await (await list()).json();
+    expect(after.latest).toEqual({
+      version: 1,
+      releaseDate,
+      // Line ends are stored as \n.
+      content: '## Testimony consent\n\nVersion 1.',
+    });
+    expect(after.data.map((v: { version: number }) => v.version)).toEqual([
+      1, 0,
+    ]);
     expect(
-      await rows(migrator, `RETURN fn::legal::terms_in_force().number`),
-    ).toEqual([1]);
-    expect(await audit()).toEqual([
+      await rows(
+        migrator,
+        `SELECT service, actorRole, record::id(actor) AS actor, <string> entity AS entity
+           FROM auditLog WHERE action = 'PublishLegalVersion'`,
+      ),
+    ).toEqual([
       {
-        action: 'PublishTerms',
         service: 'api-admin',
         actorRole: 'Admin',
         actor: 'admin',
-        entity: 'termsVersion',
+        entity: 'testimonyConsent:1',
       },
     ]);
-  });
 
-  it('publishes the next privacy policy version on the one in force; the old one stays listed', async () => {
-    const first = await publish('privacy', {
-      text: '# Privacy\n\nVersion one.\n',
-      basedOn: null,
-    });
-    expect(first.status).toBe(201);
-    // dpaVersion:v1, the repo's never-published draft (data 0001), takes no number.
-    expect(await first.json()).toMatchObject({ number: 1 });
-    const before = (await (await list('privacy')).json()) as {
-      current: { number: number; text: string };
-    };
-    // The editor starts from the version in force.
-    expect(before.current).toEqual({
-      number: 1,
-      text: '# Privacy\n\nVersion one.\n',
-    });
-    const next = await publish('privacy', {
-      text: '# Privacy\n\nVersion two.\n',
-      basedOn: 1,
-    });
+    // A Super Admin may too.
+    const next = await save(
+      { version: 2, content: 'Version 2.' },
+      as('user_superadmin', 'SuperAdmin'),
+    );
     expect(next.status).toBe(201);
-    const listed = (await (await list('privacy')).json()) as {
-      current: { number: number; text: string };
-      data: Record<string, unknown>[];
-    };
-    expect(listed.current.number).toBe(2);
-    expect(
-      listed.data.map((v) => [v['number'], v['source'], v['publishedBy']]),
-    ).toEqual([
-      [2, 'admin', 'admin'],
-      [1, 'admin', 'admin'],
-    ]);
-    // Version 1 is kept, word for word.
-    expect(
-      await rows(
+    expect(await versions()).toEqual([0, 1, 2]);
+  });
+
+  it('refuses a number that isn’t the next one (another admin saved meanwhile) with 409, writing nothing', async () => {
+    const audits = () =>
+      rows(
         migrator,
-        `SELECT VALUE text FROM dpaVersion WHERE number = 1`,
-      ),
-    ).toEqual(['# Privacy\n\nVersion one.\n']);
+        `SELECT VALUE id FROM auditLog WHERE action = 'PublishLegalVersion'`,
+      );
+    const before = (await audits()).length;
+    for (const version of [2, 1, 4]) {
+      const res = await save({ version, content: 'A stale edit.' });
+      expect(res.status, String(version)).toBe(409);
+      expect(await res.json()).toMatchObject({ code: 'document_changed' });
+    }
+    expect(await versions()).toEqual([0, 1, 2]);
+    expect(await audits()).toHaveLength(before);
   });
 
-  it('refuses a stale edit with 409 document_changed, writing nothing', async () => {
-    const before = (await audit()).length;
-    const stale = await publish('privacy', { text: 'Old base', basedOn: 1 });
-    expect(stale.status).toBe(409);
-    expect(await code(stale)).toBe('document_changed');
-    const first = await publish('privacy', { text: 'No base', basedOn: null });
-    expect(await code(first)).toBe('document_changed');
-    expect((await audit()).length).toBe(before);
+  it('is for Admin and Super Admin only', async () => {
+    const mod = as('user_moderator', 'Moderator');
+    expect((await list(mod)).status).toBe(403);
+    const res = await save({ version: 3, content: 'Not mine to save.' }, mod);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'role_required' });
+    expect(await versions()).toEqual([0, 1, 2]);
   });
 
-  it('two admins publishing on the same version at once: one is published, the other gets 409', async () => {
-    const [a, b] = await Promise.all([
-      publish('terms', { text: 'Terms by one admin', basedOn: 1 }),
-      publish('terms', { text: 'Terms by another admin', basedOn: 1 }),
-    ]);
-    expect([a.status, b.status].sort()).toEqual([201, 409]);
-    const loser = a.status === 409 ? a : b;
-    expect(await code(loser)).toBe('document_changed');
+  it('answers 400 for a body that isn’t a version and its text, and 404 for an unknown text', async () => {
+    for (const body of [
+      {},
+      { version: 3 },
+      { version: 3, content: '   ' },
+      { version: -1, content: 'x' },
+      { version: 3, content: 'x', basedOn: 2 },
+    ]) {
+      expect((await save(body)).status, JSON.stringify(body)).toBe(400);
+    }
     expect(
-      await rows(
-        migrator,
-        `SELECT VALUE number FROM termsVersion ORDER BY number`,
-      ),
-    ).toEqual([1, 2]);
-  });
-
-  it('takes the longest text the editor allows, in any script and escaping; one character more is refused by its rule, not by size', async () => {
-    // 200,000 characters: half "ü", half a control character JSON escapes to 6 bytes.
-    const text = 'ü'.repeat(100_000) + '\u0001'.repeat(100_000);
-    const longest = await publish('privacy', { text, basedOn: 2 });
-    expect(longest.status).toBe(201);
-    expect(await longest.json()).toMatchObject({ number: 3 });
-    const over = await publish('privacy', { text: `${text}x`, basedOn: 3 });
-    expect(over.status).toBe(400);
-    expect(await code(over)).toBe('validation_failed');
-  });
-
-  it('is for Admin and above (D1): a moderator can neither list nor publish', async () => {
-    const moderator = as('user_moderator', 'Moderator');
-    expect((await list('terms', moderator)).status).toBe(403);
-    expect(
-      (await publish('terms', { text: 'No', basedOn: 2 }, moderator)).status,
-    ).toBe(403);
-    expect((await list('terms', {})).status).toBe(401);
-    expect((await list('nonsense')).status).toBe(404);
-    expect(
-      await rows(migrator, `SELECT VALUE number FROM termsVersion`),
-    ).toHaveLength(2);
+      (await list(undefined, '/v1/admin/legal-documents/privacy/versions'))
+        .status,
+    ).toBe(404);
+    expect(await versions()).toEqual([0, 1, 2]);
   });
 });

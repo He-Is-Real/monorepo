@@ -17,11 +17,6 @@ variable "schema_dir" {
   type        = string
 }
 
-variable "dpa_dir" {
-  description = "libs/legal/dpa: one <dpaVersion id>.md per DPA version (D20). The consent forms are beside it, in ../forms/<signup|testimony|social>/<id>.md (D84, D93)."
-  type        = string
-}
-
 variable "clerk_jwt_public_key" {
   description = "Clerk's RS256 PEM public key, or \"\" until Clerk is set up (no person sessions then)."
   type        = string
@@ -36,38 +31,10 @@ variable "clerk_jwt_public_key" {
   }
 }
 
-variable "seed_dev_story" {
-  description = "Seed 0003's walking-skeleton story (test content, M0 0.9). Retired in M1 step 4 (D49: the dev-seed Job loads dummy data); kept for tests and local runs. Off, the script records itself as applied and writes nothing."
-  type        = bool
-  default     = false
-}
-
 variable "environment" {
   description = "The environment this database belongs to (\"dev\", \"prod\", ...; modules/cluster derives it from the GCP project). null = unknown, which is never dev."
   type        = string
   default     = null
-}
-
-variable "dev_consent_relaxed" {
-  description = "D48: relax consent checks for dummy data. The runner writes it to _setting:consent, which the database's consent functions read. Dev only: refused here unless environment is \"dev\", and by the database too."
-  type        = bool
-  default     = false
-  nullable    = false
-  validation {
-    condition     = !var.dev_consent_relaxed || var.environment == "dev"
-    error_message = "dev_consent_relaxed (D48) can only be set in dev."
-  }
-}
-
-variable "dev_legal_placeholders" {
-  description = "D75: dev's placeholder privacy document and consent forms (data script 0005). The runner writes it to _setting:consent; the database counts the placeholders only while it's on. Dev only: refused here unless environment is \"dev\", and by the database too."
-  type        = bool
-  default     = false
-  nullable    = false
-  validation {
-    condition     = !var.dev_legal_placeholders || var.environment == "dev"
-    error_message = "dev_legal_placeholders (D75) can only be set in dev."
-  }
 }
 
 variable "extra_system_users" {
@@ -96,43 +63,12 @@ locals {
   top_files  = fileset(var.schema_dir, "*.surql")
   data_files = fileset("${var.schema_dir}/data", "*.surql")
 
-  # Every DPA text, keyed by its dpaVersion id (0001, 0005 and dpa-sync.surql use it), with its
-  # words: the database keeps a copy beside the ledger (D84).
-  dpa_sha256 = { for f in fileset(var.dpa_dir, "*.md") : trimsuffix(f, ".md") => filesha256("${var.dpa_dir}/${f}") }
-  dpa_text   = { for f in fileset(var.dpa_dir, "*.md") : trimsuffix(f, ".md") => file("${var.dpa_dir}/${f}") }
-
-  # D84: every consent form version's text and sha256, { signup|testimony|social: { <id>: ... } }
-  # (0005 and form-sync.surql). README.md files aren't versions.
-  forms_dir   = "${dirname(var.dpa_dir)}/forms"
-  form_kinds  = ["signup", "testimony", "social"]
-  form_files  = { for k in local.form_kinds : k => [for f in fileset("${local.forms_dir}/${k}", "*.md") : f if f != "README.md"] }
-  form_sha256 = { for k in local.form_kinds : k => { for f in local.form_files[k] : trimsuffix(f, ".md") => filesha256("${local.forms_dir}/${k}/${f}") } }
-  form_text   = { for k in local.form_kinds : k => { for f in local.form_files[k] : trimsuffix(f, ".md") => file("${local.forms_dir}/${k}/${f}") } }
-  # D114: each version's boxes, libs/legal/forms/<kind>/<id>.statements.json, decoded and with
-  # the file's sha256 (form-sync.surql; evidence v3 covers the hash).
-  statement_files        = { for k in local.form_kinds : k => fileset("${local.forms_dir}/${k}", "*.statements.json") }
-  form_statements        = { for k in local.form_kinds : k => { for f in local.statement_files[k] : trimsuffix(f, ".statements.json") => jsondecode(file("${local.forms_dir}/${k}/${f}")) } }
-  form_statements_sha256 = { for k in local.form_kinds : k => { for f in local.statement_files[k] : trimsuffix(f, ".statements.json") => filesha256("${local.forms_dir}/${k}/${f}") } }
-
-  # The terms of use's repo versions (libs/legal/terms/<id>.md: dev's placeholder), for data
-  # 0007. Admin-published versions live only in the database.
-  terms_dir  = "${dirname(var.dpa_dir)}/terms"
-  terms_text = { for f in fileset(local.terms_dir, "*.md") : trimsuffix(f, ".md") => file("${local.terms_dir}/${f}") }
-
+  # Plan 4e: nothing from files besides the bundle. The legal texts live in the database (data
+  # 0009 seeds version 0 of each; Admins save the next at /admin/consent).
   params = {
-    clerk_jwt_public_key   = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
-    dev_consent_relaxed    = var.dev_consent_relaxed
-    dev_legal_placeholders = var.dev_legal_placeholders
-    dpa_sha256             = local.dpa_sha256
-    dpa_text               = local.dpa_text
-    form_sha256            = local.form_sha256
-    form_text              = local.form_text
-    form_statements        = local.form_statements
-    form_statements_sha256 = local.form_statements_sha256
-    terms_text             = local.terms_text
-    environment            = var.environment
-    identity_hash          = var.identity_hash
-    seed_dev_story         = var.seed_dev_story
+    clerk_jwt_public_key = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
+    environment          = var.environment
+    identity_hash        = var.identity_hash
   }
 
   bundle = merge(
@@ -169,7 +105,7 @@ output "job_name" {
 }
 
 output "params" {
-  description = "What the runner gets (all public: hashes, the legal texts and a public key)."
+  description = "What the runner gets (all public: the environment, the identity hash and a public key)."
   value       = local.params
 }
 

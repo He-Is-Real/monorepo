@@ -1,9 +1,8 @@
 import type { Surreal } from 'surrealdb';
 import {
   createPeople,
-  grantAll,
+  agreeAll,
   outcome,
-  publishDpa,
   rows,
   run,
   STORY_TEXT_PADDING,
@@ -26,7 +25,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
   async function person(p: string): Promise<Surreal> {
     await createPeople(t, { [p]: `user_${p}` });
     const s = await t.person(`user_${p}`);
-    await grantAll(s);
+    await agreeAll(s);
     return s;
   }
   const status = async (id: string) =>
@@ -62,7 +61,6 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     migrator = await t.migrator();
     admin = await t.service('api_admin');
     await createPeople(t, { admin: 'user_admin' });
-    await publishDpa(t, 'v1');
   });
   afterAll(() => t?.close());
 

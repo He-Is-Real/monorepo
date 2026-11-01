@@ -11,9 +11,9 @@ export function generateMetadata() {
 }
 
 /**
- * The terms of use (D121, D125): the version in force, which the sign-up form's "I agree to the
- * terms of use" binds (D122), as Markdown an Admin publishes at /admin/legal.
+ * The terms of use (plan 4e): the latest version, which people agree to before using their
+ * account (/consent/terms), as Markdown an Admin saves at /admin/consent.
  */
 export default function TermsPage() {
-  return <CurrentDocument document="terms" />;
+  return <CurrentDocument document="terms-of-use" />;
 }

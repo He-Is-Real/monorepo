@@ -186,29 +186,27 @@ export function parsePatch(body: unknown): StoryFields {
 }
 
 /**
- * SubmitStory's optional body (O4): `shareBeyondSite`, the social sharing form version and
- * privacy policy version Review showed beside the ticked box (D122: the grant binds the ones the
- * page named). No body, or `{}`: the submission leaves the story's sharing as it is.
+ * SubmitStory's optional body (plan 4e): `socialMediaSharingConsent`, the version of the social
+ * media sharing consent the page showed beside the ticked box at the end of the upload. No body,
+ * or `{}`: the submission leaves the story's choice as it is (it can't be taken back).
  */
 export interface SubmitInput {
-  shareBeyondSite?: { formVersion: string; privacyPolicyVersion: string };
+  socialMediaSharingConsent?: { version: number };
 }
-
-const VERSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export function parseSubmit(body: unknown): SubmitInput {
   if (body === undefined || body === null) return {};
   const b = asObject(body);
   const errors: FieldError[] = [];
   for (const key of Object.keys(b)) {
-    if (key !== 'shareBeyondSite') {
+    if (key !== 'socialMediaSharingConsent') {
       errors.push({
         pointer: `/${key}`,
         message: 'not a field of this command',
       });
     }
   }
-  const share = b['shareBeyondSite'];
+  const share = b['socialMediaSharingConsent'];
   if (share === undefined) {
     if (errors.length) fail(errors);
     return {};
@@ -217,37 +215,34 @@ export function parseSubmit(body: unknown): SubmitInput {
     share && typeof share === 'object' && !Array.isArray(share)
       ? (share as Record<string, unknown>)
       : null;
+  const version = s?.['version'];
   if (!s) {
     errors.push({
-      pointer: '/shareBeyondSite',
-      message: 'the social sharing form and privacy policy versions shown',
+      pointer: '/socialMediaSharingConsent',
+      message: 'the version of the social media sharing consent shown',
     });
   } else {
     for (const key of Object.keys(s)) {
-      if (key !== 'formVersion' && key !== 'privacyPolicyVersion') {
+      if (key !== 'version') {
         errors.push({
-          pointer: `/shareBeyondSite/${key}`,
+          pointer: `/socialMediaSharingConsent/${key}`,
           message: 'not a field of this command',
         });
       }
     }
-    for (const key of ['formVersion', 'privacyPolicyVersion']) {
-      const v = s[key];
-      if (typeof v !== 'string' || !VERSION.test(v)) {
-        errors.push({
-          pointer: `/shareBeyondSite/${key}`,
-          message: 'the version shown, e.g. v1',
-        });
-      }
+    if (!(
+      typeof version === 'number' &&
+      Number.isInteger(version) &&
+      version >= 0
+    )) {
+      errors.push({
+        pointer: '/socialMediaSharingConsent/version',
+        message: 'the version number shown',
+      });
     }
   }
   if (errors.length) fail(errors);
-  return {
-    shareBeyondSite: {
-      formVersion: s?.['formVersion'] as string,
-      privacyPolicyVersion: s?.['privacyPolicyVersion'] as string,
-    },
-  };
+  return { socialMediaSharingConsent: { version: version as number } };
 }
 
 /** Over the settings' limits (W3): text too long (`400`). */

@@ -1,18 +1,18 @@
 import type { Surreal, SurrealTransaction } from 'surrealdb';
 import {
-  consentEvent,
+  agree,
+  agreeAll,
   createPeople,
-  grantAll,
-  publishDpa,
   rows,
   run,
+  shareStory,
   TestDatabase,
 } from './support/harness';
-import { approve, draft, ERASE, submit } from './support/world';
+import { draft, ERASE } from './support/world';
 
 /**
- * Review round 2, P1-A. A transaction reads a snapshot, so its permission and consent checks can
- * pass while another transaction commits the opposite (erasure, consent withdrawal). Every write
+ * Review round 2, P1-A. A transaction reads a snapshot, so its permission and agreement checks can
+ * pass while another transaction commits the opposite (erasure). Every write
  * that depends on or changes a person's state also writes that person's `personFence` record, so
  * of two overlapping transactions the SECOND TO COMMIT fails with a retryable conflict.
  *
@@ -53,9 +53,11 @@ describe('concurrent transactions are fenced per person', () => {
       sam: 'user_sam',
       wes: 'user_wes',
       ula: 'user_ula',
+      cy: 'user_cy',
+      cid: 'user_cid',
+      dee: 'user_dee',
       moderator: 'user_mod',
     });
-    await publishDpa(t, 'v1');
     for (const sub of [
       'user_bob',
       'user_bea',
@@ -63,8 +65,9 @@ describe('concurrent transactions are fenced per person', () => {
       'user_sam',
       'user_wes',
       'user_ula',
+      'user_dee',
     ]) {
-      await grantAll(await t.person(sub));
+      await agreeAll(await t.person(sub));
     }
   });
   afterAll(() => t?.close());
@@ -111,57 +114,6 @@ describe('concurrent transactions are fenced per person', () => {
     ).toEqual([]);
   });
 
-  it('approval that overlaps a publish-consent withdrawal: nothing is published', async () => {
-    const ann = await t.person('user_ann');
-    await draft(ann, 'ann_story');
-    await submit(ann, 'ann_story');
-    const approving = await begin(admin);
-    await approving
-      .query(
-        `LET $s = (UPDATE ONLY story:ann_story SET status = 'approved', approvedAt = time::now());
-         CREATE publicStory:ann_story CONTENT {
-           version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
-           publishedAt: time::now() };`,
-      )
-      .collect();
-    // WithdrawConsent: ledger row + delete the visible public rows, one transaction.
-    await run(
-      ann,
-      `BEGIN TRANSACTION;
-       CREATE consent CONTENT { subject: $auth, type: 'publish', event: 'withdrawn',
-         dpaVersion: dpaVersion:v1, mechanism: 'account_settings', evidenceHash: $h };
-       DELETE publicStory WHERE record::id(id) IN (SELECT VALUE record::id(id) FROM story WHERE submitter = $auth);
-       COMMIT TRANSACTION;`,
-      { h: 'b'.repeat(64) },
-    );
-    expect(await commit(approving)).toMatch(CONFLICT);
-    expect(await truth('SELECT * FROM publicStory:ann_story')).toEqual([]);
-    expect(await truth('SELECT VALUE status FROM story:ann_story')).toEqual([
-      'pending',
-    ]);
-    // The retry now sees the withdrawal and is refused by the consent check.
-    await expect(approve(admin, 'ann_story')).rejects.toThrow();
-    expect(await truth('SELECT * FROM publicStory:ann_story')).toEqual([]);
-  });
-
-  it('submit that overlaps a consent withdrawal (two sessions of one person): not submitted', async () => {
-    const tab1 = await t.person('user_sam');
-    const tab2 = await t.person('user_sam');
-    await draft(tab1, 'sam_story');
-    const submitting = await begin(tab1);
-    await submitting
-      .query(`UPDATE story:sam_story SET status = 'pending'`)
-      .collect();
-    expect(
-      await consentEvent(tab2, 'special_category_religious', 'withdrawn'),
-    ).toHaveLength(1);
-    expect(await commit(submitting)).toMatch(CONFLICT);
-    expect(await truth('SELECT VALUE status FROM story:sam_story')).toEqual([
-      'draft',
-    ]);
-  });
-
   it('workflow media write that overlaps erasure: the write never lands', async () => {
     const wes = await t.person('user_wes');
     await draft(wes, 'wes_story', { primaryFormat: 'video' });
@@ -181,6 +133,73 @@ describe('concurrent transactions are fenced per person', () => {
     expect(await commit(processing)).toMatch(CONFLICT);
     expect(
       await truth('SELECT * FROM story WHERE submitter = user:wes'),
+    ).toEqual([]);
+  });
+
+  // Plan 4e: agreeing (the person's pointers) racing account deletion, which clears them.
+  it('agreeing in a transaction that overlaps erasure: the agreement never lands', async () => {
+    const cy = await t.person('user_cy');
+    const tx = await begin(cy);
+    expect(await agree(tx as unknown as Surreal, 'termsOfUse')).toHaveLength(1); // uncommitted
+    await run(apiUser, ERASE, {
+      clerkUserId: 'user_cy',
+      reason: 'account_deleted',
+    });
+    expect(await commit(tx)).toMatch(CONFLICT);
+    // Nor can the erased person's session agree afterwards.
+    await agree(cy, 'termsOfUse').catch(() => undefined);
+    const [stub] = await truth<Record<string, unknown>>(
+      'SELECT * FROM ONLY user:cy',
+    );
+    expect(Object.keys(stub ?? {}).sort()).toEqual([
+      'createdAt',
+      'gdprDeletedAt',
+      'id',
+    ]);
+  });
+
+  it('erasure that overlaps an agreement fails instead, and its retry clears it', async () => {
+    const cid = await t.person('user_cid');
+    const erasing = await begin(apiUser);
+    await erasing
+      .query(
+        ERASE.replace('BEGIN TRANSACTION;', '').replace(
+          'COMMIT TRANSACTION;',
+          '',
+        ),
+        { clerkUserId: 'user_cid', reason: 'account_deleted' },
+      )
+      .collect();
+    expect(await agree(cid, 'termsOfUse')).toHaveLength(1); // commits first
+    expect(await commit(erasing)).toMatch(CONFLICT);
+    await run(apiUser, ERASE, {
+      clerkUserId: 'user_cid',
+      reason: 'account_deleted',
+    });
+    const [stub] = await truth<Record<string, unknown>>(
+      'SELECT * FROM ONLY user:cid',
+    );
+    expect(Object.keys(stub ?? {}).sort()).toEqual([
+      'createdAt',
+      'gdprDeletedAt',
+      'id',
+    ]);
+  });
+
+  it('a story’s sharing consent ticked in a transaction that overlaps erasure never lands', async () => {
+    const dee = await t.person('user_dee');
+    await draft(dee, 'dee_story');
+    const tx = await begin(dee);
+    expect(
+      await shareStory(tx as unknown as Surreal, 'story:dee_story'),
+    ).toHaveLength(1); // uncommitted
+    await run(apiUser, ERASE, {
+      clerkUserId: 'user_dee',
+      reason: 'clerk_user_deleted',
+    });
+    expect(await commit(tx)).toMatch(CONFLICT);
+    expect(
+      await truth('SELECT * FROM story WHERE submitter = user:dee'),
     ).toEqual([]);
   });
 

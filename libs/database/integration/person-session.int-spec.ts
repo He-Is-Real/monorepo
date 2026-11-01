@@ -1,7 +1,7 @@
 import { RecordId, type Surreal } from 'surrealdb';
 import {
-  consentEvent,
   createPeople,
+  LEGAL_TABLES,
   outcome,
   rows,
   run,
@@ -149,16 +149,23 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       ]);
     });
 
-    it('sees their own consent, user record and published DPAs only', async () => {
-      expect(
-        (
-          await rows<{ subject: string }>(ann, 'SELECT subject FROM consent')
-        ).map((r) => r.subject),
-      ).toEqual(Array(4).fill('user:ann')); // grantAll: sharing is per story (O4)
-      expect(await ids(ann, 'SELECT id FROM user')).toEqual(['user:ann']);
-      expect(await ids(ann, 'SELECT id FROM dpaVersion')).not.toContain(
-        'dpaVersion:v2_draft',
+    it('sees their own user record with their agreements, and the legal texts', async () => {
+      const mine = await rows<Record<string, unknown>>(
+        ann,
+        'SELECT * FROM user',
       );
+      expect(mine.map((r) => r['id'])).toEqual(['user:ann']); // never another person's
+      expect(mine[0]).toMatchObject({
+        termsOfUse: 'termsOfUseAgreement:0',
+        testimonyConsent: 'testimonyConsent:0',
+      });
+      for (const table of LEGAL_TABLES) {
+        expect(
+          await rows(ann, `SELECT VALUE id FROM type::table($table)`, {
+            table,
+          }),
+        ).toEqual([`${table}:0`]);
+      }
       for (const table of [
         'moderationReview',
         'auditLog',
@@ -182,26 +189,6 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       ).toEqual([undefined]);
       // Bob's review isn't Ann's to see.
       expect(await rows(ann, 'SELECT * FROM moderationReview')).toEqual([]);
-    });
-
-    it('cannot read someone else’s consent through fn::consent::current', async () => {
-      expect(
-        await rows(ann, `RETURN fn::consent::current(user:bob, 'publish')`),
-      ).toEqual([]);
-      expect(
-        await rows(
-          ann,
-          `RETURN fn::consent::current(user:ann, 'publish').event`,
-        ),
-      ).toEqual(['granted']);
-    });
-
-    it('sees the consent derived on their own story (D17)', async () => {
-      const [story] = await rows<{
-        consent: Record<string, { event: string }>;
-      }>(ann, 'SELECT consent FROM story:ann_draft');
-      expect(story.consent['religious'].event).toBe('granted');
-      expect(story.consent['age18plus'].event).toBe('granted');
     });
   });
 
@@ -259,26 +246,6 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         'SELECT approvedAt, rejectionFeedback, lockedBy, lockedAt FROM story:ann_prefilled',
       );
       expect(stored).toEqual({});
-    });
-
-    it('needs current Art 9 consent (special_category_religious)', async () => {
-      const cara = await t.person('user_cara');
-      // The sign-up form first (D73; 18+ is there only, D93).
-      await consentEvent(cara, 'account_data', 'granted');
-      await consentEvent(cara, 'age_18plus', 'granted');
-      expect(await draft(cara, 'cara_no_consent')).toEqual([]);
-      expect(await truth('SELECT * FROM story:cara_no_consent')).toEqual([]);
-
-      expect(
-        await consentEvent(cara, 'special_category_religious', 'granted'),
-      ).toHaveLength(1);
-      expect(await draft(cara, 'cara_consented')).toHaveLength(1);
-
-      expect(
-        await consentEvent(cara, 'special_category_religious', 'withdrawn'),
-      ).toHaveLength(1);
-      expect(await draft(cara, 'cara_withdrawn')).toEqual([]);
-      expect(await truth('SELECT * FROM story:cara_withdrawn')).toEqual([]);
     });
   });
 
@@ -481,7 +448,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       rows(
         db,
         `CREATE ${id} CONTENT { requestHash: 'h', status: 201,
-           response: { id: consent:x, version: NONE } } RETURN id`,
+           response: { id: story:x, version: NONE } } RETURN id`,
       );
 
     it('creates and reads their own api-user key', async () => {

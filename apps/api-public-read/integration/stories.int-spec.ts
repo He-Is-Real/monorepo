@@ -1,19 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
-import {
-  DPA_V1_SHA256,
-  run,
-  sha256,
-  SCHEMA_DIR,
-  TestDatabase,
-} from '@heisreal/database/integration-testing';
+import { run, TestDatabase } from '@heisreal/database/integration-testing';
 import { startPublicRead } from './app';
 
 /**
- * M0 task 0.9 end to end: the dev seed (0003) migrated into SurrealDB 3.2.4, read by
- * api-public-read's real app on its own read-only login (D13), as the contract says
- * (api-public-read.yaml, getStoryBySlug), and what it answers when the database is down.
+ * M0 task 0.9 end to end: one published story in SurrealDB 3.2.4, read by api-public-read's
+ * real app on its own read-only login (D13), as the contract says (api-public-read.yaml,
+ * getStoryBySlug), and what it answers when the database is down.
  */
 const SLUG = 'test-story-walking-skeleton';
 
@@ -23,22 +15,30 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
   let url: string;
 
   beforeAll(async () => {
-    t = await TestDatabase.create({ migrate: false });
-    await t.migrate(
-      t.params({
-        seed_dev_story: true,
-        dpa_sha256: {
-          v1: DPA_V1_SHA256,
-          dev_seed: sha256(
-            readFileSync(
-              join(SCHEMA_DIR, '../../legal/dpa/dev_seed.md'),
-              'utf8',
-            ),
-          ),
-        },
-      }),
+    t = await TestDatabase.create();
+    // One obviously fake, published story, loaded by the migrator as system data (as the
+    // walking skeleton's old seed did): its submitter agreed to the testimony consent, which
+    // publishing needs, and has no Clerk account, so nobody can sign in as them.
+    await run(
+      await t.migrator(),
+      `CREATE user:dev_seed CONTENT {
+         termsOfUse: termsOfUseAgreement:0, termsOfUseAgreedAt: time::now(),
+         testimonyConsent: testimonyConsent:0, testimonyConsentAgreedAt: time::now()
+       };
+       LET $s = (CREATE ONLY story:dev_seed CONTENT {
+         submitter: user:dev_seed, slug: '${SLUG}',
+         title: 'Test story: the walking skeleton',
+         description: 'Placeholder content for the development site. This is not a real testimony.',
+         body: 'This is test text, written to check that a published story travels from the database through api-public-read to the page. Nobody shared this story and nothing in it happened. Real stories arrive with the first submissions.',
+         bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [], media: [],
+         status: 'approved', approvedAt: time::now()
+       });
+       CREATE publicStory:dev_seed CONTENT {
+         version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
+         body: $s.body, bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
+         themeRefs: [], media: [], publishedAt: time::now()
+       };`,
     );
-    await t.createServices();
     // Through startPublicRead, so every response is checked against the contract.
     ({ app, url } = await startPublicRead(t));
   });
@@ -82,14 +82,13 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     ]);
   });
 
-  it('answers its health check from the database, with D48’s switch', async () => {
+  it('answers its health check from the database', async () => {
     const res = await fetch(`${url}/health`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       status: 'ok',
       service: 'api-public-read',
       db: 'up',
-      consentChecksRelaxed: false,
     });
   });
 

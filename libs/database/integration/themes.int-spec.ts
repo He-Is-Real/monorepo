@@ -5,14 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RecordId, type Surreal, type SurrealTransaction } from 'surrealdb';
 import {
-  consentEvent,
   createPeople,
-  DPA_V1_SHA256,
-  grantAll,
+  agreeAll,
   outcome,
   rows,
   run,
-  SCHEMA_DIR,
+  type MigrationParams,
   sha256,
   TestDatabase,
 } from './support/harness';
@@ -186,38 +184,6 @@ describe('themes and their categories', () => {
     ).toEqual(['approved']);
   });
 
-  it('after Art 9 consent is withdrawn, the owner can’t change themes, but deleting a theme still takes it off', async () => {
-    await createPeople(t, { cara: 'user_cara' });
-    const cara = await t.person('user_cara');
-    await grantAll(cara);
-    await run(
-      admin,
-      `CREATE theme:kept SET name = 'Kept', category = themeCategory:other;
-       CREATE theme:going SET name = 'Going', category = themeCategory:other;`,
-    );
-    await draft(cara, 'cara_draft', {
-      themeRefs: [theme('kept'), theme('going')],
-    });
-    await consentEvent(cara, 'special_category_religious', 'withdrawn');
-
-    // The owner removing a theme that still exists is an edit like any other.
-    for (const refs of ['[]', '[theme:kept]']) {
-      expect(
-        error(
-          await outcome(
-            cara,
-            `UPDATE story:cara_draft SET themeRefs = ${refs}`,
-          ),
-        ),
-      ).toMatch(/Art 9 consent/);
-    }
-    expect(await themesOf('story', 'cara_draft')).toEqual(['kept', 'going']);
-
-    // Deleting the theme takes it off the story without consent.
-    await run(admin, 'DELETE theme:going');
-    expect(await themesOf('story', 'cara_draft')).toEqual(['kept']);
-  });
-
   describe('a theme deleted while a story adds it (snapshot reads): one of the two fails and retries', () => {
     const CONFLICT = /Transaction conflict.*can be retried/s;
     const commit = async (tx: SurrealTransaction) => {
@@ -238,7 +204,7 @@ describe('themes and their categories', () => {
         fay: 'user_fay',
       });
       for (const sub of ['user_dana', 'user_eve', 'user_fay']) {
-        await grantAll(await t.person(sub));
+        await agreeAll(await t.person(sub));
       }
       await run(
         admin,
@@ -397,31 +363,43 @@ describe('themes and their categories', () => {
 
 /** main before themes v3: tags in three fixed groups. */
 const BEFORE_THEMES = '0280b456dd0c414365c52e5feb1522ef74ae878e';
-const DEV_SEED_SHA256 = sha256(
-  readFileSync(join(SCHEMA_DIR, '../../legal/dpa/dev_seed.md'), 'utf8'),
-);
 
 describe('data/0008: tags become themes (a database migrated before themes v3)', () => {
   let t: TestDatabase;
   let previous: string;
-  const params = () =>
+  /**
+   * What OpenTofu passed that release: its DPA hashes (the test's v1 stand-in and the dev seed's
+   * file, libs/legal then) and its walking-skeleton story. This release takes neither.
+   */
+  const previousParams = (dir: string) =>
     t.params({
       seed_dev_story: true,
-      dpa_sha256: { v1: DPA_V1_SHA256, dev_seed: DEV_SEED_SHA256 },
-    });
+      dpa_sha256: {
+        v1: sha256('dpa v1 placeholder'),
+        dev_seed: sha256(
+          readFileSync(join(dir, 'libs/legal/dpa/dev_seed.md'), 'utf8'),
+        ),
+      },
+    } as Partial<MigrationParams>);
   beforeAll(async () => {
     const dir = await mkdtemp(join(tmpdir(), 'before-themes-'));
     const repo = join(__dirname, '../../..');
     const archive = execFileSync(
       'git',
-      ['archive', '--format=tar', BEFORE_THEMES, 'libs/database/schema'],
+      [
+        'archive',
+        '--format=tar',
+        BEFORE_THEMES,
+        'libs/database/schema',
+        'libs/legal/dpa',
+      ],
       { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
     );
     execFileSync('tar', ['-x', '-C', dir], { input: archive });
     previous = join(dir, 'libs/database/schema');
     t = await TestDatabase.create({ migrate: false });
     // That release, with its walking-skeleton story (data/0003) published, tags and limits.
-    await t.migrate(params(), {
+    await t.migrate(previousParams(dir), {
       bundleDir: previous,
       runner: join(previous, 'migrate.py'),
     });
@@ -455,8 +433,8 @@ describe('data/0008: tags become themes (a database migrated before themes v3)',
   });
 
   it('copies each group to a category and each tag to a theme with a new id, relinking stories', async () => {
-    const summary = await t.migrate(params());
-    expect(summary.applied).toEqual(['0008-themes']);
+    const summary = await t.migrate();
+    expect(summary.applied).toEqual(['0008-themes', '0009-consent-4e']);
     const migrator = await t.migrator();
     const themes = await rows<{
       id: string;
@@ -526,7 +504,7 @@ describe('data/0008: tags become themes (a database migrated before themes v3)',
   });
 
   it('a second run changes nothing', async () => {
-    expect((await t.migrate(params())).applied).toEqual([]);
+    expect((await t.migrate()).applied).toEqual([]);
     expect(
       await rows(
         await t.migrator(),

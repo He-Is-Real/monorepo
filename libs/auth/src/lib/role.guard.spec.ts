@@ -8,21 +8,16 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import {
-  ConsentModule,
-  NoConsentRequired,
-  type PersonAuthenticator,
-} from '@heisreal/consent';
 import { SURREAL } from '@heisreal/database';
 import type { Request } from 'express';
 import { useTestClerkEnv } from '../testing';
 import { ClerkAuthModule } from './auth.module';
+import type { PersonAuthenticator } from './person';
 import { RoleGuard } from './role.guard';
 import { NoRoleRequired, RequiresRole } from '@heisreal/roles';
 
 useTestClerkEnv();
 
-@NoConsentRequired('role guard tests: no personal data')
 @Controller('v1')
 class StaffController {
   @Get('queue')
@@ -31,10 +26,10 @@ class StaffController {
     return { ok: 'queue' };
   }
 
-  @Get('dpa')
+  @Get('legal-versions')
   @RequiresRole('SuperAdmin')
-  dpa() {
-    return { ok: 'dpa' };
+  legalVersions() {
+    return { ok: 'legal-versions' };
   }
 
   @Get('open')
@@ -44,7 +39,6 @@ class StaffController {
   }
 }
 
-@NoConsentRequired('role guard tests: no personal data')
 @Controller('plain')
 class UndeclaredController {
   @Get()
@@ -78,8 +72,7 @@ async function boot(controllers: (new () => object)[]) {
   const moduleRef = await Test.createTestingModule({
     imports: [
       FakeDatabaseModule,
-      ClerkAuthModule.forRoot(),
-      ConsentModule.forRoot({ authenticator: HeaderAuthenticator }),
+      ClerkAuthModule.forRoot({ authenticator: HeaderAuthenticator }),
       Routes,
     ],
   }).compile();
@@ -104,7 +97,7 @@ describe('RoleGuard', () => {
     it('lets the minimum role and above through', async () => {
       expect((await get('/v1/queue', 'Moderator')).status).toBe(200);
       expect((await get('/v1/queue', 'SuperAdmin')).status).toBe(200);
-      expect((await get('/v1/dpa', 'SuperAdmin')).status).toBe(200);
+      expect((await get('/v1/legal-versions', 'SuperAdmin')).status).toBe(200);
     });
 
     it('answers 403 role_required below it', async () => {
@@ -114,7 +107,7 @@ describe('RoleGuard', () => {
         code: 'role_required',
         requiredRole: 'Moderator',
       });
-      expect((await get('/v1/dpa', 'Admin')).status).toBe(403);
+      expect((await get('/v1/legal-versions', 'Admin')).status).toBe(403);
     });
 
     it('answers 403 for an unknown or missing role claim, 401 when not signed in', async () => {

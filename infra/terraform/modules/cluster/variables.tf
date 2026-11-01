@@ -44,11 +44,6 @@ variable "schema_dir" {
   type        = string
 }
 
-variable "dpa_dir" {
-  description = "libs/legal/dpa: DPA texts, hashed into the migration (D20)."
-  type        = string
-}
-
 variable "cluster_planner_email" {
   description = "Google identity of the automatic cluster plan (D42), given dry-run create/patch in `database` (planner_rbac.tf). Empty: none."
   type        = string
@@ -62,35 +57,13 @@ variable "identity_rotation" {
 }
 
 variable "dev_seed_login" {
-  description = "D49: SurrealDB's startup init creates dev_seed, the dev-seed Job's own system user (EDITOR; password: Secret Manager surreal-dev-seed-password from the gcp root's dev_seed). Only for the heisreal-dev project, like dev_consent_relaxed."
+  description = "D49: SurrealDB's startup init creates dev_seed, the dev-seed Job's own system user (EDITOR; password: Secret Manager surreal-dev-seed-password from the gcp root's dev_seed). Only for the heisreal-dev project."
   type        = bool
   default     = false
   nullable    = false
   validation {
     condition     = !var.dev_seed_login || lookup(var.surrealdb_expected_settings, "GCP_PROJECT", "") == "heisreal-dev"
     error_message = "dev_seed_login (D49) can only be set in dev (GCP project heisreal-dev)."
-  }
-}
-
-variable "dev_consent_relaxed" {
-  description = "D48: relax consent checks for dummy data (modules/db-migration). Only for the heisreal-dev project: the GCP project in surrealdb_expected_settings, which surrealdb.tf checks against the overlay."
-  type        = bool
-  default     = false
-  nullable    = false
-  validation {
-    condition     = !var.dev_consent_relaxed || lookup(var.surrealdb_expected_settings, "GCP_PROJECT", "") == "heisreal-dev"
-    error_message = "dev_consent_relaxed (D48) can only be set in dev (GCP project heisreal-dev)."
-  }
-}
-
-variable "dev_legal_placeholders" {
-  description = "D75: dev's placeholder privacy document and consent forms, so dummy people give real consent (modules/db-migration). Only for the heisreal-dev project, like dev_consent_relaxed."
-  type        = bool
-  default     = false
-  nullable    = false
-  validation {
-    condition     = !var.dev_legal_placeholders || lookup(var.surrealdb_expected_settings, "GCP_PROJECT", "") == "heisreal-dev"
-    error_message = "dev_legal_placeholders (D75) can only be set in dev (GCP project heisreal-dev)."
   }
 }
 

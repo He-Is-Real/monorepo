@@ -30,9 +30,6 @@
           "default",
           "^production",
           "{workspaceRoot}/libs/database/integration/support/**/*",
-          "{workspaceRoot}/libs/legal/dpa/**/*",
-          "{workspaceRoot}/libs/legal/forms/**/*",
-          "{workspaceRoot}/libs/legal/terms/**/*",
           "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
           {
             "externalDependencies": [
@@ -62,7 +59,6 @@
     }
   },
   "dependencies": {
-    "@heisreal/consent": "workspace:*",
     "@heisreal/database": "workspace:*",
     "@heisreal/roles": "workspace:*",
     "@heisreal/secrets": "workspace:*",

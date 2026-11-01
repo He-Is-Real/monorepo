@@ -36,9 +36,7 @@ test('the sitemap lists the pages and published stories, uncached (D51)', async 
   expect(xml).toContain(`<loc>${WEB_LIVE_URL}/stories/browse-test-48</loc>`);
 });
 
-test('pages carry no noindex, and the footer has no dev consent note', async ({
-  page,
-}) => {
+test('pages carry no noindex', async ({ page }) => {
   for (const path of ['/', '/stories', '/stories/video-story', '/about']) {
     const response = await page.goto(path);
     expect(response?.status()).toBe(200);
@@ -49,7 +47,4 @@ test('pages carry no noindex, and the footer has no dev consent note', async ({
       `${WEB_LIVE_URL}${path === '/' ? '' : path}`,
     );
   }
-  await expect(
-    page.getByRole('contentinfo').getByText('Consent checks relaxed (dev)'),
-  ).toHaveCount(0);
 });

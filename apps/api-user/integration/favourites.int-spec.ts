@@ -5,9 +5,9 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agree,
   approve,
   buildWorld,
-  consentEvent,
   createPeople,
   draft,
   run,
@@ -130,21 +130,6 @@ describe('hearts: /v1/account/favourites', () => {
     expect((await listed('user_ann')).ids).toEqual([]);
   });
 
-  it('needs the sign-up consent, and asks for it with consent_required (D73)', async () => {
-    await createPeople(t, { cara: 'user_cara' });
-    const res = await heart('user_cara', 'bob_live');
-    expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ code: 'consent_required' });
-    const cara = await t.person('user_cara');
-    await consentEvent(cara, 'account_data', 'granted');
-    await consentEvent(cara, 'age_18plus', 'granted');
-    expect((await heart('user_cara', 'bob_live')).status).toBe(204);
-    // Reading back and removing need no consent.
-    await consentEvent(cara, 'account_data', 'withdrawn');
-    expect((await listed('user_cara')).ids).toEqual(['bob_live']);
-    expect((await unheart('user_cara', 'bob_live')).status).toBe(204);
-  });
-
   it('lists newest heart first, a page at a time', async () => {
     for (const story of ['bob_live', 'bob_two', 'bob_three'])
       await heart('user_ann', story);
@@ -194,6 +179,21 @@ describe('hearts: /v1/account/favourites', () => {
       'if-none-match': etag,
     });
     expect(changed.status).toBe(200);
+  });
+
+  it('a heart waits for the latest terms of use (plan 4e), and removing one never does', async () => {
+    await createPeople(t, { cy: 'user_cy' });
+    const refused = await heart('user_cy', 'bob_three');
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      code: 'terms_agreement_required',
+    });
+    expect((await listed('user_cy')).ids).toEqual([]);
+    expect((await unheart('user_cy', 'bob_three')).status).toBe(204);
+
+    await agree(await t.person('user_cy'), 'termsOfUse');
+    expect((await heart('user_cy', 'bob_three')).status).toBe(204);
+    expect((await listed('user_cy')).ids).toEqual(['bob_three']);
   });
 
   it('refuses malformed queries as 400 problems, never echoing the value', async () => {

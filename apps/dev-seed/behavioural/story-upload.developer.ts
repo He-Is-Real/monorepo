@@ -13,15 +13,16 @@ import { API_USER_URL } from './playwright.config';
 // libx264 and your gcloud ADC.
 //
 // The test user (a `+clerk_test` address: Clerk's dev instance takes the fixed code 424242) is
-// signed up on first use and ticks the consent boxes a person would: the sign-up step (D73) the
-// first time, then the testimony and publishing boxes on /share the first time it shares. It's
+// signed up on first use and ticks the boxes a person would (plan 4e): the terms of use step the
+// first time (or after the terms change), then the testimony consent on /share the first time it
+// shares (or after it changes). It leaves the optional social media sharing box unticked. It's
 // a trusted submitter on dev (dev-seed's testAccounts, D112), so the weekly limit doesn't stop a
 // second run; until a reset has marked it, it may submit once a week, and the test says so
 // before uploading anything.
 // What's left behind: nothing of the story. The test withdraws and deletes it as the person
 // would (D71), which deletes its video at Bunny, and deletes the video itself if anything failed
 // before that. A Stream video has no storage folder to remove (the empty-folder finding is the
-// images zone's). The consents it gave stay in the append-only ledger, as anyone's would.
+// images zone's). Its agreements stay on its account, as anyone's would.
 const TEST_USER = 'upload-behaviour+clerk_test@example.com';
 const TEST_CODE = '424242';
 const STREAM_API = `https://video.bunnycdn.com/library/${BUNNY_MEDIA.libraryId}`;
@@ -67,7 +68,7 @@ function asPerson(
 }
 
 /**
- * Ticks a consent box as a person does, on its label (the 44 px target; the native box is
+ * Ticks a box as a person does, on its label (the 44 px target; the native box is
  * visually hidden).
  */
 async function tick(box: Locator) {
@@ -77,8 +78,8 @@ async function tick(box: Locator) {
 
 /**
  * Signs in from /share and comes back to it. The header's account bootstrap (GET /v1/account)
- * says whether the sign-up consent is still to give: if so, the header takes the person to the
- * sign-up step and back (D73), and they tick its boxes. Either way the share flow then loads.
+ * says whether the person is on the latest terms of use: if not, the header takes them to the
+ * terms step and back (plan 4e), and they tick its one box. Either way the share flow then loads.
  */
 async function signIn(page: Page) {
   await page.goto('/share');
@@ -98,15 +99,17 @@ async function signIn(page: Page) {
   );
   await page.keyboard.type(TEST_CODE);
   const account = (await (await bootstrap).json()) as {
-    signupConsent: { accepted: boolean };
+    termsOfUse: { upToDate: boolean };
   };
-  if (!account.signupConsent.accepted) {
-    await expect(page).toHaveURL(/\/consent\/sign-up\?redirect_url=%2Fshare$/, {
+  if (!account.termsOfUse.upToDate) {
+    await expect(page).toHaveURL(/\/consent\/terms\?redirect_url=%2Fshare$/, {
       timeout: 45_000,
     });
-    for (const box of await page.getByRole('main').getByRole('checkbox').all())
-      await tick(box);
-    await page.getByRole('button', { name: 'Agree and continue' }).click();
+    await tick(page.getByRole('main').getByRole('checkbox'));
+    await page
+      .getByRole('main')
+      .getByRole('button', { name: 'Continue', exact: true })
+      .click();
   }
   await expect(page).toHaveURL(/\/share$/, { timeout: 45_000 });
   await expect(
@@ -179,8 +182,8 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
     ).toBeNull();
 
     await page.getByText('Upload a video file').click();
-    // Which steps this person sees: "Your data" only until they've agreed to the testimony
-    // form in force (D67).
+    // Which steps this person sees: "Your data" only until they've agreed to the latest
+    // testimony consent (plan 4e: the first time, or a redline after it changes).
     const askTestimony = await page
       .getByRole('navigation', { name: 'Steps' })
       .getByText(/Your data/)
@@ -188,10 +191,15 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
     await page.getByRole('button', { name: 'Share my video' }).click();
     if (askTestimony) {
       await expect(
-        page.getByRole('heading', { name: 'Your story and your data' }),
+        page.getByRole('heading', {
+          name: /^(Your story and your data|Our testimony consent has changed)$/,
+        }),
       ).toBeVisible();
       await tick(page.getByRole('main').getByRole('checkbox'));
-      await page.getByRole('button', { name: 'I agree, continue' }).click();
+      await page
+        .getByRole('main')
+        .getByRole('button', { name: 'Continue', exact: true })
+        .click();
     }
     await expect(
       page.getByRole('heading', { name: 'Prepare your story' }),
@@ -230,11 +238,10 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
     await expect(
       page.getByRole('heading', { name: 'Review and submit' }),
     ).toBeVisible();
-    // The publishing box, until this person has agreed to it once.
-    const publish = page
-      .locator('[data-grant="publish"]')
-      .getByRole('checkbox');
-    if (await publish.count()) await tick(publish);
+    // The optional social media sharing box is offered unticked, and left so: no test story is
+    // shared beyond heisreal.today.
+    const sharing = page.locator('[data-sharing-box]').getByRole('checkbox');
+    if (await sharing.count()) await expect(sharing).not.toBeChecked();
 
     // Submit takes the video once Bunny has read its length (otherwise 409 media_processing,
     // "try again in a minute"), so wait for Bunny to have it, then submit once.

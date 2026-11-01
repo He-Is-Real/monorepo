@@ -15,7 +15,7 @@ Grammar (checked before anything runs; an allow-list, because 3.2.4 has more tha
 skip statements silently: RETURN anywhere in a transaction ends it early (`[RETURN 1]`,
 `1 + RETURN 1`, `IF … THEN RETURN … END`, blocks), and BREAK/CONTINUE inside an IF block skip
 the rest of that block while the transaction goes on and commits):
-  * data scripts, dpa-sync.surql and form-sync.surql: every statement, at the top level and inside IF / ELSE / FOR
+  * data scripts: every statement, at the top level and inside IF / ELSE / FOR
     blocks, must start with one of ALLOWED_STATEMENTS; the words in REFUSED_WORDS may not appear
     anywhere outside strings and comments; a `;` anywhere but the top level or such a block (a
     block the scanner can't classify) is refused. tests: libs/database/integration, "allow-list";
@@ -59,18 +59,13 @@ Order, validate first:
      written by the identity-check sidecar after it proved the intended credentials work), the
      system users are exactly MIGRATE_EXPECT_USERS and every MIGRATE_EXPECT_SERVICES has a login;
   2. take the token; refuse if a pending row exists (after waiting for an overtaken run to clean
-     up); read-only checks: no applied data script changed, DPA and form texts still match
-     (dpa-sync.surql and form-sync.surql with $sync_check = true, which writes nothing, in a
-     cancelled transaction: they run against the previous schema);
+     up); read-only check: no applied data script changed;
   3. schema.surql + the Clerk access (or its removal), one step;
-  3b. the settings row (SETTINGS), one step: in dev its event hides the public stories whose
-     consent D48's or D75's switch no longer covers (fn::consent::reconcile). Not in the schema step: on 3.2.4 a
-     publicStory row deleted in the transaction that redefines publicStory's indexes leaves its
-     slug in the unique index;
+  3b. the settings row (SETTINGS), one step;
   4. each data script not yet in _migration, in number order, one step each (a pending script that
-     uses a parameter whose value is null is refused in step 2, before anything changes);
-  5. dpa-sync.surql, one step;
-  6. form-sync.surql (the consent forms' texts, D84), one step.
+     uses a parameter whose value is null is refused in step 2, before anything changes). A data
+     script that left the bundle (0002, D44; 0001, 0003, 0005 and 0007, plan 4e) only logs a
+     warning where it was applied.
 
 Why not `surreal import`: on 3.2.4 it requires `OPTION IMPORT`, which turns off events and field
 VALUE/ASSERT clauses. This uses the HTTP /rpc `query` method (the one surrealdb.js uses), with
@@ -99,14 +94,11 @@ from pathlib import Path
 
 SCHEMA = "schema.surql"
 CLERK = "access-clerk.surql"
-DPA_SYNC = "dpa-sync.surql"
-FORM_SYNC = "form-sync.surql"
-FORM_TABLES = ("signupFormVersion", "testimonyFormVersion", "socialSharingFormVersion")
-TOP_LEVEL = {SCHEMA, CLERK, DPA_SYNC, FORM_SYNC}
+TOP_LEVEL = {SCHEMA, CLERK}
 DDL_FILES = {SCHEMA, CLERK}
 DATA_NAME = re.compile(r"^\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.surql$")
 NEVER = {"BEGIN", "COMMIT", "CANCEL"}
-# Data scripts and dpa-sync.surql (see the header): what the seeds and the sync need, nothing more.
+# Data scripts (see the header): what the seeds need, nothing more.
 ALLOWED_STATEMENTS = {"CREATE", "UPDATE", "UPSERT", "DELETE", "LET", "IF", "FOR", "THROW", "SELECT"}
 REFUSED_WORDS = {
     "RETURN", "BREAK", "CONTINUE", "BEGIN", "COMMIT", "CANCEL", "OPTION", "SLEEP", "USE",
@@ -436,12 +428,10 @@ TAKE_TOKEN = """
 LET $previous = (SELECT VALUE token FROM ONLY _migrationRun:lock) ?? 0;
 UPSERT _migrationRun:lock SET token = $previous + 1, bundle = $migration_bundle,
   takenAt = time::now(), touchedAt = NONE"""
-# The settings OpenTofu passes, as the row schema.surql's functions read (D48). A missing
-# parameter is NONE, so off. The schema refuses `true` outside dev (event _setting_dev_only).
+# The settings OpenTofu passes, as the row schema.surql's functions and dev-seed read. A missing
+# parameter is NONE.
 SETTINGS = """
-UPSERT _setting:consent CONTENT {
-  devConsentRelaxed: $dev_consent_relaxed = true,
-  devLegalPlaceholders: $dev_legal_placeholders = true,
+UPSERT _setting:current CONTENT {
   environment: $environment
 } RETURN NONE"""
 # (3.2.4: a bare record path like _migrationRun:lock.token in an IF fails with "Specify a database
@@ -548,8 +538,7 @@ class Runner:
 def migrate(client, top, data, params, deadline):
     variables = {k: v for k, v in params.items() if v is not None}
     bundle_id = hashlib.sha256(json.dumps([top, data, params], sort_keys=True).encode()).hexdigest()
-    summary = {"schemaStatements": 0, "clerk": "clerk_jwt_public_key" in variables, "devConsentRelaxed": None,
-               "devLegalPlaceholders": None,
+    summary = {"schemaStatements": 0, "clerk": "clerk_jwt_public_key" in variables,
                "applied": [], "alreadyApplied": [], "token": None, "bundle": bundle_id}
 
     def try_signin():
@@ -648,20 +637,6 @@ def migrate(client, top, data, params, deadline):
         missing = [p for p, v in params.items() if v is None and uses(text, p)]
         if name[: -len(".surql")] not in applied and missing:
             raise MigrationError(f"{name} uses {', '.join(missing)}, which Terraform passed as null: set it first")
-    # The syncs' own checks, in a transaction that is then cancelled. $sync_check = true: they
-    # only validate and write nothing, because this runs against the PREVIOUS schema, which may
-    # not define the fields they fill (Codex, #101: dpaVersion.text didn't exist yet). The
-    # drafts follow their files in steps 5 and 6, after the schema step.
-    checking = {**variables, "sync_check": True}
-    if "dpaVersion" in existing:
-        sql = "BEGIN TRANSACTION;\n" + top[DPA_SYNC] + "\n;\nCANCEL TRANSACTION;"
-        run(client, f"{DPA_SYNC} (check)", sql, checking, cancelled=True)
-    if set(FORM_TABLES) <= set(existing):
-        # The same for the consent forms (D84), once their tables exist: 3.2.4 refuses a SELECT
-        # from a table that isn't defined yet, and before the schema step defines them there are
-        # no form versions to check.
-        sql = "BEGIN TRANSACTION;\n" + top[FORM_SYNC] + "\n;\nCANCEL TRANSACTION;"
-        run(client, f"{FORM_SYNC} (check)", sql, checking, cancelled=True)
     log("checks passed: applying")
 
     # 3. Declarative schema + Clerk access, one step; then the settings (see the header).
@@ -671,14 +646,6 @@ def migrate(client, top, data, params, deadline):
     summary["schemaStatements"], _ = scan(top[SCHEMA], "runner")
     log(f"{SCHEMA}: {summary['schemaStatements']} statements applied; clerk access "
         + ("defined" if summary["clerk"] else "removed (no clerk_jwt_public_key)"))
-    # What the database now answers, not what was asked for.
-    relaxed = run(client, "consent setting", "RETURN fn::consent::relaxed()", {})[0]["result"]
-    summary["devConsentRelaxed"] = relaxed is True
-    log("consent checks: " + ("RELAXED (dev only, D48)" if relaxed is True else "enforced"))
-    placeholders = run(client, "legal setting", "RETURN fn::legal::dev_placeholders()", {})[0]["result"]
-    summary["devLegalPlaceholders"] = placeholders is True
-    if placeholders is True:
-        log("legal placeholders: ON (dev only, D75): the placeholder privacy document and forms count")
 
     # 4. Data scripts, each exactly once; the _migration row is the last write.
     for name, text in data.items():
@@ -693,13 +660,6 @@ def migrate(client, top, data, params, deadline):
         summary["applied"].append(script_id)
         log(f"{name}: applied")
 
-    # 5. DPA hashes follow their files (D20).
-    runner.step("dpa-sync", [top[DPA_SYNC]], {"sync_check": False})
-    log(f"{DPA_SYNC}: done")
-
-    # 6. Consent form texts follow their files (D84).
-    runner.step("form-sync", [top[FORM_SYNC]], {"sync_check": False})
-    log(f"{FORM_SYNC}: done")
     return summary
 
 

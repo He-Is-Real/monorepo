@@ -174,14 +174,14 @@ test.describe('behaviour', () => {
     await expect(page).toHaveURL(`${WEB_LIVE_URL}/donate`);
     await expect(stripeButton(page, STRIPE_E2E.oneOffButtonId)).toBeVisible();
 
-    // A sandbox key says so; Stripe and the privacy policy are named.
+    // A sandbox key says so; Stripe and the privacy notice are named.
     await expect(page.getByRole('note')).toContainText(
       'no real money is taken',
     );
     await expect(
       page
         .getByRole('main')
-        .getByRole('link', { name: 'privacy policy', exact: true }),
+        .getByRole('link', { name: 'privacy notice', exact: true }),
     ).toHaveAttribute('href', '/privacy#donations');
     // Stripe's script, once however often the choice changes, and nothing else from Stripe.
     expect(requested).toEqual([SCRIPT]);

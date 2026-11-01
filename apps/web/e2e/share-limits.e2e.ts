@@ -33,18 +33,12 @@ interface Seed {
   uploadsAgo?: number[];
 }
 
-/** A signed-up person who has agreed to their story being stored and published. */
+/** A signed-up person who has agreed to the latest testimony consent (plan 4e). */
 async function person(page: Page, request: APIRequestContext, seed: Seed) {
   const id = randomUUID().replace(/-/g, '');
   const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
     data: {
-      signupAccepted: true,
-      granted: [
-        'age_18plus',
-        'account_data',
-        'special_category_religious',
-        'publish',
-      ],
+      testimony: 3,
       ...seed,
     },
   });

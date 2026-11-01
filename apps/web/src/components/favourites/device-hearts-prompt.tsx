@@ -23,7 +23,7 @@ const chunks = (ids: readonly string[]) =>
 
 /**
  * Hearts kept on this device, offered to the account (Joel, 2026-10-28; the assumption in #117):
- * once someone is signed in and has accepted the sign-up consent (D73), if this device keeps
+ * once someone is signed in and has agreed to the latest terms of use (plan 4e), if this device keeps
  * hearts on public stories that haven't been added to an account from it yet, a small prompt
  * asks "Add the N stories you hearted on this device to your account?" with Add and Not now.
  *
@@ -41,10 +41,10 @@ const chunks = (ids: readonly string[]) =>
 export function DeviceHeartsPrompt() {
   const session = usePersonalSession();
   const userId = session.status === 'signed-in' ? session.userId : null;
-  // The header's account bootstrap says whether the sign-up consent is accepted.
+  // The header's account bootstrap says whether the latest terms of use are agreed (plan 4e).
   const bootstrap = useAccountState(userId);
   const accepted =
-    bootstrap.status === 'ready' && bootstrap.account.signupConsent.accepted;
+    bootstrap.status === 'ready' && bootstrap.account.termsOfUse.upToDate;
   const [deviceVersion, setDeviceVersion] = useState(0);
   const [offer, setOffer] = useState<{ owner: string; ids: string[] } | null>(
     null,

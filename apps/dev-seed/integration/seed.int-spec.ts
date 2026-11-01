@@ -4,7 +4,6 @@ import {
   run,
   type TestDatabase,
 } from '@heisreal/database/integration-testing';
-import { createHash } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { DATASET } from '../src/app/dataset';
 import bunnyMedia from '../src/app/bunny-media.json';
@@ -23,15 +22,12 @@ import { devDatabase } from '../testing';
 const vars = () => buildVars(DATASET, fakeUploads());
 const approved = DATASET.stories.filter((s) => s.status === 'approved');
 
-describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)', () => {
+describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
   let t: TestDatabase;
   let seeder: Surreal;
 
   beforeAll(async () => {
-    ({ t, seeder } = await devDatabase({
-      legalPlaceholders: true,
-      environment: 'dev',
-    }));
+    ({ t, seeder } = await devDatabase({ environment: 'dev' }));
   });
   afterAll(() => t.close());
 
@@ -59,83 +55,6 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
     );
     expect(summary.publicStories).toBe(approved.length);
     await reset(seeder, vars()); // back to the stand-ins for the tests below
-  });
-
-  it('gives every fixture person real consent on the forms in force, so the published stories pass the real checks (D75)', async () => {
-    const migrator = await t.migrator();
-    expect(await rows(migrator, 'RETURN fn::consent::relaxed()')).toEqual([
-      false,
-    ]);
-    const people = [...DATASET.people, DATASET.moderator];
-    for (const id of people) {
-      expect([
-        id,
-        await rows(
-          migrator,
-          `LET $u = type::record('user', $id);
-           RETURN [fn::consent::signup_accepted($u),
-             fn::consent::granted($u, ['special_category_religious', 'publish', 'age_18plus'])]`,
-          { id },
-        ),
-      ]).toEqual([id, [true, true]]);
-    }
-    // Every grant's evidence is the API's v4 hash of what it names (D125: the privacy policy in
-    // force, and on the sign-up form the terms in force), computed independently.
-    const ledger = await rows<Record<string, string>>(
-      migrator,
-      `SELECT type, event, mechanism, evidenceHash, record::tb(form) AS table,
-         record::id(form) AS version, form.textHash AS textHash,
-         form.statementsHash AS statementsHash, evidenceVersion,
-         record::id(dpaVersion) AS dpa, dpaVersion.contentHash AS dpaHash,
-         IF termsVersion = NONE { NONE } ELSE { record::id(termsVersion) } AS terms,
-         termsVersion.contentHash AS termsHash
-       FROM consent`,
-    );
-    expect(ledger).toHaveLength(people.length * 5);
-    // D109: 18+ is ticked on the sign-up form only, and nobody ticks sharing.
-    expect(
-      [...new Set(ledger.map((r) => `${r['type']} ${r['table']}`))].sort(),
-    ).toEqual([
-      'account_data signupFormVersion',
-      'age_18plus signupFormVersion',
-      'publish testimonyFormVersion',
-      'special_category_religious testimonyFormVersion',
-      'terms_of_use signupFormVersion',
-    ]);
-    for (const r of ledger) {
-      expect(r['evidenceVersion']).toBe(4);
-      const signup = r['table'] === 'signupFormVersion';
-      expect([r['type'], r['dpa'], r['terms'] ?? null]).toEqual([
-        r['type'],
-        'dev_policy',
-        signup ? 'dev_placeholder' : null,
-      ]);
-      expect(r['evidenceHash']).toBe(
-        createHash('sha256')
-          .update(
-            JSON.stringify([
-              'heisreal-consent-evidence/v4',
-              signup ? 'signup' : 'testimony',
-              r['version'],
-              r['textHash'],
-              r['statementsHash'],
-              r['dpa'],
-              r['dpaHash'],
-              signup ? r['terms'] : null,
-              signup ? r['termsHash'] : null,
-              r['type'],
-              r['event'],
-              r['mechanism'],
-            ]),
-          )
-          .digest('hex'),
-      );
-    }
-    // A reset doesn't grant again while the grants are on the versions in force.
-    await reset(seeder, vars());
-    expect(
-      await rows(migrator, 'SELECT count() AS n FROM consent GROUP ALL'),
-    ).toEqual([{ n: people.length * 5 }]);
   });
 
   it('is idempotent: a second reset gives the same data', async () => {
@@ -232,6 +151,50 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
     });
   });
 
+  it('every fixture person agreed to the latest terms and testimony consent, kept across resets (plan 4e)', async () => {
+    const migrator = await t.migrator();
+    const agreed = () =>
+      rows<Record<string, unknown>>(
+        migrator,
+        `SELECT id, termsOfUse, termsOfUseAgreedAt, testimonyConsent, testimonyConsentAgreedAt
+           FROM user WHERE string::starts_with(<string> record::id(id), 'seed_') ORDER BY id`,
+      );
+    const before = await agreed();
+    expect(before).toHaveLength(DATASET.people.length + 1);
+    for (const person of before) {
+      expect(person).toEqual({
+        id: expect.any(String),
+        termsOfUse: 'termsOfUseAgreement:0',
+        termsOfUseAgreedAt: expect.any(String),
+        testimonyConsent: 'testimonyConsent:0',
+        testimonyConsentAgreedAt: expect.any(String),
+      });
+    }
+    await reset(seeder, vars());
+    expect(await agreed()).toEqual(before);
+    // No dummy story is shared beyond the dev site.
+    expect(
+      await rows(
+        migrator,
+        'SELECT VALUE id FROM story WHERE socialMediaSharingConsent != NONE',
+      ),
+    ).toEqual([]);
+
+    // A newer testimony consent: the next reset moves every fixture person to it.
+    await run(
+      await t.service('api_admin'),
+      `CREATE testimonyConsent:1 CONTENT { content: 'Version one' }`,
+    );
+    await reset(seeder, vars());
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE testimonyConsent FROM user
+           WHERE string::starts_with(<string> record::id(id), 'seed_')`,
+      ),
+    ).toEqual(Array(before.length).fill('testimonyConsent:1'));
+  });
+
   it('keeps people who aren’t fixtures, removes their content and stale fixtures', async () => {
     const migrator = await t.migrator();
     await run(
@@ -255,7 +218,7 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
     ).toEqual([]);
   });
 
-  it('marks dev’s Clerk test accounts trusted submitters, signed in before or not (D112)', async () => {
+  it('marks dev’s Clerk test accounts trusted submitters who agreed to the latest texts, signed in before or not (D112, C1)', async () => {
     const migrator = await t.migrator();
     await run(
       migrator,
@@ -283,6 +246,20 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
         `SELECT VALUE id FROM user WHERE clerkUserId = 'user_tester_new'`,
       ),
     ).toHaveLength(1);
+    // C1: both are on the latest terms of use and testimony consent, so the behavioural suites
+    // can share a story straight after a reset.
+    expect(
+      await rows(
+        migrator,
+        `SELECT clerkUserId AS clerk,
+           termsOfUse = fn::legal::latest('termsOfUseAgreement') AND termsOfUseAgreedAt != NONE AS terms,
+           testimonyConsent = fn::legal::latest('testimonyConsent') AND testimonyConsentAgreedAt != NONE AS testimony
+           FROM user WHERE clerkUserId IN ['user_tester_known', 'user_tester_new'] ORDER BY clerk`,
+      ),
+    ).toEqual([
+      { clerk: 'user_tester_known', terms: true, testimony: true },
+      { clerk: 'user_tester_new', terms: true, testimony: true },
+    ]);
   });
 
   it('is one transaction: a failure leaves the data as it was', async () => {
@@ -305,16 +282,8 @@ describe('dev-seed reset on SurrealDB (dev: placeholder forms, consent enforced)
 
 describe('dev-seed refuses anything but dev', () => {
   it.each([
-    [
-      'a database that isn’t dev',
-      { legalPlaceholders: false, environment: null },
-      /not dev/,
-    ],
-    [
-      'dev without published consent forms',
-      { legalPlaceholders: false, environment: 'dev' },
-      /no consent forms are published/,
-    ],
+    ['a database without an environment', { environment: null }, /not dev/],
+    ['another environment', { environment: 'prod' }, /not dev/],
   ])('refuses %s and changes nothing', async (_, params, error) => {
     const { t, seeder } = await devDatabase(params);
     try {

@@ -17,8 +17,8 @@ import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 // a real upload to Bunny is the dev behavioural suite's. Each test is its own person (T4).
 
 const SHARE = `${WEB_SIGNED_IN_URL}/share`;
-const ART9 = /storing and processing my story/;
-const PUBLISH = /Publish my story on heisreal\.today/;
+/** The testimony consent's box (plan 4e), before a first story. */
+const ART9 = /I agree to the testimony consent/;
 
 interface Video {
   id: string;
@@ -37,8 +37,6 @@ async function person(
   const id = randomUUID().replace(/-/g, '');
   const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
     data: {
-      signupAccepted: true,
-      granted: ['age_18plus', 'account_data'],
       settings,
     },
   });
@@ -109,7 +107,7 @@ async function toUpload(page: Page, format: 'Video' | 'Audio' = 'Video') {
   await page.getByRole('button', { name: `Share my ${noun}` }).click();
   await step(page, 'Your story and your data');
   await page.locator('label').filter({ hasText: ART9 }).click();
-  await page.getByRole('button', { name: 'I agree, continue' }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await step(page, 'Prepare your story');
   const file = format === 'Video' ? 'video' : 'audio file';
   await page.getByRole('button', { name: `Upload my ${file}` }).click();
@@ -157,7 +155,6 @@ test('the upload step fits every device, and a video story goes all the way to â
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await step(page, 'Review and submit');
   await expect(page.getByText('Your video', { exact: true })).toBeVisible();
-  await page.locator('label').filter({ hasText: PUBLISH }).click();
   await page.getByRole('button', { name: 'Submit for review' }).click();
   await step(page, 'Thank you for sharing your story');
 

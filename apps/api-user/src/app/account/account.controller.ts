@@ -1,35 +1,65 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   Headers,
+  HttpCode,
   HttpStatus,
-  Inject,
   Module,
+  Param,
+  Post,
   Req,
   Res,
 } from '@nestjs/common';
-import {
-  ifNoneMatches,
-  NoConsentRequired,
-  PersonSessions,
-  SIGNUP_CONSENT_STATUS,
-  type SignupConsentStatus,
-  weakETag,
-} from '@heisreal/consent';
+import { PersonSessions } from '@heisreal/auth';
 import { runQuery } from '@heisreal/database';
+import { ifNoneMatches, ProblemException, weakETag } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Request, Response } from 'express';
 import { Erasure } from '../erasure/erasure';
+import {
+  agree,
+  type Agreements,
+  type AgreementState,
+  isAgreementName,
+  readAgreements,
+} from './agreements';
 
 /** The contract's `Account` (components.yaml). */
-export interface Account {
+export interface Account extends Agreements {
   id: string;
   version: null;
   role: string;
   createdAt: string;
-  signupConsent: { accepted: boolean };
-  testimonyConsent: { acceptanceRequired: boolean };
+}
+
+const invalid = (pointer: string, message: string) =>
+  new ProblemException(
+    HttpStatus.BAD_REQUEST,
+    'validation_failed',
+    'Validation failed',
+    undefined,
+    [{ pointer, message }],
+  );
+
+/** `Agree`'s body: `{ version }`, a version number (0, 1, 2...). */
+function parseAgree(body: unknown): number {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw invalid('', 'a JSON object');
+  }
+  const b = body as Record<string, unknown>;
+  const unknown = Object.keys(b).find((k) => k !== 'version');
+  if (unknown) throw invalid(`/${unknown}`, 'not a field of this command');
+  const version = b['version'];
+  if (!(
+    typeof version === 'number' &&
+    Number.isInteger(version) &&
+    version >= 0
+  )) {
+    throw invalid('/version', 'the version number the page showed');
+  }
+  return version;
 }
 
 /**
@@ -43,16 +73,11 @@ export interface Account {
 export class AccountController {
   constructor(
     private readonly people: PersonSessions,
-    @Inject(SIGNUP_CONSENT_STATUS)
-    private readonly signupConsent: SignupConsentStatus,
     private readonly erasure: Erasure,
   ) {}
 
   @Get()
   @RequiresRole('User')
-  @NoConsentRequired(
-    'the account bootstrap tells the site whether the sign-up form still needs accepting (D73)',
-  )
   async getAccount(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -72,14 +97,9 @@ export class AccountController {
         // The RoleGuard has checked it is a role, at least User (D1).
         role: role as string,
         createdAt: new Date(user.createdAt).toISOString(),
-        signupConsent: {
-          accepted: await this.signupConsent.acceptedLatest(person),
-        },
-        // D85: the signed-in banner. The database's own answer (fn::consent::testimony_status),
-        // the one the new-draft and submit gates use.
-        testimonyConsent: {
-          acceptanceRequired: await testimonyAcceptanceRequired(person.session),
-        },
+        // Plan 4e: whether the person must agree to the terms of use before using the account,
+        // and to the testimony consent before their next story (the database's own pointers).
+        ...(await readAgreements(person.session)),
       } satisfies Account;
     });
     const etag = weakETag(account);
@@ -93,17 +113,38 @@ export class AccountController {
   }
 
   /**
+   * Command `Agree` (plan 4e): the person agrees to the latest version of the terms of use or
+   * the testimony consent, the version the page showed, in their own session (D27). Idempotent;
+   * an older version is `409 agreement_version_changed`. No `If-Match` or `Idempotency-Key` (a
+   * listed exception to D29).
+   */
+  @Post('agreements/:agreement')
+  @HttpCode(HttpStatus.OK)
+  @RequiresRole('User')
+  async agree(
+    @Req() req: Request,
+    @Param('agreement') agreement: string,
+    @Body() body: unknown,
+  ): Promise<AgreementState> {
+    if (!isAgreementName(agreement)) {
+      throw invalid('/agreement', 'terms-of-use or testimony-consent');
+    }
+    const version = parseAgree(body);
+    return this.people.run(req, ({ session }) =>
+      agree(session, agreement, version),
+    );
+  }
+
+  /**
    * "Delete my account" (D39, D82; the profile's Your data): erases the person on api-user's own
    * login (their session can't delete stories), then deletes their media at Bunny and their Clerk
    * account. Answers 202 once the database half has committed; a Bunny or Clerk deletion that
    * fails is retried later (D40). No `If-Match` or `Idempotency-Key` (a listed exception, D29):
-   * it can only happen once, and a repeat finds nothing to erase.
+   * it can only happen once, and a repeat finds nothing to erase. It is also how a person
+   * withdraws all consent (plan 4e): their agreements go with the account.
    */
   @Delete()
   @RequiresRole('User')
-  @NoConsentRequired(
-    'deleting your account needs no consent (your right to erasure, Art 17)',
-  )
   async eraseAccount(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -115,21 +156,6 @@ export class AccountController {
     await this.erasure.erase(clerkUserId, 'account_deleted');
     res.status(HttpStatus.ACCEPTED);
   }
-}
-
-/**
- * D85, D93: a testimony form version requiring acceptance for new submissions came after the
- * person's own (their current Art 9 grant's form), so they must accept the one in force before
- * a new draft or a submission. Read in their own session (D27).
- */
-async function testimonyAcceptanceRequired(
-  session: Parameters<typeof runQuery>[0],
-): Promise<boolean> {
-  const [status] = (await runQuery(
-    session,
-    'RETURN fn::consent::testimony_status($auth)',
-  )) as [{ acceptanceRequired?: boolean } | undefined];
-  return status?.acceptanceRequired === true;
 }
 
 @Module({ controllers: [AccountController] })

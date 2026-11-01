@@ -50,12 +50,12 @@ const command = { statements: 'LET $result = {};', vars: {}, status: 201 };
 describe('runIdempotent', () => {
   it('after a conflict, looks the key up again before re-preparing (review round 2)', async () => {
     // Two same-key requests overlap: the other one commits, this one gets a conflict. By the
-    // time it retries, the DPA version in force has changed, so preparing again would refuse
+    // time it retries, a newer terms of use version has been saved, so preparing again would refuse
     // (409). It must find the committed key and replay it instead.
     const { db, calls } = scriptedDb({
       lookups: [
         [], // first attempt: no key yet
-        [{ requestHash: 'h', status: 201, response: { id: 'consent:winner' } }],
+        [{ requestHash: 'h', status: 201, response: { id: 'story:winner' } }],
       ],
       transactions: ['conflict'],
     });
@@ -65,7 +65,7 @@ describe('runIdempotent', () => {
       .mockRejectedValue(new Error('dpa_version_not_in_force'));
     await expect(runIdempotent(db, scope, 'h', prepare)).resolves.toEqual({
       replayed: true,
-      response: { status: 201, id: 'consent:winner', version: null },
+      response: { status: 201, id: 'story:winner', version: null },
     });
     expect(prepare).toHaveBeenCalledTimes(1);
     expect(calls).toEqual(['lookup', 'transaction', 'lookup']);
@@ -75,7 +75,7 @@ describe('runIdempotent', () => {
     const { db } = scriptedDb({
       lookups: [
         [],
-        [{ requestHash: 'h', status: 202, response: { id: 'consent:w' } }],
+        [{ requestHash: 'h', status: 202, response: { id: 'story:w' } }],
       ],
       transactions: ['taken'],
     });
@@ -87,12 +87,12 @@ describe('runIdempotent', () => {
   it('retries a conflict that wasn’t about the key: lookup, prepare and write again', async () => {
     const { db, calls } = scriptedDb({
       lookups: [[], []],
-      transactions: ['conflict', { status: 201, id: 'consent:mine' }],
+      transactions: ['conflict', { status: 201, id: 'story:mine' }],
     });
     const prepare = vi.fn().mockResolvedValue(command);
     await expect(runIdempotent(db, scope, 'h', prepare)).resolves.toEqual({
       replayed: false,
-      response: { status: 201, id: 'consent:mine', version: null },
+      response: { status: 201, id: 'story:mine', version: null },
     });
     expect(prepare).toHaveBeenCalledTimes(2);
     expect(calls).toEqual(['lookup', 'transaction', 'lookup', 'transaction']);

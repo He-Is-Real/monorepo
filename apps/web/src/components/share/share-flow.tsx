@@ -10,21 +10,26 @@ import {
   useState,
 } from 'react';
 import { Card } from '@/components/page/card';
-import { StorySharing } from '@/components/account/story-sharing';
+import { agreementTexts } from '@/app/consent/actions';
+import { AgreementStep } from '@/components/consent/agreement-step';
 import {
+  TERMS_AGREEMENT_PATH,
+  withReturn,
+} from '@/components/consent/consent-prompts';
+import { LegalHtml } from '@/components/legal/legal-html';
+import { PrivacyNoticeLink } from '@/components/legal/privacy-notice-link';
+import { Redline } from '@/components/legal/redline';
+import {
+  type Account,
   type ApiUser,
   ApiUserProblem,
   ApiUserUnavailable,
-  newIdempotencyKey,
   StaleVersion,
 } from '@/lib/api-user';
-import { LegalDocumentDetails } from '@/components/legal/legal-document-details';
-import { LegalHtml } from '@/components/legal/legal-html';
-import type { ConsentBox, ConsentStatement } from '@/lib/legal';
-import type { ShareForm, ShareLegal } from '@/lib/share-legal';
+import type { RedlineItem } from '@/lib/redline';
+import type { SharingConsent, ShareLegal } from '@/lib/share-legal';
 import { signInHref } from '@/lib/return-path';
 import {
-  type ConsentState,
   type MyStory,
   plainMessage,
   shareApi,
@@ -46,16 +51,17 @@ import { fileLimits, type FileState, UploadPanel } from './upload-panel';
 
 /**
  * The submit flow for written stories (M2 plan PR 4), from the mockup authenticated/submit.html,
- * reordered by D67: Choose → Your story and your data (Art 9 consent, only when the person isn't
- * on the testimony form in force, D85) → Prepare (prompts, guidance only, never stored) → Write →
- * Details (optional first name, no email: Clerk has it) → Review (publish consent; 18+ was asked
- * at sign-up, D93) → submitted for review. A video or audio story uploads its file where a
+ * reordered by D67: Choose → Your story and your data (the testimony consent, plan 4e: only when
+ * the person hasn't agreed to its latest version, with what changed if they agreed to an older
+ * one) → Prepare (prompts, guidance only, never stored) → Write → Details (optional first name, no
+ * email: Clerk has it) → Review (the optional social media sharing box; 18+ is in the terms of use
+ * agreed at sign-up) → submitted for review. A video or audio story uploads its file where a
  * written one is written (M2 plan PR 7: upload-panel.tsx), with its title; recording in the
  * browser is left out of M2 (A5).
  *
  * Everything personal happens in the browser, against api-user (D32, D83). Nothing is stored
- * before the Art 9 tick; the draft is created once it has a title and text, and autosaves
- * (use-draft.ts). The database enforces consent and D94's limits; the page says them plainly.
+ * before the testimony consent is agreed; the draft is created once it has a title and text, and autosaves
+ * (use-draft.ts). The database enforces the agreements and D94's limits; the page says them plainly.
  */
 
 /**
@@ -98,8 +104,8 @@ const NOUN: Record<StoryFormat, string> = {
   audio: 'audio file',
 };
 
-/** The sign-up consent step (D73, PR 116's page). */
-export const SIGNUP_CONSENT_HREF = `/consent/sign-up?redirect_url=${encodeURIComponent('/share')}`;
+/** The terms of use step (plan 4e), coming back to Share. */
+export const TERMS_HREF = withReturn(TERMS_AGREEMENT_PATH, '/share');
 
 export type ShareAuth =
   | { state: 'loading' }
@@ -118,15 +124,6 @@ const PROMPTS = [
   },
   { title: 'What changed?', text: 'How is your life different now?' },
 ];
-
-const counts = (c: ConsentState | null, type: string) =>
-  !!c?.current.find((x) => x.type === type)?.counts;
-
-/** Art 9 consent on the testimony form in force (D67, D85, D93). */
-const needsTestimonyConsent = (c: ConsentState) =>
-  !counts(c, 'special_category_religious') ||
-  c.testimony.updateAvailable ||
-  c.testimony.acceptanceRequired;
 
 const button =
   'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
@@ -188,7 +185,7 @@ function SignedInFlow({
     | { state: 'failed' }
     | {
         state: 'ready';
-        consents: ConsentState;
+        account: Account;
         limits: SubmissionLimits;
         themes: ThemeCategory[];
         drafts: MyStory[];
@@ -196,6 +193,8 @@ function SignedInFlow({
       }
   >({ state: 'loading' });
   const [step, setStep] = useState<Step>('choose');
+  /** Where to go back to after the consent step, when a save or submission asked for it. */
+  const resumeAt = useRef<Step | null>(null);
   const [missingDraft, setMissingDraft] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
@@ -221,16 +220,17 @@ function SignedInFlow({
   const start = useCallback(async () => {
     setLoaded({ state: 'loading' });
     try {
-      const [consents, limits, themes, drafts] = await Promise.all([
-        calls.consents(),
+      const [account, limits, themes, drafts] = await Promise.all([
+        calls.account(),
         calls.limits(),
         calls.themes(),
         calls.openDrafts(),
       ]);
-      const askConsent = needsTestimonyConsent(consents);
+      // Plan 4e: the testimony consent first, unless they agreed to its latest version.
+      const askConsent = !account.testimonyConsent.upToDate;
       setLoaded({
         state: 'ready',
-        consents,
+        account,
         limits,
         themes,
         drafts,
@@ -238,7 +238,7 @@ function SignedInFlow({
       });
       // Resuming a draft (?draft=…, kept in the address after it was created).
       const id = new URLSearchParams(window.location.search).get('draft');
-      if (id && consents.signup.accepted) {
+      if (id && account.termsOfUse.upToDate) {
         if (askConsent) setStep('consent');
         else {
           try {
@@ -297,6 +297,39 @@ function SignedInFlow({
     if (draft.themesChanged > 0) void reloadThemes();
   }, [draft.themesChanged, reloadThemes]);
 
+  // A save or submission was refused until the person agrees (a newer version was saved while they
+  // wrote): the testimony consent's step, then back to where they were; the terms of use on their
+  // own page, coming back to this draft. The draft stays on this device meanwhile.
+  const askAgreement = useCallback(
+    async (which: 'testimony-consent' | 'terms-of-use', from: Step) => {
+      if (which === 'terms-of-use') {
+        window.location.assign(
+          withReturn(
+            TERMS_AGREEMENT_PATH,
+            `${window.location.pathname}${window.location.search}`,
+          ),
+        );
+        return;
+      }
+      try {
+        const account = await calls.account();
+        setLoaded((l) =>
+          l.state === 'ready' ? { ...l, account, askConsent: true } : l,
+        );
+        resumeAt.current = from;
+        go('consent');
+      } catch {
+        // Can't tell now: the draft's own message stays, and saving again asks again.
+      }
+    },
+    [calls, go],
+  );
+  useEffect(() => {
+    if (draft.agreementNeeded && step !== 'consent')
+      void askAgreement(draft.agreementNeeded, step);
+    // Only when a save says so, not on every step change (`step` is read, not watched).
+  }, [draft.agreementNeeded, askAgreement]);
+
   // The draft's id in the address once it exists, so a reload resumes it.
   useEffect(() => {
     if (!draft.draftId) return;
@@ -346,19 +379,19 @@ function SignedInFlow({
       </Card>
     );
   }
-  const { consents, limits, themes, drafts, askConsent } = loaded;
-  if (!consents.signup.accepted) {
+  const { account, limits, themes, drafts, askConsent } = loaded;
+  if (!account.termsOfUse.upToDate) {
     return (
       <Card className="p-6 text-center sm:p-8">
         <h2 className="mb-3 text-2xl font-normal">
-          First, finish setting up your account
+          First, agree to our terms of use
         </h2>
         <p className="mb-6 text-secondary-text">
-          Before you share a story, please confirm you’re 18 or over and agree
-          to us storing your account. It only takes a moment.
+          Before you share a story, please read our terms of use and agree to
+          them. It only takes a moment.
         </p>
-        <a href={SIGNUP_CONSENT_HREF} className={primary}>
-          Finish setting up
+        <a href={TERMS_HREF} className={primary}>
+          Read the terms of use
         </a>
       </Card>
     );
@@ -374,11 +407,6 @@ function SignedInFlow({
   const before = (s: Step): Step => {
     const i = steps.indexOf(s as Exclude<Step, 'done'>);
     return steps[Math.max(0, i - 1)];
-  };
-  const refreshConsents = async () => {
-    const fresh = await calls.consents();
-    setLoaded({ ...loaded, consents: fresh });
-    return fresh;
   };
   return (
     <Limits.Provider value={limits}>
@@ -429,19 +457,28 @@ function SignedInFlow({
             />
           )}
           {step === 'consent' && (
-            <ConsentStep
-              heading={heading}
-              legal={legal}
-              grant={async () => {
-                if (!legal.testimony) return;
-                // The version shown, whose box and privacy policy were on screen.
-                await calls.grant(
-                  'testimony',
-                  legal.testimony.version,
-                  legal.testimony.privacyVersion,
-                  'special_category_religious',
-                );
-                await refreshConsents();
+            <AgreementStep
+              key={account.testimonyConsent.agreed?.version ?? 'none'}
+              document="testimony-consent"
+              agreed={account.testimonyConsent.agreed}
+              userId={owner}
+              api={api}
+              heading={(text) => (
+                <StepHeading heading={heading}>{text}</StepHeading>
+              )}
+              onAgreed={async (testimonyConsent) => {
+                setLoaded({
+                  ...loaded,
+                  account: { ...account, testimonyConsent },
+                });
+                const back = resumeAt.current;
+                resumeAt.current = null;
+                if (back) {
+                  // A save refused for this: try it again now.
+                  void draft.flush();
+                  go(back);
+                  return;
+                }
                 const id = new URLSearchParams(window.location.search).get(
                   'draft',
                 );
@@ -449,7 +486,20 @@ function SignedInFlow({
                   go((await draft.load(id)) ? 'write' : 'done');
                 } else go(after('consent'));
               }}
-              onBack={() => go('choose')}
+              after={
+                <Actions>
+                  <button
+                    type="button"
+                    className={secondary}
+                    onClick={() => {
+                      resumeAt.current = null;
+                      go('choose');
+                    }}
+                  >
+                    Back
+                  </button>
+                </Actions>
+              }
             />
           )}
           {step === 'prepare' && (
@@ -495,11 +545,9 @@ function SignedInFlow({
               heading={heading}
               draft={draft}
               themes={themes}
-              legal={legal}
-              consents={consents}
-              api={api}
+              sharing={legal.sharing}
               calls={calls}
-              refreshConsents={refreshConsents}
+              onAgreementNeeded={(which) => void askAgreement(which, 'review')}
               refreshLimits={refreshLimits}
               refreshThemes={reloadThemes}
               onEdit={(s) => go(s)}
@@ -510,58 +558,6 @@ function SignedInFlow({
         </Card>
       </div>
     </Limits.Provider>
-  );
-}
-
-/**
- * The box for one statement, from the form version's structured boxes (D114), never from its
- * words; undefined when the version has none, and the step that needs it then fails closed.
- */
-function boxFor(
-  form: ShareForm | null,
-  statement: ConsentStatement,
-): ConsentBox | undefined {
-  return form?.boxes.find((b) => b.statement === statement);
-}
-
-/**
- * The privacy policy a grant on this form names (D122), folded away to read, with its own
- * numbered page: shown beside every box that grants, so what's agreed to is what was shown.
- * The same card as the sign-up step's (legal-document-details.tsx).
- */
-function PrivacyPolicy({
-  form,
-  className,
-}: {
-  form: ShareForm;
-  className?: string;
-}) {
-  return (
-    <LegalDocumentDetails
-      name="privacy"
-      version={form.privacyVersion}
-      number={form.privacyNumber}
-      html={form.privacyHtml}
-      className={className}
-    />
-  );
-}
-
-/** A form's words, or the privacy policy's: a document to read, in a box of its own. */
-function LegalDocument({
-  label,
-  html,
-}: {
-  label: string;
-  html: ShareForm['html'];
-}) {
-  return (
-    <section
-      aria-label={label}
-      className="max-h-[60svh] overflow-y-auto rounded-xl border border-border p-4"
-    >
-      <LegalHtml html={html} />
-    </section>
   );
 }
 
@@ -805,104 +801,6 @@ function ChooseStep({
         </button>
       </Actions>
     </div>
-  );
-}
-
-/** Exported for share-flow.spec.tsx. */
-export function ConsentStep({
-  heading,
-  legal,
-  grant,
-  onBack,
-}: {
-  heading: HeadingRef;
-  legal: ShareLegal;
-  grant: () => Promise<void>;
-  onBack: () => void;
-}) {
-  const [ticked, setTicked] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const form = legal.testimony;
-  // D114: the box is the version's own data. Without it nothing is asked (fail closed).
-  const box = boxFor(form, 'special_category_religious');
-  if (!form || !box) {
-    return (
-      <div role="alert">
-        <StepHeading heading={heading}>Your story and your data</StepHeading>
-        <p className="text-secondary-text">
-          The consent form can’t be shown right now, so we can’t start your
-          story yet. Please try again later.
-        </p>
-        <Actions>
-          <button type="button" className={secondary} onClick={onBack}>
-            Back
-          </button>
-        </Actions>
-      </div>
-    );
-  }
-  return (
-    <form
-      noValidate
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (!ticked) {
-          setProblem(
-            'Tick the box to go on. Without it we don’t store anything you write.',
-          );
-          return;
-        }
-        setBusy(true);
-        setProblem(null);
-        try {
-          await grant();
-        } catch (err) {
-          setProblem(
-            err instanceof ApiUserProblem &&
-              (err.code === 'form_version_not_in_force' ||
-                err.code === 'legal_document_not_in_force')
-              ? 'The form has just been updated. Please reload the page to read the new version.'
-              : err instanceof ApiUserUnavailable
-                ? 'We can’t reach our server right now. Please try again in a moment.'
-                : plainMessage(
-                    err,
-                    'Your consent couldn’t be recorded. Please try again.',
-                  ),
-          );
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <StepHeading heading={heading}>Your story and your data</StepHeading>
-      {/* The form's words: a document to read. The box below is the page's own (D114). */}
-      <LegalDocument label="The form" html={form.html} />
-      <PrivacyPolicy form={form} className="mt-4" />
-      <div className="mt-6">
-        <Checkbox
-          checked={ticked}
-          onChange={setTicked}
-          describedBy={problem ? 'consent-problem' : undefined}
-          className="rounded-xl border border-border bg-accent p-[12px] text-foreground sm:p-4"
-        >
-          {box.label}
-        </Checkbox>
-      </div>
-      {problem && (
-        <p id="consent-problem" role="alert" className="mt-4 text-destructive">
-          {problem}
-        </p>
-      )}
-      <Actions>
-        <button type="button" className={secondary} onClick={onBack}>
-          Back
-        </button>
-        <button type="submit" className={primary} disabled={busy}>
-          {busy ? 'Saving…' : 'I agree, continue'}
-        </button>
-      </Actions>
-    </form>
   );
 }
 
@@ -1485,88 +1383,65 @@ function DetailsStep({
   );
 }
 
-/** Exported for share-flow.spec.tsx. */
+/**
+ * Review and submit. Plan 4e: the testimony consent (agreed before the story started) covers
+ * publishing it; the one box here is the optional social media sharing consent for this story,
+ * unticked, with its words (they name every platform). Ticked, its version goes with the
+ * submission and is recorded in the same write (both or neither; a replay resolves both). If a
+ * newer version was saved meanwhile, the submission is refused (409 `agreement_version_changed`),
+ * nothing is submitted, and the page shows the latest words and what changed for the person to
+ * tick again; it never sends the old version again. The story stays saved as a draft.
+ */
 export function ReviewStep({
   heading,
   draft,
   themes,
-  legal,
-  consents,
-  api,
+  sharing: initialSharing,
   calls,
-  refreshConsents,
   refreshLimits,
   refreshThemes,
+  onAgreementNeeded,
   onEdit,
   onDone,
 }: {
   heading: HeadingRef;
   draft: DraftState;
   themes: ThemeCategory[];
-  legal: ShareLegal;
-  consents: ConsentState;
-  /** For the story's own sharing choice, once given (O4). */
-  api: ApiUser;
+  /** The latest social media sharing consent, read by the page's server; null if unreadable. */
+  sharing: SharingConsent | null;
   calls: ReturnType<typeof shareApi>;
-  refreshConsents: () => Promise<ConsentState>;
   /** The page's limits and drafts read again (when the server's answer shows them stale). */
   refreshLimits: () => void;
   /** The themes read again (a chosen one was deleted meanwhile, A7); null if unreadable. */
   refreshThemes: () => Promise<ThemeCategory[] | null>;
+  /** A newer terms of use or testimony consent must be agreed first (the draft is kept). */
+  onAgreementNeeded: (which: 'testimony-consent' | 'terms-of-use') => void;
   onEdit: (step: Step) => void;
   onDone: () => void;
 }) {
   const limits = useLimits();
-  const askPublish = !counts(consents, 'publish');
-  // O4: sharing beyond heisreal.today is chosen for each story. The box is part of the submit
-  // command: ticked, it's sent with the submission and recorded in the same transaction, so the
-  // two commit together or not at all, and a lost answer is resolved by replaying the same
-  // submission (same key, same body). It's offered unless this story already allows it (sent
-  // back for changes, say): then Review says so, with the way to stop it, and submitting leaves
-  // it as it is. So the choice waits for the story's sharing state; if that can't be read (no
-  // answer, or one without a yes or no), the person retries, and nothing is submitted meanwhile.
   const storyId = draft.current().draftId;
-  const needsSharing = !!storyId && !!legal.social;
-  const [sharing, setSharing] = useState<
-    'loading' | 'shared' | 'not_shared' | 'error'
-  >(needsSharing ? 'loading' : 'not_shared');
-  const reads = useRef(0);
-  const readSharing = useCallback(async () => {
-    const mine = ++reads.current;
-    if (!storyId || !legal.social) {
-      setSharing('not_shared');
-      return;
-    }
-    setSharing('loading');
-    let next: 'shared' | 'not_shared' | 'error' = 'error';
-    try {
-      const granted = (await calls.story(storyId))?.sharing?.granted;
-      if (typeof granted === 'boolean')
-        next = granted ? 'shared' : 'not_shared';
-    } catch {
-      // stays 'error'
-    }
-    // Only the latest read speaks (an earlier one's answer is older).
-    if (reads.current === mine) setSharing(next);
-  }, [calls, storyId, legal.social]);
+  // The sharing consent shown: the page's, or the latest after a newer one was saved meanwhile.
+  const [sharing, setSharing] = useState(initialSharing);
+  const [changes, setChanges] = useState<RedlineItem[] | null>(null);
+  // A story sent back for changes may already allow sharing: said, not asked again (it can't be
+  // taken back). Read once; if that fails the box is offered (ticking it again changes nothing).
+  const [alreadyShared, setAlreadyShared] = useState(false);
   useEffect(() => {
-    void readSharing();
+    if (!storyId) return;
+    let live = true;
+    calls
+      .story(storyId)
+      .then((story) => {
+        if (live && story?.socialMediaSharingConsent) setAlreadyShared(true);
+      })
+      .catch(() => undefined);
     return () => {
-      reads.current += 1;
+      live = false;
     };
-  }, [readSharing]);
-  const alreadyShared = sharing === 'shared';
-  const sharingKnown = sharing === 'shared' || sharing === 'not_shared';
-  const askSocial = !!legal.social && sharing === 'not_shared';
-  // D114: the boxes are the versions' own data. Publishing is required, so without its box the
-  // story can't be submitted (fail closed); sharing is optional, so without its box it's not offered.
-  const publishBox = boxFor(legal.testimony, 'publish');
-  const socialBox = askSocial
-    ? boxFor(legal.social, 'share_socials')
-    : undefined;
+  }, [calls, storyId]);
   // The weekly submissions are used up (D94): submitting waits, said before they try.
   const waiting = !draft.submittedBefore && !!submissionsState(limits).until;
-  const [publish, setPublish] = useState(false);
   // A submission whose outcome is unknown (an answer lost) is sent again exactly as it was, so
   // its sharing choice is shown as sent, and can't change until it's resolved.
   const [kept, setKept] = useState(() => {
@@ -1576,17 +1451,13 @@ export function ReviewStep({
   const [social, setSocial] = useState(() => !!kept?.share);
   const [problem, setProblem] = useState<React.ReactNode>(null);
   const [busy, setBusy] = useState(false);
-  // A form or privacy policy replaced since this page loaded (D122): trying again would send
-  // the old version again, so the way on is a reload (the draft is saved and in the address).
-  const [outdated, setOutdated] = useState(false);
-  // One key per grant, kept while retrying (D29).
-  const publishKey = useRef(newIdempotencyKey());
   const f = draft.fields;
   // The picture as the story has it now (M2 plan PR 10).
   const picture = useEarlierPicture(calls, draft.draftId)?.image ?? null;
   const themeNames = f.themeIds
     .flatMap((id) => themes.flatMap((c) => c.themes).filter((t) => t.id === id))
     .map((t) => t.name);
+  const offerSharing = !!sharing && !alreadyShared;
 
   /** A7: a chosen theme was deleted meanwhile; the person chooses again from the new list. */
   function chooseThemesAgain(message: string) {
@@ -1606,18 +1477,8 @@ export function ReviewStep({
   }
 
   async function submit() {
-    if (outdated || waiting || !sharingKnown) return;
+    if (waiting) return;
     const chosen = f.themeIds;
-    if (askPublish && !publishBox) {
-      setProblem(
-        'The publishing consent can’t be shown right now, so your story can’t be submitted yet. It’s saved; please try again later.',
-      );
-      return;
-    }
-    if (askPublish && !publish) {
-      setProblem('Tick the box to publish your story once it’s approved.');
-      return;
-    }
     setBusy(true);
     setProblem(null);
     try {
@@ -1627,29 +1488,16 @@ export function ReviewStep({
         setProblem('Your latest changes aren’t saved yet. Please try again.');
         return;
       }
-      if (askPublish && legal.testimony) {
-        await calls.grant(
-          'testimony',
-          legal.testimony.version,
-          legal.testimony.privacyVersion,
-          'publish',
-          publishKey.current,
-        );
-      }
-      if (askPublish) await refreshConsents();
       // The submission being tried, kept by the draft (per person and draft, in this tab's
       // storage) across failures that leave its outcome unknown: no answer, an unreadable one,
       // or a server error. Trying again, after Back or a reload too, replays it, even if it went
       // through and the answer was lost (Codex #118). Settled after a definite refusal, or
-      // replaced when the draft has changed. Its body (sharing, O4) is kept with it.
+      // replaced when the draft has changed. Its body (the sharing box's version) is kept with it.
       const tried = draft.beginSubmit(
         draftId,
         version,
-        socialBox && social && legal.social
-          ? {
-              formVersion: legal.social.version,
-              privacyPolicyVersion: legal.social.privacyVersion,
-            }
+        offerSharing && social && sharing
+          ? { version: sharing.version }
           : undefined,
       );
       setKept(tried);
@@ -1680,12 +1528,36 @@ export function ReviewStep({
             err.code === 'story_locked'));
       if (
         err instanceof ApiUserProblem &&
-        (err.code === 'form_version_not_in_force' ||
-          err.code === 'legal_document_not_in_force')
+        err.code === 'agreement_version_changed'
       ) {
-        setOutdated(true);
+        // A newer sharing consent was saved meanwhile: nothing was submitted. Its words and what
+        // changed, and the box unticked; the old version is never sent again.
+        const shown = sharing?.version ?? null;
+        setSocial(false);
+        const latest = await agreementTexts(
+          'social-media-sharing-consent',
+          shown,
+        ).catch(() => ({ ok: false }) as const);
+        if (latest.ok) {
+          setSharing({
+            version: latest.latest.version,
+            html: latest.latest.html,
+          });
+          setChanges(latest.redline);
+        }
         setProblem(
-          'Our privacy policy or consent form was updated while you were writing. Your story is saved. Reload the page to read the new version, then submit.',
+          'We updated the social media sharing consent while you were writing, so your story wasn’t submitted yet. It’s saved. Read what changed below, tick the box again if you agree, and submit.',
+        );
+      } else if (
+        err instanceof ApiUserProblem &&
+        (err.code === 'testimony_consent_required' ||
+          err.code === 'terms_agreement_required')
+      ) {
+        // A newer testimony consent (or terms) was saved while they wrote: agree, then come back.
+        onAgreementNeeded(
+          err.code === 'testimony_consent_required'
+            ? 'testimony-consent'
+            : 'terms-of-use',
         );
       } else if (changed && draftId) {
         // Already submitted (a submission whose answer was lost, then retried with another
@@ -1883,84 +1755,51 @@ export function ReviewStep({
           )}
       </dl>
       <div className="mt-6 flex flex-col gap-3">
-        {askPublish ? (
-          publishBox && legal.testimony ? (
-            <div data-grant="publish">
-              <Checkbox
-                checked={publish}
-                onChange={setPublish}
-                className="rounded-xl border border-border bg-accent p-[12px] sm:p-4"
-              >
-                {publishBox.label}
-              </Checkbox>
-              {/* The privacy policy this grant names, even when the consent step was skipped
-                  (consented before, under an earlier one). */}
-              <PrivacyPolicy form={legal.testimony} className="mt-2" />
-            </div>
-          ) : (
-            <p role="alert" className="text-destructive">
-              The publishing consent can’t be shown right now, so your story
-              can’t be submitted yet. It’s saved; please try again later.
-            </p>
-          )
-        ) : (
-          <p className="text-sm text-secondary-text">
-            You’ve agreed to your stories being published on heisreal.today once
-            a moderator approves them.
+        <p className="text-sm text-secondary-text">
+          You’ve agreed to your stories being published on heisreal.today once a
+          moderator approves them (our testimony consent).
+        </p>
+        {alreadyShared && (
+          <p data-shared="" className="text-sm text-secondary-text">
+            You’ve already allowed us to share this story on social media.
           </p>
         )}
-        {sharing === 'loading' && (
-          <p data-sharing="loading" className="text-sm text-secondary-text">
-            Checking this story’s sharing choice…
-          </p>
-        )}
-        {sharing === 'error' && (
-          <div data-sharing="error" role="alert" className="text-destructive">
-            <p>
-              We couldn’t check whether this story may be shared beyond
-              heisreal.today, so it can’t be submitted yet. It’s saved.
-            </p>
-            <button
-              type="button"
-              className="min-h-11 font-semibold text-link underline"
-              onClick={() => void readSharing()}
-            >
-              Try again
-            </button>
-          </div>
-        )}
-        {alreadyShared && storyId && (
-          // The story's own choice, with the way to stop it (O4): the same as My submissions.
-          // Submitting leaves it as it is.
-          <div data-shared="">
-            <p className="mb-2 font-semibold">
-              Already shared beyond heisreal.today
-            </p>
-            <StorySharing
-              storyId={storyId}
-              titleId="review-title"
-              status="draft"
-              sharing={{ granted: true, counts: true }}
-              form={legal.social}
-              api={() => api}
-              onChanged={readSharing}
-            />
-          </div>
-        )}
-        {socialBox && legal.social && (
+        {offerSharing && sharing && (
           <div
-            data-grant="share_socials"
-            className="rounded-xl border border-border p-[12px] sm:p-4"
+            data-sharing-box={sharing.version}
+            className="sm:rounded-xl sm:border sm:border-border sm:p-4"
           >
+            <h3 className="mb-2 text-lg font-semibold text-foreground">
+              Sharing on social media{' '}
+              <span className="font-normal text-secondary-text">
+                (optional)
+              </span>
+            </h3>
+            {changes && changes.length > 0 && (
+              <Redline
+                items={changes}
+                label="What changed in the social media sharing consent"
+                className="mb-3"
+              />
+            )}
+            <section
+              aria-label={`Social media sharing consent, version ${sharing.version}`}
+              tabIndex={0}
+              className="mb-3 max-h-[40svh] overflow-y-auto rounded-lg bg-raised px-3 py-3 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:px-4"
+            >
+              <LegalHtml html={sharing.html} />
+            </section>
             <Checkbox
               checked={social}
               onChange={setSocial}
               disabled={!!kept}
               describedBy={kept ? 'social-kept' : undefined}
+              className="rounded-xl border border-border bg-accent p-[12px] text-foreground sm:p-4"
             >
-              {socialBox.label}{' '}
+              I agree to He Is Real Today sharing this story on social media, as
+              set out above.{' '}
               <span className="text-secondary-text">
-                (optional, for this story only)
+                (Optional, for this story only.)
               </span>
             </Checkbox>
             {kept && (
@@ -1969,20 +1808,7 @@ export function ReviewStep({
                 submitted.
               </p>
             )}
-            <details className="mt-2">
-              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-link">
-                What sharing beyond heisreal.today means
-              </summary>
-              <div className="mt-2">
-                <LegalHtml html={legal.social.html} />
-              </div>
-            </details>
-            {/* The privacy policy this grant names, unless the same one is shown above. */}
-            {!(
-              askPublish &&
-              publishBox &&
-              legal.social.privacyVersion === legal.testimony?.privacyVersion
-            ) && <PrivacyPolicy form={legal.social} className="mt-2" />}
+            <PrivacyNoticeLink className="mt-2" />
           </div>
         )}
       </div>
@@ -2004,24 +1830,14 @@ export function ReviewStep({
         >
           Back
         </button>
-        {outdated ? (
-          <button
-            type="button"
-            className={primary}
-            onClick={() => window.location.reload()}
-          >
-            Reload the page
-          </button>
-        ) : (
-          <button
-            type="submit"
-            className={primary}
-            disabled={busy || waiting || !sharingKnown}
-            aria-describedby={waiting ? 'submit-waiting' : undefined}
-          >
-            {busy ? 'Submitting…' : 'Submit for review'}
-          </button>
-        )}
+        <button
+          type="submit"
+          className={primary}
+          disabled={busy || waiting}
+          aria-describedby={waiting ? 'submit-waiting' : undefined}
+        >
+          {busy ? 'Submitting…' : 'Submit for review'}
+        </button>
       </Actions>
       <p className="mt-4 text-sm text-secondary-text">
         Our team reads every story before it’s published.

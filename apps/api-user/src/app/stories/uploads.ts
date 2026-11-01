@@ -2,14 +2,12 @@ import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { recordKey } from '@heisreal/consent';
 import {
   DatabaseQueryError,
   IdempotencyKeyReusedError,
@@ -23,10 +21,12 @@ import {
   WriteNotAppliedError,
 } from '@heisreal/database';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
+import { recordKey } from '@heisreal/http';
 import { STORY_IMAGE_PATH } from '@heisreal/story-cards';
 import type { ImageStore, SignedImageUpload } from './bunny-storage';
 import type { BunnyStream, SignedUpload } from './bunny-stream';
 import { StaleVersionException } from './story-store';
+import { agreementRefusalOf } from '../account/agreements';
 
 /**
  * Video and audio uploads (M2 plan PR 7; D65, D68, D80, D113): RequestUpload, and the checks
@@ -484,6 +484,7 @@ export class Uploads {
             'That picture is no longer on your story. Choose it again to add it.',
         });
       }
+      await this.requireAgreements(user);
     }
     return {
       id,
@@ -589,9 +590,26 @@ export class Uploads {
         err instanceof DatabaseQueryError ? err.message : String(err);
       if (/story_cmd:locked/.test(message)) throw locked();
       if (/nothing_to_resume/.test(message)) throw nothingToResume();
-      throw err;
+      // Plan 4e: a new link needs the latest terms of use and testimony consent, as a grant does.
+      throw agreementRefusalOf(err) ?? err;
     }
     if (!renewed) throw nothingToResume();
+  }
+
+  /**
+   * Before a picture's PUT is signed again (a replay): the database's own check that the person
+   * has the latest terms of use and testimony consent (plan 4e), as its grant had (403).
+   */
+  private async requireAgreements(user: RecordId) {
+    try {
+      await runQuery(
+        this.service,
+        `RETURN fn::legal::require_testimony($person)`,
+        { person: user },
+      );
+    } catch (err) {
+      throw agreementRefusalOf(err) ?? err;
+    }
   }
 
   private imageStore(): ImageStore {
@@ -830,6 +848,9 @@ export class Uploads {
     format: UploadRequest['format'],
   ): Promise<unknown> {
     if (err instanceof HttpException) return err;
+    // Plan 4e: an upload needs the latest terms of use and testimony consent (403).
+    const refusal = agreementRefusalOf(err);
+    if (refusal) return refusal;
     const limit = uploadLimitOf(err);
     if (limit === 'hourly' || limit === 'weekly') {
       const at = await this.nextAllowedAt(person, format).catch(
@@ -860,12 +881,6 @@ export class Uploads {
         code: 'validation_failed',
         message: 'The upload isn’t valid',
         errors: [{ pointer: '', message: 'an image we can take' }],
-      });
-    }
-    if (/needs the submitter’s current Art 9/.test(message)) {
-      return new ForbiddenException({
-        code: 'consent_required',
-        message: 'Uploading needs your current consent',
       });
     }
     return err;

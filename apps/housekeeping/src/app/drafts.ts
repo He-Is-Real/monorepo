@@ -3,9 +3,8 @@ import type { Task, TaskContext, TaskResult } from './tasks';
 
 /**
  * D71: a draft nobody has touched for 6 months (not edited, by its `updatedAt`, and no upload
- * link signed for it again, by its grants' `renewedAt`; precisely, the longest
- * `draftRetentionMonths` of the published testimony forms, a month counted as 31 days:
- * fn::story::draft_expired) is deleted, the way a person deletes their own draft: the
+ * link signed for it again, by its grants' `renewedAt`; precisely, 186 days, a month counted as
+ * 31 days: fn::story::draft_retention and fn::story::draft_expired) is deleted, the way a person deletes their own draft: the
  * story row goes, and the database's events delete
  * what hangs off it (story_erasure_cascade) and bump the person's fence. Only drafts: a story
  * that was ever submitted is moderation's or the person's to remove. The database enforces the
@@ -18,8 +17,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * its pictures.
  *
  * Races: a resume signs its link only once its grant's renewal commits, and that conflicts with
- * this delete (both fence the person), as does a testimony form published meanwhile with a longer
- * retention (the delete writes legalFence). The loser of a conflict retries and re-checks.
+ * this delete (both fence the person). The loser of a conflict retries and re-checks.
  */
 const EXPIRED = `status = 'draft' AND $cutoff != NONE AND updatedAt < $cutoff
   AND fn::story::draft_expired(id)`;

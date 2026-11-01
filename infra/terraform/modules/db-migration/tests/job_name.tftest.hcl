@@ -6,7 +6,6 @@
 
 variables {
   schema_dir = "tests/fixtures/a/schema"
-  dpa_dir    = "tests/fixtures/a/dpa"
   job_template = {
     apiVersion = "batch/v1"
     kind       = "Job"
@@ -29,31 +28,21 @@ run "repo_bundle" {
   command = plan
   variables {
     schema_dir = "../../../../libs/database/schema"
-    dpa_dir    = "../../../../libs/legal/dpa"
   }
   assert {
-    condition = alltrue([for f in ["schema.surql", "access-clerk.surql", "dpa-sync.surql", "form-sync.surql", "0001-seed-dpa-v1.surql", "0005-dev-legal-placeholders.surql", "migrate.py", "params.json"] :
+    condition = alltrue([for f in ["schema.surql", "access-clerk.surql", "0006-submission-settings.surql", "migrate.py", "params.json"] :
     contains(keys(output.config_map.data), f)])
-    error_message = "The bundle must hold the schema, the clerk access, the DPA and form syncs, the data scripts, the runner and params.json."
+    error_message = "The bundle must hold the schema, the clerk access, the data scripts, the runner and params.json."
   }
   assert {
-    condition = (output.params.form_sha256.signup["v1"] == filesha256("../../../../libs/legal/forms/signup/v1.md")
-      && output.params.form_text.testimony["v1"] == file("../../../../libs/legal/forms/testimony/v1.md")
-      && output.params.form_sha256.social["v1"] == filesha256("../../../../libs/legal/forms/social/v1.md")
-      && output.params.dpa_text["dev_placeholder"] == file("../../../../libs/legal/dpa/dev_placeholder.md")
-    && output.params.dev_legal_placeholders == false)
-    error_message = "D84: each legal text and its sha256 reach the runner; no dev placeholders (D75) by default."
+    condition     = !contains(keys(output.config_map.data), "dpa-sync.surql") && !contains(keys(output.config_map.data), "form-sync.surql")
+    error_message = "Plan 4e: no legal files are synced into the database; the legal texts live there."
   }
   assert {
-    condition     = output.params.terms_text["dev_placeholder"] == file("../../../../libs/legal/terms/dev_placeholder.md")
-    error_message = "The terms of use's repo versions reach the runner (data 0007)."
-  }
-  assert {
-    condition = (output.params.dpa_sha256["v1"] == filesha256("../../../../libs/legal/dpa/v1.md")
-      && output.params.clerk_jwt_public_key == null && output.params.identity_hash == null
-      && output.params.seed_dev_story == false && output.params.dev_consent_relaxed == false
-    && output.params.environment == null)
-    error_message = "dpa_sha256 holds the files' sha256 (D20); no Clerk key, identity config, dev story, environment or relaxed consent (D48) by default."
+    condition = (length(keys(output.params)) == 3
+      && output.params.clerk_jwt_public_key == null && output.params.environment == null
+    && output.params.identity_hash == null)
+    error_message = "The runner gets the Clerk key, the environment and the identity config only; none by default."
   }
   assert {
     condition     = output.job.metadata.name == output.job_name && output.config_map.metadata.name == "surrealdb-migration-${output.hash}"
@@ -68,14 +57,6 @@ run "repo_bundle" {
 
 run "a" {
   command = apply
-  assert {
-    condition     = output.params.dpa_sha256 == { v1 = filesha256("tests/fixtures/a/dpa/v1.md") }
-    error_message = "dpa_sha256 maps each DPA file to its sha256."
-  }
-  assert {
-    condition     = output.params.form_sha256 == { signup = {}, testimony = {}, social = {} }
-    error_message = "No forms directory: no form versions."
-  }
 }
 
 run "same_content_elsewhere" {
@@ -83,7 +64,6 @@ run "same_content_elsewhere" {
   variables {
     base_job_name = run.a.job_name
     schema_dir    = "tests/fixtures/a-copy/schema"
-    dpa_dir       = "tests/fixtures/a-copy/dpa"
   }
   assert {
     condition     = output.job_name == var.base_job_name
@@ -103,16 +83,15 @@ run "data_script_changed" {
   }
 }
 
-run "dpa_text_changed" {
+run "environment_changed" {
   command = plan
   variables {
-    base_job_name   = run.a.job_name
-    base_dpa_sha256 = run.a.params.dpa_sha256.v1
-    dpa_dir         = "tests/fixtures/dpa-changed"
+    base_job_name = run.a.job_name
+    environment   = "dev"
   }
   assert {
-    condition     = output.job_name != var.base_job_name && output.params.dpa_sha256.v1 != var.base_dpa_sha256
-    error_message = "A changed DPA text must give a new hash parameter and a new name."
+    condition     = output.job_name != var.base_job_name && output.params.environment == "dev"
+    error_message = "The environment reaches the runner (_setting:current), and a new one re-runs the Job."
   }
 }
 
@@ -175,51 +154,6 @@ run "private_key_refused" {
   expect_failures = [var.clerk_jwt_public_key]
 }
 
-# D48: relaxed consent is dev only. On in dev it reaches the runner (and re-runs the Job); in any
-# other environment, or an unknown one, it's refused before anything is planned. The database
-# refuses it outside dev too (libs/database/integration/dev-consent.int-spec.ts).
-run "consent_relaxed_in_dev" {
-  command = plan
-  variables {
-    base_job_name       = run.a.job_name
-    environment         = "dev"
-    dev_consent_relaxed = true
-  }
-  assert {
-    condition = (output.job_name != var.base_job_name && output.params.dev_consent_relaxed == true
-    && output.params.environment == "dev")
-    error_message = "Relaxing consent in dev passes it to the runner and re-runs the Job."
-  }
-}
-
-run "consent_enforced_in_dev_by_default" {
-  command = plan
-  variables {
-    environment = "dev"
-  }
-  assert {
-    condition     = output.params.dev_consent_relaxed == false
-    error_message = "Dev enforces consent unless the flag is set."
-  }
-}
-
-run "consent_relaxed_refused_in_prod" {
-  command = plan
-  variables {
-    environment         = "prod"
-    dev_consent_relaxed = true
-  }
-  expect_failures = [var.dev_consent_relaxed]
-}
-
-run "consent_relaxed_refused_without_environment" {
-  command = plan
-  variables {
-    dev_consent_relaxed = true
-  }
-  expect_failures = [var.dev_consent_relaxed]
-}
-
 # D49: the Job waits for exactly the system users the init creates, dev_seed included in dev.
 run "extra_system_users" {
   command = plan
@@ -260,35 +194,4 @@ run "extra_system_users_refused" {
     extra_system_users = ["migrator"]
   }
   expect_failures = [var.extra_system_users]
-}
-
-# D75: dev's placeholder privacy document and forms, like D48's switch: dev only.
-run "legal_placeholders_in_dev" {
-  command = plan
-  variables {
-    base_job_name          = run.a.job_name
-    environment            = "dev"
-    dev_legal_placeholders = true
-  }
-  assert {
-    condition     = output.job_name != var.base_job_name && output.params.dev_legal_placeholders == true
-    error_message = "Turning the placeholders on in dev passes it to the runner and re-runs the Job."
-  }
-}
-
-run "legal_placeholders_refused_in_prod" {
-  command = plan
-  variables {
-    environment            = "prod"
-    dev_legal_placeholders = true
-  }
-  expect_failures = [var.dev_legal_placeholders]
-}
-
-run "legal_placeholders_refused_without_environment" {
-  command = plan
-  variables {
-    dev_legal_placeholders = true
-  }
-  expect_failures = [var.dev_legal_placeholders]
 }

@@ -10,7 +10,7 @@ import {
   usePersonalSession,
 } from '@/lib/personal-session';
 import {
-  SIGN_UP_CONSENT_PATH,
+  TERMS_AGREEMENT_PATH,
   withReturn,
 } from '@/components/consent/consent-prompts';
 import {
@@ -32,10 +32,10 @@ import {
  * - **Signed out** (or until the browser knows), hearts are this device's own
  *   (device-hearts.ts; Joel, 2026-10-28): pressing one saves it in this browser only, and nothing
  *   reaches our servers.
- * - **Signed in without the sign-up consent** (D73, "store my account and favourites"), api-user
- *   answers 403 `consent_required`: the heart is kept on the device and the person goes to the
- *   sign-up consent step, coming back here. Afterwards, the prompt offers to add the device's
- *   hearts to the account (device-hearts-prompt.tsx). Nothing is ever added without asking.
+ * - **Signed in before agreeing to the latest terms of use** (plan 4e), api-user answers 403
+ *   `terms_agreement_required`: the heart is kept on the device and the person goes to the terms
+ *   step, coming back here. Afterwards, the prompt offers to add the device's hearts to the
+ *   account (device-hearts-prompt.tsx). Nothing is ever added without asking.
  * - **One person's hearts only:** everything here belongs to the person signed in now. An answer
  *   that arrives after someone else signed in (or out) is dropped (`generation`).
  */
@@ -137,15 +137,15 @@ function register(id: string): () => void {
 }
 
 /**
- * To the sign-up consent step, coming back to this page. The heart is kept on the device, for
- * the prompt to offer once the step is done.
+ * To the terms step, coming back to this page. The heart is kept on the device, for the prompt to
+ * offer once the person has agreed.
  */
-function toSignupConsent(storyId: string) {
+function toTermsAgreement(storyId: string) {
   setDeviceHeart(storyId, true);
-  // The step (#116) returns to `redirect_url` once both boxes are ticked.
+  // The step returns to `redirect_url` once the person agrees.
   window.location.assign(
     withReturn(
-      SIGN_UP_CONSENT_PATH,
+      TERMS_AGREEMENT_PATH,
       `${window.location.pathname}${window.location.search}`,
     ),
   );
@@ -207,14 +207,17 @@ async function setHeart(
       }
     } catch (err) {
       if (generation !== mine) return 'failed'; // someone else's page now: not theirs to change
-      if (err instanceof ApiUserProblem && err.code === 'consent_required') {
+      if (
+        err instanceof ApiUserProblem &&
+        err.code === 'terms_agreement_required'
+      ) {
         // What the person wants now (Codex, #117 round 3): taken off meanwhile, it stays off and
-        // nothing is kept or asked. Only from a press, never replayed on load, so the consent
-        // step can't loop.
+        // nothing is kept or asked. Only from a press, never replayed on load, so the terms step
+        // can't loop.
         const stillWanted = slot.want;
         hearts.set(storyId, confirmed ?? false);
         changed();
-        if (stillWanted) toSignupConsent(storyId);
+        if (stillWanted) toTermsAgreement(storyId);
         return 'failed';
       }
       if (err instanceof ApiUserProblem && err.status === 404) {

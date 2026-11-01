@@ -1,13 +1,18 @@
 'use client';
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { type Account, apiUser, type GetToken } from '@/lib/api-user';
+import {
+  type Account,
+  type AgreementState,
+  apiUser,
+  type GetToken,
+} from '@/lib/api-user';
 
 /**
  * The account bootstrap (M2): once a page has loaded signed in, the browser calls api-user's
  * `GET /v1/account` once, with the person's Clerk token (D31, D83). The first call creates the
- * person's account row, which staff need before api-admin knows them; the answer says whether
- * the sign-up consent form still needs accepting (`signupConsent`, D73).
+ * person's account row, which staff need before api-admin knows them; the answer says where
+ * they stand with the terms of use and the testimony consent (plan 4e).
  *
  * Once per page load and signed-in person: client-side navigation keeps the header, so it
  * doesn't call again, and a different person signing in calls again. Nothing is stored in the
@@ -27,12 +32,15 @@ let state: { userId: string | null; bootstrap: AccountBootstrap } = {
 const listeners = new Set<() => void>();
 
 /**
- * Consent the person has given on this page load (consent-form.tsx), by Clerk user id. Folded
+ * Agreements the person made on this page load (agreement-step.tsx), by Clerk user id. Folded
  * into every account the bootstrap reports for them, so an answer that was already on its way
- * when they accepted (and so still says "not accepted") can't send them back to the form.
+ * when they agreed (and so still says "not up to date") can't send them back to the step.
  */
-let confirmed: { userId: string; signup: boolean; testimony: boolean } | null =
-  null;
+let confirmed: {
+  userId: string;
+  termsOfUse?: AgreementState;
+  testimonyConsent?: AgreementState;
+} | null = null;
 
 function reconcile(
   userId: string | null,
@@ -41,16 +49,19 @@ function reconcile(
   if (bootstrap.status !== 'ready' || !userId || confirmed?.userId !== userId)
     return bootstrap;
   const account = bootstrap.account;
+  const newer = (mine: AgreementState | undefined, theirs: AgreementState) =>
+    mine && (mine.agreed?.version ?? -1) >= (theirs.agreed?.version ?? -1)
+      ? mine
+      : theirs;
   return {
     status: 'ready',
     account: {
       ...account,
-      signupConsent: confirmed.signup
-        ? { accepted: true }
-        : account.signupConsent,
-      testimonyConsent: confirmed.testimony
-        ? { acceptanceRequired: false }
-        : account.testimonyConsent,
+      termsOfUse: newer(confirmed.termsOfUse, account.termsOfUse),
+      testimonyConsent: newer(
+        confirmed.testimonyConsent,
+        account.testimonyConsent,
+      ),
     },
   };
 }
@@ -107,8 +118,8 @@ export function useAccountBootstrap(
 
 /**
  * The bootstrap's state for the page's signed-in person, without starting it: for the parts of
- * the page outside the header (the consent step and banner, consent-prompts.tsx; the device
- * hearts prompt), which read what the header's bootstrap found. With `userId`, only that
+ * the page outside the header (the agreement steps and banner, consent-prompts.tsx; the
+ * device hearts prompt), which read what the header's bootstrap found. With `userId`, only that
  * person's: idle for anyone else, so one person's state never reaches another's (hearts, M2).
  */
 export function useAccountState(userId?: string | null): AccountBootstrap {
@@ -123,16 +134,16 @@ export function useAccountState(userId?: string | null): AccountBootstrap {
 }
 
 /**
- * The person (`userId`, Clerk's user id) has just accepted a consent form: the site treats it as
- * accepted for the rest of this page load, whatever a bootstrap answer sent before it says. The
- * next page load asks api-user afresh.
+ * The person (`userId`, Clerk's user id) has just agreed (`agreed`, api-user's answer): the site
+ * treats it as agreed for the rest of this page load, whatever a bootstrap answer sent before it
+ * says. The next page load asks api-user afresh.
  */
-export function confirmConsent(
+export function confirmAgreement(
   userId: string,
-  form: 'signup' | 'testimony',
+  agreement: 'termsOfUse' | 'testimonyConsent',
+  agreed: AgreementState,
 ): void {
-  if (confirmed?.userId !== userId)
-    confirmed = { userId, signup: false, testimony: false };
-  confirmed[form] = true;
+  if (confirmed?.userId !== userId) confirmed = { userId };
+  confirmed[agreement] = agreed;
   set(state.userId, state.bootstrap);
 }

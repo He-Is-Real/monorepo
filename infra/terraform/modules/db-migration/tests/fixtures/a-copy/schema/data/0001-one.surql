@@ -1,1 +1,1 @@
-CREATE t:one SET h = $dpa_sha256.v1;
+CREATE t:one SET h = 'one';

@@ -6,13 +6,12 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agreeAll,
   approve,
   createPeople,
   draft,
-  grantAll,
   grantImage,
   grantUpload,
-  publishDpa,
   rows,
   run,
   submit,
@@ -36,9 +35,9 @@ import {
 } from '../src/app/stories/bunny-stream';
 
 /**
- * Erasure (M2 plan PR 11; D39, D40, D82) through api-user's real AppModule, for its three callers:
- * "Delete my account" (`DELETE /v1/account`), withdrawing the testimony consent (D88) and Clerk's
- * signed `user.deleted` webhook. The database is the behaviour: what goes, what stays, and that a
+ * Erasure (M2 plan PR 11; D39, D40, D82) through api-user's real AppModule, for its two callers:
+ * "Delete my account" (`DELETE /v1/account`, also how a person withdraws all consent, plan 4e)
+ * and Clerk's signed `user.deleted` webhook. The database is the behaviour: what goes, what stays, and that a
  * still-valid token can't bring the person back (#44). Bunny Stream and Clerk's Backend API are
  * in-memory stand-ins that record what they were asked to delete, and can be made to fail.
  * Every answer is checked against api-user.yaml.
@@ -109,7 +108,7 @@ function breakable(db: Surreal) {
   return { db: proxy, breaks };
 }
 
-describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.deleted', () => {
+describe('erasure: delete my account and Clerk’s user.deleted', () => {
   const contract = new Contract('api-user.yaml');
   const bunny = new FakeStream();
   const images = new FakeImages({
@@ -181,7 +180,7 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
   async function personWithStories(who: string) {
     await createPeople(t, { [who]: `user_${who}` });
     const session = await t.person(`user_${who}`);
-    await grantAll(session);
+    await agreeAll(session);
     await run(
       migrator,
       `CREATE type::record('submitterLimits', $who) SET user = type::record('user', $who), trusted = true`,
@@ -231,7 +230,9 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
          hearts: (SELECT VALUE id FROM favourite WHERE string::starts_with(record::id(story), $who)),
          grants: (SELECT VALUE id FROM uploadGrant WHERE person = type::record('user', $who)),
          user: (SELECT VALUE [clerkUserId, gdprDeletedAt != NONE] FROM ONLY type::record('user', $who)),
-         ledger: count(SELECT id FROM consent WHERE subject = type::record('user', $who)),
+         agreements: (SELECT VALUE [termsOfUse, termsOfUseAgreedAt, testimonyConsent,
+           testimonyConsentAgreedAt].filter(|$v| $v != NONE).len()
+           FROM ONLY type::record('user', $who)),
          erasedBy: (SELECT VALUE reason FROM auditLog
            WHERE action = 'EraseAccount' AND entity = type::record('user', $who)),
          rowsForClerkId: (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId),
@@ -278,17 +279,17 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     app = moduleRef.createNestApplication({ logger: false, rawBody: true });
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
-    await publishDpa(t, 'v1');
     await createPeople(t, { admin: 'user_admin', bob: 'user_bob' });
-    await grantAll(await t.person('user_bob'));
+    await agreeAll(await t.person('user_bob'));
   });
   afterAll(async () => {
     await app?.close();
     await t?.close();
   });
 
-  it('deletes my account: stories, hearts, video, picture and Clerk account go; the ledger stays; my token is refused', async () => {
+  it('deletes my account: stories, hearts, video, picture, agreements and Clerk account go; my token is refused', async () => {
     const { video } = await personWithStories('ann');
+    expect((await left('ann')).agreements).toBe(4);
     const folders = ['stories/ann_live/', 'stories/ann_video/'];
     expect((await call('GET', '/v1/account', 'ann')).status).toBe(200);
 
@@ -302,7 +303,8 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
       hearts: [],
       grants: [],
       user: [undefined, true],
-      ledger: expect.any(Number),
+      // Deleting the account withdraws every consent: nothing kept says what they agreed to.
+      agreements: 0,
       erasedBy: ['account_deleted'],
       rowsForClerkId: [],
       queued: [],
@@ -310,7 +312,6 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
       // erasure may still put a picture there for 10 minutes (housekeeping's next run).
       folders,
     });
-    expect((await left('ann')).ledger).toBeGreaterThan(0);
     expect(bunny.deleted).toContain(video);
     expect([...images.deleted].sort()).toEqual(folders);
     expect(
@@ -393,84 +394,6 @@ describe('erasure: delete my account, Art 9 withdrawal and Clerk’s user.delete
     expect(images.deleted).not.toContain(folders[1]);
     expect((await call('GET', '/v1/account', 'ida')).status).toBe(401);
     await run(migrator, `DELETE pendingDeletion`);
-  });
-
-  it('withdrawing the testimony consent deletes the account, with the withdrawal kept as proof (D88)', async () => {
-    const { video } = await personWithStories('eve');
-    const res = await call(
-      'POST',
-      '/v1/account/consents/special_category_religious/withdraw',
-      'eve',
-      { 'idempotency-key': `withdraw-eve-${'x'.repeat(16)}` },
-    );
-    expect(res.status).toBe(202);
-    expect(await left('eve')).toMatchObject({
-      stories: [],
-      publicStories: [],
-      user: [undefined, true],
-      erasedBy: ['consent_withdrawn'],
-      queued: [],
-    });
-    expect(await rows(migrator, `SELECT VALUE id FROM erasureRequest`)).toEqual(
-      [],
-    );
-    expect(
-      await rows(
-        migrator,
-        `SELECT VALUE event FROM consent WHERE subject = user:eve
-           AND type = 'special_category_religious' ORDER BY occurredAt DESC LIMIT 1`,
-      ),
-    ).toEqual(['withdrawn']);
-    expect(bunny.deleted).toContain(video);
-    expect(clerkApi.deleted).toContain('user_eve');
-  });
-
-  it('a withdrawal whose erasure fails still answers 202, and the erasure stays requested with it (D88)', async () => {
-    await personWithStories('jo');
-    breaks.failing = 'fn::account::erase';
-    try {
-      const res = await call(
-        'POST',
-        '/v1/account/consents/account_data/withdraw',
-        'jo',
-        { 'idempotency-key': `withdraw-jo-${'x'.repeat(16)}` },
-      );
-      expect(res.status).toBe(202);
-    } finally {
-      breaks.failing = null;
-    }
-    expect(await left('jo')).toMatchObject({
-      user: ['user_jo', false],
-      erasedBy: [],
-    });
-    // Committed with the withdrawal: housekeeping erases Jo tonight if nobody does first.
-    expect(
-      await rows(migrator, `SELECT VALUE id FROM erasureRequest:jo`),
-    ).toEqual(['erasureRequest:jo']);
-    // Jo deleting their account meanwhile settles it.
-    expect((await call('DELETE', '/v1/account', 'jo')).status).toBe(202);
-    expect(await rows(migrator, `SELECT VALUE id FROM erasureRequest`)).toEqual(
-      [],
-    );
-    expect((await left('jo')).erasedBy).toEqual(['account_deleted']);
-  });
-
-  it('taking all my stories off the site (withdrawing publish) keeps the account and the stories', async () => {
-    await personWithStories('fay');
-    const res = await call(
-      'POST',
-      '/v1/account/consents/publish/withdraw',
-      'fay',
-      { 'idempotency-key': `withdraw-fay-${'x'.repeat(16)}` },
-    );
-    expect(res.status).toBe(202);
-    expect(await left('fay')).toMatchObject({
-      stories: expect.arrayContaining(['fay_live', 'fay_video']),
-      publicStories: [],
-      user: ['user_fay', false],
-      erasedBy: [],
-    });
-    expect((await call('GET', '/v1/account', 'fay')).status).toBe(200);
   });
 
   describe('Clerk’s user.deleted webhook', () => {

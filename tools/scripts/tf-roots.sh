@@ -27,8 +27,7 @@ while IFS= read -r file; do
   # gcp selects cluster below.
   "$tf"/live/dev/cluster/clerk.auto.tfvars) selected[gcp]=1 ;;
   "$tf"/live/dev/cluster/* | "$tf"/modules/cluster/* | "$tf"/modules/db-migration/* | \
-    "$tf"/modules/db-identity/* | infra/k8s/surrealdb/* | libs/database/schema/* | libs/legal/dpa/* | \
-    libs/legal/forms/*)
+    "$tf"/modules/db-identity/* | infra/k8s/surrealdb/* | libs/database/schema/*)
     selected[cluster]=1
     ;;
   "$tf"/live/dev/bunny/* | "$tf"/modules/bunny/* | "$tf"/modules/bunny-state-guard/*) selected[bunny]=1 ;;

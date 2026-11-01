@@ -3,30 +3,28 @@
 Resets the **dev** database to the D47 dummy dataset (D49). A Cloud Run Job, dev only, defined in
 `infra/terraform/modules/gcp/dev_seed.tf`. Started by the "Reset dev data" Action (D50) or by a
 developer. It never runs anywhere else: OpenTofu refuses it outside `heisreal-dev`, the program
-refuses unless its settings say dev, and the reset itself refuses unless the database says dev
-and has its consent forms published (dev's placeholders, D75).
+refuses unless its settings say dev, and the reset itself refuses unless the database says dev.
 
 ## What it does
 
 One transaction, all or nothing (`src/app/seed.ts`):
 
-1. Checks `_setting:consent`: environment `dev`, and a sign-up and a testimony form in force.
+1. Checks `_setting:current`: environment `dev` (and that the terms of use and the testimony
+   consent exist, which the migration seeds everywhere).
 2. Wipes the content: `story` (and with it `publicStory` and `moderationReview`), `auditLog`,
    `idempotencyKey`, every theme and category but Other, and fixture people (`user:seed_*`) no longer in the dataset.
 3. Loads the dataset (`src/app/dataset`): 8 fixture people without Clerk accounts, the theme
    categories (Topics, Journeys, Feelings) and their themes, and 26 stories. Each story is created as a draft and walked to its final state the way
    the services will (submit, pick up, decide), so versions, `submittedAt`, locks, feedback and
    reviews look real. Approved stories get their `publicStory` row.
-4. Gives every fixture person real consent (D75; D48's relaxed checks are off in dev): grants
-   in the append-only ledger for the sign-up form (18+, account) and the testimony form (Art 9,
-   publish) in force, with the evidence hash the API records (`@heisreal/consent/evidence`). A
-   grant is added only when the person's current one isn't on the version in force, so resets
-   don't grow the ledger; a new form version gets new grants at the next reset.
-   18+ is ticked on the sign-up form only (D93). Nobody ticks the optional social sharing form,
-   so no dummy story may be shared beyond the dev site.
+4. Agrees every fixture person to the latest terms of use and testimony consent (plan 4e): the
+   pointers on their user row, which a system user may set. A pointer only moves when it isn't on
+   the latest version, so a reset keeps when they agreed, and a newly saved version is agreed at
+   the next reset. No fixture story has the optional social media sharing consent, so no dummy
+   story may be shared beyond the dev site.
 
-Kept: people who signed in with Clerk, the consent ledger, DPA versions, settings and the
-migration ledger.
+Kept: people who signed in with Clerk (and their agreements), the legal texts' versions,
+settings and the migration ledger.
 
 It signs in as `dev_seed`, a dev-only system user (EDITOR) that SurrealDB's startup init creates
 when the cluster root's `dev_seed_login` is on. Table permissions don't apply to it, but every

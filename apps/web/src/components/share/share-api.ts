@@ -1,6 +1,8 @@
 'use client';
 
 import {
+  type Account,
+  type Agreement,
   type ApiUser,
   ApiUserProblem,
   type ApiUserResponse,
@@ -54,8 +56,8 @@ export interface MyStory {
   themes: ThemeRef[];
   submittedAt: string | null;
   updatedAt: string;
-  /** O4: whether this story may go beyond heisreal.today (its own choice). */
-  sharing?: { granted: boolean };
+  /** Plan 4e: the social media sharing consent ticked for this story, or null. */
+  socialMediaSharingConsent?: Agreement | null;
 }
 
 /** The contract's `StoryMineImage`: the person's own picture on their draft. */
@@ -68,18 +70,6 @@ export interface StoryPicture {
   path: string;
   /** Whether its file arrived (api-user checks the storage); null where it isn't checked. */
   uploaded: boolean | null;
-}
-
-/** The contract's `ConsentState`, the parts the flow uses. */
-export interface ConsentState {
-  current: { type: string; counts: boolean }[];
-  signup: { accepted: boolean };
-  testimony: {
-    version: string | null;
-    latestVersion: string | null;
-    updateAvailable: boolean;
-    acceptanceRequired: boolean;
-  };
 }
 
 /** The contract's `SubmissionLimits`: the admin's settings and the person's own (W3, D112). */
@@ -141,10 +131,9 @@ export interface UploadRequest {
   expectedImage?: string | null;
 }
 
-/** The contract's `SubmitStory.shareBeyondSite`: the versions shown beside the ticked box. */
-export interface ShareBeyondSite {
-  formVersion: string;
-  privacyPolicyVersion: string;
+/** The contract's `SubmitStory.socialMediaSharingConsent`: the version shown beside the ticked box. */
+export interface SocialMediaSharing {
+  version: number;
 }
 
 export interface CommandResult {
@@ -286,9 +275,13 @@ function uploadTarget(data: unknown): UploadTarget {
 
 export function shareApi(api: ApiUser) {
   return {
-    consents: async () =>
-      (await api.get<ConsentState>('/v1/account/consents'))
-        .data as ConsentState,
+    /** The person's account: where they stand with the terms and the testimony consent. */
+    account: async () => {
+      const { data } = await api.get<Account>('/v1/account');
+      if (!data?.termsOfUse || !data.testimonyConsent)
+        throw new ApiUserUnavailable('api-user answered without the account');
+      return data;
+    },
     limits: async () =>
       (await api.get<SubmissionLimits>('/v1/account/limits'))
         .data as SubmissionLimits,
@@ -304,26 +297,6 @@ export function shareApi(api: ApiUser) {
     story: async (id: string) =>
       (await api.get<MyStory>(`/v1/account/stories/${encodeURIComponent(id)}`))
         .data as MyStory,
-    /** GrantConsent on the version in force shown (D84); one key per tick. */
-    grant: (
-      form: 'testimony' | 'social',
-      formVersion: string,
-      privacyPolicyVersion: string,
-      statement: string,
-      idempotencyKey = newIdempotencyKey(),
-    ) =>
-      api.command('/v1/account/consents', {
-        method: 'POST',
-        // D122: the privacy policy shown, which the grant binds (409 if another is in force).
-        body: {
-          form,
-          formVersion,
-          statement,
-          mechanism: 'web_form_submission',
-          privacyPolicyVersion,
-        },
-        idempotencyKey,
-      }),
     create: async (
       fields: StoryFields,
       idempotencyKey: string,
@@ -372,15 +345,15 @@ export function shareApi(api: ApiUser) {
       return uploadTarget(res.data);
     },
     /**
-     * SubmitStory. `share` (O4): sharing beyond heisreal.today ticked on Review, with the social
-     * sharing form and privacy policy versions shown: recorded with the submission, in its own
-     * transaction, so a replay of the same key and body resolves both at once.
+     * SubmitStory. `share` (plan 4e): the social media sharing box ticked on Review, with the
+     * version shown: recorded with the submission in the same write, so a replay of the same key
+     * and body resolves both at once.
      */
     submit: async (
       id: string,
       version: number,
       idempotencyKey: string,
-      share?: ShareBeyondSite,
+      share?: SocialMediaSharing,
     ) =>
       commandResult(
         await api.command<CommandResult>(
@@ -389,7 +362,7 @@ export function shareApi(api: ApiUser) {
             method: 'POST',
             version,
             idempotencyKey,
-            ...(share ? { body: { shareBeyondSite: share } } : {}),
+            ...(share ? { body: { socialMediaSharingConsent: share } } : {}),
           },
         ),
       ),

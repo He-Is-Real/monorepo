@@ -9,18 +9,18 @@ export async function generateMetadata({
 }) {
   const { number } = await params;
   return pageMetadata({
-    title: `Privacy policy, version ${number}`,
-    description: `Version ${number} of the privacy policy of He Is Real Today, as it was published.`,
+    title: `Privacy notice, version ${number}`,
+    description: `Version ${number} of the privacy notice of He Is Real Today, as it was in force.`,
     path: `/privacy/versions/${number}`,
   });
 }
 
-/** One version of the privacy policy, kept for ever (D125). */
+/** One version of the privacy notice, kept for ever (plan 4e). */
 export default async function PrivacyVersionPage({
   params,
 }: {
   params: Promise<{ number: string }>;
 }) {
   const { number } = await params;
-  return <DocumentVersion document="privacy" number={number} />;
+  return <DocumentVersion document="privacy-notice" number={number} />;
 }

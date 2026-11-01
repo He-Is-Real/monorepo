@@ -5,10 +5,7 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
-  consentEvent,
-  createPeople,
-  publishDpa,
-  publishForm,
+  publishVersion,
   rows,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
@@ -17,7 +14,8 @@ import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 
 /**
- * The account bootstrap (M2, `GET /v1/account`) on SurrealDB 3.2.4, through api-user's real
+ * The account bootstrap (M2, `GET /v1/account`) and agreeing (plan 4e,
+ * `POST /v1/account/agreements/{agreement}`) on SurrealDB 3.2.4, through api-user's real
  * AppModule on its own login (D13), as web's header calls it after each sign-in. Every answer
  * is checked against api-user.yaml, like web's e2e stub of it.
  */
@@ -34,6 +32,26 @@ describe('GET /v1/account, the account bootstrap', () => {
     expect(await contract.check('GET', res)).toEqual([]);
     return res;
   };
+  const agree = async (
+    clerkUserId: string,
+    agreement: string,
+    body: unknown,
+  ) => {
+    const res = await fetch(`${url}/v1/account/agreements/${agreement}`, {
+      method: 'POST',
+      headers: { ...as(clerkUserId), 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(await contract.check('POST', res)).toEqual([]);
+    return res;
+  };
+  const pointers = (clerkUserId: string) =>
+    rows(
+      migrator,
+      `SELECT termsOfUse, termsOfUseAgreedAt, testimonyConsent, testimonyConsentAgreedAt
+         FROM user WHERE clerkUserId = $c`,
+      { c: clerkUserId },
+    );
   const as = (clerkUserId: string, claims?: Record<string, unknown>) => ({
     authorization: `Bearer ${clerk.token(clerkUserId, claims)}`,
   });
@@ -87,9 +105,9 @@ describe('GET /v1/account, the account bootstrap', () => {
       version: null,
       role: 'User',
       createdAt: new Date(String(row['createdAt'])).toISOString(),
-      // No sign-up form is published yet.
-      signupConsent: { accepted: false },
-      testimonyConsent: { acceptanceRequired: false },
+      // Nothing agreed yet: the site shows the terms (version 0 from the migration) first.
+      termsOfUse: { agreed: null, latestVersion: 0, upToDate: false },
+      testimonyConsent: { agreed: null, latestVersion: 0, upToDate: false },
     });
 
     const again = await get(as('user_firstvisit'));
@@ -97,59 +115,83 @@ describe('GET /v1/account, the account bootstrap', () => {
     expect(await usersFor('user_firstvisit')).toHaveLength(1);
   });
 
-  it('says whether the sign-up form in force is accepted: both boxes, on the latest version (D73)', async () => {
-    await createPeople(t, { signer: 'user_signer' });
-    await publishDpa(t, 'v1'); // and v1 of the three forms
-    const accepted = async () =>
-      (await (await get(as('user_signer'))).json()).signupConsent.accepted;
-    expect(await accepted()).toBe(false);
-    const signer = await t.person('user_signer');
-    await consentEvent(signer, 'account_data', 'granted', 'v1');
-    expect(await accepted()).toBe(false); // 18+ not ticked yet
-    await consentEvent(signer, 'age_18plus', 'granted', 'v1');
-    expect(await accepted()).toBe(true);
-    // A newer sign-up version needs accepting again.
-    await publishForm(t, 'signup', 'v2', { dpa: 'v1' });
-    expect(await accepted()).toBe(false);
-  });
+  describe('agreeing (plan 4e)', () => {
+    it('records the latest terms with the database’s time, and answers the same when sent again', async () => {
+      await get(as('user_agrees'));
+      const res = await agree('user_agrees', 'terms-of-use', { version: 0 });
+      expect(res.status).toBe(200);
+      const state = await res.json();
+      expect(state).toEqual({
+        agreed: { version: 0, agreedAt: expect.any(String) },
+        latestVersion: 0,
+        upToDate: true,
+      });
+      const [before] = await pointers('user_agrees');
+      expect(before['termsOfUse']).toBe('termsOfUseAgreement:0');
+      expect(new Date(String(before['termsOfUseAgreedAt'])).toISOString()).toBe(
+        state.agreed.agreedAt,
+      );
 
-  it('says when a newer testimony version must be accepted before a new story (D85, the banner)', async () => {
-    await createPeople(t, { teller: 'user_teller' });
-    const required = async () =>
-      (await (await get(as('user_teller'))).json()).testimonyConsent
-        .acceptanceRequired;
-    const teller = await t.person('user_teller');
-    // v1 of the forms is published (previous test). No testimony consent yet: nothing to ask.
-    expect(await required()).toBe(false);
-    await consentEvent(teller, 'special_category_religious', 'granted', 'v1');
-    expect(await required()).toBe(false);
-    // A newer version that doesn't require acceptance: still nothing to ask.
-    await publishForm(t, 'testimony', 'v2', { dpa: 'v1' });
-    expect(await required()).toBe(false);
-    await publishForm(t, 'testimony', 'v3', {
-      dpa: 'v1',
-      requiresAcceptanceForNewSubmissions: true,
+      // Idempotent: nothing moves, not even the time.
+      const again = await agree('user_agrees', 'terms-of-use', { version: 0 });
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual(state);
+      expect(await pointers('user_agrees')).toEqual([before]);
+
+      const account = await (await get(as('user_agrees'))).json();
+      expect(account.termsOfUse).toEqual(state);
+      expect(account.testimonyConsent.agreed).toBeNull();
     });
-    expect(await required()).toBe(true);
-    // Accepting the version in force, as the banner's page does, moves the account to it (D85).
-    const res = await fetch(`${url}/v1/account/consents`, {
-      method: 'POST',
-      headers: {
-        ...as('user_teller'),
-        'content-type': 'application/json',
-        'idempotency-key': crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        form: 'testimony',
-        formVersion: 'v3',
-        statement: 'special_category_religious',
-        mechanism: 'reconsent_prompt',
-        privacyPolicyVersion: 'v1',
-      }),
+
+    it('asks again after a newer version is saved, and refuses the old one with 409', async () => {
+      await get(as('user_reagrees'));
+      await agree('user_reagrees', 'testimony-consent', { version: 0 });
+      const version = await publishVersion(t, 'testimonyConsent');
+      expect(version).toBe(1);
+
+      const account = await (await get(as('user_reagrees'))).json();
+      expect(account.testimonyConsent).toMatchObject({
+        agreed: { version: 0 },
+        latestVersion: 1,
+        upToDate: false,
+      });
+
+      // The page showed version 0: a newer one was saved meanwhile.
+      const stale = await agree('user_reagrees', 'testimony-consent', {
+        version: 0,
+      });
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({
+        code: 'agreement_version_changed',
+      });
+      const unknown = await agree('user_reagrees', 'testimony-consent', {
+        version: 7,
+      });
+      expect(unknown.status).toBe(409);
+      expect((await pointers('user_reagrees'))[0]['testimonyConsent']).toBe(
+        'testimonyConsent:0',
+      );
+
+      const ok = await agree('user_reagrees', 'testimony-consent', {
+        version: 1,
+      });
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toMatchObject({
+        agreed: { version: 1 },
+        latestVersion: 1,
+        upToDate: true,
+      });
     });
-    expect(await contract.check('POST', res)).toEqual([]);
-    expect(res.status).toBe(201);
-    expect(await required()).toBe(false);
+
+    it.each([
+      ['privacy-notice', { version: 0 }],
+      ['terms-of-use', {}],
+      ['terms-of-use', { version: '0' }],
+      ['terms-of-use', { version: 0, extra: true }],
+    ])('answers 400 for %s with %j', async (agreement, body) => {
+      const res = await agree('user_agrees', agreement, body);
+      expect(res.status).toBe(400);
+    });
   });
 
   it('gives staff their row too, with their role from the token', async () => {

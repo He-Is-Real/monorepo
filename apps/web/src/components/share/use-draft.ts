@@ -16,7 +16,7 @@ import {
   plainMessage,
   sameField,
   type ShareApi,
-  type ShareBeyondSite,
+  type SocialMediaSharing,
   type StoryFields,
   type StoryFormat,
 } from './share-api';
@@ -89,6 +89,11 @@ export interface Draft {
    * choice is cleared and the flow reads the themes again.
    */
   themesChanged: number;
+  /**
+   * A save was refused until the person agrees (plan 4e: `testimony_consent_required` or
+   * `terms_agreement_required`); the flow asks, and the draft stays on this device meanwhile.
+   */
+  agreementNeeded: 'testimony-consent' | 'terms-of-use' | null;
   conflict: StoryFields | null;
   update: (change: Partial<StoryFields>) => void;
   /** Saves now; true when the server has everything on screen. */
@@ -115,7 +120,7 @@ export interface Draft {
   beginSubmit: (
     draftId: string,
     version: number,
-    share?: ShareBeyondSite,
+    share?: SocialMediaSharing,
   ) => SubmitAttempt;
   /** The unresolved submission kept for this draft at `version`, if any (its body is fixed). */
   keptSubmit: (draftId: string, version: number) => SubmitAttempt | null;
@@ -125,13 +130,13 @@ export interface Draft {
 
 /**
  * A submission being tried: its Idempotency-Key, the story version it was sent at and its body
- * (O4: sharing beyond heisreal.today, if ticked), all sent again as they were.
+ * (plan 4e: the social media sharing consent's version, if ticked), all sent again as they were.
  */
 export interface SubmitAttempt {
   key: string;
   draftId: string;
   version: number;
-  share?: ShareBeyondSite;
+  share?: SocialMediaSharing;
 }
 
 /**
@@ -227,6 +232,8 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [themesChanged, setThemesChanged] = useState(0);
+  const [agreementNeeded, setAgreementNeeded] =
+    useState<Draft['agreementNeeded']>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [submittedBefore, setSubmittedBefore] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -384,6 +391,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         try {
           ok = await saveOnce();
           setError(null);
+          setAgreementNeeded(null);
         } catch (err) {
           ok = false;
           if (err instanceof ApiUserProblem && err.code === 'themes_changed') {
@@ -394,17 +402,26 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
             });
             setThemesChanged((n) => n + 1);
           }
+          const needs =
+            err instanceof ApiUserProblem
+              ? err.code === 'testimony_consent_required'
+                ? 'testimony-consent'
+                : err.code === 'terms_agreement_required'
+                  ? 'terms-of-use'
+                  : null
+              : null;
+          setAgreementNeeded(needs);
           if (err instanceof ApiUserUnavailable) {
             setStatus('offline');
           } else {
             setStatus('error');
             setError(
-              plainMessage(
-                err,
-                err instanceof ApiUserProblem && err.status === 403
-                  ? 'Your consent is needed to save this story.'
-                  : 'Your story couldn’t be saved. It’s kept on this device; try again.',
-              ),
+              needs
+                ? 'Your story is kept on this device. Please agree to the latest version to save it.'
+                : plainMessage(
+                    err,
+                    'Your story couldn’t be saved. It’s kept on this device; try again.',
+                  ),
             );
           }
           return false;
@@ -522,7 +539,10 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         ) as SubmitAttempt | null;
         // The same draft at the same version: the same submission. A changed draft means the
         // earlier one can't have gone through (a submitted story can't be saved).
-        return kept && kept.draftId === draftId && kept.version === version
+        return kept &&
+          kept.draftId === draftId &&
+          kept.version === version &&
+          (kept.share === undefined || Number.isInteger(kept.share.version))
           ? kept
           : null;
       } catch {
@@ -536,7 +556,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     (
       draftId: string,
       version: number,
-      share?: ShareBeyondSite,
+      share?: SocialMediaSharing,
     ): SubmitAttempt => {
       const key = SUBMIT_KEY(owner, draftId);
       // A submission whose outcome is unknown is sent again exactly as it was.
@@ -599,6 +619,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     submittedBefore,
     error,
     themesChanged,
+    agreementNeeded,
     conflict: conflict?.fields ?? null,
     update,
     flush,

@@ -1,155 +1,50 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { expect, type Page, type Request, test } from '@playwright/test';
-import { Contract } from '@heisreal/contracts/testing';
-import { BEHAVIOUR_DEVICES } from './devices';
+import { randomUUID } from 'node:crypto';
 import {
-  enlargeText,
-  expectAllTargets,
-  expectNoHorizontalOverflow,
-  expectTarget,
-  shots,
-} from './helpers';
-import { STUB_USER_URL, WEB_LIVE_URL, WEB_SIGNED_IN_URL } from './servers';
+  type APIRequestContext,
+  expect,
+  type Page,
+  test,
+} from '@playwright/test';
+import { BEHAVIOUR_DEVICES } from './devices';
+import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
+import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
-// The consent prompts after sign-in, on the signed-in server (E2E_FIXTURES; the browser calls
-// the stub api-user with the fixtures' token):
-// - D73, the sign-up step: someone who hasn't accepted the sign-up form in force is taken to
-//   /consent/sign-up, ticks both boxes of the published form (dev's v2, served by the stub
-//   api-public-read from libs/legal), and goes back to where they were. Nothing is recorded
-//   until both are ticked; each box is one grant on the version shown.
-// - D85, the banner: someone whose testimony version was replaced by one requiring acceptance
-//   is asked to read and accept it; their stories and the site stay as they are (D93).
-// The stub's account bootstrap says everything is accepted, so these tests answer it
-// themselves, with bodies checked against api-user.yaml. The grants go to the stub api-user,
-// which checks them like the real service (contract.e2e.ts checks its answers).
+// Plan 4e: agreeing to the terms of use and the testimony consent, and the admins' page that
+// saves new versions of the four legal texts, on the signed-in server against the stub api-user
+// (stub-api-user.mjs, checked against the contracts in contract.e2e.ts). The texts and their
+// versions are legal-fixtures.mjs: terms of use 0–2, testimony consent 0–3, social media sharing
+// 0–1, privacy notice 0–1. What the database records and refuses is api-user's integration tests.
 
-const contract = new Contract('api-user.yaml');
-const ACCOUNT_URL = `${STUB_USER_URL}/v1/account`;
-const CONSENTS_URL = `${STUB_USER_URL}/v1/account/consents`;
-const isGrant = (r: Request) =>
-  r.url() === CONSENTS_URL && r.method() === 'POST';
-
-/** The bootstrap answers this account state for the rest of the test. */
-async function answerAccount(
+/** A new person for this test: their session in the stub, and in the page's storage. */
+async function person(
   page: Page,
-  state: { signup: boolean; testimony?: boolean },
+  request: APIRequestContext,
+  seed: Record<string, unknown>,
+  prefix = '',
 ) {
-  const body = {
-    id: 'e2efixture',
-    version: null,
-    role: 'User',
-    createdAt: '2026-10-25T12:00:00.000Z',
-    signupConsent: { accepted: state.signup },
-    testimonyConsent: { acceptanceRequired: state.testimony ?? false },
+  const id = `${prefix}${randomUUID().replace(/-/g, '')}`;
+  const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
+    data: seed,
+  });
+  expect(res.status()).toBe(204);
+  await page.addInitScript((session) => {
+    window.localStorage.setItem('e2e-session', session);
+  }, id);
+  return {
+    id,
+    /** The agreements the page sent, oldest first. */
+    agreed: async () =>
+      (
+        await (
+          await request.get(`${STUB_USER_URL}/__e2e/sessions/${id}/agreed`)
+        ).json()
+      ).requests as { document: string; version: number }[],
   };
-  expect(
-    contract.problems({
-      method: 'GET',
-      path: '/v1/account',
-      status: 200,
-      contentType: 'application/json',
-      body,
-    }),
-  ).toEqual([]);
-  const origin = new URL(WEB_SIGNED_IN_URL).origin;
-  await page.route(ACCOUNT_URL, (route) =>
-    route.request().method() === 'GET'
-      ? route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          headers: {
-            'access-control-allow-origin': origin,
-            'cache-control': 'private, no-store',
-          },
-          body: JSON.stringify(body),
-        })
-      : route.fallback(),
-  );
 }
 
-/** Every grant the page sends, with its body and key. */
-function recordGrants(page: Page) {
-  const grants: { body: Record<string, string>; key: string }[] = [];
-  page.on('request', (r) => {
-    if (!isGrant(r)) return;
-    grants.push({
-      body: r.postDataJSON(),
-      key: r.headers()['idempotency-key'] ?? '',
-    });
-  });
-  return grants;
-}
-
-const box = (page: Page, name: RegExp) => page.getByRole('checkbox', { name });
-const AGE = /I am 18 or over/;
-const ACCOUNT_DATA = /Store my account activity and preferences/;
-const TERMS = /I agree to the terms of use/;
-/** Ticks a box by clicking its words, as a person does (the boxes' group, not the document). */
-const tick = (page: Page, words: RegExp) =>
-  page.locator('form fieldset').getByText(words).click();
-
-for (const scheme of ['light', 'dark'] as const) {
-  test.describe(`${scheme} scheme`, () => {
-    test.use({ colorScheme: scheme });
-
-    test('the sign-up step fits, with its three boxes unticked', async ({
-      page,
-    }, info) => {
-      await answerAccount(page, { signup: false });
-      await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
-      await expect(
-        page.getByRole('heading', {
-          level: 1,
-          name: 'Before you use your account',
-        }),
-      ).toBeVisible();
-      await expect(box(page, AGE)).not.toBeChecked();
-      await expect(box(page, ACCOUNT_DATA)).not.toBeChecked();
-      await expect(box(page, TERMS)).not.toBeChecked();
-      await page.getByText('Read the privacy policy', { exact: true }).click();
-      await expect(page.locator('[data-privacy-document]')).toContainText(
-        'Cookies and storage',
-      );
-      await expectNoHorizontalOverflow(page);
-      await expectAllTargets(page);
-      await shots(page, info.project.name, scheme, 'consent-sign-up', {
-        signedIn: true,
-      });
-    });
-
-    test('the testimony banner and its page fit', async ({ page }, info) => {
-      await answerAccount(page, { signup: true, testimony: true });
-      await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
-      const banner = page.locator('[data-consent-banner]');
-      await expect(banner).toBeVisible();
-      await expectNoHorizontalOverflow(page);
-      for (const control of [
-        banner.getByRole('link', { name: 'Read and accept' }),
-        banner.getByRole('button', { name: 'Not now' }),
-      ]) {
-        await expectTarget(page, control);
-      }
-      await shots(page, info.project.name, scheme, 'consent-banner', {
-        signedIn: true,
-      });
-
-      await page.goto(`${WEB_SIGNED_IN_URL}/consent/testimony`);
-      await expect(
-        page.getByRole('heading', {
-          level: 1,
-          name: 'Your story and your data',
-        }),
-      ).toBeVisible();
-      await expect(page.getByRole('checkbox')).toHaveCount(1);
-      await expectNoHorizontalOverflow(page);
-      await expectAllTargets(page);
-      await shots(page, info.project.name, scheme, 'consent-testimony', {
-        signedIn: true,
-      });
-    });
-  });
-}
+const tick = (page: Page, label: string | RegExp) =>
+  page.locator('label').filter({ hasText: label }).click();
+const CONTINUE = { name: 'Continue', exact: true } as const;
 
 test.describe('behaviour', () => {
   // eslint-disable-next-line no-empty-pattern
@@ -160,398 +55,271 @@ test.describe('behaviour', () => {
     );
   });
 
-  test('D73: signed in without sign-up consent, the person is taken to the step and back afterwards', async ({
+  test('sign-up: one box for the terms, with the privacy notice, and nothing saved until it’s ticked', async ({
     page,
+    request,
   }) => {
-    await answerAccount(page, { signup: false });
-    const grants = recordGrants(page);
-    await page.goto(`${WEB_SIGNED_IN_URL}/stories?theme=healing`);
-    await expect(page).toHaveURL(
-      `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=${encodeURIComponent('/stories?theme=healing')}`,
-    );
-    const agree = page.getByRole('button', { name: 'Agree and continue' });
-
-    // Nothing is recorded until every box is ticked.
-    await agree.click();
+    const me = await person(page, request, { terms: null }, 'unaccepted');
+    await page.goto(`${WEB_SIGNED_IN_URL}/about`);
+    // A new account goes to the terms first, and comes back after.
+    await expect(page).toHaveURL(/\/consent\/terms\?redirect_url=%2Fabout$/);
     await expect(
-      page.getByText('Tick all the boxes to continue.'),
+      page.getByRole('heading', {
+        level: 1,
+        name: 'Welcome to He Is Real Today',
+      }),
     ).toBeVisible();
-    await expect(box(page, AGE)).toBeFocused();
-    await tick(page, AGE);
-    await agree.click();
+    const form = page.locator('[data-agreement="terms-of-use"]');
+    await expect(form).toHaveAttribute('data-agreement-version', '2');
+    await expect(form.getByRole('checkbox')).toHaveCount(1);
+    await expect(form.getByRole('checkbox')).not.toBeChecked();
+    await expect(form.locator('[data-legal-document]')).toContainText(
+      'in your own words',
+    );
     await expect(
-      page.getByText('Tick all the boxes to continue.'),
-    ).toBeVisible();
-    await expect(box(page, ACCOUNT_DATA)).toBeFocused();
-    expect(grants).toEqual([]);
-
-    await tick(page, ACCOUNT_DATA);
-    await agree.click();
-    await expect(
-      page.getByText('Tick all the boxes to continue.'),
-    ).toBeVisible();
-    await expect(box(page, TERMS)).toBeFocused();
-    expect(grants).toEqual([]);
-
-    await tick(page, TERMS);
-    const answered = page.waitForResponse(
-      (r) =>
-        isGrant(r.request()) &&
-        r.request().postDataJSON().statement === 'terms_of_use',
+      form.locator('[data-privacy-notice-link]').getByRole('link', {
+        name: 'privacy notice',
+      }),
+    ).toHaveAttribute('href', '/privacy');
+    await page.getByRole('button', CONTINUE).click();
+    await expect(form).toContainText(
+      'Tick the box to continue. Nothing is saved until you do.',
     );
-    await agree.click();
-    const last = await answered;
-    expect(last.status()).toBe(201);
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/stories?theme=healing`);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-
-    // One grant per box, on the version shown, each with its own key, each naming the privacy
-    // policy and terms of use the page showed (D122).
-    expect(grants.map((g) => g.body)).toEqual(
-      ['age_18plus', 'account_data', 'terms_of_use'].map((statement) => ({
-        form: 'signup',
-        formVersion: 'v2',
-        statement,
-        mechanism: 'web_form_submission',
-        privacyPolicyVersion: 'dev_policy',
-        termsVersion: 'dev_placeholder',
-      })),
-    );
-    expect(new Set(grants.map((g) => g.key)).size).toBe(3);
-
-    // Accepted: moving around the site doesn't ask again.
-    await page.getByRole('link', { name: 'He Is Real Today, home' }).click();
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/`);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    expect(grants).toHaveLength(3);
-  });
-
-  test('accepting before the account check answers: its late “not accepted” doesn’t send the person back', async ({
-    page,
-  }) => {
-    // The bootstrap's answer is held until the person has accepted, then released: it was
-    // sent before the grants, so it still says the sign-up form isn't accepted.
-    let release!: () => void;
-    const held = new Promise<void>((done) => (release = done));
-    const origin = new URL(WEB_SIGNED_IN_URL).origin;
-    await page.route(ACCOUNT_URL, async (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      await held;
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        headers: { 'access-control-allow-origin': origin },
-        body: JSON.stringify({
-          id: 'e2efixture',
-          version: null,
-          role: 'User',
-          createdAt: '2026-10-25T12:00:00.000Z',
-          signupConsent: { accepted: false },
-          testimonyConsent: { acceptanceRequired: false },
-        }),
-      });
-    });
-    const grants = recordGrants(page);
-    await page.goto(
-      `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=%2Fabout`,
-    );
-    await tick(page, AGE);
-    await tick(page, ACCOUNT_DATA);
-    await tick(page, TERMS);
-    await page.getByRole('button', { name: 'Agree and continue' }).click();
+    expect(await me.agreed()).toEqual([]);
+    await tick(page, 'I am 18 or over and agree to the terms of use.');
+    await page.getByRole('button', CONTINUE).click();
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/about`);
-    expect(grants).toHaveLength(3);
-
-    const late = page.waitForResponse(
-      (r) => r.url() === ACCOUNT_URL && r.request().method() === 'GET',
-    );
-    release();
-    await late;
-    // A click handled after it means React has run every effect the late answer caused.
-    const account = page.getByRole('button', { name: /^Account: / });
-    await account.click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/about`);
-    await expect(page.getByRole('checkbox')).toHaveCount(0);
-    expect(grants).toHaveLength(3);
-  });
-
-  test('D114: the boxes and their words come from the statements data, outside the document', async ({
-    page,
-  }) => {
-    const file = JSON.parse(
-      readFileSync(
-        resolve(
-          __dirname,
-          '../../../libs/legal/forms/signup/v2.statements.json',
-        ),
-        'utf8',
-      ),
-    ) as { statements: { key: string; label: string }[] };
-    await answerAccount(page, { signup: false });
-    await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
-    const document = page.locator('[data-legal-document]');
-    // D122: a short introduction, never a document listing the boxes.
-    await expect(document).toContainText('Before you use your account');
-    for (const { label } of file.statements) {
-      await expect(document).not.toContainText(label);
-    }
-    // The introduction is only words: no box is inside it.
-    await expect(document.getByRole('checkbox')).toHaveCount(0);
-    // The boxes, in the file's order, each named by exactly its words.
-    const boxes = page.locator('form fieldset').getByRole('checkbox');
-    await expect(boxes).toHaveCount(file.statements.length);
-    for (const [i, { label }] of file.statements.entries()) {
-      await expect(boxes.nth(i)).toHaveAccessibleName(label);
-      await expect(boxes.nth(i)).not.toBeChecked();
-    }
-  });
-
-  test('a save that fails part-way can be retried without recording a box twice', async ({
-    page,
-  }) => {
-    await answerAccount(page, { signup: false });
-    const grants = recordGrants(page);
-    let failed = false;
-    await page.route(CONSENTS_URL, async (route) => {
-      const req = route.request();
-      if (
-        req.method() === 'POST' &&
-        req.postDataJSON().statement === 'account_data' &&
-        !failed
-      ) {
-        failed = true;
-        return route.abort('connectionrefused');
-      }
-      return route.fallback();
-    });
-    await page.goto(
-      `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=%2Fabout`,
-    );
-    await tick(page, AGE);
-    await tick(page, ACCOUNT_DATA);
-    await tick(page, TERMS);
-    await page.getByRole('button', { name: 'Agree and continue' }).click();
-    await expect(page.locator('main').getByRole('alert')).toContainText(
-      'We couldn’t save your answer',
-    );
-    await expect(page).toHaveURL(/\/consent\/sign-up/);
-
-    await page.getByRole('button', { name: 'Agree and continue' }).click();
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/about`);
-    // The retry sent each box again with the key it had before, so the first is a replay.
-    const keyOf = (statement: string) =>
-      new Set(
-        grants.filter((g) => g.body.statement === statement).map((g) => g.key),
-      );
-    expect(keyOf('age_18plus').size).toBe(1);
-    expect(keyOf('account_data').size).toBe(1);
-  });
-
-  for (const [code, what, message] of [
-    [
-      'form_version_not_in_force',
-      'a form',
-      'This form was updated while you were reading it.',
-    ],
-    [
-      'legal_document_not_in_force',
-      'the privacy policy or terms',
-      'Our privacy policy or terms of use were updated while you were reading.',
-    ],
-  ]) {
-    test(`${what} updated while the person reads asks them to read the new one`, async ({
-      page,
-    }) => {
-      await answerAccount(page, { signup: false });
-      const origin = new URL(WEB_SIGNED_IN_URL).origin;
-      await page.route(CONSENTS_URL, (route) =>
-        route.request().method() === 'POST'
-          ? route.fulfill({
-              status: 409,
-              contentType: 'application/problem+json',
-              headers: { 'access-control-allow-origin': origin },
-              body: JSON.stringify({
-                type: 'about:blank',
-                title: 'Conflict',
-                status: 409,
-                code,
-              }),
-            })
-          : route.fallback(),
-      );
-      await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
-      await tick(page, AGE);
-      await tick(page, ACCOUNT_DATA);
-      await tick(page, TERMS);
-      await page.getByRole('button', { name: 'Agree and continue' }).click();
-      await expect(page.locator('main').getByRole('alert')).toContainText(
-        message,
-      );
-      await expect(
-        page.getByRole('link', { name: 'Reload the page' }),
-      ).toBeVisible();
-    });
-  }
-
-  test('declining: a plain explanation and Sign out, adults only, and the legal pages stay open', async ({
-    page,
-  }) => {
-    await answerAccount(page, { signup: false });
-    await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
-    const decline = page.getByRole('region', { name: 'If you’d rather not' });
-    await expect(decline).toContainText('every story stays open to read');
-    await expect(decline).toContainText('if you’re under 18, please sign out');
-    await expect(
-      decline.getByRole('button', { name: 'Sign out' }),
-    ).toBeVisible();
-    // D77: no parental-consent route.
-    await expect(page.getByText(/parent|guardian/i)).toHaveCount(0);
-
-    // The privacy and terms pages can be read first without being sent to the step.
-    for (const path of ['/privacy', '/terms']) {
-      await page.goto(`${WEB_SIGNED_IN_URL}${path}`);
-      await expect(
-        page.getByRole('button', { name: /^Account: / }),
-      ).toBeVisible();
-      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-      await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${path}`);
-    }
-  });
-
-  test('someone who has accepted goes straight on from the step, and never round in a loop', async ({
-    page,
-  }) => {
-    // The stub's own bootstrap: accepted.
-    await page.goto(
-      `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=%2Fabout`,
-    );
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/about`);
-    await page.goto(
-      `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=${encodeURIComponent('/consent/sign-up')}`,
-    );
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/`);
-  });
-
-  test('D85: the banner asks for the newer testimony form; accepting it records Art 9 consent on it, and stories stay', async ({
-    page,
-  }) => {
-    await answerAccount(page, { signup: true, testimony: true });
-    const grants = recordGrants(page);
-    await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
-    const banner = page.locator('[data-consent-banner]');
-    await expect(banner).toContainText('Your stories stay on the site');
-    // The page is untouched: stories are listed as usual (D93).
-    await expect(page.locator('main article').first()).toBeVisible();
-
-    await banner.getByRole('link', { name: 'Read and accept' }).click();
-    await expect(page).toHaveURL(
-      `${WEB_SIGNED_IN_URL}/consent/testimony?redirect_url=%2Fstories`,
-    );
-    await expect(banner).toHaveCount(0);
-    // One box, the Art 9 one; publishing is asked again at the next submission, which the
-    // introduction says in its own words (D122: it never lists the boxes).
-    await expect(page.getByRole('checkbox')).toHaveCount(1);
-    await expect(page.locator('[data-legal-document]')).toContainText(
-      'explicit consent before we store anything',
-    );
-    await tick(
-      page,
-      /I agree to He Is Real Today storing and processing my story/,
-    );
-    await page.getByRole('button', { name: 'Accept' }).click();
-    // Back on browse. It arrives scrolled down (about 2,300 px on desktop-1280: the form's
-    // router.replace keeps the window scrolled from clicking Accept), so its end is in view and it
-    // loads its next page by itself (D55) 70–150 ms later, adding ?pages=2. Either address is
-    // "back on browse"; checking for exactly /stories raced that load.
-    await expect(page).toHaveURL(
-      new RegExp(`^${WEB_SIGNED_IN_URL}/stories(\\?pages=\\d+)?$`),
-    );
-    await expect(page.locator('main article').first()).toBeVisible();
-    await expect(banner).toHaveCount(0);
-    expect(grants.map((g) => g.body)).toEqual([
-      {
-        form: 'testimony',
-        formVersion: 'v2',
-        statement: 'special_category_religious',
-        mechanism: 'reconsent_prompt',
-        privacyPolicyVersion: 'dev_policy',
-      },
+    expect(await me.agreed()).toEqual([
+      { document: 'terms-of-use', version: 2 },
     ]);
   });
 
-  test('“Not now” hides the banner until the next page load', async ({
+  test('changed terms: the redline from the version agreed, the full text, and agreeing again', async ({
     page,
+    request,
   }) => {
-    await answerAccount(page, { signup: true, testimony: true });
+    const me = await person(page, request, {
+      terms: 0,
+      staleOnce: ['terms-of-use'],
+    });
+    await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
+    await expect(page).toHaveURL(/\/consent\/terms\?redirect_url=%2Fstories$/);
+    await expect(
+      page.getByRole('heading', {
+        level: 1,
+        name: 'Our terms of use have changed',
+      }),
+    ).toBeVisible();
+    const form = page.locator('[data-agreement="terms-of-use"]');
+    await expect(form).toContainText(
+      'You agreed to version 0 on 26 Oct 2026. Here’s what’s different in version 2.',
+    );
+    // Both later versions' words, against version 0, marked for screen readers too.
+    await expect(form.locator('[data-redline] ins')).toHaveText([
+      /\[added: .*and tell us if someone else uses your account.*\]/,
+      /\[added: .*and in your own words.*\]/,
+    ]);
+    await form.getByText('Read the full version 2').click();
+    await expect(form.locator('[data-full-version="2"]')).toContainText(
+      'in your own words',
+    );
+    await expect(form.locator('[data-privacy-notice-link]')).toBeVisible();
+
+    // A newer version is saved while the page is open: nothing is agreed, and it says so.
+    await tick(page, 'I agree to version 2 of the terms of use.');
+    await page.getByRole('button', CONTINUE).click();
+    await expect(form.locator('[data-agreement-problem]')).toContainText(
+      'We updated the terms of use while you were reading.',
+    );
+    await expect(form.getByRole('checkbox')).not.toBeChecked();
+    await tick(page, 'I agree to version 2 of the terms of use.');
+    await page.getByRole('button', CONTINUE).click();
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/stories`);
+    expect(await me.agreed()).toEqual([
+      { document: 'terms-of-use', version: 2 },
+      { document: 'terms-of-use', version: 2 },
+    ]);
+  });
+
+  test('changed testimony consent: a banner, the redline, and stories stay up if not now', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, { testimony: 1 });
     await page.goto(`${WEB_SIGNED_IN_URL}/about`);
     const banner = page.locator('[data-consent-banner]');
+    await expect(banner).toContainText('Our testimony consent has changed');
+    // "Not now" hides it for now.
     await banner.getByRole('button', { name: 'Not now' }).click();
     await expect(banner).toHaveCount(0);
-    await page.getByRole('link', { name: 'He Is Real Today, home' }).click();
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/`);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(banner).toHaveCount(0);
     await page.reload();
-    await expect(banner).toBeVisible();
-  });
-
-  test('signed out, the step shows the words but asks to sign in first', async ({
-    page,
-  }) => {
-    await page.goto('/consent/sign-up?redirect_url=%2Fabout');
+    await banner.getByRole('link', { name: 'Read what’s changed' }).click();
+    await expect(page).toHaveURL(
+      /\/consent\/testimony\?redirect_url=%2Fabout$/,
+    );
     await expect(
-      page.getByText('Before you use your account, we need'),
+      page.getByRole('heading', {
+        level: 1,
+        name: 'Our testimony consent has changed',
+      }),
     ).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: 'Agree and continue' }),
-    ).toHaveCount(0);
-    const signIn = page.getByRole('link', { name: 'Sign in to continue' });
-    await expect(signIn).toHaveAttribute(
-      'href',
-      `/sign-in?redirect_url=${encodeURIComponent('/consent/sign-up?redirect_url=%2Fabout')}`,
+    const form = page.locator('[data-agreement="testimony-consent"]');
+    await expect(form).toContainText('Here’s what’s different in version 3.');
+    await expect(form.locator('[data-redline] ins')).toHaveCount(2);
+    await expect(form.locator('[data-redline]')).toContainText(
+      '[added: , from your profile]',
     );
+    await expect(page.getByRole('region', { name: 'Not now' })).toContainText(
+      'Your published stories stay up.',
+    );
+    await tick(page, 'I agree to version 3 of the testimony consent.');
+    await page.getByRole('button', CONTINUE).click();
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/about`);
+    await expect(banner).toHaveCount(0);
+    expect(await me.agreed()).toEqual([
+      { document: 'testimony-consent', version: 3 },
+    ]);
   });
 
-  test('where no form is published, the step says so and nothing can be ticked', async ({
+  test('someone who never agreed to the testimony consent sees no banner', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {});
+    await page.goto(`${WEB_SIGNED_IN_URL}/about`);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.locator('[data-consent-banner]')).toHaveCount(0);
+  });
+
+  test('the privacy notice and terms keep every version from 0', async ({
     page,
   }) => {
-    await page.goto(`${WEB_LIVE_URL}/consent/sign-up`);
-    await expect(page.locator('[data-consent-unavailable]')).toContainText(
-      'isn’t available on this site yet',
+    await page.goto('/privacy');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'Privacy notice',
     );
-    await expect(page.getByRole('checkbox')).toHaveCount(0);
+    await expect(page.locator('[data-legal-version]')).toHaveAttribute(
+      'data-legal-version',
+      '1',
+    );
+    const others = page.locator('[data-document-versions]');
+    await expect(
+      others.getByRole('heading', { name: 'Previous versions' }),
+    ).toBeVisible();
+    await others.getByRole('link', { name: /^Version 0,/ }).click();
+    await expect(page).toHaveURL(/\/privacy\/versions\/0$/);
+    await expect(page.getByRole('note')).toContainText(
+      'This is an earlier version',
+    );
+    await expect(page.getByRole('main')).not.toContainText('Donations');
+    await expect(
+      others.getByRole('link', { name: /^Version 1 \(latest\)/ }),
+    ).toHaveAttribute('href', '/privacy');
+    expect((await page.goto('/terms/versions/0'))?.status()).toBe(200);
+    await expect(page.locator('[data-legal-version]')).toHaveAttribute(
+      'data-legal-version',
+      '0',
+    );
+    expect((await page.goto('/terms/versions/9'))?.status()).toBe(404);
   });
 
-  // Chromium with JavaScript turned off by Playwright still parses <noscript> as script-on,
-  // so the message is checked in the page as the server sends it.
-  test('without JavaScript, the step says it needs it', async ({ request }) => {
-    const html = await (await request.get('/consent/sign-up')).text();
-    expect(html).toMatch(
-      /<noscript>[^]*?This step needs JavaScript[^]*?<\/noscript>/,
+  test('/admin/consent: edit, see the redline and preview, confirm, and save the next version', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {}, 'admin');
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
+    await page.getByRole('tab', { name: 'Privacy notice' }).click();
+    await expect(page.locator('[data-current-version]')).toContainText(
+      'Current: version 1',
     );
+    await page.getByText('See all versions').click();
+    await expect(page.locator('[data-versions] [data-version]')).toHaveCount(2);
+    const text = page.getByLabel('New text (version 2) · Markdown');
+    await text.fill(`${await text.inputValue()}\n\nOne more paragraph.`);
+    await expect(page.locator('[data-redline] ins')).toHaveText(
+      '[added: One more paragraph.]',
+    );
+    await expect(page.locator('[data-preview]')).toContainText(
+      'One more paragraph.',
+    );
+    await page.getByRole('button', { name: 'Save as version 2…' }).click();
+    const confirm = page.getByRole('alertdialog');
+    await expect(confirm).toContainText(
+      'Save version 2 of privacy notice? It can’t be changed or deleted after saving.',
+    );
+    await confirm.getByRole('button', { name: 'Cancel' }).click();
+    await expect(confirm).toHaveCount(0);
+    await page.getByRole('button', { name: 'Save as version 2…' }).click();
+    await confirm.getByRole('button', { name: 'Save' }).click();
+    await expect(page.locator('[data-publish-status="done"]')).toHaveText(
+      'Saved version 2. It’s in force now.',
+    );
+    await expect(page.locator('[data-current-version]')).toContainText(
+      'Current: version 2',
+    );
+  });
+
+  test('/admin/consent: another admin saved first, so nothing is saved and it asks to reload', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {}, 'admin');
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
+    await expect(page.locator('[data-current-version]')).toContainText(
+      'Current: version 2',
+    );
+    // The terms of use's version 3, saved by someone else after this page loaded.
+    const theirs = await request.post(
+      `${STUB_USER_URL}/v1/admin/legal-documents/terms-of-use/versions`,
+      {
+        headers: {
+          authorization: `Bearer ${fixtureToken(me.id)}`,
+        },
+        data: { version: 3, content: 'Their text.' },
+      },
+    );
+    expect(theirs.status()).toBe(201);
+    const text = page.getByLabel('New text (version 3) · Markdown');
+    await text.fill(`${await text.inputValue()}\n\nMine.`);
+    await page.getByRole('button', { name: 'Save as version 3…' }).click();
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: 'Save' })
+      .click();
+    const stale = page.locator('[data-publish-status="stale"]');
+    await expect(stale).toContainText(
+      'Someone else saved version 3 of the terms of use while you were editing',
+    );
+    await stale.getByRole('button', { name: 'Reload' }).click();
+    await expect(page.locator('[data-current-version]')).toContainText(
+      'Current: version 3',
+    );
+    await expect(
+      page.getByLabel('New text (version 4) · Markdown'),
+    ).toHaveValue('Their text.');
   });
 });
 
-test('200% text: the step, the banner and the testimony page fit a 320 px phone, signed in', async ({
-  page,
-}, info) => {
-  test.skip(info.project.name !== 'phone-320', 'the smallest phone');
-  await enlargeText(page);
-  await answerAccount(page, { signup: false });
-  await page.goto(`${WEB_SIGNED_IN_URL}/consent/sign-up`);
-  await expect(box(page, AGE)).toHaveCount(1);
-  await expectNoHorizontalOverflow(page);
-  await expectAllTargets(page);
-
-  await page.unroute(ACCOUNT_URL);
-  await answerAccount(page, { signup: true, testimony: true });
-  await page.goto(`${WEB_SIGNED_IN_URL}/about`);
-  await expect(page.locator('[data-consent-banner]')).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  await page.goto(`${WEB_SIGNED_IN_URL}/consent/testimony`);
-  await expect(page.getByRole('checkbox')).toHaveCount(1);
-  await expectNoHorizontalOverflow(page);
-  await expectAllTargets(page);
+// Every device: the new pages fit, with 44 px targets (200% text: text-zoom.e2e.ts).
+test.describe('layout', () => {
+  for (const [name, seed, path, prefix] of [
+    ['first terms', { terms: null }, '/consent/terms', 'unaccepted'],
+    ['changed terms', { terms: 0 }, '/consent/terms', ''],
+    ['testimony consent', { testimony: 1 }, '/consent/testimony', ''],
+    ['admin consent', {}, '/admin/consent', 'admin'],
+  ] as const) {
+    test(`${name}: fits, with its targets`, async ({ page, request }) => {
+      await person(page, request, seed, prefix);
+      await page.goto(`${WEB_SIGNED_IN_URL}${path}`);
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      if (path === '/admin/consent') {
+        await expect(page.locator('[data-preview]')).toBeVisible();
+      } else {
+        await expect(page.locator('[data-agreement]')).toBeVisible();
+      }
+      await expectNoHorizontalOverflow(page);
+      await expectAllTargets(page);
+    });
+  }
 });

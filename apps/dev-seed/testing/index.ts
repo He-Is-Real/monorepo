@@ -9,23 +9,15 @@ export { DATASET } from '../src/app/dataset';
 export type { StoryFixture, ThemeFixture } from '../src/app/dataset';
 
 /**
- * A SurrealDB (3.2.4, the real schema) set up the way dev is: the placeholder privacy document
- * and consent forms (D75), consent checks enforced (D48 off), and the dev-only `dev_seed` login
- * (D49). For integration tests: `@heisreal/dev-seed/testing`.
+ * A SurrealDB (3.2.4, the real schema) set up the way dev is: its environment's name, version 0
+ * of the legal texts (data/0009, in every environment) and the dev-only `dev_seed` login (D49).
+ * For integration tests: `@heisreal/dev-seed/testing`.
  */
 export async function devDatabase(params: {
-  legalPlaceholders: boolean;
   environment: string | null;
-  relaxed?: boolean;
 }): Promise<{ t: TestDatabase; seeder: Surreal }> {
   const t = await TestDatabase.create({ migrate: false });
-  await t.migrate(
-    t.params({
-      dev_legal_placeholders: params.legalPlaceholders,
-      dev_consent_relaxed: params.relaxed ?? false,
-      environment: params.environment,
-    }),
-  );
+  await t.migrate(t.params({ environment: params.environment }));
   await t.createServices();
   const password = randomBytes(18).toString('hex');
   // What init.surql.tmpl's dev-seed line does in dev (modules/db-identity).
@@ -43,10 +35,7 @@ export async function devDatabase(params: {
  * through their own service logins.
  */
 export async function devDatabaseWithDataset(): Promise<TestDatabase> {
-  const { t, seeder } = await devDatabase({
-    legalPlaceholders: true,
-    environment: 'dev',
-  });
+  const { t, seeder } = await devDatabase({ environment: 'dev' });
   await reset(seeder, buildVars(DATASET, fakeUploads()));
   return t;
 }

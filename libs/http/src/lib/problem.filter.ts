@@ -96,7 +96,7 @@ const titleCase = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 /**
  * Our own Nest exceptions with a stable `code` (`new ForbiddenException({ code, message, … })`,
- * as libs/auth and libs/consent throw them) as problems: `message` becomes `detail`, and `code`,
+ * as libs/auth and the services throw them) as problems: `message` becomes `detail`, and `code`,
  * `errors` and any other fields we set (e.g. `requiredRole`) are kept. Only bodies with a `code`:
  * those are written by us, so they hold no request data. Anything else (Nest's own errors, a
  * plain message) gets the bare status title.

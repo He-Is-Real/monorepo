@@ -12,40 +12,31 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import {
-  ifNoneMatches,
-  NoConsentRequired,
-  PersonSessions,
-  weakETag,
-} from '@heisreal/consent';
+import { PersonSessions } from '@heisreal/auth';
 import {
   isTransactionConflict,
   requireWritten,
   runQuery,
   SURREAL,
 } from '@heisreal/database';
-import { ProblemException } from '@heisreal/http';
+import { ifNoneMatches, ProblemException, weakETag } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
 
-/** D121: the two legal documents and the table each one's versions live in. */
+/** Plan 4e: the four legal texts (`LegalDocumentName`) and the table each one's versions live in. */
 const DOCUMENTS = {
-  privacy: 'dpaVersion',
-  terms: 'termsVersion',
+  'terms-of-use': 'termsOfUseAgreement',
+  'testimony-consent': 'testimonyConsent',
+  'social-media-sharing-consent': 'socialMediaSharingConsent',
+  'privacy-notice': 'privacyNotice',
 } as const;
 type DocumentName = keyof typeof DOCUMENTS;
 const isDocument = (d: string): d is DocumentName =>
   Object.hasOwn(DOCUMENTS, d);
 
-/** The text's limit, as the schema's (characters). */
-export const MAX_TEXT = 200_000;
-
-/** `table:id` → `id`. */
-const key = (id: string) => {
-  const k = id.slice(id.indexOf(':') + 1);
-  return k.startsWith('⟨') && k.endsWith('⟩') ? k.slice(1, -1) : k;
-};
+/** The text's limit, as the contract's and the schema's (characters). */
+export const MAX_CONTENT = 100_000;
 
 /** A field error, as RFC 9457 `errors[]` (D30). */
 const invalid = (pointer: string, code: string, message: string) =>
@@ -62,27 +53,27 @@ const notFound = () =>
     HttpStatus.NOT_FOUND,
     'not_found',
     'Not found',
-    'There’s no such legal document.',
+    'There’s no such legal text.',
   );
 
 /**
- * What a refused publish answers (409), or null for any other error (a 5XX). The transaction
- * names `document_changed` when the version in force isn't the one the admin edited; a
- * transaction conflict or the unique version number means another admin published this
- * document at the same moment: the same answer, reload and edit again.
+ * What a refused save answers (409), or null for any other error (a 5XX). The database refuses a
+ * version that isn't one after the latest (`legal_version_number`); a record that already exists
+ * or a transaction conflict means another admin saved that number at the same moment. Either
+ * way: reload, then make the changes again.
  */
-function publishRefusal(err: unknown): ProblemException | null {
+function saveRefusal(err: unknown): ProblemException | null {
   const message = err instanceof Error ? err.message : String(err);
   if (
-    message.includes('document_changed') ||
-    /dpa_number|terms_number/.test(message) ||
+    /\blegal_version_number:/.test(message) ||
+    /already exists/.test(message) ||
     isTransactionConflict(err)
   ) {
     return new ProblemException(
       HttpStatus.CONFLICT,
       'document_changed',
       'Conflict',
-      'Another version of this document was published meanwhile: reload, then make your changes again.',
+      'Another version of this text was saved meanwhile: reload, then make your changes again.',
     );
   }
   return null;
@@ -90,10 +81,10 @@ function publishRefusal(err: unknown): ProblemException | null {
 
 /** `PublishLegalDocument`'s body. */
 export interface PublishInput {
-  /** The new version's Markdown. */
-  text: string;
-  /** The number of the version in force the admin edited; null for the first version. */
-  basedOn: number | null;
+  /** The number it is saved as: one after the latest the admin edited. */
+  version: number;
+  /** The new version's Markdown, with `\n` line ends. */
+  content: string;
 }
 
 function parsePublish(body: unknown): PublishInput {
@@ -101,7 +92,9 @@ function parsePublish(body: unknown): PublishInput {
     throw invalid('', 'invalid_body', 'A JSON object.');
   }
   const b = body as Record<string, unknown>;
-  const unknown = Object.keys(b).find((k) => k !== 'text' && k !== 'basedOn');
+  const unknown = Object.keys(b).find(
+    (k) => k !== 'version' && k !== 'content',
+  );
   if (unknown) {
     throw invalid(
       `/${unknown}`,
@@ -109,67 +102,45 @@ function parsePublish(body: unknown): PublishInput {
       'Not a field of this command.',
     );
   }
-  if (typeof b['text'] !== 'string') {
-    throw invalid('/text', 'required', 'Required.');
-  }
-  // One line ending, so the sha256 doesn't depend on the admin's browser or system.
-  const text = b['text'].replace(/\r\n?/g, '\n');
-  if (text.trim() === '' || text.length > MAX_TEXT) {
+  const version = b['version'];
+  if (!(
+    typeof version === 'number' &&
+    Number.isInteger(version) &&
+    version >= 0
+  )) {
     throw invalid(
-      '/text',
-      'invalid_text',
-      `The text is required, at most ${MAX_TEXT} characters.`,
-    );
-  }
-  const based = b['basedOn'];
-  if (
-    based !== null &&
-    !(typeof based === 'number' && Number.isInteger(based) && based > 0)
-  ) {
-    throw invalid(
-      '/basedOn',
+      '/version',
       'invalid_version',
-      'The version number edited, or null for the first version.',
+      'The number this version is saved as: one after the latest.',
     );
   }
-  return { text, basedOn: based };
+  if (typeof b['content'] !== 'string') {
+    throw invalid('/content', 'required', 'Required.');
+  }
+  // One line ending, whatever the admin's browser or system sends (the contract's rule).
+  const content = b['content'].replace(/\r\n?/g, '\n');
+  if (content.trim() === '' || content.length > MAX_CONTENT) {
+    throw invalid(
+      '/content',
+      'invalid_content',
+      `The text is required, at most ${MAX_CONTENT} characters.`,
+    );
+  }
+  return { version, content };
 }
 
-/** The version in force, by document (SurrealQL). */
-const IN_FORCE: Record<DocumentName, string> = {
-  privacy: 'fn::legal::dpa_in_force()',
-  terms: 'fn::legal::terms_in_force()',
-};
+interface VersionRow {
+  version: number;
+  release_date: string;
+}
 
-/** The new version's row, by document (SurrealQL object; $-variables from publish). */
-const NEW_ROW: Record<DocumentName, string> = {
-  // D121, D125: a privacy policy version is a standard dpaVersion, published at once.
-  privacy: `{ kind: 'standard', status: 'published', contentHash: crypto::sha256($text),
-    text: $text, source: 'admin', publishedBy: $user }`,
-  terms: `{ text: $text, contentHash: crypto::sha256($text), source: 'admin',
-    publishedBy: $user }`,
-};
-
-/** Every published version of a document, newest first, and the one in force with its words. */
-const VERSIONS: Record<DocumentName, string> = {
-  privacy: `SELECT number, effectiveFrom ?? createdAt AS publishedAt, publishedBy, source,
-      devPlaceholder
-     FROM dpaVersion WHERE status = 'published' AND kind = 'standard' AND number != NONE
-     ORDER BY number DESC;
-   LET $c = fn::legal::dpa_in_force();
-   RETURN IF $c = NONE { NONE } ELSE { (SELECT number, text FROM ONLY $c) };`,
-  terms: `SELECT number, publishedAt, publishedBy, source, devPlaceholder
-     FROM termsVersion ORDER BY number DESC;
-   LET $c = fn::legal::terms_in_force();
-   RETURN IF $c = NONE { NONE } ELSE { (SELECT number, text FROM ONLY $c) };`,
-};
+const iso = (d: string) => new Date(d).toISOString();
 
 /**
- * api-admin.yaml, tag LegalDocuments (D121, D125; Joel, 2026-10-30): the privacy policy and the
- * terms of use, each with its own numbered versions, for Admin and above (D1). A version is the
- * Markdown the site renders: an admin edits the version in force at /admin/legal and publishes
- * the result as the next version, live at once. The first version may be published here too.
- * Nothing here edits or deletes a version: the database refuses that anyway.
+ * api-admin.yaml, tag LegalDocuments (plan 4e): the four legal texts, each a series of immutable
+ * versions numbered from 0, for Admin and Super Admin at /admin/consent (D1). An admin edits the
+ * latest version's Markdown and saves the result as the next number, in force at once. Nothing
+ * here changes or deletes a version: the database refuses that anyway, whoever asks.
  */
 @Controller('v1/admin/legal-documents')
 export class LegalDocumentsController {
@@ -182,34 +153,36 @@ export class LegalDocumentsController {
 
   @Get(':document/versions')
   @RequiresRole('Admin')
-  @NoConsentRequired(
-    'listing a legal document’s versions reads reference data, nothing about the admin',
-  )
   async listVersions(
     @Param('document') document: string,
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
   ) {
     if (!isDocument(document)) throw notFound();
-    const results = (await runQuery(this.db, VERSIONS[document])) as unknown[];
-    const rows = results[0] as Record<string, unknown>[];
-    const current = results[results.length - 1] as {
-      number: number;
-      text: string | null;
-    } | null;
+    const [versions, latest] = (await runQuery(
+      this.db,
+      `SELECT record::id(id) AS version, release_date FROM type::table($table)
+         ORDER BY version DESC;
+       LET $l = fn::legal::latest($table);
+       RETURN IF $l = NONE { NONE }
+         ELSE { (SELECT record::id(id) AS version, release_date, content FROM ONLY $l) };`,
+      { table: DOCUMENTS[document] },
+    ).then((r) => [r[0], r[r.length - 1]])) as [
+      VersionRow[],
+      (VersionRow & { content: string }) | null | undefined,
+    ];
+    // Every environment has version 0 of each text (data/0009); without one there's nothing to edit.
+    if (!latest) throw notFound();
     const body = {
       document,
-      current:
-        current && typeof current.text === 'string'
-          ? { number: current.number, text: current.text }
-          : null,
-      data: rows.map((r) => ({
-        number: r['number'],
-        publishedAt: new Date(String(r['publishedAt'])).toISOString(),
-        // Their user record's id (Clerk holds names, D16).
-        publishedBy: r['publishedBy'] ? key(String(r['publishedBy'])) : null,
-        source: r['source'] === 'admin' ? 'admin' : 'repo',
-        devPlaceholder: r['devPlaceholder'] === true,
+      latest: {
+        version: latest.version,
+        releaseDate: iso(latest.release_date),
+        content: latest.content,
+      },
+      data: versions.map((v) => ({
+        version: v.version,
+        releaseDate: iso(v.release_date),
       })),
     };
     const etag = weakETag(body);
@@ -223,16 +196,13 @@ export class LegalDocumentsController {
   }
 
   /**
-   * PublishLegalDocument: the new version's Markdown and `basedOn`, the number of the version
-   * in force the admin edited (null for the first version; 409 `document_changed` if another is
-   * in force now). One transaction writes the version and its audit row; the database numbers
-   * it. It is in force the moment it commits.
+   * PublishLegalVersion: saves `content` as version `version`, which must be one after the
+   * latest (409 `document_changed` otherwise: another admin saved meanwhile). One transaction
+   * writes the version and its audit row (the admin, and the new version as the entity); the
+   * database sets its release date. It is in force the moment it commits.
    */
   @Post(':document/versions')
   @RequiresRole('Admin')
-  @NoConsentRequired(
-    'publishing a legal document is staff work on reference data, not the admin’s own data',
-  )
   async publish(
     @Param('document') document: string,
     @Req() req: Request,
@@ -242,54 +212,42 @@ export class LegalDocumentsController {
     if (!isDocument(document)) throw notFound();
     const input = parsePublish(body);
     const { role } = await this.people.authenticate(req);
-    // Who publishes: the admin's own user record, from their own database session (D27).
+    // Who saves it: the admin's own user record, from their own database session (D27).
     const user = await this.people.run(req, async ({ user }) => user);
     let results: unknown[];
     try {
-      results = (await runQuery(
+      results = await runQuery(
         this.db,
         `BEGIN TRANSACTION;
-         LET $c = ${IN_FORCE[document]};
-         LET $n = IF $c = NONE { NONE } ELSE { (SELECT VALUE number FROM ONLY $c) };
-         IF $n != $based {
-           THROW 'document_changed: another version of this document is in force now';
-         };
-         LET $row = (CREATE ONLY type::table($table) CONTENT ${NEW_ROW[document]}
-           RETURN id, number, ${document === 'privacy' ? 'createdAt' : 'publishedAt'} AS publishedAt);
-         IF $row = NONE { THROW 'the document version was not written' };
+         LET $row = (CREATE ONLY type::record($table, $version) CONTENT { content: $content }
+           RETURN record::id(id) AS version, release_date, id);
+         IF $row = NONE { THROW 'the legal text version was not written' };
          LET $audit = (CREATE ONLY auditLog CONTENT {
-             service: 'api-admin', action: $action, actor: $user, actorRole: $role,
-             entity: $row.id,
-             dpaVersion: IF record::tb($row.id) = 'dpaVersion' { $row.id } ELSE { NONE }
+             service: 'api-admin', action: 'PublishLegalVersion', actor: $user,
+             actorRole: $role, entity: $row.id
            } RETURN id);
          IF $audit = NONE { THROW 'the audit row was not written' };
          $row;
          COMMIT TRANSACTION;`,
         {
           table: DOCUMENTS[document],
-          based: input.basedOn ?? undefined,
+          version: input.version,
+          content: input.content,
           user,
           role,
-          action:
-            document === 'privacy' ? 'PublishPrivacyPolicy' : 'PublishTerms',
-          text: input.text,
         },
-      )) as unknown[];
+      );
     } catch (err) {
-      throw publishRefusal(err) ?? err;
+      throw saveRefusal(err) ?? err;
     }
-    const row = requireWritten<{
-      id: string;
-      number: number;
-      publishedAt: string;
-    }>(results[results.length - 2], 'document version');
-    this.logger.log(`Published ${document} version ${row.number}`);
+    const row = requireWritten<VersionRow>(
+      results[results.length - 2],
+      'legal text version',
+    );
+    this.logger.log(`Saved ${document} version ${row.version}`);
     res.status(HttpStatus.CREATED);
     res.setHeader('Location', `/v1/admin/legal-documents/${document}/versions`);
-    return {
-      number: row.number,
-      publishedAt: new Date(String(row.publishedAt)).toISOString(),
-    };
+    return { version: row.version, releaseDate: iso(row.release_date) };
   }
 }
 

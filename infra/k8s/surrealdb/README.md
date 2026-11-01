@@ -126,10 +126,9 @@ them afterwards (disks can be grown by editing the PVC).
 ## Schema migrations (D14)
 
 `libs/database/schema` is the bundle: `schema.surql` (declarative, applied in full every time),
-`access-clerk.surql`, numbered `data/NNNN-*.surql` scripts (each runs once), `dpa-sync.surql`
-and the runner, `migrate.py` (its header has the details). On GKE the `cluster` root ships it as
+`access-clerk.surql`, numbered `data/NNNN-*.surql` scripts (each runs once) and the runner, `migrate.py` (its header has the details). On GKE the `cluster` root ships it as
 the ConfigMap `surrealdb-migration-<hash>` and runs the Job `surrealdb-migrate-<hash>` as
-`migrator`. The hash covers every file, the OpenTofu parameters (DPA hashes, Clerk key, identity
+`migrator`. The hash covers every file, the OpenTofu parameters (Clerk key, environment, identity
 config) and the Job spec: change any of them and the next apply replaces the Job, which runs;
 change nothing and there's no diff. The Job doesn't retry on its own (`backoffLimit: 0`); inside a run, the
 runner retries a step whose COMMIT the server refused with a retryable conflict (up to 3 attempts).
@@ -149,12 +148,11 @@ What a run does, in order (validate first, then change):
    A rollback to an older bundle is just a newer run.
 3. **Checks, read-only:** every file follows the grammar (below); no step was left unfinished
    (`_migrationPending`); no applied data script has changed (sha256 in `_migration`); no pending
-   script needs a parameter OpenTofu passed as null; every seeded DPA version still has its file
-   and a published one's text hasn't changed (`dpa-sync.surql` in a cancelled transaction).
-4. **Schema:** `schema.surql`, the Clerk access and the settings row (`_setting:consent`, D48),
-   one step.
+   script needs a parameter OpenTofu passed as null. An applied script that left the bundle
+   (0002; 0001, 0003, 0005 and 0007 with plan 4e) only logs a warning.
+4. **Schema:** `schema.surql`, the Clerk access and the settings row (`_setting:current`: the
+   environment's name), one step.
 5. **Data scripts:** each new one, one step each, recorded in `_migration`.
-6. **DPA sync:** draft hashes follow their files, one step.
 
 Each **step** is: commit a `_migrationPending:<step>` row, run one transaction for the step
 (ending with its `_migration` row, for data scripts, and then `RETURN '<fresh random nonce>'`),
@@ -173,11 +171,11 @@ the row. A `_migration` row is no proof on its own: the pending row decides.
 several ways to skip statements silently: a `RETURN` anywhere in a transaction ends it early
 (`[RETURN 1]`, `1 + RETURN 1`, `IF … THEN RETURN … END`, blocks), and `BREAK`/`CONTINUE` in an
 `IF` or `FOR` block skip the rest of the block while the transaction, and the marker after it,
-still commit. So, in data scripts and `dpa-sync.surql`:
+still commit. So, in data scripts:
 
 - every statement, at the top level and inside `IF` / `ELSE` / `FOR` blocks, starts with one of
   `CREATE`, `UPDATE`, `UPSERT`, `DELETE`, `LET`, `IF`, `FOR`, `THROW`, `SELECT` (what the seeds
-  and the sync need; add one only with a test);
+  need; add one only with a test);
 - these words may not appear anywhere outside strings and comments: `RETURN`, `BREAK`,
   `CONTINUE`, `BEGIN`, `COMMIT`, `CANCEL`, `OPTION`, `SLEEP`, `USE`, `DEFINE`, `REMOVE`,
   `ALTER`, `INFO`, `KILL`, `LIVE`, and `THEN`/`END` (use brace blocks);
@@ -230,11 +228,11 @@ code; a breaking change is split over two releases.
 `ERROR:` line names the step. Don't deploy services that need the new schema until a run succeeds.
 
 - **Exit 2 (bundle) or a failed check** (`gave up waiting…`, `changed after it was applied`,
-  `passed as null`, `does not: restore the file`, `is published, but…`, `superseded`):
+  `passed as null`, `superseded`):
   **nothing was changed**. Fix the cause and apply again.
 - **Exit 1, `schema:` failed** (the message says the server refused the step's `COMMIT`): rolled
   back, confirmed; the previous schema and all data are as before.
-- **Exit 1, a data script (`NNNN-…:`) or `dpa-sync:` failed** (same confirmation): that step was
+- **Exit 1, a data script (`NNNN-…:`) failed** (same confirmation): that step was
   rolled back, but the **new schema is in place**, and so is every data script before it. Recover **forward**: fix the
   script in a PR (it never ran, so editing it is fine; never edit one that has run anywhere, add
   a new one) and apply. Running services must cope with the new schema, which is why a breaking
@@ -272,26 +270,12 @@ a person session. Never a private key (the variable refuses one). After a Clerk 
 update it here (api-user and api-admin read the same file, linked into the gcp root), then apply
 gcp and migrate.
 
-**Dev story** (task 0.9, retired in M1 step 4): `seed_dev_story` (`modules/db-migration`;
-`--seed-dev-story` for `local-migration.mjs`) makes data script 0003 publish one obviously fake story.
-Off, the script records itself as applied and writes nothing, so it can't be turned on later. Dev
-no longer sets it (`modules/cluster` doesn't pass it): the dev-seed Job (D49, `apps/dev-seed`)
-loads the dummy data and its reset deletes 0003's story. 0003's user, consent rows and fixture DPA
-stay (the ledger is append-only, the DPA immutable); the script stays because dev's ledger lists it.
-
-**Relaxed consent in dev** (D48): `dev_consent_relaxed` (OpenTofu, declared only in
-`live/dev/cluster`; on in dev since M1 step 4) for dummy data. The runner writes it, with the environment
-(from the GCP project), to `_setting:consent`, and `fn::consent::granted` (every consent check,
-including libs/consent's guard) then answers yes for any person. `modules/cluster` and
-`modules/db-migration` refuse it outside dev, and so does the database (`_setting_dev_only`).
-The run's log and summary say `consent checks: RELAXED` or `enforced`; api-user and api-admin log
-it at startup and the dev site's footer shows it. Turning it off takes the next migration.
-
-**DPA text** (D20): OpenTofu passes each `libs/legal/dpa/*.md` file's sha256 (`$dpa_sha256`).
-While a version is a draft, its `contentHash` follows the file; once published, a changed file
-fails the migration. Every seeded version, draft or published, must keep its file: a missing one
-fails the migration (only a version that isn't seeded yet may lack it). A version created through
-api-admin needs its file committed before the next migration.
+**Legal texts** (plan 4e, Joel 2026-10-31 and 2026-11-01): the terms of use, the testimony
+consent, the social media sharing consent and the privacy notice live only in the database, one
+table each, numbered versions from 0. Data script 0009 seeds version 0 of each (placeholders) in
+every environment; Admins save the next version at `/admin/consent` (api-admin). Nothing is
+synced from files any more, and 0003's walking-skeleton story is gone: the dev-seed Job (D49,
+`apps/dev-seed`) loads dev's dummy data, with its people agreed to the latest versions.
 
 **First apply of this (one-time switch to service logins).** The services' new secrets must
 exist before SurrealDB's new init Secret can be rendered (until then the restarted pod waits, so

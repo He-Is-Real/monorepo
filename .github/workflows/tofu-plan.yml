@@ -29,7 +29,6 @@ on:
       [
         'infra/**',
         'libs/database/schema/**',
-        'libs/legal/**',
         'tools/scripts/tf*.sh',
         'tools/scripts/image-tag.sh',
         '.github/actions/tofu/**',

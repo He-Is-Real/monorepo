@@ -3,16 +3,17 @@
 // preflight for Authorization). contract.e2e.ts checks every answer against
 // libs/contracts/openapi/api-user.yaml.
 //
-// - `GET /v1/account`, the signed-in header's account bootstrap: an account that has accepted
-//   the sign-up form and needs no testimony re-acceptance, so pages carry on as usual (sessions
-//   starting `unaccepted` haven't accepted the sign-up form: the site sends them to the step).
-//   Tests of the consent step and banner answer it themselves (consent.e2e.ts).
-// - `POST /v1/account/consents`, one box ticked on a form version: only dev's v2 of each form is
-//   in force, under dev's placeholder privacy policy (and on sign-up the terms) in force (D122) (stub-api.mjs serves the same), with the real service's checks: the version in
-//   force (409), a statement on that form (409), an `Idempotency-Key` (400; the same key with
-//   another body 422, the same body answers as before). No state but the keys, which are
-//   random per test.
-// - The submit flow (M2 plan PR 4): consent state, limits, themes, the person's stories, and
+// - `GET /v1/account`, the signed-in header's account bootstrap (plan 4e): where the session stands
+//   with the terms of use and the testimony consent (`AgreementState`). By default on the latest
+//   terms (sessions starting `unaccepted` are new accounts that haven't agreed yet) and without a
+//   testimony consent; a session's seed sets either (`terms`, `testimony`: a version, or null).
+// - `POST /v1/account/agreements/{agreement}` (plan 4e): the version the page showed, accepted only
+//   if it's the latest (legal-fixtures.mjs, which stub-api.mjs serves too), else 409
+//   `agreement_version_changed`. A seed's `staleOnce` lists texts whose next agreement (or the
+//   submission's sharing box) answers that 409 once, as if a newer version had just been saved.
+//   `POST /__e2e/sessions/<id>/agreements` moves a session's versions after its page loaded, and
+//   `GET /__e2e/sessions/<id>/agreed` reads back what the page sent.
+// - The submit flow (M2 plan PR 4): the account, limits, themes, the person's stories, and
 //   create, edit and submit, per test session (see the section below).
 // - Video and audio (M2 plan PR 7): `POST /v1/stories/{id}/upload-url` (RequestUpload, with the
 //   real service's checks and one video per draft) and a minimal TUS server at `/tusupload`
@@ -30,27 +31,25 @@
 //   the browser. `PATCH` takes `image: null` (remove) and `image: { alt }`. As api-user, a
 //   picture's request names the picture it replaces (`expectedImage`; `409 image_changed` if the
 //   story has another), and `GET` of one story says whether its picture's file arrived.
-// - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw`, `DELETE /v1/stories/{id}` and
-//   `POST /v1/account/consents/{type}/withdraw`, with api-user's status rules. A seeded story may
-//   carry its `status`, `slug`, moderator's `rejectionFeedback` and whether it may be `shared`
-//   beyond heisreal.today (O4: chosen per story, granted with `storyId` and withdrawn with
-//   `POST /v1/account/consents/share_socials/withdraw` and `{ storyId }`, or granted with the
-//   submission: submit's `shareBeyondSite`, in the same idempotent command). Erasure (PR 11):
-//   `DELETE /v1/account`, and withdrawing the testimony or sign-up consent, erase the session:
-//   its token gets 401 afterwards.
+// - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw` and `DELETE /v1/stories/{id}`,
+//   with api-user's status rules. A seeded story may carry its `status`, `slug`, moderator's
+//   `rejectionFeedback` and its `socialMediaSharingConsent` (plan 4e: recorded with the submission,
+//   from submit's optional body, in the same idempotent command; never withdrawn). Erasure (PR 11):
+//   `DELETE /v1/account` erases the session: its token gets 401 afterwards.
+//   The database's "agree first" (plan 4e) applies to story writes, uploads and hearts: 403
+//   `terms_agreement_required` / `testimony_consent_required`.
 // - Download my data (M2 plan PR 12): `GET /v1/account/export`, the session's own stories,
-//   consents and hearts in api-user's shape (a session starting `export-fails` gets 503).
+//   agreements and hearts in api-user's shape (a session starting `export-fails` gets 503).
 // - Hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and `GET /v1/account/favourites`
 //   (a page of cards, or `?storyId=…` for "which of these are hearted"). Cards come from the
 //   stub api-public-read (STUB_PUBLIC_URL, `/__test/cards`), as the real one reads publicStory,
 //   so a story hidden there leaves the list too.
-// - api-admin's legal document routes (D121, D125), on the same port for the stub (web's
-//   API_ADMIN_URL points here; the real ones are two services): `GET /v1/admin/legal-documents/
-//   {privacy|terms}/versions` and `POST …/versions`, Admin and above only (sessions starting
-//   `admin` are Admins; everyone else 403). Each document starts with dev's placeholder versions;
-//   a publish is checked like the real one (its text, and 409 unless the version it was based on
-//   is still in force) and kept per session. A session seeded with `noLegalDocuments` starts with none (a fresh
-//   environment's first publication).
+// - api-admin's legal texts (plan 4e), on the same port for the stub (web's API_ADMIN_URL points
+//   here; the real ones are two services): `GET /v1/admin/legal-documents/{document}/versions` and
+//   `POST …/versions` (`{ version, content }`), Admin and above only (sessions starting `admin` are
+//   Admins; everyone else 403). Each text starts with legal-fixtures.mjs's versions; a save is
+//   checked like the real one (409 `document_changed` unless `version` is the next number) and
+//   kept per session.
 // - api-admin's submission limits (W3, D112): `GET`/`PUT /v1/admin/submission-settings`, Admins
 //   only, kept per session from data 0006's values; a save is checked like the real one (bounds,
 //   minimum ≤ maximum, 428 without If-Match, 412 unless it's the version read).
@@ -62,13 +61,10 @@
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
 // `e2e-session`); anything else is 401.
-// Hearts are kept per token, so tests running in parallel never see each other's. A session
-// starting `no-consent` has lost the sign-up consent since the page loaded (its account answer
-// still says accepted): hearting answers 403 `consent_required` (D73).
+// Hearts are kept per token, so tests running in parallel never see each other's.
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
+import { LATEST, LEGAL_VERSIONS } from './legal-fixtures.mjs';
 
 const port = Number(process.env.STUB_USER_PORT ?? 4313);
 const publicUrl = process.env.STUB_PUBLIC_URL ?? 'http://127.0.0.1:4310';
@@ -98,8 +94,6 @@ const ACCOUNT = {
   version: null,
   role: 'User',
   createdAt: '2026-10-25T12:00:00.000Z',
-  signupConsent: { accepted: true },
-  testimonyConsent: { acceptanceRequired: false },
 };
 const ID = /^[A-Za-z0-9_]{1,64}$/;
 
@@ -107,24 +101,8 @@ const ID = /^[A-Za-z0-9_]{1,64}$/;
 const hearts = new Map();
 let clock = 0;
 
-/** The statements of each form's version in force, v2 (D84, D93, D122). */
-const FORMS = {
-  signup: ['age_18plus', 'account_data', 'terms_of_use'],
-  testimony: ['special_category_religious', 'publish'],
-  social: ['share_socials'],
-};
-const MECHANISMS = [
-  'web_form_submission',
-  'account_settings',
-  'reconsent_prompt',
-];
-/** Idempotency-Key → { body, answer } (D29). */
-const replies = new Map();
-let events = 0;
-/** Sessions whose account was erased (`DELETE /v1/account`, or an erasing withdrawal): 401 after. */
+/** Sessions whose account was erased (`DELETE /v1/account`): 401 after. */
 const erased = new Set();
-/** api-user's ERASING_WITHDRAWALS (D88, D73). */
-const ERASING = ['special_category_religious', 'account_data'];
 
 const send = (res, status, body) => {
   res.writeHead(status, {
@@ -141,39 +119,30 @@ const readBytes = (req) =>
     req.on('end', () => done(Buffer.concat(chunks)));
   });
 
-// --- api-admin: the legal documents (D121, D125) --------------------------------------------
-const LEGAL = resolve(import.meta.dirname, '../../../libs/legal');
-const repoVersion = (number, file, publishedAt) => ({
-  number,
-  publishedAt,
-  publishedBy: null,
-  source: 'repo',
-  devPlaceholder: true,
-  text: readFileSync(`${LEGAL}/${file}`, 'utf8'),
-});
-/** Dev's placeholder versions of a document (data 0007), as api-admin lists them. */
-const devVersions = (document) =>
-  document === 'privacy'
-    ? [
-        repoVersion(2, 'dpa/dev_policy.md', '2026-10-30T12:00:00.000Z'),
-        repoVersion(1, 'dpa/dev_placeholder.md', '2026-10-25T12:00:00.000Z'),
-      ]
-    : [repoVersion(1, 'terms/dev_placeholder.md', '2026-10-30T12:00:00.000Z')];
-/** Session → document → versions (newest first). */
+// --- api-admin: the four legal texts (plan 4e) ------------------------------------------------
+/** Session → text → versions, oldest first (index = number), from legal-fixtures.mjs. */
 const adminState = new Map();
 const versionsFor = (session, document) => {
   if (!adminState.has(session)) adminState.set(session, new Map());
   const docs = adminState.get(session);
-  if (!docs.has(document)) docs.set(document, devVersions(document));
+  if (!docs.has(document))
+    docs.set(
+      document,
+      LEGAL_VERSIONS[document].map((v) => ({ ...v })),
+    );
   return docs.get(document);
 };
-const listOf = (document, versions) => ({
-  document,
-  current: versions.length
-    ? { number: versions[0].number, text: versions[0].text }
-    : null,
-  data: versions.map(({ text: _t, ...v }) => v),
-});
+/** `AdminLegalDocumentVersionList`. */
+const listOf = (document, versions) => {
+  const latest = versions.length - 1;
+  return {
+    document,
+    latest: { version: latest, ...versions[latest] },
+    data: versions
+      .map((v, version) => ({ version, releaseDate: v.releaseDate }))
+      .reverse(),
+  };
+};
 const invalid = (res, pointer, code, message = code) => {
   res.writeHead(400, {
     'content-type': 'application/problem+json',
@@ -190,28 +159,33 @@ const invalid = (res, pointer, code, message = code) => {
   );
 };
 
-/** `POST …/versions` (PublishLegalDocument), checked like api-admin. */
+/** `POST …/versions` (PublishLegalVersion), checked like api-admin. */
 async function publishDocument(req, res, session, document) {
   const body = await readJson(req);
-  const text =
-    typeof body?.text === 'string' ? body.text.replace(/\r\n?/g, '\n') : '';
-  if (!text.trim()) return invalid(res, '/text', 'invalid_text');
+  const content =
+    typeof body?.content === 'string'
+      ? body.content.replace(/\r\n?/g, '\n')
+      : '';
+  if (
+    !body ||
+    Object.keys(body).some((k) => k !== 'version' && k !== 'content') ||
+    !Number.isInteger(body.version) ||
+    body.version < 0
+  )
+    return invalid(res, '/version', 'invalid_version');
+  if (!content || content.length > 100000)
+    return invalid(res, '/content', 'invalid_content');
   const versions = versionsFor(session, document);
-  // Another admin published meanwhile: the version edited isn't in force now.
-  if ((body.basedOn ?? null) !== (versions[0]?.number ?? null))
+  // Another admin saved that number meanwhile (or it isn't the next one): nothing is written.
+  if (body.version !== versions.length)
     return problem(res, 409, 'Conflict', 'document_changed');
-  const number = (versions[0]?.number ?? 0) + 1;
-  const publishedAt = new Date().toISOString();
-  versions.unshift({
-    number,
-    publishedAt,
-    publishedBy: 'e2efixture',
-    source: 'admin',
-    devPlaceholder: false,
-    text,
-  });
-  res.setHeader('location', `/v1/admin/legal-documents/${document}/versions`);
-  return send(res, 201, { number, publishedAt });
+  const releaseDate = new Date().toISOString();
+  versions.push({ content, releaseDate });
+  res.setHeader(
+    'location',
+    `/v1/admin/legal-documents/${document}/versions/${body.version}`,
+  );
+  return send(res, 201, { version: body.version, releaseDate });
 }
 
 // --- api-admin: the submission limits (W3, D112, D113) ---------------------------------------
@@ -473,80 +447,6 @@ const readBody = (req) =>
     req.on('end', () => done(text));
   });
 
-/**
- * `POST /v1/account/consents` (GrantConsent), checked like the real service. O4: `share_socials`
- * names one story of the session's own (`hasStory`), and nothing else names one.
- */
-async function grant(req, res, onGranted, hasStory = () => false) {
-  const text = await readBody(req);
-  const key = req.headers['idempotency-key'];
-  if (typeof key !== 'string' || key.length < 16 || key.length > 128) {
-    return problem(res, 400, 'Bad request', 'idempotency_key_required');
-  }
-  const earlier = replies.get(key);
-  if (earlier) {
-    if (earlier.text !== text) {
-      return problem(
-        res,
-        422,
-        'Idempotency key reused',
-        'idempotency_key_reused',
-      );
-    }
-    return send(res, 201, earlier.answer);
-  }
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    return problem(res, 400, 'Bad request', 'validation_failed');
-  }
-  const {
-    form,
-    formVersion,
-    statement,
-    mechanism,
-    privacyPolicyVersion,
-    termsVersion,
-    storyId,
-    ...rest
-  } = body ?? {};
-  if (
-    !(form in FORMS) ||
-    typeof formVersion !== 'string' ||
-    typeof statement !== 'string' ||
-    !MECHANISMS.includes(mechanism) ||
-    Object.keys(rest).length !== 0 ||
-    (statement === 'share_socials'
-      ? typeof storyId !== 'string' || !ID.test(storyId)
-      : storyId !== undefined)
-  ) {
-    return problem(res, 400, 'Bad request', 'validation_failed');
-  }
-  if (formVersion !== 'v2') {
-    return problem(res, 409, 'Conflict', 'form_version_not_in_force');
-  }
-  // D122: the documents shown must be named and be the ones in force (dev's placeholders); the
-  // sign-up version asks for the terms.
-  if (
-    privacyPolicyVersion !== 'dev_policy' ||
-    (form === 'signup' && termsVersion !== 'dev_placeholder')
-  ) {
-    return problem(res, 409, 'Conflict', 'legal_document_not_in_force');
-  }
-  if (!FORMS[form].includes(statement)) {
-    return problem(res, 409, 'Conflict', 'statement_not_on_form');
-  }
-  if (storyId !== undefined && !hasStory(storyId)) {
-    return problem(res, 404, 'Not found', 'story_not_found');
-  }
-  onGranted?.(form, statement, storyId);
-  events += 1;
-  const answer = { id: `stubconsent${events}`, version: null };
-  replies.set(key, { text, answer });
-  return send(res, 201, answer);
-}
-
 const problem = (res, status, title, code) => {
   res.writeHead(status, {
     'content-type': 'application/problem+json',
@@ -631,13 +531,13 @@ async function listFavourites(req, res, url, mine) {
 }
 
 // --- The submit flow (M2 plan PR 4) ---------------------------------------------------------
-// Per test session (the fixture token's `session`): the person's consent, the limits (seedable
+// Per test session (the fixture token’s `session`): the person’s agreements, the limits (seedable
 // settings, W3), their stories, and CreateDraftStory / EditStory / SubmitStory, with the rules
-// the real service and database apply (consent, If-Match, Idempotency-Key, the text and theme
+// the real service and database apply (agreements, If-Match, Idempotency-Key, the text and theme
 // limits, the content lock and D94's limits). A test seeds its session with
 // `POST /__e2e/sessions/<session>` (not part of api-user).
 const WEEK_MS = 7 * 24 * 3600 * 1000;
-/** The stand-in testimony forms keep an untouched draft 6 months, a month counted as 31 days. */
+/** An untouched draft is kept 186 days (fn::story::draft_retention, plan 4e). */
 const DRAFT_RETENTION_MS = 186 * 24 * 3600 * 1000;
 /** The settings' defaults (W3, D112: submissionSettings); a test may seed others. */
 const SETTINGS = {
@@ -698,29 +598,55 @@ const themeRef = (s, id) => {
     .find((x) => x.id === id);
   return t ? { id: t.id, name: t.name } : null;
 };
-/** The person's own consents, for all their stories; sharing is per story (O4). */
-const CONSENT_TYPES = [
-  'special_category_religious',
-  'publish',
-  'age_18plus',
-  'account_data',
-];
-const FORM_OF = {
-  special_category_religious: 'testimony',
-  publish: 'testimony',
-  share_socials: 'social',
-  age_18plus: 'signup',
-  account_data: 'signup',
-};
+/** When a stub agreement was made (the database's time in the real one). */
+const AGREED_AT = '2026-10-26T12:00:00.000Z';
+/** `Agreement` from a session's `{ version, agreedAt }` (or null). */
+const agreementOf = (a) =>
+  a ? { version: a.version, agreedAt: a.agreedAt } : null;
+/** `AgreementState` (plan 4e): where the person stands with one text. */
+const agreementState = (a, document) => ({
+  agreed: agreementOf(a),
+  latestVersion: LATEST[document],
+  upToDate: !!a && a.version === LATEST[document],
+});
+/** A seed's agreement: a version number, `null` (never agreed) or undefined (the default). */
+const seeded = (version, fallback) =>
+  version === undefined
+    ? fallback
+    : version === null
+      ? null
+      : { version, agreedAt: AGREED_AT };
+const termsUpToDate = (s) => s.terms?.version === LATEST['terms-of-use'];
+const testimonyUpToDate = (s) =>
+  s.testimony?.version === LATEST['testimony-consent'];
+/** The database's "agree first" (plan 4e): 403 before the latest terms (and testimony consent). */
+const refusedForAgreements = (res, s, story = true) =>
+  !termsUpToDate(s)
+    ? (shareProblem(res, 403, 'Forbidden', 'terms_agreement_required'), true)
+    : story && !testimonyUpToDate(s)
+      ? (shareProblem(res, 403, 'Forbidden', 'testimony_consent_required'),
+        true)
+      : false;
 
 /** One person per session. `seed` (POST /__e2e/sessions/…) sets the starting state. */
 const sessions = new Map();
 let seq = 0;
 function newSession(id, seed = {}) {
   const s = {
-    // Signed up unless a test says otherwise, so other pages carry on as usual.
-    signup: seed.signupAccepted ?? !id.startsWith('unaccepted'),
-    granted: new Set(seed.granted ?? []),
+    // Plan 4e: on the latest terms unless a test says otherwise (`terms`: a version, or null for
+    // a new account; sessions starting `unaccepted` are new accounts), so other pages carry on as
+    // usual; no testimony consent unless seeded (`testimony`: a version).
+    terms: seeded(
+      seed.terms,
+      id.startsWith('unaccepted')
+        ? null
+        : { version: LATEST['terms-of-use'], agreedAt: AGREED_AT },
+    ),
+    testimony: seeded(seed.testimony, null),
+    // Texts whose next agreement (or submission's sharing box) answers 409
+    // `agreement_version_changed` once, as if a newer version had just been saved.
+    staleOnce: new Set(seed.staleOnce ?? []),
+    agreeRequests: [],
     trusted: seed.trusted ?? false,
     settings: { ...SETTINGS, ...(seed.settings ?? {}) },
     deletedThemes: new Set(),
@@ -736,8 +662,6 @@ function newSession(id, seed = {}) {
     })),
     uploadRequests: 0,
     tus: { fail: 0, hold: false },
-    // O4: which stories' sharing was ever chosen (a withdrawal needs a grant before it).
-    sharingChosen: new Set(),
     // Pictures by path: { story, size, bytes (a Buffer once PUT) }.
     images: new Map(),
     // Erasure: `DELETE /v1/account` erases, then answers 500 (the queue failed after the commit).
@@ -810,33 +734,6 @@ const readJson = (req) =>
   });
 const trimmed = (t) => [...(t ?? '').trim()].length;
 
-function consentState(s) {
-  const current = CONSENT_TYPES.map((type) => {
-    const granted = s.granted.has(type);
-    return {
-      type,
-      granted,
-      form: granted ? FORM_OF[type] : null,
-      formVersion: granted ? 'v1' : null,
-      dpaVersion: granted ? 'dev_placeholder' : null,
-      occurredAt: granted ? '2026-10-26T12:00:00.000Z' : null,
-      counts: granted,
-    };
-  });
-  const art9 = s.granted.has('special_category_religious');
-  return {
-    current,
-    signup: { accepted: s.signup, latestVersion: 'v1' },
-    testimony: {
-      version: art9 ? 'v1' : null,
-      latestVersion: 'v1',
-      updateAvailable: false,
-      acceptanceRequired: false,
-    },
-    history: [],
-  };
-}
-
 /** `uploaded`: whether the picture's file arrived, checked only when one story is read. */
 function storyMine(s, id, st, uploaded = () => null) {
   return {
@@ -885,17 +782,9 @@ function storyMine(s, id, st, uploaded = () => null) {
       st.status === 'draft'
         ? new Date(Date.parse(st.updatedAt) + DRAFT_RETENTION_MS).toISOString()
         : null,
-    sharing: sharingOf(st),
+    socialMediaSharingConsent: st.socialMediaSharingConsent ?? null,
   };
 }
-
-/** O4: a story's own sharing beyond heisreal.today, as `StorySharing`. */
-const sharingOf = (st) => ({
-  granted: !!st.shared,
-  counts: !!st.shared,
-  formVersion: st.shared ? 'v2' : null,
-  occurredAt: st.shared ? '2026-10-31T12:00:00.000Z' : null,
-});
 
 /**
  * "Download my data" (M2 plan PR 12): the session's own stories, consents and hearts in
@@ -960,43 +849,10 @@ function myDataOf(s, token, mine) {
         publishedAt: null,
       };
     }),
-    consents: [...s.granted]
-      .map((type, i) => ({
-        id: `stubconsent_${i}`,
-        type,
-        event: 'granted',
-        statement: `The words beside the ${type} box.`,
-        form: FORM_OF[type],
-        formVersion: 'v2',
-        privacyPolicyVersion: 'dev_placeholder',
-        termsVersion: null,
-        storyId: null,
-        mechanism: 'web_form_submission',
-        evidenceHash: '0'.repeat(64),
-        evidenceVersion: 4,
-        occurredAt: '2026-10-26T12:00:00.000Z',
-        legacyGivenAt: null,
-      }))
-      .concat(
-        [...s.stories]
-          .filter(([, st]) => st.shared)
-          .map(([storyId]) => ({
-            id: `stubconsent_share_${storyId}`,
-            type: 'share_socials',
-            event: 'granted',
-            statement: 'The words beside the share_socials box.',
-            form: 'social',
-            formVersion: 'v2',
-            privacyPolicyVersion: 'dev_placeholder',
-            termsVersion: null,
-            storyId,
-            mechanism: 'account_settings',
-            evidenceHash: '0'.repeat(64),
-            evidenceVersion: 5,
-            occurredAt: '2026-10-31T12:00:00.000Z',
-            legacyGivenAt: null,
-          })),
-      ),
+    agreements: {
+      termsOfUse: agreementOf(s.terms),
+      testimonyConsent: agreementOf(s.testimony),
+    },
     favourites: [...mine].map(([storyId]) => ({
       storyId,
       heartedAt: generatedAt,
@@ -1202,9 +1058,6 @@ const ifMatchOf = (req) => {
 };
 
 async function handleShare(req, res, path, url, s) {
-  if (path === '/v1/account/consents' && req.method === 'GET') {
-    return collection(req, res, consentState(s));
-  }
   if (path === '/v1/account/limits' && req.method === 'GET') {
     return collection(req, res, limitsOf(s));
   }
@@ -1234,9 +1087,8 @@ async function handleShare(req, res, path, url, s) {
     return sendJson(res, 200, storyMine(s, mine[1], st, arrived), { etag });
   }
   if (path === '/v1/stories' && req.method === 'POST') {
-    // The guard: Art 9 on the forms in force (D93).
-    if (!s.granted.has('special_category_religious') || !s.signup)
-      return shareProblem(res, 403, 'Forbidden', 'consent_required');
+    // Plan 4e: the latest terms of use and testimony consent first (the database's rule).
+    if (refusedForAgreements(res, s)) return;
     const b = await readJson(req);
     const errors = fieldErrors(
       b,
@@ -1356,8 +1208,7 @@ async function handleShare(req, res, path, url, s) {
     );
   }
   if (edit && req.method === 'PATCH') {
-    if (!s.granted.has('special_category_religious'))
-      return shareProblem(res, 403, 'Forbidden', 'consent_required');
+    if (refusedForAgreements(res, s)) return;
     const st = s.stories.get(edit[1]);
     if (!st) return shareProblem(res, 404, 'Not found');
     const v = ifMatchOf(req);
@@ -1415,9 +1266,7 @@ async function handleShare(req, res, path, url, s) {
   }
   const submit = /^\/v1\/stories\/([^/]+)\/submit$/.exec(path);
   if (submit && req.method === 'POST') {
-    const needed = ['special_category_religious', 'publish', 'age_18plus'];
-    if (!needed.every((t) => s.granted.has(t)) || !s.signup)
-      return shareProblem(res, 403, 'Forbidden', 'consent_required');
+    if (refusedForAgreements(res, s)) return;
     const st = s.stories.get(submit[1]);
     if (!st) return shareProblem(res, 404, 'Not found');
     const v = ifMatchOf(req);
@@ -1428,23 +1277,21 @@ async function handleShare(req, res, path, url, s) {
         'Precondition required',
         'if_match_required',
       );
-    // O4: the optional body's sharing beyond heisreal.today, granted with the submission (both
-    // or neither), on the social sharing version and privacy policy in force.
+    // Plan 4e: the optional body's social media sharing consent, recorded on the story with the
+    // submission (both or neither), only on the latest version.
     const body = await readJson(req);
-    const share = body?.shareBeyondSite;
+    const share = body?.socialMediaSharingConsent;
     if (
       body === null ||
       (body !== undefined &&
         (typeof body !== 'object' ||
-          Object.keys(body).some((k) => k !== 'shareBeyondSite'))) ||
+          Object.keys(body).some((k) => k !== 'socialMediaSharingConsent'))) ||
       (share !== undefined &&
         (share === null ||
           typeof share !== 'object' ||
-          Object.keys(share).some(
-            (k) => k !== 'formVersion' && k !== 'privacyPolicyVersion',
-          ) ||
-          typeof share.formVersion !== 'string' ||
-          typeof share.privacyPolicyVersion !== 'string'))
+          Object.keys(share).some((k) => k !== 'version') ||
+          !Number.isInteger(share.version) ||
+          share.version < 0))
     )
       return shareProblem(res, 400, 'Bad request', 'validation_failed');
     return idempotent(s, req, res, body, () => {
@@ -1455,10 +1302,12 @@ async function handleShare(req, res, path, url, s) {
       });
       if (v !== st.version)
         return p(412, 'Precondition failed', 'stale_version');
-      if (share && share.formVersion !== 'v2')
-        return p(409, 'Conflict', 'form_version_not_in_force');
-      if (share && share.privacyPolicyVersion !== 'dev_policy')
-        return p(409, 'Conflict', 'legal_document_not_in_force');
+      if (
+        share &&
+        (s.staleOnce.delete('social-media-sharing-consent') ||
+          share.version !== LATEST['social-media-sharing-consent'])
+      )
+        return p(409, 'Conflict', 'agreement_version_changed');
       if (!['draft', 'changes_requested'].includes(st.status))
         return p(409, 'Conflict', 'story_not_submittable');
       // The themes, at submit only (themes plan v3): every one still there (A7), then
@@ -1526,10 +1375,11 @@ async function handleShare(req, res, path, url, s) {
       st.status = 'pending';
       st.submittedAt ??= new Date().toISOString();
       st.version += 1;
-      if (share) {
-        st.shared = true;
-        s.sharingChosen.add(submit[1]);
-      }
+      if (share)
+        st.socialMediaSharingConsent = {
+          version: share.version,
+          agreedAt: new Date().toISOString(),
+        };
       return {
         status: 200,
         body: { id: submit[1], version: st.version },
@@ -1540,8 +1390,7 @@ async function handleShare(req, res, path, url, s) {
   const uploadUrl = /^\/v1\/stories\/([^/]+)\/upload-url$/.exec(path);
   if (uploadUrl && req.method === 'POST') {
     s.uploadRequests += 1;
-    if (!s.granted.has('special_category_religious'))
-      return shareProblem(res, 403, 'Forbidden', 'consent_required');
+    if (refusedForAgreements(res, s)) return;
     const st = s.stories.get(uploadUrl[1]);
     if (!st) return shareProblem(res, 404, 'Not found');
     const v = ifMatchOf(req);
@@ -1879,18 +1728,28 @@ createServer(async (req, res) => {
     const raw = await readJson(req);
     const body = raw === undefined ? {} : raw;
     sessions.set(seed[1], newSession(seed[1], body));
-    // A fresh environment: no version of either legal document published yet.
-    if (body.noLegalDocuments)
-      adminState.set(
-        seed[1],
-        new Map([
-          ['privacy', []],
-          ['terms', []],
-        ]),
-      );
     res.writeHead(204);
     return res.end();
   }
+  // Test set-up only: the session's agreements change after the page loaded (`{ terms,
+  // testimony }`: a version, or null), as when a newer version is saved: the person's version is
+  // older than the latest from then on.
+  const agreementsSet =
+    /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/agreements$/.exec(path);
+  if (agreementsSet && req.method === 'POST') {
+    const s = shareSession(agreementsSet[1]);
+    const body = (await readJson(req)) ?? {};
+    s.terms = seeded(body.terms, s.terms);
+    s.testimony = seeded(body.testimony, s.testimony);
+    res.writeHead(204);
+    return res.end();
+  }
+  // Test read-back only: the agreements the session sent (`POST /v1/account/agreements/…`).
+  const agreedOf = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/agreed$/.exec(path);
+  if (agreedOf && req.method === 'GET')
+    return sendJson(res, 200, {
+      requests: shareSession(agreedOf[1]).agreeRequests,
+    });
   // Test set-up only: the session's settings change after the page loaded (an admin lowers a
   // limit), so the page's numbers are stale and the server's refusal answers instead.
   const settingsSet = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})\/settings$/.exec(
@@ -1974,13 +1833,41 @@ createServer(async (req, res) => {
   }
   if (path === '/v1/account' && req.method === 'GET') {
     if (!signedIn()) return;
-    // The sign-up consent is accepted, except for the `unaccepted…` sessions; `admin…`
+    // Plan 4e: where the session stands with the terms and the testimony consent; `admin…`
     // sessions are Admins.
+    const s = shareSession(token);
     return cached(req, res, {
       ...ACCOUNT,
       role: token.startsWith('admin') ? 'Admin' : 'User',
-      signupConsent: { accepted: shareSession(token).signup },
+      termsOfUse: agreementState(s.terms, 'terms-of-use'),
+      testimonyConsent: agreementState(s.testimony, 'testimony-consent'),
     });
+  }
+  // Agree (plan 4e): the version the page showed, accepted only if it's still the latest.
+  const agree = /^\/v1\/account\/agreements\/([^/]+)$/.exec(path);
+  if (agree && req.method === 'POST') {
+    if (!signedIn()) return;
+    const s = shareSession(token);
+    const document = agree[1];
+    const key = { 'terms-of-use': 'terms', 'testimony-consent': 'testimony' }[
+      document
+    ];
+    if (!key) return problem(res, 404, 'Not found', 'not_found');
+    const body = await readJson(req);
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      Object.keys(body).some((k) => k !== 'version') ||
+      !Number.isInteger(body.version) ||
+      body.version < 0
+    )
+      return problem(res, 400, 'Bad request', 'validation_failed');
+    s.agreeRequests.push({ document, version: body.version });
+    if (s.staleOnce.delete(document) || body.version !== LATEST[document])
+      return problem(res, 409, 'Conflict', 'agreement_version_changed');
+    if (s[key]?.version !== body.version)
+      s[key] = { version: body.version, agreedAt: new Date().toISOString() };
+    return send(res, 200, agreementState(s[key], document));
   }
   const admin = /^\/v1\/admin\/legal-documents\/([^/]+)\/(versions)$/.exec(
     path,
@@ -1990,7 +1877,7 @@ createServer(async (req, res) => {
     if (!token.startsWith('admin'))
       return problem(res, 403, 'Forbidden', 'role_required');
     const [, document, what] = admin;
-    if (document !== 'privacy' && document !== 'terms')
+    if (!(document in LEGAL_VERSIONS))
       return problem(res, 404, 'Not found', 'not_found');
     if (what === 'versions' && req.method === 'POST')
       return void publishDocument(req, res, token, document);
@@ -2020,77 +1907,6 @@ createServer(async (req, res) => {
       ? sendAdminThemes(res, token)
       : void saveAdminThemes(req, res, token);
   }
-  if (path === '/v1/account/consents' && req.method === 'POST') {
-    if (!signedIn()) return;
-    const s = shareSession(token);
-    return void grant(
-      req,
-      res,
-      (form, statement, storyId) => {
-        if (storyId !== undefined) {
-          s.stories.get(storyId).shared = true;
-          s.sharingChosen.add(storyId);
-          return;
-        }
-        s.granted.add(statement);
-        if (
-          form === 'signup' &&
-          s.granted.has('age_18plus') &&
-          s.granted.has('account_data')
-        )
-          s.signup = true;
-      },
-      (storyId) => s.stories.has(storyId),
-    );
-  }
-  const withdrawConsent = /^\/v1\/account\/consents\/([^/]+)\/withdraw$/.exec(
-    path,
-  );
-  if (withdrawConsent && req.method === 'POST') {
-    if (!signedIn()) return;
-    const s = shareSession(token);
-    const type = withdrawConsent[1];
-    const raw = await readJson(req);
-    const body = raw === undefined ? {} : raw;
-    const sharing = type === 'share_socials';
-    if (
-      (!CONSENT_TYPES.includes(type) && !sharing) ||
-      body === null ||
-      typeof body !== 'object' ||
-      Object.keys(body).some((k) => k !== 'storyId') ||
-      (sharing
-        ? typeof body.storyId !== 'string' || !ID.test(body.storyId)
-        : body.storyId !== undefined)
-    )
-      return problem(res, 400, 'Bad request', 'validation_failed');
-    const key = req.headers['idempotency-key'];
-    if (typeof key !== 'string' || key.length < 16 || key.length > 128)
-      return problem(res, 400, 'Bad request', 'idempotency_key_required');
-    const earlier = replies.get(key);
-    if (earlier) return send(res, 202, earlier.answer);
-    if (sharing) {
-      // O4: one story's sharing; another story is untouched.
-      const st = s.stories.get(body.storyId);
-      if (!st) return problem(res, 404, 'Not found', 'story_not_found');
-      if (!s.sharingChosen.has(body.storyId) && !st.shared)
-        return problem(res, 409, 'Conflict', 'consent_not_granted');
-      st.shared = false;
-      events += 1;
-      const answer = { id: `stubconsent${events}`, version: null };
-      replies.set(key, { text: '', answer });
-      return send(res, 202, answer);
-    }
-    // Withdrawing again re-affirms it; never granted is 409 (api-user.yaml).
-    if (!s.granted.has(type) && !s.withdrawn?.has(type))
-      return problem(res, 409, 'Conflict', 'consent_not_granted');
-    s.granted.delete(type);
-    (s.withdrawn ??= new Set()).add(type);
-    events += 1;
-    const answer = { id: `stubconsent${events}`, version: null };
-    replies.set(key, { text: '', answer });
-    if (ERASING.includes(type)) erased.add(token);
-    return send(res, 202, answer);
-  }
   if (path === '/v1/account/favourites' && req.method === 'GET') {
     const mine = signedIn();
     if (!mine) return;
@@ -2118,8 +1934,9 @@ createServer(async (req, res) => {
       res.writeHead(204);
       return res.end();
     }
-    if (token.startsWith('no-consent'))
-      return problem(res, 403, 'Forbidden', 'consent_required');
+    // Plan 4e: a heart needs the latest terms of use (the database's rule).
+    if (!termsUpToDate(shareSession(token)))
+      return problem(res, 403, 'Forbidden', 'terms_agreement_required');
     if (!ID.test(id) || !(await publicCards()).has(id))
       return problem(res, 404, 'Not found', 'story_not_found');
     if (!mine.has(id)) mine.set(id, ++clock);

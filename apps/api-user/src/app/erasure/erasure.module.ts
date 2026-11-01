@@ -12,11 +12,6 @@ import {
   Req,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import {
-  CONSENT_WITHDRAWAL_ERASURE,
-  type ConsentWithdrawalErasure,
-  NoConsentRequired,
-} from '@heisreal/consent';
 import { runQuery, SURREAL } from '@heisreal/database';
 import { NoRoleRequired } from '@heisreal/roles';
 import { SecretsService } from '@heisreal/secrets';
@@ -43,9 +38,6 @@ const SVIX_ID = /^[A-Za-z0-9_-]{1,100}$/;
  * nothing from Clerk (D16).
  */
 @NoRoleRequired('Clerk webhooks are signed by Svix, not by a person’s token')
-@NoConsentRequired(
-  'Clerk’s notice that an account was deleted needs no consent',
-)
 @Controller('v1/webhooks/clerk')
 export class ClerkWebhookController {
   private readonly logger = new Logger(ClerkWebhookController.name);
@@ -116,10 +108,9 @@ export class ClerkWebhookController {
 }
 
 /**
- * Erasure (M2 plan PR 11; D39, D40, D82): `Erasure` for "Delete my account" (AccountController),
- * the consent withdrawals that delete the account (libs/consent's `ERASING_WITHDRAWALS`) and
- * Clerk's webhook. Global, so the consent endpoints can reach it; its Clerk client also serves the
- * data download (ExportModule).
+ * Erasure (M2 plan PR 11; D39, D40, D82): `Erasure` for "Delete my account" (AccountController,
+ * also how a person withdraws all consent, plan 4e) and Clerk's webhook. Global; its Clerk client
+ * also serves the data download (ExportModule).
  */
 @Global()
 @Module({
@@ -133,14 +124,7 @@ export class ClerkWebhookController {
     },
     // The images storage zone (M2 plan PR 10); null with image uploads off.
     { provide: IMAGE_DELETER, useExisting: BUNNY_STORAGE },
-    {
-      provide: CONSENT_WITHDRAWAL_ERASURE,
-      inject: [Erasure],
-      useFactory: (erasure: Erasure): ConsentWithdrawalErasure => ({
-        erase: (clerkUserId) => erasure.erase(clerkUserId, 'consent_withdrawn'),
-      }),
-    },
   ],
-  exports: [Erasure, CONSENT_WITHDRAWAL_ERASURE, CLERK_BACKEND],
+  exports: [Erasure, CLERK_BACKEND],
 })
 export class ErasureModule {}

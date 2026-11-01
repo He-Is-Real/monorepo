@@ -6,10 +6,10 @@ import { SURREAL } from '@heisreal/database';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { listRoutes } from '@heisreal/consent';
 import { isRole, resolveRolePolicy, type Role } from '@heisreal/roles';
 import { parse as parseYaml } from 'yaml';
 import { listRolePolicies } from './lib/auth.module';
+import { listRoutes } from './lib/routes';
 
 /**
  * A stand-in Clerk instance for tests: an RS256 key pair made per run (never Clerk's), and
@@ -104,7 +104,7 @@ export function useTestClerkEnv(clerk: TestClerk = newTestClerk()): TestClerk {
 }
 
 /**
- * The role-listing check (D1), like `listAppRoutePolicies` for consent: compiles a service's
+ * The role-listing check (D1): compiles a service's
  * real AppModule (SurrealDB and Secret Manager stubbed out, a stand-in Clerk instance) and
  * lists every route with its role policy. `minimums` maps each route (`GET /v1/x/{id}`, in the
  * contract's path style) to its declared minimum role, or null for `@NoRoleRequired`.

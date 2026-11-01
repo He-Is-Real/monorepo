@@ -3,13 +3,12 @@ import {
   PENDING_DELETION_FAILED,
   PENDING_DELETIONS_DUE,
   type PendingDeletion,
-  retryOnConflict,
   runQuery,
 } from '@heisreal/database';
 import type { Task, TaskContext, TaskResult } from './tasks';
 
 /**
- * The erasures' leftovers (D39, D40, D88), retried every night, at most maxDeletions each, the
+ * The erasures' leftovers (D39, D40), retried every night, at most maxDeletions each, the
  * longest-waiting first. A try that fails counts and waits (1 h, doubling, at most a week:
  * fn::erasure::retry_after), so rows that keep failing go to the back and never hold up the
  * others. Ids in the logs are internal ones only: a user's record id, a pendingDeletion's key.
@@ -24,55 +23,6 @@ async function due<T>(
   const [found] = (await runQuery(ctx.db, query, vars)) as [T[]];
   return found ?? [];
 }
-
-/**
- * Erasure requests (consent_withdrawal_requests_erasure): someone withdrew their testimony or
- * sign-up consent and api-user didn't get to erase them (it failed, or the instance stopped).
- * Deleting the request erases the person, in the database, in the same transaction
- * (erasureRequest_erases), and queues their Bunny videos, pictures and Clerk account for the next
- * chore.
- */
-export const erasureRequestsTask: Task = {
-  name: 'erasure-requests',
-  async run(ctx): Promise<TaskResult> {
-    const found = await due<{ key: string }>(
-      ctx,
-      `SELECT record::id(id) AS key, nextAttemptAt FROM erasureRequest
-         WHERE nextAttemptAt <= time::now() ORDER BY nextAttemptAt LIMIT $limit`,
-      { limit: ctx.maxDeletions + 1 },
-    );
-    const selected = found.slice(0, ctx.maxDeletions).map((r) => r.key);
-    const result: TaskResult = {
-      selected,
-      deleted: [],
-      failed: [],
-      more: found.length > ctx.maxDeletions,
-    };
-    if (ctx.dryRun) return result;
-    for (const key of selected) {
-      try {
-        await retryOnConflict(
-          () =>
-            runQuery(ctx.db, `DELETE type::record('erasureRequest', $key)`, {
-              key,
-            }),
-          { attempts: 8 },
-        );
-        result.deleted.push(key);
-      } catch {
-        result.failed.push(key);
-        await runQuery(
-          ctx.db,
-          `UPDATE type::record('erasureRequest', $key)
-             SET attempts += 1, nextAttemptAt = time::now() + fn::erasure::retry_after(attempts)
-             RETURN NONE`,
-          { key },
-        ).catch(() => undefined);
-      }
-    }
-    return result;
-  },
-};
 
 /**
  * Queued deletions outside the database (pendingDeletion) that api-user couldn't finish, or that

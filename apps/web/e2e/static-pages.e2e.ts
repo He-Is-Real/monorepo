@@ -26,7 +26,7 @@ const PAGES = [
   { path: '/next-steps', h1: 'Next steps', cta: 'Send us a message' },
   { path: '/faqs', h1: 'Frequently asked questions', cta: 'Get in touch' },
   { path: '/contact', h1: 'Get in touch', cta: 'Email info@heisreal.today' },
-  { path: '/privacy', h1: 'Privacy policy' },
+  { path: '/privacy', h1: 'Privacy notice' },
   { path: '/terms', h1: 'Terms of use' },
 ] as const;
 
@@ -63,7 +63,7 @@ for (const scheme of ['light', 'dark'] as const) {
         const footer = page.getByRole('contentinfo');
         await expectTarget(
           page,
-          footer.getByRole('link', { name: 'Privacy policy' }),
+          footer.getByRole('link', { name: 'Privacy notice' }),
         );
         await expectTarget(page, footer.getByRole('link', { name: 'Terms' }));
         await expectTarget(
