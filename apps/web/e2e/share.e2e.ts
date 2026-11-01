@@ -756,9 +756,7 @@ test.describe('behaviour', () => {
     await themes.getByText('Doubt', { exact: true }).click();
     // Ticked while open, so un-ticking it under a search it doesn't match leaves it where it is,
     // with the keyboard focus, until the list folds or unfolds (Joel, 2026-11-01).
-    await themes
-      .getByRole('searchbox', { name: 'Search themes' })
-      .fill('hope');
+    await themes.getByRole('searchbox', { name: 'Search themes' }).fill('hope');
     const doubt = themes.getByRole('checkbox', { name: 'Doubt' });
     await doubt.focus();
     await page.keyboard.press('Space');
