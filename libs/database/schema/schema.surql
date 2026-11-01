@@ -1862,9 +1862,10 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
     };
   };
 -- A resume (D71): the link is signed again only if this commits. The story must still be the
--- person's, editable and showing this file. The fence bump makes it conflict with a draft's
--- deletion (story_fence), so housekeeping never deletes a draft whose link was just signed, and
--- a resume never signs a link for a draft that was just deleted.
+-- person's, editable and showing this file, and the person must have the latest terms of use and
+-- testimony consent, as for a new grant (plan 4e, Q2). The fence bump makes it conflict with a
+-- draft's deletion (story_fence), so housekeeping never deletes a draft whose link was just
+-- signed, and a resume never signs a link for a draft that was just deleted.
 DEFINE EVENT OVERWRITE uploadGrant_renew ON uploadGrant
   WHEN $event = 'UPDATE' THEN {
     fn::person::live($after.person);
@@ -1874,6 +1875,7 @@ DEFINE EVENT OVERWRITE uploadGrant_renew ON uploadGrant
       THROW 'nothing_to_resume: the story is gone or no longer shows this file';
     };
     IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
+    fn::legal::require_testimony($after.person);
   };
 -- api-user's login, before it signs a link for `$video` again: renews the grant (above). NONE
 -- if there is no such grant for this person's story.

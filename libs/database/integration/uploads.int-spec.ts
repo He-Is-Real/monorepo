@@ -1,8 +1,10 @@
 import type { Surreal } from 'surrealdb';
 import {
   createPeople,
+  agree,
   agreeAll,
   outcome,
+  publishVersion,
   rows,
   run,
   TestDatabase,
@@ -468,5 +470,30 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
         ),
       ).toMatch(/limit_upload_size:/);
     });
+  });
+
+  it('renews a grant (a resume) only while the person has the latest terms and testimony consent, as a new grant (plan 4e)', async () => {
+    const rex = await person('rex');
+    await video(rex, 'rex_v');
+    const v = vid();
+    await grantUpload(apiUser, {
+      video: v,
+      story: 'rex_v',
+      person: 'rex',
+      version: 1,
+    });
+    const renew = () =>
+      outcome(
+        apiUser,
+        `RETURN fn::upload::renew(story:rex_v, user:rex, $v) != NONE`,
+        { v },
+      );
+    await publishVersion(t, 'termsOfUseAgreement');
+    expect(error(await renew())).toMatch(/terms_agreement_required:/);
+    await agree(rex, 'termsOfUse');
+    await publishVersion(t, 'testimonyConsent');
+    expect(error(await renew())).toMatch(/testimony_consent_required:/);
+    await agree(rex, 'testimonyConsent');
+    expect(await renew()).toMatchObject({ ok: true });
   });
 });

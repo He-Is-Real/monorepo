@@ -768,7 +768,8 @@ paths:
         Command `RequestUpload` (M2 plan PR 7; D65, D80). The documented exception to "commands
         return `{ id, version }`": it also returns short-lived Bunny Stream TUS credentials, and the
         client uploads straight to Bunny.net. Needs the latest terms of use and testimony consent agreed
-        (`403`, plan 4e).
+        (`403`, plan 4e), for a `resume` or a replayed request too: no new link or `PUT` is signed
+        without them.
 
         api-user checks the story is the caller's, still editable (`409` `story_locked`) and at
         `If-Match` (`412`), and that it's a story of that format (`400`). Then, unless `resume`: it

@@ -6,8 +6,10 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agree,
   agreeAll,
   createPeople,
+  publishVersion,
   rows,
   run,
   TestDatabase,
@@ -638,5 +640,64 @@ describe('video and audio uploads', () => {
     expect(refused.body.errors).toEqual([
       { pointer: '/format', message: 'this is a written story' },
     ]);
+  });
+
+  it('a resume or a replay signs no new link until the person agrees to the latest terms and testimony consent (plan 4e)', async () => {
+    await person('rex');
+    const p = await t.person('user_rex');
+    const id = await draft('rex');
+    const k = key();
+    const first = await upload('rex', id, 1, FILE, k);
+    expect(first.status).toBe(200);
+    const videoId = first.body.headers.VideoId;
+    const written = await call('POST', '/v1/stories', 'rex', {
+      body: { title: 'Words', primaryFormat: 'written', body: 'x'.repeat(250) },
+      headers: { 'idempotency-key': key() },
+    });
+    const PICTURE = {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes: 40_000,
+      width: 900,
+      height: 1200,
+      expectedImage: null,
+    };
+    const ki = key();
+    const picture = await upload('rex', written.body.id, 1, PICTURE, ki);
+    expect(picture.status).toBe(200);
+    // Every way of getting a fresh link for a file already granted: a resume, a video's replay
+    // (the same Idempotency-Key) and a picture's replay.
+    const again = async () => {
+      const rs = [
+        await upload('rex', id, 2, { ...FILE, resume: true }),
+        await upload('rex', id, 1, FILE, k),
+        await upload('rex', written.body.id, 1, PICTURE, ki),
+      ];
+      return rs.map((r) => [r.status, r.body.code]);
+    };
+    const renewed = async () =>
+      (
+        await rows(
+          migrator,
+          `SELECT VALUE renewedAt FROM type::record('uploadGrant', $v)`,
+          { v: videoId },
+        )
+      ).filter(Boolean);
+
+    await publishVersion(t, 'termsOfUseAgreement');
+    expect(await again()).toEqual(
+      Array(3).fill([403, 'terms_agreement_required']),
+    );
+    await agree(p, 'termsOfUse');
+    await publishVersion(t, 'testimonyConsent');
+    expect(await again()).toEqual(
+      Array(3).fill([403, 'testimony_consent_required']),
+    );
+    // Refused before anything was renewed: the draft wasn't touched (D71).
+    expect(await renewed()).toEqual([]);
+
+    await agree(p, 'testimonyConsent');
+    expect((await again()).map(([status]) => status)).toEqual([200, 200, 200]);
+    expect(await renewed()).toHaveLength(1);
   });
 });

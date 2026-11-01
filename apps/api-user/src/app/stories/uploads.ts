@@ -484,6 +484,7 @@ export class Uploads {
             'That picture is no longer on your story. Choose it again to add it.',
         });
       }
+      await this.requireAgreements(user);
     }
     return {
       id,
@@ -589,9 +590,26 @@ export class Uploads {
         err instanceof DatabaseQueryError ? err.message : String(err);
       if (/story_cmd:locked/.test(message)) throw locked();
       if (/nothing_to_resume/.test(message)) throw nothingToResume();
-      throw err;
+      // Plan 4e: a new link needs the latest terms of use and testimony consent, as a grant does.
+      throw agreementRefusalOf(err) ?? err;
     }
     if (!renewed) throw nothingToResume();
+  }
+
+  /**
+   * Before a picture's PUT is signed again (a replay): the database's own check that the person
+   * has the latest terms of use and testimony consent (plan 4e), as its grant had (403).
+   */
+  private async requireAgreements(user: RecordId) {
+    try {
+      await runQuery(
+        this.service,
+        `RETURN fn::legal::require_testimony($person)`,
+        { person: user },
+      );
+    } catch (err) {
+      throw agreementRefusalOf(err) ?? err;
+    }
   }
 
   private imageStore(): ImageStore {
