@@ -4,7 +4,7 @@ info:
   version: 1.0.0-draft
   description: |
     **Moderation and admin.** The moderation queue and decisions, flag triage, role assignment, theme
-    curation, and the legal documents' versions (the privacy policy, D20's DPA, and the terms of use). Its own service and database login (D13, D33). No featured or
+    curation, and new versions of the four legal texts (plan 4e). Its own service and database login (D13, D33). No featured or
     pinned stories (Joel, 2026-10-23: unfair to everyone else).
 
     - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
@@ -17,8 +17,6 @@ info:
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
     - Commands return `{ id, version }` (D28); modifying commands need `If-Match` (`412`/`428`) (D29).
     - Queries return an `ETag` and `Cache-Control: private, no-store`.
-    - `x-requires-consent` marks routes guarded by `@RequiresConsent` (D21); every other route carries
-      `@NoConsentRequired(reason)` in code.
     - `x-milestone` on each operation is the delivery milestone that builds it.
 
     Conventions: `docs/api-conventions.md`.
@@ -116,7 +114,7 @@ paths:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: The story write model, with lock state and derived consent.
+          description: The story write model, with lock state.
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/ETag'
@@ -196,8 +194,8 @@ paths:
       operationId: approveStory
       summary: Approve and publish a story
       description: |
-        Command `ApproveStory`. Re-checks the submitter's consent in the ledger at this moment, not just
-        at submission (D21), then creates the `publicStory` row, a `moderationReview` and an `auditLog`
+        Command `ApproveStory`. The database checks the submitter has the testimony consent (plan 4e;
+        any version: it covers every story they submit), then creates the `publicStory` row, a `moderationReview` and an `auditLog`
         entry in one transaction. The caller must hold the lock (`409`). The submitter is emailed after
         the commit (address fetched from Clerk, D16).
 
@@ -205,9 +203,6 @@ paths:
         video must have its width, height and duration, an audio file its duration. Otherwise `409`
         with `code: media_not_ready` (the database refuses it; nothing is written or published).
       x-required-role: Moderator
-      x-requires-consent:
-        subject: submitter
-        types: [special_category_religious, publish, age_18plus]
       x-milestone: M3
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
@@ -524,7 +519,7 @@ paths:
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
 
-  # ------------------------------------------------------------------ legal documents (D121, D125)
+  # ------------------------------------------------------------------ legal texts (plan 4e)
   /v1/admin/legal-documents/{document}/versions:
     parameters:
       - name: document
@@ -535,15 +530,18 @@ paths:
     get:
       tags: [LegalDocuments]
       operationId: listAdminLegalDocumentVersions
-      summary: Every published version of one legal document, with who published it
-      description: 'Newest first. Read-only: no route edits or deletes a version.'
+      summary: Every version of one legal text, and the latest with its words
+      description: |
+        For `/admin/consent` (Admin and Super Admin): the latest version's Markdown, which the editor
+        starts from and the redline compares against, and every version, newest first. Read-only: no
+        route edits or deletes a version.
       x-required-role: Admin
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: The versions, and the one in force with its Markdown.
+          description: The versions, and the latest with its Markdown.
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -566,13 +564,14 @@ paths:
     post:
       tags: [LegalDocuments]
       operationId: publishLegalDocument
-      summary: Publish the next version of one legal document
+      summary: Save the next version of one legal text
       description: |
-        Command `PublishLegalDocument` (D125). Writes the version (numbered by the database, the next one,
-        in force at once) and an audit row with the admin, in one transaction. The first version of a
-        document may be published here (`basedOn: null`). Creates with a natural key take no
-        `Idempotency-Key` (D29): a `basedOn` that isn't the version in force now (another admin published
-        meanwhile) is `409 document_changed`, and nothing is written.
+        Command `PublishLegalVersion` (plan 4e): saves `content` as version `version` ("Save as version
+        N?"), in force at once, with the database's time, and an audit row naming the admin, in one
+        transaction. A saved version can never be changed or deleted; a mistake is fixed by saving
+        another. Creates with a natural key take no `Idempotency-Key` (D29): a `version` that isn't the
+        next number now (another admin saved one meanwhile) is `409 document_changed`, and nothing is
+        written: the page reloads the latest and shows the redline again.
       x-required-role: Admin
       x-milestone: M2
       requestBody:
@@ -583,14 +582,14 @@ paths:
               $ref: './components.yaml#/components/schemas/PublishLegalDocument'
       responses:
         '201':
-          description: Published.
+          description: Saved.
           headers:
             Location:
               $ref: './components.yaml#/components/headers/Location'
           content:
             application/json:
               schema:
-                $ref: './components.yaml#/components/schemas/PublishedLegalDocument'
+                $ref: './components.yaml#/components/schemas/LegalDocumentVersion'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
