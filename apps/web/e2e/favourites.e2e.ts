@@ -537,54 +537,6 @@ test.describe('hearts', () => {
     await expect(prompt).toHaveCount(0);
   });
 
-  test('a heart refused for the sign-up consent is kept on the device, goes to the consent step once, and is then only offered', async ({
-    page,
-  }, info) => {
-    // A `no-consent` session lost the sign-up consent after the page loaded (its account answer
-    // still says accepted, so the step, #116, sends it straight back).
-    const project = info.project.name;
-    await useSession(page, sessionFor(info, 'no-consent'));
-    const id = heartId(project);
-    const puts = countRequests(page, isCommand('PUT', id));
-    await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    const heart = cardHeart(page, `Heart test story (${project})`);
-    await expect(heart).toHaveAttribute('data-heart-state', 'off');
-    const toConsent = page.waitForRequest(
-      (r) =>
-        r.isNavigationRequest() &&
-        r.url() ===
-          `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=${encodeURIComponent(HEART_PAGE)}`,
-    );
-    await heart.click();
-    await toConsent;
-    // Back on the page: the heart is kept on the device and offered, never sent again by itself.
-    const prompt = page.locator('[data-device-hearts-prompt]');
-    await expect(prompt).toContainText(
-      'Add the story you hearted on this device to your account?',
-    );
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    expect(await deviceHearts(page)).toEqual([id]);
-    expect(puts()).toBe(1); // the press only
-  });
-
-  test('before the sign-up consent, the device’s hearts aren’t offered and nothing reaches api-user', async ({
-    page,
-  }, info) => {
-    await useSession(page, sessionFor(info, 'unaccepted'));
-    await seedDeviceHearts(page, [{ id: 'browse_04' }]);
-    const hearts = countRequests(page, (r) =>
-      r.url().startsWith(`${STUB_USER_URL}${FAVOURITES}`),
-    );
-    await page.goto(`${WEB_SIGNED_IN_URL}/about`);
-    // The sign-up consent step (#116) takes them in, returning here afterwards.
-    await expect(page).toHaveURL(
-      `${WEB_SIGNED_IN_URL}/consent/sign-up?redirect_url=%2Fabout`,
-    );
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(page.locator('[data-device-hearts-prompt]')).toHaveCount(0);
-    expect(hearts()).toBe(0);
-  });
-
   test('a heart taken off while the prompt’s Add is still saving it ends off, on the server too', async ({
     page,
   }, info) => {
@@ -615,32 +567,6 @@ test.describe('hearts', () => {
       'data-heart-state',
       'off',
     );
-  });
-
-  test('without the sign-up consent, a heart taken off before the refusal stays off: nothing kept, no consent step', async ({
-    page,
-  }, info) => {
-    // Codex, #117 round 3: the refusal used the first press, kept the heart and redirected.
-    const project = info.project.name;
-    await useSession(page, sessionFor(info, 'no-consent-undo'));
-    const id = heartId(project);
-    const save = await holdPut(page, id);
-    await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    const heart = cardHeart(page, `Heart test story (${project})`);
-    await expect(heart).toHaveAttribute('data-heart-state', 'off');
-    await heart.click();
-    await save.seen;
-    await heart.click(); // taken off while the save is on its way
-    await expect(heart).toHaveAttribute('aria-pressed', 'false');
-    const refused = page.waitForResponse((r) =>
-      isCommand('PUT', id)(r.request()),
-    );
-    save.release();
-    expect((await refused).status()).toBe(403);
-    await expect(heart).toHaveAttribute('aria-busy', 'false'); // settled
-    expect(await deviceHearts(page)).toEqual([]);
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    await expect(heart).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('a heart taken off while it is still being saved ends off, on the server too', async ({

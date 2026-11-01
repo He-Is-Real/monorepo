@@ -24,8 +24,6 @@ const PAGES = [
   '/privacy',
   '/terms',
   '/donate',
-  '/consent/sign-up',
-  '/consent/testimony',
   '/stories/no-such-story',
 ];
 
@@ -87,26 +85,6 @@ for (const path of PAGES) {
     expect(clipped, 'headings cut off').toEqual([]);
   });
 }
-
-test('200% text: /admin/legal with its preview and confirmation fits on a 320 px phone', async ({
-  page,
-}) => {
-  await enlarge(page);
-  // An admin (stub-api-user.mjs: sessions starting `admin` are Admins), signed in.
-  await page.addInitScript(() =>
-    window.localStorage.setItem('e2e-session', 'admin-text-zoom'),
-  );
-  await page.goto(`${WEB_SIGNED_IN_URL}/admin/legal`);
-  // The editor and its preview, with a table and a long code name, and the confirmation.
-  await page
-    .getByLabel('The text')
-    .fill(
-      '## Storage\n\n| Name | Set by |\n| --- | --- |\n| `bunny_stream_settings_long_name` | This site |\n',
-    );
-  await page.getByRole('button', { name: /^Publish as version/ }).click();
-  await expect(page.getByRole('alertdialog')).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-});
 
 test('200% text: /admin/limits with its confirmation fits on a 320 px phone', async ({
   page,

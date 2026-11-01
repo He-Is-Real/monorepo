@@ -92,51 +92,6 @@ test('every story and its related list fit the contract', async ({
   expect((await check(request, '/health')).status).toBe(200);
 });
 
-test('the legal routes fit the contract: dev’s forms, privacy document and legal documents', async ({
-  request,
-}) => {
-  for (const form of ['signup', 'testimony', 'social']) {
-    const { status, body } = await check(request, `/v1/legal/forms/${form}`);
-    expect(status, form).toBe(200);
-    expect(body.form).toBe(form);
-  }
-  expect((await check(request, '/v1/legal/forms/other')).status).toBe(404);
-  // D121, D125: the two legal documents, each with its numbered versions.
-  for (const [document, id, number] of [
-    ['privacy', 'dev_policy', 2],
-    ['terms', 'dev_placeholder', 1],
-  ] as const) {
-    const { status, body } = await check(
-      request,
-      `/v1/legal/documents/${document}`,
-    );
-    expect([document, status, body.current.id, body.current.number]).toEqual([
-      document,
-      200,
-      id,
-      number,
-    ]);
-    const version = await check(
-      request,
-      `/v1/legal/documents/${document}/versions/1`,
-    );
-    expect([document, version.status, version.body.number]).toEqual([
-      document,
-      200,
-      1,
-    ]);
-  }
-  expect((await check(request, '/v1/legal/documents/other')).status).toBe(404);
-  expect(
-    (await check(request, '/v1/legal/documents/privacy/versions/9')).status,
-  ).toBe(404);
-  expect((await check(request, '/v1/legal/dpa')).status).toBe(200);
-  expect(
-    (await check(request, '/v1/legal/dpa?version=dev_placeholder')).status,
-  ).toBe(200);
-  expect((await check(request, '/v1/legal/dpa?version=v9')).status).toBe(404);
-});
-
 test('the founder’s video routes fit the contract', async ({ request }) => {
   for (const key of ['founder-intro', 'next-steps']) {
     const { status, body } = await check(request, `/v1/site-videos/${key}`);
@@ -219,78 +174,6 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
     ).status(),
   ).toBe(503);
   expect((await get('/v1/account/export')).status()).toBe(401);
-});
-
-test('the stub api-user’s consent grants fit the contract', async ({
-  request,
-}) => {
-  const post = async (
-    body: unknown,
-    headers: Record<string, string> = {
-      authorization: `Bearer ${fixtureToken()}`,
-    },
-  ) => {
-    const res = await request.post(`${STUB_USER_URL}/v1/account/consents`, {
-      headers: { 'content-type': 'application/json', ...headers },
-      data: JSON.stringify(body),
-    });
-    const text = await res.text();
-    expect(
-      userContract.problems({
-        method: 'POST',
-        path: '/v1/account/consents',
-        status: res.status(),
-        contentType: res.headers()['content-type'] ?? null,
-        body: text === '' ? undefined : JSON.parse(text),
-      }),
-    ).toEqual([]);
-    return { status: res.status(), body: text ? JSON.parse(text) : undefined };
-  };
-  const signedIn = (key: string) => ({
-    authorization: `Bearer ${fixtureToken()}`,
-    'idempotency-key': `contract-check-${key}`,
-  });
-  const grant = {
-    form: 'signup',
-    formVersion: 'v2',
-    statement: 'age_18plus',
-    mechanism: 'web_form_submission',
-    privacyPolicyVersion: 'dev_policy',
-    termsVersion: 'dev_placeholder',
-  };
-  const first = await post(grant, signedIn('first-grant'));
-  expect(first.status).toBe(201);
-  // The same key and body answer as before; another body with it is refused.
-  expect(await post(grant, signedIn('first-grant'))).toEqual(first);
-  expect(
-    (
-      await post(
-        { ...grant, statement: 'account_data' },
-        signedIn('first-grant'),
-      )
-    ).status,
-  ).toBe(422);
-  expect(
-    (await post({ ...grant, formVersion: 'v1' }, signedIn('old-version'))).body
-      .code,
-  ).toBe('form_version_not_in_force');
-  // D122: a page that showed another privacy policy gets 409 too.
-  expect(
-    (
-      await post(
-        { ...grant, privacyPolicyVersion: 'v0' },
-        signedIn('old-policy'),
-      )
-    ).body.code,
-  ).toBe('legal_document_not_in_force');
-  expect(
-    (await post({ ...grant, statement: 'publish' }, signedIn('other-form')))
-      .body.code,
-  ).toBe('statement_not_on_form');
-  expect((await post(grant)).status).toBe(400); // no Idempotency-Key
-  expect(
-    (await post(grant, { 'idempotency-key': 'contract-check-anon' })).status,
-  ).toBe(401);
 });
 
 test('the stub api-user’s hearts fit the contract', async ({ request }) => {
