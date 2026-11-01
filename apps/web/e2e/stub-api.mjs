@@ -474,8 +474,56 @@ aspectStory('aspect-test-landscape', {
   publishedAt: '2026-10-22T15:00:00Z',
 });
 
+// The masonry's first paint never overlaps (masonry.e2e.ts): cards whose text sits on the edge
+// of a line (Codex review of #163: this one was predicted 2 px short at 688 px), emoji,
+// right-to-left text, em spaces and soft hyphens, with cards below each of them. Listed only
+// under `theme=masonry_test`.
+const masonryTheme = { id: 'masonry_test', name: 'Masonry test' };
+for (const [i, [title, description, format]] of [
+  [
+    'My testimony',
+    'Test testimony of transformation Test testimony of transformation',
+  ],
+  [
+    'Praise 🙏🏽✨ for every 🎉 answered prayer ❤️‍🔥',
+    '🙏🏽🙏🏽🙏🏽 ✨✨ Joy 🎉🎉🎉🎉 and hope 🌅🌅 after the storm 🌧️🌈 👨‍👩‍👧‍👦👨‍👩‍👧‍👦',
+  ],
+  [
+    'شهادتي: الرجاء بعد الألم ﷽',
+    '﷽ ﷺ كان الطريق طويلا، ولكن الله كان أمينا في كل يوم من أيام حياتي ﷲ ﷻ',
+  ],
+  ['My testimony', 'Test testimony of transformation', 'video'],
+  ['Test testimony of transformation', 'My testimony'],
+  ['My testimony, spoken', 'Test testimony of transformation', 'audio'],
+  ['My testimony', 'Test testimony of transformation Test testimony'],
+  ['A testimony', 'Test testimony of transformation', 'video'],
+  // Codex review of #163, round 2: spaces other than U+0020 and soft hyphens wrap differently.
+  [Array(25).fill('i').join('\u2003'), 'Spaced\u2003with\u2003em\u2003spaces'],
+  [
+    'Soft\u00ADhyphen\u00ADated',
+    'Ex\u00ADtra\u00ADor\u00ADdi\u00ADnary trans\u00ADfor\u00ADma\u00ADtion, un\u00ADder\u00ADstand\u00ADing and re\u00ADcon\u00ADcil\u00ADi\u00ADa\u00ADtion with every\u00ADone',
+  ],
+].entries()) {
+  const slug = `masonry-test-${i + 1}`;
+  stories[slug] = {
+    ...base,
+    id: slug.replaceAll('-', '_'),
+    slug,
+    primaryFormat: format ?? 'written',
+    title,
+    description,
+    body: 'Placeholder text for the masonry test.',
+    media: format
+      ? clip(format, `77777777-7777-4777-8777-00000000000${i + 1}`)
+      : [],
+    themes: [masonryTheme],
+    publishedAt: `2026-10-22T1${9 - i}:00:00Z`,
+  };
+}
+
 const TEST_THEMES = [
   aspectTheme.id,
+  masonryTheme.id,
   HIDE_TEST,
   PLAY_TEST,
   PREFETCH_TEST,

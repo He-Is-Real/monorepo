@@ -1,8 +1,10 @@
 import type { StorySummary } from './browse';
 import {
+  BANDS,
   cardShape,
   COLUMN_COUNTS,
   layoutFor,
+  lineCount,
   place,
   predictHeight,
   ROW_UNIT,
@@ -86,6 +88,31 @@ describe('predictHeight (D55: fixed parts + clamped media + text)', () => {
   });
 });
 
+describe('lineCount (wrapping as the browser does)', () => {
+  it('wraps word by word, and breaks a word longer than the line anywhere', () => {
+    expect(lineCount('', 200, 'excerpt')).toBe(0);
+    expect(lineCount('A few words', 200, 'excerpt')).toBe(1);
+    expect(lineCount('word '.repeat(20), 200, 'excerpt')).toBeGreaterThan(1);
+    // One unbroken 40-letter word at 15 px is about 330 px: two lines at 200 px.
+    expect(lineCount('a'.repeat(40), 200, 'excerpt')).toBe(2);
+  });
+
+  it('counts text with a character it has no width for (emoji, other alphabets) as its most lines', () => {
+    expect(lineCount('Joy 🎉', 400, 'title')).toBe(Infinity);
+    // Spaces other than U+0020 and soft hyphens wrap differently (Codex review of #163, round 2).
+    expect(lineCount(Array(25).fill('i').join('\u2003'), 400, 'title')).toBe(
+      Infinity,
+    );
+    expect(lineCount('trans\u00ADfor\u00ADma\u00ADtion', 400, 'title')).toBe(
+      Infinity,
+    );
+    expect(lineCount('A few\n words', 200, 'excerpt')).toBe(1);
+    expect(h(card({ title: 'Joy 🎉' }))).toBe(
+      h(card({ title: 'word '.repeat(60) })),
+    );
+  });
+});
+
 describe('place (each card into the shortest column)', () => {
   it('balances 3 tall and 3 flat cards across 2 columns', () => {
     const { heights } = place([600, 600, 600, 200, 200, 200], 2);
@@ -113,7 +140,7 @@ describe('spanFor and layoutFor', () => {
     expect(spanFor(101)).toBe(Math.ceil((101 + 24) / ROW_UNIT));
   });
 
-  it('lays out every card for every column count, continuing from start', () => {
+  it('lays out every card for every column count and band, continuing from start', () => {
     const cards = [video(360, 640), card(), image(1200, 800)];
     const { cards: layout, heights } = layoutFor(cards);
     expect(layout).toHaveLength(3);
@@ -122,9 +149,14 @@ describe('spanFor and layoutFor', () => {
       for (const c of layout) {
         expect(c.col[n]).toBeGreaterThanOrEqual(0);
         expect(c.col[n]).toBeLessThan(n);
-        expect(c.span[n]).toBeGreaterThan(0);
       }
     }
+    // A 9:16 video's span grows with its band's card width.
+    expect(layout[0].span).toHaveLength(BANDS.length);
+    const two = BANDS.flatMap((b, i) =>
+      b.columns === 2 ? [layout[0].span[i]] : [],
+    );
+    expect(two).toEqual([...two].sort((a, b) => a - b));
     expect(layout.map((c) => c.col[3])).toEqual([0, 1, 2]);
     // The next page continues: its first card goes into the shortest column (the flat written one).
     const more = layoutFor([card()], heights);
