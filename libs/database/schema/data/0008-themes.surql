@@ -9,7 +9,9 @@
 -- 3.2.4 refuses any write to a row that still holds a removed field unless the same write sets
 -- it to NONE, and the new fields have no value on old rows yet (DEFAULT applies on create only):
 -- so each row gets its new fields and loses its old ones in one SET.
-CREATE themeCategory:other CONTENT { name: 'Other' };
+-- Other may exist already: on dev, dev-seed's new image (UPSERT) ran after the schema and before
+-- this script's first successful run (2026-11-01).
+UPSERT themeCategory:other SET name = 'Other';
 FOR $group IN [['theme', 'Topics', true], ['journey', 'Journeys', false], ['emotion', 'Feelings', false]] {
   LET $tags = (SELECT id, name FROM tag WHERE category = $group[0] ORDER BY name);
   IF array::len($tags) > 0 {
