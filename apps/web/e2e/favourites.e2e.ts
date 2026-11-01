@@ -490,9 +490,10 @@ test.describe('hearts', () => {
   // Plan 4e: the terms change while the page is open, and api-user refuses the heart. The page's
   // account check (account-bootstrap.ts) may answer before the change (terms agreed: only the
   // heart sends the person to the terms step) or after it (consent-prompts.tsx sends them there
-  // too, maybe first). Both are held in place here, so each runs the same way every time (CI,
-  // phone-320: when the account check came first, the heart nested the terms step in its own
-  // return address and the person ended at home).
+  // too). Both are held in place here, so each runs the same way every time. Left to chance, CI
+  // saw the account check move the page to the terms step just before the click (the heart was
+  // gone from the page: desktop-1280) or just after it (the heart's refusal then nested the terms
+  // step in its own return address, and the person ended at home: phone-320).
   for (const accountCheck of ['before', 'after'] as const)
     test(`a heart made before agreeing to changed terms stays on the device and is offered after agreeing (the account check answers ${accountCheck} the change)`, async ({
       page,
