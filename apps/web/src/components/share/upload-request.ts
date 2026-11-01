@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { createContext, useCallback, useEffect, useRef } from 'react';
 import {
   ApiUserProblem,
   ApiUserUnavailable,
   newIdempotencyKey,
   StaleVersion,
 } from '@/lib/api-user';
+import type { AgreementName } from '@/lib/legal-text';
 import { PREFIX } from '@/lib/share-storage';
 import type { ShareApi, UploadRequest, UploadTarget } from './share-api';
 
@@ -23,6 +24,8 @@ import type { ShareApi, UploadRequest, UploadTarget } from './share-api';
  * (`keep`) is kept past its answer, until its PUT
  * succeeds or finds the file there (`forgetAttempt`): a PUT that failed or whose answer was lost
  * is retried by replaying it, which signs a fresh link for the same path and counts nothing new.
+ * A request refused until the person agrees (`403`) is kept too: a replay is refused so even when
+ * its grant exists, and once they agree it's replayed rather than granted (and counted) again.
  */
 
 /** A new upload's request, until its answer settles it. */
@@ -87,6 +90,39 @@ export function forgetAttempt(owner: string, slot: Slot, draftId: string) {
 export const outcomeUnknown = (err: unknown) =>
   err instanceof ApiUserUnavailable ||
   (err instanceof ApiUserProblem && err.status >= 500);
+
+/**
+ * The text api-user asks the person to agree to before it grants an upload (plan 4e: `403
+ * terms_agreement_required` or `testimony_consent_required`), or null for any other answer.
+ */
+export function agreementFirst(err: unknown): AgreementName | null {
+  if (!(err instanceof ApiUserProblem)) return null;
+  if (err.code === 'terms_agreement_required') return 'terms-of-use';
+  if (err.code === 'testimony_consent_required') return 'testimony-consent';
+  return null;
+}
+
+/** What a panel says when the person didn't agree (yet): their file is still theirs to send. */
+export function agreeFirstMessage(which: AgreementName, what: string): string {
+  const text = which === 'terms-of-use' ? 'terms of use' : 'testimony consent';
+  return `Your story is saved. To ${what}, please agree to the latest ${text}.`;
+}
+
+/**
+ * Opens the share flow's agree-again screen (the same one a refused save opens: what changed since
+ * the person's version, and its box) over the step, which stays as it was underneath. Answers
+ * true once they agreed (the panel then asks for its upload again), false if they went back or
+ * it couldn't be shown. Outside the share flow nothing is asked.
+ */
+export const AgreeAgain = createContext<
+  (which: AgreementName) => Promise<boolean>
+>(async () => false);
+
+/**
+ * How many times one upload asks before it stops asking and says why: the terms of use and then
+ * the testimony consent can each be needed once.
+ */
+export const AGREE_ASKS = 2;
 
 export const sameFile = (k: FileId | null, f: FileId) =>
   !!k &&
@@ -181,6 +217,9 @@ export function useUploadRequest({
           return { ...target, sent: attempt.request };
         } catch (err) {
           if (outcomeUnknown(err) || gone()) throw err;
+          // Agree first: api-user checks the agreements after finding a replay's grant too, so it
+          // may have granted this one. Kept, it's replayed as it was once they agree.
+          if (agreementFirst(err)) throw err;
           writeAttempt(owner, slot, ready.draftId, null);
           if (!(err instanceof StaleVersion) || again) throw err;
           // Changed elsewhere (another tab, or a request of this one whose answer was lost):

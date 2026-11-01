@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Upload } from 'tus-js-client';
 import {
   ApiUserProblem,
@@ -16,6 +16,10 @@ import type {
   UploadTarget,
 } from './share-api';
 import {
+  AGREE_ASKS,
+  AgreeAgain,
+  agreeFirstMessage,
+  agreementFirst,
   readAttempt,
   sameFile,
   useRuns,
@@ -38,6 +42,11 @@ import {
  * A new upload's request (D29; Codex #133 round 1) is kept there too until its answer settles it
  * (upload-request.ts, shared with the picture panel), so a retry after a lost answer replays the
  * same video without counting another.
+ *
+ * A request api-user refuses until the person agrees to a newer terms of use or testimony consent
+ * (plan 4e) opens the flow's agree-again screen (`AgreeAgain`); once they agree, the same file is
+ * asked for again (carrying on where it can), and if they go back the panel says why, with
+ * "Try again".
  */
 
 export type UploadFormat = 'video' | 'audio';
@@ -246,6 +255,7 @@ export function UploadPanel({
   const maxBytes =
     format === 'audio' ? limits.audioMaxBytes : limits.videoMaxBytes;
   const noun = format === 'audio' ? 'audio file' : 'video';
+  const agreeAgain = useContext(AgreeAgain);
 
   // A file this tab started for this draft before a reload.
   useEffect(() => {
@@ -360,7 +370,8 @@ export function UploadPanel({
       contentType: string,
       durationSeconds: number | undefined,
       gone: () => boolean,
-    ) => {
+      asked = 0,
+    ): Promise<void> => {
       setProblem(null);
       setNotice(null);
       setPhase({ at: 'checking', name: file.name });
@@ -369,6 +380,32 @@ export function UploadPanel({
         link = await linkFor(file, contentType, durationSeconds, gone);
       } catch (err) {
         if (gone()) return;
+        const which = agreementFirst(err);
+        if (which) {
+          // Once they agree, the same file is asked for again: a kept request is replayed, so a
+          // video made before the refusal carries on rather than being made (and counted) again.
+          if (asked < AGREE_ASKS && (await agreeAgain(which))) {
+            if (gone()) return;
+            return run(file, contentType, durationSeconds, gone, asked + 1);
+          }
+          if (gone()) return;
+          setPhase({ at: 'idle' });
+          setProblem(
+            <>
+              {agreeFirstMessage(which, `upload your ${noun}`)}{' '}
+              <button
+                type="button"
+                className="min-h-11 font-semibold text-link underline"
+                onClick={() =>
+                  void run(file, contentType, durationSeconds, begin())
+                }
+              >
+                Try again
+              </button>
+            </>,
+          );
+          return;
+        }
         setPhase({ at: 'idle' });
         setProblem(refusal(err, noun));
         if (
@@ -419,7 +456,7 @@ export function UploadPanel({
       if (previous[0]) tus.resumeFromPreviousUpload(previous[0]);
       tus.start();
     },
-    [linkFor, noun, onCounted, owner, remember],
+    [agreeAgain, begin, linkFor, noun, onCounted, owner, remember],
   );
 
   async function choose(file: File | undefined) {

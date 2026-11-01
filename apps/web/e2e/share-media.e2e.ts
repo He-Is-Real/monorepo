@@ -46,6 +46,25 @@ async function person(
   }, id);
   const auth = { authorization: `Bearer ${fixtureToken(id)}` };
   return {
+    /** A newer version is saved after the page loaded: the person's is older than the latest. */
+    agreements: async (set: { terms?: number; testimony?: number }) =>
+      expect(
+        (
+          await request.post(
+            `${STUB_USER_URL}/__e2e/sessions/${id}/agreements`,
+            { data: set },
+          )
+        ).status(),
+      ).toBe(204),
+    /** The agreements the page sent, oldest first. */
+    agreed: async () =>
+      (
+        (await (
+          await request.get(`${STUB_USER_URL}/__e2e/sessions/${id}/agreed`)
+        ).json()) as {
+          requests: { document: string; version: number }[];
+        }
+      ).requests,
     /** What the TUS server does with the next PATCHes. */
     tus: async (set: { fail?: number; hold?: boolean }) =>
       expect(
@@ -539,4 +558,132 @@ test.describe('behaviour', () => {
     const { requests, videos } = await me.uploads();
     expect([requests, videos.length]).toEqual([2, 1]);
   });
+
+  test('an upload request whose answer is lost, sent again after the consent changed, carries on with the same video once they agree', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('My video');
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'saved',
+    );
+    const path = clip(info.outputPath('clip.mp4'));
+    // The first request makes the video at api-user; its answer never arrives.
+    let dropped = false;
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/*/upload-url`,
+      async (route) => {
+        if (dropped) return route.fallback();
+        dropped = true;
+        await route.fetch();
+        return route.abort('connectionreset');
+      },
+    );
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(alert(page, 'can’t reach our server')).toBeVisible();
+    await me.agreements({ testimony: 1 });
+    // Its replay is refused until they agree (a 403 that doesn't mean nothing was made).
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await step(page, 'Our testimony consent has changed');
+    await page
+      .locator('label')
+      .filter({ hasText: /I agree to version 3 of the testimony consent/ })
+      .click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    // The lost request, the refused replay, the replay after agreeing: one video, all of it.
+    const { requests, videos } = await me.uploads();
+    expect([requests, videos.length, videos[0].done]).toEqual([3, 1, true]);
+  });
+
+  // Plan 4e: a newer testimony consent or terms of use saved while the person was on the page
+  // makes api-user refuse the upload request (403). The same agree-again screen a refused save
+  // opens (Joel, 2026-11-01, option B), and the upload carries on once they agree.
+  const AGAIN = [
+    {
+      code: 'testimony_consent_required',
+      older: { testimony: 1 },
+      heading: 'Our testimony consent has changed',
+      box: /I agree to version 3 of the testimony consent/,
+      agreed: { document: 'testimony-consent', version: 3 },
+      text: 'testimony consent',
+    },
+    {
+      code: 'terms_agreement_required',
+      older: { terms: 1 },
+      heading: 'Our terms of use have changed',
+      box: /I agree to version 2 of the terms of use/,
+      agreed: { document: 'terms-of-use', version: 2 },
+      text: 'terms of use',
+    },
+  ] as const;
+
+  for (const again of AGAIN) {
+    test(`an upload refused with ${again.code} opens the agree-again screen, and agreeing carries the upload on`, async ({
+      page,
+      request,
+    }, info) => {
+      const me = await person(page, request);
+      await toUpload(page);
+      await page.getByLabel('Title').fill('My video');
+      await expect(page.locator('[data-save-state]')).toHaveAttribute(
+        'data-save-state',
+        'saved',
+      );
+      await me.agreements(again.older);
+      await page
+        .getByLabel('Choose a file')
+        .setInputFiles(clip(info.outputPath('clip.mp4')));
+      await step(page, again.heading);
+      await expect(page.locator('[data-redline] ins').first()).toBeVisible();
+      await page.locator('label').filter({ hasText: again.box }).click();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await step(page, 'Upload your video');
+      await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+      await expect(page.getByLabel('Title')).toHaveValue('My video');
+      expect(await me.agreed()).toEqual([
+        { document: 'testimony-consent', version: 3 },
+        again.agreed,
+      ]);
+      const { requests, videos } = await me.uploads();
+      // The refused request, then the one after agreeing: one video, all of it.
+      expect([requests, videos.length, videos[0].done]).toEqual([2, 1, true]);
+    });
+
+    test(`not agreeing to the ${again.text} for an upload leaves the panel with the reason and a way to try again`, async ({
+      page,
+      request,
+    }, info) => {
+      const me = await person(page, request);
+      await toUpload(page);
+      await page.getByLabel('Title').fill('My video');
+      await expect(page.locator('[data-save-state]')).toHaveAttribute(
+        'data-save-state',
+        'saved',
+      );
+      await me.agreements(again.older);
+      await page
+        .getByLabel('Choose a file')
+        .setInputFiles(clip(info.outputPath('clip.mp4')));
+      await step(page, again.heading);
+      await page.getByRole('button', { name: 'Back' }).click();
+      await step(page, 'Upload your video');
+      await expect(
+        alert(page, `please agree to the latest ${again.text}`),
+      ).toBeVisible();
+      expect((await me.uploads()).videos).toEqual([]);
+      // Only the testimony consent agreed before the story began.
+      expect(await me.agreed()).toHaveLength(1);
+      // Trying again asks again; agreeing then carries the upload on.
+      await page.getByRole('button', { name: 'Try again' }).click();
+      await step(page, again.heading);
+      await page.locator('label').filter({ hasText: again.box }).click();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+      expect((await me.uploads()).videos).toMatchObject([{ done: true }]);
+    });
+  }
 });
