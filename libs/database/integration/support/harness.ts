@@ -514,24 +514,6 @@ export class TestDatabase {
   }
 }
 
-/** A legacy DPA hash for the schema's D22 legacy-consent rules, kept until the M1 import (D44). */
-export const LEGACY_SHA256 = sha256('legacy-squarespace placeholder');
-
-/**
- * Test fixture: the published legacy DPA that seed 0002 used to create. D44 dropped the seed
- * (the M1 import gets a `legacy-migration` consent category instead), but the schema's D22
- * legacy-consent rules stay until then, so the tests that pin them create the row themselves.
- */
-export async function seedLegacyDpaFixture(t: TestDatabase): Promise<void> {
-  await run(
-    await t.migrator(),
-    `CREATE dpaVersion:\`legacy-squarespace\` CONTENT {
-       kind: 'legacy', status: 'published', materiality: 'material',
-       documentPath: 'libs/legal/dpa/legacy-squarespace.md', contentHash: $h,
-       effectiveFrom: d'2024-01-01' }`,
-    { h: LEGACY_SHA256 },
-  );
-}
 export const DPA_V1_SHA256 = sha256('dpa v1 placeholder');
 
 export const LEGAL_DIR = join(__dirname, '../../../legal');
