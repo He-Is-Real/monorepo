@@ -433,7 +433,9 @@ describe('data/0008: tags become themes (a database migrated before themes v3)',
        CREATE tag:fear SET name = 'Fear', category = 'emotion';
        UPDATE story:dev_seed SET tagRefs = [tag:hope, tag:doubt];
        UPDATE publicStory:dev_seed SET tagRefs = [tag:hope, tag:doubt];
-       UPDATE submissionSettings:current SET tagsMin = 2, tagsMax = 4;`,
+       UPDATE submissionSettings:current SET tagsMin = 2, tagsMax = 4;
+       -- Like dev, where dev-seed's new image made Other before this script ran.
+       CREATE themeCategory:other SET name = 'Other';`,
     );
     // Like dev's row, written by data/0006 before the upload limits were defined: it has none.
     await run(
