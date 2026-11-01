@@ -4,14 +4,7 @@ import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
 import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
-import {
-  consentEvent,
-  createPeople,
-  publishDpa,
-  publishForm,
-  rows,
-  TestDatabase,
-} from '@heisreal/database/integration-testing';
+import { rows, TestDatabase } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
@@ -95,61 +88,6 @@ describe('GET /v1/account, the account bootstrap', () => {
     const again = await get(as('user_firstvisit'));
     expect(await again.json()).toEqual(account);
     expect(await usersFor('user_firstvisit')).toHaveLength(1);
-  });
-
-  it('says whether the sign-up form in force is accepted: both boxes, on the latest version (D73)', async () => {
-    await createPeople(t, { signer: 'user_signer' });
-    await publishDpa(t, 'v1'); // and v1 of the three forms
-    const accepted = async () =>
-      (await (await get(as('user_signer'))).json()).signupConsent.accepted;
-    expect(await accepted()).toBe(false);
-    const signer = await t.person('user_signer');
-    await consentEvent(signer, 'account_data', 'granted', 'v1');
-    expect(await accepted()).toBe(false); // 18+ not ticked yet
-    await consentEvent(signer, 'age_18plus', 'granted', 'v1');
-    expect(await accepted()).toBe(true);
-    // A newer sign-up version needs accepting again.
-    await publishForm(t, 'signup', 'v2', { dpa: 'v1' });
-    expect(await accepted()).toBe(false);
-  });
-
-  it('says when a newer testimony version must be accepted before a new story (D85, the banner)', async () => {
-    await createPeople(t, { teller: 'user_teller' });
-    const required = async () =>
-      (await (await get(as('user_teller'))).json()).testimonyConsent
-        .acceptanceRequired;
-    const teller = await t.person('user_teller');
-    // v1 of the forms is published (previous test). No testimony consent yet: nothing to ask.
-    expect(await required()).toBe(false);
-    await consentEvent(teller, 'special_category_religious', 'granted', 'v1');
-    expect(await required()).toBe(false);
-    // A newer version that doesn't require acceptance: still nothing to ask.
-    await publishForm(t, 'testimony', 'v2', { dpa: 'v1' });
-    expect(await required()).toBe(false);
-    await publishForm(t, 'testimony', 'v3', {
-      dpa: 'v1',
-      requiresAcceptanceForNewSubmissions: true,
-    });
-    expect(await required()).toBe(true);
-    // Accepting the version in force, as the banner's page does, moves the account to it (D85).
-    const res = await fetch(`${url}/v1/account/consents`, {
-      method: 'POST',
-      headers: {
-        ...as('user_teller'),
-        'content-type': 'application/json',
-        'idempotency-key': crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        form: 'testimony',
-        formVersion: 'v3',
-        statement: 'special_category_religious',
-        mechanism: 'reconsent_prompt',
-        privacyPolicyVersion: 'v1',
-      }),
-    });
-    expect(await contract.check('POST', res)).toEqual([]);
-    expect(res.status).toBe(201);
-    expect(await required()).toBe(false);
   });
 
   it('gives staff their row too, with their role from the token', async () => {

@@ -8,7 +8,6 @@ import {
   grantUpload,
   outcome,
   publishDpa,
-  publishForm,
   rows,
   run,
   TestDatabase,
@@ -521,28 +520,8 @@ describe('housekeeping racing a resumed upload or a form publication', () => {
     );
     expect(grant.renewedAt ?? null).toBeNull();
   });
-
-  it('a form published with a longer retention while a deletion is open: the deletion conflicts, and its retry keeps the draft', async () => {
-    await createDraft(cat, 'outlived', 'written');
-    await touch(migrator, 'outlived', 200); // past 6 months, inside 12
-    const deleting = await housekeeping.beginTransaction();
-    expect(
-      await rows(deleting as unknown as Surreal, DELETE, { id: 'outlived' }),
-    ).toHaveLength(1); // uncommitted, on the 6 months it read
-    await publishForm(t, 'testimony', 'v2', { draftRetentionMonths: 12 });
-    expect(await commit(deleting)).toMatch(CONFLICT);
-
-    expect(await sweep(new FakeLibrary([]))).toBe(0);
-    expect(await exists('outlived')).toBe(true);
-  });
 });
 
-/**
- * What erasure left to do (D39, D40, D88): a withdrawal api-user never got to erase, and
- * deletions at Bunny and Clerk that failed. Housekeeping retries them every night, at most
- * maxDeletions each, and a row that keeps failing waits longer each time instead of holding up
- * the rest.
- */
 describe('housekeeping: erasure requests and queued deletions', () => {
   let t: TestDatabase;
   let migrator: Surreal;

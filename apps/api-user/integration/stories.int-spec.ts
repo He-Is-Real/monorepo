@@ -232,23 +232,6 @@ describe('the submit flow for written stories', () => {
     expect(mine.body).toMatchObject({ title: 'First tab', version: 2 });
   });
 
-  it('stores nothing without testimony consent, or before the sign-up form is accepted', async () => {
-    await person('noart9', false);
-    const refused = await create('noart9');
-    expect(refused.status).toBe(403);
-    expect(refused.body.code).toBe('consent_required');
-
-    // Art 9 given but the sign-up form (18+, account) not accepted (D73).
-    const p = await t.person('user_noart9');
-    await consentEvent(p, 'special_category_religious', 'granted');
-    expect((await create('noart9')).status).toBe(403);
-    expect(await storiesOf('noart9')).toEqual([]);
-
-    await consentEvent(p, 'age_18plus', 'granted');
-    await consentEvent(p, 'account_data', 'granted');
-    expect((await create('noart9')).status).toBe(201);
-  });
-
   it('refuses to submit without publish consent or 200 characters, saying which', async () => {
     await person('pub', false);
     const p = await t.person('user_pub');

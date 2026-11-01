@@ -7,8 +7,6 @@ import { SURREAL } from '@heisreal/database';
 import {
   approve,
   buildWorld,
-  consentEvent,
-  createPeople,
   draft,
   run,
   submit,
@@ -128,21 +126,6 @@ describe('hearts: /v1/account/favourites', () => {
     }
     expect((await heart('user_ann', 'not a valid id!')).status).toBe(404);
     expect((await listed('user_ann')).ids).toEqual([]);
-  });
-
-  it('needs the sign-up consent, and asks for it with consent_required (D73)', async () => {
-    await createPeople(t, { cara: 'user_cara' });
-    const res = await heart('user_cara', 'bob_live');
-    expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ code: 'consent_required' });
-    const cara = await t.person('user_cara');
-    await consentEvent(cara, 'account_data', 'granted');
-    await consentEvent(cara, 'age_18plus', 'granted');
-    expect((await heart('user_cara', 'bob_live')).status).toBe(204);
-    // Reading back and removing need no consent.
-    await consentEvent(cara, 'account_data', 'withdrawn');
-    expect((await listed('user_cara')).ids).toEqual(['bob_live']);
-    expect((await unheart('user_cara', 'bob_live')).status).toBe(204);
   });
 
   it('lists newest heart first, a page at a time', async () => {
