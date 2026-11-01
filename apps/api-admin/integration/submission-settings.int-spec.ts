@@ -31,8 +31,8 @@ describe('submission settings (api-admin)', () => {
   const DEFAULTS = {
     storyTextMin: 200,
     storyTextMax: 10_000,
-    tagsMin: 1,
-    tagsMax: 5,
+    themesMin: 1,
+    themesMax: 5,
     openDraftsMax: 3,
     submissionsPer7Days: 1,
     uploadRequestsPerHour: 10,
@@ -92,13 +92,6 @@ describe('submission settings (api-admin)', () => {
     });
     migrator = await t.migrator();
     await createPeople(t, { admin: 'user_admin', moderator: 'user_moderator' });
-    // A catalogue of 3 themes: tagsMin can't be more.
-    await rows(
-      migrator,
-      `CREATE tag:hope SET name = 'Hope', category = 'theme';
-       CREATE tag:faith SET name = 'Faith', category = 'theme';
-       CREATE tag:doubt SET name = 'Doubt', category = 'journey';`,
-    );
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
       .useValue(await t.service('api_admin'))
@@ -136,11 +129,8 @@ describe('submission settings (api-admin)', () => {
       changedBy: string | null;
       settings: typeof DEFAULTS;
       bounds: Record<string, { min: number; max: number }>;
-      themeCount: number;
     };
-    expect(body).toMatchObject({ version: 1, changedBy: null, themeCount: 3 });
-    // The real upper bound on the fewest themes: the 3 there are, not the schema's 20.
-    expect(body.bounds['tagsMin']).toEqual({ min: 0, max: 3 });
+    expect(body).toMatchObject({ version: 1, changedBy: null });
     expect(body.settings).toEqual(DEFAULTS);
     expect(body.bounds['videoMaxBytes']).toEqual({
       min: 1_048_576,
@@ -179,9 +169,6 @@ describe('submission settings (api-admin)', () => {
         { ...DEFAULTS, storyTextMin: 5000, storyTextMax: 4000 },
         '/storyTextMin',
       ],
-      [{ ...DEFAULTS, tagsMin: 6, tagsMax: 5 }, '/tagsMin'],
-      // More themes than there are: nobody could submit.
-      [{ ...DEFAULTS, tagsMin: 4, tagsMax: 5 }, '/tagsMin'],
       [{ ...DEFAULTS, storyTextMax: 50_001 }, '/storyTextMax'],
       [{ ...DEFAULTS, openDraftsMax: 0 }, '/openDraftsMax'],
       [{ ...DEFAULTS, uploadsPer7Days: -1 }, '/uploadsPer7Days'],
@@ -189,7 +176,6 @@ describe('submission settings (api-admin)', () => {
       [{ ...DEFAULTS, videoMaxBytes: 10_737_418_241 }, '/videoMaxBytes'],
       [{ ...DEFAULTS, mediaMaxSeconds: 59 }, '/mediaMaxSeconds'],
       [{ ...DEFAULTS, audioMaxBytes: '500' }, '/audioMaxBytes'],
-      [{ ...DEFAULTS, tagsMax: undefined }, '/tagsMax'],
       [{ ...DEFAULTS, featured: true }, '/featured'],
     ];
     for (const [body, pointer] of cases) {
@@ -199,23 +185,15 @@ describe('submission settings (api-admin)', () => {
       expect(p.code).toBe('validation_failed');
       expect(p.errors?.[0]?.pointer).toBe(pointer);
     }
-    const overThemes = await problem(
-      await save({ ...DEFAULTS, tagsMin: 4 }, '"2"'),
-    );
-    expect(overThemes.errors?.[0]).toMatchObject({
-      pointer: '/tagsMin',
-      code: 'over_theme_count',
-      message: 'There are only 3 themes, so a story can’t need more.',
-    });
     expect(await stored()).toEqual(before);
   });
 
   it('a stale save gets 412 and a save without If-Match 428, writing nothing', async () => {
     const before = await stored();
-    const stale = await save({ ...DEFAULTS, tagsMax: 6 }, '"1"');
+    const stale = await save({ ...DEFAULTS, themesMax: 6 }, '"1"');
     expect(stale.status).toBe(412);
     expect((await problem(stale)).code).toBe('stale_version');
-    const bare = await save({ ...DEFAULTS, tagsMax: 6 }, null);
+    const bare = await save({ ...DEFAULTS, themesMax: 6 }, null);
     expect(bare.status).toBe(428);
     expect(await stored()).toEqual(before);
     expect(await audits()).toHaveLength(1);

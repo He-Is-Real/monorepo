@@ -46,9 +46,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });
 
-    test('home fits: hero, newest stories, themes, giving', async ({
-      page,
-    }, info) => {
+    test('home fits: hero, newest stories, giving', async ({ page }, info) => {
       const response = await page.goto('/');
       // Noindex in dev: header and meta tag.
       expect(response?.headers()['x-robots-tag']).toBe('noindex, nofollow');
@@ -76,9 +74,6 @@ for (const scheme of ['light', 'dark'] as const) {
         page.getByRole('contentinfo').getByText('Consent checks relaxed (dev)'),
       ).toBeVisible();
       await expectTarget(page, page.getByRole('link', { name: 'Sign in' }));
-      await expect(
-        page.getByRole('link', { name: 'Healing', exact: true }),
-      ).toBeVisible();
       // No made-up figures until they're confirmed (2026-10-24, pending Joel).
       await expect(page.getByText('Countries reached')).toHaveCount(0);
       // The backdrop photo loads and is decorative (empty alt).
@@ -97,9 +92,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await shots(page, info.project.name, scheme, 'home-full');
     });
 
-    test('browse fits: filters, tags and the masonry', async ({
-      page,
-    }, info) => {
+    test('browse fits: filters and the masonry', async ({ page }, info) => {
       await page.goto('/stories');
       await expect(
         page.getByRole('heading', { level: 1, name: 'God Stories' }),
@@ -109,14 +102,6 @@ for (const scheme of ['light', 'dark'] as const) {
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
       await shots(page, info.project.name, scheme, 'browse');
-
-      await page.goto('/stories?tag=healing&format=video');
-      await expect(
-        page.getByText('Video stories tagged Healing'),
-      ).toBeVisible();
-      await expect(cards(page).first()).toBeVisible();
-      await expectNoHorizontalOverflow(page);
-      await shots(page, info.project.name, scheme, 'browse-filtered');
 
       await page.goto('/stories?q=nothing-matches-this');
       await expect(
@@ -140,7 +125,7 @@ for (const scheme of ['light', 'dark'] as const) {
       ]) {
         await page.goto(`/stories/${slug}`);
         await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-        // No breadcrumb (Joel, 2026-10-24): it could show only one of a story's tags; the
+        // No breadcrumb (Joel, 2026-10-24): it could show only one of a story's themes; the
         // header's Stories link and the tag chips are the ways back.
         await expect(
           page.getByRole('navigation', { name: 'Breadcrumb' }),
@@ -219,7 +204,7 @@ test.describe('phone menu', () => {
   });
 
   for (const [from, link, to] of [
-    ['/stories?tag=loss', 'Stories', /\/stories$/],
+    ['/stories?theme=loss', 'Stories', /\/stories$/],
     ['/share', 'Share your story', /\/share$/],
   ] as const) {
     test(`tapping “${link}” on ${from} closes the menu`, async ({ page }) => {
@@ -251,6 +236,63 @@ test.describe('behaviour', () => {
       !['phone-320', 'desktop-1280'].includes(info.project.name),
       'behaviour is checked on one phone and one desktop',
     );
+  });
+
+  // Themes plan v3 (mockup 3): each category's highlighted themes first, under its name; the
+  // others (only those a published story uses) behind "More themes", with a plain search.
+  test('browse by theme: highlighted themes first, the rest under More themes with a search', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    const themes = page.getByRole('navigation', { name: 'Themes' });
+    await expect(themes.getByRole('heading', { level: 3 })).toHaveText([
+      'Feelings',
+      'Topics',
+    ]);
+    await expect(themes.getByRole('link', { name: 'Gratitude' })).toBeVisible();
+    // Not highlighted, so not shown first; Waiting no story here uses, so never.
+    await expect(themes.getByRole('link', { name: 'Grief' })).toHaveCount(0);
+    await themes.getByRole('button', { name: 'More themes' }).click();
+    await expect(themes.getByRole('link', { name: 'Faith' })).toBeVisible();
+    await expect(themes.getByRole('link', { name: 'Waiting' })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await themes.getByRole('searchbox', { name: 'Search themes' }).fill('GRI');
+    await expect(themes.getByRole('link', { name: 'Faith' })).toHaveCount(0);
+    await themes.getByRole('link', { name: 'Grief' }).click();
+    await expect(page).toHaveURL(/\/stories\?theme=grief$/);
+    await expect(page.getByText('Showing stories about Grief')).toBeVisible();
+    // Chosen, so it's shown first now, and pressing it again shows every story.
+    const chosen = themes.getByRole('link', { name: 'Grief' });
+    await expect(chosen).toHaveAttribute('aria-current', 'true');
+    await expect(page.locator('main article').first()).toBeVisible();
+    await chosen.click();
+    await expect(page).toHaveURL(/\/stories$/);
+  });
+
+  test('a highlighted theme with no stories says so, and an unknown theme shows every story (A8, A14)', async ({
+    page,
+  }) => {
+    await page.goto('/stories?theme=gratitude');
+    await expect(page.getByText('No stories yet.')).toBeVisible();
+    await page.goto('/stories?theme=not_a_theme');
+    await expect(page.getByText(/Showing stories about/)).toHaveCount(0);
+    await expect(page.locator('main article').first()).toBeVisible();
+  });
+
+  test('home: one row per category with highlighted themes, each leading to browse by it', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const explore = page.locator('section[aria-labelledby="explore"]');
+    await expect(explore.getByRole('heading', { level: 3 })).toHaveText([
+      'Feelings',
+      'Topics',
+    ]);
+    await expect(explore.getByRole('link', { name: /Hope/ })).toHaveAttribute(
+      'href',
+      '/stories?theme=hope',
+    );
+    await expect(explore.getByRole('link', { name: /Faith/ })).toHaveCount(0);
   });
 
   // Joel, 2026-10-31: no page cap. The stub's 54 stories are 4 pages of 15.
@@ -306,23 +348,7 @@ test.describe('behaviour', () => {
     await expect.poll(async () => (await links()).slice(0, 30)).toEqual(loaded);
   });
 
-  test('a filter link narrows the list and keeps its state in the URL', async ({
-    page,
-  }) => {
-    await page.goto('/stories');
-    await page.getByRole('link', { name: 'Loss', exact: true }).click();
-    await expect(page).toHaveURL(/\/stories\?tag=loss$/);
-    await expect(page.getByText('Stories tagged Loss')).toBeVisible();
-    for (const card of await cards(page).all())
-      await expect(card.getByRole('list', { name: 'Tags' })).toContainText(
-        'Loss',
-      );
-    await page.getByLabel('Format').selectOption('audio');
-    await expect(page).toHaveURL(/format=audio/);
-    await expect(page).toHaveURL(/tag=loss/);
-  });
-
-  test('keyboard: skip link first, filters and tags before the cards', async ({
+  test('keyboard: skip link first, filters before the cards', async ({
     page,
   }) => {
     await page.goto('/stories');
@@ -342,8 +368,7 @@ test.describe('behaviour', () => {
       if (label === 'card') break;
     }
     expect(order.indexOf('Search')).toBeGreaterThan(-1);
-    expect(order.indexOf('All')).toBeGreaterThan(order.indexOf('Search'));
-    expect(order.indexOf('More tags')).toBeGreaterThan(order.indexOf('All'));
+    expect(order.indexOf('Healing')).toBeGreaterThan(order.indexOf('Search'));
     expect(order.at(-1)).toBe('card');
   });
 
@@ -422,7 +447,7 @@ test.describe('behaviour', () => {
     const mine = `hide-test-${info.project.name}`;
     const stub = STUB_URL;
     await request.post(`${stub}/__test/show?slug=${mine}`);
-    await page.goto('/stories?tag=hide-test');
+    await page.goto('/stories?theme=hide_test');
     const card = page.getByRole('link', {
       name: `Hide test story (${info.project.name})`,
     });
@@ -526,19 +551,6 @@ test.describe('story pages and failures the stub can stage', () => {
       page.getByText('Stories can’t be loaded right now.'),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
-  });
-
-  test('“More tags” is open when one of its tags is selected', async ({
-    page,
-  }) => {
-    await page.goto('/stories');
-    const more = page.locator('main details', { hasText: 'More tags' });
-    await expect(more).not.toHaveAttribute('open');
-    await page.goto('/stories?tag=hope');
-    await expect(more).toHaveAttribute('open');
-    await expect(
-      more.getByRole('link', { name: /Hope/ }).first(),
-    ).toBeVisible();
   });
 
   test('an old slug redirects to the story’s current address (D30)', async ({

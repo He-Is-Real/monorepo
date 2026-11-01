@@ -24,7 +24,7 @@ const out = join(root, 'apps/web/src/lib/card-glyphs.ts');
 
 /** story-card.tsx's text styles; the excerpt is italic (the browser slants the upright face). */
 const STYLES = Object.fromEntries(
-  ['meta', 'badge', 'title', 'excerpt', 'quote', 'tags'].map((name) => [
+  ['meta', 'badge', 'title', 'excerpt', 'quote', 'themes'].map((name) => [
     name,
     {
       font: CARD[name].font,

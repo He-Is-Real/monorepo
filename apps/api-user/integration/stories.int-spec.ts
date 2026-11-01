@@ -20,7 +20,7 @@ import { AppModule } from '../src/app/app.module';
 
 /**
  * The submit flow for written stories (M2 plan PR 4) through api-user's real AppModule on its
- * own login (D13), as web's /share page calls it: tags, create, autosave, resume, submit.
+ * own login (D13), as web's /share page calls it: create, autosave, resume, submit.
  * The database is the behaviour here: consent (D21, D93), the content lock, the text minimum and
  * D94's limits. Every answer is checked against api-user.yaml, like web's e2e stub of it.
  */
@@ -135,9 +135,9 @@ describe('the submit flow for written stories', () => {
     await publishDpa(t, 'v1');
     await run(
       await t.service('api_admin'),
-      `CREATE tag:healing SET name = 'Healing', category = 'theme';
-       CREATE tag:doubt SET name = 'Doubt', category = 'journey';
-       CREATE tag:anxiety SET name = 'Anxiety', category = 'emotion';`,
+      `CREATE theme:healing SET name = 'Healing', category = themeCategory:other;
+       CREATE theme:doubt SET name = 'Doubt', category = themeCategory:other;
+       CREATE theme:anxiety SET name = 'Anxiety', category = themeCategory:other;`,
     );
   });
   afterAll(async () => {
@@ -145,21 +145,10 @@ describe('the submit flow for written stories', () => {
     await t?.close();
   });
 
-  it('lists every tag, by category then name', async () => {
-    await person('tagger');
-    const res = await call('GET', '/v1/tags', 'tagger');
-    expect(res.status).toBe(200);
-    expect(res.body.data.map((tag: { slug: string }) => tag.slug)).toEqual([
-      'healing',
-      'doubt',
-      'anxiety',
-    ]);
-  });
-
   it('creates, autosaves, resumes and submits a written story to pending', async () => {
     await person('ann');
     const k = key();
-    const created = await create('ann', { tagSlugs: [] }, k);
+    const created = await create('ann', { themeIds: [] }, k);
     expect(created.status).toBe(201);
     const { id, version } = created.body;
     expect(version).toBe(1);
@@ -167,7 +156,7 @@ describe('the submit flow for written stories', () => {
     expect(created.headers.get('etag')).toBe('"1"');
 
     // A retry with the same key replays; the same key for another story is refused.
-    expect((await create('ann', { tagSlugs: [] }, k)).body).toEqual({
+    expect((await create('ann', { themeIds: [] }, k)).body).toEqual({
       id,
       version: 1,
     });
@@ -178,7 +167,7 @@ describe('the submit flow for written stories', () => {
     const saved = await patch('ann', id, 1, {
       description: 'Hope after a hard year',
       bylineName: '  ',
-      tagSlugs: ['healing', 'doubt'],
+      themeIds: ['healing', 'doubt'],
     });
     expect(saved.status).toBe(200);
     expect(saved.body).toEqual({ id, version: 2 });
@@ -196,9 +185,9 @@ describe('the submit flow for written stories', () => {
       body: TEXT,
       bylineName: null,
       primaryFormat: 'written',
-      tags: [
-        { slug: 'healing', name: 'Healing' },
-        { slug: 'doubt', name: 'Doubt' },
+      themes: [
+        { id: 'healing', name: 'Healing' },
+        { id: 'doubt', name: 'Doubt' },
       ],
     });
     expect(mine.body.slug).toMatch(/^how-i-found-hope-[0-9a-f]{8}$/);
@@ -260,7 +249,7 @@ describe('the submit flow for written stories', () => {
     expect((await create('noart9')).status).toBe(201);
   });
 
-  it('refuses to submit without publish consent, tags or 200 characters, saying which', async () => {
+  it('refuses to submit without publish consent or 200 characters, saying which', async () => {
     await person('pub', false);
     const p = await t.person('user_pub');
     for (const type of [
@@ -276,13 +265,7 @@ describe('the submit flow for written stories', () => {
     expect(noPublish.body.code).toBe('consent_required');
 
     await consentEvent(p, 'publish', 'granted');
-    const noTags = await submit('pub', id, 1);
-    expect(noTags.status).toBe(400);
-    expect(noTags.body).toMatchObject({
-      code: 'tags_required',
-      errors: [{ pointer: '/tagSlugs' }],
-    });
-    await patch('pub', id, 1, { tagSlugs: ['healing'] });
+    await patch('pub', id, 1, { themeIds: ['healing'] });
     const short = await submit('pub', id, 2);
     expect(short.status).toBe(400);
     expect(short.body).toMatchObject({
@@ -292,20 +275,14 @@ describe('the submit flow for written stories', () => {
     expect(await storiesOf('pub')).toEqual(['draft']);
   });
 
-  it('validates fields and refuses unknown tags, without echoing what was sent', async () => {
+  it('validates fields, without echoing what was sent', async () => {
     await person('val');
     const bad = await create('val', {
       title: ' ',
-      tagSlugs: ['healing', 'no-such-tag'],
       secret: 'testimony words',
     });
     expect(bad.status).toBe(400);
     expect(JSON.stringify(bad.body)).not.toContain('testimony words');
-    const unknown = await create('val', { tagSlugs: ['no-such-tag'] });
-    expect(unknown.status).toBe(400);
-    expect(unknown.body.errors).toEqual([
-      expect.objectContaining({ pointer: '/tagSlugs' }),
-    ]);
     const { id } = (await create('val')).body;
     const emptied = await patch('val', id, 1, { body: '   ' });
     expect(emptied.status).toBe(400);
@@ -353,8 +330,8 @@ describe('the submit flow for written stories', () => {
       id: string;
       version: number;
     }[];
-    await patch('lim', a.id, 1, { tagSlugs: ['healing'] });
-    await patch('lim', b.id, 1, { tagSlugs: ['healing'] });
+    await patch('lim', a.id, 1, { themeIds: ['healing'] });
+    await patch('lim', b.id, 1, { themeIds: ['healing'] });
     expect((await submit('lim', a.id, 2)).status).toBe(200);
     const second = await submit('lim', b.id, 2);
     expect(second.status).toBe(409);
@@ -376,7 +353,7 @@ describe('the submit flow for written stories', () => {
       (await call('GET', '/v1/account/limits', 'lims')).body;
     expect(await read()).toEqual({
       storyText: { min: 200, max: 10000 },
-      tags: { min: 1, max: 5 },
+      themes: { min: 1, max: 5 },
       openDrafts: { max: 3, open: 0 },
       submissions: { per7Days: 1, usedIn7Days: 0, nextAvailableAt: null },
       uploads: {
@@ -394,31 +371,24 @@ describe('the submit flow for written stories', () => {
     try {
       await run(
         admin,
-        `UPDATE submissionSettings:current SET storyTextMin = 20, storyTextMax = 300, tagsMax = 2,
+        `UPDATE submissionSettings:current SET storyTextMin = 20, storyTextMax = 300,
            changedBy = user:limadmin;
          UPSERT submitterLimits:lims SET user = user:lims, openDraftsMax = 1,
            changedBy = user:limadmin;`,
       );
       expect(await read()).toMatchObject({
         storyText: { min: 20, max: 300 },
-        tags: { min: 1, max: 2 },
         openDrafts: { max: 1, open: 0 },
       });
-      // The commands follow the settings: too long or too many themes is 400, the minimum is 20.
+      // The commands follow the settings: too long is 400, the minimum is 20.
       const long = await create('lims', { body: 'x'.repeat(301) });
       expect(long.status).toBe(400);
       expect(long.body.errors).toEqual([
         expect.objectContaining({ pointer: '/body' }),
       ]);
-      const tags = await create('lims', {
-        tagSlugs: ['healing', 'doubt', 'anxiety'],
-      });
-      expect(tags.body.errors).toEqual([
-        expect.objectContaining({ pointer: '/tagSlugs' }),
-      ]);
       const ok = await create('lims', {
         body: 'Twenty-one characters',
-        tagSlugs: ['healing'],
+        themeIds: ['healing'],
       });
       expect(ok.status).toBe(201);
       expect((await create('lims')).body.code).toBe('draft_limit_reached');
@@ -431,43 +401,7 @@ describe('the submit flow for written stories', () => {
       await run(
         admin,
         `UPDATE submissionSettings:current SET storyTextMin = 200, storyTextMax = 10000,
-           tagsMax = 5, changedBy = user:limadmin`,
-      );
-    }
-  });
-
-  it('never needs more themes than there are, even after a system user deletes some (Codex, admin limits round 3)', async () => {
-    await person('few');
-    const admin = await t.service('api_admin');
-    await createPeople(t, { fewadmin: 'user_fewadmin' });
-    await run(
-      admin,
-      `UPDATE submissionSettings:current SET tagsMin = 3, changedBy = user:fewadmin`,
-    );
-    try {
-      // A migration or dev-seed's reset isn't checked by the admin guard: 2 themes, tagsMin 3.
-      await run(migrator, 'DELETE tag:anxiety');
-      const limits = (await call('GET', '/v1/account/limits', 'few')).body;
-      expect(limits.tags).toEqual({ min: 2, max: 5 });
-
-      const { id } = (await create('few', { tagSlugs: ['healing'] })).body;
-      const one = await submit('few', id, 1);
-      expect(one.status).toBe(400);
-      expect(one.body).toMatchObject({
-        code: 'tags_required',
-        errors: [{ pointer: '/tagSlugs', message: 'choose at least 2' }],
-      });
-      await patch('few', id, 1, { tagSlugs: ['healing', 'doubt'] });
-      expect((await submit('few', id, 2)).status).toBe(200);
-      expect(await storiesOf('few')).toEqual(['pending']);
-    } finally {
-      await run(
-        migrator,
-        `CREATE tag:anxiety SET name = 'Anxiety', category = 'emotion'`,
-      );
-      await run(
-        admin,
-        `UPDATE submissionSettings:current SET tagsMin = 1, changedBy = user:fewadmin`,
+           changedBy = user:limadmin`,
       );
     }
   });
@@ -477,16 +411,15 @@ describe('the submit flow for written stories', () => {
     const admin = await t.service('api_admin');
     await createPeople(t, { grandadmin: 'user_grandadmin' });
     const body = 'x'.repeat(300);
-    const { id } = (
-      await create('grand', { body, tagSlugs: ['healing', 'doubt', 'anxiety'] })
-    ).body;
+    const { id } = (await create('grand', { body, themeIds: ['healing'] }))
+      .body;
     try {
       await run(
         admin,
-        `UPDATE submissionSettings:current SET storyTextMax = 250, tagsMax = 2,
+        `UPDATE submissionSettings:current SET storyTextMax = 250,
            changedBy = user:grandadmin`,
       );
-      // Over both new maximums: refused at submit, each saying the limit in force.
+      // Over the new maximum: refused at submit, saying the limit in force.
       const long = await submit('grand', id, 1);
       expect(long.status).toBe(400);
       expect(long.body).toMatchObject({
@@ -504,26 +437,88 @@ describe('the submit flow for written stories', () => {
       expect(
         (await patch('grand', id, 2, { body: 'x'.repeat(240) })).status,
       ).toBe(200);
-      const tags = await submit('grand', id, 3);
-      expect(tags.body).toMatchObject({ code: 'too_many_tags', limit: 2 });
-      expect(
-        (await patch('grand', id, 3, { tagSlugs: ['healing', 'doubt'] }))
-          .status,
-      ).toBe(200);
-      expect((await submit('grand', id, 4)).status).toBe(200);
+      expect((await submit('grand', id, 3)).status).toBe(200);
       expect(
         (await call('GET', `/v1/account/stories/${id}`, 'grand')).body.status,
       ).toBe('pending');
     } finally {
       await run(
         admin,
-        'UPDATE submissionSettings:current SET storyTextMax = 10000, tagsMax = 5, changedBy = user:grandadmin',
+        'UPDATE submissionSettings:current SET storyTextMax = 10000, changedBy = user:grandadmin',
       );
     }
   });
 
+  it('lists every theme by category for the share form, Other last, highlighted or not', async () => {
+    await person('pick');
+    await run(
+      await t.service('api_admin'),
+      `CREATE themeCategory:feelings SET name = 'Feelings';
+       CREATE theme:hope SET name = 'Hope', category = themeCategory:feelings, highlighted = true;
+       CREATE theme:fear SET name = 'Fear', category = themeCategory:feelings;`,
+    );
+    const res = await call('GET', '/v1/themes', 'pick');
+    expect(res.status).toBe(200);
+    expect(
+      res.body.data.map(
+        (c: {
+          name: string;
+          themes: { name: string; highlighted: boolean }[];
+        }) => [
+          c.name,
+          c.themes.map((th) => `${th.name}${th.highlighted ? ' ★' : ''}`),
+        ],
+      ),
+    ).toEqual([
+      ['Feelings', ['Fear', 'Hope ★']],
+      ['Other', ['Anxiety', 'Common', 'Doubt', 'Healing']],
+    ]);
+  });
+
+  it('checks the number of themes only at submit, from the admin’s minimum to maximum', async () => {
+    await person('count');
+    const six = ['healing', 'doubt', 'anxiety', 'common', 'hope', 'fear'];
+    const { id } = (await create('count', { themeIds: [] })).body;
+    // A draft may hold more than the maximum while it's being written...
+    expect((await patch('count', id, 1, { themeIds: six })).status).toBe(200);
+    // ...but can't be submitted with it, nor with none.
+    const many = await submit('count', id, 2);
+    expect(many.status).toBe(400);
+    expect(many.body).toMatchObject({ code: 'theme_count' });
+    expect(many.body.detail).toBe('Choose 1–5 themes');
+    expect((await patch('count', id, 2, { themeIds: [] })).status).toBe(200);
+    expect((await submit('count', id, 3)).body.code).toBe('theme_count');
+    expect(
+      (await patch('count', id, 3, { themeIds: ['hope', 'fear'] })).status,
+    ).toBe(200);
+    expect((await submit('count', id, 4)).status).toBe(200);
+  });
+
+  it('a theme deleted while someone is choosing: “Themes have changed, please choose again” (A7)', async () => {
+    await person('late');
+    const admin = await t.service('api_admin');
+    await run(
+      admin,
+      `CREATE theme:fleeting SET name = 'Fleeting', category = themeCategory:other`,
+    );
+    const { id } = (await create('late', { themeIds: ['fleeting'] })).body;
+    await run(admin, 'DELETE theme:fleeting');
+    // The database took it off the draft; choosing it again is refused, saying why.
+    expect(
+      (await call('GET', `/v1/account/stories/${id}`, 'late')).body.themes,
+    ).toEqual([]);
+    const again = await patch('late', id, 2, { themeIds: ['fleeting'] });
+    expect(again.status).toBe(400);
+    expect(again.body).toMatchObject({
+      code: 'themes_changed',
+      detail: 'Themes have changed, please choose again',
+    });
+    expect((await create('late', { themeIds: ['fleeting'] })).body.code).toBe(
+      'themes_changed',
+    );
+  });
+
   it('refuses a missing or forged token', async () => {
-    expect((await call('GET', '/v1/tags', undefined)).status).toBe(401);
     expect(
       (
         await call('POST', '/v1/stories', undefined, {

@@ -18,6 +18,7 @@ const ADMIN_ROLES = new Set(['Admin', 'SuperAdmin']);
 const ADMIN_PAGES = [
   { href: '/admin/legal', label: 'Legal documents' },
   { href: '/admin/limits', label: 'Submission limits' },
+  { href: '/admin/themes', label: 'Themes' },
 ];
 
 /** A button whose words may wrap (200% text on a 320 px phone): full width there. */

@@ -11,10 +11,10 @@ import { CardHeart } from './heart-button';
 // properties, `--card-…`), which lib/masonry.ts predicts its height from (D55); its parts mirror
 // that prediction, so change them together. Its text is drawn without hinting
 // (`geometricPrecision`): Chromium on Linux would otherwise round each letter to whole pixels,
-// wider than the font's own widths the masonry wraps text with (lib/card-glyphs.ts). The card's one link is its title, stretched
-// over the whole card, so the link's name is the story's title and tags stay plain text. On
-// video and audio cards the media area plays the story instead (card-player.tsx), so the link
-// covers only the text below it. No counts or metrics of any kind (design principles).
+// wider than the font's own widths the masonry wraps text with (lib/card-glyphs.ts). The card's
+// one link is its title, stretched over the whole card, so the link's name is the story's title
+// and themes stay plain text. On video and audio cards the media area plays the story instead
+// (card-player.tsx), so the link covers only the text below it. No counts or metrics of any kind (design principles).
 // The person's heart sits in the top-right corner, over the picture when there is one, so it
 // never changes the card's height; it fills in from the browser (heart-button.tsx, D83).
 
@@ -236,15 +236,15 @@ export function StoryCard({
             {story.excerpt}
           </p>
         )}
-        {story.tags.length > 0 && (
+        {story.themes.length > 0 && (
           <ul
-            className="mt-(--card-tags-before) flex flex-wrap gap-(--card-tags-gap)"
-            aria-label="Tags"
+            className="mt-(--card-themes-before) flex flex-wrap gap-(--card-themes-gap)"
+            aria-label="Themes"
           >
-            {story.tags.map((t) => (
+            {story.themes.map((t) => (
               <li
-                key={t.slug}
-                className="h-(--card-tags-row) truncate rounded-full bg-surface px-(--card-tags-pad) text-(length:--card-tags-font) leading-(--card-tags-row) text-muted-foreground"
+                key={t.id}
+                className="h-(--card-themes-row) truncate rounded-full bg-surface px-(--card-themes-pad) text-(length:--card-themes-font) leading-(--card-themes-row) text-muted-foreground"
               >
                 {t.name}
               </li>

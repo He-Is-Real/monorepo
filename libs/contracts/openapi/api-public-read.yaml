@@ -5,7 +5,7 @@ info:
   description: |
     **Anonymous public queries only** (D33, D35). No authentication, no personal reads: anything that
     needs to know who you are is on `api-user`. Reads only read models and reference data
-    (`publicStory`, `tag`, published `dpaVersion` and consent form versions, D26, D84), through a database
+    (`publicStory`, `theme`, `themeCategory`, published `dpaVersion` and consent form versions, D26, D84), through a database
     login that sees nothing else (D13). Scales on its own.
 
     - Called by the browser, and server-side by `web` to prerender pages (D32).
@@ -37,8 +37,8 @@ tags:
     description: 'Liveness and readiness.'
   - name: Stories
     description: 'Published stories, read from `publicStory`.'
-  - name: Tags
-    description: 'The tag taxonomy.'
+  - name: Themes
+    description: 'Theme categories and themes.'
   - name: Legal
     description: 'The legal documents (privacy policy, terms of use) with their numbered versions, and the consent forms.'
   - name: Site
@@ -67,7 +67,7 @@ paths:
         Story cards for browse and home, newest first by default. Approved stories only (the
         `publicStory` read model, D26). Full-text search is `q` (BM25 on title, description and
         text; English stemming, any script). Keyset pages: `nextCursor` gives the next page and
-        works only with the same `q`, `tag`, `format` and `sort` (any `limit`); a cursor used with
+        works only with the same `q`, `theme`, `format` and `sort` (any `limit`); a cursor used with
         others is `400 invalid_cursor`, and so is any changed cursor (every field is checked). Ties
         in the sort are broken by ID, so pages never overlap.
         Unknown or repeated parameters are `400`. No totals (D30). Browse loads at most two more
@@ -99,18 +99,15 @@ paths:
           schema:
             type: string
             maxLength: 200
-        - name: tag
+        - name: theme
           in: query
-          description: Tag slug. Repeat it for several; a story must have all of them. An unknown tag gives no stories.
-          style: form
-          explode: true
+          description: |
+            A theme's id: only stories that carry it. An id that isn't a theme (deleted, or never was)
+            is ignored, so the link shows every story (themes plan v3, A8).
           schema:
-            type: array
-            maxItems: 5
-            items:
-              type: string
-              maxLength: 60
-              pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+            type: string
+            maxLength: 40
+            pattern: '^[0-9A-Za-z_]+$'
         - name: format
           in: query
           description: Only stories of this format.
@@ -190,11 +187,11 @@ paths:
     get:
       tags: [Stories]
       operationId: getRelatedStories
-      summary: Related stories (shared tags)
+      summary: Related stories (shared themes)
       description: |
-        Three cards for the story page's sidebar: the published stories sharing the most tags,
+        Three cards for the story page's sidebar: the published stories sharing the most themes,
         then the newest. Never the story itself; filled with the newest stories when few share a
-        tag. A previous slug answers `301` to the current one's `/related`. Takes no query
+        theme. A previous slug answers `301` to the current one's `/related`. Takes no query
         parameters (`400`).
       x-milestone: M1
       parameters:
@@ -230,23 +227,23 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
-  /v1/tags:
+  /v1/themes:
     get:
-      tags: [Tags]
-      operationId: listTags
-      summary: List the tags in use
+      tags: [Themes]
+      operationId: listThemes
+      summary: The themes to browse by
       description: |
-        Every tag at least one published story uses, by category (theme, journey, emotion) then
-        name; clients group them by `category`. A tag with no published story is left out, so
-        none leads to an empty page; it comes back when a published story uses it (D63). No
-        story counts (no totals in public responses, D30, D62). Takes no query parameters
-        (`400`).
+        Every category and its themes for browse and the home page (themes plan v3): highlighted themes
+        always (even with no published story yet: choosing one shows "No stories yet", A14), other
+        themes only once a published story uses them (D63). Categories A–Z with Other last, themes
+        A–Z; a category with nothing to list is left out. No story counts (no totals in public
+        responses, D30, D62). Takes no query parameters (`400`).
       x-milestone: M1
       parameters:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: The tags in use (a few dozen at most, so unpaged).
+          description: The categories with themes to show (a few dozen themes at most, so unpaged).
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -261,7 +258,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: './components.yaml#/components/schemas/Tag'
+                      $ref: './components.yaml#/components/schemas/ThemeCategory'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '400':

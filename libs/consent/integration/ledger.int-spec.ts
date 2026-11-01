@@ -593,7 +593,7 @@ describe('consent ledger (D17–D20, D84) on SurrealDB', () => {
   describe('a published story (submitter checks, withdrawal)', () => {
     beforeAll(async () => {
       const ann = await t.person('user_ann');
-      expect(await draft(ann, 'ann_live', { tagRefs: [] })).toHaveLength(1);
+      expect(await draft(ann, 'ann_live')).toHaveLength(1);
       await submit(ann, 'ann_live');
       await approve(admin, 'ann_live');
       expect(

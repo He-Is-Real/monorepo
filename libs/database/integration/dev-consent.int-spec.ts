@@ -80,7 +80,7 @@ describe('relaxed consent in dev (D48)', () => {
       expect(
         await rows(
           olive,
-          `CREATE story CONTENT { submitter: $auth, slug: 'bound', title: 't',
+          `CREATE story CONTENT { themeRefs: [theme:common], submitter: $auth, slug: 'bound', title: 't',
              description: 'd', primaryFormat: 'written', body: 'x' }`,
           vars,
         ),
@@ -124,6 +124,7 @@ describe('relaxed consent in dev (D48)', () => {
       const summary = await t.migrate(on());
       expect(summary.devConsentRelaxed).toBe(true);
       await t.createServices();
+      await t.createCommonTheme();
       await createPeople(t, { dana: 'user_dana', moderator: 'user_mod' });
       await publishDpa(t, 'v1');
       admin = await t.service('api_admin');

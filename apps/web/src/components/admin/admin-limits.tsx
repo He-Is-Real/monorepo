@@ -13,8 +13,8 @@ import { type ApiUser, StaleVersion } from '@/lib/api-user';
 type Field =
   | 'storyTextMin'
   | 'storyTextMax'
-  | 'tagsMin'
-  | 'tagsMax'
+  | 'themesMin'
+  | 'themesMax'
   | 'openDraftsMax'
   | 'submissionsPer7Days'
   | 'uploadsPer7Days'
@@ -29,8 +29,6 @@ interface Settings {
   version: number;
   settings: Values;
   bounds: Record<Field, { min: number; max: number }>;
-  /** The themes there are: tagsMin's bound is at most this. */
-  themeCount: number;
 }
 
 /** 1 MB as the page shows it: 1,048,576 bytes, so today's 4 GiB reads 4,096 MB. */
@@ -56,11 +54,11 @@ const GROUPS: {
     title: 'Themes',
     fields: [
       {
-        field: 'tagsMin',
+        field: 'themesMin',
         label: 'Fewest themes a story needs',
         unit: 'themes',
       },
-      { field: 'tagsMax', label: 'Most themes on a story', unit: 'themes' },
+      { field: 'themesMax', label: 'Most themes on a story', unit: 'themes' },
     ],
   },
   {
@@ -263,9 +261,7 @@ function LimitsForm({
         values[field] = settings.settings[field]; // unchanged: exactly as stored
       } else if (t === '' || !Number.isInteger(n) || n < min || n > max) {
         errs[field] =
-          field === 'tagsMin' && Number.isInteger(n) && n > settings.themeCount
-            ? `There are only ${number(settings.themeCount)} themes, so a story can’t need more.`
-            : `Enter a whole number from ${number(min)} to ${number(max)} (${unit}).`;
+          `Enter a whole number from ${number(min)} to ${number(max)} (${unit}).`;
       } else {
         values[field] = n * per;
       }
@@ -277,8 +273,12 @@ function LimitsForm({
     )
       errs.storyTextMin =
         'The shortest story can’t be longer than the longest.';
-    if (!errs.tagsMin && !errs.tagsMax && values.tagsMin > values.tagsMax)
-      errs.tagsMin = 'The fewest themes can’t be more than the most.';
+    if (
+      !errs.themesMin &&
+      !errs.themesMax &&
+      values.themesMin > values.themesMax
+    )
+      errs.themesMin = 'The fewest themes can’t be more than the most.';
     return Object.keys(errs).length ? { errors: errs } : { values };
   }
 

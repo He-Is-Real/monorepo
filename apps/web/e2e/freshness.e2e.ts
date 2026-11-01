@@ -14,7 +14,7 @@ import { STUB_LIVE_PORT, WEB_LIVE_URL } from './servers';
 const SLUG = 'withdrawal-test';
 const TITLE = 'Withdrawal test story';
 const TEXT = 'Withdrawal test testimony text';
-// No tags, so its related list is the newest stories, withdrawal-test first.
+// No themes, so its related list is the newest stories, withdrawal-test first.
 const NEIGHBOUR = '/stories/test-story-walking-skeleton';
 const stub = `http://127.0.0.1:${STUB_LIVE_PORT}/__test`;
 

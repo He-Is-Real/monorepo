@@ -30,7 +30,7 @@ import {
   shareApi,
   type StoryFormat,
   type SubmissionLimits,
-  type Tag,
+  type ThemeCategory,
 } from './share-api';
 import {
   formatWhen,
@@ -39,6 +39,7 @@ import {
   UploadsLeft,
   uploadsState,
 } from './allowance';
+import { ThemePicker } from '@/components/themes/theme-picker';
 import { useDraft } from './use-draft';
 import { ImagePanel, type PictureState } from './image-panel';
 import { fileLimits, type FileState, UploadPanel } from './upload-panel';
@@ -63,6 +64,14 @@ import { fileLimits, type FileState, UploadPanel } from './upload-panel';
  */
 /** Exported for share-flow.spec.tsx (a step rendered on its own). */
 export const Limits = createContext<SubmissionLimits | null>(null);
+/** The theme count rule in words, as api-user says it: "Choose 1–5 themes". */
+export function themeRule(min: number, max: number): string {
+  const themes = (n: number) => `${n} theme${n === 1 ? '' : 's'}`;
+  if (min === max) return `Choose ${themes(max)}`;
+  if (min === 0) return `Choose up to ${themes(max)}`;
+  return `Choose ${min}–${max} themes`;
+}
+
 function useLimits(): SubmissionLimits {
   const limits = useContext(Limits);
   if (!limits) throw new Error('the submit flow’s limits are loaded first');
@@ -181,7 +190,7 @@ function SignedInFlow({
         state: 'ready';
         consents: ConsentState;
         limits: SubmissionLimits;
-        tags: Tag[];
+        themes: ThemeCategory[];
         drafts: MyStory[];
         askConsent: boolean;
       }
@@ -212,10 +221,10 @@ function SignedInFlow({
   const start = useCallback(async () => {
     setLoaded({ state: 'loading' });
     try {
-      const [consents, limits, tags, drafts] = await Promise.all([
+      const [consents, limits, themes, drafts] = await Promise.all([
         calls.consents(),
         calls.limits(),
-        calls.tags(),
+        calls.themes(),
         calls.openDrafts(),
       ]);
       const askConsent = needsTestimonyConsent(consents);
@@ -223,7 +232,7 @@ function SignedInFlow({
         state: 'ready',
         consents,
         limits,
-        tags,
+        themes,
         drafts,
         askConsent,
       });
@@ -270,6 +279,23 @@ function SignedInFlow({
   useEffect(() => {
     if (step === 'choose' && moved.current) refreshLimits();
   }, [step, refreshLimits]);
+
+  // A chosen theme was deleted meanwhile (A7): the list is read again to choose from. Answers
+  // the list read, or null if it couldn't be.
+  const reloadThemes = useCallback(
+    () =>
+      calls
+        .themes()
+        .then((themes) => {
+          setLoaded((l) => (l.state === 'ready' ? { ...l, themes } : l));
+          return themes;
+        })
+        .catch(() => null),
+    [calls],
+  );
+  useEffect(() => {
+    if (draft.themesChanged > 0) void reloadThemes();
+  }, [draft.themesChanged, reloadThemes]);
 
   // The draft's id in the address once it exists, so a reload resumes it.
   useEffect(() => {
@@ -320,7 +346,7 @@ function SignedInFlow({
       </Card>
     );
   }
-  const { consents, limits, tags, drafts, askConsent } = loaded;
+  const { consents, limits, themes, drafts, askConsent } = loaded;
   if (!consents.signup.accepted) {
     return (
       <Card className="p-6 text-center sm:p-8">
@@ -459,7 +485,7 @@ function SignedInFlow({
             <DetailsStep
               heading={heading}
               draft={draft}
-              tags={tags}
+              themes={themes}
               onNext={() => go(after('details'))}
               onBack={() => go(before('details'))}
             />
@@ -468,13 +494,14 @@ function SignedInFlow({
             <ReviewStep
               heading={heading}
               draft={draft}
-              tags={tags}
+              themes={themes}
               legal={legal}
               consents={consents}
               api={api}
               calls={calls}
               refreshConsents={refreshConsents}
               refreshLimits={refreshLimits}
+              refreshThemes={reloadThemes}
               onEdit={(s) => go(s)}
               onDone={() => go('done')}
             />
@@ -1322,35 +1349,28 @@ function MediaStep({
 function DetailsStep({
   heading,
   draft,
-  tags,
+  themes,
   onNext,
   onBack,
 }: {
   heading: HeadingRef;
   draft: DraftState;
-  tags: Tag[];
+  themes: ThemeCategory[];
   onNext: () => void;
   onBack: () => void;
 }) {
   const limits = useLimits();
   const [problem, setProblem] = useState<string | null>(null);
-  const chosen = draft.fields.tagSlugs;
+  const chosen = draft.fields.themeIds;
+  const { min, max } = limits.themes;
   return (
     <form
       noValidate
       onSubmit={async (e) => {
         e.preventDefault();
-        if (chosen.length < limits.tags.min) {
-          setProblem(
-            limits.tags.min === 1
-              ? 'Choose at least one theme.'
-              : `Choose at least ${limits.tags.min} themes.`,
-          );
-          return;
-        }
-        if (chosen.length > limits.tags.max) {
-          // Chosen under an older, higher limit: the current one applies (Joel, 2026-10-30).
-          setProblem(`Choose at most ${limits.tags.max} themes.`);
+        // The rule submitting checks (themes plan v3), said before the review step.
+        if (chosen.length < min || chosen.length > max) {
+          setProblem(`${themeRule(min, max)}.`);
           return;
         }
         setProblem(null);
@@ -1401,20 +1421,27 @@ function DetailsStep({
             In a sentence or two, what is your story about?
           </p>
         </div>
-        <fieldset aria-describedby="story-tags-hint">
-          <legend className="mb-1.5 font-semibold">Themes</legend>
-          <p id="story-tags-hint" className="mb-3 text-sm text-secondary-text">
-            {limits.tags.min > 0
-              ? `Choose ${limits.tags.min} to ${limits.tags.max}.`
-              : `Choose up to ${limits.tags.max}.`}
+        <fieldset aria-describedby="story-themes-hint">
+          <legend className="mb-1.5 font-semibold">
+            Which themes fit your story?
+          </legend>
+          <p
+            id="story-themes-hint"
+            className="mb-3 text-sm text-secondary-text"
+          >
+            {chosen.length > 0
+              ? `${chosen.length} of ${max} chosen. `
+              : `${themeRule(min, max)}. `}
+            They help people find it.
           </p>
-          <div className="flex flex-wrap gap-2">
-            {tags.map((t) => {
-              const on = chosen.includes(t.slug);
+          <ThemePicker
+            categories={themes}
+            chosen={chosen}
+            renderTheme={(t) => {
+              const on = chosen.includes(t.id);
               return (
                 <label
-                  key={t.slug}
-                  className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
+                  className={`inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
                     on
                       ? 'border-teal bg-accent font-semibold text-foreground'
                       : 'border-border text-secondary-text'
@@ -1424,20 +1451,20 @@ function DetailsStep({
                     type="checkbox"
                     className="sr-only"
                     checked={on}
-                    disabled={!on && chosen.length >= limits.tags.max}
+                    disabled={!on && chosen.length >= max}
                     onChange={() =>
                       draft.update({
-                        tagSlugs: on
-                          ? chosen.filter((s) => s !== t.slug)
-                          : [...chosen, t.slug],
+                        themeIds: on
+                          ? chosen.filter((id) => id !== t.id)
+                          : [...chosen, t.id],
                       })
                     }
                   />
                   {t.name}
                 </label>
               );
-            })}
-          </div>
+            }}
+          />
           {problem && (
             <p role="alert" className="mt-2 text-sm text-destructive">
               {problem}
@@ -1462,19 +1489,20 @@ function DetailsStep({
 export function ReviewStep({
   heading,
   draft,
-  tags,
+  themes,
   legal,
   consents,
   api,
   calls,
   refreshConsents,
   refreshLimits,
+  refreshThemes,
   onEdit,
   onDone,
 }: {
   heading: HeadingRef;
   draft: DraftState;
-  tags: Tag[];
+  themes: ThemeCategory[];
   legal: ShareLegal;
   consents: ConsentState;
   /** For the story's own sharing choice, once given (O4). */
@@ -1483,6 +1511,8 @@ export function ReviewStep({
   refreshConsents: () => Promise<ConsentState>;
   /** The page's limits and drafts read again (when the server's answer shows them stale). */
   refreshLimits: () => void;
+  /** The themes read again (a chosen one was deleted meanwhile, A7); null if unreadable. */
+  refreshThemes: () => Promise<ThemeCategory[] | null>;
   onEdit: (step: Step) => void;
   onDone: () => void;
 }) {
@@ -1554,12 +1584,30 @@ export function ReviewStep({
   const f = draft.fields;
   // The picture as the story has it now (M2 plan PR 10).
   const picture = useEarlierPicture(calls, draft.draftId)?.image ?? null;
-  const tagNames = f.tagSlugs.map(
-    (s) => tags.find((t) => t.slug === s)?.name ?? s,
-  );
+  const themeNames = f.themeIds
+    .flatMap((id) => themes.flatMap((c) => c.themes).filter((t) => t.id === id))
+    .map((t) => t.name);
+
+  /** A7: a chosen theme was deleted meanwhile; the person chooses again from the new list. */
+  function chooseThemesAgain(message: string) {
+    draft.update({ themeIds: [] });
+    setProblem(
+      <>
+        {message}.{' '}
+        <button
+          type="button"
+          className="min-h-11 font-semibold text-link underline"
+          onClick={() => onEdit('details')}
+        >
+          Choose themes
+        </button>
+      </>,
+    );
+  }
 
   async function submit() {
     if (outdated || waiting || !sharingKnown) return;
+    const chosen = f.themeIds;
     if (askPublish && !publishBox) {
       setProblem(
         'The publishing consent can’t be shown right now, so your story can’t be submitted yet. It’s saved; please try again later.',
@@ -1646,9 +1694,25 @@ export function ReviewStep({
           onDone();
           return;
         }
-        setProblem(
-          'Your story was changed in another tab or window. Check it, then submit again.',
-        );
+        // Deleting a theme takes it off every draft carrying it, which moves the story's version
+        // on, so the submission comes back stale. If a chosen theme has left the list, that's
+        // why (A7), not another tab.
+        const fresh =
+          err instanceof StaleVersion && chosen.length > 0
+            ? await refreshThemes()
+            : null;
+        const gone =
+          fresh &&
+          chosen.some(
+            (id) => !fresh.some((c) => c.themes.some((t) => t.id === id)),
+          );
+        if (gone) {
+          chooseThemesAgain('Themes have changed, please choose again');
+        } else {
+          setProblem(
+            'Your story was changed in another tab or window. Check it, then submit again.',
+          );
+        }
       } else if (err instanceof ApiUserUnavailable) {
         setProblem(
           'We can’t reach our server right now. Your story is saved; please try again in a moment.',
@@ -1680,7 +1744,7 @@ export function ReviewStep({
           );
         } else if (
           p.code === 'story_text_too_long' ||
-          p.code === 'too_many_tags'
+          p.code === 'theme_count'
         ) {
           // The limits in force apply to every submission (Joel, 2026-10-30): the server's
           // message says which limit and its value; the person edits the draft, then submits.
@@ -1691,7 +1755,7 @@ export function ReviewStep({
                 err,
                 tooLong
                   ? 'Your story is longer than the current limit. Shorten it, then submit.'
-                  : 'Your story has more themes than the current limit. Remove some, then submit.',
+                  : `${themeRule(limits.themes.min, limits.themes.max)}, then submit.`,
               )}{' '}
               <button
                 type="button"
@@ -1735,18 +1799,12 @@ export function ReviewStep({
               </button>
             </>,
           );
-        } else if (p.code === 'tags_required') {
-          setProblem(
-            <>
-              Choose at least one theme first.{' '}
-              <button
-                type="button"
-                className="min-h-11 font-semibold text-link underline"
-                onClick={() => onEdit('details')}
-              >
-                Choose themes
-              </button>
-            </>,
+        } else if (p.code === 'themes_changed') {
+          // A7: a chosen theme was deleted meanwhile. The list is read again and the person
+          // chooses again (useDraft clears the choice when a save says so; here, submit did).
+          void refreshThemes();
+          chooseThemesAgain(
+            plainMessage(err, 'Themes have changed, please choose again'),
           );
         } else {
           setProblem(
@@ -1792,7 +1850,7 @@ export function ReviewStep({
         {row('Title', <span id="review-title">{f.title}</span>, 'write')}
         {row('Name shown', f.bylineName.trim() || 'Anonymous', 'details')}
         {row('Description', f.description.trim() || '—', 'details')}
-        {row('Themes', tagNames.join(', ') || '—', 'details')}
+        {row('Themes', themeNames.join(', ') || '—', 'details')}
         {draft.format === 'written'
           ? row(
               'Your story',

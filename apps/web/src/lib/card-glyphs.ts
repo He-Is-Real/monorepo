@@ -38,7 +38,7 @@ export const GLYPH_SOURCE = {
       weight: 400,
       italic: false,
     },
-    tags: {
+    themes: {
       font: 12,
       weight: 400,
       italic: false,

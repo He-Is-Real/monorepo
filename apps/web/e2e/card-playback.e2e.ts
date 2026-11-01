@@ -7,9 +7,9 @@ import { STUB_PORT } from './servers';
 // Playing a story from its card (Joel, 2026-10-24): a video or audio card's media area plays the
 // story in place, in Bunny's player (the stub's here), with a player link signed on demand by
 // api-public-read (a server action reads the story, D32). The text below still opens the story's
-// page. Written cards are unchanged. One card plays at a time. Stub stories: `tag=play-test`.
+// page. Written cards are unchanged. One card plays at a time. Stub stories: `theme=play_test`.
 
-const LIST = '/stories?tag=play-test';
+const LIST = '/stories?theme=play_test';
 const VIDEO = 'Play test: a wide video';
 const AUDIO = 'Play test: audio';
 /** components/stories/story-media.tsx: the shortest box Bunny's controls fit in. */
@@ -297,7 +297,7 @@ test.describe('signing on demand', () => {
           )
         ).json()
       ).reads as number;
-    await page.goto(`/stories?tag=prefetch-test&q=${slug}`);
+    await page.goto(`/stories?theme=prefetch_test&q=${slug}`);
     const link = page.getByRole('link', { name: title });
     await link.scrollIntoViewIfNeeded();
     await link.hover(); // Next prefetches links in view and on hover

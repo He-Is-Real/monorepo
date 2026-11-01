@@ -576,7 +576,7 @@ describe('a deleted story’s picture folder is queued from the story, never its
     // api-user's login makes no story (its create is filtered out, nothing written).
     await run(
       apiUser,
-      `CREATE story:lea_w CONTENT { submitter: user:lea, slug: 'lea_w2',
+      `CREATE story:lea_w CONTENT { themeRefs: [theme:common], submitter: user:lea, slug: 'lea_w2',
          title: 'Story lea_w', description: 'How I came to faith',
          primaryFormat: 'written' }`,
     ).catch(() => undefined);
@@ -606,7 +606,7 @@ describe('a deleted story’s picture folder is queued from the story, never its
     // dev-seed resets with the same ids, as a system user.
     await run(
       migrator,
-      `CREATE story:max_w CONTENT { submitter: user:max, slug: 'max_w',
+      `CREATE story:max_w CONTENT { themeRefs: [theme:common], submitter: user:max, slug: 'max_w',
          title: 'Story max_w', description: 'How I came to faith',
          body: $body, primaryFormat: 'written' }`,
       { body: storyText('max_w') },

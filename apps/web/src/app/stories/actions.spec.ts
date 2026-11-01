@@ -15,12 +15,9 @@ describe('loadMoreStories (the browse page’s next page, server-side, D32)', ()
 
   it('re-validates what the browser sent', async () => {
     browse.mockResolvedValue({ data: [], nextCursor: null });
-    await loadMoreStories(
-      { tags: ['Bad Slug', 7], format: 'x', sort: 'relevance' },
-      'c',
-    );
+    await loadMoreStories({ format: 'x', sort: 'relevance' }, 'c');
     expect(browse).toHaveBeenCalledWith(
-      expect.objectContaining({ tags: [], format: undefined, sort: 'latest' }),
+      expect.objectContaining({ format: undefined, sort: 'latest' }),
     );
   });
 

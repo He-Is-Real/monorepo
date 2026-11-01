@@ -22,7 +22,7 @@ export interface MyStoryRow {
   status: string;
   title: string;
   primaryFormat: 'video' | 'audio' | 'written';
-  tags: { slug: string; name: string }[];
+  themes: { id: string; name: string }[];
   rejectionFeedback: string | null;
   createdAt: string;
   /** A draft's deletion date if nobody touches it (api-user's rule; never recomputed here). */
@@ -315,7 +315,7 @@ function StoryRow({
   const meta = [
     DATE.format(new Date(story.createdAt)),
     FORMAT[story.primaryFormat] ?? story.primaryFormat,
-    story.tags.map((t) => t.name).join(', '),
+    story.themes.map((t) => t.name).join(', '),
   ].filter(Boolean);
 
   return (

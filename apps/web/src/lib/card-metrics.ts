@@ -32,12 +32,12 @@ export const CARD = {
   excerpt: { font: 15, weight: 400, line: 24, maxLines: 3 },
   /** A written story without a picture: its excerpt as a quote, inside a border and padding. */
   quote: { font: 18, weight: 400, line: 28, maxLines: 6, border: 2, padL: 12 },
-  tags: { font: 12, weight: 400, before: 14, row: 24, gap: 6, padX: 10 },
+  themes: { font: 12, weight: 400, before: 14, row: 24, gap: 6, padX: 10 },
 } as const;
 
 /** The card's text styles, each measured on its own (lib/card-glyphs.ts). */
 export type TextStyle =
-  'meta' | 'badge' | 'title' | 'excerpt' | 'quote' | 'tags';
+  'meta' | 'badge' | 'title' | 'excerpt' | 'quote' | 'themes';
 
 const rem = (px: number) => `${px / 16}rem`;
 
@@ -70,11 +70,11 @@ export const CARD_CSS = `.story-card,[data-new-badge]{${Object.entries({
   'quote-lines': CARD.quote.maxLines,
   'quote-border': `${CARD.quote.border}px`,
   'quote-pad': rem(CARD.quote.padL),
-  'tags-font': rem(CARD.tags.font),
-  'tags-before': rem(CARD.tags.before),
-  'tags-row': rem(CARD.tags.row),
-  'tags-gap': rem(CARD.tags.gap),
-  'tags-pad': rem(CARD.tags.padX),
+  'themes-font': rem(CARD.themes.font),
+  'themes-before': rem(CARD.themes.before),
+  'themes-row': rem(CARD.themes.row),
+  'themes-gap': rem(CARD.themes.gap),
+  'themes-pad': rem(CARD.themes.padX),
 })
   .map(([name, value]) => `--card-${name}:${value}`)
   .join(';')}}`;

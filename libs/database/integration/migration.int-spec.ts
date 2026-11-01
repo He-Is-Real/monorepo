@@ -50,6 +50,7 @@ const SEEDS = [
   '0005-dev-legal-placeholders',
   '0006-submission-settings',
   '0007-dev-legal-documents',
+  '0008-themes',
 ];
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
@@ -161,15 +162,15 @@ const pendingSteps = async (t: TestDatabase) =>
         'SELECT VALUE record::id(id) FROM _migrationPending',
       )
     : [];
-const tagIds = async (t: TestDatabase, ...ids: string[]) =>
+const categoryIds = async (t: TestDatabase, ...ids: string[]) =>
   (
     await rows<string>(
       await t.migrator(),
-      `SELECT VALUE record::id(id) FROM ${ids.map((i) => `tag:${i}`).join(', ')}`,
+      `SELECT VALUE record::id(id) FROM ${ids.map((i) => `themeCategory:${i}`).join(', ')}`,
     )
   ).sort();
-const tag = (id: string) =>
-  `CREATE tag:${id} SET name = '${id}', category = 'theme';\n`;
+const category = (id: string) =>
+  `CREATE themeCategory:${id} SET name = '${id}';\n`;
 
 // ---------------------------------------------------------------- identities (D13 B)
 
@@ -300,14 +301,14 @@ describe('init + identity check + migrate on an empty database', () => {
     expect(await rows(backup, 'SELECT VALUE id FROM dpaVersion')).toEqual([
       'dpaVersion:v1',
     ]);
-    await outcome(backup, tag('x')); // refused or a no-op
-    expect(await tagIds(t, 'x')).toEqual([]);
+    await outcome(backup, category('x')); // refused or a no-op
+    expect(await categoryIds(t, 'x')).toEqual([]);
   });
 
   it('a second run is a no-op: same schema, no script re-run, data and sessions intact', async () => {
     const migrator = await t.migrator();
     const admin = await t.service('api_admin'); // a WebSocket session opened before
-    await run(admin, tag('kept'));
+    await run(admin, category('kept'));
     const before = {
       info: await rows(migrator, 'INFO FOR DB'),
       migrations: await rows(migrator, 'SELECT * FROM _migration ORDER BY id'),
@@ -332,9 +333,9 @@ describe('init + identity check + migrate on an empty database', () => {
     expect(
       await rows(migrator, 'SELECT * FROM dpaVersion ORDER BY id'),
     ).toEqual(before.dpa);
-    expect(await rows(admin, 'SELECT VALUE name FROM tag:kept')).toEqual([
-      'kept',
-    ]);
+    expect(
+      await rows(admin, 'SELECT VALUE name FROM themeCategory:kept'),
+    ).toEqual(['kept']);
   });
 
   it('re-running the init rotates a service password, and the check verifies the new one', async () => {
@@ -486,10 +487,7 @@ describe('D49: the dev-only dev_seed login', () => {
     // An EDITOR: it writes data but can't manage users or access.
     const seeder = await t.systemUser('dev_seed', devSeedPassword);
     expect(
-      await outcome(
-        seeder,
-        "CREATE tag:probe SET name = 'Probe', category = 'theme'",
-      ),
+      await outcome(seeder, "CREATE themeCategory:probe SET name = 'Probe'"),
     ).toMatchObject({ ok: true });
     expect(
       await outcome(
@@ -545,11 +543,11 @@ describe('P1: scripts can never commit partly', () => {
   it.each([
     ...CODEX_EXAMPLES.map((x) => [`Codex: ${x}`, x, 'RETURN']),
     ['an indented RETURN', '    RETURN 123;', 'RETURN'],
-    ['inline ; RETURN', `${tag('mid').trim()} RETURN 1;`, 'RETURN'],
+    ['inline ; RETURN', `${category('mid').trim()} RETURN 1;`, 'RETURN'],
     ['RETURN in an IF block', 'IF true { RETURN 1 };', 'RETURN'],
     [
       'a RETURN NONE clause',
-      `CREATE tag:c SET name = 'c', category = 'theme' RETURN NONE;`,
+      `CREATE themeCategory:c SET name = 'c' RETURN NONE;`,
       'RETURN',
     ],
     [
@@ -565,12 +563,12 @@ describe('P1: scripts can never commit partly', () => {
     // transaction (with the marker after it) still commits.
     [
       'Codex: BREAK in an IF block',
-      `IF true { CREATE tag:in_before SET name = 'in_before', category = 'theme'; BREAK; CREATE tag:in_after SET name = 'in_after', category = 'theme'; };`,
+      `IF true { CREATE themeCategory:in_before SET name = 'in_before'; BREAK; CREATE themeCategory:in_after SET name = 'in_after'; };`,
       'BREAK',
     ],
     [
       'Codex: CONTINUE in an IF block',
-      `IF true { CREATE tag:in_before SET name = 'in_before', category = 'theme'; CONTINUE; CREATE tag:in_after SET name = 'in_after', category = 'theme'; };`,
+      `IF true { CREATE themeCategory:in_before SET name = 'in_before'; CONTINUE; CREATE themeCategory:in_after SET name = 'in_after'; };`,
       'CONTINUE',
     ],
   ] as [string, string, string][])(
@@ -578,14 +576,14 @@ describe('P1: scripts can never commit partly', () => {
     async (_, middle, word) => {
       const result = await t.runMigration(t.params(), {
         bundleDir: await bundleWith({
-          'data/0109-refused.surql': `${tag('before')}${middle}\n${tag('after')}`,
+          'data/0109-refused.surql': `${category('before')}${middle}\n${category('after')}`,
         }),
       });
       expect(result.exitCode).toBe(2);
       expect(result.output).toContain(word);
       expect(result.output).toContain('nothing was run');
       expect(
-        await tagIds(t, 'before', 'after', 'in_before', 'in_after'),
+        await categoryIds(t, 'before', 'after', 'in_before', 'in_after'),
       ).toEqual([]);
       expect(await appliedIds(t)).toEqual(SEEDS);
       expect(await pendingSteps(t)).toEqual([]);
@@ -594,21 +592,21 @@ describe('P1: scripts can never commit partly', () => {
 
   it('allows the refused words in strings, comments and ids', async () => {
     const text = [
-      `CREATE tag:s SET name = 'RETURN 1; COMMIT;', category = 'theme';`,
+      `CREATE themeCategory:s SET name = 'RETURN 1; COMMIT;';`,
       '-- RETURN 1;',
       '// RETURN 1;',
       '# COMMIT;',
       '/* BEGIN; RETURN 1; */',
-      `CREATE tag:⟨RETURN; x⟩ SET name = "it\\"s; RETURN", category = 'theme';`,
-      'FOR $i IN [1, 2] { IF $i = 2 { CREATE tag:in_loop SET name = "BREAK", category = "theme"; }; };',
-      tag('last'),
+      `CREATE themeCategory:⟨RETURN; x⟩ SET name = "it\\"s; RETURN";`,
+      'FOR $i IN [1, 2] { IF $i = 2 { CREATE themeCategory:in_loop SET name = "BREAK"; }; };',
+      category('last'),
     ].join('\n');
     expect(
       await t.migrate(t.params(), {
         bundleDir: await bundleWith({ 'data/0106-allowed.surql': text }),
       }),
     ).toMatchObject({ applied: ['0106-allowed'] });
-    expect(await tagIds(t, 'last')).toEqual(['last']);
+    expect(await categoryIds(t, 'last')).toEqual(['last']);
   });
 
   // Review round 4: SurrealDB ends `--`/`//`/`#` comments at these line separators too; the
@@ -620,7 +618,7 @@ describe('P1: scripts can never commit partly', () => {
   ])(
     'refuses a %s line separator after a comment, before anything runs',
     async (_, sep) => {
-      const text = `IF true {\n${tag('sep_before')}-- comment${sep}BREAK;\n${tag('sep_after')}};\n`;
+      const text = `IF true {\n${category('sep_before')}-- comment${sep}BREAK;\n${category('sep_after')}};\n`;
       const result = await t.runMigration(t.params(), {
         bundleDir: await bundleWith({ 'data/0109-separator.surql': text }),
       });
@@ -628,7 +626,7 @@ describe('P1: scripts can never commit partly', () => {
       expect(result.output).toContain(
         `U+${sep.codePointAt(0)?.toString(16).toUpperCase().padStart(4, '0')}`,
       );
-      expect(await tagIds(t, 'sep_before', 'sep_after')).toEqual([]);
+      expect(await categoryIds(t, 'sep_before', 'sep_after')).toEqual([]);
       expect(await appliedIds(t)).not.toContain('0109-separator');
       expect(await pendingSteps(t)).toEqual([]);
     },
@@ -637,27 +635,23 @@ describe('P1: scripts can never commit partly', () => {
   it.each([
     [
       'NUL in a string',
-      `CREATE tag:z SET name = 'a\u0000b', category = 'theme';\n`,
+      `CREATE themeCategory:z SET name = 'a\u0000b';\n`,
       'U+0000',
     ],
-    [
-      'a form feed',
-      `CREATE tag:z SET name = 'z', category = 'theme';\u000c\n`,
-      'U+000C',
-    ],
+    ['a form feed', `CREATE themeCategory:z SET name = 'z';\u000c\n`, 'U+000C'],
     [
       'a vertical tab in a string',
-      `CREATE tag:z SET name = 'a\u000bb', category = 'theme';\n`,
+      `CREATE themeCategory:z SET name = 'a\u000bb';\n`,
       'U+000B',
     ],
     [
       'a no-break space outside a string',
-      `CREATE tag:z SET name = 'z',\u00a0category = 'theme';\n`,
+      `CREATE themeCategory:z SET name = 'z',\u00a0category = 'theme';\n`,
       'U+00A0',
     ],
     [
       'non-ASCII in a comment',
-      `-- caf\u00e9\nCREATE tag:z SET name = 'z', category = 'theme';\n`,
+      `-- caf\u00e9\nCREATE themeCategory:z SET name = 'z';\n`,
       'printable ASCII',
     ],
   ])('refuses %s', async (_, text, message) => {
@@ -666,24 +660,27 @@ describe('P1: scripts can never commit partly', () => {
     });
     expect(result.exitCode).toBe(2);
     expect(result.output).toContain(message);
-    expect(await tagIds(t, 'z')).toEqual([]);
+    expect(await categoryIds(t, 'z')).toEqual([]);
   });
 
   it('allows non-ASCII text inside string literals', async () => {
     expect(
       await t.migrate(t.params(), {
         bundleDir: await bundleWith({
-          'data/0108-unicode.surql': `CREATE tag:uni SET name = 'caf\u00e9 ’quoted’', category = 'theme';\n`,
+          'data/0108-unicode.surql': `CREATE themeCategory:uni SET name = 'caf\u00e9 ’quoted’';\n`,
         }),
       }),
     ).toMatchObject({ applied: ['0108-unicode'] });
     expect(
-      await rows(await t.migrator(), 'SELECT VALUE name FROM tag:uni'),
+      await rows(
+        await t.migrator(),
+        'SELECT VALUE name FROM themeCategory:uni',
+      ),
     ).toEqual(['caf\u00e9 ’quoted’']);
   });
 
   it('defence in depth: a BREAK in an IF block that got past the grammar blocks until cleared (review round 4)', async () => {
-    const leaky = `IF true {\n${tag('brk_before')}BREAK;\n${tag('brk_after')}};\n`;
+    const leaky = `IF true {\n${category('brk_before')}BREAK;\n${category('brk_after')}};\n`;
     const bundle = await bundleWith({ 'data/0110-break.surql': leaky });
     const first = await t.runMigration(t.params(), {
       bundleDir: bundle,
@@ -692,7 +689,9 @@ describe('P1: scripts can never commit partly', () => {
     expect(first.exitCode).toBe(3);
     expect(first.output).toContain('PARTIAL COMMIT POSSIBLE');
     // 3.2.4 committed the transaction (marker included) but skipped brk_after.
-    expect(await tagIds(t, 'brk_before', 'brk_after')).toEqual(['brk_before']);
+    expect(await categoryIds(t, 'brk_before', 'brk_after')).toEqual([
+      'brk_before',
+    ]);
     expect(await pendingSteps(t)).toEqual(['0110-break']);
 
     // The second run must not treat the marker as proof: the pending row still blocks it.
@@ -707,7 +706,7 @@ describe('P1: scripts can never commit partly', () => {
     // The operator completes the script's work and clears the row deliberately.
     await run(
       await t.migrator(),
-      `${tag('brk_after')}DELETE _migrationPending:⟨0110-break⟩;`,
+      `${category('brk_after')}DELETE _migrationPending:⟨0110-break⟩;`,
     );
     expect(
       await t.migrate(t.params(), { bundleDir: bundle, bypassGrammar: true }),
@@ -778,7 +777,7 @@ describe('P1: scripts can never commit partly', () => {
     ['division', 'LET $d = 4 / 2;', '`/` outside a string'],
     [
       'an r"…" record string',
-      'LET $p = r"tag:a";',
+      'LET $p = r"themeCategory:a";',
       'prefixed string literal (r"',
     ],
     [
@@ -806,12 +805,12 @@ describe('P1: scripts can never commit partly', () => {
     async (_, line, message) => {
       const result = await t.runMigration(t.params(), {
         bundleDir: await bundleWith({
-          'data/0112-literal.surql': `${tag('lit_before')}${line}\n`,
+          'data/0112-literal.surql': `${category('lit_before')}${line}\n`,
         }),
       });
       expect(result.exitCode).toBe(2);
       expect(result.output).toContain(message);
-      expect(await tagIds(t, 'lit_before')).toEqual([]);
+      expect(await categoryIds(t, 'lit_before')).toEqual([]);
     },
   );
 
@@ -819,12 +818,12 @@ describe('P1: scripts can never commit partly', () => {
     const schema = await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
     const dml = await t.runMigration(t.params(), {
       bundleDir: await bundleWith({
-        'schema.surql': `${schema}\n${tag('in_schema')}`,
+        'schema.surql': `${schema}\n${category('in_schema')}`,
       }),
     });
     expect(dml.exitCode).toBe(2);
     expect(dml.output).toContain('CREATE statement (only DEFINE/REMOVE here)');
-    expect(await tagIds(t, 'in_schema')).toEqual([]);
+    expect(await categoryIds(t, 'in_schema')).toEqual([]);
 
     expect(
       (
@@ -838,7 +837,7 @@ describe('P1: scripts can never commit partly', () => {
   });
 
   it('defence in depth: a RETURN that got past the grammar fails loudly and blocks every later run', async () => {
-    const leaky = `${tag('dd_before')}${CODEX_EXAMPLES[0]}\n${tag('dd_after')}`;
+    const leaky = `${category('dd_before')}${CODEX_EXAMPLES[0]}\n${category('dd_after')}`;
     const bypassed = await t.runMigration(t.params(), {
       bundleDir: await bundleWith({ 'data/0107-leaky.surql': leaky }),
       bypassGrammar: true,
@@ -848,14 +847,16 @@ describe('P1: scripts can never commit partly', () => {
       'PARTIAL COMMIT POSSIBLE, MANUAL RECOVERY NEEDED',
     );
     // What 3.2.4 committed before the early exit stays; the rest and the marker don't.
-    expect(await tagIds(t, 'dd_before', 'dd_after')).toEqual(['dd_before']);
+    expect(await categoryIds(t, 'dd_before', 'dd_after')).toEqual([
+      'dd_before',
+    ]);
     expect(await appliedIds(t)).not.toContain('0107-leaky');
     expect(await pendingSteps(t)).toEqual(['0107-leaky']);
 
     // A retry, even with the script fixed, refuses to start: it can't mark 0007 as done.
     const retry = await t.runMigration(t.params(), {
       bundleDir: await bundleWith({
-        'data/0107-leaky.surql': `${tag('dd_before')}${tag('dd_after')}`,
+        'data/0107-leaky.surql': `${category('dd_before')}${category('dd_after')}`,
       }),
       env: { MIGRATE_PENDING_WAIT_SECONDS: '1' },
     });
@@ -866,16 +867,16 @@ describe('P1: scripts can never commit partly', () => {
     // The operator checks the data, undoes the partial write, clears the row (README).
     await run(
       await t.migrator(),
-      'DELETE tag:dd_before; DELETE _migrationPending:⟨0107-leaky⟩;',
+      'DELETE themeCategory:dd_before; DELETE _migrationPending:⟨0107-leaky⟩;',
     );
     expect(
       await t.migrate(t.params(), {
         bundleDir: await bundleWith({
-          'data/0107-leaky.surql': `${tag('dd_before')}${tag('dd_after')}`,
+          'data/0107-leaky.surql': `${category('dd_before')}${category('dd_after')}`,
         }),
       }),
     ).toMatchObject({ applied: ['0107-leaky'] });
-    expect(await tagIds(t, 'dd_before', 'dd_after')).toEqual([
+    expect(await categoryIds(t, 'dd_before', 'dd_after')).toEqual([
       'dd_after',
       'dd_before',
     ]);
@@ -907,10 +908,10 @@ describe('allow-list: the guard matches 3.2.4', () => {
   };
   const wrap = (ctx: string, k: string, stmt: string) =>
     contexts[ctx](
-      `CREATE tag:in_before_${k} SET name = 'b', category = 'theme';\n${stmt};\nCREATE tag:in_after_${k} SET name = 'a', category = 'theme';`,
+      `CREATE themeCategory:in_before_${k} SET name = 'b';\n${stmt};\nCREATE themeCategory:in_after_${k} SET name = 'a';`,
     );
   const exists = async (id: string) =>
-    (await rows(await t.migrator(), `SELECT VALUE id FROM tag:${id}`))
+    (await rows(await t.migrator(), `SELECT VALUE id FROM themeCategory:${id}`))
       .length === 1;
 
   // stmt(k) and what must hold afterwards (besides in_after and the marker).
@@ -919,39 +920,37 @@ describe('allow-list: the guard matches 3.2.4', () => {
     [(k: string) => string, (k: string) => Promise<boolean>]
   > = {
     CREATE: [
-      (k) => `CREATE tag:e_${k} SET name = 'e', category = 'theme'`,
+      (k) => `CREATE themeCategory:e_${k} SET name = 'e'`,
       (k) => exists(`e_${k}`),
     ],
     UPDATE: [
-      (k) => `UPDATE tag:in_before_${k} SET name = 'updated'`,
+      (k) => `UPDATE themeCategory:in_before_${k} SET name = 'updated'`,
       async (k) =>
         (
           await rows<string>(
             await t.migrator(),
-            `SELECT VALUE name FROM tag:in_before_${k}`,
+            `SELECT VALUE name FROM themeCategory:in_before_${k}`,
           )
         )[0] === 'updated',
     ],
     UPSERT: [
-      (k) => `UPSERT tag:e_${k} SET name = 'e', category = 'theme'`,
+      (k) => `UPSERT themeCategory:e_${k} SET name = 'e'`,
       (k) => exists(`e_${k}`),
     ],
     DELETE: [
-      (k) => `DELETE tag:in_before_${k}`,
+      (k) => `DELETE themeCategory:in_before_${k}`,
       async (k) => !(await exists(`in_before_${k}`)),
     ],
     LET: [() => 'LET $v = 1', async () => true],
     IF: [
-      (k) =>
-        `IF true { CREATE tag:e_${k} SET name = 'e', category = 'theme'; }`,
+      (k) => `IF true { CREATE themeCategory:e_${k} SET name = 'e'; }`,
       (k) => exists(`e_${k}`),
     ],
     FOR: [
-      (k) =>
-        `FOR $x IN [1, 2] { UPSERT tag:e_${k} SET name = 'e', category = 'theme'; }`,
+      (k) => `FOR $x IN [1, 2] { UPSERT themeCategory:e_${k} SET name = 'e'; }`,
       (k) => exists(`e_${k}`),
     ],
-    SELECT: [() => 'SELECT * FROM tag', async () => true],
+    SELECT: [() => 'SELECT * FROM themeCategory', async () => true],
   };
   const allowedCases = Object.keys(allowed).flatMap((form) =>
     Object.keys(contexts).map((ctx) => [form, ctx]),
@@ -1005,13 +1004,13 @@ describe('allow-list: the guard matches 3.2.4', () => {
     USE: 'USE NS elsewhere',
     DEFINE: 'DEFINE TABLE scratch_def SCHEMALESS',
     REMOVE: 'REMOVE TABLE IF EXISTS scratch_def',
-    ALTER: "ALTER TABLE tag COMMENT 'x'",
+    ALTER: "ALTER TABLE themeCategory COMMENT 'x'",
     INFO: 'INFO FOR DB',
     KILL: "KILL u'0189d6e3-8eac-703a-9a48-dd6c8bb0d0b6'",
-    LIVE: 'LIVE SELECT * FROM tag',
-    THEN: "IF true THEN CREATE tag:t SET name = 't', category = 'theme' END",
-    INSERT: "INSERT INTO tag { id: tag:ins, name: 'i', category: 'theme' }",
-    RELATE: 'RELATE tag:a->rel->tag:b',
+    LIVE: 'LIVE SELECT * FROM themeCategory',
+    THEN: "IF true THEN CREATE themeCategory:t SET name = 't' END",
+    INSERT: "INSERT INTO themeCategory { id: themeCategory:ins, name: 'i' }",
+    RELATE: 'RELATE themeCategory:a->rel->themeCategory:b',
   };
   const refusedCases = Object.keys(refused).flatMap((word) =>
     Object.keys(contexts).map((ctx) => [word, ctx]),
@@ -1064,7 +1063,7 @@ describe('allow-list: the guard matches 3.2.4', () => {
     const k = `real_${word}_${ctx}`.toLowerCase().replace(/\W+/g, '_');
     await outcome(
       await t.migrator(),
-      `BEGIN TRANSACTION;\n${wrap(ctx, k, refused[word])}\nCREATE tag:mark_${k} SET name = 'm', category = 'theme';\nCOMMIT TRANSACTION;`,
+      `BEGIN TRANSACTION;\n${wrap(ctx, k, refused[word])}\nCREATE themeCategory:mark_${k} SET name = 'm';\nCOMMIT TRANSACTION;`,
     );
     expect(await exists(`in_before_${k}`)).toBe(true); // committed
     expect(await exists(`in_after_${k}`)).toBe(false); // silently skipped
@@ -1120,6 +1119,7 @@ describe('upgrading a database migrated by the previous release (Codex, #101)', 
       '0005-dev-legal-placeholders',
       '0006-submission-settings',
       '0007-dev-legal-documents',
+      '0008-themes',
     ]);
     const migrator = await t.migrator();
     expect(
@@ -1344,36 +1344,36 @@ describe('data scripts on an already-migrated database', () => {
 
   it('runs a new script exactly once', async () => {
     const bundle = await bundleWith({
-      'data/0113-add-tag.surql': tag('migrated'),
+      'data/0113-add-category.surql': category('migrated'),
     });
     expect(await t.migrate(t.params(), { bundleDir: bundle })).toMatchObject({
-      applied: ['0113-add-tag'],
+      applied: ['0113-add-category'],
       alreadyApplied: SEEDS,
     });
     // CREATE fails on an existing record, so a re-run would fail this migration.
     expect(await t.migrate(t.params(), { bundleDir: bundle })).toMatchObject({
       applied: [],
-      alreadyApplied: [...SEEDS, '0113-add-tag'],
+      alreadyApplied: [...SEEDS, '0113-add-category'],
     });
-    expect(await tagIds(t, 'migrated')).toEqual(['migrated']);
+    expect(await categoryIds(t, 'migrated')).toEqual(['migrated']);
   });
 
   it('a failing script leaves no _migration row, none of its writes and no pending row, and stops there', async () => {
     const failing = await bundleWith({
-      'data/0114-fails.surql': `${tag('partial')}THROW 'boom';\n`,
-      'data/0115-after.surql': tag('after'),
+      'data/0114-fails.surql': `${category('partial')}THROW 'boom';\n`,
+      'data/0115-after.surql': category('after'),
     });
     const result = await t.runMigration(t.params(), { bundleDir: failing });
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('0114-fails: An error occurred: boom');
     expect(result.output).toContain("the server refused the step's COMMIT");
-    expect(await appliedIds(t)).toEqual([...SEEDS, '0113-add-tag']);
-    expect(await tagIds(t, 'partial', 'after')).toEqual([]);
+    expect(await appliedIds(t)).toEqual([...SEEDS, '0113-add-category']);
+    expect(await categoryIds(t, 'partial', 'after')).toEqual([]);
     expect(await pendingSteps(t)).toEqual([]);
 
     const fixed = await bundleWith({
-      'data/0114-fails.surql': tag('partial'),
-      'data/0115-after.surql': tag('after'),
+      'data/0114-fails.surql': category('partial'),
+      'data/0115-after.surql': category('after'),
     });
     expect(await t.migrate(t.params(), { bundleDir: fixed })).toMatchObject({
       applied: ['0114-fails', '0115-after'],
@@ -1426,7 +1426,7 @@ describe('parameters (OpenTofu values)', () => {
         {
           bundleDir: await bundleWith({
             'schema.surql': `${await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8')}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
-            'data/0113-needs-key.surql': `CREATE tag:k SET name = $clerk_jwt_public_key, category = 'theme';\n`,
+            'data/0113-needs-key.surql': `CREATE themeCategory:k SET name = $clerk_jwt_public_key;\n`,
           }),
         },
       );
@@ -1540,7 +1540,9 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     )[0];
 
   it('two identical runners at once: distinct tokens, the script applied exactly once, nothing left pending', async () => {
-    const bundle = await bundleWith({ 'data/0013-once.surql': tag('once') });
+    const bundle = await bundleWith({
+      'data/0013-once.surql': category('once'),
+    });
     const before = await lockToken();
     const [a, b] = await Promise.all([
       t.runMigration(t.params(), { bundleDir: bundle }),
@@ -1552,13 +1554,13 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     expect([a.exitCode, b.exitCode]).toContain(0);
     expect(await lockToken()).toBe(before + 2);
     expect(await appliedIds(t)).toEqual([...SEEDS, '0013-once']);
-    expect(await tagIds(t, 'once')).toEqual(['once']);
+    expect(await categoryIds(t, 'once')).toEqual(['once']);
     expect(await pendingSteps(t)).toEqual([]);
   });
 
   it('a run paused mid-step loses to a run that started after it, keeping nothing of that step', async () => {
     const withStep = await bundleWith({
-      'data/0010-paused.surql': tag('paused'),
+      'data/0010-paused.surql': category('paused'),
     });
     // A writes 0010's pending row, then holds (an explicit pause, no timing): B starts, takes
     // the lock and waits for A's pending row; then A sends 0010's transaction.
@@ -1588,7 +1590,7 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     expect(resultA.exitCode).toBe(1);
     expect(resultA.output).toMatch(/superseded/i);
     expect(await appliedIds(t)).not.toContain('0010-paused');
-    expect(await tagIds(t, 'paused')).toEqual([]);
+    expect(await categoryIds(t, 'paused')).toEqual([]);
     expect(await pendingSteps(t)).toEqual([]);
     expect(await lockToken()).toBe(resultB.summary?.token);
   });
@@ -1608,7 +1610,7 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     const step = await migrator.beginTransaction();
     try {
       await step
-        .query(`${fence};\n${tag('stale')}`, { migration_token: t0 })
+        .query(`${fence};\n${category('stale')}`, { migration_token: t0 })
         .collect();
       const b = await t.runMigration(t.params()); // takes the lock and finishes
       expect(b.exitCode).toBe(0);
@@ -1617,11 +1619,13 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     } finally {
       await step.cancel().catch(() => undefined);
     }
-    expect(await tagIds(t, 'stale')).toEqual([]);
+    expect(await categoryIds(t, 'stale')).toEqual([]);
   });
 
   it('a rollback to an older bundle is simply a newer run, and succeeds', async () => {
-    const newer = await bundleWith({ 'data/0011-newer.surql': tag('newer') });
+    const newer = await bundleWith({
+      'data/0011-newer.surql': category('newer'),
+    });
     expect(await t.migrate(t.params(), { bundleDir: newer })).toMatchObject({
       applied: ['0011-newer'],
     });

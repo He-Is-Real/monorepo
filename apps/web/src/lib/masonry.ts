@@ -152,7 +152,7 @@ export interface CardShape {
   aspect: number | null;
   title: string;
   excerpt: string;
-  tags: string[];
+  themes: string[];
   /** Its top line's label, "Written · 3 min read" or "Video · 0:12" (lib/card-label.ts). */
   label: string;
   /** D72: the card says NEW (a badge in its top line). */
@@ -173,19 +173,19 @@ export function cardShape(s: StorySummary): CardShape {
     aspect,
     title: s.title,
     excerpt: s.excerpt,
-    tags: s.tags.map((t) => t.name),
+    themes: s.themes.map((t) => t.name),
     label: cardLabel(s),
     isNew: s.isNew,
   };
 }
 
-/** Tag rows: each tag its text plus padding, at most the line, wrapped as flex-wrap does. */
-function tagRows(tags: string[], width: number): number {
-  const { padX, gap } = CARD.tags;
+/** Theme rows: each theme its text plus padding, at most the line, wrapped as flex-wrap does. */
+function themeRows(themes: string[], width: number): number {
+  const { padX, gap } = CARD.themes;
   let rows = 0;
   let used = Infinity;
-  for (const tag of tags) {
-    const w = Math.min(width, textWidth(tag, 'tags') + 2 * padX);
+  for (const theme of themes) {
+    const w = Math.min(width, textWidth(theme, 'themes') + 2 * padX);
     if (used + gap + w > width) {
       rows += 1;
       used = w;
@@ -225,11 +225,13 @@ export function predictHeight(
     shape.aspect === null
       ? clamped(shape.excerpt, text - q.border - q.padL, 'quote') * q.line
       : clamped(shape.excerpt, text, 'excerpt') * CARD.excerpt.line;
-  const rows = tagRows(shape.tags, text);
-  const tags =
+  const rows = themeRows(shape.themes, text);
+  const themes =
     rows === 0
       ? 0
-      : CARD.tags.before + rows * CARD.tags.row + (rows - 1) * CARD.tags.gap;
+      : CARD.themes.before +
+        rows * CARD.themes.row +
+        (rows - 1) * CARD.themes.gap;
   // The label, the gap and the name's 2.5rem minimum on one line, beside the heart's room on a
   // card without a picture (`pr-10`); otherwise the name drops to a line of its own. A label
   // wider than the line wraps: the badge, then its words.
@@ -244,7 +246,7 @@ export function predictHeight(
         ? 2
         : (shape.isNew ? 1 : 0) + lineCount(shape.label, line, 'meta') + 1;
   const meta = metaLines * m.line + (metaLines - 1) * m.rowGap + m.after;
-  return media + 2 * CARD.pad + meta + title + excerpt + tags + SLACK;
+  return media + 2 * CARD.pad + meta + title + excerpt + themes + SLACK;
 }
 
 /** One band of list widths: from `minWidth` px (inclusive) to the next band's. */

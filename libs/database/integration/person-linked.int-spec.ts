@@ -48,8 +48,11 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   personFence: 'none', // a counter keyed by user id; events only
   identityFence: 'none', // a counter keyed by a Clerk id's fingerprint (D82); events only
   legalFence: 'none', // one counter for the consent forms, grants, new drafts and submissions; events only
-  themesFence: 'none', // one counter for tag deletions and settings writes (tagsMin); events only
-  tag: 'none',
+  themeCategory: 'none', // admin-managed theme categories: names only
+  theme: 'none',
+  themeFence: 'none', // a counter keyed by theme id; events only
+  themeCatalog: 'none', // the themes' version and who saved them last, like submissionSettings
+  tag: 'none', // the old tags, emptied by data/0008 and kept defined until it has run everywhere
   // The legal documents (D121): the publishing admin's user id only (publishedBy, read by
   // api-admin alone), like an audit row's actor; kept for ever, never testimony.
   dpaVersion: 'kept',
@@ -92,7 +95,7 @@ const LINKED: Record<string, LinkedCase> = {
         `LET $s = (SELECT * FROM ONLY story:${c.p}_s);
          CREATE publicStory:${c.p}_s CONTENT {
            version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: [],
+           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
            publishedAt: time::now() };`,
       ),
     writer: (c) => c.person,
@@ -113,7 +116,7 @@ const LINKED: Record<string, LinkedCase> = {
         `LET $s = (SELECT * FROM ONLY story:${c.p}_s);
          CREATE publicStory:${c.p}_s CONTENT {
            version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: [],
+           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
            publishedAt: time::now() };`,
       ),
     landed: (c) => `SELECT VALUE id FROM publicStory:${c.p}_s`,
@@ -131,7 +134,7 @@ const LINKED: Record<string, LinkedCase> = {
         `LET $s = (SELECT * FROM ONLY story:${c.p}_s);
          CREATE publicStory:${c.p}_s CONTENT {
            version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: [],
+           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
            image: { path: $s.image.path, width: $s.image.width, height: $s.image.height },
            publishedAt: time::now() };`,
       );

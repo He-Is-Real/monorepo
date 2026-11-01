@@ -73,7 +73,7 @@ describe('submitting with sharing beyond heisreal.today', () => {
         title: 'Further afield',
         primaryFormat: 'written',
         body: `My story${STORY_TEXT_PADDING}`,
-        tagSlugs: ['healing'],
+        themeIds: ['healing'],
       },
       headers: { 'idempotency-key': key() },
     });
@@ -137,7 +137,7 @@ describe('submitting with sharing beyond heisreal.today', () => {
     await publishDpa(t, 'v1');
     await run(
       await t.service('api_admin'),
-      `CREATE tag:healing SET name = 'Healing', category = 'theme';`,
+      `CREATE theme:healing SET name = 'Healing', category = themeCategory:other;`,
     );
   });
   afterAll(async () => {

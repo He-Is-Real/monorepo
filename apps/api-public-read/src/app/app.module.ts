@@ -8,7 +8,7 @@ import { LegalModule } from './legal/legal.controller';
 import { MediaUrlsModule } from '@heisreal/story-cards';
 import { SiteVideosModule } from './site-videos/site-videos.controller';
 import { StoriesModule } from './stories/stories.controller';
-import { TagsModule } from './tags/tags.controller';
+import { ThemesModule } from './themes/themes.controller';
 
 @Module({
   imports: [
@@ -17,7 +17,7 @@ import { TagsModule } from './tags/tags.controller';
     MediaUrlsModule,
     HealthModule.forService('api-public-read'),
     StoriesModule,
-    TagsModule,
+    ThemesModule,
     LegalModule,
     SiteVideosModule,
   ],

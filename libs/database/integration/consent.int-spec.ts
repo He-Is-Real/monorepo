@@ -294,7 +294,7 @@ describe('consent ledger and derived story consent (D17, D20, D22)', () => {
              dpaVersion: dpaVersion:\`legacy-squarespace\`, mechanism: 'legacy_import',
              evidenceHash: $h, legacyGivenAt: d'2024-03-01T00:00:00Z' };
          };
-         CREATE story:legacy_story CONTENT { submitter: user:legacy_1, slug: 'legacy-story',
+         CREATE story:legacy_story CONTENT { themeRefs: [theme:common], submitter: user:legacy_1, slug: 'legacy-story',
            title: 'Legacy', description: 'From the prototype', primaryFormat: 'video', status: 'approved',
            media: [{ format: 'video', bunnyVideoId: 'legacy-video', width: 1080, height: 1920,
              durationSeconds: 90, processing: 'ready' }] };`,

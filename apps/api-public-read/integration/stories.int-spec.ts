@@ -60,7 +60,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       primaryFormat: 'written',
       media: [],
       image: null,
-      tags: [],
+      themes: [],
       version: 1,
     });
     expect(Date.parse(String(story['publishedAt']))).not.toBeNaN();
@@ -75,7 +75,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       'primaryFormat',
       'publishedAt',
       'slug',
-      'tags',
+      'themes',
       'title',
       'updatedAt',
       'version',
@@ -133,43 +133,11 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     }
   });
 
-  it('resolves tags and answers 301 for a previous slug', async () => {
-    const migrator = await t.migrator();
+  it('answers 301 for a previous slug', async () => {
     await run(
-      migrator,
-      `BEGIN TRANSACTION;
-       CREATE tag:doubt SET name = 'Doubt', category = 'journey';
-       UPDATE story:dev_seed SET tagRefs = [tag:doubt];
-       UPDATE publicStory:dev_seed SET tagRefs = [tag:doubt], slugHistory = ['old-test-slug'];
-       COMMIT TRANSACTION;`,
+      await t.migrator(),
+      `UPDATE publicStory:dev_seed SET slugHistory = ['old-test-slug']`,
     );
-    const story = (await (await fetch(`${url}/v1/stories/${SLUG}`)).json()) as {
-      tags: unknown;
-    };
-    expect(story.tags).toEqual([
-      { slug: 'doubt', name: 'Doubt', category: 'journey', version: 1 },
-    ]);
-    // Renaming a tag changes the response without changing the story's version: the ETag
-    // follows the representation, so a cached copy is revalidated (#45 review).
-    const before = await fetch(`${url}/v1/stories/${SLUG}`);
-    const etag = before.headers.get('etag') as string;
-    expect(
-      (
-        await fetch(`${url}/v1/stories/${SLUG}`, {
-          headers: { 'if-none-match': etag },
-        })
-      ).status,
-    ).toBe(304);
-    await run(migrator, `UPDATE tag:doubt SET name = 'Questions'`);
-    const after = await fetch(`${url}/v1/stories/${SLUG}`, {
-      headers: { 'if-none-match': etag },
-    });
-    expect(after.status).toBe(200);
-    expect(after.headers.get('etag')).not.toBe(etag);
-    expect(
-      ((await after.json()) as { tags: { name: string }[] }).tags[0].name,
-    ).toBe('Questions');
-
     const moved = await fetch(`${url}/v1/stories/old-test-slug`, {
       redirect: 'manual',
     });

@@ -8,9 +8,9 @@ import { SHARE_HREF } from '@/components/nav/site-nav';
 import { StoryCard } from '@/components/stories/story-card';
 import {
   browseStories,
-  listTags,
+  listThemes,
   type StorySummary,
-  type StoryTag,
+  type ThemeCategory,
 } from '@/lib/browse';
 import { whenUnavailable } from '@/lib/log';
 import { pageMetadata } from '@/lib/seo';
@@ -52,16 +52,18 @@ function Eyebrow({ id, children }: { id: string; children: React.ReactNode }) {
   );
 }
 
-function TagTrack({ label, tags }: { label: string; tags: StoryTag[] }) {
-  if (tags.length === 0) return null;
+/** A category's highlighted themes, each leading to browse by it. */
+function ThemeTrack({ category }: { category: ThemeCategory }) {
   return (
     <div>
-      <h3 className="mb-4 text-lg text-secondary-text italic">{label}</h3>
+      <h3 className="mb-4 text-lg text-secondary-text italic">
+        {category.name}
+      </h3>
       <ul className="grid gap-2.5 sm:grid-cols-2">
-        {tags.map((t) => (
-          <li key={t.slug}>
+        {category.themes.map((t) => (
+          <li key={t.id}>
             <Link
-              href={`/stories?tag=${t.slug}`}
+              href={`/stories?theme=${t.id}`}
               className="group flex min-h-14 items-center justify-between rounded-lg border border-border bg-card px-4 font-semibold text-foreground transition-colors hover:border-teal hover:bg-accent hover:text-foreground"
             >
               {t.name}
@@ -92,12 +94,14 @@ const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/9
  */
 export default async function Page() {
   await connection();
-  const [stories, tags] = await Promise.all([
+  const [stories, categories] = await Promise.all([
     newestStories(),
-    listTags().catch(whenUnavailable('home', [] as StoryTag[])),
+    listThemes().catch(whenUnavailable('home', [] as ThemeCategory[])),
   ]);
-  const themes = tags.filter((t) => t.category === 'theme');
-  const journeys = tags.filter((t) => t.category === 'journey');
+  // One row per category that has highlighted themes (themes plan v3, Q3 B).
+  const tracks = categories
+    .map((c) => ({ ...c, themes: c.themes.filter((t) => t.highlighted) }))
+    .filter((c) => c.themes.length > 0);
 
   return (
     <main id="main" className="flex-1">
@@ -187,7 +191,7 @@ export default async function Page() {
         </p>
       </section>
 
-      {(themes.length > 0 || journeys.length > 0) && (
+      {tracks.length > 0 && (
         <section
           aria-labelledby="explore"
           className="border-y border-border bg-raised"
@@ -199,9 +203,10 @@ export default async function Page() {
                 Find stories from people who’ve been where you are.
               </p>
             </div>
-            <div className="grid gap-10 lg:grid-cols-[3fr_2fr] lg:gap-14">
-              <TagTrack label="Going through something?" tags={themes} />
-              <TagTrack label="Curious about faith?" tags={journeys} />
+            <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
+              {tracks.map((c) => (
+                <ThemeTrack key={c.id} category={c} />
+              ))}
             </div>
           </div>
         </section>

@@ -121,7 +121,7 @@ describe('concurrent transactions are fenced per person', () => {
         `LET $s = (UPDATE ONLY story:ann_story SET status = 'approved', approvedAt = time::now());
          CREATE publicStory:ann_story CONTENT {
            version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: [],
+           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
            publishedAt: time::now() };`,
       )
       .collect();

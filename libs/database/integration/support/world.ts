@@ -11,6 +11,7 @@ import {
   sha256,
   STORY_TEXT_PADDING,
   type TestDatabase,
+  COMMON_THEME,
 } from './harness';
 
 /** The text `draft` gives story `id`: long enough to submit (200 characters). */
@@ -26,7 +27,8 @@ export async function draft(
     person,
     `CREATE type::record('story', $id) CONTENT object::extend({
        submitter: $auth, slug: $id, title: 'Story ' + $id,
-       description: 'How I came to faith', body: $body, primaryFormat: 'written'
+       description: 'How I came to faith', body: $body, primaryFormat: 'written',
+       themeRefs: [${COMMON_THEME}]
      }, $fields)`,
     { id, fields, body: storyText(id) },
   );
@@ -160,7 +162,7 @@ export async function approve(admin: SurrealQueryable, id: string) {
      CREATE type::record('publicStory', $id) CONTENT {
        version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
        body: $s.body, bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-       tagRefs: $s.tagRefs, publishedAt: time::now(),
+       themeRefs: $s.themeRefs, publishedAt: time::now(),
        image: IF $s.image != NONE { { path: $s.image.path, width: $s.image.width,
          height: $s.image.height, alt: $s.image.alt } },
        media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
@@ -182,7 +184,7 @@ export async function approve(admin: SurrealQueryable, id: string) {
  * Ann and Bob, each with every consent granted against the published v1, plus:
  * story:ann_draft (draft), story:ann_pending (pending), story:bob_draft (draft),
  * story:bob_pending (pending), story:bob_live (approved, with a publicStory row),
- * tag:doubt, and a draft dpaVersion:v2_draft.
+ * theme:doubt (in Other), and a draft dpaVersion:v2_draft.
  */
 export async function buildWorld(t: TestDatabase) {
   await createPeople(t, {
@@ -194,7 +196,7 @@ export async function buildWorld(t: TestDatabase) {
   const admin = await t.service('api_admin');
   await run(
     admin,
-    `CREATE tag:doubt SET name = 'Doubt', category = 'journey';
+    `CREATE theme:doubt SET name = 'Doubt', category = themeCategory:other;
      CREATE dpaVersion:v2_draft CONTENT {
        materiality: 'material', documentPath: 'libs/legal/dpa/v2.md', contentHash: $h };`,
     { h: sha256('v2 draft') },
@@ -216,7 +218,7 @@ export async function buildWorld(t: TestDatabase) {
     [bob, 'bob_pending'],
     [bob, 'bob_live'],
   ] as const) {
-    const created = await draft(person, id, { tagRefs: [] });
+    const created = await draft(person, id);
     if (created.length !== 1) throw new Error(`draft ${id} not created`);
   }
   await submit(ann, 'ann_pending');

@@ -31,20 +31,18 @@ const MIB = 1_048_576;
 
 /**
  * What each limit may be set to, inclusive. The maxima are the schema's own (story.body's 50,000
- * characters, story.tagRefs' 20 themes, fn::settings::upload_ceilings' cost ceilings, and the
+ * characters, story.themeRefs' 20 themes, fn::settings::upload_ceilings' cost ceilings, and the
  * typo guards on the counts), so a value the database would refuse is a field error here instead
  * of a 500. The media minima are one unit of what /admin/limits shows (1 MB, 1 minute): nothing
  * smaller can be typed there, and no real recording is smaller. Besides these, each minimum must
- * be at most its maximum (storyTextMin ≤ storyTextMax, tagsMin ≤ tagsMax), as the database checks,
- * and tagsMin at most the themes there are (else nobody could submit), checked as it saves; the
- * database also refuses deleting a theme that would leave fewer than tagsMin (tag_delete). The
- * other limits can't lock everyone out: every count's minimum is 1, and text min ≤ max.
+ * be at most its maximum (storyTextMin ≤ storyTextMax, themesMin ≤ themesMax), as the database
+ * checks. The theme counts are checked at submission only (themes plan v3), and may be 0.
  */
 export const BOUNDS = {
   storyTextMin: { min: 1, max: 50_000 },
   storyTextMax: { min: 1, max: 50_000 },
-  tagsMin: { min: 0, max: 20 },
-  tagsMax: { min: 1, max: 20 },
+  themesMin: { min: 0, max: 20 },
+  themesMax: { min: 0, max: 20 },
   openDraftsMax: { min: 1, max: 1000 },
   submissionsPer7Days: { min: 1, max: 1000 },
   uploadRequestsPerHour: { min: 1, max: 10_000 },
@@ -102,9 +100,9 @@ export function parseSettings(body: unknown): SubmissionSettings {
       'The shortest story can’t be longer than the longest.',
     );
   }
-  if (out.tagsMin > out.tagsMax) {
+  if (out.themesMin > out.themesMax) {
     throw invalid(
-      '/tagsMin',
+      '/themesMin',
       'min_over_max',
       'The fewest themes can’t be more than the most.',
     );
@@ -129,19 +127,6 @@ const stale = () =>
     'Precondition failed',
     'Someone else changed the limits since you read them: reload, then make your changes again.',
   );
-
-/** 400 on /tagsMin: a story would need more themes than exist, so nobody could submit. */
-const tooFewThemes = (themes: number) =>
-  invalid(
-    '/tagsMin',
-    'over_theme_count',
-    themes === 1
-      ? 'There is only 1 theme, so a story can’t need more.'
-      : `There are only ${themes} themes, so a story can’t need more.`,
-  );
-
-/** Every tag counts: a story may use any of them (api-user's checkTags). */
-const COUNT_THEMES = `count(SELECT VALUE id FROM tag)`;
 
 const missing = () =>
   new ProblemException(
@@ -176,11 +161,10 @@ export class SubmissionSettingsController {
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
   ) {
-    const [row, themes] = (await runQuery(
+    const [row] = (await runQuery(
       this.db,
-      `SELECT * OMIT id, changedByRole FROM ONLY submissionSettings:current;
-       RETURN ${COUNT_THEMES};`,
-    )) as [Record<string, unknown> | null, number];
+      `SELECT * OMIT id, changedByRole FROM ONLY submissionSettings:current;`,
+    )) as [Record<string, unknown> | null];
     if (!row) throw missing();
     const etag = `"${Number(row['version'])}"`;
     res.setHeader('Cache-Control', 'private, no-store');
@@ -198,26 +182,14 @@ export class SubmissionSettingsController {
       settings: Object.fromEntries(
         FIELDS.map((f) => [f, Number(row[f])]),
       ) as SubmissionSettings,
-      // The real upper bound on tagsMin: the themes there are, if fewer than the schema's 20.
-      bounds: {
-        ...BOUNDS,
-        tagsMin: {
-          ...BOUNDS.tagsMin,
-          max: Math.min(BOUNDS.tagsMin.max, themes),
-        },
-      },
-      themeCount: themes,
+      bounds: BOUNDS,
     };
   }
 
   /**
    * UpdateSubmissionSettings: every limit, at the version read (If-Match; 412 if someone saved
    * since, 428 if missing). One transaction checks the version and writes; two admins saving
-   * at once conflict at commit, and the loser gets 412 too. The theme count is read in the same
-   * transaction, so tagsMin is checked against the themes there are as it saves. That count is
-   * a snapshot, so the save also writes themesFence:current (submissionSettings_check), as every
-   * theme deletion does: a save and a deletion that overlap can't both commit, and the save that
-   * loses gets 412, then sees the new count when it's retried.
+   * at once conflict at commit, and the loser gets 412 too.
    */
   @Put()
   @RequiresRole('Admin')
@@ -252,8 +224,6 @@ export class SubmissionSettingsController {
          LET $v = (SELECT VALUE version FROM ONLY submissionSettings:current);
          IF $v = NONE { THROW 'settings_cmd:not_found' };
          IF $v != $version { THROW 'settings_cmd:stale_version' };
-         LET $themes = ${COUNT_THEMES};
-         IF $settings.tagsMin > $themes { THROW 'settings_cmd:too_few_themes:' + <string>$themes };
          UPDATE ONLY submissionSettings:current
            MERGE object::extend($settings, { changedBy: $user, changedByRole: $role })
            RETURN version;
@@ -263,9 +233,6 @@ export class SubmissionSettingsController {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('settings_cmd:not_found')) throw missing();
-      // Ours above, or the database's (submissionSettings_check) with the same count.
-      const themes = /too_few_themes:(\d+)/.exec(message);
-      if (themes) throw tooFewThemes(Number(themes[1]));
       if (
         message.includes('settings_cmd:stale_version') ||
         isTransactionConflict(err)

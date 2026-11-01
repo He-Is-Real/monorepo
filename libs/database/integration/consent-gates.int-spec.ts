@@ -163,7 +163,7 @@ describe('consent gates on edit, submit, approve and publish', () => {
         `LET $s = (SELECT * FROM ONLY story:eve_rm);
          CREATE publicStory:eve_rm CONTENT {
            version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, tagRefs: $s.tagRefs, media: [],
+           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
            publishedAt: time::now() };`,
       );
     expect(await publish()).toEqual({

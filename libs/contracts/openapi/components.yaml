@@ -50,14 +50,6 @@ components:
       schema:
         type: string
         pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
-    tagSlug:
-      name: slug
-      in: path
-      required: true
-      description: Tag slug; also the tag's ID (`tag:<slug>`).
-      schema:
-        type: string
-        pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
     consentType:
       name: type
       in: path
@@ -103,7 +95,7 @@ components:
       description: |
         Strong validator of exactly this representation: a hash of the response body (e.g.
         `"TrGj5Bl7BP-yfXFAo6OnhOCbXpL"`). For public reads of a resource that embeds others by
-        reference (a story and its tags), so any change to what's sent gives a new value. Only for
+        reference (a story and its themes), so any change to what's sent gives a new value. Only for
         `If-None-Match` (`304`); public reads take no commands.
       schema:
         type: string
@@ -270,8 +262,7 @@ components:
         limit:
           type: integer
           description: |
-            `story_text_too_long` and `too_many_tags` only: the limit in force that the story is over
-            (characters, or themes).
+            `story_text_too_long` only: the limit in force that the story is over (characters).
         availableAt:
           type: string
           format: date-time
@@ -353,51 +344,54 @@ components:
       type: string
       enum: [video, audio, written]
 
-    Tag:
+    ThemeRef:
       type: object
-      required: [slug, name, category, version]
+      description: A theme as a story carries it (stories link themes and read their names, D15).
+      required: [id, name]
       properties:
-        slug:
+        id:
           type: string
-          description: "Also the tag's ID (`tag:<slug>`)."
-          example: doubt
+          description: "The theme's ULID (`theme:<id>`); `?theme=` on browse takes it."
+          example: 01JC0Q4Z8N3XG5V2K7T9W1M6RB
         name:
           type: string
           maxLength: 40
           example: Doubt
-        category:
-          type: string
-          enum: [theme, journey, emotion]
-        version:
-          $ref: '#/components/schemas/Version'
 
-    CreateTag:
+    Theme:
       type: object
-      required: [slug, name, category]
+      required: [id, name, highlighted]
       properties:
-        slug:
+        id:
           type: string
-          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          example: 01JC0Q4Z8N3XG5V2K7T9W1M6RB
         name:
           type: string
-          minLength: 1
           maxLength: 40
-        category:
-          type: string
-          enum: [theme, journey, emotion]
+          example: Doubt
+        highlighted:
+          type: boolean
+          description: Shown first, under its category's name, wherever people choose or browse themes.
 
-    TagPatch:
+    ThemeCategory:
       type: object
-      description: JSON Merge Patch (RFC 7396). The slug (ID) can't change.
-      additionalProperties: false
+      description: |
+        A category and its themes, A–Z (themes plan v3). Categories come A–Z with `other` (Other, the
+        fixed category) last.
+      required: [id, name, themes]
       properties:
+        id:
+          type: string
+          description: '`other` for the fixed Other category, else a ULID.'
+          example: other
         name:
           type: string
-          minLength: 1
           maxLength: 40
-        category:
-          type: string
-          enum: [theme, journey, emotion]
+          example: Other
+        themes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Theme'
 
     MediaPlayback:
       type: object
@@ -534,7 +528,7 @@ components:
           thumbnailHeight,
           image,
           textLength,
-          tags,
+          themes,
           publishedAt,
         ]
       properties:
@@ -586,10 +580,10 @@ components:
           minimum: 0
           maximum: 10000
           description: Characters in the story's text (0 = none), e.g. for "5 min read" (A3).
-        tags:
+        themes:
           type: array
           items:
-            $ref: '#/components/schemas/Tag'
+            $ref: '#/components/schemas/ThemeRef'
         publishedAt:
           type: string
           format: date-time
@@ -607,7 +601,7 @@ components:
           description,
           primaryFormat,
           media,
-          tags,
+          themes,
           publishedAt,
           version,
         ]
@@ -638,10 +632,10 @@ components:
           oneOf:
             - $ref: '#/components/schemas/StoryImage'
             - type: 'null'
-        tags:
+        themes:
           type: array
           items:
-            $ref: '#/components/schemas/Tag'
+            $ref: '#/components/schemas/ThemeRef'
         publishedAt:
           type: string
           format: date-time
@@ -694,10 +688,10 @@ components:
           oneOf:
             - $ref: '#/components/schemas/StoryMineImage'
             - type: 'null'
-        tags:
+        themes:
           type: array
           items:
-            $ref: '#/components/schemas/Tag'
+            $ref: '#/components/schemas/ThemeRef'
         rejectionFeedback:
           type: [string, 'null']
           description: Pastoral feedback after reject or request-changes.
@@ -824,12 +818,12 @@ components:
             no email field: Clerk holds it.
         primaryFormat:
           $ref: '#/components/schemas/Format'
-        tagSlugs:
+        themeIds:
           type: array
           description: |
-            Tags from `GET /v1/tags` (api-user), no repeats, at most the settings' maximum (W3:
-            default 5; 20 is the hard ceiling). A draft may have none; `/submit` needs the settings'
-            minimum (default 1).
+            Theme ids from `GET /v1/themes` (api-user), no repeats, at most 20 (the hard ceiling). A draft
+            may have any number up to that; only `/submit` checks the settings' minimum and maximum
+            (themesMin–themesMax, default 1–5).
           items:
             type: string
           maxItems: 20
@@ -854,7 +848,7 @@ components:
         bylineName:
           type: [string, 'null']
           maxLength: 80
-        tagSlugs:
+        themeIds:
           type: array
           items:
             type: string
@@ -882,7 +876,7 @@ components:
         The limits that apply to the signed-in person (W3, D94, D112): the text and theme limits an admin
         sets, and their own open-drafts and weekly-submission limits (the settings, or the admin's override
         for them; `null` = no limit, e.g. a trusted submitter).
-      required: [storyText, tags, openDrafts, submissions, uploads]
+      required: [storyText, themes, openDrafts, submissions, uploads]
       properties:
         storyText:
           type: object
@@ -895,21 +889,19 @@ components:
             max:
               type: integer
               minimum: 1
-        tags:
+        themes:
           type: object
           required: [min, max]
-          description: Themes per story (to submit / at most).
+          description: |
+            How many themes a story needs when it is submitted (the admin's themesMin and themesMax).
+            Checked only at submit.
           properties:
             min:
               type: integer
               minimum: 0
-              description: |
-                The themes a story needs to be submitted: the admin's setting, or every theme there is if
-                there are fewer (so deleting themes never stops everyone submitting). Submit checks this
-                same number.
             max:
               type: integer
-              minimum: 1
+              minimum: 0
         openDrafts:
           type: object
           required: [max, open]
@@ -1706,13 +1698,13 @@ components:
       description: |
         Every submission limit (W3, D94, D112, D113), as `UpdateSubmissionSettings` takes them and
         `GET /v1/admin/submission-settings` returns them. Each must be within its `bounds`, and
-        `storyTextMin` ≤ `storyTextMax`, `tagsMin` ≤ `tagsMax`.
+        `storyTextMin` ≤ `storyTextMax`, `themesMin` ≤ `themesMax`.
       required:
         [
           storyTextMin,
           storyTextMax,
-          tagsMin,
-          tagsMax,
+          themesMin,
+          themesMax,
           openDraftsMax,
           submissionsPer7Days,
           uploadRequestsPerHour,
@@ -1729,12 +1721,12 @@ components:
         storyTextMax:
           type: integer
           description: "A written story's text at most (characters)."
-        tagsMin:
+        themesMin:
           type: integer
-          description: 'Themes needed to submit.'
-        tagsMax:
+          description: 'Themes a story needs when it is submitted, at least (checked only then).'
+        themesMax:
           type: integer
-          description: 'Themes at most.'
+          description: 'Themes a story may have when it is submitted, at most (checked only then).'
         openDraftsMax:
           type: integer
           description: 'Open drafts per person.'
@@ -1757,6 +1749,88 @@ components:
           type: integer
           description: 'One recording at most (seconds).'
 
+    AdminThemes:
+      type: object
+      description: |
+        Every category and theme for /admin/themes (themes plan v3): categories A–Z with `other` last,
+        themes A–Z, each with how many stories carry it (any status) for the Save summary. `version`
+        goes back in `If-Match` when saving.
+      required: [version, categories]
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          minimum: 0
+          description: The themes' version (`0` before the first save).
+        categories:
+          type: array
+          items:
+            type: object
+            required: [id, name, themes]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              themes:
+                type: array
+                items:
+                  type: object
+                  required: [id, name, highlighted, storyCount]
+                  additionalProperties: false
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    highlighted:
+                      type: boolean
+                    storyCount:
+                      type: integer
+                      minimum: 0
+                      description: Stories (any status) that carry the theme.
+
+    SaveThemes:
+      type: object
+      description: |
+        `SaveThemes`: the whole finished picture of the categories and their themes (themes plan v3,
+        A1). A new category or theme has a temporary id starting `new-`; every other id must exist.
+        Anything missing from the picture is deleted (a deleted theme comes off every story; a
+        deleted category's remaining themes move to Other, not highlighted). `other` must be there,
+        named "Other". Names are tidied (trimmed, single spaces, first character capitalised) and must
+        be 1–40 characters and unique, ignoring case (themes among themes, categories among
+        categories); otherwise `400` with a pointer to the name.
+      required: [categories]
+      additionalProperties: false
+      properties:
+        categories:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [id, name, themes]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              themes:
+                type: array
+                maxItems: 500
+                items:
+                  type: object
+                  required: [id, name, highlighted]
+                  additionalProperties: false
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    highlighted:
+                      type: boolean
+
     SettingBounds:
       type: object
       required: [min, max]
@@ -1769,7 +1843,7 @@ components:
 
     AdminSubmissionSettings:
       type: object
-      required: [version, updatedAt, changedBy, settings, bounds, themeCount]
+      required: [version, updatedAt, changedBy, settings, bounds]
       additionalProperties: false
       properties:
         version:
@@ -1783,12 +1857,6 @@ components:
           description: The user record id of the last admin who saved them (Clerk holds names, D16); `null` if only the migrator has.
         settings:
           $ref: '#/components/schemas/SubmissionSettingsValues'
-        themeCount:
-          type: integer
-          minimum: 0
-          description: |
-            The themes there are. `tagsMin` can't be more (nobody could submit), so its bound's `max`
-            is this when there are fewer than 20.
         bounds:
           type: object
           description: What each limit may be set to, inclusive.
@@ -1796,8 +1864,8 @@ components:
             [
               storyTextMin,
               storyTextMax,
-              tagsMin,
-              tagsMax,
+              themesMin,
+              themesMax,
               openDraftsMax,
               submissionsPer7Days,
               uploadRequestsPerHour,
@@ -1812,9 +1880,9 @@ components:
               $ref: '#/components/schemas/SettingBounds'
             storyTextMax:
               $ref: '#/components/schemas/SettingBounds'
-            tagsMin:
+            themesMin:
               $ref: '#/components/schemas/SettingBounds'
-            tagsMax:
+            themesMax:
               $ref: '#/components/schemas/SettingBounds'
             openDraftsMax:
               $ref: '#/components/schemas/SettingBounds'
@@ -2151,7 +2219,7 @@ components:
                 body,
                 bylineName,
                 primaryFormat,
-                tags,
+                themes,
                 media,
                 image,
                 rejectionFeedback,
@@ -2183,14 +2251,14 @@ components:
                 type: [string, 'null']
               primaryFormat:
                 $ref: '#/components/schemas/Format'
-              tags:
+              themes:
                 type: array
                 items:
                   type: object
                   additionalProperties: false
-                  required: [slug, name]
+                  required: [id, name]
                   properties:
-                    slug:
+                    id:
                       type: string
                     name:
                       type: string

@@ -54,7 +54,7 @@ async function main(): Promise<number> {
     );
     console.log(
       `dev-seed: resetting ${config.namespace}/${config.database} as ${config.username} ` +
-        `(${vars.stories.length} stories, ${vars.people.length + 1} people, ${vars.tags.length} tags)`,
+        `(${vars.stories.length} stories, ${vars.people.length + 1} people, ${vars.themes.length} themes)`,
     );
     const summary = await reset(db, vars);
     console.log(`dev-seed: done ${JSON.stringify(summary)}`);

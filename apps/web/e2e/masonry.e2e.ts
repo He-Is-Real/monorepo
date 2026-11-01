@@ -224,7 +224,7 @@ test.describe('first paint, before any script runs', () => {
   // both below the three-column breakpoint (a 1000 px window) and above it (1300 px): cards
   // whose text sits on the edge of a line at some width (a title and excerpt Codex found 2 px
   // short at 688 px), emoji, right-to-left text, em spaces and soft hyphens
-  // (`tag=masonry-test`, e2e/stub-api.mjs), and all 54 stories. One device: the widths are set
+  // (`theme=masonry_test`, e2e/stub-api.mjs), and all 54 stories. One device: the widths are set
   // here.
   for (const [paint, { before, after, spans }] of Object.entries(PAINTS))
     test(`no card overlaps at any list width (${paint})`, async ({
@@ -238,7 +238,7 @@ test.describe('first paint, before any script runs', () => {
         Array.from({ length: to - from + 1 }, (_, i) => from + i);
       await before?.(page);
       for (const [path, count] of [
-        ['/stories?tag=masonry-test', 10],
+        ['/stories?theme=masonry_test', 10],
         ['/stories?pages=4', 54],
       ] as const) {
         for (const [window, list] of [
@@ -270,7 +270,7 @@ test.describe('without JavaScript', () => {
       !['ipad-mini-portrait', 'desktop-1280'].includes(info.project.name),
       'one device a layout',
     );
-    await page.goto('/stories?tag=masonry-test');
+    await page.goto('/stories?theme=masonry_test');
     await expect(cards(page)).toHaveCount(10);
     const layout = await cards(page).evaluateAll((lis) => ({
       columns: getComputedStyle(

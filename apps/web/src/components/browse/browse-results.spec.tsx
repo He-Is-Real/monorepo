@@ -10,7 +10,7 @@ const loadMore = loadMoreStories as jest.Mock;
 
 const filters: BrowseFilters = {
   q: '',
-  tags: ['hope'],
+  theme: 'hope',
   format: null,
   sort: 'latest',
 };
@@ -27,7 +27,7 @@ const card = (n: number): StorySummary => ({
   thumbnailHeight: null,
   image: null,
   textLength: 300,
-  tags: [],
+  themes: [],
   publishedAt: '2026-10-21T20:00:00Z',
   isNew: false,
 });
@@ -42,7 +42,7 @@ const page = (from: number, next: string | null) => ({
 let intersect: () => void;
 beforeEach(() => {
   loadMore.mockReset();
-  window.history.replaceState(null, '', '/stories?tag=hope');
+  window.history.replaceState(null, '', '/stories?theme=hope');
   // jsdom has neither: a sentinel we can trigger by hand, and a 1-column screen.
   (
     window as unknown as { IntersectionObserver: unknown }
@@ -84,7 +84,7 @@ async function scrollToEnd() {
 describe('BrowseResults: races e2e can’t provoke', () => {
   it('rebuilds the pages the URL asks for when Back restores an older render', async () => {
     // Next's router cache can restore the first render (1 page) under a URL with pages=3.
-    window.history.replaceState(null, '', '/stories?tag=hope&pages=3');
+    window.history.replaceState(null, '', '/stories?theme=hope&pages=3');
     loadMore
       .mockResolvedValueOnce(page(15, 'c2'))
       .mockResolvedValueOnce(page(30, 'c3'));
@@ -103,11 +103,11 @@ describe('BrowseResults: races e2e can’t provoke', () => {
     const { unmount } = renderResults();
     await scrollToEnd();
     unmount();
-    window.history.replaceState(null, '', '/stories?tag=loss');
+    window.history.replaceState(null, '', '/stories?theme=loss');
     const replace = jest.spyOn(window.history, 'replaceState');
     await act(async () => resolve(page(15, 'c2')));
     expect(replace).not.toHaveBeenCalled();
-    expect(window.location.search).toBe('?tag=loss');
+    expect(window.location.search).toBe('?theme=loss');
     replace.mockRestore();
   });
 });

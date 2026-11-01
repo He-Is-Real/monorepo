@@ -47,7 +47,7 @@ describe('favourites', () => {
       [ann, 'ann_live'],
       [bob, 'bob_gone'],
     ] as const) {
-      await draft(person, id, { tagRefs: [] });
+      await draft(person, id);
       await submit(person, id);
       await approve(admin, id);
     }
@@ -184,7 +184,7 @@ describe('favourites', () => {
     const eve = await t.person('user_eve');
     await grantAll(dan);
     await grantAll(eve);
-    await draft(eve, 'eve_live', { tagRefs: [] });
+    await draft(eve, 'eve_live');
     await submit(eve, 'eve_live');
     await approve(admin, 'eve_live');
     expect((await heart(dan, 'eve_live')).ok).toBe(true);
@@ -215,7 +215,7 @@ describe('favourites', () => {
     const gus = await t.person('user_gus');
     await grantAll(fay);
     await grantAll(gus);
-    await draft(gus, 'gus_live', { tagRefs: [] });
+    await draft(gus, 'gus_live');
     await submit(gus, 'gus_live');
     await approve(admin, 'gus_live');
 

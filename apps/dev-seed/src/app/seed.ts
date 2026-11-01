@@ -19,7 +19,8 @@ import type { SeedVars } from './plan';
  * dev's Clerk test accounts (the dataset's testAccounts) are marked trusted submitters (D112).
  *
  * Wiped: story (and, through its erasure cascade, publicStory and moderationReview), whatever
- * read-model rows or reviews are left, auditLog, idempotencyKey and tag. Kept: people who aren't
+ * read-model rows or reviews are left, auditLog, idempotencyKey, every theme and every category
+ * but Other (which can't be deleted). Kept: people who aren't
  * fixtures (Clerk sign-ins), the consent ledger (append-only), DPA versions, settings and the
  * migration ledger. Fixture people are `user:seed_*`; ones no longer in the dataset are removed.
  *
@@ -41,7 +42,9 @@ DELETE publicStory RETURN NONE;
 DELETE moderationReview RETURN NONE;
 DELETE auditLog RETURN NONE;
 DELETE idempotencyKey RETURN NONE;
-DELETE tag RETURN NONE;
+DELETE theme RETURN NONE;
+DELETE themeCategory WHERE id != themeCategory:other RETURN NONE;
+UPSERT themeCategory:other SET name = 'Other' RETURN NONE;
 LET $fixtures = array::concat($people, [$moderator]);
 DELETE user WHERE string::starts_with(<string> record::id(id), 'seed_')
   AND record::id(id) NOT IN $fixtures RETURN NONE;
@@ -76,15 +79,23 @@ FOR $clerk IN $testAccounts {
   UPSERT type::record('submitterLimits', record::id($u))
     SET user = $u, trusted = true, devSeed = true RETURN NONE;
 };
-FOR $t IN $tags {
-  CREATE type::record('tag', $t.id) CONTENT { name: $t.name, category: $t.category } RETURN NONE;
+FOR $c IN $categories {
+  CREATE type::record('themeCategory', $c.id) CONTENT { name: $c.name } RETURN NONE;
 };
+FOR $t IN $themes {
+  CREATE type::record('theme', $t.id) CONTENT {
+    name: $t.name, category: type::record('themeCategory', $t.category),
+    highlighted: $t.highlighted
+  } RETURN NONE;
+};
+-- An admin page opened before the reset must reload before saving (themes plan v3, A2).
+UPSERT themeCatalog:current SET changedBy = NONE RETURN NONE;
 
 FOR $s IN $stories {
   LET $story = type::record('story', $s.id);
   CREATE $story CONTENT object::extend($s.draft, {
     submitter: type::record('user', $s.submitter),
-    tagRefs: $s.draft.tagRefs.map(|$t| type::record('tag', $t)),
+    themeRefs: $s.draft.themeRefs.map(|$t| type::record('theme', $t)),
     status: 'draft'
   }) RETURN NONE;
   FOR $step IN $s.steps {
@@ -110,7 +121,7 @@ FOR $s IN $stories {
     CREATE type::record('publicStory', $s.id) CONTENT {
       version: $a.version, slug: $a.slug, title: $a.title, description: $a.description,
       body: $a.body, bylineName: $a.bylineName, primaryFormat: $a.primaryFormat,
-      tagRefs: $a.tagRefs,
+      themeRefs: $a.themeRefs,
       media: $a.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
         thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height }),
       image: IF $a.image != NONE { { path: $a.image.path, width: $a.image.width,
@@ -129,7 +140,7 @@ SELECT status, count() AS stories FROM story GROUP BY status;
 RETURN {
   publicStories: count(SELECT id FROM publicStory),
   reviews: count(SELECT id FROM moderationReview),
-  tags: count(SELECT id FROM tag),
+  themes: count(SELECT id FROM theme),
   fixturePeople: count(SELECT id FROM user WHERE string::starts_with(<string> record::id(id), 'seed_'))
 };
 `;
@@ -138,7 +149,7 @@ export interface SeedSummary {
   byStatus: Record<string, number>;
   publicStories: number;
   reviews: number;
-  tags: number;
+  themes: number;
   fixturePeople: number;
 }
 

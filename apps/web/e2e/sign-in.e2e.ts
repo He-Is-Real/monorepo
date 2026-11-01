@@ -51,12 +51,12 @@ test.describe('returning to the page', () => {
   test('Sign in in the header leads to sign-in, set to return to this page', async ({
     page,
   }) => {
-    await page.goto('/stories?tag=healing');
+    await page.goto('/stories?theme=healing');
     await page.getByRole('link', { name: 'Sign in' }).click();
     await expect(page).toHaveURL(/\/sign-in\?redirect_url=/);
     await expect(page.locator('[data-sign-in-fixture]')).toHaveAttribute(
       'data-return-to',
-      '/stories?tag=healing',
+      '/stories?theme=healing',
     );
   });
 

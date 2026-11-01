@@ -71,7 +71,7 @@ describe('approval waits for media processing (A2)', () => {
     const result = await outcome(
       pat,
       `CREATE type::record('story', $id) CONTENT {
-         submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
+         themeRefs: [theme:common], submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
          ${fields}
        } RETURN VALUE id`,
       { id },
@@ -491,7 +491,7 @@ describe('approval waits for media processing (A2)', () => {
             admin,
             `CREATE type::record('publicStory', $id) CONTENT {
                version: 1, slug: $id, title: 'A story', description: 'How I came to faith',
-               primaryFormat: 'video', tagRefs: [], publishedAt: time::now(),
+               primaryFormat: 'video', themeRefs: [], publishedAt: time::now(),
                media: [{ format: 'video', bunnyVideoId: 'vid', width: 1080, height: 1920 }]
              }`,
             { id },
@@ -1018,7 +1018,7 @@ describe('approval waits for media processing (A2)', () => {
         await outcome(
           cal,
           `CREATE type::record('story', $id) CONTENT {
-             submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
+             themeRefs: [theme:common], submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
              primaryFormat: 'audio' } RETURN VALUE id`,
           { id },
         ),
@@ -1126,7 +1126,7 @@ describe('approval waits for media processing (A2)', () => {
         await outcome(
           dee,
           `CREATE type::record('story', $id) CONTENT {
-             submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
+             themeRefs: [theme:common], submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
              primaryFormat: 'audio' } RETURN VALUE id`,
           { id },
         ),
