@@ -5,14 +5,16 @@ import type { Theme, ThemeCategory } from '@/lib/browse';
 
 /**
  * The one theme picker, for sharing a story and for browsing (themes plan v3, mockups 2 and 3).
- * Each category's highlighted themes show first, under the category's name, with any chosen
- * theme that isn't highlighted. "More themes" opens every other theme, grouped by category, with
- * a search (plain "contains", ignoring capitals; A12) in a box that scrolls inside about 40% of
- * the screen. A category with nothing to show first only appears there.
+ * Each category's name shows once, over one row of its themes. Folded, a row holds only the
+ * category's highlighted themes and any chosen one; a category with neither isn't shown.
+ * "More themes" unfolds every row in place (and shows the hidden categories in their usual
+ * order), with a search beside it (plain "contains", ignoring capitals; A12) that narrows the
+ * same rows. Chosen themes always stay in view, whatever the search says.
  *
  * What a theme looks like (a checkbox when sharing, a link when browsing) is the caller's: the
- * picker only decides where each one goes. A theme chosen inside "More themes" stays where it
- * is until the box closes, so it doesn't jump away from the pointer or the keyboard focus.
+ * picker only decides which ones show. A theme chosen at any point since the picker last folded
+ * or unfolded stays put, even once un-chosen, until it folds or unfolds again, so it doesn't
+ * vanish from under the pointer or the keyboard focus.
  */
 export function ThemePicker({
   categories,
@@ -26,84 +28,79 @@ export function ThemePicker({
   const id = useId();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  // The chosen themes shown first: fixed while the box is open.
+  // Every theme chosen since the picker last folded or unfolded: kept in view until it does
+  // again. A newly chosen one joins as it's ticked (React's "adjust state while rendering").
   const [pinned, setPinned] = useState<readonly string[]>(chosen);
-  const first = (t: Theme) => t.highlighted || pinned.includes(t.id);
-  const needle = search.trim().toLowerCase();
+  const added = chosen.filter((c) => !pinned.includes(c));
+  if (added.length > 0) setPinned([...pinned, ...added]);
+  const kept = (t: Theme) => pinned.includes(t.id) || chosen.includes(t.id);
+  const needle = open ? search.trim().toLowerCase() : '';
+  const shown = (t: Theme) =>
+    kept(t) || (open ? t.name.toLowerCase().includes(needle) : t.highlighted);
 
-  const top = categories
-    .map((c) => ({ ...c, themes: c.themes.filter(first) }))
+  const rows = categories
+    .map((c) => ({ ...c, themes: c.themes.filter(shown) }))
     .filter((c) => c.themes.length > 0);
-  const rest = categories
-    .map((c) => ({
-      ...c,
-      themes: c.themes.filter(
-        (t) => !first(t) && t.name.toLowerCase().includes(needle),
-      ),
-    }))
-    .filter((c) => c.themes.length > 0);
-  const hasRest = categories.some((c) => c.themes.some((t) => !first(t)));
+  const hasMore = categories.some((c) =>
+    c.themes.some((t) => !t.highlighted && !kept(t)),
+  );
 
   const toggle = () => {
-    if (open) {
-      setPinned(chosen);
-      setSearch('');
-    }
+    setPinned(chosen);
+    setSearch('');
     setOpen(!open);
   };
 
   return (
     <div>
-      {top.map((c) => (
-        <Group key={c.id} category={c} renderTheme={renderTheme} />
-      ))}
-      {hasRest && (
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={`${id}-more`}
-          onClick={toggle}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-md text-sm font-medium text-link hover:text-link-hover"
-        >
-          {open ? 'Fewer themes' : 'More themes'}
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            className={`size-4 fill-none stroke-current transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
-            strokeWidth="2"
+      <div id={`${id}-themes`}>
+        {rows.map((c) => (
+          <Group key={c.id} category={c} renderTheme={renderTheme} />
+        ))}
+        {open &&
+          needle &&
+          !rows.some((c) => c.themes.some((t) => !kept(t))) && (
+            <p role="status" className="mb-3 text-sm text-muted-foreground">
+              No themes match “{search.trim()}”.
+            </p>
+          )}
+      </div>
+      {(hasMore || open) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={`${id}-themes`}
+            onClick={toggle}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md text-sm font-medium text-link hover:text-link-hover"
           >
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-        </button>
-      )}
-      {open && (
-        <div id={`${id}-more`} className="mt-2">
-          <label htmlFor={`${id}-search`} className="sr-only">
-            Search themes
-          </label>
-          <input
-            id={`${id}-search`}
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search themes"
-            autoComplete="off"
-            className="h-11 w-full rounded-lg border border-input bg-input-background px-4 text-sm text-foreground outline-none placeholder:text-faint focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 sm:max-w-sm"
-          />
-          <div
-            className="mt-3 max-h-[40vh] overflow-y-auto overscroll-contain rounded-lg border border-border p-3"
-            tabIndex={-1}
-          >
-            {rest.length === 0 ? (
-              <p role="status" className="text-sm text-muted-foreground">
-                No themes match “{search.trim()}”.
-              </p>
-            ) : (
-              rest.map((c) => (
-                <Group key={c.id} category={c} renderTheme={renderTheme} />
-              ))
-            )}
-          </div>
+            {open ? 'Fewer themes' : 'More themes'}
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className={`size-4 fill-none stroke-current transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+              strokeWidth="2"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          {open && (
+            <>
+              <label htmlFor={`${id}-search`} className="sr-only">
+                Search themes
+              </label>
+              <input
+                id={`${id}-search`}
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-controls={`${id}-themes`}
+                placeholder="Search themes"
+                autoComplete="off"
+                className="h-11 w-full min-w-0 rounded-lg border border-input bg-input-background px-4 text-sm text-foreground outline-none placeholder:text-faint focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 sm:max-w-sm sm:flex-1"
+              />
+            </>
+          )}
         </div>
       )}
     </div>

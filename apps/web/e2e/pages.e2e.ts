@@ -239,24 +239,34 @@ test.describe('behaviour', () => {
   });
 
   // Themes plan v3 (mockup 3): each category's highlighted themes first, under its name; the
-  // others (only those a published story uses) behind "More themes", with a plain search.
-  test('browse by theme: highlighted themes first, the rest under More themes with a search', async ({
+  // others (only those a published story uses) unfold in place under "More themes", in their own
+  // category (Joel, 2026-11-01: no second list), with a plain search.
+  test('browse by theme: highlighted themes first, More themes unfolds each category in place with a search', async ({
     page,
   }) => {
     await page.goto('/stories');
     const themes = page.getByRole('navigation', { name: 'Themes' });
-    await expect(themes.getByRole('heading', { level: 3 })).toHaveText([
-      'Feelings',
-      'Topics',
-    ]);
+    const headings = themes.getByRole('heading', { level: 3 });
+    await expect(headings).toHaveText(['Feelings', 'Topics']);
     await expect(themes.getByRole('link', { name: 'Gratitude' })).toBeVisible();
     // Not highlighted, so not shown first; Waiting no story here uses, so never.
     await expect(themes.getByRole('link', { name: 'Grief' })).toHaveCount(0);
-    await themes.getByRole('button', { name: 'More themes' }).click();
+    const more = themes.getByRole('button', { name: 'More themes' });
+    await expect(more).toHaveAttribute('aria-expanded', 'false');
+    await more.click();
+    // Each category once, in its usual order, its hidden themes inside its own row.
+    await expect(headings).toHaveText(['Feelings', 'Journeys', 'Topics']);
+    const feelings = themes.getByRole('list', { name: 'Feelings' });
+    await expect(feelings.getByRole('link', { name: 'Grief' })).toBeVisible();
+    await expect(feelings.getByRole('link', { name: 'Hope' })).toBeVisible();
     await expect(themes.getByRole('link', { name: 'Faith' })).toBeVisible();
     await expect(themes.getByRole('link', { name: 'Waiting' })).toHaveCount(0);
+    await expect(
+      themes.getByRole('button', { name: 'Fewer themes' }),
+    ).toHaveAttribute('aria-expanded', 'true');
     await expectNoHorizontalOverflow(page);
     await themes.getByRole('searchbox', { name: 'Search themes' }).fill('GRI');
+    await expect(headings).toHaveText(['Feelings']);
     await expect(themes.getByRole('link', { name: 'Faith' })).toHaveCount(0);
     await themes.getByRole('link', { name: 'Grief' }).click();
     await expect(page).toHaveURL(/\/stories\?theme=grief$/);
