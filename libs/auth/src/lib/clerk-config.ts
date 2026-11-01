@@ -17,7 +17,11 @@ export interface ClerkConfig {
   /** Origins allowed in `azp`: the `web` Cloud Run URL, plus localhost in dev. */
   authorizedParties: ReadonlySet<string>;
   /** Leeway for `exp`/`nbf`/`iat`. Clerk tokens live 60 s and Clerk's own default skew is 5 s. */
-  clockSkewSeconds: number;
+  clockSkewSeconds: number; /**
+   * The time tokens are checked at, seconds since the epoch; the real clock unless set. Only
+   * tests set it, to check a token at a moment of its life without waiting for it.
+   */
+  clock?: () => number;
 }
 
 export const DEFAULT_CLOCK_SKEW_SECONDS = 5;

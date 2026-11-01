@@ -1105,6 +1105,21 @@ try {
   close (surrealdb.js#688). `withPersonSession` always invalidates first. (The SDK-diagnostic
   test that pinned this was removed in #79: it waited on timers it couldn't control, and it
   tested the SDK, not our behaviour.)
+- **A person's token expiring mid-request ends the session (decision T).** surrealdb.js 2.0.8
+  sets a timer for the token's `exp` (60 s before it for a token with over two minutes left, its
+  `expiryMargin`). A token given to `authenticate()` can't be renewed (no refresh token, and the
+  connection's auth provider is skipped), so the SDK invalidates the session and later queries run
+  anonymous ("Anonymous access not allowed"), though the database's own session lasts 5 minutes.
+  Clerk's tokens last 60 s and arrive with 10 to 60 s left. So `PersonSessions.run(request, work,
+kind)` (`PERSON_WORK`): quick work (database only) opens the session with the person's own token
+  while it lasts 10 s more; slow work (anything that waits on Bunny or reads everything a person
+  has) and quick work on a shorter token open it with a fresh pass api-user gets from Clerk's
+  Backend API for the same Clerk session (6 minutes, so 5 usable; `401` if Clerk says the session
+  is over, `503` if Clerk doesn't answer). Slow work starts no attempt after 2 minutes
+  (`PersonContext.deadline`, passed to `runIdempotent`), so it ends inside those 5 by itself; Cloud
+  Run's timeout ends only the response, not the work. Anything longer belongs in a background job.
+  api-admin has no Clerk key and uses the person's own token. Asking SurrealDB for
+  a "let the database decide" setting is #164; if it lands, this can go.
 - **Service sign-in typing.** `connect({ authentication })` in 2.0.8 is typed for system users
   and tokens only, but the runtime signs in with record access (`access: 'svc'`). That path is
   needed so the SDK re-signs in after reconnects and the 15-minute token expiry. 2.1.0 types it.
@@ -1268,6 +1283,14 @@ tests this end to end.
 **Proven in 0.5** (a real dev-instance token, `libs/auth/src/lib/fixtures`): the instance
 accepts `ns`/`db`/`ac`/`role` as custom session claims, and its tokens are RS256, signed by the
 pinned PEM, about 900 bytes. Key rotation has a runbook (`infra/clerk/README.md`).
+
+**Fresh passes, proven on dev (2026-10-31, decision T).** A token api-user gets from Clerk's
+Backend API (`POST /v1/sessions/{sid}/tokens`, `expires_in_seconds`) for a live dev session
+carries the same claims as the browser's (`ns`/`db`/`ac`/`role` from the session token
+customisation, `sid`, `sub`, the same `oiat` header) but no `azp`, lasts the time asked for, and
+the patched SurrealDB opens the person's session with it. A revoked or unknown session gets
+`404`. A pass already issued stays valid until its `exp`, but it never leaves api-user and
+serves only the request that asked for it.
 
 **Still unproven:**
 

@@ -69,6 +69,9 @@ class FakeClerk implements ClerkBackend {
   async webhookKey() {
     return null;
   }
+  passIssuer() {
+    return null;
+  }
   async getUser(id: string) {
     this.asked.push(id);
     if (this.failing) throw new Error('Clerk user read answered 503');

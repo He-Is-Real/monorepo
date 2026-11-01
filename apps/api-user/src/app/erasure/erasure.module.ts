@@ -16,6 +16,7 @@ import {
   CONSENT_WITHDRAWAL_ERASURE,
   type ConsentWithdrawalErasure,
   NoConsentRequired,
+  PERSON_PASS_ISSUER,
 } from '@heisreal/consent';
 import { runQuery, SURREAL } from '@heisreal/database';
 import { NoRoleRequired } from '@heisreal/roles';
@@ -119,7 +120,7 @@ export class ClerkWebhookController {
  * Erasure (M2 plan PR 11; D39, D40, D82): `Erasure` for "Delete my account" (AccountController),
  * the consent withdrawals that delete the account (libs/consent's `ERASING_WITHDRAWALS`) and
  * Clerk's webhook. Global, so the consent endpoints can reach it; its Clerk client also serves the
- * data download (ExportModule).
+ * data download (ExportModule) and people's fresh passes (PersonSessions).
  */
 @Global()
 @Module({
@@ -131,6 +132,12 @@ export class ClerkWebhookController {
       inject: [SecretsService],
       useFactory: (secrets: SecretsService) => createClerkBackend(secrets),
     },
+    // Fresh passes for libs/consent's PersonSessions (decision T, option B); null without the key.
+    {
+      provide: PERSON_PASS_ISSUER,
+      inject: [CLERK_BACKEND],
+      useFactory: (clerk: ClerkBackend) => clerk.passIssuer(),
+    },
     // The images storage zone (M2 plan PR 10); null with image uploads off.
     { provide: IMAGE_DELETER, useExisting: BUNNY_STORAGE },
     {
@@ -141,6 +148,11 @@ export class ClerkWebhookController {
       }),
     },
   ],
-  exports: [Erasure, CONSENT_WITHDRAWAL_ERASURE, CLERK_BACKEND],
+  exports: [
+    Erasure,
+    CONSENT_WITHDRAWAL_ERASURE,
+    CLERK_BACKEND,
+    PERSON_PASS_ISSUER,
+  ],
 })
 export class ErasureModule {}

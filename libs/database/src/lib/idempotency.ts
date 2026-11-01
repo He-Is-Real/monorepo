@@ -94,6 +94,10 @@ const KEY_TAKEN = /already exists/i;
  * key to a racing request, goes back to the **lookup** first (review round 2 of #41): if the
  * other request committed this key, its response is replayed, even when preparing again would
  * now refuse (e.g. a newer DPA version came into force meanwhile).
+ *
+ * `deadline` (ms since the epoch): no new attempt starts after it; the last retryable error is
+ * thrown instead, as when the attempts run out. Work that waits on others (Bunny) passes its
+ * person session's (`PersonContext.deadline`), so it ends before the session does.
  */
 export async function runIdempotent(
   db: SurrealQueryable,
@@ -103,7 +107,8 @@ export async function runIdempotent(
   {
     attempts = 4,
     backoffMs = 20,
-  }: { attempts?: number; backoffMs?: number } = {},
+    deadline = Infinity,
+  }: { attempts?: number; backoffMs?: number; deadline?: number } = {},
 ): Promise<{ response: IdempotentResponse; replayed: boolean }> {
   const vars = {
     idem_service: scope.service,
@@ -143,8 +148,13 @@ export async function runIdempotent(
       const retryable =
         isTransactionConflict(err) ||
         (err instanceof DatabaseQueryError && KEY_TAKEN.test(err.message));
-      if (!retryable || attempt >= attempts) throw err;
-      await new Promise((r) => setTimeout(r, backoffMs * attempt));
+      const wait = backoffMs * attempt;
+      if (!retryable || attempt >= attempts || Date.now() + wait >= deadline) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, wait));
+      // The timer may fire late (a busy machine): check again before starting the next attempt.
+      if (Date.now() >= deadline) throw err;
     }
   }
 }

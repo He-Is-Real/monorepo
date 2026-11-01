@@ -52,7 +52,12 @@ export class ExportController {
     const generatedAt = new Date();
     // The database first: only a live person's session opens (401 otherwise), so Clerk is
     // never asked about an account that's gone.
-    const held = await this.people.run(req, ({ session }) => readHeld(session));
+    // Everything the person has, in one session (decision T): a fresh pass.
+    const held = await this.people.run(
+      req,
+      ({ session }) => readHeld(session),
+      'slow',
+    );
     const signIn = await this.signInDetails(clerkUserId);
     const file = toExport(held, {
       role: role as string,

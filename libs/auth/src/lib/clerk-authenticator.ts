@@ -78,7 +78,7 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
     const token = bearerToken(request);
     let verified: VerifiedClerkToken;
     try {
-      verified = verifyClerkToken(token, this.config);
+      verified = verifyClerkToken(token, this.config, this.config.clock?.());
     } catch (err) {
       const reason = err instanceof ClerkTokenError ? err.reason : 'error';
       this.logger.warn(`Refused a session token: ${reason}`);
@@ -92,6 +92,8 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
       clerkUserId: verified.clerkUserId,
       token: verified.token,
       role: verified.role,
+      sessionId: verified.sessionId,
+      expiresAt: verified.expiresAt,
     };
   }
 

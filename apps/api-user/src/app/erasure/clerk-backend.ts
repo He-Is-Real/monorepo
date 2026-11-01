@@ -1,10 +1,16 @@
 import { Logger } from '@nestjs/common';
+import { CLERK_SESSION_ID } from '@heisreal/auth';
+import {
+  type PersonPassIssuer,
+  PersonPassRefusedError,
+} from '@heisreal/consent';
 import type { SecretsService } from '@heisreal/secrets';
 import { svixKey } from './svix';
 
 /**
- * Clerk's Backend API, for erasure and the data download only (D39, D81: account deletion and the
- * data download are two of the three server jobs that may use Clerk's secret key). The key
+ * Clerk's Backend API, for erasure, the data download (D39, D81: account deletion and the data
+ * download are two of the three server jobs that may use Clerk's secret key) and fresh passes for
+ * a person whose own runs short during their request (decision T, option B). The key
  * (`clerk-secret-key`, which only api-user may read) and the webhook's signing secret come from
  * Secret Manager when needed, not at startup, and are read again once they are more than
  * `SECRET_MAX_AGE_MS` old: a secret with no version yet (before the owner adds it) turns off only
@@ -16,6 +22,8 @@ export const CLERK_BACKEND = Symbol('CLERK_BACKEND');
 
 const API = 'https://api.clerk.com/v1';
 const TIMEOUT_MS = 15_000;
+/** A fresh pass is asked for while a person waits: Clerk answers in well under a second. */
+const PASS_TIMEOUT_MS = 5_000;
 /** How long a Clerk secret read from Secret Manager is used before it is read again. */
 export const SECRET_MAX_AGE_MS = 5 * 60_000;
 /** Clerk's user ids; anything else never reaches a URL. */
@@ -34,6 +42,11 @@ export interface ClerkBackend {
   getUser(clerkUserId: string): Promise<ClerkProfile>;
   /** The webhook endpoint's Svix key, or null while the secret isn't set (webhooks answer 503). */
   webhookKey(): Promise<Buffer | null>;
+  /**
+   * Fresh passes (`POST /sessions/{id}/tokens`) for libs/consent's `PersonSessions`, or null
+   * while the key isn't set: people's own passes are then used as they are.
+   */
+  passIssuer(): PersonPassIssuer | null;
 }
 
 /** The sign-in details Clerk holds (the contract's `AccountExport.signIn`). */
@@ -83,10 +96,61 @@ export class ClerkBackendApi implements ClerkBackend {
     return clerkProfile(clerkUserId, await res.json());
   }
 
-  private async call(method: 'GET' | 'DELETE', clerkUserId: string) {
+  passIssuer(): PersonPassIssuer | null {
+    if (!this.keySecret) return null;
+    return {
+      issue: (user, session, seconds) =>
+        this.sessionToken(user, session, seconds),
+    };
+  }
+
+  /**
+   * A new session token for the person's own Clerk session, lasting `seconds`; the session token
+   * customisation (ns/db/ac/role, infra/clerk/dev.json) applies as to the browser's (checked on
+   * dev, 2026-10-31). Clerk answers 404 for a session that's over (signed out, revoked, or its
+   * person blocked or deleted). Never logged: it only opens the person's database session.
+   */
+  async sessionToken(
+    clerkUserId: string,
+    sessionId: string,
+    seconds: number,
+  ): Promise<string> {
+    if (!CLERK_USER_ID.test(clerkUserId) || !CLERK_SESSION_ID.test(sessionId)) {
+      throw new Error('Not a Clerk session');
+    }
+    const res = await this.fetch(
+      'POST',
+      `/sessions/${sessionId}/tokens`,
+      PASS_TIMEOUT_MS,
+      { expires_in_seconds: seconds },
+    );
+    if (res.status === 404 || res.status === 410 || res.status === 422) {
+      throw new PersonPassRefusedError(`Clerk answered ${res.status}`);
+    }
+    if (!res.ok) throw new Error(`Clerk session token answered ${res.status}`);
+    const jwt = ((await res.json()) as { jwt?: unknown } | null)?.jwt;
+    if (typeof jwt !== 'string') throw new Error('Clerk sent no session token');
+    // For this person's session only, whatever Clerk might mix up; the database checks the rest.
+    const claims = payloadOf(jwt);
+    if (claims?.['sub'] !== clerkUserId || claims['sid'] !== sessionId) {
+      throw new Error('Clerk answered for another session');
+    }
+    return jwt;
+  }
+
+  private call(method: 'GET' | 'DELETE', clerkUserId: string) {
     if (!CLERK_USER_ID.test(clerkUserId)) {
       throw new Error('Not a Clerk user id');
     }
+    return this.fetch(method, `/users/${clerkUserId}`, TIMEOUT_MS);
+  }
+
+  private async fetch(
+    method: 'GET' | 'DELETE' | 'POST',
+    path: string,
+    timeoutMs: number,
+    body?: object,
+  ) {
     if (!this.keySecret) {
       throw new Error(
         'Clerk’s Backend API is off (no CLERK_SECRET_KEY_SECRET)',
@@ -100,12 +164,17 @@ export class ClerkBackendApi implements ClerkBackend {
     if (!/^sk_(test|live)_/.test(key)) {
       throw new Error(`Secret ${this.keySecret} isn't a Clerk secret key`);
     }
-    return this.fetcher(`${API}/users/${clerkUserId}`, {
+    return this.fetcher(`${API}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+      headers: {
+        Authorization: `Bearer ${key}`,
+        Accept: 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
       // The key goes to Clerk's API only, never on to wherever a redirect points.
       redirect: 'error',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   }
 
@@ -124,6 +193,20 @@ export class ClerkBackendApi implements ClerkBackend {
       );
       return null;
     }
+  }
+}
+
+/** A JWT's claims, unverified (the database verifies the signature). */
+function payloadOf(jwt: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(
+      Buffer.from(jwt.split('.')[1] ?? '', 'base64url').toString('utf8'),
+    );
+    return value && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
   }
 }
 
