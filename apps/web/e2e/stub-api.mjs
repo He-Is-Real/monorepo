@@ -6,25 +6,22 @@
 // "down" and 404 problems for anything else.
 //
 // One process, four ports, for the web servers in playwright.config.ts:
-// - STUB_PORT: dev as it is today (D48's relaxed consent checks on);
-// - STUB_LIVE_PORT: the same stories with D48 off, as at Go live (indexing.e2e.ts);
+// - STUB_PORT: dev as it is today;
+// - STUB_LIVE_PORT: the same stories, as at Go live (indexing.e2e.ts);
 // - STUB_DOWN_PORT: api-public-read down, every request answers 503;
 // - STUB_SLOW_PORT: dev, but each site video's answer waits until the test releases its key
 //   (`POST /__test/release-site-video/{key}`; site-videos.e2e.ts: the page doesn't wait for it).
 //
-// The legal routes serve dev's placeholders, read from libs/legal as the database copies them
-// (D75): the forms in force (`/v1/legal/forms/{form}`, v2: a short introduction and the boxes from
-// the statements files, D114, D122), the privacy document (`/v1/legal/dpa`) and the two legal
-// documents (`/v1/legal/documents/{privacy|terms}` and `…/versions/{number}`, D121, D125): the
-// privacy policy has an earlier version too, so its "Previous versions" can be seen. On the Go live port none is published (404), as anywhere but dev.
+// The legal routes (plan 4e) serve the four texts' versions from legal-fixtures.mjs (version 0 is
+// the database's seed, with a few later versions so redlines and "Previous versions" show), on
+// every port that answers: `/v1/legal/documents/{document}` and `…/versions/{version}`.
 //
 // The founder's videos (`/v1/site-videos/founder-intro` and `/next-steps`) are set on the dev
 // port and not on the Go live port (404), so About's and Next Steps' players and their
 // placeholders are all seen.
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
+import { LEGAL_VERSIONS } from './legal-fixtures.mjs';
 
 const port = Number(process.env.STUB_PORT ?? 4310);
 const livePort = Number(process.env.STUB_LIVE_PORT ?? 4311);
@@ -556,137 +553,34 @@ const problem = (res, status, code) =>
     'application/problem+json',
   );
 
-// D75: dev's placeholder versions, the words as published (libs/legal), like the database's copies.
-const LEGAL = resolve(import.meta.dirname, '../../../libs/legal');
-const words = (file) => readFileSync(`${LEGAL}/${file}`, 'utf8');
-const sha256 = (text) => createHash('sha256').update(text).digest('hex');
-const DPA_TEXT = words('dpa/dev_placeholder.md');
-const DPA = {
-  id: 'dev_placeholder',
-  kind: 'standard',
-  status: 'published',
-  materiality: 'material',
-  contentHash: sha256(DPA_TEXT),
-  changeSummary: null,
-  supersedes: null,
-  effectiveFrom: null,
-  version: 1,
-};
-const form = (name, statements, features) => {
-  const text = words(`forms/${name}/v2.md`);
-  // D114: the boxes, from the version's statements file, never from its words.
-  const statementsFile = words(`forms/${name}/v2.statements.json`);
-  return {
-    form: name,
-    id: 'v2',
-    status: 'published',
-    publishedAt: '2026-10-30T12:00:00.000Z',
-    dpaVersion: 'dev_policy',
-    textHash: sha256(text),
-    text,
-    statements,
-    boxes: JSON.parse(statementsFile).statements.map((b) => ({
-      statement: b.key,
-      label: b.label,
-      step: b.step ?? null,
-    })),
-    statementsHash: sha256(statementsFile),
-    version: 1,
-    ...(features ? { features } : {}),
-  };
-};
-// D121, D125: the two legal documents, each a list of numbered versions, newest first, the first
-// in force, as data 0007 seeds them in dev.
-const DOCUMENTS = {
-  privacy: [
-    {
-      id: 'dev_policy',
-      number: 2,
-      publishedAt: '2026-10-30T12:00:00.000Z',
-      text: words('dpa/dev_policy.md'),
-    },
-    {
-      id: 'dev_placeholder',
-      number: 1,
-      publishedAt: '2026-10-25T12:00:00.000Z',
-      text: DPA_TEXT,
-    },
-  ],
-  terms: [
-    {
-      id: 'dev_placeholder',
-      number: 1,
-      publishedAt: '2026-10-30T12:00:00.000Z',
-      text: words('terms/dev_placeholder.md'),
-    },
-  ],
-};
-const versionOf = (v) => ({
-  id: v.id,
-  number: v.number,
-  publishedAt: v.publishedAt,
-  contentHash: sha256(v.text),
-});
-const FORMS = {
-  signup: form('signup', ['age_18plus', 'account_data', 'terms_of_use']),
-  testimony: form('testimony', ['special_category_religious', 'publish'], {
-    requiresAcceptanceForNewSubmissions: false,
-    coversPublicPublishing: true,
-    draftRetentionMonths: 6,
-  }),
-  social: form('social', ['share_socials'], {
-    shareYouTube: false,
-    shareInstagram: false,
-    shareTikTok: false,
-    shareFacebook: false,
-    allowEditingAndClipping: false,
-    allowChurchAndPartnerMedia: false,
-    allowPrintAndEvents: false,
-    allowPaidPromotion: false,
-  }),
-};
-
 /**
- * `GET /v1/legal/forms/{form}`, `GET /v1/legal/dpa` and the legal documents and their versions:
- * dev's versions, none when live.
+ * `GET /v1/legal/documents/{document}` (the latest with its words, and every version, newest
+ * first) and `…/versions/{version}` (plan 4e).
  */
-function legal(mode, url, res) {
-  const notPublished = () => problem(res, 404, 'not_found');
+function legal(url, res) {
   const [, document, rest] =
     /^\/v1\/legal\/documents\/([^/]+)(\/.*)?$/.exec(url.pathname) ?? [];
-  if (document) {
-    const versions = DOCUMENTS[document];
-    if (!versions || mode === 'live') return notPublished();
-    if (!rest) {
-      return json(res, 200, {
-        document,
-        current: { ...versionOf(versions[0]), text: versions[0].text },
-        versions: versions.map(versionOf),
-      });
-    }
-    const number = Number(/^\/versions\/([1-9][0-9]{0,8})$/.exec(rest)?.[1]);
-    const v = versions.find((x) => x.number === number);
-    if (!v) return notPublished();
+  const versions = document && LEGAL_VERSIONS[document];
+  if (!versions) return problem(res, 404, 'not_found');
+  const latest = versions.length - 1;
+  if (!rest) {
     return json(res, 200, {
       document,
-      ...versionOf(v),
-      text: v.text,
-      current: v === versions[0],
+      latest: { version: latest, ...versions[latest] },
+      versions: versions
+        .map((v, version) => ({ version, releaseDate: v.releaseDate }))
+        .reverse(),
     });
   }
-  if (url.pathname === '/v1/legal/dpa') {
-    const version = url.searchParams.get('version');
-    if (mode === 'live' || (version !== null && version !== DPA.id))
-      return notPublished();
-    return json(res, 200, {
-      current: { ...DPA, text: DPA_TEXT },
-      history: [DPA],
-    });
-  }
-  const name = /^\/v1\/legal\/forms\/([^/]+)$/.exec(url.pathname)?.[1];
-  if (!name || !(name in FORMS)) return problem(res, 404, 'not_found');
-  if (mode === 'live') return notPublished();
-  return json(res, 200, FORMS[name]);
+  const n = /^\/versions\/(0|[1-9][0-9]{0,8})$/.exec(rest)?.[1];
+  const v = n === undefined ? undefined : versions[Number(n)];
+  if (!v) return problem(res, 404, 'not_found');
+  return json(res, 200, {
+    document,
+    version: Number(n),
+    ...v,
+    latest: Number(n) === latest,
+  });
 }
 
 /** Whether the API on this port has the story at all (withdrawn ones answer 404). */
@@ -894,7 +788,7 @@ const handler = (mode) => (req, res) => {
     return json(res, 200, {
       reads: reads.get(url.searchParams.get('slug')) ?? 0,
     });
-  if (url.pathname.startsWith('/v1/legal/')) return legal(mode, url, res);
+  if (url.pathname.startsWith('/v1/legal/')) return legal(url, res);
   const site = /^\/v1\/site-videos\/([^/]+)$/.exec(url.pathname);
   if (site) return siteVideo(mode, site[1], res);
   if (url.pathname === '/v1/stories') return listStories(mode, url, res);
@@ -909,13 +803,7 @@ const handler = (mode) => (req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(
-      // D48 on in dev, so every page's footer note is checked on every device; off when live.
-      JSON.stringify({
-        status: 'ok',
-        service: 'api-public-read',
-        db: 'up',
-        consentChecksRelaxed: mode !== 'live',
-      }),
+      JSON.stringify({ status: 'ok', service: 'api-public-read', db: 'up' }),
     );
   }
   if (match?.[1] === 'down') {

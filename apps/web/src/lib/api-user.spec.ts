@@ -65,7 +65,7 @@ it('surfaces 412 as StaleVersion and other errors as their problem', async () =>
       type: 'about:blank',
       title: 'Forbidden',
       status: 403,
-      code: 'consent_required',
+      code: 'terms_agreement_required',
     },
     'application/problem+json',
   ) as typeof fetch;
@@ -74,7 +74,10 @@ it('surfaces 412 as StaleVersion and other errors as their problem', async () =>
     .catch((e) => e);
   expect(refused).toBeInstanceOf(ApiUserProblem);
   expect(refused).not.toBeInstanceOf(StaleVersion);
-  expect([refused.status, refused.code]).toEqual([403, 'consent_required']);
+  expect([refused.status, refused.code]).toEqual([
+    403,
+    'terms_agreement_required',
+  ]);
 
   // Not a problem body (e.g. a proxy's page): a bare problem with the status.
   global.fetch = answer(502, '<html>', 'text/html') as typeof fetch;

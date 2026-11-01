@@ -1,17 +1,14 @@
 import type { Metadata } from 'next';
-import {
-  ConsentPage,
-  consentReturnPath,
-} from '@/components/consent/consent-page';
+import { AgreementShell } from '@/components/consent/agreement-shell';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). Never indexed: it's for signed-in people. */
 export function generateMetadata(): Metadata {
   return {
     ...pageMetadata({
-      title: 'Your story and your data',
+      title: 'Testimony consent',
       description:
-        'The updated form about how He Is Real Today looks after your story.',
+        'How He Is Real Today looks after your stories: read what changed and agree.',
       path: '/consent/testimony',
     }),
     robots: { index: false, follow: false },
@@ -19,26 +16,17 @@ export function generateMetadata(): Metadata {
 }
 
 /**
- * A newer testimony form (D85), from the banner after sign-in: accepting it moves the person's
- * account to the version in force (their Art 9 grant on it, `special_category_religious`),
- * which covers their earlier stories too. Publishing is asked again when they next submit
- * (D67), so it is shown as words here, not a box. It only gates new drafts and submissions
- * (D93): their stories stay up whatever they choose.
+ * The testimony consent (plan 4e), from the banner after a newer version is saved: what changed
+ * since the version the person agreed to, and one tick. It covers every story they submit; their
+ * published stories stay up whatever they choose, but they can't start or change one until they
+ * agree (the database refuses).
  */
-export default async function TestimonyConsentPage({
+export default function TestimonyConsentPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const returnTo = consentReturnPath((await searchParams)['redirect_url']);
   return (
-    <ConsentPage
-      form="testimony"
-      ask={['special_category_religious']}
-      mechanism="reconsent_prompt"
-      title="Your story and your data"
-      lead="We’ve updated this form. Please read it and tick the box before you start or submit a new story. Your stories stay on the site whatever you choose."
-      returnTo={returnTo}
-    />
+    <AgreementShell document="testimony-consent" searchParams={searchParams} />
   );
 }

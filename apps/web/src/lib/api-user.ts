@@ -20,7 +20,7 @@
  * - Commands that modify an existing resource send `If-Match` with its `version`
  *   ({@link ifMatch}); non-idempotent `POST`s send an `Idempotency-Key`
  *   ({@link newIdempotencyKey}), kept and reused when retrying the same command (D29).
- * - **api-admin too:** staff pages (`/admin/legal`) call api-admin with this same client at
+ * - **api-admin too:** staff pages (`/admin/consent`) call api-admin with this same client at
  *   api-admin's origin (`API_ADMIN_URL`): the same token, the same rules (D31).
  */
 
@@ -43,9 +43,26 @@ export interface Account {
   version: null;
   role: 'Viewer' | 'User' | 'Moderator' | 'Admin' | 'SuperAdmin';
   createdAt: string;
-  signupConsent: { accepted: boolean };
-  /** D85: a newer testimony form must be accepted before a new story (the banner). */
-  testimonyConsent: { acceptanceRequired: boolean };
+  /** Plan 4e: the terms of use, agreed before the account can be used (they say 18 or over). */
+  termsOfUse: AgreementState;
+  /** Plan 4e: the testimony consent, agreed before the first story and again for a newer one. */
+  testimonyConsent: AgreementState;
+}
+
+/** The contract's `Agreement`: a version someone agreed to, and when (the database's time). */
+export interface Agreement {
+  version: number;
+  agreedAt: string;
+}
+
+/**
+ * The contract's `AgreementState`: `agreed` is null until the first agreement; `upToDate` is
+ * whether that's the latest version.
+ */
+export interface AgreementState {
+  agreed: Agreement | null;
+  latestVersion: number;
+  upToDate: boolean;
 }
 
 /** api-user answered with an error (anything but 2xx and 304). */

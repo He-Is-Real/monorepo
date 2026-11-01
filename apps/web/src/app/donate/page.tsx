@@ -92,7 +92,7 @@ function Giving({ stripe }: { stripe: StripeDonations }) {
           href="/privacy#donations"
           className="inline-flex min-h-11 items-center"
         >
-          privacy policy
+          privacy notice
         </Link>
         .
       </p>

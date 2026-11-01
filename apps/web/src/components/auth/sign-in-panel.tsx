@@ -2,7 +2,7 @@
 
 import { SignIn } from '@clerk/react';
 import {
-  SIGN_UP_CONSENT_PATH,
+  TERMS_AGREEMENT_PATH,
   withReturn,
 } from '@/components/consent/consent-prompts';
 
@@ -21,8 +21,8 @@ export function SignInPanel({ returnTo }: { returnTo: string }) {
       routing="hash"
       withSignUp
       forceRedirectUrl={returnTo}
-      // A new account goes straight to the sign-up consent step (D73), then on to returnTo.
-      signUpForceRedirectUrl={withReturn(SIGN_UP_CONSENT_PATH, returnTo)}
+      // A new account goes straight to the terms of use (plan 4e), then on to returnTo.
+      signUpForceRedirectUrl={withReturn(TERMS_AGREEMENT_PATH, returnTo)}
       appearance={APPEARANCE}
     />
   );

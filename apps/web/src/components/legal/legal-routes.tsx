@@ -4,42 +4,41 @@ import { LegalDocumentPage } from '@/components/legal/legal-document-page';
 import {
   getLegalDocument,
   getLegalDocumentVersion,
-  type LegalDocumentName,
+  type PublicDocument,
 } from '@/lib/legal';
 
 /**
- * /privacy and /terms (D121, D125): the version in force, read per request from
- * api-public-read (D32), so a version an admin publishes shows at once.
+ * /privacy and /terms (plan 4e): the latest version, read per request from api-public-read (D32),
+ * so a version an admin saves shows at once.
  */
 export async function CurrentDocument({
   document,
 }: {
-  document: LegalDocumentName;
+  document: PublicDocument;
 }) {
   await connection();
   const doc = await getLegalDocument(document);
   return (
     <LegalDocumentPage
       document={document}
-      version={doc?.current ?? null}
-      text={doc?.current?.text ?? null}
-      inForce={doc?.current?.number ?? null}
+      version={doc?.latest ?? null}
+      text={doc?.latest.content ?? null}
+      latest={doc?.latest.version ?? null}
       versions={doc?.versions ?? []}
-      problem={doc ? 'not_published' : 'unavailable'}
     />
   );
 }
 
-/** /privacy/versions/<n> and /terms/versions/<n>: one version, kept for ever (D125). */
+/** /privacy/versions/<n> and /terms/versions/<n> (from 0): one version, kept for ever. */
 export async function DocumentVersion({
   document,
   number,
 }: {
-  document: LegalDocumentName;
+  document: PublicDocument;
   number: string;
 }) {
   await connection();
-  if (!/^[1-9][0-9]{0,8}$/.test(number)) notFound();
+  if (!/^(0|[1-9][0-9]{0,8})$/.test(number)) notFound();
   const [version, doc] = await Promise.all([
     getLegalDocumentVersion(document, Number(number)),
     getLegalDocument(document),
@@ -49,10 +48,8 @@ export async function DocumentVersion({
     <LegalDocumentPage
       document={document}
       version={version}
-      text={version.text}
-      inForce={
-        doc?.current?.number ?? (version.current ? version.number : null)
-      }
+      text={version.content}
+      latest={doc?.latest.version ?? (version.latest ? version.version : null)}
       versions={doc?.versions ?? []}
     />
   );

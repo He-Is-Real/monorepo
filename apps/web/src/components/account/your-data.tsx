@@ -68,9 +68,9 @@ const outcomeUnknown = (err: unknown) =>
  * Your data (R6, Joel 2026-10-30): the profile's serious choices about the person's data, in one
  * place. "Download my data" saves everything we hold about them as one JSON file (M2 plan PR 12;
  * Art 15, Art 20); "Delete my account" is how they withdraw their consent and erase everything
- * (D39, D82, D88; O4, Joel 2026-10-31: the one account-wide withdrawal offered, merged with
- * deletion) after a typed confirmation, and signs them out. Each story is withdrawn, deleted or
- * shared beyond heisreal.today on its own in My submissions. Filled in by the browser (D83).
+ * (D39, D82, D88; plan 4e, 8b P4: deleting the account is the withdrawal) after a typed
+ * confirmation, and signs them out. Each story is withdrawn or deleted on its own in My
+ * submissions. Filled in by the browser (D83).
  */
 export function YourData({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   const session = usePersonalSession();
@@ -160,8 +160,8 @@ function DownloadMyData() {
       <p className="mb-4 text-secondary-text">
         Get a copy of everything we hold about you, in one file (JSON) that
         explains each part: your account and sign-in details, every story you’ve
-        started or shared, your consents, favourites and limits. Your videos,
-        audio and pictures are in it as links that work for one hour.
+        started or shared, what you agreed to, favourites and limits. Your
+        videos, audio and pictures are in it as links that work for one hour.
       </p>
       <Button
         variant="outline"
@@ -256,7 +256,7 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
     >
       <h3 className="mb-1 text-lg font-semibold">Delete my account</h3>
       <p className="mb-4 text-secondary-text">
-        Withdraw your consent and delete your account, every story and
+        This withdraws your consent and deletes your stories, your account and
         everything else we hold about you. To take down just one story, use
         Withdraw or Delete on it in My submissions.
       </p>
@@ -276,14 +276,12 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
             <li>your favourites.</li>
           </ul>
           <p className="mb-3">
-            It can’t be undone. It withdraws every consent you gave us: to keep
-            and publish your stories, to share any of them beyond
-            heisreal.today, and to keep your account. We keep only the record of
-            the consents you gave and withdrew, with none of your stories, for
-            six years, as proof that we asked. We also keep a fingerprint of
-            your sign-in’s id, so the deleted sign-in can’t make a new account
-            here. It isn’t your name or email, but it isn’t anonymous: it can be
-            matched to that id.
+            It can’t be undone. It withdraws your consent: we stop keeping and
+            publishing your stories, and make no new use of any you let us share
+            on social media (copies already shared can’t be recalled). We keep a
+            fingerprint of your sign-in’s id, so the deleted sign-in can’t make
+            a new account here. It isn’t your name or email, but it isn’t
+            anonymous: it can be matched to that id.
           </p>
           <form
             onSubmit={(e) => {

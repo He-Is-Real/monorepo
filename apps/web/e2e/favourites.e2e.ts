@@ -469,6 +469,56 @@ test.describe('hearts', () => {
     expect(puts()).toBe(0);
   });
 
+  test('a heart made before agreeing to changed terms stays on the device and is offered after agreeing', async ({
+    page,
+    request,
+  }, info) => {
+    const project = info.project.name;
+    const id = `heart_test_${project.replace('-', '_')}`;
+    const session = sessionFor(info, 'terms-first');
+    await useSession(page, session);
+    await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
+    const heart = cardHeart(page, `Heart test story (${project})`);
+    await expect(heart).toHaveAttribute('data-heart-state', 'off');
+    // Plan 4e: the terms change while the page is open; api-user refuses the heart.
+    await request.post(
+      `${STUB_USER_URL}/__e2e/sessions/${session}/agreements`,
+      {
+        data: { terms: 0 },
+      },
+    );
+    const refused = page.waitForResponse((r) =>
+      isCommand('PUT', id)(r.request()),
+    );
+    await heart.click();
+    expect((await refused).status()).toBe(403);
+    await expect(page).toHaveURL(/\/consent\/terms\?/);
+    expect(await deviceHearts(page)).toEqual([id]);
+    await expect(
+      page.getByRole('heading', {
+        level: 1,
+        name: 'Our terms of use have changed',
+      }),
+    ).toBeVisible();
+    await expect(page.locator('[data-redline] ins').first()).toBeVisible();
+    await page
+      .locator('label')
+      .filter({ hasText: 'I agree to version 2 of the terms of use.' })
+      .click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
+    const prompt = page.locator('[data-device-hearts-prompt]');
+    await expect(prompt).toContainText(
+      'Add the story you hearted on this device to your account?',
+    );
+    const saved = page.waitForResponse((r) =>
+      isCommand('PUT', id)(r.request()),
+    );
+    await prompt.getByRole('button', { name: 'Add' }).click();
+    expect((await saved).status()).toBe(204);
+    await expect(heart).toHaveAttribute('aria-pressed', 'true');
+  });
+
   test('Add waits for a save already on its way, and says so when that fails', async ({
     page,
   }, info) => {

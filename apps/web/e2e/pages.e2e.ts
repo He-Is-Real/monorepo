@@ -69,10 +69,6 @@ for (const scheme of ['light', 'dark'] as const) {
           .first()
           .getByRole('link', { name: 'Test story: audio' }),
       ).toBeVisible();
-      // D48: the stub reports relaxed consent checks, as dev does while it holds dummy data.
-      await expect(
-        page.getByRole('contentinfo').getByText('Consent checks relaxed (dev)'),
-      ).toBeVisible();
       await expectTarget(page, page.getByRole('link', { name: 'Sign in' }));
       // No made-up figures until they're confirmed (2026-10-24, pending Joel).
       await expect(page.getByText('Countries reached')).toHaveCount(0);

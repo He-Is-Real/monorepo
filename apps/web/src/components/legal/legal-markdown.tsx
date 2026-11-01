@@ -2,7 +2,7 @@ import { LegalHtml } from '@/components/legal/legal-html';
 import { renderLegalMarkdown } from '@/lib/markdown';
 
 /**
- * A legal text, rendered (D125): the privacy policy, the terms of use, or the admin's live
+ * A legal text, rendered (D125): the privacy notice, the terms of use, or the admin's live
  * preview. Always the same renderer (lib/markdown.ts) and styles (LegalHtml). A document to
  * read, nothing more (D114: the consent boxes are the page's own).
  */

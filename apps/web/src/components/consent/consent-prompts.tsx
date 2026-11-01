@@ -7,26 +7,25 @@ import { useAccountState } from '@/components/auth/account-bootstrap';
 import { Button } from '@/components/ui/button';
 import { safeReturnPath, SIGN_IN_PATH } from '@/lib/return-path';
 
-/** The sign-up consent step (D73). */
-export const SIGN_UP_CONSENT_PATH = '/consent/sign-up';
-/** The page that asks for a newer testimony form (D85). */
+/** The terms of use on the person's account: at sign-up, and after the terms change (plan 4e). */
+export const TERMS_AGREEMENT_PATH = '/consent/terms';
+/** The testimony consent after a newer version is saved (plan 4e, the banner's step). */
 export const TESTIMONY_CONSENT_PATH = '/consent/testimony';
 
 /**
- * Pages a person who hasn't accepted the sign-up form may stay on: the step itself, sign-in,
- * the legal pages they may want to read first (with the numbered versions the step links), and
- * the staff page that publishes those documents (D121). In a new environment nothing is published yet, so the step can't be
- * completed until an Admin publishes there; api-admin still refuses anyone below Admin.
+ * Pages a person who hasn't agreed to the latest terms of use may stay on: the step itself,
+ * sign-in, and the privacy notice and terms they may want to read first (with their numbered
+ * versions).
  */
-const OPEN_BEFORE_SIGN_UP_CONSENT = [
-  SIGN_UP_CONSENT_PATH,
+const OPEN_BEFORE_TERMS = [
+  TERMS_AGREEMENT_PATH,
   SIGN_IN_PATH,
   '/privacy',
   '/terms',
-  '/admin/legal',
 ];
-/** `/privacy/versions/3`, `/terms/versions/12`: one numbered version (D125), nothing else. */
-const LEGAL_DOCUMENT_VERSION = /^\/(privacy|terms)\/versions\/[1-9][0-9]{0,8}$/;
+/** `/privacy/versions/3`, `/terms/versions/0`: one numbered version, nothing else. */
+const LEGAL_DOCUMENT_VERSION =
+  /^\/(privacy|terms)\/versions\/(0|[1-9][0-9]{0,8})$/;
 
 /** `path` with `redirect_url` set to where the person is now. */
 export function withReturn(path: string, here: string): string {
@@ -50,16 +49,18 @@ const subscribe = (listener: () => void) => {
 };
 
 /**
- * The consent prompts after sign-in, from what the header's account bootstrap found
+ * The agreement prompts after sign-in (plan 4e), from what the header's account bootstrap found
  * (account-bootstrap.ts); all in the browser, since web's server never knows who is signed in
  * (D32, D83).
  *
- * - **D73, the sign-up step:** someone whose sign-up consent isn't accepted on the version in
- *   force is taken to it (`/consent/sign-up`), and back to this page afterwards. Until then the
- *   site is theirs to read, but not to use signed in.
- * - **D85, the banner:** someone on a testimony version that a newer one, requiring acceptance
- *   for new submissions, replaced is asked to read and accept it. It gates only new drafts and
- *   submissions (D93): their stories stay up whatever they choose, and nothing else is blocked.
+ * - **The terms of use:** someone who hasn't agreed to the latest version (a new account, or the
+ *   terms changed since) is taken to the step (`/consent/terms`), and back to this page afterwards.
+ *   Until then the site is theirs to read, but not to use signed in: the database refuses their
+ *   hearts and stories.
+ * - **The banner:** someone who agreed to an older testimony consent than the latest is asked to
+ *   read what changed and agree again (`/consent/testimony`). It only gates starting or changing a
+ *   story: their published stories stay up whatever they choose. Someone who has never agreed is
+ *   asked when they start their first story, not here.
  *
  * If the bootstrap failed or hasn't answered, nothing happens: it blocks nothing.
  */
@@ -75,22 +76,23 @@ export function ConsentPrompts() {
   );
   const here = `${pathname}${search ? `?${search}` : ''}`;
 
-  const needsSignUpConsent =
+  const needsTerms =
     account.status === 'ready' &&
-    !account.account.signupConsent.accepted &&
-    !OPEN_BEFORE_SIGN_UP_CONSENT.includes(pathname) &&
+    !account.account.termsOfUse.upToDate &&
+    !OPEN_BEFORE_TERMS.includes(pathname) &&
     !LEGAL_DOCUMENT_VERSION.test(pathname);
   useEffect(() => {
-    if (needsSignUpConsent)
-      router.replace(withReturn(SIGN_UP_CONSENT_PATH, here));
-  }, [needsSignUpConsent, here, router]);
+    if (needsTerms) router.replace(withReturn(TERMS_AGREEMENT_PATH, here));
+  }, [needsTerms, here, router]);
 
   const showBanner =
     account.status === 'ready' &&
-    account.account.signupConsent.accepted &&
-    account.account.testimonyConsent.acceptanceRequired &&
+    account.account.termsOfUse.upToDate &&
+    account.account.testimonyConsent.upToDate === false &&
+    account.account.testimonyConsent.agreed !== null &&
     !dismissed &&
-    pathname !== TESTIMONY_CONSENT_PATH;
+    pathname !== TESTIMONY_CONSENT_PATH &&
+    pathname !== '/share';
   if (!showBanner) return null;
 
   return (
@@ -105,11 +107,11 @@ export function ConsentPrompts() {
             id="consent-banner-title"
             className="text-base font-semibold text-foreground"
           >
-            We’ve updated “Your story and your data”
+            Our testimony consent has changed
           </h2>
           <p className="text-sm text-secondary-text">
-            Please read and accept it before you start or submit a new story.
-            Your stories stay on the site either way.
+            Please read what’s changed and agree before you start or change a
+            story. Your published stories stay up either way.
           </p>
         </div>
         <div className="flex min-w-0 max-w-full flex-wrap gap-2">
@@ -118,7 +120,7 @@ export function ConsentPrompts() {
             className="h-auto min-h-11 max-w-full shrink px-5 py-2 whitespace-normal"
           >
             <Link href={withReturn(TESTIMONY_CONSENT_PATH, here)}>
-              Read and accept
+              Read what’s changed
             </Link>
           </Button>
           <Button

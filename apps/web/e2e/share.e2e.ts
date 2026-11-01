@@ -7,6 +7,7 @@ import {
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
 import {
+  enlargeText,
   expectAllTargets,
   expectTarget,
   expectNoHorizontalOverflow,
@@ -23,13 +24,16 @@ import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 const SHARE = `${WEB_SIGNED_IN_URL}/share`;
 const TEXT =
   'I was lost for years, and I did not think anyone could reach me. '.repeat(5);
-const ART9 = /storing and processing my story/;
-const PUBLISH = /Publish my story on heisreal\.today/;
+/** The testimony consent's box (plan 4e), before a first story. */
+const ART9 = /I agree to the testimony consent/;
 
 interface Seed {
   settings?: Record<string, number>;
-  signupAccepted?: boolean;
-  granted?: string[];
+  /** Plan 4e: the versions agreed (default: the latest terms, no testimony consent). */
+  terms?: number | null;
+  testimony?: number | null;
+  /** Texts whose next agreement answers 409 `agreement_version_changed` once. */
+  staleOnce?: string[];
   trusted?: boolean;
   stories?: Record<string, unknown>[];
 }
@@ -46,6 +50,13 @@ async function person(page: Page, request: APIRequestContext, seed: Seed) {
   }, id);
   const auth = { authorization: `Bearer ${fixtureToken(id)}` };
   return {
+    /** The agreements the page sent to api-user (plan 4e), in order. */
+    agreed: async () =>
+      (
+        await (
+          await request.get(`${STUB_USER_URL}/__e2e/sessions/${id}/agreed`)
+        ).json()
+      ).requests as { document: string; version: number }[],
     /** An admin deletes a theme (in this person's stub session). */
     deleteTheme: async (theme: string) =>
       expect(
@@ -72,7 +83,7 @@ async function person(page: Page, request: APIRequestContext, seed: Seed) {
         body: string;
         bylineName: string | null;
         themes: { id: string }[];
-        sharing: { granted: boolean };
+        socialMediaSharingConsent: { version: number } | null;
       }[],
     /** Another tab: a merge patch at the version it read. */
     editElsewhere: async (id: string, version: number, patch: object) =>
@@ -87,10 +98,8 @@ async function person(page: Page, request: APIRequestContext, seed: Seed) {
   };
 }
 
-const SIGNED_UP: Seed = {
-  signupAccepted: true,
-  granted: ['age_18plus', 'account_data'],
-};
+/** Signed up: on the latest terms of use, no testimony consent yet (the stub's default). */
+const SIGNED_UP: Seed = {};
 const step = (page: Page, name: string | RegExp) =>
   expect(
     page.getByRole('heading', {
@@ -113,7 +122,7 @@ async function toWrite(page: Page) {
   await page.getByRole('button', { name: 'Write my story' }).click();
   await step(page, 'Your story and your data');
   await tick(page, ART9);
-  await page.getByRole('button', { name: 'I agree, continue' }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await step(page, 'Prepare your story');
   await page.getByRole('button', { name: 'Start writing' }).click();
   await step(page, 'Write your story');
@@ -147,7 +156,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await step(page, 'Your story and your data');
       await fits('consent');
       await tick(page, ART9);
-      await page.getByRole('button', { name: 'I agree, continue' }).click();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await step(page, 'Prepare your story');
       await fits('prepare');
       await page.getByRole('button', { name: 'Start writing' }).click();
@@ -170,7 +179,6 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await step(page, 'Review and submit');
       await expect(page.getByText('Anonymous')).toBeVisible();
-      await tick(page, PUBLISH);
       await fits('review');
       await page.getByRole('button', { name: 'Submit for review' }).click();
       await step(page, 'Thank you for sharing your story');
@@ -182,9 +190,48 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
-// WCAG 1.4.4 on the smallest phone: at 200% text the consent boxes' wording keeps a readable
-// column (round 3 review: it had ~44 px, two or three letters a line, which the overflow check
+// WCAG 1.4.4 on the smallest phone: at 200% text the boxes' wording keeps a readable column
+// (round 3 review: it once had ~44 px, two or three letters a line, which the overflow check
 // can't see because the words wrap anywhere). Measured, not just "fits".
+test('at 200% text on a 320 px phone, the testimony consent and sharing boxes keep a readable column', async ({
+  page,
+  request,
+}, info) => {
+  test.skip(info.project.name !== 'phone-320', 'the smallest phone');
+  await enlargeText(page);
+  await person(page, request, {
+    ...SIGNED_UP,
+    stories: [
+      {
+        id: 'zoomed',
+        title: 'Almost there',
+        body: TEXT,
+        primaryFormat: 'written',
+        themeIds: ['hope'],
+      },
+    ],
+  });
+  const readable = async (words: RegExp) => {
+    const label = page.locator('label').filter({ hasText: words });
+    await expect(label).toBeVisible();
+    const width = (await label.locator(':scope > span').last().boundingBox())
+      ?.width;
+    expect(width ?? 0, 'the box’s words have a column').toBeGreaterThan(150);
+    await expectNoHorizontalOverflow(page);
+  };
+  await page.goto(SHARE);
+  await page.getByRole('button', { name: 'Continue “Almost there”' }).click();
+  await step(page, 'Your story and your data');
+  await readable(ART9);
+  await tick(page, ART9);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await step(page, 'Write your story');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await step(page, 'Review and submit');
+  await readable(/sharing this story on social media/);
+});
+
 test.describe('behaviour', () => {
   // eslint-disable-next-line no-empty-pattern
   test.beforeEach(({}, info) => {
@@ -240,7 +287,6 @@ test.describe('behaviour', () => {
     await step(page, 'Add some details');
     await page.getByText('Healing', { exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await tick(page, PUBLISH);
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
       'needs at least 200 characters',
@@ -256,7 +302,6 @@ test.describe('behaviour', () => {
   }) => {
     const me = await person(page, request, {
       ...SIGNED_UP,
-      granted: [...(SIGNED_UP.granted ?? []), 'publish'],
       settings: { storyTextMin: 50, storyTextMax: 400 },
     });
     await toWrite(page);
@@ -286,7 +331,6 @@ test.describe('behaviour', () => {
   }) => {
     const me = await person(page, request, {
       ...SIGNED_UP,
-      granted: [...(SIGNED_UP.granted ?? []), 'publish'],
       settings: { themesMin: 2, themesMax: 3 },
     });
     await toWrite(page);
@@ -499,11 +543,7 @@ test.describe('behaviour', () => {
   }) => {
     const me = await person(page, request, {
       ...SIGNED_UP,
-      granted: [
-        ...(SIGNED_UP.granted ?? []),
-        'special_category_religious',
-        'publish',
-      ],
+      testimony: 3,
       stories: [
         {
           id: 'lost',
@@ -588,7 +628,7 @@ test.describe('behaviour', () => {
     await request.post(`${STUB_USER_URL}/__e2e/sessions/${other}`, {
       data: {
         ...SIGNED_UP,
-        granted: [...(SIGNED_UP.granted ?? []), 'special_category_religious'],
+        testimony: 3,
       },
     });
     await page.evaluate((s) => {
@@ -607,14 +647,16 @@ test.describe('behaviour', () => {
   });
 
   /** A person with one draft ready to submit, on its Review step. */
-  async function atReview(page: Page, request: APIRequestContext, id: string) {
+  async function atReview(
+    page: Page,
+    request: APIRequestContext,
+    id: string,
+    seed: Seed = {},
+  ) {
     const me = await person(page, request, {
       ...SIGNED_UP,
-      granted: [
-        ...(SIGNED_UP.granted ?? []),
-        'special_category_religious',
-        'publish',
-      ],
+      testimony: 3,
+      ...seed,
       stories: [
         {
           id,
@@ -712,11 +754,7 @@ test.describe('behaviour', () => {
   }) => {
     const me = await person(page, request, {
       ...SIGNED_UP,
-      granted: [
-        ...(SIGNED_UP.granted ?? []),
-        'special_category_religious',
-        'publish',
-      ],
+      testimony: 3,
       settings: { storyTextMax: 300 },
       stories: [
         {
@@ -805,7 +843,7 @@ test.describe('behaviour', () => {
   }) => {
     await person(page, request, {
       ...SIGNED_UP,
-      granted: [...(SIGNED_UP.granted ?? []), 'special_category_religious'],
+      testimony: 3,
     });
     await page.goto(`${SHARE}?draft=someone-elses`);
     await expect(
@@ -839,6 +877,167 @@ test.describe('behaviour', () => {
     await expect(page.getByText(/aren’t valid/)).toHaveCount(0);
     await page.getByLabel('Title').fill('Second go');
     await saved(page);
+  });
+
+  // Plan 4e: the testimony consent before the first story (one box, the privacy notice beside it,
+  // nothing stored before), what changed for someone on an older version, a stale agree, and the
+  // optional social media sharing box at the end of the upload.
+  test('the testimony consent comes first: one box, the privacy notice beside it, and nothing is stored before agreeing', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await step(page, 'Your story and your data');
+    const consent = page.locator('[data-agreement="testimony-consent"]');
+    await expect(consent).toHaveAttribute('data-agreement-version', '3');
+    await expect(consent).toContainText(
+      'store, review and publish every story you submit',
+    );
+    await expect(
+      consent.getByRole('link', { name: 'privacy notice' }),
+    ).toHaveAttribute('href', '/privacy');
+    // One box, unticked; Continue without it stores and sends nothing.
+    await expect(consent.getByRole('checkbox')).toHaveCount(1);
+    await expect(consent.getByRole('checkbox')).not.toBeChecked();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(consent.getByText('Tick the box to continue.')).toBeVisible();
+    await expect(consent.getByRole('checkbox')).toBeFocused();
+    expect(await me.agreed()).toEqual([]);
+    expect(await me.stories()).toEqual([]);
+    await tick(page, ART9);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Prepare your story');
+    expect(await me.agreed()).toEqual([
+      { document: 'testimony-consent', version: 3 },
+    ]);
+  });
+
+  test('someone on an older testimony consent sees everything that changed since their version, then agrees to the latest', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, { ...SIGNED_UP, testimony: 1 });
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await step(page, 'Our testimony consent has changed');
+    await expect(page.getByRole('main')).toContainText(
+      'You agreed to version 1 on 26 Oct 2026. Here’s what’s different in version 3.',
+    );
+    // One redline from version 1 to 3: version 2's change and version 3's together.
+    const redline = page.locator('[data-redline]');
+    await expect(redline.locator('ins')).toHaveText([
+      '[added: , review]',
+      '[added: , from your profile]',
+    ]);
+    await expect(redline.locator('[data-redline-fold]')).toHaveText([
+      '⋯ 1 unchanged section ⋯',
+      '⋯ 1 unchanged section ⋯',
+    ]);
+    await page.getByText('Read the full version 3').click();
+    await expect(page.locator('[data-full-version="3"]')).toContainText(
+      'Who sees it',
+    );
+    await tick(page, /I agree to version 3 of the testimony consent/);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Prepare your story');
+    expect(await me.agreed()).toEqual([
+      { document: 'testimony-consent', version: 3 },
+    ]);
+  });
+
+  test('a newer version saved while reading is shown, not agreed to: the box is ticked again (stale agree)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      ...SIGNED_UP,
+      staleOnce: ['testimony-consent'],
+    });
+    await page.goto(SHARE);
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await step(page, 'Your story and your data');
+    await tick(page, ART9);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.locator('[data-agreement-problem]')).toContainText(
+      'We updated the testimony consent while you were reading',
+    );
+    await expect(page.getByRole('checkbox')).not.toBeChecked();
+    // Sent once, and not again on its own.
+    expect(await me.agreed()).toHaveLength(1);
+    await tick(page, ART9);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Prepare your story');
+    expect(await me.agreed()).toHaveLength(2);
+  });
+
+  test('the social media sharing box is offered unticked at the end, names every platform, and nothing is shared without it', async ({
+    page,
+    request,
+  }) => {
+    const me = await atReview(page, request, 'unshared');
+    const box = page.locator('[data-sharing-box]');
+    await expect(box).toHaveAttribute('data-sharing-box', '1');
+    for (const platform of [
+      'YouTube',
+      'Instagram',
+      'TikTok',
+      'Facebook',
+      'WhatsApp',
+    ])
+      await expect(box).toContainText(platform);
+    await expect(box.getByRole('checkbox')).not.toBeChecked();
+    await expect(
+      box.getByRole('link', { name: 'privacy notice' }),
+    ).toHaveAttribute('href', '/privacy');
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    expect(await me.stories()).toMatchObject([
+      { status: 'pending', socialMediaSharingConsent: null },
+    ]);
+  });
+
+  test('ticked, the sharing consent’s version goes with the submission', async ({
+    page,
+    request,
+  }) => {
+    const me = await atReview(page, request, 'shared');
+    await tick(page, /sharing this story on social media/);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    expect(await me.stories()).toMatchObject([
+      { status: 'pending', socialMediaSharingConsent: { version: 1 } },
+    ]);
+  });
+
+  test('a newer sharing consent saved meanwhile keeps the draft, shows the latest and asks again, never resending the old version', async ({
+    page,
+    request,
+  }) => {
+    const me = await atReview(page, request, 'stale', {
+      staleOnce: ['social-media-sharing-consent'],
+    });
+    await tick(page, /sharing this story on social media/);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'We updated the social media sharing consent while you were writing',
+    );
+    const box = page.locator('[data-sharing-box]');
+    await expect(box.getByRole('checkbox')).not.toBeChecked();
+    expect(await me.stories()).toMatchObject([
+      {
+        status: 'draft',
+        title: 'Almost there',
+        socialMediaSharingConsent: null,
+      },
+    ]);
+    await tick(page, /sharing this story on social media/);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    expect(await me.stories()).toMatchObject([
+      { status: 'pending', socialMediaSharingConsent: { version: 1 } },
+    ]);
   });
 
   test('signed out, the page asks people to sign in and come back', async ({

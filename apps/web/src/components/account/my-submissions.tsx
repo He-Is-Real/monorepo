@@ -4,14 +4,14 @@ import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
+  type Agreement,
   type ApiUser,
   ApiUserProblem,
   ApiUserUnavailable,
   StaleVersion,
 } from '@/lib/api-user';
+import { shortDate } from '@/lib/legal-text';
 import { signInHref } from '@/lib/return-path';
-import type { ShareForm } from '@/lib/share-legal';
-import { StorySharing, type StorySharingState } from './story-sharing';
 import { useOwnData, useOwnNotice } from './use-own-data';
 
 /** The contract's `StoryMine`, the parts the profile shows. */
@@ -27,8 +27,11 @@ export interface MyStoryRow {
   createdAt: string;
   /** A draft's deletion date if nobody touches it (api-user's rule; never recomputed here). */
   draftExpiresAt?: string | null;
-  /** O4: whether this story may go beyond heisreal.today (its own choice). */
-  sharing: StorySharingState;
+  /**
+   * Plan 4e: the social media sharing consent ticked for this story at the end of its upload, or
+   * null. It can't be withdrawn: withdrawing or deleting the story stops any future use.
+   */
+  socialMediaSharingConsent?: Agreement | null;
 }
 
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -63,26 +66,13 @@ const LONG_DATE = new Intl.DateTimeFormat('en-GB', {
 /** A person has few stories (D94's limits); a bound in case. */
 const MAX_PAGES = 10;
 
-/** The person's stories, and whether they allow publishing (their `publish` consent, R6). */
+/** The person's stories. */
 interface Mine {
   stories: MyStoryRow[];
-  publishing: boolean;
 }
 
 async function readMine(api: ApiUser): Promise<Mine> {
-  const [stories, consents] = await Promise.all([
-    readAll(api),
-    api.get<{ current: { type: string; granted: boolean }[] }>(
-      '/v1/account/consents',
-    ),
-  ]);
-  if (!consents.data) throw new ApiUserUnavailable('No answer');
-  return {
-    stories,
-    publishing: consents.data.current.some(
-      (c) => c.type === 'publish' && c.granted,
-    ),
-  };
+  return { stories: await readAll(api) };
 }
 
 async function readAll(api: ApiUser): Promise<MyStoryRow[]> {
@@ -97,16 +87,6 @@ async function readAll(api: ApiUser): Promise<MyStoryRow[]> {
       nextCursor: string | null;
     }>(`/v1/account/stories${query}`);
     if (!data) throw new ApiUserUnavailable('No answer');
-    // A story's sharing without a yes or no can't be shown as either (O4): the list waits for
-    // an answer that has it, rather than show "only on heisreal.today" for a story that's shared.
-    if (
-      !data.data.every(
-        (s) =>
-          typeof s.sharing?.granted === 'boolean' &&
-          typeof s.sharing.counts === 'boolean',
-      )
-    )
-      throw new ApiUserUnavailable('A story without its sharing');
     all.push(...data.data);
     cursor = data.nextCursor;
     if (!cursor) break;
@@ -120,16 +100,11 @@ type Command = 'withdraw' | 'delete';
  * "My submissions" (M2 plan PR 8): the person's stories with their status, a moderator's
  * feedback when there is some, and what they can do with each: continue or delete a draft (and
  * see when it goes if left untouched), withdraw a story waiting for review or published, delete
- * one sent back for changes, withdrawn or not published (D71); and, for each submitted story,
- * whether it may be shared beyond heisreal.today (O4: chosen per story, on `socialForm`).
+ * one sent back for changes, withdrawn or not published (D71); and whether the person allowed it
+ * to be shared on social media (plan 4e: chosen once, at the end of its upload; read only here).
  * Filled in by the browser from api-user (D83), with its space kept while it loads.
  */
-export function MySubmissions({
-  socialForm,
-}: {
-  /** The social sharing form in force (read by the page's server, D32); null if none. */
-  socialForm: ShareForm | null;
-}) {
+export function MySubmissions() {
   const own = useOwnData(readMine);
   const { notice, say } = useOwnNotice<string>();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -231,19 +206,7 @@ export function MySubmissions({
           <StoryRow
             key={story.id}
             story={story}
-            onSite={story.status === 'approved' && state.data.publishing}
             onCommand={(command) => run(state.owner, story, command)}
-            sharing={
-              <StorySharing
-                storyId={story.id}
-                titleId={`story-${story.id}`}
-                status={story.status}
-                sharing={story.sharing}
-                form={socialForm}
-                api={() => own.api(state.owner)}
-                onChanged={() => own.reload(state.owner)}
-              />
-            }
           />
         ))}
       </ul>
@@ -279,27 +242,20 @@ export function MySubmissions({
 
 function StoryRow({
   story,
-  onSite,
   onCommand,
-  sharing,
 }: {
   story: MyStoryRow;
-  /** Published and on the site: approved, and the person still allows publishing. */
-  onSite: boolean;
   onCommand: (command: Command) => Promise<string | null>;
-  /** Its sharing beyond heisreal.today (O4). */
-  sharing: React.ReactNode;
 }) {
+  const onSite = story.status === 'approved';
+  const shared = story.socialMediaSharingConsent;
   const [confirm, setConfirm] = useState<Command | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const offSite = story.status === 'approved' && !onSite;
-  const status = offSite
-    ? { label: 'Off the site', tone: 'border-border text-secondary-text' }
-    : (STATUS[story.status] ?? {
-        label: story.status,
-        tone: 'border-border text-secondary-text',
-      });
+  const status = STATUS[story.status] ?? {
+    label: story.status,
+    tone: 'border-border text-secondary-text',
+  };
   const titleId = `story-${story.id}`;
   const what = story.status === 'draft' ? 'draft' : 'story';
 
@@ -364,13 +320,15 @@ function StoryRow({
           It isn’t on the site or waiting for review. You can delete it.
         </p>
       )}
-      {offSite && (
-        <p data-off-site="" className="mb-3 text-sm text-secondary-text">
-          It was accepted, but it isn’t on the site: you withdrew your consent
-          to publish your stories.
+      {shared && (
+        <p
+          data-shared-on-social=""
+          className="mb-3 text-sm text-secondary-text"
+        >
+          You allowed us to share it on social media (on{' '}
+          {shortDate(shared.agreedAt)}).
         </p>
       )}
-      {sharing}
 
       {confirm ? (
         <div

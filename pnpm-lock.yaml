@@ -181,9 +181,6 @@ importers:
       '@heisreal/auth':
         specifier: workspace:*
         version: link:../../libs/auth
-      '@heisreal/consent':
-        specifier: workspace:*
-        version: link:../../libs/consent
       '@heisreal/database':
         specifier: workspace:*
         version: link:../../libs/database
@@ -288,9 +285,6 @@ importers:
       '@heisreal/auth':
         specifier: workspace:*
         version: link:../../libs/auth
-      '@heisreal/consent':
-        specifier: workspace:*
-        version: link:../../libs/consent
       '@heisreal/database':
         specifier: workspace:*
         version: link:../../libs/database
@@ -346,9 +340,6 @@ importers:
       '@google-cloud/secret-manager':
         specifier: ^7.2.0
         version: 7.2.0
-      '@heisreal/consent':
-        specifier: workspace:*
-        version: link:../../libs/consent
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -407,6 +398,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      diff:
+        specifier: ^9.0.0
+        version: 9.0.0
       markdown-it:
         specifier: ^14.3.3
         version: 14.3.3
@@ -484,34 +478,6 @@ importers:
 
   libs/auth:
     dependencies:
-      '@heisreal/consent':
-        specifier: workspace:*
-        version: link:../consent
-      '@heisreal/database':
-        specifier: workspace:*
-        version: link:../database
-      '@heisreal/roles':
-        specifier: workspace:*
-        version: link:../roles
-      '@heisreal/secrets':
-        specifier: workspace:*
-        version: link:../secrets
-      '@nestjs/common':
-        specifier: ^12.3.2
-        version: 12.3.2(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      '@nestjs/core':
-        specifier: ^12.3.2
-        version: 12.3.2(@nestjs/common@12.3.2(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.3.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      surrealdb:
-        specifier: ^2.0.8
-        version: 2.0.8(tslib@2.8.1)(typescript@6.0.3)
-    devDependencies:
-      '@types/express':
-        specifier: ^5.0.6
-        version: 5.0.6
-
-  libs/consent:
-    dependencies:
       '@heisreal/database':
         specifier: workspace:*
         version: link:../database
@@ -555,9 +521,6 @@ importers:
 
   libs/health:
     dependencies:
-      '@heisreal/consent':
-        specifier: workspace:*
-        version: link:../consent
       '@heisreal/database':
         specifier: workspace:*
         version: link:../database
@@ -4718,6 +4681,10 @@ packages:
 
   diff@4.0.4:
     resolution: {integrity: sha512-X07nttJQkwkfKfvTPG/KSnE2OMdcUCao6+eXF3wmnIQRn2aPAHH3VxDbDOdegkd6JbPsXqShpvEOHfAT+nCNwQ==}
+    engines: {node: '>=0.3.1'}
+
+  diff@9.0.0:
+    resolution: {integrity: sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw==}
     engines: {node: '>=0.3.1'}
 
   doctrine@2.1.0:
@@ -13006,6 +12973,8 @@ snapshots:
       address: 2.0.3
 
   diff@4.0.4: {}
+
+  diff@9.0.0: {}
 
   doctrine@2.1.0:
     dependencies:

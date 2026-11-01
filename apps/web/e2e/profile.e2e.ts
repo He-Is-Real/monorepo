@@ -69,7 +69,7 @@ async function person(
 ) {
   const id = `${prefix}${randomUUID().replace(/-/g, '')}`;
   const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
-    data: { signupAccepted: true, ...seed },
+    data: seed,
   });
   expect(res.status()).toBe(204);
   await page.addInitScript((session) => {
@@ -109,7 +109,7 @@ test.describe('behaviour', () => {
     request,
   }) => {
     await person(page, request, {
-      granted: ['special_category_religious', 'publish'],
+      testimony: 3,
       stories: EVERY_STATUS,
     });
     await page.goto(`${WEB_SIGNED_IN_URL}/about`);
@@ -131,23 +131,21 @@ test.describe('behaviour', () => {
       status: 'Draft',
       actions: ['Continue', 'Delete'],
     });
-    // O4: every submitted story can be shared beyond heisreal.today, each on its own.
-    const SHARE = 'Share beyond heisreal.today';
     expect(await offers('Waiting one')).toEqual({
       status: 'Waiting for review',
-      actions: [SHARE, 'Withdraw'],
+      actions: ['Withdraw'],
     });
     expect(await offers('In review one')).toEqual({
       status: 'In review',
-      actions: [SHARE, 'Withdraw'],
+      actions: ['Withdraw'],
     });
     expect(await offers('Published one')).toEqual({
       status: 'Published',
-      actions: [SHARE, 'View', 'Withdraw'],
+      actions: ['View', 'Withdraw'],
     });
     expect(await offers('Sent back one')).toEqual({
       status: 'Changes requested',
-      actions: [SHARE, 'Withdraw', 'Delete'],
+      actions: ['Withdraw', 'Delete'],
     });
     expect(await offers('Not accepted one')).toEqual({
       status: 'Not published',
@@ -180,14 +178,17 @@ test.describe('behaviour', () => {
     request,
   }) => {
     await person(page, request, {
-      granted: ['special_category_religious', 'publish'],
+      testimony: 3,
       stories: [
         {
           id: 'm1',
           status: 'approved',
           title: 'Only mine',
           slug: 'only-mine',
-          shared: true,
+          socialMediaSharingConsent: {
+            version: 1,
+            agreedAt: '2026-10-31T12:00:00.000Z',
+          },
         },
         { id: 'm2', status: 'draft', title: 'My draft' },
       ],
@@ -198,13 +199,19 @@ test.describe('behaviour', () => {
       (
         await request.post(`${STUB_USER_URL}/__e2e/sessions/${other}`, {
           data: {
-            signupAccepted: true,
             stories: [{ id: 'o1', title: 'Someone else’s story' }],
           },
         })
       ).status(),
     ).toBe(204);
     await page.goto(PROFILE);
+    // Plan 4e: a story's sharing consent is shown, read only (it can't be withdrawn).
+    await expect(
+      row(page, 'Only mine').locator('[data-shared-on-social]'),
+    ).toHaveText(
+      'You allowed us to share it on social media (on 31 Oct 2026).',
+    );
+    await expect(page.locator('[data-shared-on-social]')).toHaveCount(1);
     const card = page.locator('[data-download-data]');
     const saving = page.waitForEvent('download');
     await card.getByRole('button', { name: 'Download my data' }).click();
@@ -218,22 +225,28 @@ test.describe('behaviour', () => {
       stories: {
         title: string;
         status: string;
-        sharing: { granted: boolean };
+        socialMediaSharingConsent: { version: number } | null;
       }[];
-      consents: { type: string; storyId: string | null }[];
+      agreements: {
+        termsOfUse: { version: number } | null;
+        testimonyConsent: { version: number } | null;
+      };
     };
-    // O4: each story's own sharing choice, and the ledger event naming the story.
+    // Plan 4e: each story's own sharing consent, and the versions the person agreed to.
     expect(
-      file.stories.map((s) => [s.title, s.status, s.sharing.granted]),
+      file.stories.map((s) => [
+        s.title,
+        s.status,
+        s.socialMediaSharingConsent?.version ?? null,
+      ]),
     ).toEqual([
-      ['My draft', 'draft', false],
-      ['Only mine', 'approved', true],
+      ['My draft', 'draft', null],
+      ['Only mine', 'approved', 1],
     ]);
-    expect(file.consents.map((c) => [c.type, c.storyId])).toEqual([
-      ['special_category_religious', null],
-      ['publish', null],
-      ['share_socials', 'm1'],
-    ]);
+    expect(file.agreements).toMatchObject({
+      termsOfUse: { version: 2 },
+      testimonyConsent: { version: 3 },
+    });
     expect(Object.keys(file.about.sections).length).toBeGreaterThan(0);
     expect(text).not.toContain('Someone else');
     // Laid out to be read, not one long line.
@@ -423,7 +436,7 @@ test.describe('behaviour', () => {
     request,
   }) => {
     await person(page, request, {
-      granted: ['special_category_religious', 'publish'],
+      testimony: 3,
       stories: [
         { id: 't1', status: 'approved', title: 'Live one', slug: 'live-one' },
       ],
@@ -432,7 +445,8 @@ test.describe('behaviour', () => {
     await expect(
       row(page, 'Live one').getByRole('button', { name: 'Withdraw' }),
     ).toBeVisible();
-    // O4 (Joel, 2026-10-31): no "take all my stories off the site", and no account-wide sharing.
+    // Plan 4e (8b P4): deleting the account is the withdrawal; no "take all my stories off the
+    // site", and no account-wide sharing.
     await expect(
       page.getByRole('button', { name: /take all my stories off/i }),
     ).toHaveCount(0);
@@ -441,10 +455,12 @@ test.describe('behaviour', () => {
     ).toHaveCount(0);
     const card = page.locator('[data-delete-account]');
     await expect(card).toContainText(
-      'Withdraw your consent and delete your account',
+      'This withdraws your consent and deletes your stories',
     );
     await card.getByRole('button', { name: 'Delete my account' }).click();
-    await expect(card).toContainText('It withdraws every consent you gave us');
+    await expect(card).toContainText('It withdraws your consent');
+    // Nothing kept afterwards suggests consent: no "record of your consents" is promised.
+    await expect(card).not.toContainText('record of the consents');
   });
 
   test('delete my account, by keyboard: it asks for the word, then the account is gone', async ({
@@ -452,7 +468,7 @@ test.describe('behaviour', () => {
     request,
   }) => {
     const me = await person(page, request, {
-      granted: ['special_category_religious', 'publish'],
+      testimony: 3,
       stories: [{ id: 'x1', status: 'approved', title: 'Mine', slug: 'mine' }],
     });
     await page.goto(PROFILE);
@@ -488,7 +504,7 @@ test.describe('behaviour', () => {
     request,
   }) => {
     const me = await person(page, request, {
-      granted: ['special_category_religious', 'publish'],
+      testimony: 3,
       eraseThenFail: true,
     });
     await page.goto(PROFILE);
@@ -518,10 +534,17 @@ for (const scheme of ['light', 'dark'] as const) {
       request,
     }, info) => {
       await person(page, request, {
-        granted: ['special_category_religious', 'publish'],
+        testimony: 3,
         stories: EVERY_STATUS.map((s) => ({
           ...s,
-          shared: s.status === 'approved',
+          ...(s.status === 'approved'
+            ? {
+                socialMediaSharingConsent: {
+                  version: 1,
+                  agreedAt: '2026-10-31T12:00:00.000Z',
+                },
+              }
+            : {}),
           title: `${s.title}: ${LONG}`,
           ...(s.rejectionFeedback
             ? { rejectionFeedback: `${FEEDBACK} ${LONG}` }
@@ -530,19 +553,11 @@ for (const scheme of ['light', 'dark'] as const) {
       });
       await page.goto(PROFILE);
       await expect(page.locator('[data-submission]')).toHaveCount(7);
-      await expect(page.locator('[data-sharing="on"]')).toBeVisible();
-      // Open one confirmation too: it's part of the page someone sees, and a sharing choice
-      // with its words and privacy policy.
+      await expect(page.locator('[data-shared-on-social]')).toBeVisible();
+      // Open one confirmation too: it's part of the page someone sees.
       await page
         .locator('[data-submission="draft"]')
         .getByRole('button', { name: 'Delete' })
-        .click();
-      const pending = page.locator('[data-submission="pending"]');
-      await pending
-        .getByRole('button', { name: 'Share beyond heisreal.today' })
-        .click();
-      await pending
-        .getByText('What sharing beyond heisreal.today means')
         .click();
       await page
         .locator('[data-delete-account]')
@@ -566,7 +581,6 @@ test('200% text on the smallest phone: My profile still fits', async ({
   await person(page, request, {
     stories: EVERY_STATUS.map((s) => ({
       ...s,
-      shared: s.status === 'approved',
       title: `${s.title}: ${LONG}`,
     })),
   });

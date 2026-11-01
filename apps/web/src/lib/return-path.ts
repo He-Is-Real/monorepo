@@ -46,3 +46,13 @@ export function signInHref(path: string): string {
     ? SIGN_IN_PATH
     : `${SIGN_IN_PATH}?redirect_url=${encodeURIComponent(back)}`;
 }
+
+/**
+ * Where to go after an agreement step (/consent/terms, /consent/testimony): the page the person
+ * came from (`redirect_url`, a path on this site), but never a step itself, which would only send
+ * them round again.
+ */
+export function consentReturnPath(raw: string | string[] | undefined): string {
+  const path = safeReturnPath(raw);
+  return path === '/consent' || path.startsWith('/consent/') ? '/' : path;
+}

@@ -16,7 +16,8 @@ import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 // database's rules are libs/database/integration/images.int-spec.ts. Each test is its own person.
 
 const SHARE = `${WEB_SIGNED_IN_URL}/share`;
-const ART9 = /storing and processing my story/;
+/** The testimony consent's box (plan 4e), before a first story. */
+const ART9 = /I agree to the testimony consent/;
 /** Text a photo's metadata carries here, which must never leave the browser. */
 const MARKERS = ['HEISREAL-EXIF-MARKER', 'HEISREAL-GPS-MARKER'];
 
@@ -30,7 +31,7 @@ interface Uploaded {
 async function person(page: Page, request: APIRequestContext) {
   const id = randomUUID().replace(/-/g, '');
   const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
-    data: { signupAccepted: true, granted: ['age_18plus', 'account_data'] },
+    data: {},
   });
   expect(res.status()).toBe(204);
   await page.addInitScript((session) => {
@@ -139,7 +140,7 @@ async function toWrite(page: Page) {
   await page.getByRole('button', { name: 'Write my story' }).click();
   await step(page, 'Your story and your data');
   await page.locator('label').filter({ hasText: ART9 }).click();
-  await page.getByRole('button', { name: 'I agree, continue' }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await step(page, 'Prepare your story');
   await page.getByRole('button', { name: 'Start writing' }).click();
   await step(page, 'Write your story');
@@ -511,7 +512,7 @@ test.describe('behaviour', () => {
       .click();
     await page.getByRole('button', { name: 'Share my video' }).click();
     await page.locator('label').filter({ hasText: ART9 }).click();
-    await page.getByRole('button', { name: 'I agree, continue' }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Upload my video' }).click();
     await step(page, 'Upload your video');
     await expect(page.getByText('Add a thumbnail (optional)')).toHaveCount(0);

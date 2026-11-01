@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { Logo } from '@/components/logo';
-import { consentChecksRelaxed } from '@/lib/site-status';
 
 const EXPLORE = [
   { href: '/stories', label: 'Browse stories' },
@@ -44,11 +43,9 @@ function LinkGroup({
  * The site footer (home.html's): who we are, the site's pages, the legal pages and the
  * cookie notice. The site stores only what's strictly necessary (the theme the visitor picks;
  * Clerk's sign-in cookies), so PECR asks for information, not consent: a line here and the
- * details on /privacy#cookies, no banner. D48: in dev, while consent checks are relaxed for
- * dummy data, it says so.
+ * details on /privacy#cookies, no banner.
  */
-export async function SiteFooter() {
-  const relaxed = await consentChecksRelaxed();
+export function SiteFooter() {
   return (
     <footer className="mt-auto border-t border-border">
       <div className="mx-auto max-w-site px-4 pt-12 pb-8 sm:px-10 sm:pt-16">
@@ -86,7 +83,7 @@ export async function SiteFooter() {
           <ul className="flex gap-6">
             <li>
               <Link href="/privacy" className={linkClass}>
-                Privacy policy
+                Privacy notice
               </Link>
             </li>
             <li>
@@ -96,12 +93,6 @@ export async function SiteFooter() {
             </li>
           </ul>
         </div>
-
-        {relaxed && (
-          <p className="mt-4 text-center text-xs text-secondary-text">
-            Consent checks relaxed (dev)
-          </p>
-        )}
       </div>
     </footer>
   );

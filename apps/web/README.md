@@ -47,22 +47,24 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
   real Clerk (including the size of its controls), and signing in with a Clerk test user, are
   checked on dev (`apps/dev-seed/behavioural`).
 
-## Consent after sign-in (D73, D85)
+## Agreements after sign-in (plan 4e)
 
 - The header's bootstrap answer drives `src/components/consent/consent-prompts.tsx`, in the
-  browser only: anyone who hasn't accepted the sign-up form in force is sent to
-  `/consent/sign-up?redirect_url=<this page>` (sign-in, the step itself, `/privacy` and `/terms`
-  stay open); `testimonyConsent.acceptanceRequired` shows a banner under the header leading to
-  `/consent/testimony`. "Not now" lasts for the page load. A failed bootstrap blocks nothing.
-- The consent pages read the form in force and the privacy document it links from
-  api-public-read on the server (`src/lib/legal.ts`). The form's words are a document, shown as
-  published. The boxes are the page's own (D114): drawn from the version's `boxes` (its statements
-  data, each with the exact words beside it), outside the document, so nothing in its words can
-  add, remove or break a box. If a box the page asks for is missing, nothing can be ticked.
-- Ticking records one grant per box through api-user (`POST /v1/account/consents`, the version
-  shown, an `Idempotency-Key` per box kept for retries), only once every box is ticked. Each grant
-  also names the privacy policy (and, on sign-up, the terms of use) the page showed; if one was
-  published meanwhile, api-user answers `409` and the page asks to reload (D122).
+  browser only: anyone who hasn't agreed to the latest terms of use (a new account, or the terms
+  changed since) is sent to `/consent/terms?redirect_url=<this page>` (sign-in, the step itself,
+  `/privacy` and `/terms` stay open). Someone on an older testimony consent sees a banner under the
+  header leading to `/consent/testimony` (not on `/share`, which asks in the flow; someone who never
+  agreed is asked before their first story). "Not now" lasts for the page load. A failed bootstrap
+  blocks nothing.
+- The steps read the latest version (and, when agreeing again, the version agreed before) from
+  api-public-read on the server (`src/lib/legal.ts`) and show one word-level redline between them
+  (`src/lib/redline.ts`, jsdiff) with the full text a click away. The box is the page's own, outside
+  the text: first time "I am 18 or over and agree to the terms of use.", then "I agree to version N
+  of …".
+- Ticking agrees through api-user (`POST /v1/account/agreements/{agreement}` with the version
+  shown). If a newer version was saved meanwhile, api-user answers `409` and the page shows it.
+- The social media sharing box is optional, at the end of Share, for that story only; it sends the
+  version shown with the submit (`409` if it changed).
 
 ## Personal parts of pages (hearts)
 
@@ -77,9 +79,9 @@ dropped. **Signed out, hearts are the device's own** (Joel, 2026-10-28;
 listed on /privacy) with no expiry, and nothing reaches our servers. "My favourites"
 (`/account/favourites`, in the account menu) then lists them, its cards read by web's server
 from api-public-read by id (`deviceHeartCards`, anonymous: no login, D83). Signed in, a press
-refused for the sign-up consent keeps the heart on the device and goes to `/consent/sign-up`
-(only from a press, so it can't loop). Device hearts never go into an account by themselves:
-once signed in with the sign-up consent, `src/components/favourites/device-hearts-prompt.tsx`
+refused because the latest terms aren't agreed keeps the heart on the device and goes to
+`/consent/terms` (only from a press, so it can't loop). Device hearts never go into an account by
+themselves: once signed in and agreed to the latest terms, `src/components/favourites/device-hearts-prompt.tsx`
 asks "Add the N stories you hearted on this device to your account?" (Add / Not now), counting
 the public ones from the anonymous card lookup: nothing reaches api-user before Add. Add saves
 them like presses, through the per-story queue, and reports what really happened; the device's
@@ -89,20 +91,22 @@ work started for (Clerk's `getToken()` answers for whoever is signed in when it 
 e2e fixture tokens are shaped like session tokens for that reason (`e2e.<payload>.fixture`). In e2e each test can give its browser its own
 stub session (localStorage `e2e-session`), so parallel tests never share hearts.
 
-## Legal documents (D121, D125)
+## Legal documents (plan 4e)
 
 - `/privacy` and `/terms` read the document from api-public-read on the server, per request, and
-  show the version in force in the site's own formatting, with its number and the earlier
+  show the latest version in the site's own formatting, with its number and the earlier
   versions; `/privacy/versions/<n>` and `/terms/versions/<n>` show any version. Until one is
   published (or if api-public-read can't answer) they say so.
-- Every legal text (those pages, the consent pages, the submit flow and the admin preview) goes
+- Every legal text (those pages, the agreement steps, the submit flow and the admin preview) goes
   through one renderer, `src/lib/markdown.ts` (markdown-it, raw HTML off, links only to https:,
   mailto: and this site): headings, lists, tables, links, bold and inline `code`.
-- `/admin/legal` (Admins): choose a document, edit its text in a plain text box with a live
-  preview and a formatting cheat-sheet, and publish it after a confirmation as the next version.
-  If another admin published meanwhile, api-admin answers `409` and the page asks to reload. It
-  calls api-admin from the browser through the same client as api-user (`src/lib/api-user.ts`,
-  with `API_ADMIN_URL`), so the token boundary above is unchanged.
+- `/admin/consent` (Admins and Super Admins): one screen for the four texts (terms of use,
+  testimony consent, social media sharing consent, privacy notice). Edit the next version in a
+  plain text box, see the redline against the latest and a live preview, and save it after a
+  confirmation. Versions are never edited or deleted. If another admin saved meanwhile, api-admin
+  answers `409` and the page offers to reload. It calls api-admin from the browser through the
+  same client as api-user (`src/lib/api-user.ts`, with `API_ADMIN_URL`), so the token boundary
+  above is unchanged.
 - `/admin/limits` (Admins): the submission limits in plain words with their units, pre-filled
   with the values in force; Save lists the changes and asks to confirm. If another admin saved
   meanwhile, api-admin answers `412` and the page asks to reload. The admin pages share one

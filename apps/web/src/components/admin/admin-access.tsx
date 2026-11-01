@@ -16,7 +16,7 @@ const ADMIN_ROLES = new Set(['Admin', 'SuperAdmin']);
 
 /** The admin pages, each linking the others. */
 const ADMIN_PAGES = [
-  { href: '/admin/legal', label: 'Legal documents' },
+  { href: '/admin/consent', label: 'Consent & legal' },
   { href: '/admin/limits', label: 'Submission limits' },
   { href: '/admin/themes', label: 'Themes' },
 ];

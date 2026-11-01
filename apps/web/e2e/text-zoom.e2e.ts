@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { enlargeText as enlarge, expectNoHorizontalOverflow } from './helpers';
-import { WEB_SIGNED_IN_URL } from './servers';
+import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // T7 (WCAG 1.4.4): with text at 200% on the smallest phone, every page still fits without
 // sideways scrolling and nothing is cut off. A reader's text-size setting scales rem, and so
@@ -100,3 +100,41 @@ test('200% text: /admin/limits with its confirmation fits on a 320 px phone', as
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
+
+// Plan 4e: the agreement steps (first time and with a redline) and /admin/consent with its
+// confirmation, each as its own person at the stub api-user.
+for (const [name, seed, path, session] of [
+  ['first terms', { terms: null }, '/consent/terms', 'unaccepted-text-zoom'],
+  ['changed terms', { terms: 0 }, '/consent/terms', 'text-zoom-terms'],
+  [
+    'testimony consent',
+    { testimony: 1 },
+    '/consent/testimony',
+    'text-zoom-testimony',
+  ],
+  ['admin consent', {}, '/admin/consent', 'admin-text-zoom-consent'],
+] as const) {
+  test(`200% text: ${path} (${name}) fits on a 320 px phone`, async ({
+    page,
+    request,
+  }) => {
+    await request.post(`${STUB_USER_URL}/__e2e/sessions/${session}`, {
+      data: seed,
+    });
+    await enlarge(page);
+    await page.addInitScript(
+      (s) => window.localStorage.setItem('e2e-session', s),
+      session,
+    );
+    await page.goto(`${WEB_SIGNED_IN_URL}${path}`);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    if (path === '/admin/consent') {
+      await page.getByRole('textbox').fill('A new version.');
+      await page.getByRole('button', { name: /^Save as version/ }).click();
+      await expect(page.getByRole('alertdialog')).toBeVisible();
+    } else {
+      await expect(page.locator('[data-agreement]')).toBeVisible();
+    }
+    await expectNoHorizontalOverflow(page);
+  });
+}
