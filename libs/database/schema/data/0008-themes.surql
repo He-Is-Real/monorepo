@@ -32,5 +32,17 @@ FOR $story IN $stories {
     SET themeRefs = $themes, tagRefs = NONE, tagSlugs = NONE;
 };
 DELETE tag;
-UPDATE submissionSettings SET themesMin = tagsMin ?? 1, themesMax = tagsMax ?? 5,
-  tagsMin = NONE, tagsMax = NONE WHERE tagsMin != NONE OR tagsMax != NONE;
+-- A settings row written before some limits existed (dev's, from data/0006, predates the upload
+-- limits of #133) lacks them, and DEFAULT applies on create only, so any update of it is refused
+-- until they're set: give every limit that has a default its default in the same write when it's
+-- missing (2026-10-31, dev's first run of this script).
+UPDATE submissionSettings SET themesMin = tagsMin ?? themesMin ?? 1, themesMax = tagsMax ?? themesMax ?? 5,
+  tagsMin = NONE, tagsMax = NONE,
+  storyTextMin = storyTextMin ?? 200, storyTextMax = storyTextMax ?? 10000,
+  openDraftsMax = openDraftsMax ?? 3,
+  uploadsPer7Days = uploadsPer7Days ?? 5, uploadRequestsPerHour = uploadRequestsPerHour ?? 10,
+  videoMaxBytes = videoMaxBytes ?? 4294967296, audioMaxBytes = audioMaxBytes ?? 524288000,
+  mediaMaxSeconds = mediaMaxSeconds ?? 900
+  WHERE tagsMin != NONE OR tagsMax != NONE OR storyTextMin = NONE OR storyTextMax = NONE
+    OR openDraftsMax = NONE OR uploadsPer7Days = NONE OR uploadRequestsPerHour = NONE
+    OR videoMaxBytes = NONE OR audioMaxBytes = NONE OR mediaMaxSeconds = NONE;

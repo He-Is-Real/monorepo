@@ -435,6 +435,17 @@ describe('data/0008: tags become themes (a database migrated before themes v3)',
        UPDATE publicStory:dev_seed SET tagRefs = [tag:hope, tag:doubt];
        UPDATE submissionSettings:current SET tagsMin = 2, tagsMax = 4;`,
     );
+    // Like dev's row, written by data/0006 before the upload limits were defined: it has none.
+    await run(
+      await t.migrator(),
+      `REMOVE FIELD uploadsPer7Days ON submissionSettings;
+       REMOVE FIELD uploadRequestsPerHour ON submissionSettings;
+       REMOVE FIELD videoMaxBytes ON submissionSettings;
+       REMOVE FIELD audioMaxBytes ON submissionSettings;
+       REMOVE FIELD mediaMaxSeconds ON submissionSettings;
+       UPDATE submissionSettings:current SET uploadsPer7Days = NONE, uploadRequestsPerHour = NONE,
+         videoMaxBytes = NONE, audioMaxBytes = NONE, mediaMaxSeconds = NONE;`,
+    );
   });
   afterAll(async () => {
     await t?.close();
@@ -494,6 +505,22 @@ describe('data/0008: tags become themes (a database migrated before themes v3)',
         'SELECT themesMin, themesMax, tagsMin, tagsMax FROM ONLY submissionSettings:current',
       ),
     ).toEqual([{ themesMin: 2, themesMax: 4 }]);
+    // The upload limits it lacked get their defaults (dev's first run failed without them).
+    expect(
+      await rows(
+        migrator,
+        `SELECT uploadsPer7Days, uploadRequestsPerHour, videoMaxBytes, audioMaxBytes, mediaMaxSeconds
+           FROM ONLY submissionSettings:current`,
+      ),
+    ).toEqual([
+      {
+        uploadsPer7Days: 5,
+        uploadRequestsPerHour: 10,
+        videoMaxBytes: 4294967296,
+        audioMaxBytes: 524288000,
+        mediaMaxSeconds: 900,
+      },
+    ]);
   });
 
   it('a second run changes nothing', async () => {
