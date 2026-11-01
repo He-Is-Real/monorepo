@@ -11,9 +11,7 @@
     "vitest.config.mts",
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
-    "src/**/*.d.ts",
-    "vitest.integration.config.mts",
-    "integration/**/*.ts"
+    "src/**/*.d.ts"
   ],
   "references": [
     {
