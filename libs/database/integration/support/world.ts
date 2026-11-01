@@ -2,13 +2,11 @@ import type { SurrealQueryable } from 'surrealdb';
 import { ERASE_ACCOUNT } from '../../src/lib/erasure';
 import {
   createPeople,
-  grantAll,
+  agreeAll,
   outcome,
-  publishDpa,
   type Row,
   rows,
   run,
-  sha256,
   STORY_TEXT_PADDING,
   type TestDatabase,
   COMMON_THEME,
@@ -181,10 +179,10 @@ export async function approve(admin: SurrealQueryable, id: string) {
 }
 
 /**
- * Ann and Bob, each with every consent granted against the published v1, plus:
+ * Ann and Bob, each agreed to the latest terms of use and testimony consent (version 0), plus:
  * story:ann_draft (draft), story:ann_pending (pending), story:bob_draft (draft),
  * story:bob_pending (pending), story:bob_live (approved, with a publicStory row),
- * theme:doubt (in Other), and a draft dpaVersion:v2_draft.
+ * theme:doubt (in Other).
  */
 export async function buildWorld(t: TestDatabase) {
   await createPeople(t, {
@@ -192,14 +190,10 @@ export async function buildWorld(t: TestDatabase) {
     bob: 'user_bob',
     moderator: 'user_mod',
   });
-  await publishDpa(t, 'v1');
   const admin = await t.service('api_admin');
   await run(
     admin,
-    `CREATE theme:doubt SET name = 'Doubt', category = themeCategory:other;
-     CREATE dpaVersion:v2_draft CONTENT {
-       materiality: 'material', documentPath: 'libs/legal/dpa/v2.md', contentHash: $h };`,
-    { h: sha256('v2 draft') },
+    `CREATE theme:doubt SET name = 'Doubt', category = themeCategory:other`,
   );
   // The world has more stories per person than D94's limits allow a person to start: trusted.
   await run(
@@ -209,8 +203,8 @@ export async function buildWorld(t: TestDatabase) {
   );
   const ann = await t.person('user_ann');
   const bob = await t.person('user_bob');
-  await grantAll(ann);
-  await grantAll(bob);
+  await agreeAll(ann);
+  await agreeAll(bob);
   for (const [person, id] of [
     [ann, 'ann_draft'],
     [ann, 'ann_pending'],

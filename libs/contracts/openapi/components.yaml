@@ -2604,9 +2604,3 @@ components:
         db:
           type: string
           enum: [up, down]
-        consentChecksRelaxed:
-          type: boolean
-          description: |
-            D48: `true` only in dev while consent checks are relaxed for dummy data (the database's own
-            setting, read with this service's login). Present when the database is up. The dev site's
-            footer shows it.

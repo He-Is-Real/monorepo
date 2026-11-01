@@ -1,17 +1,16 @@
 /**
  * Why an account is erased (D39): the audit row's `reason`, one per caller. `account_deleted`
- * is "Delete my account"; `consent_withdrawn` withdrawing the testimony (Art 9) or sign-up consent
- * (D88, D73); `clerk_user_deleted` Clerk's `user.deleted` webhook.
+ * is "Delete my account" (also how a person withdraws all consent, plan 4e); `clerk_user_deleted`
+ * Clerk's `user.deleted` webhook.
  */
-export type ErasureReason =
-  'account_deleted' | 'consent_withdrawn' | 'clerk_user_deleted';
+export type ErasureReason = 'account_deleted' | 'clerk_user_deleted';
 
 /**
  * EraseAccount (D39, D82, D40), run by api-user on its own service login in one transaction
  * (docs/db-permissions.md, "Erasure"). Bind `$clerkUserId` and `$reason`. The work is the
  * schema's `fn::account::erase` (the tombstone, the queued deletions outside the database, the
- * stories and everything else of the person's, the stub user row and the audit row); this also
- * settles the person's erasure request, if a consent withdrawal left one (D88, D73).
+ * stories and everything else of the person's, the stub user row without its agreements, and
+ * the audit row).
  *
  * Idempotent: a person already erased (or never known) leaves only the tombstone, which is
  * already there. A run that loses a race to another write fails at commit and must be retried
@@ -21,8 +20,7 @@ export type ErasureReason =
  */
 export const ERASE_ACCOUNT = `
   BEGIN TRANSACTION;
-  LET $erased = fn::account::erase($clerkUserId, $reason, 'api-user');
-  IF $erased[0] != NONE { DELETE erasureRequest WHERE user = $erased[0] };
+  LET $erased = fn::account::erase($clerkUserId, $reason);
   $erased;
   COMMIT TRANSACTION;`;
 

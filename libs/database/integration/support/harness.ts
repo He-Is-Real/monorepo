@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,28 +45,8 @@ export const sha256 = (text: string) =>
 /** The parameters OpenTofu passes the runner (params.json); null = not available yet. */
 export interface MigrationParams {
   clerk_jwt_public_key: string | null;
-  /** { <dpaVersion id>: sha256 of libs/legal/dpa/<id>.md } for every file there */
-  dpa_sha256: Record<string, string>;
-  /** { <dpaVersion id>: the words of libs/legal/dpa/<id>.md } (D84: copied into the row) */
-  dpa_text: Record<string, string>;
-  /** { signup|testimony|social: { <id>: sha256 of libs/legal/forms/<kind>/<id>.md } } (D84) */
-  form_sha256: Record<FormKind, Record<string, string>>;
-  /** The same files' words. */
-  form_text: Record<FormKind, Record<string, string>>;
-  /** D114: each version's boxes, its <id>.statements.json decoded. */
-  form_statements: Record<FormKind, Record<string, FormStatements>>;
-  /** The same files' sha256. */
-  form_statements_sha256: Record<FormKind, Record<string, string>>;
-  /** D121: { <id>: the words of libs/legal/terms/<id>.md } (data 0007). */
-  terms_text: Record<string, string>;
-  /** D75: dev's placeholder privacy document and forms; OpenTofu allows true in dev only. */
-  dev_legal_placeholders: boolean;
   /** The identity config that must be verified first (GKE); null = don't check */
   identity_hash: string | null;
-  /** Seed 0003's walking-skeleton story (dev only, M0 0.9); OpenTofu's default is false. */
-  seed_dev_story: boolean;
-  /** D48: relax consent checks for dummy data; OpenTofu allows true in dev only (default false). */
-  dev_consent_relaxed: boolean;
   /** The environment OpenTofu migrates ('dev', ...); null = not given. */
   environment: string | null;
 }
@@ -75,8 +54,6 @@ export interface MigrationParams {
 export interface MigrationSummary {
   schemaStatements: number;
   clerk: boolean;
-  /** D48: whether the database relaxes consent checks after this run (read back, not assumed). */
-  devConsentRelaxed: boolean;
   applied: string[];
   alreadyApplied: string[];
   /** The fencing token this run took from the database */
@@ -244,11 +221,7 @@ export class TestDatabase {
   params(overrides: Partial<MigrationParams> = {}): MigrationParams {
     return {
       clerk_jwt_public_key: this.keys.publicKeyPem,
-      ...legalParams(),
       identity_hash: null,
-      seed_dev_story: false,
-      dev_consent_relaxed: false,
-      dev_legal_placeholders: false,
       environment: null,
       ...overrides,
     };
@@ -514,108 +487,16 @@ export class TestDatabase {
   }
 }
 
-export const DPA_V1_SHA256 = sha256('dpa v1 placeholder');
-
-export const LEGAL_DIR = join(__dirname, '../../../legal');
-export type FormKind = 'signup' | 'testimony' | 'social';
-export const FORM_KINDS: readonly FormKind[] = [
-  'signup',
-  'testimony',
-  'social',
-];
-/** The schema table of each form. */
-export const FORM_TABLE: Record<FormKind, string> = {
-  signup: 'signupFormVersion',
-  testimony: 'testimonyFormVersion',
-  social: 'socialSharingFormVersion',
-};
-
-/** { <id>: words } of the .md files in a libs/legal directory. */
-function texts(dir: string): Record<string, string> {
-  return Object.fromEntries(
-    readdirSync(dir)
-      .filter((f) => f.endsWith('.md') && f !== 'README.md')
-      .map((f) => [f.slice(0, -3), readFileSync(join(dir, f), 'utf8')]),
-  );
-}
-/** D114: a form version's statements file, `<id>.statements.json`. */
-export interface FormStatements {
-  statements: { key: string; label: string; step?: string }[];
-}
-
-/** { <id>: file text } of the .statements.json files in a libs/legal/forms directory. */
-function statementFiles(dir: string): Record<string, string> {
-  return Object.fromEntries(
-    readdirSync(dir)
-      .filter((f) => f.endsWith('.statements.json'))
-      .map((f) => [
-        f.slice(0, -'.statements.json'.length),
-        readFileSync(join(dir, f), 'utf8'),
-      ]),
-  );
-}
-const hashes = (t: Record<string, string>) =>
-  Object.fromEntries(Object.entries(t).map(([id, text]) => [id, sha256(text)]));
-
-/**
- * The legal texts' parameters as OpenTofu builds them (modules/db-migration), from the real
- * files in libs/legal, except DPA v1: the tests keep a stand-in text (and its hash) for it.
- */
-export function legalParams(): Pick<
-  MigrationParams,
-  | 'dpa_sha256'
-  | 'dpa_text'
-  | 'form_sha256'
-  | 'form_text'
-  | 'form_statements'
-  | 'form_statements_sha256'
-  | 'terms_text'
-> {
-  const dpa = { ...texts(join(LEGAL_DIR, 'dpa')), v1: 'dpa v1 placeholder' };
-  const forms = Object.fromEntries(
-    FORM_KINDS.map((k) => [k, texts(join(LEGAL_DIR, 'forms', k))]),
-  ) as Record<FormKind, Record<string, string>>;
-  const statements = Object.fromEntries(
-    FORM_KINDS.map((k) => [k, statementFiles(join(LEGAL_DIR, 'forms', k))]),
-  ) as Record<FormKind, Record<string, string>>;
-  return {
-    terms_text: texts(join(LEGAL_DIR, 'terms')),
-    dpa_sha256: hashes(dpa),
-    dpa_text: dpa,
-    form_sha256: Object.fromEntries(
-      FORM_KINDS.map((k) => [k, hashes(forms[k])]),
-    ) as Record<FormKind, Record<string, string>>,
-    form_text: forms,
-    form_statements: Object.fromEntries(
-      FORM_KINDS.map((k) => [
-        k,
-        Object.fromEntries(
-          Object.entries(statements[k]).map(([id, text]) => [
-            id,
-            JSON.parse(text) as FormStatements,
-          ]),
-        ),
-      ]),
-    ) as Record<FormKind, Record<string, FormStatements>>,
-    form_statements_sha256: Object.fromEntries(
-      FORM_KINDS.map((k) => [k, hashes(statements[k])]),
-    ) as Record<FormKind, Record<string, string>>,
-  };
-}
-
 // ---------------------------------------------------------------- fixtures
 
-/**
- * What grantAll grants: every statement of the sign-up and testimony forms (D93). Sharing beyond
- * heisreal.today is chosen per story (O4): {@link shareStory}.
- */
-export const CONSENT_TYPES = [
-  'special_category_religious',
-  'publish',
-  'age_18plus',
-  'account_data',
+/** Plan 4e's four version tables (the texts people agree to, and the privacy notice). */
+export const LEGAL_TABLES = [
+  'termsOfUseAgreement',
+  'testimonyConsent',
+  'socialMediaSharingConsent',
+  'privacyNotice',
 ] as const;
-export type ConsentType = (typeof CONSENT_TYPES)[number] | 'share_socials';
+export type LegalTable = (typeof LEGAL_TABLES)[number];
 
 /** Creates people the way production does: api-user creates the user record on first use. */
 export async function createPeople(
@@ -654,174 +535,67 @@ export async function trustSubmitters(
 }
 
 /**
- * api-admin publishes a DPA version (D20), creating it first if needed, and with it version
- * <id> of the three consent forms (D84, D93), linked to it: the ledger fixtures bind each grant to the
- * form of the same id. A form's text is its file in libs/legal/forms when there is one (so a
- * later migration's form-sync agrees), else a stand-in.
+ * api-admin saves the next version of a legal text (plan 4e: Admins publish at /admin/consent),
+ * in force at once. Answers its number.
  */
-export async function publishDpa(
+export async function publishVersion(
   t: TestDatabase,
-  id: string,
-  testimony: Row = {},
-): Promise<void> {
-  const admin = await t.service('api_admin');
-  await run(
-    admin,
-    `IF !record::exists(type::record('dpaVersion', $id)) {
-       CREATE type::record('dpaVersion', $id) CONTENT {
-         materiality: 'material', documentPath: 'libs/legal/dpa/' + $id + '.md',
-         contentHash: $hash };
-     };
-     UPDATE type::record('dpaVersion', $id) SET status = 'published', effectiveFrom = time::now();`,
-    { id, hash: sha256(`dpa ${id}`) },
-  );
-  await publishForm(t, 'signup', id, { dpa: id });
-  await publishForm(t, 'testimony', id, { dpa: id, ...testimony });
-  await publishForm(t, 'social', id, { dpa: id });
-}
-
-/** The statements a form version must have (fn::form::required_statements). */
-export function requiredStatements(kind: FormKind, fields: Row = {}): string[] {
-  if (kind === 'signup')
-    return fields['coversTerms'] === true
-      ? ['age_18plus', 'account_data', 'terms_of_use']
-      : ['age_18plus', 'account_data'];
-  if (kind === 'social') return ['share_socials'];
-  return fields['coversPublicPublishing'] === true
-    ? ['special_category_religious', 'publish']
-    : ['special_category_religious'];
-}
-
-/** api-admin creates and publishes version <id> of a consent form, linked to DPA `dpa`. */
-export async function publishForm(
-  t: TestDatabase,
-  kind: FormKind,
-  id: string,
-  { dpa = 'v1', ...fields }: Row & { dpa?: string } = {},
-): Promise<void> {
-  const legal = legalParams();
-  // A repo version whose file asks for the terms (sign-up v2, D122) is used as it is only when
-  // the test asks for the terms too (coversTerms); otherwise a stand-in of that id.
-  const repo = !(
-    kind === 'signup' &&
-    legal.form_statements[kind][id]?.statements.some(
-      (s) => s.key === 'terms_of_use',
-    ) &&
-    fields['coversTerms'] !== true
-  );
-  const text =
-    (repo ? legal.form_text[kind][id] : undefined) ??
-    `Stand-in ${kind} form ${id}.`;
-  const features =
-    kind === 'testimony'
-      ? { coversPublicPublishing: true, draftRetentionMonths: 6 }
-      : {};
-  // D114: its boxes, from its statements file, or stand-in words for the ones it must have.
-  const file = repo ? legal.form_statements[kind][id] : undefined;
-  const statements =
-    file?.statements ??
-    requiredStatements(kind, { ...features, ...fields }).map((key) => ({
-      key,
-      label: `Stand-in words for ${key} on ${kind} form ${id}.`,
-    }));
-  const content = {
-    status: 'published',
-    textRef: `libs/legal/forms/${kind}/${id}.md`,
-    textHash: sha256(text),
-    text,
-    statements,
-    statementsHash:
-      (repo ? legal.form_statements_sha256[kind][id] : undefined) ??
-      sha256(JSON.stringify({ statements })),
-    ...features,
-    ...fields,
-  };
-  const created = await rows(
+  table: LegalTable,
+  content = `Stand-in ${table} text.`,
+): Promise<number> {
+  const created = await rows<{ id: string }>(
     await t.service('api_admin'),
-    `CREATE type::record($table, $id) CONTENT object::extend($content, {
-       dpaVersion: type::record('dpaVersion', $dpa) })`,
-    { table: FORM_TABLE[kind], id, content, dpa },
+    `LET $n = (math::max(SELECT VALUE record::id(id) FROM type::table($table)) ?? -1) + 1;
+     CREATE type::record($table, $n) CONTENT { content: $content } RETURN VALUE record::id(id);`,
+    { table, content },
   );
-  if (created.length !== 1) throw new Error(`form ${kind} ${id} not published`);
+  const n = created.at(-1) as unknown;
+  if (typeof n !== 'number') throw new Error(`${table}: no version saved`);
+  return n;
 }
-
-/** The form a consent type is ticked on (D93): 18+ and account_data at sign-up, sharing on the social form. */
-export const formOf = (type: string, version: string) =>
-  `${
-    type === 'account_data' || type === 'age_18plus'
-      ? FORM_TABLE.signup
-      : type === 'share_socials'
-        ? FORM_TABLE.social
-        : FORM_TABLE.testimony
-  }:${version}`;
 
 /**
- * The person grants or withdraws one consent type in their own session, on form version `dpa`
- * of its form (publishDpa publishes both forms with the DPA's id).
+ * The person agrees, in their own session, to the latest version of the terms of use
+ * ('termsOfUse') or the testimony consent ('testimonyConsent'), as api-user's agree command does.
  */
-export function consentEvent(
+export function agree(
   person: SurrealQueryable,
-  type: ConsentType,
-  event: 'granted' | 'withdrawn',
-  dpa = 'v1',
-  extra: Row = {},
+  pointer: 'termsOfUse' | 'testimonyConsent',
+  version?: number,
 ): Promise<Row[]> {
+  const table =
+    pointer === 'termsOfUse' ? 'termsOfUseAgreement' : 'testimonyConsent';
   return rows(
     person,
-    `CREATE consent CONTENT object::extend({
-       subject: $auth, type: $type, event: $event,
-       dpaVersion: type::record('dpaVersion', $dpa), form: <record> $form,
-       mechanism: 'web_form_submission', evidenceHash: $hash
-     }, $extra)`,
-    {
-      type,
-      event,
-      dpa,
-      form: formOf(type, dpa),
-      hash: sha256(`${type} ${event} ${dpa}`),
-      extra,
-    },
+    `LET $v = IF $version = NONE { fn::legal::latest($table) } ELSE { type::record($table, $version) };
+     UPDATE $auth SET ${pointer} = $v, ${pointer}AgreedAt = time::now();`,
+    { table, version },
   );
 }
 
+/** The person agrees to the latest terms of use and testimony consent (most suites' setup). */
+export async function agreeAll(person: SurrealQueryable): Promise<void> {
+  for (const pointer of ['termsOfUse', 'testimonyConsent'] as const) {
+    const r = await agree(person, pointer);
+    if (r.length !== 1) throw new Error(`${pointer}: not agreed`);
+  }
+}
+
 /**
- * O4: the person grants or withdraws sharing beyond heisreal.today for one story of theirs, on
- * social sharing version `version` under privacy policy `dpa`, as the ledger records it
- * (evidence v5 names the story).
+ * Plan 4e: the person ticks the social media sharing box for one story of theirs, on the latest
+ * version, in their own session (api-user records it with the submission).
  */
 export function shareStory(
   person: SurrealQueryable,
   story: string,
-  event: 'granted' | 'withdrawn',
-  version = 'v1',
-  dpa = 'v1',
 ): Promise<Row[]> {
   return rows(
     person,
-    `CREATE consent CONTENT {
-       subject: $auth, type: 'share_socials', event: $event,
-       dpaVersion: type::record('dpaVersion', $dpa),
-       form: type::record('socialSharingFormVersion', $version), story: <record> $story,
-       mechanism: 'web_form_submission', evidenceHash: $hash, evidenceVersion: 5
-     }`,
-    {
-      event,
-      dpa,
-      version,
-      story,
-      hash: sha256(`share_socials ${story} ${event} ${version}`),
-    },
+    `UPDATE <record> $story SET
+       socialMediaSharingConsent = fn::legal::latest('socialMediaSharingConsent'),
+       socialMediaSharingConsentAgreedAt = time::now()`,
+    { story },
   );
-}
-
-export async function grantAll(
-  person: SurrealQueryable,
-  dpa = 'v1',
-): Promise<void> {
-  for (const type of CONSENT_TYPES) {
-    const r = await consentEvent(person, type, 'granted', dpa);
-    if (r.length !== 1) throw new Error(`consent ${type} not recorded`);
-  }
 }
 
 /**
