@@ -5,8 +5,10 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agree,
   approve,
   buildWorld,
+  createPeople,
   draft,
   run,
   submit,
@@ -177,6 +179,21 @@ describe('hearts: /v1/account/favourites', () => {
       'if-none-match': etag,
     });
     expect(changed.status).toBe(200);
+  });
+
+  it('a heart waits for the latest terms of use (plan 4e), and removing one never does', async () => {
+    await createPeople(t, { cy: 'user_cy' });
+    const refused = await heart('user_cy', 'bob_three');
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      code: 'terms_agreement_required',
+    });
+    expect((await listed('user_cy')).ids).toEqual([]);
+    expect((await unheart('user_cy', 'bob_three')).status).toBe(204);
+
+    await agree(await t.person('user_cy'), 'termsOfUse');
+    expect((await heart('user_cy', 'bob_three')).status).toBe(204);
+    expect((await listed('user_cy')).ids).toEqual(['bob_three']);
   });
 
   it('refuses malformed queries as 400 problems, never echoing the value', async () => {

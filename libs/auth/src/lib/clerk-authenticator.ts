@@ -5,10 +5,6 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import type {
-  AuthenticatedPerson,
-  PersonAuthenticator,
-} from '@heisreal/consent';
 import { SURREAL } from '@heisreal/database';
 import type { Request } from 'express';
 import type { Surreal } from 'surrealdb';
@@ -19,6 +15,7 @@ import {
   verifyClerkToken,
 } from './clerk-token';
 import { ErasedIdentityError, findPerson, provisionPerson } from './people';
+import type { AuthenticatedPerson, PersonAuthenticator } from './person';
 
 /**
  * The request's Clerk session token, from `Authorization: Bearer …` only. The browser calls

@@ -8,7 +8,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import { NoConsentRequired, PersonSessions } from '@heisreal/consent';
+import { PersonSessions } from '@heisreal/auth';
 import { ProblemException } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import { MediaUrls } from '@heisreal/story-cards';
@@ -41,9 +41,6 @@ export class ExportController {
 
   @Get()
   @RequiresRole('User')
-  @NoConsentRequired(
-    'access to your own data is always possible, whatever your consent (Art 15, Art 20)',
-  )
   async exportMyData(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,

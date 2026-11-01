@@ -36,9 +36,6 @@
       "path": "../../libs/health/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/consent/tsconfig.lib.json"
-    },
-    {
       "path": "../../libs/secrets/tsconfig.lib.json"
     },
     {

@@ -6,9 +6,8 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agreeAll,
   createPeople,
-  grantAll,
-  publishDpa,
   rows,
   run,
   TestDatabase,
@@ -146,7 +145,7 @@ describe('video and audio uploads', () => {
   }
   async function person(who: string) {
     await createPeople(t, { [who]: `user_${who}` });
-    await grantAll(await t.person(`user_${who}`));
+    await agreeAll(await t.person(`user_${who}`));
     await run(
       await t.service('api_admin'),
       `UPSERT theme:healing SET name = 'Healing', category = themeCategory:other`,
@@ -232,7 +231,6 @@ describe('video and audio uploads', () => {
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
-    await publishDpa(t, 'v1');
     await createPeople(t, { upadmin: 'user_upadmin' });
   });
   afterAll(async () => {

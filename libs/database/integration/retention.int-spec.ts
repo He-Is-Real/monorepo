@@ -1,8 +1,6 @@
 import type { Surreal } from 'surrealdb';
 import {
-  consentEvent,
   createPeople,
-  publishDpa,
   rows,
   run,
   SERVICES,
@@ -10,38 +8,27 @@ import {
 } from './support/harness';
 
 /**
- * D38 retention (review round 2, P3): consent rows are kept until 6 years after the subject's
- * erasure, then deleted by a nightly job running as the migrator. The ledger stays append-only
- * for everything else. Audit rows: only the migrator can delete them (no service or person).
+ * D38 retention (review round 2, P3): audit rows are kept 6 years (for an erased person, from
+ * erasure), then deleted by a nightly job running as the migrator; no service or person can
+ * delete one. Plan 4e removed the consent ledger, so there is no consent to prune: a person's
+ * agreements go with their account (agreements.int-spec.ts).
  */
-const NIGHTLY_CONSENT_PRUNE = `DELETE consent
-  WHERE subject.gdprDeletedAt != NONE AND subject.gdprDeletedAt < time::now() - 2192d`;
 
 describe('retention pruning (D38)', () => {
   let t: TestDatabase;
   let migrator: Surreal;
-  const consentOf = (user: string) =>
-    rows(
-      migrator,
-      `SELECT VALUE id FROM consent WHERE subject = type::record('user', $user)`,
-      {
-        user,
-      },
-    );
 
   beforeAll(async () => {
     t = await TestDatabase.create();
     migrator = await t.migrator();
-    await publishDpa(t, 'v1');
     await createPeople(t, { live: 'user_live' });
-    await consentEvent(await t.person('user_live'), 'publish', 'granted');
   });
   afterAll(() => t?.close());
 
   it('audit rows: the migrator can prune them; no service or person can', async () => {
     await run(
       await t.service('api_admin'),
-      `CREATE auditLog:old CONTENT { service: 'api-admin', action: 'PublishDpa', entity: dpaVersion:v1 }`,
+      `CREATE auditLog:old CONTENT { service: 'api-admin', action: 'PublishLegalVersion', entity: privacyNotice:0 }`,
     );
     for (const name of SERVICES) {
       expect(
@@ -68,7 +55,6 @@ describe('retention pruning (D38)', () => {
     async (name) => {
       const p = `backdate_${name}`;
       await createPeople(t, { [p]: `user_${p}` });
-      await consentEvent(await t.person(`user_${p}`), 'publish', 'granted');
       // Codex's reproduction: the full erasure, with a client-supplied date 2200 days ago.
       await run(
         await t.service('api_user'),
@@ -94,8 +80,6 @@ describe('retention pruning (D38)', () => {
           { p },
         ),
       ).toEqual([stored]);
-      await run(migrator, NIGHTLY_CONSENT_PRUNE);
-      expect(await consentOf(p)).toHaveLength(1);
     },
   );
 

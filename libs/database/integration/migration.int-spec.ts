@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,6 +11,8 @@ import { pinnedSurrealImage } from './support/global-setup';
 import { surrealTestLogin } from './support/login';
 import {
   createPeople,
+  LEGAL_TABLES,
+  type MigrationParams,
   type MigrationRun,
   outcome,
   rows,
@@ -40,17 +43,26 @@ const JOB_ENV = {
   MIGRATE_EXPECT_USERS: 'backup,migrator',
   MIGRATE_EXPECT_SERVICES: SERVICES.join(','),
 };
-// Every data script in libs/database/schema/data (0003 writes nothing unless seed_dev_story,
-// 0005 nothing unless dev_legal_placeholders).
+// Every data script in libs/database/schema/data (plan 4e: 0001, 0003, 0005 and 0007 left the
+// bundle; 0009 seeds version 0 of the four legal texts).
 const SEEDS = [
-  '0001-seed-dpa-v1',
-  '0003-dev-seed-story',
   '0004-check-story-shapes',
-  '0005-dev-legal-placeholders',
   '0006-submission-settings',
-  '0007-dev-legal-documents',
   '0008-themes',
+  '0009-consent-4e',
 ];
+/** The four legal texts' versions, as the migrator sees them. */
+const legalRows = async (db: Surreal) =>
+  Object.fromEntries(
+    await Promise.all(
+      LEGAL_TABLES.map(async (table) => [
+        table,
+        await rows(db, 'SELECT * FROM type::table($table) ORDER BY id', {
+          table,
+        }),
+      ]),
+    ),
+  );
 const CODEX_EXAMPLES = [
   'LET $x = [RETURN 17];',
   'IF true THEN RETURN 17 END;',
@@ -288,8 +300,10 @@ describe('init + identity check + migrate on an empty database', () => {
       expect(await rows(db, 'RETURN $auth')).toEqual([
         'service:api_public_read',
       ]);
-      // The only DPA version is the draft v1, which the public can't see.
-      expect(await rows(db, 'SELECT VALUE id FROM dpaVersion')).toEqual([]);
+      // The public reads the legal texts: version 0 of each, seeded by data/0009.
+      expect(await rows(db, 'SELECT VALUE id FROM privacyNotice')).toEqual([
+        'privacyNotice:0',
+      ]);
     } finally {
       await db.close();
     }
@@ -297,21 +311,30 @@ describe('init + identity check + migrate on an empty database', () => {
 
   it('backup is a read-only system user', async () => {
     const backup = await t.systemUser('backup', t.backupPassword);
-    expect(await rows(backup, 'SELECT VALUE id FROM dpaVersion')).toEqual([
-      'dpaVersion:v1',
-    ]);
+    expect(await rows(backup, 'SELECT VALUE id FROM testimonyConsent')).toEqual(
+      ['testimonyConsent:0'],
+    );
     await outcome(backup, category('x')); // refused or a no-op
     expect(await categoryIds(t, 'x')).toEqual([]);
+    await outcome(backup, `CREATE testimonyConsent:1 CONTENT { content: 'x' }`);
+    expect(
+      await rows(await t.migrator(), 'SELECT VALUE id FROM testimonyConsent'),
+    ).toEqual(['testimonyConsent:0']);
   });
 
   it('a second run is a no-op: same schema, no script re-run, data and sessions intact', async () => {
     const migrator = await t.migrator();
     const admin = await t.service('api_admin'); // a WebSocket session opened before
     await run(admin, category('kept'));
+    // An admin saved version 1 of the terms (plan 4e): a later run never changes a saved version.
+    await run(
+      admin,
+      `CREATE termsOfUseAgreement:1 CONTENT { content: 'Terms, version 1' }`,
+    );
     const before = {
       info: await rows(migrator, 'INFO FOR DB'),
       migrations: await rows(migrator, 'SELECT * FROM _migration ORDER BY id'),
-      dpa: await rows(migrator, 'SELECT * FROM dpaVersion ORDER BY id'),
+      legal: await legalRows(migrator),
     };
 
     const again = await t.runMigration(
@@ -329,9 +352,8 @@ describe('init + identity check + migrate on an empty database', () => {
     expect(
       await rows(migrator, 'SELECT * FROM _migration ORDER BY id'),
     ).toEqual(before.migrations);
-    expect(
-      await rows(migrator, 'SELECT * FROM dpaVersion ORDER BY id'),
-    ).toEqual(before.dpa);
+    expect(await legalRows(migrator)).toEqual(before.legal);
+    expect(before.legal['termsOfUseAgreement']).toHaveLength(2);
     expect(
       await rows(admin, 'SELECT VALUE name FROM themeCategory:kept'),
     ).toEqual(['kept']);
@@ -852,7 +874,7 @@ describe('P1: scripts can never commit partly', () => {
     expect(await appliedIds(t)).not.toContain('0107-leaky');
     expect(await pendingSteps(t)).toEqual(['0107-leaky']);
 
-    // A retry, even with the script fixed, refuses to start: it can't mark 0007 as done.
+    // A retry, even with the script fixed, refuses to start: it can't mark 0107 as done.
     const retry = await t.runMigration(t.params(), {
       bundleDir: await bundleWith({
         'data/0107-leaky.surql': `${category('dd_before')}${category('dd_after')}`,
@@ -1073,62 +1095,208 @@ describe('allow-list: the guard matches 3.2.4', () => {
 // ---------------------------------------------------------------- data scripts
 
 /**
- * The release before the consent forms: main after #99. Its libs/database/schema is the schema
- * every existing database (dev) was migrated with. A main commit, so it stays reachable.
+ * The release before plan 4e: main at the start of the consent 4e branch, with the consent ledger,
+ * the DPA, terms and form versions and the dev consent switches. Its libs/database/schema is the
+ * schema every existing database (dev) was migrated with. A main commit, so it stays reachable.
  */
-const PREVIOUS_RELEASE = 'facc15e6f6d2adc34778aa7885cd1a7efa9a08c3';
+const PREVIOUS_RELEASE = '182715d16af033ce8c8c8468b54bc623eaaf7038';
 
-describe('upgrading a database migrated by the previous release (Codex, #101)', () => {
+/**
+ * What OpenTofu passed that release in dev (modules/db-migration then): the texts and hashes of
+ * the files in its libs/legal, the walking-skeleton story and dev's consent switches. This
+ * release takes none of them.
+ */
+function previousReleaseParams(
+  t: TestDatabase,
+  legal: string,
+): Record<string, unknown> {
+  const texts = (dir: string) =>
+    Object.fromEntries(
+      readdirSync(join(legal, dir))
+        .filter((f) => f.endsWith('.md') && f !== 'README.md')
+        .map((f) => [f.slice(0, -3), readFileSync(join(legal, dir, f), 'utf8')]),
+    );
+  const statements = (dir: string) =>
+    Object.fromEntries(
+      readdirSync(join(legal, dir))
+        .filter((f) => f.endsWith('.statements.json'))
+        .map((f) => [
+          f.slice(0, -'.statements.json'.length),
+          readFileSync(join(legal, dir, f), 'utf8'),
+        ]),
+    );
+  const hashes = (o: Record<string, string>) =>
+    Object.fromEntries(Object.entries(o).map(([k, v]) => [k, sha256(v)]));
+  const kinds = ['signup', 'testimony', 'social'];
+  const perKind = <T>(f: (k: string) => T) =>
+    Object.fromEntries(kinds.map((k) => [k, f(k)]));
+  const dpa = texts('dpa');
+  return {
+    ...t.params({ environment: 'dev' }),
+    dpa_sha256: hashes(dpa),
+    dpa_text: dpa,
+    form_sha256: perKind((k) => hashes(texts(`forms/${k}`))),
+    form_text: perKind((k) => texts(`forms/${k}`)),
+    form_statements: perKind((k) =>
+      Object.fromEntries(
+        Object.entries(statements(`forms/${k}`)).map(([id, text]) => [
+          id,
+          JSON.parse(text) as unknown,
+        ]),
+      ),
+    ),
+    form_statements_sha256: perKind((k) => hashes(statements(`forms/${k}`))),
+    terms_text: texts('terms'),
+    seed_dev_story: true,
+    dev_consent_relaxed: true,
+    dev_legal_placeholders: true,
+  };
+}
+
+describe('upgrading a database migrated by the previous release (plan 4e)', () => {
   let t: TestDatabase;
   let previous: string;
+  let upgrade: MigrationRun;
+  let before: { tables: string[]; settings: unknown[] };
+  const OLD_TABLES = [
+    'consent',
+    'dpaVersion',
+    'termsVersion',
+    'signupFormVersion',
+    'testimonyFormVersion',
+    'socialSharingFormVersion',
+    'legalFence',
+    'erasureRequest',
+  ];
   beforeAll(async () => {
-    // That release's bundle and runner, straight from git.
+    // That release's bundle, runner and legal files, straight from git.
     const dir = await mkdtemp(join(tmpdir(), 'previous-release-'));
     const repo = join(__dirname, '../../..');
     const archive = execFileSync(
       'git',
-      ['archive', '--format=tar', PREVIOUS_RELEASE, 'libs/database/schema'],
+      [
+        'archive',
+        '--format=tar',
+        PREVIOUS_RELEASE,
+        'libs/database/schema',
+        'libs/legal',
+      ],
       { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
     );
     execFileSync('tar', ['-x', '-C', dir], { input: archive });
     previous = join(dir, 'libs/database/schema');
     t = await TestDatabase.create({ migrate: false });
-    await t.migrate(t.params(), {
-      bundleDir: previous,
-      runner: join(previous, 'migrate.py'),
-    });
-  });
+    await t.migrate(
+      previousReleaseParams(t, join(dir, 'libs/legal')) as unknown as MigrationParams,
+      { bundleDir: previous, runner: join(previous, 'migrate.py') },
+    );
+    // What only the old machinery wrote: an audit row of a consent grant.
+    await run(
+      await t.migrator(),
+      `CREATE auditLog:old_grant CONTENT { service: 'api-user', action: 'GrantConsent',
+         consentType: 'publish', entity: user:dev_seed }`,
+    );
+    before = {
+      tables: Object.keys(await tables(t)),
+      settings: await rows(
+        await t.migrator(),
+        'SELECT VALUE record::id(id) FROM _setting',
+      ),
+    };
+    upgrade = await t.runMigration(t.params({ environment: 'dev' }));
+  }, 3 * 60_000);
   afterAll(async () => {
     await t?.close();
     if (previous) await rm(join(previous, '../../..'), { recursive: true });
   });
 
-  it('migrates to this release: the checks write nothing to the old schema, the drafts get their text after', async () => {
-    const summary = await t.migrate(t.params());
-    expect(summary.applied).toEqual([
-      '0005-dev-legal-placeholders',
-      '0006-submission-settings',
-      '0007-dev-legal-documents',
-      '0008-themes',
-    ]);
-    const migrator = await t.migrator();
-    expect(
-      await rows(migrator, 'SELECT VALUE text FROM dpaVersion:v1'),
-    ).toEqual([t.params().dpa_text['v1']]);
-    for (const table of [
-      'signupFormVersion',
-      'testimonyFormVersion',
-      'socialSharingFormVersion',
-    ]) {
-      expect(Object.keys(await tables(t))).toContain(table);
-    }
+  it('started from the old consent machinery', () => {
+    expect(before.tables).toEqual(expect.arrayContaining(OLD_TABLES));
+    expect(before.settings).toContain('consent');
   });
 
+  it('migrates to this release: the old tables and their rows are gone, version 0 of each text is in', async () => {
+    expect(upgrade.exitCode).toBe(0);
+    expect(upgrade.summary).toMatchObject({
+      applied: ['0009-consent-4e'],
+      alreadyApplied: SEEDS.filter((id) => id !== '0009-consent-4e'),
+    });
+    const now = Object.keys(await tables(t));
+    for (const table of OLD_TABLES) expect(now).not.toContain(table);
+    const migrator = await t.migrator();
+    for (const table of LEGAL_TABLES) {
+      expect(
+        await rows(migrator, 'SELECT VALUE id FROM type::table($table)', {
+          table,
+        }),
+      ).toEqual([`${table}:0`]);
+    }
+    expect(await rows(migrator, 'SELECT * FROM _setting')).toEqual([
+      { id: '_setting:current', environment: 'dev' },
+    ]);
+    expect(await rows(migrator, 'SELECT VALUE id FROM auditLog:old_grant')).toEqual(
+      [],
+    );
+    // The walking-skeleton story stays, without the removed computed consent.
+    const [story] = await rows<Record<string, unknown>>(
+      migrator,
+      'SELECT * FROM ONLY story:dev_seed',
+    );
+    expect(story).toBeDefined();
+    expect(story).not.toHaveProperty('consent');
+  });
+
+  it.each(['0001-seed-dpa-v1', '0003-dev-seed-story', '0005-dev-legal-placeholders', '0007-dev-legal-documents'])(
+    'only warns about %s, applied by the old release and gone from the bundle',
+    (id) => {
+      expect(upgrade.output).toContain(
+        `warning: _migration:${id} was applied but its script isn't in the bundle`,
+      );
+    },
+  );
+
   it('a second run changes nothing', async () => {
-    expect(await t.migrate(t.params())).toMatchObject({
+    const before = await legalRows(await t.migrator());
+    expect(await t.migrate(t.params({ environment: 'dev' }))).toMatchObject({
       applied: [],
       alreadyApplied: SEEDS,
     });
+    expect(await legalRows(await t.migrator())).toEqual(before);
+  });
+});
+
+/**
+ * data/0009 seeds version 0 of each text only where none exists: a version already saved stays
+ * as it was (a database whose admin saved one before the script ran, say).
+ */
+describe('data/0009 on a database that already has a version 0', () => {
+  let t: TestDatabase;
+  beforeAll(async () => {
+    t = await TestDatabase.create({ migrate: false });
+    const without = await bundleWith({ 'data/0009-consent-4e.surql': null });
+    await t.migrate(t.params(), { bundleDir: without });
+    await t.createServices();
+  });
+  afterAll(() => t?.close());
+
+  it('keeps the saved version and seeds only the missing ones', async () => {
+    await run(
+      await t.service('api_admin'),
+      `CREATE privacyNotice:0 CONTENT { content: 'Our own first notice' }`,
+    );
+    const migrator = await t.migrator();
+    const [saved] = await rows(migrator, 'SELECT * FROM privacyNotice:0');
+    expect(await t.migrate(t.params())).toMatchObject({
+      applied: ['0009-consent-4e'],
+    });
+    expect(await rows(migrator, 'SELECT * FROM privacyNotice')).toEqual([saved]);
+    for (const table of LEGAL_TABLES) {
+      expect(
+        await rows(migrator, 'SELECT VALUE id FROM type::table($table)', {
+          table,
+        }),
+      ).toEqual([`${table}:0`]);
+    }
   });
 });
 
@@ -1179,17 +1347,17 @@ describe('data scripts on an already-migrated database', () => {
 
   it('refuses to go on if an applied script has changed', async () => {
     const original = await readFile(
-      join(SCHEMA_DIR, 'data/0001-seed-dpa-v1.surql'),
+      join(SCHEMA_DIR, 'data/0009-consent-4e.surql'),
       'utf8',
     );
     const result = await t.runMigration(t.params(), {
       bundleDir: await bundleWith({
-        'data/0001-seed-dpa-v1.surql': `${original}-- edited\n`,
+        'data/0009-consent-4e.surql': `${original}-- edited\n`,
       }),
     });
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain(
-      '0001-seed-dpa-v1.surql changed after it was applied',
+      '0009-consent-4e.surql changed after it was applied',
     );
   });
 
@@ -1529,7 +1697,7 @@ const hasDocker = (() => {
       ).rejects.toThrow();
       await expect(
         oldEditor
-          .query('REMOVE EVENT consent_append_only ON consent')
+          .query('REMOVE EVENT testimonyConsent_kept ON testimonyConsent')
           .collect(),
       ).rejects.toThrow();
     });

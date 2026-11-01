@@ -3,9 +3,8 @@ import type { Surreal, SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
   trustSubmitters,
-  grantAll,
+  agreeAll,
   outcome,
-  publishDpa,
   rows,
   run,
   TestDatabase,
@@ -118,9 +117,8 @@ describe('approval waits for media processing (A2)', () => {
     workflow = await t.service('workflow');
     await createPeople(t, { pat: 'user_pat', moderator: 'user_mod' });
     await trustSubmitters(t, 'pat');
-    await publishDpa(t, 'v1');
     pat = await t.person('user_pat');
-    await grantAll(pat);
+    await agreeAll(pat);
   });
   afterAll(() => t?.close());
 
@@ -1008,50 +1006,6 @@ describe('approval waits for media processing (A2)', () => {
       });
     });
 
-    it('stays off the read model if consent was withdrawn meanwhile', async () => {
-      await createPeople(t, { cal: 'user_cal' });
-      await trustSubmitters(t, 'cal');
-      const cal = await t.person('user_cal');
-      await grantAll(cal);
-      const id = 'proc_cal';
-      expect(
-        await outcome(
-          cal,
-          `CREATE type::record('story', $id) CONTENT {
-             themeRefs: [theme:common], submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
-             primaryFormat: 'audio' } RETURN VALUE id`,
-          { id },
-        ),
-      ).toMatchObject({ ok: true });
-      await run(
-        migrator,
-        `UPDATE type::record('story', $id) SET media = [${AUDIO}]`,
-        { id },
-      );
-      await submit(cal, id);
-      await processed(workflow, id);
-      await approve(admin, id);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      await run(
-        cal,
-        `CREATE consent CONTENT { subject: $auth, type: 'publish', dpaVersion: dpaVersion:v1,
-           event: 'withdrawn', mechanism: 'account_settings', evidenceHash: $h }`,
-        { h: 'a'.repeat(64) },
-      );
-      await processed(workflow, id);
-      expect((await story(id)).status).toBe('approved');
-      expect(await published(id)).toEqual([]);
-      expect(await hiddenIds()).not.toContain(`story:${id}`);
-      expect(await history(id)).toEqual([entry('HideStory')]);
-
-      // Consent given again: the story isn't public, so a media outage and fix publishes nothing.
-      await grantAll(cal);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      await processed(workflow, id);
-      expect(await published(id)).toEqual([]);
-      expect(await history(id)).toEqual([entry('HideStory')]);
-    });
-
     it('reviewed replacement media, published again by a moderator, is hidden when it fails (Codex, #61)', async () => {
       const id = await live(video);
       await update(id, `media[0].processing = 'failed'`, workflow);
@@ -1114,45 +1068,6 @@ describe('approval waits for media processing (A2)', () => {
       );
       await expectLive(id);
       expect(await marker()).toEqual([]);
-    });
-
-    it('withdrawing consent while hidden, then giving it again, publishes nothing', async () => {
-      await createPeople(t, { dee: 'user_dee' });
-      await trustSubmitters(t, 'dee');
-      const dee = await t.person('user_dee');
-      await grantAll(dee);
-      const id = 'proc_dee';
-      expect(
-        await outcome(
-          dee,
-          `CREATE type::record('story', $id) CONTENT {
-             themeRefs: [theme:common], submitter: $auth, slug: $id, title: 'A story', description: 'How I came to faith',
-             primaryFormat: 'audio' } RETURN VALUE id`,
-          { id },
-        ),
-      ).toMatchObject({ ok: true });
-      await run(
-        migrator,
-        `UPDATE type::record('story', $id) SET media = [${AUDIO}]`,
-        { id },
-      );
-      await submit(dee, id);
-      await processed(workflow, id);
-      await approve(admin, id);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      await expectHidden(id);
-      await run(
-        dee,
-        `CREATE consent CONTENT { subject: $auth, type: 'publish', dpaVersion: dpaVersion:v1,
-           event: 'withdrawn', mechanism: 'account_settings', evidenceHash: $h }`,
-        { h: 'b'.repeat(64) },
-      );
-      // The withdrawal ends the hide: the story isn't public, so a media fix can't publish it.
-      expect(await hiddenIds()).not.toContain(`story:${id}`);
-      await grantAll(dee);
-      await processed(workflow, id);
-      expect(await published(id)).toEqual([]);
-      expect(await history(id)).toEqual([entry('HideStory')]);
     });
 
     it.each([

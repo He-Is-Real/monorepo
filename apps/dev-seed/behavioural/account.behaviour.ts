@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { expectClerkTargetsFullSize, expectFitsScreen } from './clerk-card';
 
 // Signing in on the deployed dev site with the real Clerk dev instance (the test user lands on
-// the sign-up consent step, D73, without ticking it), then the browser's
+// the terms of use step, plan 4e, without ticking it), then the browser's
 // real cross-origin call to api-user: the account bootstrap (M2), with the person's session
 // token (Clerk's RS256, `azp` = web's origin), allowed by api-user's CORS (D31).
 //
@@ -50,20 +50,30 @@ for (const viewport of [
 
     // The step follows api-user's answer, which can take a while from a cold start.
     const response = await bootstrap;
-    // Signed in. The test user never accepts the sign-up form, so the header sends them to
-    // the sign-up consent step (D73), set to return to where they started; its boxes are
-    // left unticked, so every run sees the same.
+    // Signed in. The test user never agrees to the terms of use, so the header sends them to
+    // the terms step (plan 4e), set to return to where they started; its one box is left
+    // unticked, so every run sees the same.
     await expect(page).toHaveURL(
-      `${web}/consent/sign-up?redirect_url=%2Fabout`,
+      `${web}/consent/terms?redirect_url=%2Fabout`,
     );
     await expect(
       page.getByRole('button', { name: /^Account: / }),
     ).toBeVisible();
-    // D122: 18+, account activity and the terms of use.
-    await expect(page.getByRole('checkbox')).toHaveCount(3);
-    for (const box of await page.getByRole('checkbox').all()) {
-      await expect(box).not.toBeChecked();
-    }
+    await expect(
+      page.getByRole('heading', { name: 'Welcome to He Is Real Today' }),
+    ).toBeVisible();
+    // One box: 18+ is part of the terms. Nothing to tick for the privacy notice, only a link.
+    await expect(page.getByRole('main').getByRole('checkbox')).toHaveCount(1);
+    await expect(
+      page
+        .getByRole('main')
+        .getByRole('checkbox', {
+          name: 'I am 18 or over and agree to the terms of use.',
+        }),
+    ).not.toBeChecked();
+    await expect(
+      page.getByRole('main').getByRole('link', { name: /privacy notice/i }),
+    ).toBeVisible();
 
     expect(new URL(response.url()).origin).not.toBe(web);
     expect(response.request().headers()['authorization']).toMatch(/^Bearer ey/);
@@ -72,18 +82,26 @@ for (const viewport of [
     expect(await response.json()).toMatchObject({
       role: 'User',
       version: null,
-      signupConsent: { accepted: false },
-      testimonyConsent: { acceptanceRequired: false },
+      termsOfUse: {
+        agreed: null,
+        latestVersion: expect.any(Number),
+        upToDate: false,
+      },
+      testimonyConsent: {
+        agreed: null,
+        latestVersion: expect.any(Number),
+        upToDate: false,
+      },
     });
 
-    // One Clerk session for the whole page (D115): the consent form sees the person the header
-    // shows, so it can be agreed to, not "You're signed out".
+    // One Clerk session for the whole page (D115): the terms step sees the person the header
+    // shows, so they can agree, not "You're signed out".
     await expect(
-      page.getByRole('button', { name: 'Agree and continue' }),
+      page.getByRole('main').getByRole('button', { name: 'Continue' }),
     ).toBeEnabled();
     await expect(page.getByText('You’re signed out.')).toHaveCount(0);
 
-    // Signing out from the form goes home, signed out, and the next page load forgets what the
+    // Signing out from the step goes home, signed out, and the next page load forgets what the
     // submit flow kept in the tab (account-control.tsx).
     await page.evaluate(() =>
       sessionStorage.setItem('heisreal:share:user_x:new', '{}'),

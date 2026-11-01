@@ -31,9 +31,6 @@
       "path": "../../libs/secrets/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/consent/tsconfig.lib.json"
-    },
-    {
       "path": "../../libs/database/tsconfig.lib.json"
     },
     {

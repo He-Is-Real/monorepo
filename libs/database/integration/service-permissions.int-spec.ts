@@ -1,5 +1,13 @@
 import type { Surreal } from 'surrealdb';
-import { outcome, rows, run, TestDatabase } from './support/harness';
+import {
+  LEGAL_TABLES,
+  outcome,
+  publishVersion,
+  rows,
+  run,
+  SERVICES,
+  TestDatabase,
+} from './support/harness';
 import { buildWorld } from './support/world';
 
 /**
@@ -88,14 +96,47 @@ describe('service identities (D13 B)', () => {
   });
 
   describe('api_public_read', () => {
-    it('reads publicStory and published DPA versions only', async () => {
+    it('reads publicStory, and the four legal texts with every version', async () => {
       const db = svc.publicRead;
       expect(await ids(db, 'SELECT id FROM publicStory')).toEqual([
         'publicStory:bob_live',
       ]);
-      expect(await ids(db, 'SELECT id FROM dpaVersion')).toEqual([
-        'dpaVersion:v1', // published by the world; the draft seed of v1 is the same row
+      for (const table of LEGAL_TABLES) {
+        expect(
+          await rows(db, `SELECT VALUE id FROM type::table($table)`, { table }),
+        ).toEqual([`${table}:0`]); // version 0, seeded by the migration (data/0009)
+      }
+    });
+
+    it('never learns who published a legal text: a version is its text and date only', async () => {
+      const version = await publishVersion(t, 'privacyNotice', 'Version one');
+      // api-admin's publish writes this audit row in the same transaction (PublishLegalVersion).
+      await run(
+        svc.admin,
+        `CREATE auditLog CONTENT { service: 'api-admin', action: 'PublishLegalVersion',
+           actor: user:moderator, actorRole: 'Admin', entity: type::record('privacyNotice', $version) }`,
+        { version },
+      );
+      const read = await rows<Record<string, unknown>>(
+        svc.publicRead,
+        `SELECT * FROM privacyNotice ORDER BY id`,
+      );
+      expect(read.map((r) => Object.keys(r).sort())).toEqual([
+        ['content', 'id', 'release_date'],
+        ['content', 'id', 'release_date'],
       ]);
+      expect(read[1]).toMatchObject({ content: 'Version one' });
+      expect(
+        await rows(
+          svc.publicRead,
+          `SELECT * FROM auditLog WHERE action = 'PublishLegalVersion'`,
+        ),
+      ).toEqual([]);
+      expect(
+        await truth(
+          `SELECT VALUE actor FROM auditLog WHERE action = 'PublishLegalVersion'`,
+        ),
+      ).toEqual(['user:moderator']);
     });
 
     it.each([
@@ -205,7 +246,8 @@ describe('service identities (D13 B)', () => {
         await outcome(db, 'UPDATE user:ann SET gdprDeletedAt = time::now()'),
       ).toEqual({
         ok: false,
-        error: expect.stringContaining('without a clerkUserId'),
+        // Erasure is one command: the Clerk id and the agreements go with it (fn::account::erase).
+        error: expect.stringMatching(/without a clerkUserId|agreement_kept/),
       });
       expect(
         await truth('SELECT clerkUserId, gdprDeletedAt FROM user:ann'),
@@ -256,7 +298,7 @@ describe('service identities (D13 B)', () => {
   });
 
   describe('api_admin', () => {
-    it('reads every story, the consent ledger, reviews and the audit log', async () => {
+    it('reads every story, reviews and the audit log', async () => {
       const db = svc.admin;
       expect(await ids(db, 'SELECT id FROM story')).toEqual([
         'story:ann_draft',
@@ -265,7 +307,6 @@ describe('service identities (D13 B)', () => {
         'story:bob_live',
         'story:bob_pending',
       ]);
-      expect((await rows(db, 'SELECT * FROM consent')).length).toBe(8);
       expect(await rows(db, 'SELECT * FROM moderationReview')).toHaveLength(1);
       expect((await rows(db, 'SELECT * FROM auditLog')).length).toBeGreaterThan(
         0,
@@ -344,7 +385,7 @@ describe('service identities (D13 B)', () => {
       expect(await truth('SELECT id FROM story:bob_draft')).toHaveLength(1);
     });
 
-    it('writes audit rows but cannot read them; cannot see drafts DPA or reviews', async () => {
+    it('writes audit rows but cannot read them; cannot see reviews', async () => {
       const db = svc.workflow;
       expect(
         await rows(
@@ -359,9 +400,79 @@ describe('service identities (D13 B)', () => {
       ).toEqual(['ProcessMedia']);
       expect(await rows(db, 'SELECT * FROM auditLog')).toEqual([]);
       expect(await rows(db, 'SELECT * FROM moderationReview')).toEqual([]);
-      expect(await ids(db, 'SELECT id FROM dpaVersion')).not.toContain(
-        'dpaVersion:v2_draft',
-      );
+    });
+  });
+
+  // Plan 4e: the legal texts and the pointers to them (agreements.int-spec.ts has the rules).
+  describe('the legal texts and agreements, for every service', () => {
+    it.each(LEGAL_TABLES)(
+      '%s: only api_admin creates a version; no service changes or deletes one',
+      async (table) => {
+        const before = await truth(`SELECT * FROM type::table($table)`, {
+          table,
+        });
+        const next = before.length;
+        for (const name of SERVICES) {
+          const db = await t.service(name);
+          if (name !== 'api_admin') {
+            await outcome(
+              db,
+              `CREATE type::record($table, $next) CONTENT { content: 'Forged' }`,
+              { table, next },
+            );
+          }
+          for (const sql of [
+            `UPDATE type::record($table, 0) SET content = 'Changed'`,
+            `UPSERT type::record($table, 0) CONTENT { content: 'Changed' }`,
+            `DELETE type::record($table, 0)`,
+          ]) {
+            await outcome(db, sql, { table });
+          }
+        }
+        expect(await truth(`SELECT * FROM type::table($table)`, { table })).toEqual(
+          before,
+        );
+        if (table !== 'privacyNotice') {
+          expect(await publishVersion(t, table)).toBe(next);
+        }
+      },
+    );
+
+    it('no service sets or moves a person’s agreements, or a story’s sharing consent', async () => {
+      // The moderator's record has agreed to nothing, and Ann's draft isn't shared.
+      for (const name of SERVICES) {
+        const db = await t.service(name);
+        await outcome(
+          db,
+          `UPDATE user:moderator SET
+             termsOfUse = fn::legal::latest('termsOfUseAgreement'), termsOfUseAgreedAt = time::now(),
+             testimonyConsent = fn::legal::latest('testimonyConsent'),
+             testimonyConsentAgreedAt = time::now()`,
+        );
+        await outcome(
+          db,
+          `UPDATE user:ann SET termsOfUse = NONE, termsOfUseAgreedAt = NONE`,
+        );
+        await outcome(
+          db,
+          `UPDATE story:ann_draft SET
+             socialMediaSharingConsent = fn::legal::latest('socialMediaSharingConsent'),
+             socialMediaSharingConsentAgreedAt = time::now()`,
+        );
+      }
+      expect(
+        await truth(
+          `SELECT termsOfUse, testimonyConsent FROM ONLY user:moderator`,
+        ),
+      ).toEqual([{}]);
+      expect(
+        await truth(`SELECT VALUE termsOfUse != NONE FROM ONLY user:ann`),
+      ).toEqual([true]);
+      expect(
+        await truth(
+          `SELECT VALUE socialMediaSharingConsent FROM ONLY story:ann_draft`,
+        ),
+      ).toEqual([]);
     });
   });
 });

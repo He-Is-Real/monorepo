@@ -1,25 +1,6 @@
 import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
-import { DiscoveryService, MetadataScanner } from '@nestjs/core';
-import { type ConsentPolicy, resolveConsentPolicy } from './consent.decorators';
-
-export interface RoutePolicy {
-  /** e.g. `POST /v1/account/consents` */
-  route: string;
-  /** `Controller.method` */
-  handler: string;
-  policy?: ConsentPolicy;
-  /** Why the route is misconfigured (no decorator, two decorators, a missing story param). */
-  problem?: string;
-}
-
-/** A one-line summary per route, for the route-listing tests and the startup error. */
-export function describeRoutePolicy(r: RoutePolicy): string {
-  if (r.problem) return `${r.route} (${r.handler}): ${r.problem}`;
-  const p = r.policy as ConsentPolicy;
-  if (p.kind === 'none') return `${r.route}: no consent required (${p.reason})`;
-  return `${r.route}: requires ${p.requirement.subject} consent [${p.requirement.types.join(', ')}]`;
-}
+import { type DiscoveryService, MetadataScanner } from '@nestjs/core';
 
 const joinPath = (...parts: (string | string[] | undefined)[]) => {
   const segments = parts
@@ -32,7 +13,7 @@ const joinPath = (...parts: (string | string[] | undefined)[]) => {
 
 /** One registered HTTP route: what Nest's router serves, read from the same metadata. */
 export interface RegisteredRoute {
-  /** e.g. `POST /v1/account/consents` */
+  /** e.g. `POST /v1/account/agreements/:agreement` */
   route: string;
   /** `Controller.method` */
   name: string;
@@ -42,7 +23,8 @@ export interface RegisteredRoute {
 
 /**
  * Every HTTP route the application registers. Reads the same metadata Nest's router uses, so
- * a route can't be missed. Shared by the consent (D21) and role (D1, `libs/auth`) checks.
+ * a route can't be missed. Used by the role check (D1): `ClerkAuthModule` and the apps' routes
+ * specs.
  */
 export function listRoutes(
   discovery: DiscoveryService,
@@ -74,29 +56,4 @@ export function listRoutes(
     }
   }
   return routes.sort((a, b) => a.route.localeCompare(b.route));
-}
-
-/** Every HTTP route the application registers, with its consent policy (D21). */
-export function listRoutePolicies(
-  discovery: DiscoveryService,
-  scanner = new MetadataScanner(),
-): RoutePolicy[] {
-  return listRoutes(discovery, scanner).map(
-    ({ route, name, handler, controller }) => {
-      const resolved = resolveConsentPolicy(handler, controller);
-      const entry: RoutePolicy = { route, handler: name };
-      if (!resolved.ok) entry.problem = resolved.problem;
-      else {
-        entry.policy = resolved.policy;
-        const p = resolved.policy;
-        if (p.kind === 'requires' && p.requirement.subject === 'submitter') {
-          const param = p.requirement.storyParam ?? 'id';
-          if (!route.split('/').includes(`:${param}`)) {
-            entry.problem = `checks the submitter of story :${param}, but the route has no such parameter`;
-          }
-        }
-      }
-      return entry;
-    },
-  );
 }

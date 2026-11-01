@@ -42,7 +42,7 @@ describe('runQuery', () => {
         },
         {
           success: false,
-          error: new Error('An error occurred: consent ledger is append-only'),
+          error: new Error('An error occurred: audit log is append-only'),
         },
       ]),
       'x',
@@ -82,11 +82,11 @@ describe('retryOnConflict', () => {
 
 describe('requireWritten (the D13 silent no-op)', () => {
   it('passes exactly one row and fails loudly on an empty result', () => {
-    expect(requireWritten([{ id: 'consent:a' }], 'consent')).toEqual({
-      id: 'consent:a',
+    expect(requireWritten([{ id: 'story:a' }], 'story')).toEqual({
+      id: 'story:a',
     });
-    expect(() => requireWritten([], 'consent')).toThrow(WriteNotAppliedError);
-    expect(() => requireWritten(undefined, 'consent')).toThrow(
+    expect(() => requireWritten([], 'story')).toThrow(WriteNotAppliedError);
+    expect(() => requireWritten(undefined, 'story')).toThrow(
       WriteNotAppliedError,
     );
   });

@@ -76,16 +76,6 @@ test('the Clerk key selects gcp and cluster (both roots pin it)', () => {
   );
 });
 
-test('a DPA version selects cluster', () => {
-  assert.equal(changed('libs/legal/dpa/v2.md'), 'cluster');
-});
-
-test('a consent form’s text selects cluster (the migration copies it, D84)', () => {
-  assert.equal(changed('libs/legal/forms/testimony/v2.md'), 'cluster');
-  assert.equal(changed('libs/legal/forms/signup/v2.md'), 'cluster');
-  assert.equal(changed('libs/legal/forms/social/v2.md'), 'cluster');
-});
-
 test('the database schema selects cluster', () => {
   assert.equal(changed('libs/database/schema/001.surql'), 'cluster');
 });

@@ -25,7 +25,6 @@
     ]
   },
   "dependencies": {
-    "@heisreal/consent": "workspace:*",
     "@heisreal/database": "workspace:*",
     "@heisreal/roles": "workspace:*",
     "@heisreal/secrets": "workspace:*",

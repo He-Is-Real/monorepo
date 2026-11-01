@@ -6,9 +6,10 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { PersonSessions, type RegisteredRoute } from '@heisreal/consent';
 import { hasRole, isRole, resolveRolePolicy } from '@heisreal/roles';
 import type { Request } from 'express';
+import { PersonSessions } from './person';
+import type { RegisteredRoute } from './routes';
 
 /** A one-line summary per route, for the role-listing tests and the startup error. */
 export function describeRolePolicy(route: RegisteredRoute): {
@@ -37,7 +38,7 @@ export function describeRolePolicy(route: RegisteredRoute): {
  *   `role_required` unless the token's role is at least `minimum`;
  * - `@NoRoleRequired(reason)` passes;
  * - a route with neither (or both) is refused with 500, and the application refuses to start
- *   (`ClerkAuthModule`). Fail closed in every service, like D21's consent guard.
+ *   (`ClerkAuthModule`). Fail closed in every service.
  */
 @Injectable()
 export class RoleGuard implements CanActivate {

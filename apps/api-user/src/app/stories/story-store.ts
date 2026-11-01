@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   NotFoundException,
@@ -21,14 +20,7 @@ import {
   submissionLimitOf,
   trimmedTextLength,
 } from '@heisreal/database';
-import {
-  ConsentConflictError,
-  consentConflictOf,
-  ConsentStoryNotFoundError,
-  recordKey,
-  type StorySharing,
-  storySharing,
-} from '@heisreal/consent';
+import { recordKey } from '@heisreal/http';
 import type { SurrealQueryable } from 'surrealdb';
 import {
   groupThemes,
@@ -47,6 +39,11 @@ import {
   textRequired,
   themesChanged,
 } from './story-input';
+import {
+  type Agreement,
+  agreementOf,
+  agreementRefusalOf,
+} from '../account/agreements';
 
 /** The contract's `StoryMine` (components.yaml). */
 export interface StoryMine {
@@ -90,8 +87,11 @@ export interface StoryMine {
   updatedAt: string;
   /** A draft's deletion date if nobody touches it (D71; fn::story::draft_expires_at). */
   draftExpiresAt: string | null;
-  /** O4: whether this story may go beyond heisreal.today: its own share_socials choice. */
-  sharing: StorySharing;
+  /**
+   * Plan 4e: the social media sharing consent ticked for this story at the end of its upload
+   * (its version, and when); null if the box wasn't ticked.
+   */
+  socialMediaSharingConsent: Agreement | null;
 }
 
 /** The contract's `SubmissionLimits`: what the submit page shows and checks (W3, D112). */
@@ -185,19 +185,15 @@ interface RawStory {
   createdAt: string;
   updatedAt: string;
   draftExpiresAt?: string | null;
-  sharing?: {
-    event?: string;
-    form?: string | null;
-    occurredAt?: string;
-  } | null;
-  sharingCounts?: boolean | null;
+  sharingVersion?: number | null;
+  sharingAt?: string | null;
 }
 
 const STORY_FIELDS = `<string> id AS id, version, slug, status, title, description, body,
   bylineName, primaryFormat, themeRefs.map(|$t| <string> $t) AS themeRefs, media, image, rejectionFeedback,
   submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
-  fn::consent::story_sharing(submitter, id) AS sharing,
-  fn::consent::valid(fn::consent::story_sharing(submitter, id)) AS sharingCounts`;
+  IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
+  socialMediaSharingConsentAgreedAt AS sharingAt`;
 
 function fail400(pointer: string, message: string): never {
   throw new BadRequestException({
@@ -213,7 +209,8 @@ const iso = (d: string | null | undefined) =>
 /**
  * The person's own stories: reads and the submit-flow commands (CreateDraftStory, EditStory,
  * SubmitStory), all in the person's own database session (D27), so the database checks
- * ownership, consent (D21, D93), the story's shape and text limits (D53, A3) and D94's limits.
+ * ownership, the person's agreements ("agree first", plan 4e), the story's shape and text limits
+ * (D53, A3) and D94's limits.
  */
 export class StoryStore {
   constructor(
@@ -326,7 +323,7 @@ export class StoryStore {
       );
       return { id: recordKey(response.id), version: response.version ?? 1 };
     } catch (err) {
-      throw this.problem(err, 'create');
+      throw this.problem(err);
     }
   }
 
@@ -410,27 +407,25 @@ export class StoryStore {
         return { id: recordKey(row.id), version: row.version };
       });
     } catch (err) {
-      throw this.problem(err, 'edit');
+      throw this.problem(err);
     }
   }
 
   /**
    * SubmitStory: draft/changes_requested → pending, once per Idempotency-Key, at `ifMatch`.
    * `checkMedia`: a video or audio story's file checks (uploads.ts), run with the others.
-   * `shareGrant` (O4): the story's sharing beyond heisreal.today, ticked on Review, as the
-   * ledger's statements (ConsentLedger.storySharingGrant): recorded in the submission's own
-   * transaction, with its Idempotency-Key, so the two commit together or neither does, and a
-   * replay grants nothing again. Submitting never withdraws it.
+   * `shareVersion` (plan 4e): the version of the social media sharing consent ticked at the end
+   * of the upload, recorded on the story in the submission's own write, with its
+   * Idempotency-Key, so the two commit together or neither does, and a replay records nothing
+   * again. It must still be the latest (409 `agreement_version_changed`, nothing submitted).
+   * Without it the story's choice is left as it is: it can't be taken back.
    */
   async submit(
     id: string,
     ifMatch: number,
     idempotency: { scope: IdempotencyScope; requestHash: string },
     checkMedia?: () => Promise<void>,
-    shareGrant?: () => Promise<{
-      statements: string;
-      vars: Record<string, unknown>;
-    }>,
+    shareVersion?: number,
   ): Promise<CommandResult> {
     try {
       const { response } = await runIdempotent(
@@ -476,18 +471,35 @@ export class StoryStore {
             if (availableAt) throw this.weekly(availableAt);
           }
           await checkMedia?.();
-          const share = await shareGrant?.();
+          // The sharing pointer moves only to a new version: writing the one the story already
+          // has would move its time (the database refuses that).
+          const share =
+            shareVersion === undefined
+              ? ''
+              : `LET $share = type::record('socialMediaSharingConsent', $shareVersion);
+                 IF $share != fn::legal::latest('socialMediaSharingConsent') {
+                   THROW 'agreement_version_changed: a newer version was saved since the page showed this one';
+                 };
+                 LET $sharing = IF $s.socialMediaSharingConsent = $share { {} } ELSE {
+                   { socialMediaSharingConsent: $share,
+                     socialMediaSharingConsentAgreedAt: time::now() } };`;
           return {
             status: 200,
-            statements: `LET $s = (SELECT version FROM type::record('story', $id))[0];
+            statements: `LET $s = (SELECT version, socialMediaSharingConsent
+                FROM type::record('story', $id))[0];
               IF $s = NONE { THROW 'story_cmd:not_found' };
               IF $s.version != $version { THROW 'story_cmd:stale_version' };
-              LET $u = (UPDATE ONLY type::record('story', $id) SET status = 'pending'
+              ${share}
+              LET $u = (UPDATE ONLY type::record('story', $id)
+                MERGE object::extend(${share ? '$sharing' : '{}'}, { status: 'pending' })
                 RETURN id, version);
               IF $u = NONE { THROW 'story_cmd:not_written' };
-              ${share?.statements ?? ''}
               LET $result = { id: $u.id, version: $u.version };`,
-            vars: { ...share?.vars, id, version: ifMatch },
+            vars: {
+              id,
+              version: ifMatch,
+              ...(shareVersion === undefined ? {} : { shareVersion }),
+            },
           };
         },
       );
@@ -715,7 +727,7 @@ export class StoryStore {
       createdAt: iso(r.createdAt) as string,
       updatedAt: iso(r.updatedAt) as string,
       draftExpiresAt: iso(r.draftExpiresAt),
-      sharing: storySharing(r.sharing, r.sharingCounts),
+      socialMediaSharingConsent: agreementOf(r.sharingVersion, r.sharingAt),
     }));
   }
 
@@ -771,8 +783,11 @@ export class StoryStore {
   }
 
   /** The database's refusals (the API's checks can lose a race) as problems. */
-  private problem(err: unknown, command: 'create' | 'edit'): unknown {
+  private problem(err: unknown): unknown {
     if (err instanceof HttpException) return err;
+    // Plan 4e: the person hasn't agreed to the latest terms of use or testimony consent.
+    const refusal = agreementRefusalOf(err);
+    if (refusal) return refusal;
     const over = storyLimitOf(err);
     if (over) {
       // The settings changed between the API's check and the write.
@@ -797,19 +812,6 @@ export class StoryStore {
     if (code === 'stale_version') return new StaleVersionException();
     if (code === 'locked' || /content is locked/.test(String(err)))
       return this.locked();
-    if (
-      code === 'not_written' ||
-      /needs the submitter’s current Art 9/.test(String(err))
-    ) {
-      // Refused by the story permissions or consent events: consent changed meanwhile.
-      return new ForbiddenException({
-        code: 'consent_required',
-        message:
-          command === 'create'
-            ? 'Starting a story needs your consent on the forms in force'
-            : 'Changing a story needs your current consent',
-      });
-    }
     return err;
   }
 
@@ -841,17 +843,10 @@ export class StoryStore {
 
   private async submitProblem(err: unknown): Promise<unknown> {
     if (err instanceof HttpException) return err;
-    // O4: the sharing ticked on Review, refused before or in the transaction (nothing committed).
-    const conflict =
-      err instanceof ConsentConflictError ? err : consentConflictOf(err);
-    if (conflict) {
-      return new ConflictException({
-        code: conflict.code,
-        message: conflict.message,
-      });
-    }
-    if (err instanceof ConsentStoryNotFoundError)
-      return new NotFoundException();
+    // Plan 4e: not agreed to the latest terms or testimony consent (403), or the sharing box's
+    // version isn't the latest any more (409); refused in the transaction, nothing committed.
+    const refusal = agreementRefusalOf(err);
+    if (refusal) return refusal;
     if (submissionLimitOf(err) === 'weekly_submission') {
       const at = await this.nextSubmissionAt().catch(() => undefined);
       return this.weekly(at ?? new Date(Date.now() + 7 * 864e5).toISOString());
@@ -875,15 +870,6 @@ export class StoryStore {
         : undefined;
     if (code === 'not_found') return new NotFoundException();
     if (code === 'stale_version') return new StaleVersionException();
-    if (
-      code === 'not_written' ||
-      /submitting a story needs/.test(String(err))
-    ) {
-      return new ForbiddenException({
-        code: 'consent_required',
-        message: 'Submitting needs your current consent on the forms in force',
-      });
-    }
     if (/status change not allowed/.test(String(err))) {
       return new ConflictException({
         code: 'story_not_submittable',

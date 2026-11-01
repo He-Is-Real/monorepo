@@ -1,7 +1,8 @@
-import { formRef, recordKey, storySharing } from '@heisreal/consent';
 import { runQuery } from '@heisreal/database';
+import { recordKey } from '@heisreal/http';
 import type { MediaUrls } from '@heisreal/story-cards';
 import type { SurrealQueryable } from 'surrealdb';
+import { agreementOf } from '../account/agreements';
 import type { ClerkProfile } from '../erasure/clerk-backend';
 
 /** How long the file's media links work (M2 decisions: "media as 1-hour links"). */
@@ -18,8 +19,8 @@ LET $stories = SELECT id, slug, status, title, description, body, bylineName, pr
     themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes, media, image,
     rejectionFeedback, createdAt, updatedAt, submittedAt, approvedAt,
     fn::story::draft_expires_at(id) AS draftExpiresAt,
-    fn::consent::story_sharing(submitter, id) AS sharing,
-    fn::consent::valid(fn::consent::story_sharing(submitter, id)) AS sharingCounts
+    IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
+    socialMediaSharingConsentAgreedAt AS sharingAt
   FROM story WHERE submitter = $auth ORDER BY createdAt DESC, id DESC;
 LET $mine = $stories.map(|$s| $s.id);
 LET $public = $stories.map(|$s| type::record('publicStory', record::id($s.id)));
@@ -27,7 +28,12 @@ LET $hearts = SELECT id, record::id(story) AS story, createdAt FROM favourite
   WHERE person = $auth ORDER BY createdAt DESC, id DESC;
 LET $hearted = $hearts.map(|$h| type::record('publicStory', $h.story));
 RETURN {
-  user: (SELECT record::id(id) AS id, createdAt FROM ONLY $auth),
+  user: (SELECT record::id(id) AS id, createdAt,
+      IF termsOfUse != NONE { record::id(termsOfUse) } AS termsVersion,
+      termsOfUseAgreedAt AS termsAt,
+      IF testimonyConsent != NONE { record::id(testimonyConsent) } AS testimonyVersion,
+      testimonyConsentAgreedAt AS testimonyAt
+    FROM ONLY $auth),
   stories: $stories,
   published: IF array::len($public) > 0 {
     (SELECT record::id(id) AS id, publishedAt FROM $public)
@@ -36,9 +42,6 @@ RETURN {
     (SELECT record::id(story) AS story, decision, feedbackToSubmitter, storyVersion, decidedAt
        FROM moderationReview WHERE story IN $mine ORDER BY decidedAt ASC)
   } ELSE { [] },
-  consents: (SELECT id, type, event, form, form.statements AS statements, dpaVersion, termsVersion,
-      story, mechanism, evidenceHash, evidenceVersion, occurredAt, legacyGivenAt
-    FROM consent WHERE subject = $auth ORDER BY occurredAt ASC, id ASC),
   hearts: $hearts,
   heartedPublic: IF array::len($hearted) > 0 {
     (SELECT record::id(id) AS id, slug FROM $hearted)
@@ -58,7 +61,14 @@ RETURN {
 type Opt<T> = T | null | undefined;
 
 interface Held {
-  user: { id: string; createdAt: string } | null;
+  user: {
+    id: string;
+    createdAt: string;
+    termsVersion?: Opt<number>;
+    termsAt?: Opt<string>;
+    testimonyVersion?: Opt<number>;
+    testimonyAt?: Opt<string>;
+  } | null;
   stories: {
     id: string;
     slug: string;
@@ -92,8 +102,8 @@ interface Held {
     submittedAt?: Opt<string>;
     approvedAt?: Opt<string>;
     draftExpiresAt?: Opt<string>;
-    sharing?: Opt<{ event?: string; form?: Opt<string>; occurredAt?: string }>;
-    sharingCounts?: Opt<boolean>;
+    sharingVersion?: Opt<number>;
+    sharingAt?: Opt<string>;
   }[];
   published: { id: string; publishedAt: string }[];
   reviews: {
@@ -102,21 +112,6 @@ interface Held {
     feedbackToSubmitter?: Opt<string>;
     storyVersion: number;
     decidedAt: string;
-  }[];
-  consents: {
-    id: string;
-    type: string;
-    event: string;
-    form?: Opt<string>;
-    statements?: Opt<{ key: string; label: string }[]>;
-    dpaVersion: string;
-    termsVersion?: Opt<string>;
-    story?: Opt<string>;
-    mechanism: string;
-    evidenceHash: string;
-    evidenceVersion?: Opt<number>;
-    occurredAt: string;
-    legacyGivenAt?: Opt<string>;
   }[];
   hearts: { story: string; createdAt: string }[];
   heartedPublic: { id: string; slug: string }[];
@@ -163,9 +158,9 @@ const SECTIONS = {
   signIn:
     'What Clerk, the company that runs our sign-in, holds about you: your names, email addresses, phone numbers, any accounts you sign in with (such as Google), your picture if you gave one, and when you made the account and last signed in. We read it from Clerk when you asked for this file; we don’t keep a copy. You can change it under Manage account.',
   stories:
-    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "sharing" is whether you let our media team share that story beyond heisreal.today (you choose it for each story): "granted" is your latest choice for it, "counts" whether that choice was made on a version of our sharing form that still counts, and "formVersion" and "occurredAt" which version and when. We only ever share a story while it is on the site.',
-  consents:
-    'Every time you gave or withdrew a consent, oldest first, with the words of the box you ticked, the form and the version of our privacy policy (and terms of use) it was given under. Sharing a story beyond heisreal.today is chosen for each story, so those name the story ("storyId"); every other consent covers all your stories. "evidenceHash" is a fingerprint of exactly what you were shown, so either of us can prove it. We keep this record even after you delete your account, for six years, as proof that we asked.',
+    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "socialMediaSharingConsent" is the version of our social media sharing consent you ticked for that story at the end of its upload, and when (null if you didn’t tick it). We only ever share a story while it is on the site.',
+  agreements:
+    'The versions of our terms of use and our testimony consent you agreed to, and when (null if you haven’t). The words of every version are on our site. Deleting your account withdraws them, and we keep no record of them afterwards.',
   favourites:
     'The stories you hearted, newest first, and when. Hearts are private: nobody else sees them, not even the story’s author. The stories belong to their authors, so this file only says which ones, with their address on the site while they are public.',
   limits:
@@ -281,28 +276,16 @@ export function toExport(
         approvedAt: iso(s.approvedAt),
         publishedAt: iso(publishedAt.get(id)),
         draftExpiresAt: iso(s.draftExpiresAt),
-        sharing: storySharing(s.sharing, s.sharingCounts),
+        socialMediaSharingConsent: agreementOf(s.sharingVersion, s.sharingAt),
       };
     }),
-    consents: held.consents.map((c) => {
-      const ref = formRef(c.form);
-      return {
-        id: recordKey(c.id),
-        type: c.type,
-        event: c.event,
-        statement: c.statements?.find((b) => b.key === c.type)?.label ?? null,
-        form: ref?.form ?? null,
-        formVersion: ref?.formVersion ?? null,
-        privacyPolicyVersion: recordKey(c.dpaVersion),
-        termsVersion: c.termsVersion ? recordKey(c.termsVersion) : null,
-        storyId: c.story ? recordKey(c.story) : null,
-        mechanism: c.mechanism,
-        evidenceHash: c.evidenceHash,
-        evidenceVersion: or(c.evidenceVersion),
-        occurredAt: iso(c.occurredAt) as string,
-        legacyGivenAt: iso(c.legacyGivenAt),
-      };
-    }),
+    agreements: {
+      termsOfUse: agreementOf(held.user?.termsVersion, held.user?.termsAt),
+      testimonyConsent: agreementOf(
+        held.user?.testimonyVersion,
+        held.user?.testimonyAt,
+      ),
+    },
     favourites: held.hearts.map((h) => ({
       storyId: h.story,
       heartedAt: iso(h.createdAt) as string,

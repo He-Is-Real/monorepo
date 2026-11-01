@@ -6,15 +6,14 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agreeAll,
   approve,
   createPeople,
   draft,
-  grantAll,
   grantImage,
   shareStory,
   grantUpload,
   processed,
-  publishDpa,
   rows,
   run,
   STORY_TEXT_PADDING,
@@ -197,7 +196,8 @@ describe('download my data', () => {
        RETURN {
          stories: (SELECT VALUE record::id(id) FROM story WHERE submitter = $u),
          reviews: (SELECT VALUE decision FROM moderationReview WHERE story.submitter = $u),
-         consents: (SELECT VALUE record::id(id) FROM consent WHERE subject = $u),
+         agreements: (SELECT VALUE [record::id(termsOfUse), record::id(testimonyConsent)]
+           FROM ONLY $u),
          hearts: (SELECT VALUE record::id(story) FROM favourite WHERE person = $u),
          submissions: (SELECT VALUE at FROM submissionLog WHERE person = $u),
          uploads: (SELECT VALUE record::id(id) FROM uploadGrant WHERE person = $u),
@@ -253,7 +253,6 @@ describe('download my data', () => {
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
-    await publishDpa(t, 'v1');
     await createPeople(t, { modq7: 'user_modq7' });
     await run(
       admin,
@@ -269,8 +268,8 @@ describe('download my data', () => {
     await createPeople(t, { ann: 'user_ann', zqx: 'user_zqx' });
     const ann = await t.person('user_ann');
     const zed = await t.person('user_zqx');
-    await grantAll(ann);
-    await grantAll(zed);
+    await agreeAll(ann);
+    await agreeAll(zed);
     // Ann: an admin's limits for her alone. Zed: trusted, with limits of his own.
     await run(
       migrator,
@@ -319,11 +318,11 @@ describe('download my data', () => {
     await decide(annNo.id, 'reject', 'Not for this site, sorry.');
     const annLive = await createThroughApi('ann', 'Ann live');
     const livePicture = await picture(annLive.id, 640, 480);
+    // Plan 4e: she ticks the social media sharing box for this story, and only this one.
+    expect(await shareStory(ann, `story:${annLive.id}`)).toHaveLength(1);
     await submit(ann, annLive.id);
     await processed(await t.service('workflow'), annLive.id);
     await decide(annLive.id, 'approve');
-    // O4: she lets this story, and only this one, go beyond heisreal.today.
-    await shareStory(ann, `story:${annLive.id}`, 'granted');
     const annVideo = randomUUID();
     await draft(ann, 'ann_video', { primaryFormat: 'video', body: undefined });
     expect(
@@ -407,9 +406,12 @@ describe('download my data', () => {
       [annLive.id]: 'approved',
       ann_video: 'draft',
     });
-    expect(file.consents.map((c: { id: string }) => c.id).sort()).toEqual(
-      [...held['consents']].sort(),
-    );
+    // The versions she agreed to, and when (plan 4e).
+    expect(held['agreements']).toEqual([0, 0]);
+    expect(file.agreements).toEqual({
+      termsOfUse: { version: 0, agreedAt: expect.any(String) },
+      testimonyConsent: { version: 0, agreedAt: expect.any(String) },
+    });
     // Same-millisecond rows may come in either order: compare what is there.
     expect(
       file.favourites.map((f: { storyId: string }) => f.storyId).sort(),
@@ -471,19 +473,12 @@ describe('download my data', () => {
         },
       ],
     });
-    // O4: each story's own sharing choice, and the ledger event naming it.
-    expect(story(annLive.id).sharing).toEqual({
-      granted: true,
-      counts: true,
-      formVersion: 'v1',
-      occurredAt: expect.any(String),
+    // Plan 4e: each story's own social media sharing box.
+    expect(story(annLive.id).socialMediaSharingConsent).toEqual({
+      version: 0,
+      agreedAt: expect.any(String),
     });
-    expect(story(annDraft.id).sharing).toMatchObject({ granted: false });
-    expect(
-      file.consents
-        .filter((c: { type: string }) => c.type === 'share_socials')
-        .map((c: { storyId: string | null }) => c.storyId),
-    ).toEqual([annLive.id]);
+    expect(story(annDraft.id).socialMediaSharingConsent).toBeNull();
     expect(story(annLive.id)).toMatchObject({
       onSiteNow: true,
       publishedAt: expect.any(String),
@@ -523,16 +518,6 @@ describe('download my data', () => {
       contentType: 'video/mp4',
       sizeBytes: 1_000_000,
     });
-    // The words of each box ticked.
-    expect(
-      file.consents.every(
-        (c: { statement: unknown }) => typeof c.statement === 'string',
-      ),
-    ).toBe(true);
-    expect(file.consents[0]).toMatchObject({
-      event: 'granted',
-      privacyPolicyVersion: 'v1',
-    });
     expect(file.favourites).toEqual([
       {
         storyId: zedLive.id,
@@ -559,7 +544,6 @@ describe('download my data', () => {
       zedDraft.id,
       zedVideo,
       'zqx_video',
-      ...zedHeld['consents'],
       ...(zedHeld['keys'] as string[]),
       'modq7',
       'PRIVATE-META-q8',
@@ -597,7 +581,7 @@ describe('download my data', () => {
     expect(body).toMatchObject({
       account: { id: 'cy' },
       stories: [],
-      consents: [],
+      agreements: { termsOfUse: null, testimonyConsent: null },
       favourites: [],
       submissions: [],
       uploads: [],

@@ -1,11 +1,6 @@
 import type { Surreal } from 'surrealdb';
 import { outcome, rows, run, TestDatabase } from './support/harness';
-import {
-  consentEvent,
-  createPeople,
-  grantAll,
-  shareStory,
-} from './support/harness';
+import { agree, shareStory } from './support/harness';
 import { createHash } from 'node:crypto';
 import {
   approve,
@@ -36,10 +31,10 @@ describe('erasure on api_user’s service login', () => {
     t = await TestDatabase.create();
     const { admin, ann } = await buildWorld(t);
     await draft(ann, 'ann_live');
+    // Plan 4e: she ticks the social media sharing box for this story when she submits it.
+    expect(await shareStory(ann, 'story:ann_live')).toHaveLength(1);
     await submit(ann, 'ann_live');
     await approve(admin, 'ann_live');
-    // O4: she lets this story go beyond heisreal.today.
-    expect(await shareStory(ann, 'story:ann_live', 'granted')).toHaveLength(1);
     migrator = await t.migrator();
     apiUser = await t.service('api_user');
     // Ann's video draft, its video made by api-user (an upload grant, D80).
@@ -192,10 +187,19 @@ describe('erasure on api_user’s service login', () => {
         `UPDATE user:ann SET clerkUserId = 'x'`,
       ),
     ).toEqual([]);
+    // Nor delete it: the stub stays, holding no Clerk id and no agreement (plan 4e: deleting
+    // the account is the withdrawal; nothing suggests consent goes on).
+    for (const name of ['api_user', 'api_admin'] as const) {
+      await outcome(await t.service(name), 'DELETE user:ann');
+    }
     const [user] = await truth<Record<string, unknown>>(
       'SELECT * FROM user:ann',
     );
-    expect(user['clerkUserId']).toBeUndefined();
+    expect(Object.keys(user ?? {}).sort()).toEqual([
+      'createdAt',
+      'gdprDeletedAt',
+      'id',
+    ]);
     expect(user['gdprDeletedAt']).toEqual(expect.any(String));
   });
 
@@ -278,7 +282,7 @@ describe('erasure on api_user’s service login', () => {
 
   it('blocks writes from a session opened BEFORE erasure (the webhook race)', async () => {
     // Bob's request authenticates, then the user.deleted webhook erases him, then the request
-    // writes using his retained (still granted) consent. $auth is a record id, so
+    // writes, or agrees to newer terms. $auth is a record id, so
     // `$auth.gdprDeletedAt` reads the user row as it is now, not a sign-in snapshot.
     const bob = await t.person('user_bob');
     expect(await rows(bob, 'RETURN $auth')).toEqual(['user:bob']);
@@ -286,16 +290,13 @@ describe('erasure on api_user’s service login', () => {
       clerkUserId: 'user_bob',
       reason: 'clerk_user_deleted',
     });
-    const consentBefore = await truth(
-      'SELECT VALUE id FROM consent WHERE subject = user:bob',
-    );
 
     expect(await draft(bob, 'bob_after_erasure')).toEqual([]);
     expect(await truth('SELECT * FROM story:bob_after_erasure')).toEqual([]);
-    expect(await consentEvent(bob, 'publish', 'granted')).toEqual([]);
+    expect(await agree(bob, 'termsOfUse')).toEqual([]);
     expect(
-      await truth('SELECT VALUE id FROM consent WHERE subject = user:bob'),
-    ).toEqual(consentBefore);
+      await truth('SELECT termsOfUse, testimonyConsent FROM ONLY user:bob'),
+    ).toEqual([{}]);
     // There's no row left to update, and none can be put back: not even the migrator can
     // attach a story to an erased person (fn::person::live, round 3).
     expect(
@@ -308,74 +309,6 @@ describe('erasure on api_user’s service login', () => {
     expect(await truth('SELECT * FROM story:bob_ghost')).toEqual([]);
     // And no new session: the Clerk id is gone (D37).
     await expect(t.person('user_bob')).rejects.toThrow();
-  });
-
-  it('a withdrawal api-user never got to erase stays requested, and housekeeping deleting the request erases the person (D88, D73)', async () => {
-    await createPeople(t, { dan: 'user_dan' });
-    const dan = await t.person('user_dan');
-    await grantAll(dan);
-    await draft(dan, 'dan_story');
-    await submit(dan, 'dan_story');
-    await consentEvent(dan, 'account_data', 'withdrawn');
-    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([
-      'erasureRequest:dan',
-    ]);
-    const housekeeping = await t.service('housekeeping');
-    // Nobody makes one by hand, and the person can't see or cancel theirs.
-    for (const db of [housekeeping, apiUser]) {
-      await outcome(db, `CREATE erasureRequest:bob SET user = user:bob`);
-    }
-    await outcome(dan, 'DELETE erasureRequest:dan');
-    expect(await rows(dan, 'SELECT * FROM erasureRequest')).toEqual([]);
-    // Housekeeping may queue nothing itself either.
-    await outcome(
-      housekeeping,
-      `CREATE pendingDeletion CONTENT { kind: 'clerk_user', ref: 'user_bob' }`,
-    );
-    expect(
-      await truth(
-        `SELECT VALUE id FROM pendingDeletion WHERE ref = 'user_bob'`,
-      ),
-    ).toEqual([]);
-    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([
-      'erasureRequest:dan',
-    ]);
-    expect(
-      await truth('SELECT VALUE id FROM story WHERE submitter = user:dan'),
-    ).toHaveLength(1);
-
-    await run(housekeeping, 'DELETE erasureRequest:dan');
-    expect(await truth('SELECT VALUE id FROM erasureRequest')).toEqual([]);
-    expect(
-      await truth('SELECT VALUE id FROM story WHERE submitter = user:dan'),
-    ).toEqual([]);
-    expect(
-      await truth(
-        'SELECT VALUE [clerkUserId, gdprDeletedAt != NONE] FROM ONLY user:dan',
-      ),
-    ).toEqual([undefined, true]);
-    expect(
-      await truth(
-        `SELECT service, reason FROM auditLog WHERE entity = user:dan AND action = 'EraseAccount'`,
-      ),
-    ).toEqual([{ service: 'housekeeping', reason: 'consent_withdrawn' }]);
-    expect(
-      await truth(
-        `SELECT VALUE kind FROM pendingDeletion WHERE ref = 'user_dan'`,
-      ),
-    ).toEqual(['clerk_user']);
-    expect(
-      await truth('SELECT VALUE id FROM type::record($id)', {
-        id: `erasedIdentity:${fingerprint('user_dan')}`,
-      }),
-    ).toHaveLength(1);
-    // The withdrawal stays on the ledger as proof (D38).
-    expect(
-      await truth(
-        `SELECT VALUE event FROM consent WHERE subject = user:dan AND type = 'account_data'
-           ORDER BY occurredAt DESC LIMIT 1`,
-      ),
-    ).toEqual(['withdrawn']);
   });
 
   it('pushes a queued deletion back after each failed try: 1 h, then doubling, at most a week', async () => {
@@ -414,10 +347,6 @@ describe('erasure on api_user’s service login', () => {
         `action: 'SubmitStory', toStatus: 'published by moderator'`,
       ],
       ['an unknown role', `action: 'AssignRole', role: 'Pastor'`],
-      [
-        'an unknown consent type',
-        `action: 'GrantConsent', consentType: 'faith'`,
-      ],
     ])('refuses %s', async (_, fields) => {
       expect(
         (

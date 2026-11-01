@@ -8,21 +8,16 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import {
-  ConsentModule,
-  NoConsentRequired,
-  type PersonAuthenticator,
-} from '@heisreal/consent';
 import { SURREAL } from '@heisreal/database';
 import type { Request } from 'express';
 import { useTestClerkEnv } from '../testing';
 import { ClerkAuthModule } from './auth.module';
+import type { PersonAuthenticator } from './person';
 import { RoleGuard } from './role.guard';
 import { NoRoleRequired, RequiresRole } from '@heisreal/roles';
 
 useTestClerkEnv();
 
-@NoConsentRequired('role guard tests: no personal data')
 @Controller('v1')
 class StaffController {
   @Get('queue')
@@ -44,7 +39,6 @@ class StaffController {
   }
 }
 
-@NoConsentRequired('role guard tests: no personal data')
 @Controller('plain')
 class UndeclaredController {
   @Get()
@@ -78,8 +72,7 @@ async function boot(controllers: (new () => object)[]) {
   const moduleRef = await Test.createTestingModule({
     imports: [
       FakeDatabaseModule,
-      ClerkAuthModule.forRoot(),
-      ConsentModule.forRoot({ authenticator: HeaderAuthenticator }),
+      ClerkAuthModule.forRoot({ authenticator: HeaderAuthenticator }),
       Routes,
     ],
   }).compile();

@@ -6,12 +6,11 @@ import { join } from 'node:path';
 import { RecordId, type Surreal, type SurrealTransaction } from 'surrealdb';
 import {
   createPeople,
-  DPA_V1_SHA256,
-  grantAll,
+  agreeAll,
   outcome,
   rows,
   run,
-  SCHEMA_DIR,
+  type MigrationParams,
   sha256,
   TestDatabase,
 } from './support/harness';
@@ -205,7 +204,7 @@ describe('themes and their categories', () => {
         fay: 'user_fay',
       });
       for (const sub of ['user_dana', 'user_eve', 'user_fay']) {
-        await grantAll(await t.person(sub));
+        await agreeAll(await t.person(sub));
       }
       await run(
         admin,
@@ -364,31 +363,43 @@ describe('themes and their categories', () => {
 
 /** main before themes v3: tags in three fixed groups. */
 const BEFORE_THEMES = '0280b456dd0c414365c52e5feb1522ef74ae878e';
-const DEV_SEED_SHA256 = sha256(
-  readFileSync(join(SCHEMA_DIR, '../../legal/dpa/dev_seed.md'), 'utf8'),
-);
 
 describe('data/0008: tags become themes (a database migrated before themes v3)', () => {
   let t: TestDatabase;
   let previous: string;
-  const params = () =>
+  /**
+   * What OpenTofu passed that release: its DPA hashes (the test's v1 stand-in and the dev seed's
+   * file, libs/legal then) and its walking-skeleton story. This release takes neither.
+   */
+  const previousParams = (dir: string) =>
     t.params({
       seed_dev_story: true,
-      dpa_sha256: { v1: DPA_V1_SHA256, dev_seed: DEV_SEED_SHA256 },
-    });
+      dpa_sha256: {
+        v1: sha256('dpa v1 placeholder'),
+        dev_seed: sha256(
+          readFileSync(join(dir, 'libs/legal/dpa/dev_seed.md'), 'utf8'),
+        ),
+      },
+    } as Partial<MigrationParams>);
   beforeAll(async () => {
     const dir = await mkdtemp(join(tmpdir(), 'before-themes-'));
     const repo = join(__dirname, '../../..');
     const archive = execFileSync(
       'git',
-      ['archive', '--format=tar', BEFORE_THEMES, 'libs/database/schema'],
+      [
+        'archive',
+        '--format=tar',
+        BEFORE_THEMES,
+        'libs/database/schema',
+        'libs/legal/dpa',
+      ],
       { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
     );
     execFileSync('tar', ['-x', '-C', dir], { input: archive });
     previous = join(dir, 'libs/database/schema');
     t = await TestDatabase.create({ migrate: false });
     // That release, with its walking-skeleton story (data/0003) published, tags and limits.
-    await t.migrate(params(), {
+    await t.migrate(previousParams(dir), {
       bundleDir: previous,
       runner: join(previous, 'migrate.py'),
     });
@@ -422,8 +433,8 @@ describe('data/0008: tags become themes (a database migrated before themes v3)',
   });
 
   it('copies each group to a category and each tag to a theme with a new id, relinking stories', async () => {
-    const summary = await t.migrate(params());
-    expect(summary.applied).toEqual(['0008-themes']);
+    const summary = await t.migrate();
+    expect(summary.applied).toEqual(['0008-themes', '0009-consent-4e']);
     const migrator = await t.migrator();
     const themes = await rows<{
       id: string;
@@ -493,7 +504,7 @@ describe('data/0008: tags become themes (a database migrated before themes v3)',
   });
 
   it('a second run changes nothing', async () => {
-    expect((await t.migrate(params())).applied).toEqual([]);
+    expect((await t.migrate()).applied).toEqual([]);
     expect(
       await rows(
         await t.migrator(),

@@ -1,7 +1,7 @@
 import type { Surreal } from 'surrealdb';
 import {
   createPeople,
-  grantAll,
+  agreeAll,
   outcome,
   rows,
   run,
@@ -13,8 +13,8 @@ import { approve, buildWorld, draft, ERASE, submit } from './support/world';
  * Favourites (M2, hearts): a person's private list of published stories. Hearts are private
  * (founder, 2026-10-25): only the person who hearted a story can see that they did. Nobody
  * else reads the rows, not even the story's owner or the services' own logins; the owner's
- * count (profile, later) is a seam, not built. A heart needs the sign-up form's consent
- * ("store my account and favourites" and 18+, D73) and a story that is public now. Erasure
+ * count (profile, later) is a seam, not built. A heart needs the latest terms of use (plan 4e:
+ * agreeing to them includes being 18 or over; agreements.int-spec.ts) and a story that is public now. Erasure
  * removes the person's favourites, and a story's deletion removes the favourites pointing at it.
  */
 describe('favourites', () => {
@@ -162,8 +162,8 @@ describe('favourites', () => {
     await createPeople(t, { dan: 'user_dan', eve: 'user_eve' });
     const dan = await t.person('user_dan');
     const eve = await t.person('user_eve');
-    await grantAll(dan);
-    await grantAll(eve);
+    await agreeAll(dan);
+    await agreeAll(eve);
     await draft(eve, 'eve_live');
     await submit(eve, 'eve_live');
     await approve(admin, 'eve_live');
@@ -193,8 +193,8 @@ describe('favourites', () => {
     await createPeople(t, { fay: 'user_fay', gus: 'user_gus' });
     const fay = await t.person('user_fay');
     const gus = await t.person('user_gus');
-    await grantAll(fay);
-    await grantAll(gus);
+    await agreeAll(fay);
+    await agreeAll(gus);
     await draft(gus, 'gus_live');
     await submit(gus, 'gus_live');
     await approve(admin, 'gus_live');

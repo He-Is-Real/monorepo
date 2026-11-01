@@ -1,9 +1,8 @@
 import type { Surreal } from 'surrealdb';
 import {
   createPeople,
-  grantAll,
+  agreeAll,
   outcome,
-  publishDpa,
   rows,
   run,
   TestDatabase,
@@ -27,7 +26,7 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
   async function person(p: string): Promise<Surreal> {
     await createPeople(t, { [p]: `user_${p}` });
     const s = await t.person(`user_${p}`);
-    await grantAll(s);
+    await agreeAll(s);
     return s;
   }
   const video = (s: Surreal, id: string) =>
@@ -65,7 +64,6 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
     apiUser = await t.service('api_user');
     workflow = await t.service('workflow');
     await createPeople(t, { admin: 'user_admin' });
-    await publishDpa(t, 'v1');
   });
   afterAll(() => t?.close());
 

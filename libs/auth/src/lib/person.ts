@@ -8,12 +8,12 @@ import type { Request } from 'express';
 import type { RecordId, Surreal, SurrealSession } from 'surrealdb';
 
 /**
- * The seam with sign-in. Everything personal in this library starts from an
- * `AuthenticatedPerson`; nothing here verifies a Clerk token itself.
+ * The seam with sign-in. Everything personal in the services starts from an
+ * `AuthenticatedPerson`; `PersonSessions` doesn't verify a Clerk token itself.
  *
- * `libs/auth` (task 0.5) provides the `PersonAuthenticator`s that verify the request's Clerk
+ * The `PersonAuthenticator`s (clerk-authenticator.ts, task 0.5) verify the request's Clerk
  * session token (signature, `exp`/`nbf`, `iss`, and `azp`, which SurrealDB doesn't check;
- * docs/db-permissions.md, "Clerk side"), passed in with `ConsentModule.forRoot({ authenticator })`.
+ * docs/db-permissions.md, "Clerk side"), passed in with `ClerkAuthModule.forRoot({ authenticator })`.
  * They also make sure the person's `user` row exists (api-user's login creates it on first
  * use), since SurrealDB's `DEFINE ACCESS clerk` only signs in people it knows.
  */
@@ -23,7 +23,7 @@ export interface AuthenticatedPerson {
   /** The verified Clerk session token; opens the person's SurrealDB session (D27). */
   readonly token: string;
   /**
-   * The verified role claim (D1), one of `@heisreal/auth`'s `ROLES`. Absent means no role:
+   * The verified role claim (D1), one of `@heisreal/roles`' `ROLES`. Absent means no role:
    * every role check refuses.
    */
   readonly role?: string;
@@ -38,7 +38,7 @@ export const PERSON_AUTHENTICATOR = Symbol('PERSON_AUTHENTICATOR');
 
 /**
  * The default when no authenticator is given: nobody can sign in, so every personal route
- * answers `401` (fail closed). api-user and api-admin pass `libs/auth`'s Clerk authenticators.
+ * answers `401` (fail closed). api-user and api-admin pass their Clerk authenticators.
  */
 export class SignInUnavailable implements PersonAuthenticator {
   async authenticate(): Promise<AuthenticatedPerson> {
@@ -55,7 +55,7 @@ export interface PersonContext {
 
 /**
  * Runs work as the signed-in person (D27): authenticates the request once (cached per request,
- * so the guard and the handler don't verify twice), then opens a fresh session on the
+ * so the role guard and the handler don't verify twice), then opens a fresh session on the
  * service's connection for each unit of work.
  */
 @Injectable()

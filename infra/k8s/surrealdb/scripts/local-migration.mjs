@@ -6,25 +6,19 @@
  *
  *   - every *.surql in libs/database/schema and libs/database/schema/data (flattened), and the
  *     runner, libs/database/schema/migrate.py;
- *   - params.json: dpa_sha256 = { <id>: sha256 of libs/legal/dpa/<id>.md } for every file there,
- *     dpa_text = their words, form_sha256 / form_text = the same for every consent form version
- *     in libs/legal/forms/<signup|testimony|social>/<id>.md (D84),
- *     form_statements / form_statements_sha256 = each version's boxes and their file's sha256, from
- *     <id>.statements.json beside its text (D114),
- *     clerk_jwt_public_key = the PEM file given, or null. No identity_hash: locally, restart
- *     SurrealDB yourself after changing the init Secret (the identity-check sidecar still gates
- *     readiness on the credentials). environment = 'local', so consent checks are never relaxed
- *     (D48 is dev only) and dev's placeholder privacy document and forms are never seeded (D75).
+ *   - params.json: clerk_jwt_public_key = the PEM file given, or null; environment = 'local'.
+ *     No identity_hash: locally, restart SurrealDB yourself after changing the init Secret (the
+ *     identity-check sidecar still gates readiness on the credentials). The legal texts come
+ *     from the database itself (plan 4e: data/0009 seeds version 0 of each).
  *
  * It then deletes a finished surrealdb-migrate Job so that re-applying the overlay runs it again:
  *
- *   node infra/k8s/surrealdb/scripts/local-migration.mjs [--context kind-heisreal] [--clerk-public-key-file key.pem] [--seed-dev-story]
+ *   node infra/k8s/surrealdb/scripts/local-migration.mjs [--context kind-heisreal] [--clerk-public-key-file key.pem]
  *   kubectl apply -k infra/k8s/surrealdb/overlays/local
  *
  * Refuses any cluster but a local one: GKE gets its migration from OpenTofu.
  */
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,13 +29,11 @@ const { values: args } = parseArgs({
     context: { type: 'string' },
     namespace: { type: 'string', default: 'database' },
     'clerk-public-key-file': { type: 'string' },
-    'seed-dev-story': { type: 'boolean', default: false },
   },
 });
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const schemaDir = join(root, 'libs/database/schema');
-const dpaDir = join(root, 'libs/legal/dpa');
 
 function kubectl(kubectlArgs, input) {
   const context = args.context ? [`--context=${args.context}`] : [];
@@ -64,74 +56,13 @@ const surql = (dir) =>
   readdirSync(dir)
     .filter((f) => f.endsWith('.surql'))
     .map((f) => [f, readFileSync(join(dir, f), 'utf8')]);
-/** { <id>: words } of the version files in a libs/legal directory. */
-const texts = (dir) =>
-  Object.fromEntries(
-    readdirSync(dir)
-      .filter((f) => f.endsWith('.md') && f !== 'README.md')
-      .map((f) => [
-        f.slice(0, -'.md'.length),
-        readFileSync(join(dir, f), 'utf8'),
-      ]),
-  );
-const sha256 = (byId) =>
-  Object.fromEntries(
-    Object.entries(byId).map(([id, text]) => [
-      id,
-      createHash('sha256').update(text, 'utf8').digest('hex'),
-    ]),
-  );
-const dpaText = texts(dpaDir);
-const formText = Object.fromEntries(
-  ['signup', 'testimony', 'social'].map((k) => [
-    k,
-    texts(join(root, 'libs/legal/forms', k)),
-  ]),
-);
-// D114: each version's boxes, <id>.statements.json beside its text.
-const statementFiles = (dir) =>
-  Object.fromEntries(
-    readdirSync(dir)
-      .filter((f) => f.endsWith('.statements.json'))
-      .map((f) => [
-        f.slice(0, -'.statements.json'.length),
-        readFileSync(join(dir, f), 'utf8'),
-      ]),
-  );
-const formStatementFiles = Object.fromEntries(
-  ['signup', 'testimony', 'social'].map((k) => [
-    k,
-    statementFiles(join(root, 'libs/legal/forms', k)),
-  ]),
-);
-const formStatements = Object.fromEntries(
-  Object.entries(formStatementFiles).map(([k, byId]) => [
-    k,
-    Object.fromEntries(
-      Object.entries(byId).map(([id, text]) => [id, JSON.parse(text)]),
-    ),
-  ]),
-);
 const clerkKeyFile = args['clerk-public-key-file'];
 const params = {
   clerk_jwt_public_key: clerkKeyFile
     ? readFileSync(clerkKeyFile, 'utf8')
     : null,
-  dev_consent_relaxed: false,
-  dev_legal_placeholders: false,
-  dpa_sha256: sha256(dpaText),
-  dpa_text: dpaText,
-  form_sha256: Object.fromEntries(
-    Object.entries(formText).map(([k, byId]) => [k, sha256(byId)]),
-  ),
-  form_text: formText,
-  form_statements: formStatements,
-  form_statements_sha256: Object.fromEntries(
-    Object.entries(formStatementFiles).map(([k, byId]) => [k, sha256(byId)]),
-  ),
   environment: 'local',
   identity_hash: null,
-  seed_dev_story: args['seed-dev-story'],
 };
 if (params.clerk_jwt_public_key?.includes('PRIVATE KEY')) {
   console.error('That is a private key: pass the PEM *public* key only.');

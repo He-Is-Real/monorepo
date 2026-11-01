@@ -1,8 +1,7 @@
 import type { Surreal } from 'surrealdb';
 import {
   createPeople,
-  grantAll,
-  publishDpa,
+  agreeAll,
   rows,
   run,
   TestDatabase,
@@ -32,7 +31,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
   async function person(p: string): Promise<Surreal> {
     await createPeople(t, { [p]: `user_${p}` });
     const s = await t.person(`user_${p}`);
-    await grantAll(s);
+    await agreeAll(s);
     return s;
   }
   const image = async (id: string) =>
@@ -51,7 +50,6 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     migrator = await t.migrator();
     apiUser = await t.service('api_user');
     workflow = await t.service('workflow');
-    await publishDpa(t, 'v1');
   });
   afterAll(() => t?.close());
 
@@ -432,7 +430,7 @@ describe('a deleted story’s picture folder is queued from the story, never its
   async function person(p: string): Promise<Surreal> {
     await createPeople(t, { [p]: `user_${p}` });
     const s = await t.person(`user_${p}`);
-    await grantAll(s);
+    await agreeAll(s);
     return s;
   }
 
@@ -440,7 +438,6 @@ describe('a deleted story’s picture folder is queued from the story, never its
     t = await TestDatabase.create();
     migrator = await t.migrator();
     apiUser = await t.service('api_user');
-    await publishDpa(t, 'v1');
   });
   afterAll(() => t?.close());
   afterEach(() => run(migrator, 'DELETE pendingDeletion'));

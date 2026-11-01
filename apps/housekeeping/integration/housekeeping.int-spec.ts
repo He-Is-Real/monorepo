@@ -1,13 +1,11 @@
 import { ERASE_ACCOUNT } from '@heisreal/database';
 import { type SecretAccessor, SecretsService } from '@heisreal/secrets';
 import {
-  consentEvent,
+  agreeAll,
   createPeople,
-  grantAll,
   grantImage,
   grantUpload,
   outcome,
-  publishDpa,
   rows,
   run,
   TestDatabase,
@@ -16,7 +14,7 @@ import {
 import type { Surreal, SurrealTransaction } from 'surrealdb';
 import { CHORES } from '../src/app/chores';
 import type { ClerkUsers } from '../src/app/clerk';
-import { erasureRequestsTask, pendingDeletionsTask } from '../src/app/erasure';
+import { pendingDeletionsTask } from '../src/app/erasure';
 import type { ImageZone } from '../src/app/images';
 import { startHousekeeping } from '../src/app/start';
 import type { LibraryVideo, StreamLibrary } from '../src/app/stream';
@@ -144,12 +142,11 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     housekeeping = await t.service('housekeeping');
     const apiUser = await t.service('api_user');
     await createPeople(t, { ann: 'user_ann', bob: 'user_bob' });
-    await publishDpa(t, 'v1');
     await trustSubmitters(t, 'ann', 'bob');
     const ann = await t.person('user_ann');
     const bob = await t.person('user_bob');
-    await grantAll(ann);
-    await grantAll(bob);
+    await agreeAll(ann);
+    await agreeAll(bob);
 
     for (const k of [
       'expired',
@@ -406,7 +403,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
  * and writes (uncommitted), B runs and commits, then A commits and fails with a retryable
  * conflict. Exactly one of them wins, and the loser's retry sees the winner's write.
  */
-describe('housekeeping racing a resumed upload or a form publication', () => {
+describe('housekeeping racing a resumed upload', () => {
   const CONFLICT = /Transaction conflict.*can be retried/s;
   let t: TestDatabase;
   let migrator: Surreal;
@@ -467,10 +464,9 @@ describe('housekeeping racing a resumed upload or a form publication', () => {
     housekeeping = await t.service('housekeeping');
     apiUser = await t.service('api_user');
     await createPeople(t, { cat: 'user_cat' });
-    await publishDpa(t, 'v1');
     await trustSubmitters(t, 'cat');
     cat = await t.person('user_cat');
-    await grantAll(cat);
+    await agreeAll(cat);
   });
   afterAll(() => t?.close());
 
@@ -522,7 +518,7 @@ describe('housekeeping racing a resumed upload or a form publication', () => {
   });
 });
 
-describe('housekeeping: erasure requests and queued deletions', () => {
+describe('housekeeping: queued deletions', () => {
   let t: TestDatabase;
   let migrator: Surreal;
   let housekeeping: Surreal;
@@ -543,7 +539,7 @@ describe('housekeeping: erasure requests and queued deletions', () => {
 
   const sweep = (over: Partial<TaskContext> = {}) =>
     runTasks(
-      [erasureRequestsTask, pendingDeletionsTask],
+      [pendingDeletionsTask],
       {
         db: housekeeping,
         stream: library,
@@ -575,7 +571,6 @@ describe('housekeeping: erasure requests and queued deletions', () => {
     migrator = await t.migrator();
     housekeeping = await t.service('housekeeping');
     const apiUser = await t.service('api_user');
-    await publishDpa(t, 'v1');
     await createPeople(t, { eva: 'user_eva', fred: 'user_fred' });
     await trustSubmitters(t, 'eva', 'fred');
     for (const [who, video] of [
@@ -583,7 +578,7 @@ describe('housekeeping: erasure requests and queued deletions', () => {
       ['fred', FRED_VIDEO],
     ]) {
       const person = await t.person(`user_${who}`);
-      await grantAll(person);
+      await agreeAll(person);
       await createDraft(person, `${who}_video`, 'video');
       expect(
         await grantUpload(apiUser, {
@@ -594,17 +589,14 @@ describe('housekeeping: erasure requests and queued deletions', () => {
         }),
       ).toMatchObject({ ok: true });
     }
-    // Eva withdrew her testimony consent, and api-user stopped before erasing her.
-    await consentEvent(
-      await t.person('user_eva'),
-      'special_category_religious',
-      'withdrawn',
-    );
-    // Fred deleted his account; Bunny and Clerk couldn't be reached, so both deletions wait.
-    await run(apiUser, ERASE_ACCOUNT, {
-      clerkUserId: 'user_fred',
-      reason: 'account_deleted',
-    });
+    // Eva and Fred deleted their accounts; Bunny and Clerk couldn't be reached, so their
+    // deletions wait.
+    for (const who of ['eva', 'fred']) {
+      await run(apiUser, ERASE_ACCOUNT, {
+        clerkUserId: `user_${who}`,
+        reason: 'account_deleted',
+      });
+    }
     library = new FakeLibrary([
       story(EVA_VIDEO, ago(1)),
       story(FRED_VIDEO, ago(1)),
@@ -614,46 +606,30 @@ describe('housekeeping: erasure requests and queued deletions', () => {
 
   it('in a dry run, only reports what it would do', async () => {
     expect(await sweep({ dryRun: true })).toBe(0);
-    expect(logs.slice(-2)).toEqual([
-      expect.objectContaining({
-        task: 'erasure-requests',
-        selected: 1,
-        deleted: 0,
-        ids: ['eva'],
-      }),
+    expect(logs.at(-1)).toEqual(
       expect.objectContaining({
         task: 'pending-deletions',
-        selected: 2,
+        selected: 4,
         deleted: 0,
       }),
-    ]);
-    expect(await erased('eva')).toBe(false);
-    expect(await queued()).toHaveLength(2);
+    );
+    expect(await queued()).toHaveLength(4);
   });
 
   it('without Clerk’s key, leaves Clerk deletions waiting, untried', async () => {
-    expect(await sweep({ clerk: null, maxDeletions: 1, dryRun: true })).toBe(0);
+    expect(await sweep({ clerk: null, maxDeletions: 2, dryRun: true })).toBe(0);
+    // Only the two videos are due here.
     expect(logs.at(-1)).toMatchObject({
       task: 'pending-deletions',
-      selected: 1,
+      selected: 2,
       more: false,
     });
   });
 
-  it('erases whoever is still requested, then works through the queue, a failure pushed back', async () => {
+  it('works through the queue, a failure pushed back', async () => {
     clerk.failing.add('user_fred');
     expect(await sweep()).toBe(1);
     expect(await erased('eva')).toBe(true);
-    expect(
-      await rows(
-        migrator,
-        `SELECT service, reason FROM auditLog WHERE entity = user:eva AND action = 'EraseAccount'`,
-      ),
-    ).toEqual([{ service: 'housekeeping', reason: 'consent_withdrawn' }]);
-    expect(await rows(migrator, `SELECT VALUE id FROM erasureRequest`)).toEqual(
-      [],
-    );
-    // Eva's erasure queued her video and Clerk account; both go the same night.
     expect(library.deleted.sort()).toEqual([EVA_VIDEO, FRED_VIDEO].sort());
     expect(clerk.deleted).toEqual(['user_eva']);
     expect(await queued()).toEqual([{ ref: 'user_fred', attempts: 1 }]);
@@ -693,7 +669,7 @@ describe('housekeeping: erasure requests and queued deletions', () => {
 });
 
 /**
- * Startup with Clerk's key unreadable (Codex review, round 2): the erasure requests and Bunny
+ * Startup with Clerk's key unreadable (Codex review, round 2): the Bunny
  * deletions don't need Clerk, so they still go; only the Clerk deletions wait, and the run
  * reports the key as an error and answers 1.
  */
@@ -794,7 +770,6 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
     t = await TestDatabase.create();
     migrator = await t.migrator();
     const apiUser = await t.service('api_user');
-    await publishDpa(t, 'v1');
     await createPeople(t, { gus: 'user_gus', hal: 'user_hal' });
     await trustSubmitters(t, 'gus', 'hal');
     for (const [who, video] of [
@@ -802,7 +777,7 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
       ['hal', HAL_VIDEO],
     ]) {
       const person = await t.person(`user_${who}`);
-      await grantAll(person);
+      await agreeAll(person);
       await createDraft(person, `${who}_video`, 'video');
       expect(
         await grantUpload(apiUser, {
@@ -821,22 +796,18 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
         path: HAL_PICTURE,
       }),
     ).toMatchObject({ ok: true });
-    // Gus withdrew his testimony consent and wasn't erased; Hal deleted his account and all his
-    // deletions wait.
-    await consentEvent(
-      await t.person('user_gus'),
-      'special_category_religious',
-      'withdrawn',
-    );
-    await run(apiUser, ERASE_ACCOUNT, {
-      clerkUserId: 'user_hal',
-      reason: 'account_deleted',
-    });
+    // Gus and Hal deleted their accounts, and all their deletions wait.
+    for (const who of ['gus', 'hal']) {
+      await run(apiUser, ERASE_ACCOUNT, {
+        clerkUserId: `user_${who}`,
+        reason: 'account_deleted',
+      });
+    }
   });
   afterAll(() => t?.close());
 
   // First: the later cases delete the videos this one leaves queued.
-  it('with no usable Bunny key either, still erases, and leaves the video deletions queued, untried', async () => {
+  it('with no usable Bunny key either, leaves the video deletions queued, untried', async () => {
     const { exitCode, library, logs, zone } = start(disabled, () => '');
     expect(await exitCode).toBe(1);
     expect(logs[0]).toEqual({
@@ -869,7 +840,7 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
     );
   });
 
-  it('with no enabled version of the key, erases and deletes at Bunny, and leaves Clerk’s deletions queued, untried', async () => {
+  it('with no enabled version of the key, deletes at Bunny, and leaves Clerk’s deletions queued, untried', async () => {
     const { exitCode, library, logs, clerkMade } = start(disabled);
     expect(await exitCode).toBe(1);
     expect(logs[0]).toEqual({

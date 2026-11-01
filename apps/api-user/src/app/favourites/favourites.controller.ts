@@ -12,21 +12,14 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import {
-  CONSENT_REQUIRED,
-  ifNoneMatches,
-  NoConsentRequired,
-  PersonSessions,
-  RequiresConsent,
-  weakETag,
-} from '@heisreal/consent';
+import { PersonSessions } from '@heisreal/auth';
 import {
   DatabaseQueryError,
   retryOnConflict,
   runQuery,
   WriteNotAppliedError,
 } from '@heisreal/database';
-import { ProblemException } from '@heisreal/http';
+import { ifNoneMatches, ProblemException, weakETag } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import {
   MediaUrls,
@@ -42,6 +35,7 @@ import {
   parseFavouritesQuery,
   RECORD_ID,
 } from './favourites.query';
+import { agreementRefusalOf } from '../account/agreements';
 
 /** The contract's page of `StorySummary` cards. */
 export interface FavouritesPage {
@@ -66,9 +60,6 @@ export class FavouritesController {
 
   @Get()
   @RequiresRole('User')
-  @NoConsentRequired(
-    'reading your own hearts back is always possible (Art 15); none can exist without the sign-up consent',
-  )
   async list(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -92,7 +83,6 @@ export class FavouritesController {
   @Put(':storyId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequiresRole('User')
-  @RequiresConsent(CONSENT_REQUIRED.addFavourite)
   async add(
     @Req() req: Request,
     @Param('storyId') storyId: string,
@@ -130,9 +120,6 @@ export class FavouritesController {
   @Delete(':storyId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequiresRole('User')
-  @NoConsentRequired(
-    'removing a heart is always possible, whatever the person’s consent (Art 7(3), Art 17)',
-  )
   async remove(
     @Req() req: Request,
     @Param('storyId') storyId: string,
@@ -206,15 +193,10 @@ export class FavouritesController {
   /** The database's refusals as the contract's problems; anything else stays a 500. */
   private problemOf(err: unknown): unknown {
     if (!(err instanceof DatabaseQueryError)) return err;
+    // Plan 4e: a heart needs the latest terms of use (403 terms_agreement_required).
+    const refusal = agreementRefusalOf(err);
+    if (refusal) return refusal;
     if (err.message.includes('favourite_not_published')) return notPublic();
-    if (err.message.includes('favourite_needs_consent'))
-      // The guard checked a moment earlier; the person withdrew meanwhile.
-      return new ProblemException(
-        HttpStatus.FORBIDDEN,
-        'consent_required',
-        'Consent required',
-        'This needs current consent: account_data, age_18plus',
-      );
     return err;
   }
 }

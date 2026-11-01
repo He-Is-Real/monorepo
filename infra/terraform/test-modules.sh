@@ -5,7 +5,7 @@
 #   db-migration, db-identity: the migrate Job's and the identity config's names change iff
 #     their content does (D14, D13 B).
 #   bunny-state-guard: nothing Bunny is public (the bunny root's pre-plan check).
-#   cluster: D48's relaxed consent and D49's dev-seed login are refused outside dev.
+#   cluster: D49's dev-seed login is refused outside dev.
 #   bunny: D52's token auth is on and only the named service accounts may read the two token
 #     auth keys; only api-user may read the two upload keys (M2, D80), and only housekeeping
 #     the Stream library key alone.

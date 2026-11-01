@@ -1,5 +1,4 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
-import { PersonSessions } from '@heisreal/consent';
 import {
   createPeople,
   ERASE,
@@ -14,6 +13,7 @@ import {
   ApiUserAuthenticator,
 } from '../src/lib/clerk-authenticator';
 import { parseClerkConfig } from '../src/lib/clerk-config';
+import { PersonSessions } from '../src/lib/person';
 import { newTestClerk, type TestClerk } from '../src/testing';
 
 /**

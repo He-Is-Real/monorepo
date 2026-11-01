@@ -257,8 +257,7 @@ control.
 The `dev-seed` Cloud Run Job (`modules/gcp/dev_seed.tf`, app `apps/dev-seed`) resets the dev
 database to the D47 dummy dataset in one transaction. Dev only: `dev_seed` in the gcp module and
 `dev_seed_login` in the cluster module refuse any project but `heisreal-dev` (tested in
-`modules/cluster/tests/dev_seed.tftest.hcl` and `modules/db-identity/tests`), like D48's
-`dev_consent_relaxed`. The Job signs in as `dev_seed`, a system user (EDITOR) that SurrealDB's
+`modules/cluster/tests/dev_seed.tftest.hcl` and `modules/db-identity/tests`). The Job signs in as `dev_seed`, a system user (EDITOR) that SurrealDB's
 startup init creates only with `dev_seed_login`; its password is `surreal-dev-seed-password`.
 Starting the Job is an operation, not an infrastructure change: no apply. `ci-dev-seeder` may
 start it from "Reset dev data" and "Dev behavioural tests" on `main`, nothing else. Media were
@@ -267,7 +266,7 @@ uploaded once by a developer (`apps/dev-seed/README.md`); the Job never talks to
 ## Housekeeping
 
 The `housekeeping` Cloud Run Job (`modules/gcp/housekeeping.tf`, app `apps/housekeeping`) runs
-the nightly chores: erasure requests and queued deletions (videos, pictures, Clerk accounts),
+the nightly chores: queued deletions (videos, pictures, Clerk accounts),
 abandoned drafts (D71) and orphaned story videos at Bunny
 ([docs/media-runbook.md](../../docs/media-runbook.md), "Replaced and orphaned videos"). Cloud
 Scheduler starts it at 03:30 London time; both are in `europe-west2`, written out in OpenTofu.

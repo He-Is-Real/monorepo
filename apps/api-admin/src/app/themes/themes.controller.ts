@@ -11,7 +11,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import { NoConsentRequired, PersonSessions } from '@heisreal/consent';
+import { PersonSessions } from '@heisreal/auth';
 import {
   isTransactionConflict,
   retryOnConflict,
@@ -128,9 +128,6 @@ export class ThemesController {
 
   @Get()
   @RequiresRole('Admin')
-  @NoConsentRequired(
-    'reading the themes reads settings, nothing about the admin',
-  )
   async get(@Res({ passthrough: true }) res: Response): Promise<AdminThemes> {
     const { version, categories, themes } = await this.current();
     // How many stories (any status) carry each theme, for the Save summary.
@@ -174,9 +171,6 @@ export class ThemesController {
    */
   @Put()
   @RequiresRole('Admin')
-  @NoConsentRequired(
-    'changing the themes is staff work on settings, not the admin’s own data',
-  )
   async save(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,

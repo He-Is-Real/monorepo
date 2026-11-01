@@ -5,10 +5,10 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
-  consentEvent,
+  agree,
+  agreeAll,
   createPeople,
-  grantAll,
-  publishDpa,
+  publishVersion,
   rows,
   run,
   STORY_TEXT_PADDING,
@@ -21,8 +21,8 @@ import { AppModule } from '../src/app/app.module';
 /**
  * The submit flow for written stories (M2 plan PR 4) through api-user's real AppModule on its
  * own login (D13), as web's /share page calls it: create, autosave, resume, submit.
- * The database is the behaviour here: consent (D21, D93), the content lock, the text minimum and
- * D94's limits. Every answer is checked against api-user.yaml, like web's e2e stub of it.
+ * The database is the behaviour here: "agree first" (plan 4e), the content lock, the text
+ * minimum and D94's limits. Every answer is checked against api-user.yaml, like web's e2e stub of it.
  */
 describe('the submit flow for written stories', () => {
   const contract = new Contract('api-user.yaml');
@@ -90,8 +90,15 @@ describe('the submit flow for written stories', () => {
       contentType: 'application/merge-patch+json',
       headers: { 'if-match': `"${version}"` },
     });
-  const submit = (who: string, id: string, version: number, k = key()) =>
+  const submit = (
+    who: string,
+    id: string,
+    version: number,
+    k = key(),
+    body?: unknown,
+  ) =>
     call('POST', `/v1/stories/${id}/submit`, who, {
+      body,
       headers: { 'if-match': `"${version}"`, 'idempotency-key': k },
     });
   const storiesOf = (who: string) =>
@@ -100,10 +107,10 @@ describe('the submit flow for written stories', () => {
       'SELECT VALUE status FROM story WHERE submitter.clerkUserId = $c',
       { c: `user_${who}` },
     );
-  /** A person as the flow leaves them: signed up, testimony consent and publish given. */
-  async function person(who: string, grant = true) {
+  /** A person as the flow leaves them: agreed to the latest terms and testimony consent. */
+  async function person(who: string, agreed = true) {
     await createPeople(t, { [who]: `user_${who}` });
-    if (grant) await grantAll(await t.person(`user_${who}`));
+    if (agreed) await agreeAll(await t.person(`user_${who}`));
   }
 
   beforeAll(async () => {
@@ -132,7 +139,6 @@ describe('the submit flow for written stories', () => {
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
-    await publishDpa(t, 'v1');
     await run(
       await t.service('api_admin'),
       `CREATE theme:healing SET name = 'Healing', category = themeCategory:other;
@@ -232,22 +238,9 @@ describe('the submit flow for written stories', () => {
     expect(mine.body).toMatchObject({ title: 'First tab', version: 2 });
   });
 
-  it('refuses to submit without publish consent or 200 characters, saying which', async () => {
-    await person('pub', false);
-    const p = await t.person('user_pub');
-    for (const type of [
-      'special_category_religious',
-      'age_18plus',
-      'account_data',
-    ] as const) {
-      await consentEvent(p, type, 'granted');
-    }
+  it('refuses to submit under 200 characters, saying so', async () => {
+    await person('pub');
     const { id } = (await create('pub', { body: 'Too short' })).body;
-    const noPublish = await submit('pub', id, 1);
-    expect(noPublish.status).toBe(403);
-    expect(noPublish.body.code).toBe('consent_required');
-
-    await consentEvent(p, 'publish', 'granted');
     await patch('pub', id, 1, { themeIds: ['healing'] });
     const short = await submit('pub', id, 2);
     expect(short.status).toBe(400);
@@ -256,6 +249,88 @@ describe('the submit flow for written stories', () => {
       errors: [{ pointer: '/body' }],
     });
     expect(await storiesOf('pub')).toEqual(['draft']);
+  });
+
+  it('stores nothing before the person agrees to the latest terms and testimony consent (plan 4e)', async () => {
+    await person('newcomer', false);
+    const p = await t.person('user_newcomer');
+    const noTerms = await create('newcomer', { themeIds: ['healing'] });
+    expect(noTerms.status).toBe(403);
+    expect(noTerms.body.code).toBe('terms_agreement_required');
+
+    await agree(p, 'termsOfUse');
+    const noTestimony = await create('newcomer', { themeIds: ['healing'] });
+    expect(noTestimony.status).toBe(403);
+    expect(noTestimony.body.code).toBe('testimony_consent_required');
+    expect(await storiesOf('newcomer')).toEqual([]);
+
+    await agree(p, 'testimonyConsent');
+    const created = await create('newcomer', { themeIds: ['healing'] });
+    expect(created.status).toBe(201);
+    const { id } = created.body;
+
+    // A newer testimony consent: changing or submitting the draft waits for the person to agree
+    // again (people agree in their own tests, so this changes nobody else's).
+    await publishVersion(t, 'testimonyConsent');
+    const edit = await patch('newcomer', id, 1, { title: 'Changed' });
+    expect(edit.status).toBe(403);
+    expect(edit.body.code).toBe('testimony_consent_required');
+    const sent = await submit('newcomer', id, 1);
+    expect(sent.status).toBe(403);
+    expect(sent.body.code).toBe('testimony_consent_required');
+    expect(await storiesOf('newcomer')).toEqual(['draft']);
+    const mine = await call('GET', `/v1/account/stories/${id}`, 'newcomer');
+    expect(mine.body).toMatchObject({ version: 1, title: 'How I found hope' });
+
+    await agree(p, 'testimonyConsent');
+    expect((await submit('newcomer', id, 1)).status).toBe(200);
+  });
+
+  it('records the social media sharing box with the submission, only on the latest version (plan 4e)', async () => {
+    await person('sharer');
+    const { id } = (await create('sharer', { themeIds: ['healing'] })).body;
+    const before = await call('GET', `/v1/account/stories/${id}`, 'sharer');
+    expect(before.body.socialMediaSharingConsent).toBeNull();
+    const latest = await publishVersion(t, 'socialMediaSharingConsent');
+
+    // The page showed an older version: nothing is submitted or recorded.
+    const stale = await submit('sharer', id, 1, key(), {
+      socialMediaSharingConsent: { version: latest - 1 },
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('agreement_version_changed');
+    expect(await storiesOf('sharer')).toEqual(['draft']);
+
+    const k = key();
+    const body = { socialMediaSharingConsent: { version: latest } };
+    const sent = await submit('sharer', id, 1, k, body);
+    expect(sent.status).toBe(200);
+    const mine = await call('GET', `/v1/account/stories/${id}`, 'sharer');
+    expect(mine.body).toMatchObject({
+      status: 'pending',
+      socialMediaSharingConsent: { version: latest, agreedAt: expect.any(String) },
+    });
+    const [stored] = await rows(
+      migrator,
+      `SELECT socialMediaSharingConsent, socialMediaSharingConsentAgreedAt
+         FROM type::record('story', $id)`,
+      { id },
+    );
+    expect(stored['socialMediaSharingConsent']).toBe(
+      `socialMediaSharingConsent:${latest}`,
+    );
+
+    // A replay records nothing again; the same key with another body is another request.
+    expect((await submit('sharer', id, 1, k, body)).body).toEqual(sent.body);
+    expect((await submit('sharer', id, 1, k)).status).toBe(422);
+    expect(
+      await rows(
+        migrator,
+        `SELECT socialMediaSharingConsent, socialMediaSharingConsentAgreedAt
+           FROM type::record('story', $id)`,
+        { id },
+      ),
+    ).toEqual([stored]);
   });
 
   it('validates fields, without echoing what was sent', async () => {

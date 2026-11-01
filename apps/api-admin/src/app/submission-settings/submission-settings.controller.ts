@@ -11,18 +11,14 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import {
-  ifNoneMatches,
-  NoConsentRequired,
-  PersonSessions,
-} from '@heisreal/consent';
+import { PersonSessions } from '@heisreal/auth';
 import {
   isTransactionConflict,
   requireWritten,
   runQuery,
   SURREAL,
 } from '@heisreal/database';
-import { ProblemException } from '@heisreal/http';
+import { ifNoneMatches, ProblemException } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
@@ -154,9 +150,6 @@ export class SubmissionSettingsController {
 
   @Get()
   @RequiresRole('Admin')
-  @NoConsentRequired(
-    'reading the submission limits reads settings, nothing about the admin',
-  )
   async get(
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
@@ -193,9 +186,6 @@ export class SubmissionSettingsController {
    */
   @Put()
   @RequiresRole('Admin')
-  @NoConsentRequired(
-    'changing the submission limits is staff work on settings, not the admin’s own data',
-  )
   async update(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,

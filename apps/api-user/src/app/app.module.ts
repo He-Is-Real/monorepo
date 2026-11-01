@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { ApiUserAuthenticator, ClerkAuthModule } from '@heisreal/auth';
-import { AccountConsentsModule, ConsentModule } from '@heisreal/consent';
 import { DatabaseModule } from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
@@ -20,16 +19,15 @@ import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
     // Task 0.5: Clerk session tokens, verified without the network. The person's `user` row
     // is created on first use, on api-user's own login (D13); their queries then run in their
     // own session (D27). Every route declares its minimum role (the contract's x-required-role)
-    // or @NoRoleRequired, or the app won't start (D1, fail closed as for consent).
-    ClerkAuthModule.forRoot(),
-    // D21: global fail-closed consent guard.
-    ConsentModule.forRoot({ authenticator: ApiUserAuthenticator }),
+    // or @NoRoleRequired, or the app won't start (D1, fail closed). "Agree first" (plan 4e) is
+    // the database's: it refuses the person's writes until they agree (403, agreements.ts).
+    ClerkAuthModule.forRoot({ authenticator: ApiUserAuthenticator }),
     // Bunny Stream: uploads (PR 7) and erasure's video deletions (D40).
     BunnyStreamModule,
-    // M2 plan PR 11: erasure for "Delete my account", the consent withdrawals that delete the
-    // account (D88, D73) and Clerk's user.deleted webhook (D39, D40, D82).
+    // M2 plan PR 11: erasure for "Delete my account" and Clerk's user.deleted webhook (D39, D40,
+    // D82).
     ErasureModule,
-    AccountConsentsModule,
+    // The account bootstrap, agreeing (plan 4e) and "Delete my account".
     AccountModule,
     // Hearts (M2). Their cards carry signed thumbnail and image links, signed like
     // api-public-read's (D52); without the BUNNY_* variables signing is off and links are null.

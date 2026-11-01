@@ -6,10 +6,9 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agreeAll,
   approve,
   createPeople,
-  grantAll,
-  publishDpa,
   rows,
   run,
   STORY_TEXT_PADDING,
@@ -88,7 +87,7 @@ describe('my stories: withdraw and delete', () => {
   }
   async function person(who: string) {
     await createPeople(t, { [who]: `user_${who}` });
-    await grantAll(await t.person(`user_${who}`));
+    await agreeAll(await t.person(`user_${who}`));
   }
   const create = async (who: string, format = 'written') => {
     const res = await call('POST', '/v1/stories', who, {
@@ -169,7 +168,6 @@ describe('my stories: withdraw and delete', () => {
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
-    await publishDpa(t, 'v1');
     await createPeople(t, { moderator: 'user_mod' });
     await run(
       admin,

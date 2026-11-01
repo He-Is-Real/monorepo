@@ -36,8 +36,8 @@ export type RolePolicyResolution =
   { ok: true; policy: RolePolicy } | { ok: false; problem: string };
 
 /**
- * A route's role policy: exactly one decorator, on the handler or its controller (like D21's
- * consent policy). None, or one on each, is a misconfiguration: the guard refuses the request
+ * A route's role policy: exactly one decorator, on the handler or its controller. None, or one
+ * on each, is a misconfiguration: the guard refuses the request
  * and the application refuses to start.
  */
 export function resolveRolePolicy(

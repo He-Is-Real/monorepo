@@ -35,11 +35,12 @@ merge. If you change one in the dashboard, copy it into `dev.json` too: `check` 
     against the services' settings in `libs/auth`'s `clerk-instance.spec.ts`);
   - `role`: `{{user.public_metadata.role || 'User'}}`, the role (D1). A person without
     `publicMetadata.role` gets `User`.
-- **No Clerk legal-consent checkbox.** Our own versioned consent ledger (D17–D21) is the record of
-  consent. It's bound to a DPA version and its text's hash, it's per type and append-only, and
-  it's built for Art 7(1) proof and Art 7(3) withdrawal. A Clerk checkbox would be a second,
-  unversioned consent record outside our database, and it can't express Art 9 consent anyway.
-  Terms acceptance for sign-up can be added later through the ledger, not Clerk.
+- **No Clerk legal-consent checkbox.** Our own database is the record (plan 4e, 2026-11-01): each
+  person's account points at the version of the terms of use and of the testimony consent they
+  agreed to, with the time, and the versions are kept for ever. The terms step after sign-up
+  (`/consent/terms`, one box that includes being 18 or over) is ours, not Clerk's. A Clerk
+  checkbox would be a second, unversioned record outside our database, and it can't express Art 9
+  consent anyway.
 
 Verified on 2026-10-21 with a real token minted for a throwaway user (deleted afterwards): RS256,
 the dev key's `kid`, `ns`/`db`/`ac` present, `role` = `User` without metadata and `Moderator`

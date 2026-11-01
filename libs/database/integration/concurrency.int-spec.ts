@@ -1,17 +1,18 @@
 import type { Surreal, SurrealTransaction } from 'surrealdb';
 import {
+  agree,
+  agreeAll,
   createPeople,
-  grantAll,
-  publishDpa,
   rows,
   run,
+  shareStory,
   TestDatabase,
 } from './support/harness';
 import { draft, ERASE } from './support/world';
 
 /**
- * Review round 2, P1-A. A transaction reads a snapshot, so its permission and consent checks can
- * pass while another transaction commits the opposite (erasure, consent withdrawal). Every write
+ * Review round 2, P1-A. A transaction reads a snapshot, so its permission and agreement checks can
+ * pass while another transaction commits the opposite (erasure). Every write
  * that depends on or changes a person's state also writes that person's `personFence` record, so
  * of two overlapping transactions the SECOND TO COMMIT fails with a retryable conflict.
  *
@@ -52,9 +53,11 @@ describe('concurrent transactions are fenced per person', () => {
       sam: 'user_sam',
       wes: 'user_wes',
       ula: 'user_ula',
+      cy: 'user_cy',
+      cid: 'user_cid',
+      dee: 'user_dee',
       moderator: 'user_mod',
     });
-    await publishDpa(t, 'v1');
     for (const sub of [
       'user_bob',
       'user_bea',
@@ -62,8 +65,9 @@ describe('concurrent transactions are fenced per person', () => {
       'user_sam',
       'user_wes',
       'user_ula',
+      'user_dee',
     ]) {
-      await grantAll(await t.person(sub));
+      await agreeAll(await t.person(sub));
     }
   });
   afterAll(() => t?.close());
@@ -129,6 +133,73 @@ describe('concurrent transactions are fenced per person', () => {
     expect(await commit(processing)).toMatch(CONFLICT);
     expect(
       await truth('SELECT * FROM story WHERE submitter = user:wes'),
+    ).toEqual([]);
+  });
+
+  // Plan 4e: agreeing (the person's pointers) racing account deletion, which clears them.
+  it('agreeing in a transaction that overlaps erasure: the agreement never lands', async () => {
+    const cy = await t.person('user_cy');
+    const tx = await begin(cy);
+    expect(await agree(tx as unknown as Surreal, 'termsOfUse')).toHaveLength(1); // uncommitted
+    await run(apiUser, ERASE, {
+      clerkUserId: 'user_cy',
+      reason: 'account_deleted',
+    });
+    expect(await commit(tx)).toMatch(CONFLICT);
+    // Nor can the erased person's session agree afterwards.
+    await agree(cy, 'termsOfUse').catch(() => undefined);
+    const [stub] = await truth<Record<string, unknown>>(
+      'SELECT * FROM ONLY user:cy',
+    );
+    expect(Object.keys(stub ?? {}).sort()).toEqual([
+      'createdAt',
+      'gdprDeletedAt',
+      'id',
+    ]);
+  });
+
+  it('erasure that overlaps an agreement fails instead, and its retry clears it', async () => {
+    const cid = await t.person('user_cid');
+    const erasing = await begin(apiUser);
+    await erasing
+      .query(
+        ERASE.replace('BEGIN TRANSACTION;', '').replace(
+          'COMMIT TRANSACTION;',
+          '',
+        ),
+        { clerkUserId: 'user_cid', reason: 'account_deleted' },
+      )
+      .collect();
+    expect(await agree(cid, 'termsOfUse')).toHaveLength(1); // commits first
+    expect(await commit(erasing)).toMatch(CONFLICT);
+    await run(apiUser, ERASE, {
+      clerkUserId: 'user_cid',
+      reason: 'account_deleted',
+    });
+    const [stub] = await truth<Record<string, unknown>>(
+      'SELECT * FROM ONLY user:cid',
+    );
+    expect(Object.keys(stub ?? {}).sort()).toEqual([
+      'createdAt',
+      'gdprDeletedAt',
+      'id',
+    ]);
+  });
+
+  it('a story’s sharing consent ticked in a transaction that overlaps erasure never lands', async () => {
+    const dee = await t.person('user_dee');
+    await draft(dee, 'dee_story');
+    const tx = await begin(dee);
+    expect(
+      await shareStory(tx as unknown as Surreal, 'story:dee_story'),
+    ).toHaveLength(1); // uncommitted
+    await run(apiUser, ERASE, {
+      clerkUserId: 'user_dee',
+      reason: 'clerk_user_deleted',
+    });
+    expect(await commit(tx)).toMatch(CONFLICT);
+    expect(
+      await truth('SELECT * FROM story WHERE submitter = user:dee'),
     ).toEqual([]);
   });
 

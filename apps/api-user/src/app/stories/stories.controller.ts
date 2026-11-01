@@ -21,21 +21,17 @@ import {
   Res,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import {
-  CONSENT_REQUIRED,
-  ConsentLedger,
-  ifNoneMatches,
-  NoConsentRequired,
-  parseIdempotencyKey,
-  PersonSessions,
-  RequiresConsent,
-  weakETag,
-} from '@heisreal/consent';
+import { PersonSessions } from '@heisreal/auth';
 import {
   IdempotencyKeyReusedError,
   requestHash,
   SURREAL,
 } from '@heisreal/database';
+import {
+  ifNoneMatches,
+  parseIdempotencyKey,
+  weakETag,
+} from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import { SecretsService } from '@heisreal/secrets';
 import { MediaUrls, type ThemeCategory } from '@heisreal/story-cards';
@@ -148,8 +144,9 @@ function reused(err: unknown): unknown {
 /**
  * The submit flow's routes (M2 plan PR 4, written stories; PR 7, video and audio; PR 10, images): the person's
  * own stories and the commands that create, edit, upload to and submit a draft. Everything runs in
- * the person's own database session (D27), but for the upload grant on api-user's own login (D80). Consent is checked by the guard first and by the database (D21, D93); D94's
- * limits by the database (story_limits).
+ * the person's own database session (D27), but for the upload grant on api-user's own login (D80).
+ * The database refuses the person's story writes until they have agreed to the latest terms of
+ * use and testimony consent (plan 4e: 403, agreements.ts), and checks D94's limits (story_limits).
  */
 @RequiresRole('User')
 @Controller()
@@ -158,7 +155,6 @@ export class StoriesController {
 
   constructor(
     private readonly people: PersonSessions,
-    private readonly ledger: ConsentLedger,
     @Inject(SURREAL) service: Surreal,
     @Inject(BUNNY_STREAM) bunny: BunnyStream | null,
     @Inject(BUNNY_STORAGE) images: ImageStore | null,
@@ -169,9 +165,6 @@ export class StoriesController {
   }
 
   @Get('v1/themes')
-  @NoConsentRequired(
-    'the theme list is the same for everyone and holds no personal data',
-  )
   async listStoryThemes(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -184,7 +177,6 @@ export class StoriesController {
   }
 
   @Get('v1/account/stories')
-  @NoConsentRequired('reading your own stories (your right of access, Art 15)')
   async listMyStories(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -218,7 +210,6 @@ export class StoriesController {
   }
 
   @Get('v1/account/limits')
-  @NoConsentRequired('reading the limits that apply to you (no testimony)')
   async getMySubmissionLimits(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -231,7 +222,6 @@ export class StoriesController {
   }
 
   @Get('v1/account/stories/:id')
-  @NoConsentRequired('reading your own story (your right of access, Art 15)')
   async getMyStory(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -259,7 +249,6 @@ export class StoriesController {
   }
 
   @Post('v1/stories')
-  @RequiresConsent(CONSENT_REQUIRED.createDraft)
   async createDraftStory(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -285,7 +274,6 @@ export class StoriesController {
   }
 
   @Patch('v1/stories/:id')
-  @RequiresConsent(CONSENT_REQUIRED.editDraft)
   async editStory(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -304,7 +292,6 @@ export class StoriesController {
   }
 
   @Post('v1/stories/:id/submit')
-  @RequiresConsent(CONSENT_REQUIRED.submitStory)
   async submitStory(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -316,7 +303,7 @@ export class StoriesController {
     const sid = storyId(id);
     const version = ifMatchOf(ifMatch);
     const idempotencyKey = parseIdempotencyKey(key);
-    const { shareBeyondSite: share } = parseSubmit(body);
+    const { socialMediaSharingConsent: share } = parseSubmit(body);
     const result = await this.people
       .run(req, ({ session, user }) =>
         new StoryStore(session).submit(
@@ -332,13 +319,9 @@ export class StoriesController {
             ),
           },
           () => this.uploads.checkBeforeSubmit(session, sid),
-          // O4: sharing ticked on Review commits with the submission, or neither does.
-          share &&
-            (() =>
-              this.ledger.storySharingGrant(session, {
-                ...share,
-                storyId: sid,
-              })),
+          // Plan 4e: the sharing box ticked at the end of the upload is recorded in the
+          // submission's own write, or neither is.
+          share?.version,
         ),
       )
       .catch((err: unknown) => {
@@ -350,9 +333,6 @@ export class StoriesController {
   }
 
   @Post('v1/stories/:id/withdraw')
-  @NoConsentRequired(
-    'withdrawing a story must work without consent, like withdrawing consent (Art 7(3))',
-  )
   async withdrawStory(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -370,9 +350,6 @@ export class StoriesController {
   }
 
   @Delete('v1/stories/:id')
-  @NoConsentRequired(
-    'deleting your own story needs no consent (your right to erasure, Art 17)',
-  )
   async deleteStory(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -390,7 +367,6 @@ export class StoriesController {
   }
 
   @Post('v1/stories/:id/upload-url')
-  @RequiresConsent(CONSENT_REQUIRED.requestUpload)
   async requestUploadUrl(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
