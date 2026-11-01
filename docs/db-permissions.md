@@ -219,10 +219,10 @@ retried`, on both RocksDB and the in-memory engine.
     response commit in one transaction (`runIdempotent` in `libs/database`). A second request
     with the same key fails on the existing record, re-reads it and replays. Every retry (a
     conflict or a lost key race) goes back through the key lookup before re-preparing the command
-    (round 2), so it replays even if the command would now be refused (e.g. a newer DPA in force). No `update` or
+    (round 2), so it replays even if the command would now be refused (e.g. a newer terms of use version saved). No `update` or
     `delete` for people: erasure and pruning run on the services' logins. Tested in
     `person-session` (own keys only; no forging for another person, service or webhook; no
-    reading others'; no update/delete; refused after erasure) and in `libs/consent`'s
+    reading others'; no update/delete; refused after erasure) and in `libs/database`'s
     `idempotency` spec (fault injection, concurrent same-key requests, different-body reuse).
 
 ### M1 step 3 (D53 story types and shapes)
@@ -335,9 +335,9 @@ retried`, on both RocksDB and the in-memory engine.
   outside dev) and removes it otherwise; the identity check and the migrate Job expect it then.
   An EDITOR could `REMOVE EVENT`, the reason D13 removed the per-service system users; accepted
   here because it exists only in dev, which holds only dummy data, and every migration re-applies
-  the full schema. The reset itself refuses unless `_setting:consent` says dev and consent forms
-  are published there (dev's placeholders, D75; until the consent forms it required D48's relaxed
-  consent), and it gives the fixture people real ledger consent (item 31).
+  the full schema. The reset itself refuses unless `_setting:current` says dev and the terms of
+  use and testimony consent exist, and it records the fixture people as agreeing to their latest
+  versions (plan 4e, item 45).
 - **0003 retired.** Dev no longer sets `seed_dev_story`; the reset deletes 0003's story.
 
 ### M1 step 6a (browse read API)
@@ -874,7 +874,7 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
 SurrealDB 3.x multiplexes **sessions on one WebSocket connection**, and surrealdb.js 2.x
 exposes them (`Features.Sessions`). **Recommended for api-user:** one long-lived connection
 per instance, signed in as `service:api_user`, and per request (`withPersonSession` in
-`libs/database`, used by `PersonSessions` in `libs/consent`):
+`libs/database`, used by `PersonSessions` in `libs/auth`):
 
 ```ts
 const session = await connection.newSession(); // fresh: no identity at all

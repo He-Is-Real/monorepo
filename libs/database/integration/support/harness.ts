@@ -354,7 +354,7 @@ export class TestDatabase {
     };
   }
 
-  /** Migrates (schema, Clerk access, data scripts, DPA sync); throws if the runner fails. */
+  /** Migrates (schema, Clerk access, data scripts); throws if the runner fails. */
   async migrate(
     params?: MigrationParams,
     options?: MigrationOptions,

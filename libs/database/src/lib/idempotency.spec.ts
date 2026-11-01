@@ -50,7 +50,7 @@ const command = { statements: 'LET $result = {};', vars: {}, status: 201 };
 describe('runIdempotent', () => {
   it('after a conflict, looks the key up again before re-preparing (review round 2)', async () => {
     // Two same-key requests overlap: the other one commits, this one gets a conflict. By the
-    // time it retries, the DPA version in force has changed, so preparing again would refuse
+    // time it retries, a newer terms of use version has been saved, so preparing again would refuse
     // (409). It must find the committed key and replay it instead.
     const { db, calls } = scriptedDb({
       lookups: [

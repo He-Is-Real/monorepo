@@ -6,14 +6,14 @@ info:
     **Internal async jobs (M7).** Not a public API: nothing on GKE accepts inbound connections.
 
     The primary transport is message-based (D34): the APIs publish CloudEvents-format messages to
-    Pub/Sub with the GCP client (e.g. `story-submitted`, `dpa-change`), and the GKE **`workflow`**
+    Pub/Sub with the GCP client (e.g. `story-submitted`), and the GKE **`workflow`**
     (Dapr Workflow) dispatches to **`inference-worker`s** over Dapr pub/sub (`inference-task` /
     `inference-result`). The queue choice itself is deferred to M7 (D11). This HTTP contract describes
     the job set and payloads; the `/v1/tasks/{job}` endpoint is only the Cloud Tasks fallback, and the
     payloads are the same either way.
 
     - **`workflow`** (Dapr Workflow, GKE): orchestration and light I/O jobs: `thumbnail`, `captions`,
-      `email`, `translation`, `dpa-change-notify`. Emails look up the address in Clerk at send time (D16).
+      `email`, `translation`. Emails look up the address in Clerk at send time (D16).
     - **`inference-worker`** (Python + Dapr, on-prem and GKE, no database credentials): GPU/LLM jobs:
       `transcribe`, `correct`, `summary`, `screen`.
     - Handlers are idempotent (at-least-once delivery), keyed on `(storyId, jobType)`. A stored story is
@@ -59,11 +59,8 @@ paths:
       summary: Run one job (Cloud Tasks fallback transport)
       description: |
         Valid `job` values depend on the deploy target:
-          - workflow: thumbnail | captions | email | translation | dpa-change-notify
+          - workflow: thumbnail | captions | email | translation
           - inference-worker: transcribe | correct | summary | screen
-        `dpa-change-notify` runs when a `material` DPA version is published: it notifies every data
-        subject consented under an older version and sets the re-consent gate. Its payload carries
-        `dpaVersion` instead of `storyId`.
       x-milestone: M7
       parameters:
         - name: job
@@ -77,7 +74,6 @@ paths:
                 captions,
                 email,
                 translation,
-                dpa-change-notify,
                 transcribe,
                 correct,
                 summary,
@@ -90,7 +86,7 @@ paths:
             schema:
               description: |
                 Inference jobs take an `InferenceTask` and publish an `InferenceResult` to
-                `inference-result`. Other jobs take `storyId`, except `dpa-change-notify`, which takes `dpaVersion`.
+                `inference-result`. Other jobs take `storyId`.
               anyOf:
                 - $ref: '#/components/schemas/InferenceTask'
                 - $ref: '#/components/schemas/WorkflowJob'
@@ -120,9 +116,6 @@ components:
         lang:
           type: string
           description: Target language (translation).
-        dpaVersion:
-          type: string
-          description: The newly published DPA version (dpa-change-notify).
     MediaRef:
       type: object
       description: How an inference worker fetches the source media (outbound). Workers hold no Bunny credentials.

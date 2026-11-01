@@ -95,8 +95,8 @@ stub session (localStorage `e2e-session`), so parallel tests never share hearts.
 
 - `/privacy` and `/terms` read the document from api-public-read on the server, per request, and
   show the latest version in the site's own formatting, with its number and the earlier
-  versions; `/privacy/versions/<n>` and `/terms/versions/<n>` show any version. Until one is
-  published (or if api-public-read can't answer) they say so.
+  versions; `/privacy/versions/<n>` and `/terms/versions/<n>` show any version. If
+  api-public-read can't answer, they say so.
 - Every legal text (those pages, the agreement steps, the submit flow and the admin preview) goes
   through one renderer, `src/lib/markdown.ts` (markdown-it, raw HTML off, links only to https:,
   mailto: and this site): headings, lists, tables, links, bold and inline `code`.

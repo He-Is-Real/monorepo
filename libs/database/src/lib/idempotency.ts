@@ -93,7 +93,7 @@ const KEY_TAKEN = /already exists/i;
  * re-check), then write command + key in one transaction. A retryable conflict, or losing the
  * key to a racing request, goes back to the **lookup** first (review round 2 of #41): if the
  * other request committed this key, its response is replayed, even when preparing again would
- * now refuse (e.g. a newer DPA version came into force meanwhile).
+ * now refuse (e.g. a newer terms of use version was saved meanwhile).
  */
 export async function runIdempotent(
   db: SurrealQueryable,

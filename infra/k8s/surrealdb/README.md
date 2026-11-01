@@ -274,8 +274,7 @@ gcp and migrate.
 consent, the social media sharing consent and the privacy notice live only in the database, one
 table each, numbered versions from 0. Data script 0009 seeds version 0 of each (placeholders) in
 every environment; Admins save the next version at `/admin/consent` (api-admin). Nothing is
-synced from files any more, and the dev-only consent switches (D48's relaxed consent, D75's
-placeholders) and 0003's walking-skeleton story are gone: the dev-seed Job (D49,
+synced from files any more, and 0003's walking-skeleton story is gone: the dev-seed Job (D49,
 `apps/dev-seed`) loads dev's dummy data, with its people agreed to the latest versions.
 
 **First apply of this (one-time switch to service logins).** The services' new secrets must

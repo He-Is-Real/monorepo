@@ -538,8 +538,7 @@ class Runner:
 def migrate(client, top, data, params, deadline):
     variables = {k: v for k, v in params.items() if v is not None}
     bundle_id = hashlib.sha256(json.dumps([top, data, params], sort_keys=True).encode()).hexdigest()
-    summary = {"schemaStatements": 0, "clerk": "clerk_jwt_public_key" in variables, "devConsentRelaxed": None,
-               "devLegalPlaceholders": None,
+    summary = {"schemaStatements": 0, "clerk": "clerk_jwt_public_key" in variables,
                "applied": [], "alreadyApplied": [], "token": None, "bundle": bundle_id}
 
     def try_signin():
