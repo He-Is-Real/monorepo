@@ -182,7 +182,7 @@ short-lived upload credentials.
 ## Agree first: the database's rule (plan 4e)
 
 Joel's Q2 (2026-11-01): the database, not the routes, enforces "agree first". The per-route consent
-decorators, the global consent guard (D21) and `x-requires-consent` are gone (superseded by plan 4e).
+decorators, the global consent guard and `x-requires-consent` are gone.
 
 - A person agrees in their own session to the latest version of the terms of use (before using
   their account; it includes being 18 or over) and of the testimony consent (before their first

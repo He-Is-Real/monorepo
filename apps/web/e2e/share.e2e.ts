@@ -931,9 +931,12 @@ test.describe('behaviour', () => {
       '[added: , review]',
       '[added: , from your profile]',
     ]);
+    // Unchanged sections fold, and so do the unchanged paragraphs of a changed one.
     await expect(redline.locator('[data-redline-fold]')).toHaveText([
       '⋯ 1 unchanged section ⋯',
+      '⋯ 1 unchanged paragraph ⋯',
       '⋯ 1 unchanged section ⋯',
+      '⋯ 2 unchanged paragraphs ⋯',
     ]);
     await page.getByText('Read the full version 3').click();
     await expect(page.locator('[data-full-version="3"]')).toContainText(

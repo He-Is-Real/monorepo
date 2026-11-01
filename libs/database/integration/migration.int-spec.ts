@@ -9,11 +9,13 @@ import type { SecretsService } from '@heisreal/secrets';
 import { connectDatabase } from '../src/lib/database.module';
 import { pinnedSurrealImage } from './support/global-setup';
 import { surrealTestLogin } from './support/login';
+import { approve } from './support/world';
 import {
   createPeople,
   LEGAL_TABLES,
   type MigrationParams,
   type MigrationRun,
+  type Outcome,
   outcome,
   rows,
   run,
@@ -1310,6 +1312,105 @@ describe('data/0009 on a database that already has a version 0', () => {
         }),
       ).toEqual([`${table}:0`]);
     }
+  });
+});
+
+/**
+ * C1 "fill in" (Joel, 2026-11-01): data/0009 records everyone who exists when it runs as agreeing
+ * to version 0 of the terms of use and the testimony consent, at the database's time, so stories
+ * already waiting can be approved. Erased stubs stay without agreements; people who arrive later
+ * agree themselves.
+ */
+describe('data/0009 fills in the agreements of the people who exist when it runs (C1)', () => {
+  let t: TestDatabase;
+  let admin: Surreal;
+  let migrator: Surreal;
+  let ranFrom: string;
+  let ranTo: string;
+  let refusedBefore: Outcome;
+  const now = async () =>
+    (await rows<string>(migrator, 'RETURN <string> time::now()'))[0] as string;
+  beforeAll(async () => {
+    t = await TestDatabase.create({ migrate: false });
+    const without = await bundleWith({ 'data/0009-consent-4e.surql': null });
+    await t.migrate(t.params(), { bundleDir: without });
+    await t.createServices();
+    await t.createCommonTheme();
+    admin = await t.service('api_admin');
+    migrator = await t.migrator();
+    await createPeople(t, { ann: 'user_ann' });
+    await run(
+      migrator,
+      `CREATE user:legacy CONTENT {};
+       CREATE user:gone CONTENT { gdprDeletedAt: time::now() };
+       CREATE story:waiting CONTENT { submitter: user:ann, slug: 'waiting', title: 'T',
+         description: 'D', primaryFormat: 'written', body: $body, status: 'pending',
+         themeRefs: [theme:common] };`,
+      { body: 'x'.repeat(250) },
+    );
+    refusedBefore = await outcome(
+      admin,
+      `UPDATE story:waiting SET status = 'approved', approvedAt = time::now()`,
+    );
+    ranFrom = await now();
+    expect(await t.migrate(t.params())).toMatchObject({
+      applied: ['0009-consent-4e'],
+    });
+    ranTo = await now();
+  });
+  afterAll(() => t?.close());
+
+  it('a waiting story couldn’t be approved before it ran', () => {
+    expect(!refusedBefore.ok && refusedBefore.error).toContain(
+      'testimony_consent_required',
+    );
+  });
+
+  it('everyone who existed agreed to version 0 of both, at the time it ran; erased stubs did not', async () => {
+    const people = await rows<Record<string, string | undefined>>(
+      migrator,
+      `SELECT record::id(id) AS id, termsOfUse, termsOfUseAgreedAt AS termsAt,
+         testimonyConsent, testimonyConsentAgreedAt AS testimonyAt
+         FROM user ORDER BY id`,
+    );
+    expect(people).toEqual([
+      expect.objectContaining({
+        id: 'ann',
+        termsOfUse: 'termsOfUseAgreement:0',
+        testimonyConsent: 'testimonyConsent:0',
+      }),
+      { id: 'gone' },
+      expect.objectContaining({
+        id: 'legacy',
+        termsOfUse: 'termsOfUseAgreement:0',
+        testimonyConsent: 'testimonyConsent:0',
+      }),
+    ]);
+    for (const person of people.filter((p) => p.id !== 'gone')) {
+      for (const at of [person.termsAt, person.testimonyAt]) {
+        expect(Date.parse(at ?? '')).toBeGreaterThanOrEqual(
+          Date.parse(ranFrom),
+        );
+        expect(Date.parse(at ?? '')).toBeLessThanOrEqual(Date.parse(ranTo));
+      }
+    }
+  });
+
+  it('the waiting story can now be approved and published', async () => {
+    await approve(admin, 'waiting');
+    expect(
+      await rows(migrator, 'SELECT VALUE id FROM publicStory:waiting'),
+    ).toEqual(['publicStory:waiting']);
+  });
+
+  it('someone who arrives afterwards has agreed to nothing until they do so themselves', async () => {
+    await createPeople(t, { bob: 'user_bob' });
+    expect(
+      await rows(
+        migrator,
+        'SELECT termsOfUse, testimonyConsent FROM ONLY user:bob',
+      ),
+    ).toEqual([{}]);
   });
 });
 

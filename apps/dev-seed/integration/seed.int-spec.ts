@@ -218,7 +218,7 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     ).toEqual([]);
   });
 
-  it('marks dev’s Clerk test accounts trusted submitters, signed in before or not (D112)', async () => {
+  it('marks dev’s Clerk test accounts trusted submitters who agreed to the latest texts, signed in before or not (D112, C1)', async () => {
     const migrator = await t.migrator();
     await run(
       migrator,
@@ -246,6 +246,20 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
         `SELECT VALUE id FROM user WHERE clerkUserId = 'user_tester_new'`,
       ),
     ).toHaveLength(1);
+    // C1: both are on the latest terms of use and testimony consent, so the behavioural suites
+    // can share a story straight after a reset.
+    expect(
+      await rows(
+        migrator,
+        `SELECT clerkUserId AS clerk,
+           termsOfUse = fn::legal::latest('termsOfUseAgreement') AND termsOfUseAgreedAt != NONE AS terms,
+           testimonyConsent = fn::legal::latest('testimonyConsent') AND testimonyConsentAgreedAt != NONE AS testimony
+           FROM user WHERE clerkUserId IN ['user_tester_known', 'user_tester_new'] ORDER BY clerk`,
+      ),
+    ).toEqual([
+      { clerk: 'user_tester_known', terms: true, testimony: true },
+      { clerk: 'user_tester_new', terms: true, testimony: true },
+    ]);
   });
 
   it('is one transaction: a failure leaves the data as it was', async () => {

@@ -15,7 +15,8 @@ import type { SeedVars } from './plan';
  * they agreed. No fixture story has the social media sharing consent: no dummy story may be
  * shared beyond the dev site.
  *
- * dev's Clerk test accounts (the dataset's testAccounts) are marked trusted submitters (D112).
+ * dev's Clerk test accounts (the dataset's testAccounts) are marked trusted submitters (D112)
+ * and, like the fixture people, agree to the latest terms of use and testimony consent (C1).
  *
  * Wiped: story (and, through its erasure cascade, publicStory and moderationReview), whatever
  * read-model rows or reviews are left, auditLog, idempotencyKey, every theme and every category
@@ -69,6 +70,12 @@ FOR $clerk IN $testAccounts {
   };
   UPSERT type::record('submitterLimits', record::id($u))
     SET user = $u, trusted = true, devSeed = true RETURN NONE;
+  -- C1 (Joel, 2026-11-01): they have agreed to the latest terms of use and testimony consent
+  -- too, so the behavioural suites work after every reset.
+  UPDATE $u SET termsOfUse = $terms, termsOfUseAgreedAt = time::now()
+    WHERE termsOfUse != $terms RETURN NONE;
+  UPDATE $u SET testimonyConsent = $testimony, testimonyConsentAgreedAt = time::now()
+    WHERE testimonyConsent != $testimony RETURN NONE;
 };
 FOR $c IN $categories {
   CREATE type::record('themeCategory', $c.id) CONTENT { name: $c.name } RETURN NONE;

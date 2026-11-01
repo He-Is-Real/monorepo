@@ -76,18 +76,10 @@ bypasses permissions) that the row is unchanged or absent.
 
 `git diff aa7d671 -- libs/database/schema/` shows exactly these. The seeds are unchanged.
 
-The numbered items below are the history of each change. Their consent parts (the consent
-ledger, `fn::consent::*`, the DPA, terms and form tables, D48's switch, `legalFence` and
-`erasureRequest`) are superseded by plan 4e (2026-11-01, item 45); the rest stands.
+The numbered items below are the history of each change. Items about the old consent ledger
+were removed when plan 4e replaced it (2026-11-01, item 45; git history has them), so the
+numbers have gaps.
 
-1. **Bug: `story.consent` used `$parent.submitter`.** On 3.2.4, when a story is read **inside a
-   subquery**, a COMPUTED field's `$parent` is the outer query's record. So
-   `SELECT (SELECT consent FROM story WHERE …) FROM user` derived `NONE` for every story. That
-   fails closed, but it's wrong. **Fix:** use the record's own field:
-   `fn::consent::current(submitter, …)`. It's correct both at the top level and in subqueries.
-2. **Gap: drafts could be created without Art 9 consent.** The create permission now requires
-   current Art 9 consent (`fn::consent::granted(submitter, ['special_category_religious'])`).
-   Review round 1 extended this to every step (item 5).
 3. **Gap: erasure couldn't reach the read model or reviews.** `api_user`'s login may delete
    stories but not read them. Both `DELETE publicStory WHERE type::record('story',
 record::id(id)).submitter = $u` and `DELETE moderationReview WHERE story.submitter = $u`
@@ -100,26 +92,6 @@ record::id(id)).submitter = $u` and `DELETE moderationReview WHERE story.submitt
    - Two new gotchas: allowed-but-unreadable writes, and `$auth.id` for services (both below).
 
 ### Review round 1 (Codex) and D37/D38/D41
-
-5. **Consent stopped at draft creation (finding 1).** A person could withdraw Art 9 consent and
-   still edit and submit, and api-admin could then approve and publish. The consent types per
-   command come from the decision doc's API plan (⚑ routes) and `libs/contracts`
-   (`x-requires-consent`, #28):
-   - **create draft, edit, upload-url:** "Needs the person's current Art 9 consent", i.e.
-     `[special_category_religious]`;
-   - **submit:** "⚑ the person's current Art 9 + publish + age consent (D17)", i.e.
-     `[special_category_religious, publish, age_18plus]`;
-   - **approve:** "⚑ fresh ledger check" for the submitter, same three types.
-
-   **Fix:** a new `fn::consent::granted(user, types)`, plus:
-   - `story_owner_consent`: an owner's content or media change needs Art 9, and → `pending`
-     needs all three;
-   - `story_approval_consent`: → `approved` needs the submitter's three, whoever does it;
-   - `publicStory_mirrors_story`: every `publicStory` write needs the submitter's three.
-
-   Withdrawing (→ `withdrawn`, no content change) and erasure (`DELETE`) need none. These are
-   events, so a refusal is an **error**; the create check stays in the permission, so it's an
-   empty result.
 
 6. **An open session could write after erasure (finding 2).** Every person write now also
    requires `$auth.gdprDeletedAt = NONE`: story create and update, consent create, and
@@ -184,25 +156,6 @@ retried`, on both RocksDB and the in-memory engine.
     common key. One key per person keeps unrelated people from conflicting (tested).
 
     The test container now runs **RocksDB** (`rocksdb:/tmp/surrealdb`), the production engine.
-
-11. **Workflow media writes skipped consent (P1-B).** The consent event only checked owner
-    writes. It's now `story_consent` (it replaces `story_owner_consent`): **any** content or media
-    change, by the person, workflow or api-admin, needs the **submitter's** current Art 9
-    consent. The submit check stays owner-only (only the owner submits).
-    - **Other service paths checked:** api-admin approval (already any caller), `publicStory`
-      writes (already any caller), workflow media (fixed).
-    - **Still consent-free by design:** api-admin moderation without content changes (lock,
-      feedback, reject, request changes), withdrawal and deletion.
-12. **Consent pruning was impossible (P3).** `consent_append_only` refused every delete, the
-    migrator's included. It now refuses all updates, and any delete except by a system user
-    (no record `$auth`; only the migrator, since backup is VIEWER) of a subject erased more than
-    `2192d` ago (6 × 365 + 2 leap days, so never early). The nightly job is one statement:
-    `DELETE consent WHERE subject.gdprDeletedAt != NONE AND subject.gdprDeletedAt < time::now() - 2192d`.
-
-    `auditLog` didn't have this problem: deletes are `PERMISSIONS NONE` for every session and no
-    event blocks the migrator. The age limit for audit rows lives in the job, not the schema
-    (their `createdAt` is server-set). Fence rows of erased people (a counter) can go with the
-    stub.
 
 ### Review round 3 (Codex)
 
@@ -272,9 +225,7 @@ retried`, on both RocksDB and the in-memory engine.
     reading others'; no update/delete; refused after erasure) and in `libs/consent`'s
     `idempotency` spec (fault injection, concurrent same-key requests, different-body reuse).
 
-### M1 step 3 (D53 story types and shapes, D48 dev-only relaxed consent)
-
-> **D48's relaxed consent here is superseded by plan 4e (2026-11-01)**: removed with the consent ledger (item 45). D53 stands.
+### M1 step 3 (D53 story types and shapes)
 
 20. **D53: three story types, enforced by the database.** `fn::story::shape_problem($s)` is the
     one definition (event `story_shape` on every create and update, by anyone; data script 0004
@@ -295,14 +246,6 @@ retried`, on both RocksDB and the in-memory engine.
     `publicStory` gets the same fields; `publicStory_mirrors_story` compares the image and the
     media sizes, and refuses media fields other than the playback ones. Images are personal data:
     erasure deletes the row with the story (the file itself: D40's Bunny deletions, not built yet).
-23. **D48: one switch, in a row.** `_setting:consent {devConsentRelaxed, environment}` is written
-    by the runner in the schema step from OpenTofu's `dev_consent_relaxed` and the environment
-    (from the GCP project). `fn::consent::relaxed()` reads it; `fn::consent::granted` returns true
-    for any person when it's on, so the story permission, the consent events, the read-model
-    mirror and libs/consent's guard all follow it. `_setting` is `select FULL`, every write
-    `NONE` (system users only), and event `_setting_dev_only` refuses `true` unless
-    `environment = 'dev'`. **Not a `DEFINE PARAM`: inside a function a caller's bound variable
-    shadows a defined param** (3.2.4, tested), so a person could have passed their own.
 
 ### A2 and A3 (Joel, 2026-10-23): approval waits for processing; story text limits
 
@@ -420,127 +363,6 @@ retried`, on both RocksDB and the in-memory engine.
   `CONTAINS` return no rows (a gotcha test in `schema.int-spec.ts`).
 - No permission changed: api-public-read reads only `publicStory` and the reference data
   (`theme` and `themeCategory` since item 44).
-
-### M2 consent forms (D73, D75, D77, D84, D85, D86, D93)
-
-> **Superseded by plan 4e (2026-11-01)**: see item 45. Kept as the history of what was built.
-
-28. **Three versioned form tables (D84, D93).** `signupFormVersion` (D73: 18+, asked here only,
-    and `account_data`, "store my account and favourites"), `testimonyFormVersion` (D67: Art 9 at
-    the start of a draft; `publish` at submit when the version covers it) and the optional
-    `socialSharingFormVersion` (`share_socials`: sharing beyond heisreal.today), id = the
-    version (`v1`). All three: `status` draft/published/retired, `textRef` + `textHash` + `text`
-    (the words of `libs/legal/forms/<form>/<id>.md`, kept in step by `form-sync.surql` like
-    `dpa-sync.surql`), `dpaVersion`, `publishedAt` (server time). Testimony adds
-    `requiresAcceptanceForNewSubmissions`, `coversPublicPublishing` and `draftRetentionMonths`.
-    Social sharing adds one boolean per platform (`shareYouTube`, `shareInstagram`,
-    `shareTikTok`, `shareFacebook`) and per use (`allowEditingAndClipping`,
-    `allowChurchAndPartnerMedia`, `allowPrintAndEvents`, `allowPaidPromotion`), all
-    `DEFAULT ALWAYS false`: a column added later reads NONE, "no", on older versions, and retiring
-    one still works (a plain `DEFAULT` makes the update fail on 3.2.4). Separate tables: each has
-    columns the others must not carry. `fn::form::check_change` (the lifecycle events): published
-    versions are frozen (only `published → retired`), never deleted (the ledger points at them),
-    and publish only with their text matching `textHash` and a privacy document that counts.
-    Permissions: everyone reads non-drafts (api-public-read serves them; person sessions read them
-    in the gate functions); only api-admin writes (no admin routes yet: dev's versions come from
-    data script 0005).
-29. **The ledger names the form version and statement.** `consent.form` (option, so v1 rows stay
-    valid) and `type` = the statement ticked; new type `account_data`. Event `consent_form`: a
-    grant needs a form version (except the migrator's `legacy_import`) that is published and counts,
-    has that statement (`fn::form::statements`), and links the same `dpaVersion`. A withdrawal binds
-    to the form of the grant it follows (none for a v1 grant), and is never refused for its
-    statement: withdrawing is always possible (Art 7(3)). Which version is in force is the API's
-    `409`, as for the DPA (D20). The evidence hash is `heisreal-consent-evidence/v2` (form,
-    version, text hash, DPA and its hash, statement, event, mechanism), computed in
-    `libs/consent/src/lib/evidence.ts`; v1 rows keep verifying with v1.
-30. **Gate rules (D93: no form version ever hides a story).** `fn::consent::valid`, used by
-    `fn::consent::granted` (so the story permissions and events, the read-model mirror and
-    libs/consent's guard all follow): a grant counts on any published or retired version, whose
-    privacy document counts, that has its statement; a v1 row (no form) counts. A newer version
-    never stops an older grant counting. So publishing (`fn::consent::publishable`: Art 9,
-    publish and 18+) depends only on the person's own ledger and dev's switches, never on which
-    versions are published. Something **new** also needs the forms in force
-    (`fn::consent::may_draft`, `may_submit`; the `story` create permission and `story_consent`):
-    the sign-up version in force accepted (`fn::consent::signup_accepted`, both boxes on it) and no
-    testimony version with `requiresAcceptanceForNewSubmissions` published after the person's
-    (`fn::form::requires_acceptance`; accepting the version in force settles it, even if the
-    requiring version was retired since). Editing a draft, approval and publishing don't. Testimony
-    consent is per account (D85): `fn::consent::testimony_status` gives the account's version (its
-    current Art 9 grant's form) against the one in force, and `acceptanceRequired`, for the
-    signed-in banner. No story stores a consent version (D86). **Statements stay on their form
-    (D109):** `consent_form` refuses any ledger row, grant or withdrawal, that pairs a statement
-    with another form's version (`fn::form::kind_statements`): 18+ and `account_data` only on
-    sign-up versions, Art 9 and `publish` only on testimony versions, `share_socials` only on
-    social sharing versions. No environment holds an older such row: the form tables didn't exist
-    before this change, so nothing needed withdrawing. `fn::consent::valid` checks the statement
-    too, as defence in depth.
-    **Sharing (D93; per story since O4, item 43):** `fn::story::may_share($story, $use)`, `$use` a
-    feature column (`share…` or `allow…`): the story's own latest `share_socials` event is a
-    grant on a social sharing version that counts and has that column true; its submitter's Art 9,
-    publish and 18+ count (never relaxed by D48); the story is public. Anything else, including an unknown
-    or odd name, is "no". Withdrawing it stops new sharing at once; D107 (A): within 30 days the
-    media team removes the story from our own channels and stops paid promotion, while copies
-    others made can't be controlled (the form says so). Nothing posts yet, so nothing automates it.
-31. **D75: dev's placeholder privacy document and forms.** `dpaVersion.devPlaceholder`, refused by
-    `dpa_dev_placeholder` unless `_setting:consent` says `devLegalPlaceholders` in dev (written by
-    the runner from OpenTofu's `dev_legal_placeholders`, set only in `live/dev/cluster`; refused
-    elsewhere by OpenTofu and by `_setting_dev_legal_only`). `fn::legal::counts` counts a
-    placeholder, and every form linking it, only while the setting is on: a dev backup restored
-    elsewhere stops counting them. Data script 0005 creates `dpaVersion:dev_placeholder` and v1 of
-    the three forms, published, when the flag is on (elsewhere it records itself and writes
-    nothing); social v1 allows every platform and use its words name. The dev-seed reset gives
-    every fixture person real grants (sign-up 18+ and `account_data`, testimony Art 9 and
-    `publish`; no social sharing) with v2 evidence, so D48's switch is off in dev.
-32. **Legal texts in the database (D84).** `dpaVersion.text` and the forms' `text` hold the words
-    of their files: what a person read sits beside the ledger, and api-public-read serves it
-    (`GET /v1/legal/dpa`, `GET /v1/legal/forms/{signup|testimony|social}`, published only).
-    OpenTofu passes each file's words and sha256; the sync files refuse a mismatch.
-    `fn::legal::dpa_in_force()` is the one definition of the privacy document in force. **Upgrade
-    safety (Codex, #101):** the runner's pre-checks run `dpa-sync.surql` and `form-sync.surql`
-    against the previous schema with `$sync_check = true`, so they only validate and write
-    nothing (the previous schema may not define `text`); the drafts follow their files after the
-    schema step. `migration.int-spec.ts` migrates a database with the previous release's bundle and
-    runner (from git), then this one, twice.
-33. **D114: the boxes are structured data, never read from a form's words.** Each form version
-    has `statements` (`[{ key, label }]`: the consent types it asks for and the exact words shown
-    beside each box) and `statementsHash` (sha256 of its file,
-    `libs/legal/forms/<kind>/<id>.statements.json`). OpenTofu passes every statements file decoded
-    (`form_statements`) and its sha256 (`form_statements_sha256`); `form-sync.surql` copies them
-    into the version (a draft follows its file) and **refuses the migration**, before the schema
-    step, when a version's file is missing or doesn't list exactly the statements the version
-    must have (`fn::form::required_statements`: the sign-up form's two, Art 9 and, if it covers
-    publishing, `publish` on the testimony form, `share_socials` on the social sharing form), each
-    once, each with words. `fn::form::check_statements` refuses the same on any write, whoever
-    writes it. Published versions are frozen, with one exit: a version published before D114 (dev's
-    v1 forms) gets its statements once, from its file (tested from the release before, from git).
-    `fn::form::statements` (what a grant may count for) is unchanged. **Evidence v3**
-    (`heisreal-consent-evidence/v3`): v2 plus the version's `statementsHash`, so the ledger proves
-    the words beside the box ticked; `consent.evidenceVersion = 3` marks those rows (set by the
-    API on every event since, and by dev-seed). Older rows have no marker and keep verifying as
-    v2 (with a form) or v1 (without); nothing in the ledger is rewritten (it is append-only).
-34. **What hides a story for consent, and the fences.** Only two things: the person withdrawing
-    `publish` or Art 9 (WithdrawConsent deletes their `publicStory` rows, as since 0.8; under D88
-    withdrawal will delete the account later in M2), and, in dev, D48's or D75's switch being
-    turned off, or the database leaving dev (a dev backup restored elsewhere: both switches only
-    count in dev), which takes away the basis the dummy consent stood on. For the latter,
-    `_setting_reconcile` runs `fn::consent::reconcile` on every settings write (each migration)
-    while the database is or was dev (tested: dev → `prod` hides the story, Codex, #101): a public story whose uploader's consent no longer counts is **hidden, not
-    reverted**, like a media hide (item 27; `HideStory`, reason `consent_required`), and hidden
-    stories it covers again come back (`RepublishStory`, reason `consent_restored`), so a
-    person's later grant brings theirs back at the next dev migration. `fn::story::hidden_by_media`
-    lists only stories with a media problem. **Fences:** a grant must be on the version in force,
-    and a new draft or a submission checks the forms in force, which no person owns. So
-    `legalFence:forms` (`PERMISSIONS NONE`) is written by every form-version write, every consent
-    event (`consent_legal_fence`), every new story and every submission (`story_fence`): of two
-    overlapping transactions the second to commit fails and its retry sees the new version (tested
-    in both orders). The grant's own transaction also checks the version in force
-    (`409 form_version_not_in_force`). Edits, approvals and publication don't write it: nothing
-    they check depends on form versions. A withdrawal racing a draft conflicts on `personFence`
-    (tested). When a dev switch or the environment changes, the settings write bumps `legalFence`
-    and every person's fence, so any consent-dependent write overlapping it retries under the new
-    setting. The runner
-    writes `_setting` in its own step after the schema: on 3.2.4 a `publicStory` row deleted in
-    the transaction that redefines its indexes leaves its slug in the unique index.
 
 ### M2 hearts (favourites; founder, 2026-10-25: hearts are private)
 
@@ -696,34 +518,7 @@ retried`, on both RocksDB and the in-memory engine.
       fixtures that need media on a story now set it as the migrator (`media-processing`,
       `story-shape`) or through `grantUpload` (`support/world.ts`).
 
-### M2 legal documents (D121, D122, D125; Joel, 2026-10-30)
-
-> **Superseded by plan 4e (2026-11-01)**: see item 45. Kept as the history of what was built.
-
-38. **The privacy policy and the terms of use: numbered Markdown versions, kept for ever.** The
-    privacy policy stays in `dpaVersion` (every existing consent keeps pointing at its version);
-    the terms of use are the new `termsVersion`. A published version has its Markdown (`text`),
-    its sha256 (`contentHash`, checked against the text by `dpa_document` / `terms_kept`), a
-    `number` (1, 2, 3..., given by the database in publishing order, unique: `dpa_number`,
-    `terms_number`), and, when an admin published it, `source = 'admin'` and `publishedBy`
-    (readable by api-admin only). No PDFs (D125). **Who writes:** api-admin creates admin
-    versions (`PublishPrivacyPolicy`, `PublishTerms`, each with its `auditLog` row in the same
-    transaction, which also checks that the version the admin edited is still in force, else
-    `409 document_changed`); nobody updates or deletes a published one (`dpa_immutable`,
-    `terms_kept`, system users included), except that the migration (`$auth = NONE`) may give a
-    privacy policy version from before numbers its number, once (data 0007 numbers every one,
-    in publishing order, in every environment). `devPlaceholder` versions count only in dev (D75). Every write bumps
-    `legalFence`, so a grant racing a publish retries under the new version. **In force:**
-    `fn::legal::dpa_in_force`, `fn::legal::terms_in_force` (the highest-numbered version that
-    counts). **Grants (D122):** a grant names the privacy policy in force
-    (`fn::legal::covers_form`: the form's own, or a later standard version that counts) and a
-    sign-up grant the terms in force (`consent.termsVersion`, `terms_of_use` only on sign-up v2,
-    `coversTerms`); the API also checks both in the grant's transaction
-    (`409 legal_document_not_in_force`). Evidence v4 (`consent_evidence_v4`) covers both
-    documents' versions and text hashes. **Asking again:** publishing a document doesn't by
-    itself ask anyone again; that is a new consent form version's job (D93). Tests:
-    `libs/database/integration/legal-documents.int-spec.ts`,
-    `apps/api-admin/integration/legal-documents.int-spec.ts`.
+### M2 deleting your own story (D71)
 
 39. **A person deletes their own draft, changes-requested, withdrawn or rejected story (D71;
     M2 plan PR 8).** `story`'s delete permission adds the owner, while not erased, for those four
@@ -785,8 +580,8 @@ retried`, on both RocksDB and the in-memory engine.
 
 41. **Erasure runs, and an erased Clerk id never comes back.** `fn::account::erase` (schema) is
     the one erasure behind every caller: api-user runs it on its own login in one transaction
-    (`ERASE_ACCOUNT`, `libs/database/src/lib/erasure.ts`), and deleting an erasure request runs it
-    in the database's own event (see "Erasure" below for what it deletes and what stays).
+    (`ERASE_ACCOUNT`, `libs/database/src/lib/erasure.ts`), for "Delete my account" and Clerk's
+    webhook (see "Erasure" below for what it deletes and what stays).
     - **`erasedIdentity` (D82, the tombstone):** id = the sha256 of the Clerk user id, nothing
       else (no date, no link to the stub). This is a **retained identity fingerprint, not
       anonymous data**: anyone who holds the Clerk id can hash it and find the row, so it is
@@ -839,25 +634,12 @@ retried`, on both RocksDB and the in-memory engine.
         first, so rows that keep failing never hold up the others. If the queue itself fails
         after the commit, api-user still answers `202` (the person is erased) and the rows wait
         for housekeeping.
-    - **`erasureRequest` (D88, D73; superseded by plan 4e, 2026-11-01: the table and its
-      housekeeping chore are gone, and only "Delete my account" and Clerk's webhook erase):** withdrawing the testimony (Art 9) or sign-up
-      (`account_data`) consent runs in the person's own session, which can't erase, so
-      `consent_withdrawal_requests_erasure` writes `erasureRequest:<user id>` in the
-      withdrawal's own transaction: the withdrawal can't commit without it. api-user erases
-      straight after (its `ERASE_ACCOUNT` deletes the request); if that fails or the instance
-      stops, housekeeping deletes the request at night, and `erasureRequest_erases` runs
-      `fn::account::erase` in that delete's transaction, on the database's own rights. So
-      housekeeping holds no right over anyone's data: only to see, retry-count and delete
-      requests. Nobody creates one by hand; the person can't see or cancel theirs.
-      `user_clerk_binding` lets that event clear the Clerk id at erasure, as api-user's
-      erasure does.
     - Tests: `libs/database/integration/erasure.int-spec.ts` (the tombstone refusing a create or
-      relink, its race with a first sign-in in both orders, the queue's permissions, the erasure
-      request and housekeeping's delete of it, the backoff),
-      `apps/housekeeping/integration/housekeeping.int-spec.ts` (requests and queued deletions
-      retried, dry run, a failure pushed back),
+      relink, its race with a first sign-in in both orders, the queue's permissions, the backoff),
+      `apps/housekeeping/integration/housekeeping.int-spec.ts` (queued deletions retried, dry
+      run, a failure pushed back),
       `libs/auth/integration/clerk-session.int-spec.ts` (an erased person's token is refused),
-      `apps/api-user/integration/erasure.int-spec.ts` (the three callers end to end).
+      `apps/api-user/integration/erasure.int-spec.ts` (both callers end to end).
 
 ### M2 download my data (Art 15, Art 20; M2 plan PR 12)
 
@@ -891,46 +673,6 @@ retried`, on both RocksDB and the in-memory engine.
       complete against what the database holds, read as the migrator, and nothing of another
       person whose data touches theirs; Clerk failing is `503`, all or nothing),
       `person-session.int-spec.ts` (the review rule).
-
-### M2 consent merge (O4; Joel, 2026-10-31)
-
-> **Superseded by plan 4e (2026-11-01)**: see item 45. Kept as the history of what was built.
-
-43. **Sharing beyond heisreal.today is chosen per story; the ledger names the story.** Joel: "a
-    user may want one story only on this platform and another more visible on other platforms".
-    - `consent.story` (`option<record<story>>`, a plain link, no `REFERENCE`): every new
-      `share_socials` event, grant or withdrawal, names one story whose `submitter` is the
-      event's `subject` and which exists when it's written; no other event names a story
-      (`consent_story`, an event, so it holds for the migrator and every service too). The
-      table's permissions are unchanged: a person creates only their own events in their own
-      session, and reads only their own (api-admin and workflow read all), so nobody chooses for,
-      or reads, another person's story.
-    - **Evidence v5** (`consent_evidence_v5`): an event naming a story uses `evidenceVersion` 5,
-      and only those do: v4 plus the story's id, so the ledger proves which story was chosen.
-    - `fn::consent::story_sharing($user, $story)` is the one definition: the latest `share_socials`
-      event naming the story, read through its submitter's own events (the existing
-      `consent_latest` index; no new index, which every migration would rebuild). It runs with the
-      caller's permissions, so anyone who can't read the story or the submitter's ledger gets
-      `NONE` (fail closed; api-public-read and other people do). It feeds `story.consent.share`,
-      `fn::story::may_share` (item 30), api-user's `StoryMine.sharing` and Download my data.
-      The account-wide `fn::consent::may_share` is removed (`REMOVE FUNCTION IF EXISTS`).
-    - **Older account-wide sharing events** (before O4; dev's dummy data only) name no story, so
-      they count for no story. Nothing is migrated or deleted: the ledger is append-only.
-    - Deleting a story leaves its sharing events on the ledger (kept like every consent event,
-      six years after erasure), pointing at an id that no longer exists, like `auditLog`'s. Both
-      writes bump the person's fence, so an event can't commit for a story deleted alongside it.
-    - **Sharing ticked on Review is part of SubmitStory** (round 3 of the review): api-user puts
-      the ledger's grant statements (`ConsentLedger.storySharingGrant`, the same checks, form
-      version and privacy policy check in the transaction, mechanism `web_form_submission`,
-      evidence v5) in the submission's own transaction, beside its Idempotency-Key, all in the
-      person's session. Both commit or neither does, and a replay of the key grants nothing
-      again. No new permission: the person already creates their own `consent` events and
-      submits their own stories.
-    - Tests: `libs/database/integration/consent-forms.int-spec.ts` ("sharing beyond
-      heisreal.today: chosen per story"), `erasure.int-spec.ts` (kept after erasure),
-      `libs/consent/integration/ledger.int-spec.ts`, `apps/api-user/integration/my-stories.int-spec.ts`,
-      `apps/api-user/integration/submit-sharing.int-spec.ts` (together or not at all, in the
-      transaction itself both ways, and replays).
 
 ### Themes (themes plan v3; Joel, 2026-10-31)
 
