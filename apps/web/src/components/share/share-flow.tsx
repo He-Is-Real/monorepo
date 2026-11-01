@@ -21,11 +21,13 @@ import { PrivacyNoticeLink } from '@/components/legal/privacy-notice-link';
 import { Redline } from '@/components/legal/redline';
 import {
   type Account,
+  type Agreement,
   type ApiUser,
   ApiUserProblem,
   ApiUserUnavailable,
   StaleVersion,
 } from '@/lib/api-user';
+import type { AgreementName } from '@/lib/legal-text';
 import type { RedlineItem } from '@/lib/redline';
 import type { SharingConsent, ShareLegal } from '@/lib/share-legal';
 import { signInHref } from '@/lib/return-path';
@@ -48,6 +50,7 @@ import { ThemePicker } from '@/components/themes/theme-picker';
 import { useDraft } from './use-draft';
 import { ImagePanel, type PictureState } from './image-panel';
 import { fileLimits, type FileState, UploadPanel } from './upload-panel';
+import { AgreeAgain } from './upload-request';
 
 /**
  * The submit flow for written stories (M2 plan PR 4), from the mockup authenticated/submit.html,
@@ -68,6 +71,12 @@ import { fileLimits, type FileState, UploadPanel } from './upload-panel';
  * The limits an admin sets and the person's own (W3, D112: `GET /v1/account/limits`): the page
  * shows and checks these, never numbers of its own.
  */
+/** The account's field for each text a person agrees to. */
+const AGREEMENT_KEY = {
+  'terms-of-use': 'termsOfUse',
+  'testimony-consent': 'testimonyConsent',
+} as const satisfies Record<AgreementName, keyof Account>;
+
 /** Exported for share-flow.spec.tsx (a step rendered on its own). */
 export const Limits = createContext<SubmissionLimits | null>(null);
 /** The theme count rule in words, as api-user says it: "Choose 1–5 themes". */
@@ -330,6 +339,57 @@ function SignedInFlow({
     // Only when a save says so, not on every step change (`step` is read, not watched).
   }, [draft.agreementNeeded, askAgreement]);
 
+  // An upload refused until the person agrees (upload-request.ts, `AgreeAgain`): the same
+  // agree-again screen, over the step, which stays as it was underneath (the file chosen, an
+  // upload under way), so the upload carries on once they agree. Panels asking meanwhile wait
+  // for the same answer; the terms of use come first, as api-user checks them first.
+  /** The text asked for, and the version the person agreed to (read when it was asked). */
+  const [agreeing, setAgreeing] = useState<{
+    which: AgreementName;
+    agreed: Agreement | null;
+  } | null>(null);
+  const waiting = useRef<((agreed: boolean) => void)[]>([]);
+  const agreeHeading = useRef<HTMLHeadingElement>(null);
+  const settleAgreeing = useCallback((agreed: boolean) => {
+    const asked = waiting.current;
+    waiting.current = [];
+    setAgreeing(null);
+    for (const answer of asked) answer(agreed);
+  }, []);
+  const agreeAgain = useCallback(
+    async (which: AgreementName): Promise<boolean> => {
+      let account: Account;
+      try {
+        account = await calls.account();
+      } catch {
+        // Can't tell now: the panel says why, and trying again asks again.
+        return false;
+      }
+      // Agreed meanwhile (another tab): ask for the upload again at once. The page's account
+      // changes only once they agree, so the step underneath stays as it is.
+      const state = account[AGREEMENT_KEY[which]];
+      if (state.upToDate) return true;
+      return new Promise<boolean>((resolve) => {
+        waiting.current.push(resolve);
+        setAgreeing((open) =>
+          open?.which === 'terms-of-use'
+            ? open
+            : { which, agreed: state.agreed },
+        );
+      });
+    },
+    [calls],
+  );
+  // Its heading takes focus when it opens, and the step's again when it closes.
+  const wasAgreeing = useRef(false);
+  useEffect(() => {
+    if (!!agreeing === wasAgreeing.current) return;
+    wasAgreeing.current = !!agreeing;
+    const h = agreeing ? agreeHeading.current : heading.current;
+    h?.focus();
+    h?.scrollIntoView({ block: 'start' });
+  }, [agreeing]);
+
   // The draft's id in the address once it exists, so a reload resumes it.
   useEffect(() => {
     if (!draft.draftId) return;
@@ -438,63 +498,32 @@ function SignedInFlow({
           </nav>
         )}
         <Card className="p-[16px] sm:p-8">
-          {step === 'choose' && (
-            <ChooseStep
-              heading={heading}
-              drafts={drafts}
-              onStart={(format) => {
-                draft.setFormat(format);
-                go(after('choose'));
-              }}
-              onContinue={async (id) => {
-                if (askConsent) {
-                  window.history.replaceState(null, '', `/share?draft=${id}`);
-                  go('consent');
-                  return;
-                }
-                go((await draft.load(id)) ? 'write' : 'done');
-              }}
-            />
-          )}
-          {step === 'consent' && (
+          {agreeing && (
             <AgreementStep
-              key={account.testimonyConsent.agreed?.version ?? 'none'}
-              document="testimony-consent"
-              agreed={account.testimonyConsent.agreed}
+              key={agreeing.which}
+              document={agreeing.which}
+              agreed={agreeing.agreed}
               userId={owner}
               api={api}
               heading={(text) => (
-                <StepHeading heading={heading}>{text}</StepHeading>
+                <StepHeading heading={agreeHeading}>{text}</StepHeading>
               )}
-              onAgreed={async (testimonyConsent) => {
+              onAgreed={(state) => {
                 setLoaded({
                   ...loaded,
-                  account: { ...account, testimonyConsent },
+                  account: {
+                    ...account,
+                    [AGREEMENT_KEY[agreeing.which]]: state,
+                  },
                 });
-                const back = resumeAt.current;
-                resumeAt.current = null;
-                if (back) {
-                  // A save refused for this: try it again now.
-                  void draft.flush();
-                  go(back);
-                  return;
-                }
-                const id = new URLSearchParams(window.location.search).get(
-                  'draft',
-                );
-                if (id && !draft.draftId) {
-                  go((await draft.load(id)) ? 'write' : 'done');
-                } else go(after('consent'));
+                settleAgreeing(true);
               }}
               after={
                 <Actions>
                   <button
                     type="button"
                     className={secondary}
-                    onClick={() => {
-                      resumeAt.current = null;
-                      go('choose');
-                    }}
+                    onClick={() => settleAgreeing(false)}
                   >
                     Back
                   </button>
@@ -502,59 +531,133 @@ function SignedInFlow({
               }
             />
           )}
-          {step === 'prepare' && (
-            <PrepareStep
-              heading={heading}
-              format={draft.format}
-              onNext={() => go(after('prepare'))}
-              onBack={() => go(before('prepare'))}
-            />
-          )}
-          {step === 'write' && draft.format !== 'written' && (
-            <MediaStep
-              heading={heading}
-              draft={draft}
-              calls={calls}
-              owner={owner}
-              refreshLimits={refreshLimits}
-              onNext={() => go(after('write'))}
-              onBack={() => go(before('write'))}
-            />
-          )}
-          {step === 'write' && draft.format === 'written' && (
-            <WriteStep
-              heading={heading}
-              draft={draft}
-              calls={calls}
-              owner={owner}
-              onNext={() => go(after('write'))}
-              onBack={() => go(before('write'))}
-            />
-          )}
-          {step === 'details' && (
-            <DetailsStep
-              heading={heading}
-              draft={draft}
-              themes={themes}
-              onNext={() => go(after('details'))}
-              onBack={() => go(before('details'))}
-            />
-          )}
-          {step === 'review' && (
-            <ReviewStep
-              heading={heading}
-              draft={draft}
-              themes={themes}
-              sharing={legal.sharing}
-              calls={calls}
-              onAgreementNeeded={(which) => void askAgreement(which, 'review')}
-              refreshLimits={refreshLimits}
-              refreshThemes={reloadThemes}
-              onEdit={(s) => go(s)}
-              onDone={() => go('done')}
-            />
-          )}
-          {step === 'done' && <DoneStep heading={heading} />}
+          <div hidden={!!agreeing}>
+            <AgreeAgain.Provider value={agreeAgain}>
+              {step === 'choose' && (
+                <ChooseStep
+                  heading={heading}
+                  drafts={drafts}
+                  onStart={(format) => {
+                    draft.setFormat(format);
+                    go(after('choose'));
+                  }}
+                  onContinue={async (id) => {
+                    if (askConsent) {
+                      window.history.replaceState(
+                        null,
+                        '',
+                        `/share?draft=${id}`,
+                      );
+                      go('consent');
+                      return;
+                    }
+                    go((await draft.load(id)) ? 'write' : 'done');
+                  }}
+                />
+              )}
+              {step === 'consent' && (
+                <AgreementStep
+                  key={account.testimonyConsent.agreed?.version ?? 'none'}
+                  document="testimony-consent"
+                  agreed={account.testimonyConsent.agreed}
+                  userId={owner}
+                  api={api}
+                  heading={(text) => (
+                    <StepHeading heading={heading}>{text}</StepHeading>
+                  )}
+                  onAgreed={async (testimonyConsent) => {
+                    setLoaded({
+                      ...loaded,
+                      account: { ...account, testimonyConsent },
+                    });
+                    const back = resumeAt.current;
+                    resumeAt.current = null;
+                    if (back) {
+                      // A save refused for this: try it again now.
+                      void draft.flush();
+                      go(back);
+                      return;
+                    }
+                    const id = new URLSearchParams(window.location.search).get(
+                      'draft',
+                    );
+                    if (id && !draft.draftId) {
+                      go((await draft.load(id)) ? 'write' : 'done');
+                    } else go(after('consent'));
+                  }}
+                  after={
+                    <Actions>
+                      <button
+                        type="button"
+                        className={secondary}
+                        onClick={() => {
+                          resumeAt.current = null;
+                          go('choose');
+                        }}
+                      >
+                        Back
+                      </button>
+                    </Actions>
+                  }
+                />
+              )}
+              {step === 'prepare' && (
+                <PrepareStep
+                  heading={heading}
+                  format={draft.format}
+                  onNext={() => go(after('prepare'))}
+                  onBack={() => go(before('prepare'))}
+                />
+              )}
+              {step === 'write' && draft.format !== 'written' && (
+                <MediaStep
+                  heading={heading}
+                  draft={draft}
+                  calls={calls}
+                  owner={owner}
+                  refreshLimits={refreshLimits}
+                  onNext={() => go(after('write'))}
+                  onBack={() => go(before('write'))}
+                />
+              )}
+              {step === 'write' && draft.format === 'written' && (
+                <WriteStep
+                  heading={heading}
+                  draft={draft}
+                  calls={calls}
+                  owner={owner}
+                  onNext={() => go(after('write'))}
+                  onBack={() => go(before('write'))}
+                />
+              )}
+              {step === 'details' && (
+                <DetailsStep
+                  heading={heading}
+                  draft={draft}
+                  themes={themes}
+                  onNext={() => go(after('details'))}
+                  onBack={() => go(before('details'))}
+                />
+              )}
+              {step === 'review' && (
+                <ReviewStep
+                  heading={heading}
+                  draft={draft}
+                  themes={themes}
+                  sharing={legal.sharing}
+                  calls={calls}
+                  onAgreementNeeded={(which) =>
+                    void askAgreement(which, 'review')
+                  }
+                  refreshLimits={refreshLimits}
+                  refreshThemes={reloadThemes}
+                  onEdit={(s) => go(s)}
+                  onDone={() => go('done')}
+                />
+              )}
+              {step === 'done' && <DoneStep heading={heading} />}
+            </AgreeAgain.Provider>
+          </div>
         </Card>
       </div>
     </Limits.Provider>

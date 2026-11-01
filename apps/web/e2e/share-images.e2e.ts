@@ -37,11 +37,21 @@ async function person(page: Page, request: APIRequestContext) {
   await page.addInitScript((session) => {
     window.localStorage.setItem('e2e-session', session);
   }, id);
+  /** A newer version is saved after the page loaded: the person's is older than the latest. */
+  const agreements = async (set: { terms?: number; testimony?: number }) =>
+    expect(
+      (
+        await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}/agreements`, {
+          data: set,
+        })
+      ).status(),
+    ).toBe(204);
   /** The stub's Authorization for this person, as another tab of theirs would send it. */
   const auth = `Bearer e2e.${Buffer.from(
     JSON.stringify({ sub: 'user_e2efixture', session: id }),
   ).toString('base64url')}.fixture`;
   return {
+    agreements,
     /** Another tab of theirs puts a picture of that size on the story (its file never sent). */
     otherTab: async (story: string, width: number, height: number) => {
       const headers = { authorization: auth };
@@ -544,5 +554,83 @@ test.describe('behaviour', () => {
     await expect
       .poll(() => shown.evaluate((img: HTMLImageElement) => img.naturalWidth))
       .toBe(1280);
+  });
+
+  // Plan 4e: a newer testimony consent or terms of use saved while the person was writing makes
+  // api-user refuse the picture's upload request (403): the same agree-again screen a refused save
+  // opens (Joel, 2026-11-01, option B), and the picture is added once they agree.
+  const AGAIN = [
+    {
+      code: 'testimony_consent_required',
+      older: { testimony: 1 },
+      heading: 'Our testimony consent has changed',
+      box: /I agree to version 3 of the testimony consent/,
+      text: 'testimony consent',
+    },
+    {
+      code: 'terms_agreement_required',
+      older: { terms: 1 },
+      heading: 'Our terms of use have changed',
+      box: /I agree to version 2 of the terms of use/,
+      text: 'terms of use',
+    },
+  ] as const;
+  const saved = (page: Page) =>
+    expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'saved',
+    );
+
+  for (const again of AGAIN) {
+    test(`a picture refused with ${again.code} opens the agree-again screen, and agreeing adds it`, async ({
+      page,
+      request,
+    }) => {
+      const me = await person(page, request);
+      await written(page);
+      await saved(page);
+      await me.agreements(again.older);
+      await choose(page, 900, 1200);
+      await page.getByRole('button', { name: 'Add this picture' }).click();
+      await step(page, again.heading);
+      await page.locator('label').filter({ hasText: again.box }).click();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await step(page, 'Write your story');
+      await expect(page.getByText('Picture added.')).toBeVisible();
+      await expect(page.getByLabel('Title')).toHaveValue(
+        'A picture of where it happened',
+      );
+      const { requests, images } = await me.uploads();
+      expect([requests, images.length]).toEqual([2, 1]);
+    });
+  }
+
+  test('not agreeing for a picture leaves it to add, with the reason, and adding it asks again', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    await saved(page);
+    await me.agreements({ testimony: 1 });
+    await choose(page, 900, 1200);
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await step(page, 'Our testimony consent has changed');
+    await page.getByRole('button', { name: 'Back' }).click();
+    await step(page, 'Write your story');
+    await expect(
+      alert(page, 'please agree to the latest testimony consent'),
+    ).toBeVisible();
+    await expect(page.locator('[data-picture-preview] img')).toBeVisible();
+    expect((await me.uploads()).images).toEqual([]);
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await step(page, 'Our testimony consent has changed');
+    await page
+      .locator('label')
+      .filter({ hasText: /I agree to version 3 of the testimony consent/ })
+      .click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    expect((await me.uploads()).images).toHaveLength(1);
   });
 });

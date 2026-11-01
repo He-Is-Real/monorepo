@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   ApiUserProblem,
   ApiUserUnavailable,
@@ -9,6 +9,10 @@ import {
 import type { ShareApi, StoryFormat, StoryPicture } from './share-api';
 import { formatBytes } from './upload-panel';
 import {
+  AGREE_ASKS,
+  AgreeAgain,
+  agreeFirstMessage,
+  agreementFirst,
   type Attempt,
   forgetAttempt,
   outcomeUnknown,
@@ -45,6 +49,10 @@ import {
  *   arrived (`image.uploaded`, which api-user checks at the storage). Discarding a replacement
  *   reads the story first and shows its picture as it is: one whose file never arrived stays
  *   unfinished, with "Add" to try its upload again when this tab still has it.
+ *
+ * A request refused until the person agrees to a newer terms of use or testimony consent (plan
+ * 4e) opens the flow's agree-again screen (`AgreeAgain`); once they agree, the picture is asked
+ * for again, and if they go back it stays to add, with the reason.
  */
 
 /** The longer side the browser re-encodes to, and the bounds api-user and the database check. */
@@ -239,6 +247,7 @@ export function ImagePanel({
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { begin } = useRuns();
+  const agreeAgain = useContext(AgreeAgain);
   /** The blob: links this panel made, freed once nothing shows them and the draft hasn't them. */
   const blobs = useRef(new Set<string>());
   const fileInput = useRef<HTMLInputElement>(null);
@@ -348,7 +357,11 @@ export function ImagePanel({
     setPhase({ at: 'preview', picture: prepared, granted: false });
   }
 
-  async function add(picture: Prepared, granted: boolean) {
+  async function add(
+    picture: Prepared,
+    granted: boolean,
+    asked = 0,
+  ): Promise<void> {
     const description = alt.trim();
     setProblem(null);
     setNotice(null);
@@ -430,6 +443,16 @@ export function ImagePanel({
         err.problem.code === 'image_changed'
       ) {
         return changed(picture, current().draftId);
+      }
+      const which = agreementFirst(err);
+      if (which) {
+        // Nothing was granted: once they agree, the picture is asked for again.
+        if (asked < AGREE_ASKS && (await agreeAgain(which))) {
+          if (left()) return;
+          return add(picture, granted, asked + 1);
+        }
+        if (left()) return;
+        return back(granted, agreeFirstMessage(which, `add your ${noun}`));
       }
       // No answer: it may have gone through, so it counts as on the draft (its path unknown).
       if (outcomeUnknown(err)) held.current = { picture, path: null };
