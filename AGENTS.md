@@ -11,6 +11,11 @@ task finishes or a recorded decision changes.
 API work follows `docs/api-conventions.md`; the OpenAPI specs in `libs/contracts/openapi` are the
 source of truth, so change them in the same PR as the code.
 
+- **Joel owns the data structure, the API and behaviour (Joel, 2026-11-01).** Consult Joel before any
+  change to the database data structure (schema, fields, migrations that reshape data), the API
+  (OpenAPI contracts, routes, payloads) or behaviour (what users and admins see and can do). Reviewer
+  agents have no authority at these levels: they may block a merge or deployment and make suggestions,
+  but only so the question goes to Joel, who decides.
 - Services never call each other. Each API connects to SurrealDB as its own least-privilege user
   (api-public-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
