@@ -754,6 +754,19 @@ test.describe('behaviour', () => {
     await expect(headings).toHaveText(['Feelings', 'Journeys']);
     await expect(themes.getByRole('checkbox', { name: 'Hope' })).toBeChecked();
     await themes.getByText('Doubt', { exact: true }).click();
+    // Ticked while open, so un-ticking it under a search it doesn't match leaves it where it is,
+    // with the keyboard focus, until the list folds or unfolds (Joel, 2026-11-01).
+    await themes
+      .getByRole('searchbox', { name: 'Search themes' })
+      .fill('hope');
+    const doubt = themes.getByRole('checkbox', { name: 'Doubt' });
+    await doubt.focus();
+    await page.keyboard.press('Space');
+    await expect(doubt).not.toBeChecked();
+    await expect(doubt).toBeFocused();
+    await expect(headings).toHaveText(['Feelings', 'Journeys']);
+    await page.keyboard.press('Space');
+    await expect(doubt).toBeChecked();
     await expectNoHorizontalOverflow(page);
     await themes.getByRole('button', { name: 'Fewer themes' }).click();
     // Chosen, so still in view with the highlighted ones.

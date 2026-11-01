@@ -12,9 +12,9 @@ import type { Theme, ThemeCategory } from '@/lib/browse';
  * same rows. Chosen themes always stay in view, whatever the search says.
  *
  * What a theme looks like (a checkbox when sharing, a link when browsing) is the caller's: the
- * picker only decides which ones show. A theme un-chosen while unfolded or searching stays put
- * until the picker folds or unfolds again, so it doesn't vanish from under the pointer or the
- * keyboard focus.
+ * picker only decides which ones show. A theme chosen at any point since the picker last folded
+ * or unfolded stays put, even once un-chosen, until it folds or unfolds again, so it doesn't
+ * vanish from under the pointer or the keyboard focus.
  */
 export function ThemePicker({
   categories,
@@ -28,8 +28,11 @@ export function ThemePicker({
   const id = useId();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  // The chosen themes as the picker last folded or unfolded: kept in view until it does again.
+  // Every theme chosen since the picker last folded or unfolded: kept in view until it does
+  // again. A newly chosen one joins as it's ticked (React's "adjust state while rendering").
   const [pinned, setPinned] = useState<readonly string[]>(chosen);
+  const added = chosen.filter((c) => !pinned.includes(c));
+  if (added.length > 0) setPinned([...pinned, ...added]);
   const kept = (t: Theme) => pinned.includes(t.id) || chosen.includes(t.id);
   const needle = open ? search.trim().toLowerCase() : '';
   const shown = (t: Theme) =>
