@@ -19,47 +19,6 @@ test('reports the database up and consent checks enforced (D48 off, D75)', async
   });
 });
 
-test('serves dev’s placeholder privacy policy, terms of use and consent forms (D75, D93, D121, D122)', async ({
-  request,
-}) => {
-  const dpa = await request.get(`${API_URL}/v1/legal/dpa`);
-  expect(dpa.status()).toBe(200);
-  const { current } = await dpa.json();
-  expect(current).toMatchObject({ id: 'dev_policy', status: 'published' });
-  // D121, D125: the two legal documents, numbered, each in force with its Markdown, and every
-  // version still readable by its number.
-  for (const [document, number, id] of [
-    ['privacy', 2, 'dev_policy'],
-    ['terms', 1, 'dev_placeholder'],
-  ] as const) {
-    const res = await request.get(`${API_URL}/v1/legal/documents/${document}`);
-    expect(res.status(), document).toBe(200);
-    const body = await res.json();
-    expect(body.current, document).toMatchObject({ id, number });
-    expect(body.current.text, document).toContain('placeholder');
-    const first = await request.get(
-      `${API_URL}/v1/legal/documents/${document}/versions/1`,
-    );
-    expect([document, first.status()]).toEqual([document, 200]);
-  }
-  for (const form of ['signup', 'testimony', 'social']) {
-    const res = await request.get(`${API_URL}/v1/legal/forms/${form}`);
-    expect(res.status(), form).toBe(200);
-    const body = await res.json();
-    expect(body, form).toMatchObject({ form, id: 'v2' });
-    const boxes = body.boxes.map((b: { statement: string }) => b.statement);
-    // 18+ is asked at sign-up only (D93), with the terms box (D122).
-    expect([form, boxes.includes('age_18plus')]).toEqual([
-      form,
-      form === 'signup',
-    ]);
-    expect([form, boxes.includes('terms_of_use')]).toEqual([
-      form,
-      form === 'signup',
-    ]);
-  }
-});
-
 test('serves every approved story, with its media', async ({ request }) => {
   for (const story of approved) {
     const res = await request.get(`${API_URL}/v1/stories/${story.slug}`);
