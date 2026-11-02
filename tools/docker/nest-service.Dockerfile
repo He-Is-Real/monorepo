@@ -6,7 +6,7 @@
 #   pnpm nx run api-public-read:container   (builds, prunes and runs docker build)
 
 # --- production dependencies --------------------------------------------------
-FROM node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 AS deps
+FROM node:24.22.2-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY workspace_modules ./workspace_modules
