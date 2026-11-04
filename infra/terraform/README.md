@@ -351,7 +351,7 @@ Key versions aren't OpenTofu resources, so there's nothing to import.
 4. Confirm there is no drift: `tools/scripts/tf.sh bootstrap plan -detailed-exitcode` → 0, then plan
    every root (`tf.sh <r> plan -lock=false -detailed-exitcode`, bunny as tf-bunny) with the same
    results as before.
-5. Record what happened and why in `docs/delivery-status.md`.
+5. Record what happened and why in `docs/delivery-status.md` ("Known issues").
 
 Anything else (key IAM, key settings, a key dropped from config) goes through OpenTofu: fix the
 code and apply bootstrap. A key removed from config is only forgotten (`skip_destroy`); adopt it

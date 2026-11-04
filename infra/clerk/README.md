@@ -3,7 +3,7 @@
 Clerk's settings as code, applied with the Clerk CLI. There's no maintained Clerk OpenTofu (or OpenTofu)
 provider: the registry has none from Clerk, and the community ones have at most a handful of
 stars. So this is an exception to "all cloud changes through OpenTofu"
-([delivery-status](../../docs/delivery-status.md), decision 17). Everything else about Clerk that
+([how-the-app-works](../../docs/how-the-app-works.md), "Technical decisions", decision 17). Everything else about Clerk that
 lives on our side (the public key SurrealDB pins, the publishable key on `web`, the secret-key
 container) is in OpenTofu.
 
