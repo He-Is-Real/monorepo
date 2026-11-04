@@ -262,6 +262,33 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     ]);
   });
 
+  it('puts dev’s newcomer test accounts back to never having agreed to anything (plan 4e)', async () => {
+    const migrator = await t.migrator();
+    // Agreed already, as data/0009's fill-in left every person who existed then.
+    await run(
+      migrator,
+      `CREATE user:newcomer CONTENT {
+         clerkUserId: 'user_newcomer',
+         termsOfUse: fn::legal::latest('termsOfUseAgreement'), termsOfUseAgreedAt: time::now(),
+         testimonyConsent: fn::legal::latest('testimonyConsent'), testimonyConsentAgreedAt: time::now()
+       }`,
+    );
+    const withNewcomers = {
+      ...vars(),
+      newcomerAccounts: ['user_newcomer', 'user_newcomer_not_signed_in'],
+    };
+    await reset(seeder, withNewcomers);
+    await reset(seeder, withNewcomers); // idempotent
+    expect(
+      await rows(
+        migrator,
+        `SELECT clerkUserId AS clerk, termsOfUse, termsOfUseAgreedAt, testimonyConsent,
+           testimonyConsentAgreedAt FROM user
+           WHERE clerkUserId IN ['user_newcomer', 'user_newcomer_not_signed_in']`,
+      ),
+    ).toEqual([{ clerk: 'user_newcomer' }]);
+  });
+
   it('is one transaction: a failure leaves the data as it was', async () => {
     const migrator = await t.migrator();
     const before = await rows(

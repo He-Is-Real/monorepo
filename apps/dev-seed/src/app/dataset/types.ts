@@ -88,4 +88,10 @@ export interface Dataset {
    * on every reset so D94's limits don't get in the way of testing (dev only).
    */
   testAccounts: string[];
+  /**
+   * Plan 4e: dev's Clerk test accounts that start every run as newcomers. Each reset clears their
+   * terms of use and testimony consent (dev-seed is a system user, which may), so signing in
+   * shows the terms step every time. Not trusted submitters: they never get past that step.
+   */
+  newcomerAccounts: string[];
 }
