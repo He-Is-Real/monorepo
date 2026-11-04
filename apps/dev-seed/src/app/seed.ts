@@ -17,6 +17,8 @@ import type { SeedVars } from './plan';
  *
  * dev's Clerk test accounts (the dataset's testAccounts) are marked trusted submitters (D112)
  * and, like the fixture people, agree to the latest terms of use and testimony consent (C1).
+ * Its newcomer accounts (newcomerAccounts) go back to never having agreed to either, so their
+ * next sign-in meets the terms step; a system user may clear a pointer, nobody else may.
  *
  * Wiped: story (and, through its erasure cascade, publicStory and moderationReview), whatever
  * read-model rows or reviews are left, auditLog, idempotencyKey, every theme and every category
@@ -77,6 +79,10 @@ FOR $clerk IN $testAccounts {
   UPDATE $u SET testimonyConsent = $testimony, testimonyConsentAgreedAt = time::now()
     WHERE testimonyConsent != $testimony RETURN NONE;
 };
+-- Plan 4e: dev's newcomer test accounts have agreed to nothing, on every run (data/0009's fill-in
+-- recorded the ones that existed then as agreeing). A row is left for api-user to make.
+UPDATE user SET termsOfUse = NONE, testimonyConsent = NONE
+  WHERE clerkUserId IN $newcomerAccounts RETURN NONE;
 FOR $c IN $categories {
   CREATE type::record('themeCategory', $c.id) CONTENT { name: $c.name } RETURN NONE;
 };

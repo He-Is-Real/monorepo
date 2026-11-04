@@ -44,6 +44,8 @@ export interface SeedVars {
   people: string[];
   /** D112: Clerk user ids of dev's test accounts, marked trusted submitters. */
   testAccounts: string[];
+  /** Plan 4e: Clerk user ids of dev's test accounts put back to never having agreed. */
+  newcomerAccounts: string[];
   moderator: string;
   categories: { id: string; name: string }[];
   themes: {
@@ -124,6 +126,10 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
   for (const id of [...data.people, data.moderator]) {
     if (!/^seed_[a-z0-9_]+$/.test(id))
       problems.push(`person ${id}: ids start with seed_`);
+  }
+  for (const clerk of data.newcomerAccounts) {
+    if (data.testAccounts.includes(clerk))
+      problems.push(`${clerk}: a newcomer account can't also have agreed`);
   }
   const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
   for (const t of [...data.categories, ...data.themes]) {
@@ -252,6 +258,7 @@ export function buildVars(
   return {
     people: data.people,
     testAccounts: data.testAccounts,
+    newcomerAccounts: data.newcomerAccounts,
     moderator: data.moderator,
     categories: data.categories.map(({ id, name }) => ({ id, name })),
     themes: data.themes.map((t) => ({

@@ -10,7 +10,8 @@ import { expectClerkTargetsFullSize, expectFitsScreen } from './clerk-card';
 // - api-user on Cloud Run with web's origins in CORS_ALLOWED_ORIGINS and
 //   CLERK_AUTHORIZED_PARTIES, and web's API_USER_URL (OpenTofu);
 // - the Clerk test user below, created once on the dev instance. A `+clerk_test` address
-//   gets no email: Clerk's development instances accept the fixed code 424242 for it.
+//   gets no email: Clerk's development instances accept the fixed code 424242 for it. It's one of
+//   dev-seed's newcomer accounts, so the reset before every run clears its agreements.
 const TEST_USER = 'behavioural+clerk_test@example.com';
 const TEST_CODE = '424242';
 

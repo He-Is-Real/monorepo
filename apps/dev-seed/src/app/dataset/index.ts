@@ -502,13 +502,22 @@ const STORIES: StoryFixture[] = [
 /**
  * D112 (Joel, 2026-10-28): dev's Clerk test accounts, by Clerk user id (`user_…`, shown in the
  * Clerk dashboard; not secret), marked trusted submitters on every reset so the submission limits
- * don't interfere with testing. The dev behavioural suite's `behavioural+clerk_test@example.com`
- * belongs here once its id is known.
+ * don't interfere with testing.
  */
 const TEST_ACCOUNTS: string[] = [
   // upload-behaviour+clerk_test@example.com: behavioural/story-upload.developer.ts submits a
   // story on every run.
   'user_3LQqgJMojJ8H1rfyfb16nyBNK3J',
+];
+
+/**
+ * Plan 4e: dev's Clerk test accounts that every reset puts back to never having agreed to the terms
+ * of use or the testimony consent, so each run sees a newcomer's first sign-in.
+ */
+const NEWCOMER_ACCOUNTS: string[] = [
+  // behavioural+clerk_test@example.com: behavioural/account.behaviour.ts expects the terms step
+  // after signing in. It signed in before data/0009, whose fill-in recorded it as agreeing.
+  'user_3LCI1mF27FSS3BWnlfIBlledHGF',
 ];
 
 export const DATASET: Dataset = {
@@ -518,4 +527,5 @@ export const DATASET: Dataset = {
   themes: THEMES,
   stories: STORIES,
   testAccounts: TEST_ACCOUNTS,
+  newcomerAccounts: NEWCOMER_ACCOUNTS,
 };
