@@ -71,6 +71,10 @@ source of truth, so change them in the same PR as the code.
   (`tools/scripts/tf-image-only.mjs`, job `auto-approve-1`). Anything else (the database or cluster, IAM,
   secrets, Bunny, Stripe, any create, delete or replace) waits for the approval. Production never applies
   on its own; don't widen the check or remove the `dev` environment's required approval.
+- **Local plans need no permission (Joel, 2026-11-05).** Any agent may run `tools/scripts/tf.sh <root> plan`
+  (and `plan-summary`, `location-check`) locally without asking Joel first. A plan changes no cloud
+  resource; it only takes the state lock while it runs and writes a plan file. Applies are different: see
+  the rule above.
 - State and saved plans are encrypted with Cloud KMS (`tofu-state`; `tofu-bunny` for bunny). Never disable
   or destroy those keys or their versions, and never revert bootstrap wholesale. State must still never hold
   secrets: write-only attributes for values, `ephemeral` for tokens. One approved exception (Joel,
