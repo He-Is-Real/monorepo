@@ -10,12 +10,7 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./package.json": "./package.json",
-    "./testing": {
-      "types": "./src/testing.ts",
-      "import": "./src/testing.ts",
-      "default": "./src/testing.ts"
-    }
+    "./package.json": "./package.json"
   },
   "nx": {
     "name": "health",

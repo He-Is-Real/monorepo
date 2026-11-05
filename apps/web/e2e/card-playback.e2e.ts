@@ -54,7 +54,8 @@ async function size(locator: Locator) {
   };
 }
 
-test('the media area plays the story in place; the text below opens the story', async ({
+// Every device: the size of a playing card's box depends on the card's width.
+test('a card plays in its own box: same width, only as tall as the controls need, and its messages fit', async ({
   page,
 }) => {
   await page.goto(LIST);
@@ -66,11 +67,6 @@ test('the media area plays the story in place; the text below opens the story', 
   await play.click();
   const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
   await expect(frame).toBeVisible();
-  // Signed on demand by api-public-read, and started by this click.
-  const src = (await frame.getAttribute('src')) ?? '';
-  expect(src.startsWith(embed(VIDEO_ID))).toBe(true);
-  expect(new URL(src).searchParams.get('token')).toBe('stub');
-  expect(new URL(src).searchParams.get('autoplay')).toBe('true');
   await expect(
     page.frameLocator(`iframe[title="Video: ${VIDEO}"]`).getByRole('button'),
   ).toBeVisible();
@@ -85,54 +81,21 @@ test('the media area plays the story in place; the text below opens the story', 
   await expectNoHorizontalOverflow(page);
   await expectTarget(page, video.getByRole('button', { name: 'Close player' }));
 
-  // The text part still opens the story's page.
-  await clickCardAt(
-    video,
-    video.getByText('Placeholder story for the card playback tests.'),
-  );
-  await expect(page).toHaveURL(/\/stories\/play-test-video$/);
-  await expect(
-    page.getByRole('heading', { level: 1, name: VIDEO }),
-  ).toBeVisible();
-});
-
-test('a playing card’s Close is a real target: the heart steps aside while it plays', async ({
-  page,
-}, info) => {
-  // Codex, #117 round 3: the card's heart sat on top of Close and took its clicks.
-  test.skip(
-    !BEHAVIOUR_DEVICES.includes(info.project.name),
-    'one phone and one desktop',
-  );
-  await page.goto(LIST);
-  const video = card(page, VIDEO);
-  const heart = video.locator('[data-heart]');
-  await expect(heart).toBeVisible();
-  await playButton(page, VIDEO).click();
-  const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
-  await expect(frame).toBeVisible();
-  await expect(heart).toBeHidden();
-  // A real click, where a person would tap: no `force`.
-  await video.getByRole('button', { name: 'Close player' }).click();
-  await expect(frame).toHaveCount(0);
-  await expect(heart).toBeVisible();
-});
-
-test('starting another card stops the one playing', async ({ page }) => {
-  await page.goto(LIST);
-  await playButton(page, VIDEO).click();
-  await expect(page.locator(`iframe[title="Video: ${VIDEO}"]`)).toBeVisible();
-
+  // An audio card's 2:1 box is 144 px tall on a 320 px phone: the player gets its 184 px.
   await playButton(page, AUDIO).click();
   const audio = page.locator(`iframe[title="Audio: ${AUDIO}"]`);
   await expect(audio).toBeVisible();
-  expect((await audio.getAttribute('src'))?.startsWith(embed(AUDIO_ID))).toBe(
-    true,
-  );
-  await expect(page.locator('iframe')).toHaveCount(1);
-  await expect(playButton(page, VIDEO)).toBeVisible();
-  // An audio card's 2:1 box is 144 px tall on a 320 px phone: the player gets its 184 px.
   expect((await size(audio)).height).toBeGreaterThanOrEqual(PLAYER_MIN_HEIGHT);
+
+  // A failure's message stays inside the card.
+  const gone = card(page, 'Play test: a story that has gone');
+  const goneBefore = await size(media(gone));
+  await playButton(page, 'Play test: a story that has gone').click();
+  await expect(
+    gone.getByText('This story isn’t available any more.'),
+  ).toBeVisible();
+  expect(await size(media(gone))).toEqual(goneBefore);
+  await expectNoHorizontalOverflow(page);
 });
 
 test('the story page’s players are tall enough for Bunny’s controls', async ({
@@ -154,64 +117,137 @@ test('the story page’s players are tall enough for Bunny’s controls', async 
   }
 });
 
-test('written cards open the story from anywhere on the card', async ({
-  page,
-}) => {
-  await page.goto(LIST);
-  const written = card(page, 'Play test: written');
-  // No player: its only button is the heart (favourites.e2e.ts).
-  await expect(written.locator('button:not([data-heart])')).toHaveCount(0);
-  await clickCardAt(
-    written,
-    written.getByText('Placeholder story for the card playback tests.'),
-  );
-  await expect(page).toHaveURL(/\/stories\/play-test-written$/);
-});
-
-test('a story that has gone, or an API that is down, shows a calm message and the link still works', async ({
-  page,
-}) => {
-  await page.goto(LIST);
-  const gone = card(page, 'Play test: a story that has gone');
-  const before = await size(media(gone));
-  await playButton(page, 'Play test: a story that has gone').click();
-  await expect(
-    gone.getByText('This story isn’t available any more.'),
-  ).toBeVisible();
-  await expect(gone.locator('iframe')).toHaveCount(0);
-  expect(await size(media(gone))).toEqual(before);
-
-  const down = card(page, 'Play test: the API is down');
-  await playButton(page, 'Play test: the API is down').click();
-  await expect(
-    down.getByText('The player couldn’t load. Try again in a moment.'),
-  ).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-
-  await down.getByRole('link', { name: 'Play test: the API is down' }).click();
-  await expect(page).toHaveURL(/\/stories\/play-test-down$/);
-});
-
-test('a failed request (offline) shows the message, and playing again works', async ({
-  page,
-}) => {
-  await page.goto(LIST);
-  // Server actions are POSTs to the page: fail the first one.
-  let failed = false;
-  await page.route('**/stories*', (route) => {
-    if (route.request().method() === 'POST' && !failed) {
-      failed = true;
-      return route.abort('internetdisconnected');
-    }
-    return route.continue();
+test.describe('behaviour', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'one phone and one desktop',
+    );
   });
-  const video = card(page, VIDEO);
-  await playButton(page, VIDEO).click();
-  await expect(
-    video.getByText('The player couldn’t load. Try again in a moment.'),
-  ).toBeVisible();
-  await playButton(page, VIDEO).click();
-  await expect(video.locator(`iframe[title="Video: ${VIDEO}"]`)).toBeVisible();
+
+  test('the media area plays the story in place, signed on demand; the text below opens the story', async ({
+    page,
+  }) => {
+    await page.goto(LIST);
+    const video = card(page, VIDEO);
+    await playButton(page, VIDEO).click();
+    const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
+    await expect(frame).toBeVisible();
+    // Signed on demand by api-public-read, and started by this click.
+    const src = (await frame.getAttribute('src')) ?? '';
+    expect(src.startsWith(embed(VIDEO_ID))).toBe(true);
+    expect(new URL(src).searchParams.get('token')).toBe('stub');
+    expect(new URL(src).searchParams.get('autoplay')).toBe('true');
+    await expect(page).toHaveURL(LIST);
+
+    // The text part still opens the story's page.
+    await clickCardAt(
+      video,
+      video.getByText('Placeholder story for the card playback tests.'),
+    );
+    await expect(page).toHaveURL(/\/stories\/play-test-video$/);
+    await expect(
+      page.getByRole('heading', { level: 1, name: VIDEO }),
+    ).toBeVisible();
+  });
+
+  test('a playing card’s Close is a real target: the heart steps aside while it plays', async ({
+    page,
+  }) => {
+    // Codex, #117 round 3: the card's heart sat on top of Close and took its clicks.
+    await page.goto(LIST);
+    const video = card(page, VIDEO);
+    const heart = video.locator('[data-heart]');
+    await expect(heart).toBeVisible();
+    await playButton(page, VIDEO).click();
+    const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
+    await expect(frame).toBeVisible();
+    await expect(heart).toBeHidden();
+    // A real click, where a person would tap: no `force`.
+    await video.getByRole('button', { name: 'Close player' }).click();
+    await expect(frame).toHaveCount(0);
+    await expect(heart).toBeVisible();
+  });
+
+  test('starting another card stops the one playing', async ({ page }) => {
+    await page.goto(LIST);
+    await playButton(page, VIDEO).click();
+    await expect(page.locator(`iframe[title="Video: ${VIDEO}"]`)).toBeVisible();
+
+    await playButton(page, AUDIO).click();
+    const audio = page.locator(`iframe[title="Audio: ${AUDIO}"]`);
+    await expect(audio).toBeVisible();
+    expect((await audio.getAttribute('src'))?.startsWith(embed(AUDIO_ID))).toBe(
+      true,
+    );
+    await expect(page.locator('iframe')).toHaveCount(1);
+    await expect(playButton(page, VIDEO)).toBeVisible();
+  });
+
+  test('written cards open the story from anywhere on the card', async ({
+    page,
+  }) => {
+    await page.goto(LIST);
+    const written = card(page, 'Play test: written');
+    // No player: its only button is the heart (favourites.e2e.ts).
+    await expect(written.locator('button:not([data-heart])')).toHaveCount(0);
+    await clickCardAt(
+      written,
+      written.getByText('Placeholder story for the card playback tests.'),
+    );
+    await expect(page).toHaveURL(/\/stories\/play-test-written$/);
+  });
+
+  test('a story that has gone, or an API that is down, shows a calm message and the link still works', async ({
+    page,
+  }) => {
+    await page.goto(LIST);
+    const gone = card(page, 'Play test: a story that has gone');
+    const before = await size(media(gone));
+    await playButton(page, 'Play test: a story that has gone').click();
+    await expect(
+      gone.getByText('This story isn’t available any more.'),
+    ).toBeVisible();
+    await expect(gone.locator('iframe')).toHaveCount(0);
+    expect(await size(media(gone))).toEqual(before);
+
+    const down = card(page, 'Play test: the API is down');
+    await playButton(page, 'Play test: the API is down').click();
+    await expect(
+      down.getByText('The player couldn’t load. Try again in a moment.'),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await down
+      .getByRole('link', { name: 'Play test: the API is down' })
+      .click();
+    await expect(page).toHaveURL(/\/stories\/play-test-down$/);
+  });
+
+  test('a failed request (offline) shows the message, and playing again works', async ({
+    page,
+  }) => {
+    await page.goto(LIST);
+    // Server actions are POSTs to the page: fail the first one.
+    let failed = false;
+    await page.route('**/stories*', (route) => {
+      if (route.request().method() === 'POST' && !failed) {
+        failed = true;
+        return route.abort('internetdisconnected');
+      }
+      return route.continue();
+    });
+    const video = card(page, VIDEO);
+    await playButton(page, VIDEO).click();
+    await expect(
+      video.getByText('The player couldn’t load. Try again in a moment.'),
+    ).toBeVisible();
+    await playButton(page, VIDEO).click();
+    await expect(
+      video.locator(`iframe[title="Video: ${VIDEO}"]`),
+    ).toBeVisible();
+  });
 });
 
 test.describe('keyboard and home', () => {

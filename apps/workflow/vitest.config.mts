@@ -8,5 +8,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.spec.ts'],
+    // No behaviour yet, so no tests; the target stays for when it has some.
+    passWithNoTests: true,
   },
 });

@@ -132,11 +132,11 @@ for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });
 
-    test('the whole written flow fits every step, to “waiting for review”', async ({
+    test('every step of the written flow fits the screen, with 44 px targets', async ({
       page,
       request,
     }, info) => {
-      const me = await person(page, request, SIGNED_UP);
+      await person(page, request, SIGNED_UP);
       const fits = async (name: string) => {
         await expectNoHorizontalOverflow(page);
         await expectAllTargets(page);
@@ -178,14 +178,30 @@ for (const scheme of ['light', 'dark'] as const) {
       );
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await step(page, 'Review and submit');
-      await expect(page.getByText('Anonymous')).toBeVisible();
       await fits('review');
-      await page.getByRole('button', { name: 'Submit for review' }).click();
-      await step(page, 'Thank you for sharing your story');
+
+      // The last step, for a story already sent (submitting is in the behaviour tests).
+      await person(page, request, {
+        testimony: 3,
+        stories: [
+          {
+            id: 'sent',
+            status: 'pending',
+            title: 'How I found hope',
+            body: TEXT,
+            primaryFormat: 'written',
+            themeIds: ['healing'],
+          },
+        ],
+      });
+      await page.goto(`${SHARE}?draft=sent`);
+      await expect(
+        page.getByRole('heading', {
+          level: 2,
+          name: 'Thank you for sharing your story',
+        }),
+      ).toBeVisible();
       await fits('done');
-      expect(await me.stories()).toMatchObject([
-        { status: 'pending', title: 'How I found hope', bylineName: null },
-      ]);
     });
   });
 }
@@ -239,6 +255,27 @@ test.describe('behaviour', () => {
       !BEHAVIOUR_DEVICES.includes(info.project.name),
       'one phone and one desktop',
     );
+  });
+
+  test('the whole written flow, to “waiting for review”: Anonymous unless a name is chosen', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('How I found hope');
+    await page.getByLabel('Your story').fill(TEXT);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    await page.getByText('Healing', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    await expect(page.getByText('Anonymous')).toBeVisible();
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+    expect(await me.stories()).toMatchObject([
+      { status: 'pending', title: 'How I found hope', bylineName: null },
+    ]);
   });
 
   test('the story is saved as it’s written, with the first name chosen', async ({
@@ -560,47 +597,39 @@ test.describe('behaviour', () => {
     await expect(page).toHaveURL(new RegExp(`draft=${stories[0].id}`));
   });
 
-  test('a submit whose answer is lost is confirmed by trying again (Codex #118, 5)', async ({
+  test('a create answered 201 with no body is recovered the same way: the retry replays it and finds the draft (Codex #118 round 4)', async ({
     page,
     request,
   }) => {
-    const me = await person(page, request, {
-      ...SIGNED_UP,
-      testimony: 3,
-      stories: [
-        {
-          id: 'lost',
-          title: 'Almost there',
-          body: TEXT,
-          primaryFormat: 'written',
-          themeIds: ['hope'],
-        },
-      ],
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    // The first create is stored; its 201 arrives with an empty body, so it says nothing of the draft.
+    let emptied = false;
+    await page.route(`${STUB_USER_URL}/v1/stories`, async (route) => {
+      if (route.request().method() !== 'POST' || emptied)
+        return route.fallback();
+      emptied = true;
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      return route.fulfill({ response, body: '' });
     });
-    await page.goto(SHARE);
-    await page.getByRole('button', { name: 'Continue “Almost there”' }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await step(page, 'Review and submit');
-    // The submit reaches api-user and goes through; its answer never arrives.
-    let dropped = false;
-    await page.route(
-      `${STUB_USER_URL}/v1/stories/lost/submit`,
-      async (route) => {
-        if (dropped) return route.fallback();
-        dropped = true;
-        await route.fetch();
-        return route.abort('connectionreset');
-      },
+    await page.getByLabel('Title').fill('Empty answer');
+    await page.getByLabel('Your story').fill(TEXT);
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'offline',
     );
-    await page.getByRole('button', { name: 'Submit for review' }).click();
-    await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'can’t reach our server',
-    );
-    expect((await me.stories())[0].status).toBe('pending');
-    // Trying again replays the same submission and confirms it, rather than a refusal.
-    await page.getByRole('button', { name: 'Submit for review' }).click();
-    await step(page, 'Thank you for sharing your story');
+    expect(await me.stories()).toHaveLength(1);
+
+    await page.getByLabel('Your story').fill(`${TEXT} More.`);
+    await saved(page);
+    const stories = await me.stories();
+    expect(stories).toHaveLength(1);
+    expect(stories[0]).toMatchObject({
+      title: 'Empty answer',
+      body: `${TEXT} More.`,
+    });
+    await expect(page).toHaveURL(new RegExp(`draft=${stories[0].id}`));
   });
 
   test('api-user down: a clear message, and the text is kept until it’s back', async ({

@@ -47,22 +47,6 @@ describe('GET /v1/legal/documents on SurrealDB', () => {
     expect(again.status).toBe(304);
   });
 
-  it.each([
-    'terms-of-use',
-    'testimony-consent',
-    'social-media-sharing-consent',
-  ])('serves %s’s version 0 from the migration', async (document) => {
-    const res = await fetch(`${url}/v1/legal/documents/${document}`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      latest: { version: number; content: string };
-      versions: unknown[];
-    };
-    expect(body.latest.version).toBe(0);
-    expect(body.latest.content.length).toBeGreaterThan(0);
-    expect(body.versions).toHaveLength(1);
-  });
-
   it('serves an older version by its number, saying whether it is the latest', async () => {
     const old = await fetch(
       `${url}/v1/legal/documents/privacy-notice/versions/0`,

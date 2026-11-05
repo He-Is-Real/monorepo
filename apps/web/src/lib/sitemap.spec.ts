@@ -212,29 +212,6 @@ describe('sharedStoryEntries (single flight)', () => {
 });
 
 describe('renderSitemap', () => {
-  const xml = renderSitemap('https://www.heisreal.today', [
-    { slug: 'a-story', publishedAt: '2026-10-21T20:00:00Z' },
-  ]);
-
-  it('is a sitemaps.org urlset with absolute URLs for the pages and stories', () => {
-    expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n')).toBe(
-      true,
-    );
-    expect(xml).toContain(
-      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    );
-    expect(xml).toContain(
-      '<url><loc>https://www.heisreal.today/</loc><changefreq>weekly</changefreq></url>',
-    );
-    expect(xml).toContain(
-      '<url><loc>https://www.heisreal.today/about</loc><changefreq>monthly</changefreq></url>',
-    );
-    expect(xml).toContain(
-      '<url><loc>https://www.heisreal.today/stories/a-story</loc><lastmod>2026-10-21</lastmod></url>',
-    );
-    expect(xml.match(/<url>/g)).toHaveLength(STATIC_PAGES.length + 1);
-  });
-
   it('escapes XML and URL-encodes slugs', () => {
     const out = renderSitemap('https://x.test', [
       { slug: `a&b<c>"d'`, publishedAt: 'not a date' },

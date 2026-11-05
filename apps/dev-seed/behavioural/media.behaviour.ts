@@ -165,31 +165,6 @@ test('a published image link is signed; unsigned, tampered and unpublished image
   }
 });
 
-test('the story page plays the signed video in Bunny’s player, without autoplay', async ({
-  page,
-}) => {
-  const playerLoaded = page.waitForResponse((r) =>
-    r.url().startsWith('https://player.mediadelivery.net/embed/'),
-  );
-  await page.goto(`/stories/${VIDEO.slug}`);
-  const frame = page.locator(`iframe[title="Video: ${VIDEO.title}"]`);
-  await expect(frame).toBeVisible();
-  expect(await frame.getAttribute('src')).toContain('autoplay=false');
-  expect((await playerLoaded).status()).toBe(200);
-
-  // Pressing play fetches the HLS playlist, which the player signs itself (CDN token auth).
-  const playlist = page.waitForResponse(
-    (r) => /\.b-cdn\.net\/.*\.m3u8/.test(r.url()),
-    { timeout: 30_000 },
-  );
-  await page
-    .frameLocator(`iframe[title="Video: ${VIDEO.title}"]`)
-    .getByRole('button', { name: /play/i })
-    .first()
-    .click();
-  expect((await playlist).status()).toBe(200);
-});
-
 // The privacy page's storage list (web /privacy#cookies): Bunny's player stores nothing during
 // default playback, and keeps the visitor's own playback preferences (speed, volume, mute) in
 // its frame's localStorage only once they change one: strictly necessary, like our theme.

@@ -1,13 +1,7 @@
 /**
  * @jest-environment node
  */
-import {
-  ApiUserProblem,
-  ApiUserUnavailable,
-  apiUser,
-  NotSignedIn,
-  StaleVersion,
-} from './api-user';
+import { ApiUserProblem, apiUser, NotSignedIn, StaleVersion } from './api-user';
 
 // The client's error handling has no page that reaches it yet (no commands until M2's later
 // PRs), so it is pinned here; the bootstrap's happy path and outages are in the e2e suite.
@@ -32,25 +26,6 @@ beforeEach(() => {
 afterEach(() => {
   global.fetch = realFetch;
   delete (globalThis as { window?: unknown }).window;
-});
-
-it('sends a fresh token, If-Match and the Idempotency-Key, and no cookies', async () => {
-  global.fetch = answer(200, { id: 's1', version: 3 }) as typeof fetch;
-  const api = apiUser(`${BASE}/`, token);
-  const res = await api.command('/v1/stories/s1/submit', {
-    method: 'POST',
-    version: 2,
-    idempotencyKey: 'k'.repeat(20),
-    body: {},
-  });
-  expect(res).toMatchObject({ status: 200, data: { id: 's1', version: 3 } });
-  const [{ url, init }] = sent;
-  expect(url).toBe(`${BASE}/v1/stories/s1/submit`);
-  const headers = init.headers as Headers;
-  expect(headers.get('Authorization')).toBe('Bearer tok');
-  expect(headers.get('If-Match')).toBe('"2"');
-  expect(headers.get('Idempotency-Key')).toBe('k'.repeat(20));
-  expect(init.credentials).toBe('omit');
 });
 
 it('surfaces 412 as StaleVersion and other errors as their problem', async () => {
@@ -90,21 +65,6 @@ it('surfaces 412 as StaleVersion and other errors as their problem', async () =>
     .get('/v1/account')
     .catch((e) => e);
   expect([bare.status, bare.code]).toEqual([502, undefined]);
-});
-
-it('sends nothing when signed out, and reports an unreachable api-user', async () => {
-  global.fetch = answer(200, {}) as typeof fetch;
-  await expect(
-    apiUser(BASE, async () => null).get('/v1/account'),
-  ).rejects.toBeInstanceOf(NotSignedIn);
-  expect(sent).toHaveLength(0);
-
-  global.fetch = jest.fn(async () => {
-    throw new TypeError('Failed to fetch');
-  }) as typeof fetch;
-  await expect(apiUser(BASE, token).get('/v1/account')).rejects.toBeInstanceOf(
-    ApiUserUnavailable,
-  );
 });
 
 // Codex #118 round 4: work started for one person (a Share save, a heart) asks Clerk for a

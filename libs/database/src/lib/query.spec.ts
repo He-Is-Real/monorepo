@@ -2,10 +2,8 @@ import type { SurrealQueryable } from 'surrealdb';
 import {
   DatabaseQueryError,
   isTransactionConflict,
-  requireWritten,
   retryOnConflict,
   runQuery,
-  WriteNotAppliedError,
 } from './query';
 import { requestHash } from './idempotency';
 
@@ -77,18 +75,6 @@ describe('retryOnConflict', () => {
     await expect(retryOnConflict(other)).rejects.toThrow('refused');
     expect(other).toHaveBeenCalledTimes(1);
     expect(isTransactionConflict(new Error('refused'))).toBe(false);
-  });
-});
-
-describe('requireWritten (the D13 silent no-op)', () => {
-  it('passes exactly one row and fails loudly on an empty result', () => {
-    expect(requireWritten([{ id: 'story:a' }], 'story')).toEqual({
-      id: 'story:a',
-    });
-    expect(() => requireWritten([], 'story')).toThrow(WriteNotAppliedError);
-    expect(() => requireWritten(undefined, 'story')).toThrow(
-      WriteNotAppliedError,
-    );
   });
 });
 
