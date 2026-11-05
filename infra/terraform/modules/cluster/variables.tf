@@ -67,6 +67,16 @@ variable "dev_seed_login" {
   }
 }
 
+variable "dev_database_reset" {
+  description = "Wipes dev's database once and rebuilds it from the schema and data scripts (the migration runner's dev database reset; Joel, 2026-11-05). A short lowercase name; each name runs once. null: none. Only for the heisreal-dev project."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.dev_database_reset == null || lookup(var.surrealdb_expected_settings, "GCP_PROJECT", "") == "heisreal-dev"
+    error_message = "dev_database_reset can only be set in dev (GCP project heisreal-dev)."
+  }
+}
+
 variable "clerk_jwt_public_key" {
   description = "Clerk's RS256 PEM public key (public, not a secret). Empty: the migration removes DEFINE ACCESS clerk, so no person sessions."
   type        = string

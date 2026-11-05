@@ -37,6 +37,16 @@ variable "environment" {
   default     = null
 }
 
+variable "dev_database_reset" {
+  description = "The runner's dev database reset (migrate.py): a short lowercase name; the runner wipes the database and rebuilds it once per name. null: none. Dev only: refused unless environment is \"dev\", and the runner also checks the database says dev."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.dev_database_reset == null || can(regex("^[a-z0-9][a-z0-9-]{0,62}$", var.dev_database_reset))
+    error_message = "dev_database_reset is a short lowercase name (a-z, 0-9, -)."
+  }
+}
+
 variable "extra_system_users" {
   description = "System users besides backup and migrator that SurrealDB's startup init creates (D49: dev_seed, in dev only). The Job waits for exactly these (MIGRATE_EXPECT_USERS)."
   type        = list(string)
@@ -69,6 +79,7 @@ locals {
     clerk_jwt_public_key = var.clerk_jwt_public_key == "" ? null : var.clerk_jwt_public_key
     environment          = var.environment
     identity_hash        = var.identity_hash
+    dev_database_reset   = var.dev_database_reset
   }
 
   bundle = merge(
@@ -133,6 +144,10 @@ output "config_map" {
   precondition {
     condition     = length(local.data_files) == length(distinct([for f in local.data_files : substr(f, 0, 4)]))
     error_message = "Two data scripts share a number."
+  }
+  precondition {
+    condition     = var.dev_database_reset == null || var.environment == "dev"
+    error_message = "dev_database_reset wipes the database: only allowed where environment is \"dev\"."
   }
   precondition {
     condition     = length(jsonencode(local.bundle)) < 900000

@@ -21,7 +21,7 @@ import type { SeedVars } from './plan';
  * next sign-in meets the terms step; a system user may clear a pointer, nobody else may.
  *
  * Wiped: story (and, through its erasure cascade, publicStory and moderationReview), whatever
- * read-model rows or reviews are left, auditLog, idempotencyKey, every theme and every category
+ * read-model rows or reviews are left, idempotencyKey, every theme and every category
  * but Other (which can't be deleted). Kept: people who aren't
  * fixtures (Clerk sign-ins), the legal texts' versions, settings and the migration ledger. Fixture people are `user:seed_*`; ones no longer in the dataset are removed.
  *
@@ -43,7 +43,6 @@ IF $terms = NONE OR $testimony = NONE {
 DELETE story RETURN NONE;
 DELETE publicStory RETURN NONE;
 DELETE moderationReview RETURN NONE;
-DELETE auditLog RETURN NONE;
 DELETE idempotencyKey RETURN NONE;
 DELETE theme RETURN NONE;
 DELETE themeCategory WHERE id != themeCategory:other RETURN NONE;

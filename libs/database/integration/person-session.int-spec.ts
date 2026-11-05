@@ -98,10 +98,10 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       await expect(authenticateWith(token())).rejects.toThrow();
     });
 
-    it('rejects an erased person (gdprDeletedAt set)', async () => {
+    it('rejects an erased person (status deleted)', async () => {
       await run(
         await t.service('api_user'),
-        'UPDATE user:erased SET gdprDeletedAt = time::now(), clerkUserId = NONE',
+        `UPDATE user:erased SET status = 'deleted', clerkUserId = NONE`,
       );
       await expect(authenticateWith(t.token('user_erased'))).rejects.toThrow();
     });
@@ -168,7 +168,6 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       }
       for (const table of [
         'moderationReview',
-        'auditLog',
         'idempotencyKey',
         'service',
       ]) {

@@ -77,12 +77,12 @@ describe('submission settings (api-admin)', () => {
       migrator,
       `SELECT * OMIT id, updatedAt, changedBy, changedByRole FROM ONLY submissionSettings:current`,
     ).then(([r]) => r);
-  const audits = () =>
-    rows<Record<string, unknown>>(
+  /** R3: no audit log; the row keeps who changed it last, and their role. */
+  const changedBy = () =>
+    rows(
       migrator,
-      `SELECT service, actorRole, record::id(actor) AS actor, createdAt FROM auditLog
-       WHERE action = 'UpdateSubmissionSettings' AND actor != NONE ORDER BY createdAt`,
-    ).then((r) => r.map(({ createdAt: _c, ...rest }) => rest));
+      'SELECT record::id(changedBy) AS by, changedByRole FROM ONLY submissionSettings:current',
+    );
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -155,9 +155,7 @@ describe('submission settings (api-admin)', () => {
         `RETURN fn::settings::submission().submissionsPer7Days`,
       ),
     ).toEqual([2]);
-    expect(await audits()).toEqual([
-      { service: 'api-admin', actorRole: 'Admin', actor: 'admin' },
-    ]);
+    expect(await changedBy()).toEqual([{ by: 'admin', changedByRole: 'Admin' }]);
     const again = (await (await read()).json()) as { changedBy: string };
     expect(again.changedBy).toBe('admin');
   });
@@ -196,7 +194,6 @@ describe('submission settings (api-admin)', () => {
     const bare = await save({ ...DEFAULTS, themesMax: 6 }, null);
     expect(bare.status).toBe(428);
     expect(await stored()).toEqual(before);
-    expect(await audits()).toHaveLength(1);
   });
 
   it('two admins saving the same version at once: one is saved, the other gets 412', async () => {

@@ -169,7 +169,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     );
     expect(error(await newDraft(dan, 'dan_8'))).toMatch(/limit_open_drafts:/);
 
-    // The person sees their own limits; every change is audited with the admin's name.
+    // The person sees their own limits; the row names the admin who changed it last.
     expect(
       await rows(dan, 'RETURN fn::limits::effective($auth)'),
     ).toMatchObject([
@@ -180,18 +180,12 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
         uploadRequestsPerHour: 10,
       },
     ]);
-    const audit = await rows<{ actor: string; service: string }>(
-      migrator,
-      `SELECT actor, service, createdAt FROM auditLog
-         WHERE entity = user:dan AND action = 'UpdateSubmitterLimits' ORDER BY createdAt`,
-    );
-    expect(audit).toHaveLength(3);
     expect(
-      audit.every((a) => a.actor === 'user:admin' && a.service === 'api-admin'),
-    ).toBe(true);
+      await rows(migrator, 'SELECT VALUE changedBy FROM submitterLimits:dan'),
+    ).toEqual(['user:admin']);
   });
 
-  it('an admin’s settings change the limits for everyone, audited with the admin’s name', async () => {
+  it('an admin’s settings change the limits for everyone, naming the admin', async () => {
     const fay = await person('fay');
     try {
       await settings({ openDraftsMax: 1, submissionsPer7Days: 2 });
@@ -207,10 +201,9 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
       expect(
         await rows(
           migrator,
-          `SELECT VALUE actor FROM auditLog WHERE entity = submissionSettings:current
-             AND action = 'UpdateSubmissionSettings' AND actor != NONE`,
+          'SELECT VALUE changedBy FROM submissionSettings:current',
         ),
-      ).toContain('user:admin');
+      ).toEqual(['user:admin']);
     } finally {
       await settings({ openDraftsMax: 3, submissionsPer7Days: 1 });
     }
@@ -321,7 +314,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     ).toEqual([true]);
   });
 
-  it('an admin resets someone’s limits with an audited update; only erasure deletes the row (Codex #118, 7)', async () => {
+  it('an admin resets someone’s limits with an update naming them; only erasure deletes the row (Codex #118, 7)', async () => {
     await person('ned');
     await limits('ned', { trusted: true, openDraftsMax: 9 });
     // api-admin can't delete it: the reset would leave no trace.
@@ -340,9 +333,9 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     expect(
       await rows(
         migrator,
-        `SELECT VALUE actor FROM auditLog WHERE entity = user:ned AND action = 'UpdateSubmitterLimits'`,
+        'SELECT VALUE changedBy FROM submitterLimits:ned',
       ),
-    ).toEqual(['user:admin', 'user:admin']);
+    ).toEqual(['user:admin']);
   });
 
   it('dev-seed’s test-account mark is refused outside dev (D112)', async () => {

@@ -149,8 +149,8 @@ export function processed(
 }
 
 /**
- * ApproveStory as api-admin will run it (D25/D26): story, read model, review and audit row in
- * one transaction.
+ * ApproveStory as api-admin will run it (D25/D26): story, read model and review in one
+ * transaction.
  */
 export async function approve(admin: SurrealQueryable, id: string) {
   await run(
@@ -168,10 +168,6 @@ export async function approve(admin: SurrealQueryable, id: string) {
      };
      CREATE moderationReview CONTENT {
        story: $s.id, moderator: user:moderator, decision: 'approve', storyVersion: $s.version
-     };
-     CREATE auditLog CONTENT {
-       service: 'api-admin', action: 'ApproveStory', actor: user:moderator, actorRole: 'Moderator',
-       entity: $s.id, storyVersion: $s.version, fromStatus: 'pending', toStatus: 'approved'
      };
      COMMIT TRANSACTION;`,
     { id },

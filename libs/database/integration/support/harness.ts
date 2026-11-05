@@ -49,6 +49,8 @@ export interface MigrationParams {
   identity_hash: string | null;
   /** The environment OpenTofu migrates ('dev', ...); null = not given. */
   environment: string | null;
+  /** The dev database reset's name (dev only; migrate.py); absent or null = none. */
+  dev_database_reset?: string | null;
 }
 
 export interface MigrationSummary {
@@ -59,6 +61,8 @@ export interface MigrationSummary {
   /** The fencing token this run took from the database */
   token: number;
   bundle: string;
+  /** The dev database reset this run carried out, if any */
+  reset: string | null;
 }
 
 export interface MigrationRun {
@@ -543,10 +547,12 @@ export async function publishVersion(
   table: LegalTable,
   content = `Stand-in ${table} text.`,
 ): Promise<number> {
+  // R3: a version names the admin who published it (api-admin's publish sets it).
   const created = await rows<{ id: string }>(
     await t.service('api_admin'),
     `LET $n = (math::max(SELECT VALUE record::id(id) FROM type::table($table)) ?? -1) + 1;
-     CREATE type::record($table, $n) CONTENT { content: $content } RETURN VALUE record::id(id);`,
+     CREATE type::record($table, $n) CONTENT { content: $content, publishedBy: user:legal_admin }
+       RETURN VALUE record::id(id);`,
     { table, content },
   );
   const n = created.at(-1) as unknown;

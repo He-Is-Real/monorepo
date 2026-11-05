@@ -53,7 +53,7 @@ const CURRENT_SQL = `
 
 /**
  * SaveThemes in one transaction (A1, A2): the version still the one the page loaded, then the
- * difference, then the version + 1 naming the admin (themeCatalog_audit writes the audit row).
+ * difference, then the version + 1 naming the admin (themeCatalog_check refuses a save without one).
  * Deleting a theme takes it off every story (theme_delete); deleting a category moves any theme
  * still in it to Other (themeCategory_delete), both in this same transaction.
  */
@@ -196,7 +196,7 @@ export class ThemesController {
     const user = await this.people.run(req, async ({ user }) => user);
     let results: unknown[];
     try {
-      // A deleted theme's fence (themeFence) conflicts with a story adding it at the same
+      // A deleted theme's fence (fence:theme-<id>) conflicts with a story adding it at the same
       // moment; the retry sees that story and takes the theme off it. Another admin's save at
       // the same moment fails the version check on the retry instead.
       results = (await retryOnConflict(() =>

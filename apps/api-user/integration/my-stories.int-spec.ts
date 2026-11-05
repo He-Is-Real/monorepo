@@ -195,7 +195,7 @@ describe('my stories: withdraw and delete', () => {
     // Bob hearts it.
     await run(
       await t.person('user_bob'),
-      `CREATE favourite CONTENT { person: $auth, story: type::record('story', $id) }`,
+      `CREATE favourite:ulid() CONTENT { person: $auth, story: type::record('story', $id) }`,
       { id },
     );
     const live = await versionOf(id);

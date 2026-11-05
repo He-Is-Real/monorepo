@@ -98,7 +98,7 @@ export function requireWritten<T>(result: unknown, what: string): T {
 }
 
 /**
- * The hard ceilings on a story (schema.surql `story.body`, `story.themeRefs`). The limits themselves
+ * The hard ceilings on a story (schema-04-stories.surql: `story.body`, `story.themeRefs`). The limits themselves
  * are settings an admin adjusts (W3: `submissionSettings`, read with `SUBMISSION_SETTINGS_SQL`).
  */
 export const STORY_CEILINGS = {
@@ -168,7 +168,7 @@ export function storyLimitOf(
   return undefined;
 }
 
-/** D94's limits on what a person starts (schema.surql, story_limits). */
+/** D94's limits on what a person starts (schema-04-stories.surql, story_limits). */
 export type SubmissionLimit = 'open_drafts' | 'weekly_submission';
 
 /**
@@ -183,7 +183,7 @@ export function submissionLimitOf(err: unknown): SubmissionLimit | undefined {
   return undefined;
 }
 
-/** The upload limits the database refused a grant for (schema.surql, uploadGrant_attach; D113). */
+/** The upload limits the database refused a grant for (schema-04-stories.surql, uploadGrant_attach; D113). */
 export type UploadLimit = 'size' | 'duration' | 'hourly' | 'weekly';
 
 /**

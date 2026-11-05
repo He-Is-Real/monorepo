@@ -125,11 +125,12 @@ them afterwards (disks can be grown by editing the PVC).
 
 ## Schema migrations (D14)
 
-`libs/database/schema` is the bundle: `schema.surql` (declarative, applied in full every time),
+`libs/database/schema` is the bundle: the `schema-NN-area.surql` files (declarative, one per
+area, applied in full every time, in name order, as one step),
 `access-clerk.surql`, numbered `data/NNNN-*.surql` scripts (each runs once) and the runner, `migrate.py` (its header has the details). On GKE the `cluster` root ships it as
 the ConfigMap `surrealdb-migration-<hash>` and runs the Job `surrealdb-migrate-<hash>` as
 `migrator`. The hash covers every file, the OpenTofu parameters (Clerk key, environment, identity
-config) and the Job spec: change any of them and the next apply replaces the Job, which runs;
+config, the dev database reset) and the Job spec: change any of them and the next apply replaces the Job, which runs;
 change nothing and there's no diff. The Job doesn't retry on its own (`backoffLimit: 0`); inside a run, the
 runner retries a step whose COMMIT the server refused with a retryable conflict (up to 3 attempts).
 
@@ -149,8 +150,10 @@ What a run does, in order (validate first, then change):
 3. **Checks, read-only:** every file follows the grammar (below); no step was left unfinished
    (`_migrationPending`); no applied data script has changed (sha256 in `_migration`); no pending
    script needs a parameter OpenTofu passed as null. An applied script that left the bundle
-   (0002; 0001, 0003, 0005 and 0007 with plan 4e) only logs a warning.
-4. **Schema:** `schema.surql`, the Clerk access and the settings row (`_setting:current`: the
+   (0002; 0001, 0003, 0005 and 0007 with plan 4e; 0004 and 0008 with database review 2) only
+   logs a warning. (Dev only: the dev database reset runs between the pending-row check and the
+   script checks; see below.)
+4. **Schema:** the schema files, the Clerk access and the settings row (`_setting:current`: the
    environment's name), one step.
 5. **Data scripts:** each new one, one step each, recorded in `_migration`.
 
@@ -194,7 +197,7 @@ included) only printable ASCII, TAB, CR and LF are allowed; backtick and `⟨⟩
 contain backslashes or line breaks. Non-ASCII text (e.g. `’`) is fine inside `'…'`/`"…"` strings.
 
 Each allowed form and each refused word is tested on 3.2.4 at the top level, in an `IF` and in a
-`FOR` (`libs/database/integration`, "allow-list"). `schema.surql` and `access-clerk.surql` are DDL
+`FOR` (`libs/database/integration`, "allow-list"). The schema files and `access-clerk.surql` are DDL
 only (`DEFINE`/`REMOVE`), with `RETURN`/`BREAK`/`CONTINUE` only inside a `DEFINE` (tested:
 function, event, field and param bodies can't end or skip the caller's transaction), and no
 `BEGIN`/`COMMIT`/`CANCEL` or `OPTION` statement. Also avoid `FOR $x IN (SELECT …)` and bare record
@@ -204,6 +207,23 @@ paths like `table:id.field` inside `IF` (both fail on 3.2.4; `LET` the value fir
 mistakes in them, not against a hostile author. The acknowledgement makes the guarantee
 independent of the scanner for every early exit that ends the transaction; `BREAK` and
 `CONTINUE`, which only skip within a block, are covered by the token ban.
+
+**Dev database reset (dev only; Joel, 2026-11-05).** Before production, dev holds test data
+only, so a change that would need data moved (database review 2: the audit log, the fences, the
+hearts' ids, edited draft legal texts) can instead wipe dev's database and rebuild it. The dev
+root sets `dev_database_reset` (a name, e.g. `"db-review-2"`) on `modules/cluster`, which passes
+it to the runner's `params.json`. OpenTofu refuses it for any project but `heisreal-dev`
+(`modules/cluster`) and any environment but `dev` (`modules/db-migration`). The runner then
+refuses it unless the environment parameter is `dev` and the database's own
+`_setting:current.environment` says `dev` (a new, empty database just records the name). In one
+step, it removes every table except the runner's bookkeeping (`_migrationRun`,
+`_migrationPending`, `_migrationReset`), `_identity` and `service` (the service logins), and
+every function, analyzer and param, and records the name in `_migrationReset`; the schema and
+every data script then run as on a new database. The name is recorded, so the next runs (and
+the next applies) leave the database alone; a later wipe needs a new name. The dev pipeline
+re-seeds afterwards (the "Dev behavioural tests" workflow runs dev-seed after the apply). Files
+at Bunny and in picture storage that no longer belong to a story are left to the nightly
+clean-up. Leaving the old name in place is harmless; remove it in a later PR if you like.
 
 **Order: migrate, then deploy.** The schema must accept both the running and the new service
 code; a breaking change is split over two releases.

@@ -17,8 +17,7 @@ import {
  * and of two requests racing with one key exactly one commits (the other conflicts, looks the
  * key up again and replays, or gets `422` if its body differs).
  *
- * Keys are kept until pruned (24 h, `expiresAt`, by the nightly job; not built yet) and replay
- * until then.
+ * Keys replay until `expiresAt` (24 h); the nightly housekeeping Job deletes them after that (R4).
  */
 export type IdempotencyService = 'api-user' | 'api-admin';
 

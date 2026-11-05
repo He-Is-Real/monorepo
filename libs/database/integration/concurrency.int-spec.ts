@@ -13,7 +13,7 @@ import { draft, ERASE } from './support/world';
 /**
  * Review round 2, P1-A. A transaction reads a snapshot, so its permission and agreement checks can
  * pass while another transaction commits the opposite (erasure). Every write
- * that depends on or changes a person's state also writes that person's `personFence` record, so
+ * that depends on or changes a person's state also writes that person's fence record (`fence:person-<id>`, R5), so
  * of two overlapping transactions the SECOND TO COMMIT fails with a retryable conflict.
  *
  * Each test interleaves two sessions deterministically: A begins and writes (uncommitted), B runs
@@ -85,8 +85,8 @@ describe('concurrent transactions are fenced per person', () => {
       await truth('SELECT * FROM story WHERE submitter = user:bob'),
     ).toEqual([]);
     expect(
-      await truth('SELECT VALUE gdprDeletedAt != NONE FROM user:bob'),
-    ).toEqual([true]);
+      await truth('SELECT VALUE status FROM user:bob'),
+    ).toEqual(['deleted']);
   });
 
   it('erasure that overlaps a story create fails instead, and its retry erases the story', async () => {
@@ -151,11 +151,8 @@ describe('concurrent transactions are fenced per person', () => {
     const [stub] = await truth<Record<string, unknown>>(
       'SELECT * FROM ONLY user:cy',
     );
-    expect(Object.keys(stub ?? {}).sort()).toEqual([
-      'createdAt',
-      'gdprDeletedAt',
-      'id',
-    ]);
+    expect(Object.keys(stub ?? {}).sort()).toEqual(['createdAt', 'id', 'status']);
+    expect(stub?.['status']).toBe('deleted');
   });
 
   it('erasure that overlaps an agreement fails instead, and its retry clears it', async () => {
@@ -179,11 +176,8 @@ describe('concurrent transactions are fenced per person', () => {
     const [stub] = await truth<Record<string, unknown>>(
       'SELECT * FROM ONLY user:cid',
     );
-    expect(Object.keys(stub ?? {}).sort()).toEqual([
-      'createdAt',
-      'gdprDeletedAt',
-      'id',
-    ]);
+    expect(Object.keys(stub ?? {}).sort()).toEqual(['createdAt', 'id', 'status']);
+    expect(stub?.['status']).toBe('deleted');
   });
 
   it('a story’s sharing consent ticked in a transaction that overlaps erasure never lands', async () => {
@@ -220,17 +214,17 @@ describe('concurrent transactions are fenced per person', () => {
       workflow,
       await t.service('api_public_read'),
     ];
-    const before = await truth('SELECT * FROM personFence:ula');
+    const before = await truth(`SELECT * FROM type::record('fence', 'person-ula')`);
     for (const db of sessions) {
-      expect(await rows(db, 'SELECT * FROM personFence')).toEqual([]);
-      expect(await rows(db, 'UPDATE personFence:ula SET n = 0')).toEqual([]);
-      expect(await rows(db, 'CREATE personFence:ghost SET n = 1')).toEqual([]);
-      expect(await rows(db, 'DELETE personFence:ula RETURN BEFORE')).toEqual(
+      expect(await rows(db, 'SELECT * FROM fence')).toEqual([]);
+      expect(await rows(db, `UPDATE type::record('fence', 'person-ula') SET n = 0`)).toEqual([]);
+      expect(await rows(db, `CREATE type::record('fence', 'person-ghost') SET n = 1`)).toEqual([]);
+      expect(await rows(db, `DELETE type::record('fence', 'person-ula') RETURN BEFORE`)).toEqual(
         [],
       );
     }
-    expect(await truth('SELECT * FROM personFence:ula')).toEqual(before);
-    expect(await truth('SELECT * FROM personFence:ghost')).toEqual([]);
+    expect(await truth(`SELECT * FROM type::record('fence', 'person-ula')`)).toEqual(before);
+    expect(await truth(`SELECT * FROM type::record('fence', 'person-ghost')`)).toEqual([]);
     expect(
       Object.keys((before as Record<string, unknown>[])[0]).sort(),
     ).toEqual(['id', 'n']);

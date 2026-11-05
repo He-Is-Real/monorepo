@@ -57,8 +57,6 @@ code does what it does today; nobody should build on either reading.
 12. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
     form, a verified email before the first story, and virus scanning of uploads. None of these
     is in a later decision or built. Are they still planned, and for which milestone?
-13. **How long the audit log is kept.** It is undecided ("likely 7 years"); deleting old records
-    is parked until after production.
 
 ## Accounts and sign-in
 
@@ -127,12 +125,15 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   The time recorded is the database's.
 - **Admins and Super Admins publish new versions** at the consent admin page: a text box, the
   changes against the current version, a preview, then confirm. A saved version is in force at
-  once.
+  once, and records which admin published it.
 - **Withdrawing:** deleting the account withdraws everything; withdrawing or deleting a story
   withdraws it for that story. There is no other withdrawal.
 - Version 0 of each text is a draft written from how the system works today ("Draft, to be
   reviewed before go-live"). Everyone who had an account when plan 4e arrived on dev was recorded
-  as agreeing to version 0 of the terms of use and the testimony consent.
+  as agreeing to version 0 of the terms of use and the testimony consent. The testimony consent
+  and the privacy notice say who sees a story before it is public: while it's a draft, the person
+  and a small number of super admins (for support and safety); while it's waiting for review, the
+  person and our moderators. (Joel, 2026-11-05; the super admins' view itself is still to come.)
 - **Cookies:** the site uses only essential cookies and storage (sign-in, the light or dark
   choice, the video player's own settings), so there is no cookie banner, only a footer note
   linking to the privacy notice. Anything non-essential later (analytics, error replay) needs the
@@ -222,15 +223,16 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **Delete my account** is the one account-wide withdrawal. The page says what goes and what
   stays and asks the person to type "delete". It deletes their stories, videos, pictures, hearts,
   limits and records, deletes them at Clerk (which signs them out everywhere), and keeps a
-  fingerprint of their sign-in so it can't create a new account. Deleting the person in Clerk's
-  dashboard does the same. (D82, D88, O4)
+  fingerprint of their sign-in so it can't create a new account. What's left of the account is
+  marked deleted, with no date and no reason. Deleting the person in Clerk's dashboard does the
+  same. (D82, D88, O4)
 - **Download my data** gives one file of everything we hold about the person, explained in plain
   words: their stories in every status, moderators' decisions on them (never who made them), what
   they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
   audio and pictures come as links that last one hour today. Decided (Joel, 2026-10-31) and being
   built: Bunny keeps the original upload, and the file's links let the person watch and download
-  the original for 7 days. The file says what it leaves out (the
-  internal audit log, who moderated, Clerk's sessions and devices, anyone else's data). If Clerk
+  the original for 7 days. The file says what it leaves out (who moderated, Clerk's sessions
+  and devices, anyone else's data). If Clerk
   can't answer, there is no file rather than a partial one.
 
 ## Favourites
@@ -245,6 +247,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - Seeing or removing your hearts never needs an agreement.
 - Planned: a story's owner sees how many hearts each of their stories has, never who gave them.
 - My favourites shows the newest heart first, laid out like browse, and loads more on its own.
+- A heart's time is the moment it was made, taken from its id; nobody can set it by hand.
+  (Joel, 2026-11-05)
 - Deleting the account deletes the person's hearts; deleting a story deletes the hearts on it.
 
 ## Browse and themes
@@ -322,7 +326,8 @@ Planned (M3):
 
 - **Limits** (Admin and above): the submission limits in plain words with their units; Save
   lists the changes and asks to confirm. If another admin saved meanwhile, the page asks to
-  reload. Every change is recorded with the admin's name and role.
+  reload. The settings keep the name and role of the admin who changed them last; there is no
+  history of changes (Joel, 2026-11-05: no audit log).
 - **Themes**: categories and themes on one page (drag on desktop, tap or keyboard on phones),
   delete confirmed by typing "delete <name>", and one Save for the whole picture. Deleting a theme
   removes it from every story. If someone else saved meanwhile, the page asks to reload.
@@ -343,12 +348,15 @@ Planned (M3):
   nightly clean-up. It deletes at most 50 of each kind a night. It started in "report only" mode
   and switches to real deletions after a night whose report looks right (on dev it still only
   reports).
-- **Deleting an account** removes everything about the person, except internal records that
-  hold only ids and the fingerprint that stops the same sign-in coming back. Their files at Bunny
+- **Deleting an account** removes everything about the person, except an empty account record
+  marked deleted (no date, no reason) and the fingerprint that stops the same sign-in coming
+  back. There is no audit log (Joel, 2026-11-05). Their files at Bunny
   and their Clerk account go straight after; anything that fails is retried. (D39, D40, D82)
 - The record of what a person submitted in the last 7 days (for the weekly limit) is kept 7 days
   and deleted with the account. Upload records stay when a story is deleted, so the upload limits
   still count them.
+- **Request keys** (which stop a resent request being applied twice) are deleted by the nightly
+  clean-up once they expire, 24 hours after the request. (Joel, 2026-11-05)
 - Backups are nightly, in the UK, and age out; they aren't edited after a deletion.
 - Our services' logs are stored in London for 30 days. (D101)
 - **Where data lives:** in the UK wherever possible (London), declared in our infrastructure
@@ -390,7 +398,10 @@ For developers. Details are in the linked documents.
   `If-Match` on every changeable record, RFC 9457 errors, no totals. The OpenAPI specs in
   `libs/contracts` are the source of truth. (D23, D28–D30; [api-conventions.md](api-conventions.md))
 - **Database:** self-hosted SurrealDB, a single node in production too, on private GKE; nightly
-  backups. Schema changes run as a migration Job. (D9, D14; `infra/k8s/surrealdb/README.md`)
+  backups. Schema changes run as a migration Job; the schema is one file per area. Before
+  production, dev's database may be wiped and rebuilt from scratch through that Job instead of
+  migrating its test data (a one-off switch in OpenTofu's dev settings that nothing else can
+  use). (D9, D14; Joel, 2026-11-05; `infra/k8s/surrealdb/README.md`)
 - **Temporary patched SurrealDB:** v3.2.4 built with the upstream fix so it accepts Clerk's
   tokens, until an official release has it. (D111; `infra/k8s/surrealdb/README.md`)
 - **Infrastructure:** OpenTofu for every cloud change, encrypted state, one approval per apply;

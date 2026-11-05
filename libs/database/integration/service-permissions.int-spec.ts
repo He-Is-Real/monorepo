@@ -8,7 +8,7 @@ import {
   SERVICES,
   TestDatabase,
 } from './support/harness';
-import { buildWorld } from './support/world';
+import { buildWorld, grantImage } from './support/world';
 
 /**
  * D13 B: each service signs in as its own `service` record through DEFINE ACCESS svc, and
@@ -110,13 +110,6 @@ describe('service identities (D13 B)', () => {
 
     it('never learns who published a legal text: a version is its text and date only', async () => {
       const version = await publishVersion(t, 'privacyNotice', 'Version one');
-      // api-admin's publish writes this audit row in the same transaction (PublishLegalVersion).
-      await run(
-        svc.admin,
-        `CREATE auditLog CONTENT { service: 'api-admin', action: 'PublishLegalVersion',
-           actor: user:moderator, actorRole: 'Admin', entity: type::record('privacyNotice', $version) }`,
-        { version },
-      );
       const read = await rows<Record<string, unknown>>(
         svc.publicRead,
         `SELECT * FROM privacyNotice ORDER BY id`,
@@ -129,21 +122,26 @@ describe('service identities (D13 B)', () => {
       expect(
         await rows(
           svc.publicRead,
-          `SELECT * FROM auditLog WHERE action = 'PublishLegalVersion'`,
+          `SELECT VALUE publishedBy FROM type::record('privacyNotice', $version)`,
+          { version },
         ),
-      ).toEqual([]);
-      expect(
-        await truth(
-          `SELECT VALUE actor FROM auditLog WHERE action = 'PublishLegalVersion'`,
-        ),
-      ).toEqual(['user:moderator']);
+      ).toEqual([undefined]);
+      // R3: api-admin (and the migrator) see who published it.
+      for (const db of [svc.admin, migrator]) {
+        expect(
+          await rows(
+            db,
+            `SELECT VALUE publishedBy FROM type::record('privacyNotice', $version)`,
+            { version },
+          ),
+        ).toEqual(['user:legal_admin']);
+      }
     });
 
     it.each([
       'story',
       'user',
       'moderationReview',
-      'auditLog',
       'idempotencyKey',
       '_migration',
       '_migrationRun',
@@ -229,7 +227,7 @@ describe('service identities (D13 B)', () => {
         'user:moderator',
       ]);
       // Rebinding is refused by the user_clerk_binding event (D37: api_user may only clear it,
-      // once, at erasure, in the same update that sets gdprDeletedAt).
+      // once, at erasure, in the same update that sets the status to deleted).
       expect(
         await outcome(db, `UPDATE user:ann SET clerkUserId = 'user_attacker'`),
       ).toEqual({
@@ -243,35 +241,21 @@ describe('service identities (D13 B)', () => {
         error: expect.stringContaining('clerkUserId can only be'),
       });
       expect(
-        await outcome(db, 'UPDATE user:ann SET gdprDeletedAt = time::now()'),
+        await outcome(db, `UPDATE user:ann SET status = 'deleted'`),
       ).toEqual({
         ok: false,
         // Erasure is one command: the Clerk id and the agreements go with it (fn::account::erase).
         error: expect.stringMatching(/without a clerkUserId|agreement_kept/),
       });
       expect(
-        await truth('SELECT clerkUserId, gdprDeletedAt FROM user:ann'),
-      ).toEqual([{ clerkUserId: 'user_ann' }]);
+        await truth('SELECT clerkUserId, status FROM user:ann'),
+      ).toEqual([{ clerkUserId: 'user_ann', status: 'active' }]);
       expect(await rows(db, 'DELETE user:bob RETURN BEFORE')).toEqual([]);
       expect(await truth('SELECT id FROM user:bob')).toHaveLength(1);
     });
 
-    it('can create but not read audit rows; owns idempotency keys; cannot moderate', async () => {
+    it('owns idempotency keys; cannot moderate', async () => {
       const db = svc.apiUser;
-      // GOTCHA: an ALLOWED create on a table the caller can't select also returns an empty
-      // result. Here the row was written; only the migrator's view shows it.
-      expect(
-        await rows(
-          db,
-          `CREATE auditLog CONTENT { service: 'api-user', action: 'CreateDraftStory', entity: story:ann_draft }`,
-        ),
-      ).toEqual([]);
-      expect(
-        await truth(
-          `SELECT VALUE action FROM auditLog WHERE service = 'api-user'`,
-        ),
-      ).toEqual(['CreateDraftStory']);
-      expect(await rows(db, 'SELECT * FROM auditLog')).toEqual([]);
       expect(
         await rows(
           db,
@@ -298,7 +282,7 @@ describe('service identities (D13 B)', () => {
   });
 
   describe('api_admin', () => {
-    it('reads every story, reviews and the audit log', async () => {
+    it('reads every story and review', async () => {
       const db = svc.admin;
       expect(await ids(db, 'SELECT id FROM story')).toEqual([
         'story:ann_draft',
@@ -308,9 +292,35 @@ describe('service identities (D13 B)', () => {
         'story:bob_pending',
       ]);
       expect(await rows(db, 'SELECT * FROM moderationReview')).toHaveLength(1);
-      expect((await rows(db, 'SELECT * FROM auditLog')).length).toBeGreaterThan(
-        0,
+    });
+
+    // R7 (Joel, 2026-11-04): erasure runs on api-user's login, so api-admin deletes none of these.
+    it('cannot delete upload grants, submission log rows or reviews', async () => {
+      const [version] = await truth<number>(
+        'SELECT VALUE version FROM ONLY story:ann_draft',
       );
+      expect(
+        await grantImage(svc.apiUser, {
+          story: 'ann_draft',
+          person: 'ann',
+          version: version as number,
+        }),
+      ).toMatchObject({ ok: true });
+      await run(migrator, 'CREATE submissionLog:r7 CONTENT { person: user:ann }');
+      const before = await truth<string[]>(
+        'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM moderationReview)]',
+      );
+      expect(before.map((ids) => ids.length > 0)).toEqual([true, true, true]);
+      for (const table of ['uploadGrant', 'submissionLog', 'moderationReview']) {
+        expect(
+          await rows(svc.admin, `DELETE ${table} RETURN BEFORE`),
+        ).toEqual([]);
+      }
+      expect(
+        await truth(
+          'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM moderationReview)]',
+        ),
+      ).toEqual(before);
     });
 
     it('moderates: request changes on a pending story', async () => {
@@ -385,20 +395,8 @@ describe('service identities (D13 B)', () => {
       expect(await truth('SELECT id FROM story:bob_draft')).toHaveLength(1);
     });
 
-    it('writes audit rows but cannot read them; cannot see reviews', async () => {
+    it('cannot see reviews', async () => {
       const db = svc.workflow;
-      expect(
-        await rows(
-          db,
-          `CREATE auditLog CONTENT { service: 'workflow', action: 'ProcessMedia' }`,
-        ),
-      ).toEqual([]); // written, but not readable back (see the api_user audit test)
-      expect(
-        await truth(
-          `SELECT VALUE action FROM auditLog WHERE service = 'workflow'`,
-        ),
-      ).toEqual(['ProcessMedia']);
-      expect(await rows(db, 'SELECT * FROM auditLog')).toEqual([]);
       expect(await rows(db, 'SELECT * FROM moderationReview')).toEqual([]);
     });
   });

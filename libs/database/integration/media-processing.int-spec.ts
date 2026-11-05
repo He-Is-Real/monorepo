@@ -509,8 +509,8 @@ describe('approval waits for media processing (A2)', () => {
    * Joel, 2026-10-23: "a story should not revert after once it has approval". When an approved
    * story's media stops being ready, it stays `approved` but is hidden: the same write deletes
    * its publicStory row. When the same media is ready again (Bunny re-encodes it), the same
-   * write publishes it again, with no new approval. auditLog records both;
-   * fn::story::hidden_by_media lists what's hidden.
+   * write publishes it again, with no new approval. fn::story::hidden_by_media lists what's
+   * hidden.
    */
   describe('an approved story is hidden while its media is not ready', () => {
     const live = async (make: () => Promise<string>) => {
@@ -521,22 +521,6 @@ describe('approval waits for media processing (A2)', () => {
       expect(await published(id)).toEqual([`publicStory:${id}`]);
       return id;
     };
-    const history = async (id: string) =>
-      (
-        await truth(
-          `SELECT service, action, actor, fromStatus, toStatus, reason, createdAt
-         FROM auditLog WHERE entity = type::record('story', $id)
-           AND action IN ['HideStory', 'RepublishStory'] ORDER BY createdAt ASC`,
-          { id },
-        )
-      ).map(({ createdAt: _at, ...entry }) => entry);
-    const entry = (action: string, service = 'workflow') => ({
-      service,
-      action,
-      fromStatus: 'approved',
-      toStatus: 'approved',
-      reason: action === 'HideStory' ? 'media_unavailable' : 'media_restored',
-    });
     const hidden = async () =>
       (
         await rows<{ id: unknown }>(
@@ -617,7 +601,6 @@ describe('approval waits for media processing (A2)', () => {
         const before = await publicRow(id);
         expect(await update(id, set, workflow)).toMatchObject({ ok: true });
         await expectHidden(id);
-        expect(await history(id)).toEqual([entry('HideStory')]);
 
         // Bunny re-encodes the same media; processing records it ready again. No admin action.
         if (fix) await update(id, fix, workflow);
@@ -634,10 +617,6 @@ describe('approval waits for media processing (A2)', () => {
         expect(after['durationSeconds']).toEqual(
           (await story(id)).media[0]?.['durationSeconds'],
         );
-        expect(await history(id)).toEqual([
-          entry('HideStory'),
-          entry('RepublishStory'),
-        ]);
       },
     );
 
@@ -666,18 +645,13 @@ describe('approval waits for media processing (A2)', () => {
       await expectHidden(id);
       await update(id, `media[0].processing = 'ready'`, migrator);
       await expectLive(id);
-      expect(await history(id)).toEqual([
-        entry('HideStory', 'migrator'),
-        entry('RepublishStory', 'migrator'),
-      ]);
     });
 
-    it('stays hidden while still not ready, with one history entry', async () => {
+    it('stays hidden while still not ready', async () => {
       const id = await live(video);
       await update(id, `media[0].processing = 'processing'`, workflow);
       await update(id, `media[0].processing = 'failed'`, workflow);
       await expectHidden(id);
-      expect(await history(id)).toEqual([entry('HideStory')]);
       const [row] = (await hidden()).filter(
         (r) => String(r['id']) === `story:${id}`,
       );
@@ -738,7 +712,6 @@ describe('approval waits for media processing (A2)', () => {
       );
       expect(row).toMatchObject({ mediaChanged: true });
       expect(row['problem']).toBeUndefined();
-      expect(await history(id)).toEqual([entry('HideStory')]);
     });
 
     it.each<[string, string[]]>([
@@ -838,10 +811,6 @@ describe('approval waits for media processing (A2)', () => {
         await processed(workflow, id);
         await expectLive(id);
         expect(await publicThumbnail(id)).toEqual(['vid/thumbnail_2.jpg']);
-        expect(await history(id)).toEqual([
-          entry('HideStory'),
-          entry('RepublishStory'),
-        ]);
       },
     );
 
@@ -854,13 +823,8 @@ describe('approval waits for media processing (A2)', () => {
       );
       await expectLive(id);
       expect(await publicThumbnail(id)).toEqual(['vid/thumbnail_3.jpg']);
-      expect(await history(id)).toEqual([]);
     });
 
-    const changedEntry = {
-      ...entry('HideStory'),
-      reason: 'media_changed',
-    };
 
     it.each<[string, () => Promise<string>, string, SurrealQueryable | null]>([
       [
@@ -896,12 +860,6 @@ describe('approval waits for media processing (A2)', () => {
         );
         expect(row).toMatchObject({ mediaChanged: true });
         expect(row['problem']).toBeUndefined();
-        expect(await history(id)).toEqual([
-          {
-            ...changedEntry,
-            service: writer === workflow ? 'workflow' : 'migrator',
-          },
-        ]);
         // Processing again doesn't bring it back: it isn't what was reviewed.
         await processed(workflow, id);
         await expectHidden(id);
@@ -1029,10 +987,6 @@ describe('approval waits for media processing (A2)', () => {
       // B fails later: hidden again, nothing failed stays public.
       await update(id, `media[0].processing = 'failed'`, workflow);
       await expectHidden(id);
-      expect(await history(id)).toEqual([
-        entry('HideStory'),
-        entry('HideStory'),
-      ]);
     });
 
     it('a hide marker left behind never stops a hide, and any publication clears it', async () => {
@@ -1081,7 +1035,6 @@ describe('approval waits for media processing (A2)', () => {
         const id = await live(video);
         expect(await update(id, set, workflow)).toMatchObject({ ok: true });
         await expectLive(id);
-        expect(await history(id)).toEqual([]);
       },
     );
 

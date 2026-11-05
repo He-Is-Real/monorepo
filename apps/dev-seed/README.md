@@ -11,8 +11,8 @@ One transaction, all or nothing (`src/app/seed.ts`):
 
 1. Checks `_setting:current`: environment `dev` (and that the terms of use and the testimony
    consent exist, which the migration seeds everywhere).
-2. Wipes the content: `story` (and with it `publicStory` and `moderationReview`), `auditLog`,
-   `idempotencyKey`, every theme and category but Other, and fixture people (`user:seed_*`) no longer in the dataset.
+2. Wipes the content: `story` (and with it `publicStory` and `moderationReview`), `idempotencyKey`,
+   every theme and category but Other, and fixture people (`user:seed_*`) no longer in the dataset.
 3. Loads the dataset (`src/app/dataset`): 8 fixture people without Clerk accounts, the theme
    categories (Topics, Journeys, Feelings) and their themes, and 26 stories. Each story is created as a draft and walked to its final state the way
    the services will (submit, pick up, decide), so versions, `submittedAt`, locks, feedback and

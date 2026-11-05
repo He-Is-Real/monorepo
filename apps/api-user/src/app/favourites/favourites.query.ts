@@ -6,8 +6,8 @@ export type FavouritesQuery =
   | {
       kind: 'page';
       limit: number;
-      /** The last heart of the previous page: its time as SurrealDB wrote it, and its id. */
-      after: { at: string; id: string } | null;
+      /** The last heart of the previous page: its id (R14: a ULID, so it holds its time). */
+      after: string | null;
     }
   /** "Which of these are my favourites?": the ids of a page of cards (D83). */
   | { kind: 'among'; storyIds: string[] };
@@ -19,8 +19,8 @@ export const MAX_STORY_IDS = 50;
 export const RECORD_ID = /^[A-Za-z0-9_]{1,64}$/;
 const KNOWN = new Set(['storyId', 'limit', 'cursor']);
 const CURSOR_MAX_CHARS = 200;
-// SurrealDB's own datetime text: UTC, up to nanoseconds.
-const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+// A heart's id (R14): a ULID.
+const ULID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 
 const invalid = (errors: FieldError[]) =>
   new ProblemException(
@@ -113,17 +113,16 @@ export function parseFavouritesQuery(
 }
 
 /**
- * The cursor for the page after the heart made at `at` (as SurrealDB wrote it) with id `id`.
- * Not signed: it holds only a position in the person's own list, which the database reads in
- * their own session, so a changed cursor can only start their own list somewhere else.
+ * The cursor for the page after the heart with id `id` (R14: hearts are listed newest first by
+ * their ULID ids). Not signed: it holds only a position in the person's own list, which the
+ * database reads in their own session, so a changed cursor can only start their own list
+ * somewhere else. Version 2: a version 1 cursor (time and id) is refused, so the page starts again.
  */
-export function encodeCursor(at: string, id: string): string {
-  return Buffer.from(JSON.stringify({ v: 1, k: [at, id] })).toString(
-    'base64url',
-  );
+export function encodeCursor(id: string): string {
+  return Buffer.from(JSON.stringify({ v: 2, k: [id] })).toString('base64url');
 }
 
-function decodeCursor(cursor: string): { at: string; id: string } {
+function decodeCursor(cursor: string): string {
   if (cursor.length > CURSOR_MAX_CHARS || !/^[A-Za-z0-9_-]+$/.test(cursor))
     throw invalidCursor();
   let decoded: unknown;
@@ -137,32 +136,12 @@ function decodeCursor(cursor: string): { at: string; id: string } {
     !c ||
     typeof c !== 'object' ||
     Object.keys(c).length !== 2 ||
-    c.v !== 1 ||
+    c.v !== 2 ||
     !Array.isArray(c.k) ||
-    c.k.length !== 2
+    c.k.length !== 1
   )
     throw invalidCursor();
-  const [at, id] = c.k as unknown[];
-  if (
-    typeof at !== 'string' ||
-    !isDateTime(at) ||
-    typeof id !== 'string' ||
-    !RECORD_ID.test(id)
-  )
-    throw invalidCursor();
-  return { at, id };
-}
-
-/**
- * A real UTC date and time at SurrealDB's precision. The database casts it, so anything it would
- * refuse (31 February, 24:00) must be a `400` here, never a `500` there.
- */
-function isDateTime(text: string): boolean {
-  if (!DATETIME.test(text)) return false;
-  const parsed = new Date(text);
-  return (
-    !Number.isNaN(parsed.getTime()) &&
-    parsed.getUTCFullYear() >= 1970 &&
-    parsed.toISOString().slice(0, 19) === text.slice(0, 19)
-  );
+  const [id] = c.k as unknown[];
+  if (typeof id !== 'string' || !ULID.test(id)) throw invalidCursor();
+  return id;
 }

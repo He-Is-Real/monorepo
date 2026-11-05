@@ -24,8 +24,8 @@ LET $stories = SELECT id, slug, status, title, description, body, bylineName, pr
   FROM story WHERE submitter = $auth ORDER BY createdAt DESC, id DESC;
 LET $mine = $stories.map(|$s| $s.id);
 LET $public = $stories.map(|$s| type::record('publicStory', record::id($s.id)));
-LET $hearts = SELECT id, record::id(story) AS story, createdAt FROM favourite
-  WHERE person = $auth ORDER BY createdAt DESC, id DESC;
+LET $hearts = SELECT id, record::id(story) AS story, time::from_ulid(record::id(id)) AS createdAt
+  FROM favourite WHERE person = $auth ORDER BY id DESC;
 LET $hearted = $hearts.map(|$h| type::record('publicStory', $h.story));
 RETURN {
   user: (SELECT record::id(id) AS id, createdAt,
@@ -176,7 +176,6 @@ const SECTIONS = {
 const NOT_INCLUDED = [
   'The files of your videos and audio. We never keep the file you uploaded once it is ready to play, and our servers never carry your media: use each item’s link to watch or listen to it, or ask us for help to get a copy.',
   'Who moderated your stories. You get every decision and the feedback to you, not the moderator’s name or id.',
-  'Our audit log: a record, by ids only and without any of your words, of things done to your account and stories (for example, a story approved or taken off the site). We keep it for six years as a record of what we did. Ask us if you want it.',
   'Your sign-in sessions and devices, which Clerk keeps. You can see and end them under Manage account.',
   'Anyone else’s data, including the words of the stories you hearted.',
 ] as const;

@@ -117,6 +117,13 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 - The public API answers a repeated request from memory for up to 60 seconds, so busy pages ask
   the database far less; a withdrawn or hidden story can show for up to a minute (database
   review 2, Joel's decision R13; [#181](https://github.com/He-Is-Real/monorepo/pull/181)).
+- **Database tidy before production** (database review 2, part A; Joel, 2026-11-05): the audit
+  log goes (each legal text version records who published it instead), an erased account is just
+  marked "deleted", the three write-fence tables become one, expired request keys are deleted
+  nightly, admins can't delete upload, submission or review records, a heart's time comes from
+  its id so it can't be backdated, the draft legal texts say super admins can see drafts, and the
+  schema is split into one file per area. Dev's database is wiped once and rebuilt from scratch
+  with its dummy data when this is applied. Part B (one story table and its history) follows.
 
 **Left in the M2 plan:**
 

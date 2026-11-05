@@ -1,8 +1,3 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { RecordId, type Surreal, type SurrealTransaction } from 'surrealdb';
 import {
   createPeople,
@@ -10,8 +5,6 @@ import {
   outcome,
   rows,
   run,
-  type MigrationParams,
-  sha256,
   TestDatabase,
 } from './support/harness';
 import { buildWorld, draft, submit } from './support/world';
@@ -19,8 +12,7 @@ import { buildWorld, draft, submit } from './support/world';
 /**
  * Themes plan v3 (Joel, 2026-10-31), where the database is the behaviour: admin-managed
  * categories with one fixed Other, deleting a theme takes it off every story, deleting a
- * category moves its themes to Other, the number of themes is checked at submission only, and
- * data/0008 turns the old tags into themes.
+ * category moves its themes to Other, the number of themes is checked at submission only.
  */
 const theme = (id: string) => new RecordId('theme', id);
 const error = (o: Awaited<ReturnType<typeof outcome>>) =>
@@ -268,23 +260,23 @@ describe('themes and their categories', () => {
       );
       expect(await commit(deleting)).toBe('committed');
 
-      const fence = await rows(migrator, 'SELECT * FROM themeFence:bystander');
+      const fence = await rows(migrator, `SELECT * FROM type::record('fence', 'theme-bystander')`);
       expect(fence).toHaveLength(1);
       for (const db of [fay, admin, await t.service('api_user')]) {
-        expect(await rows(db, 'SELECT * FROM themeFence')).toEqual([]);
-        expect(await rows(db, 'UPDATE themeFence:bystander SET n = 0')).toEqual(
+        expect(await rows(db, 'SELECT * FROM fence')).toEqual([]);
+        expect(await rows(db, `UPDATE type::record('fence', 'theme-bystander') SET n = 0`)).toEqual(
           [],
         );
-        expect(await rows(db, 'CREATE themeFence:ghost SET n = 1')).toEqual([]);
+        expect(await rows(db, `CREATE type::record('fence', 'theme-ghost') SET n = 1`)).toEqual([]);
       }
       expect(
-        await rows(migrator, 'SELECT * FROM themeFence:bystander'),
+        await rows(migrator, `SELECT * FROM type::record('fence', 'theme-bystander')`),
       ).toEqual(fence);
-      expect(await rows(migrator, 'SELECT * FROM themeFence:ghost')).toEqual(
+      expect(await rows(migrator, `SELECT * FROM type::record('fence', 'theme-ghost')`)).toEqual(
         [],
       );
       // A deleted theme leaves no fence behind.
-      expect(await rows(migrator, 'SELECT * FROM themeFence:race1')).toEqual(
+      expect(await rows(migrator, `SELECT * FROM type::record('fence', 'theme-race1')`)).toEqual(
         [],
       );
     });
@@ -338,7 +330,7 @@ describe('themes and their categories', () => {
     ).not.toBe('(accepted)');
   });
 
-  it('the themes’ version goes up with each save, which names the admin and is audited', async () => {
+  it('the themes’ version goes up with each save, which names the admin', async () => {
     const save = (changedBy?: string) =>
       outcome(
         admin,
@@ -352,164 +344,12 @@ describe('themes and their categories', () => {
         await rows(migrator, 'SELECT VALUE version FROM themeCatalog:current'),
       ).toEqual([version]);
     }
+    // R3: no audit log; the row keeps who saved last.
     expect(
       await rows(
         migrator,
-        `SELECT VALUE action FROM auditLog WHERE entity = themeCatalog:current`,
+        'SELECT changedBy, changedByRole FROM ONLY themeCatalog:current',
       ),
-    ).toEqual(['SaveThemes', 'SaveThemes']);
-  });
-});
-
-/** main before themes v3: tags in three fixed groups. */
-const BEFORE_THEMES = '0280b456dd0c414365c52e5feb1522ef74ae878e';
-
-describe('data/0008: tags become themes (a database migrated before themes v3)', () => {
-  let t: TestDatabase;
-  let previous: string;
-  /**
-   * What OpenTofu passed that release: its DPA hashes (the test's v1 stand-in and the dev seed's
-   * file, libs/legal then) and its walking-skeleton story. This release takes neither.
-   */
-  const previousParams = (dir: string) =>
-    t.params({
-      seed_dev_story: true,
-      dpa_sha256: {
-        v1: sha256('dpa v1 placeholder'),
-        dev_seed: sha256(
-          readFileSync(join(dir, 'libs/legal/dpa/dev_seed.md'), 'utf8'),
-        ),
-      },
-    } as Partial<MigrationParams>);
-  beforeAll(async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'before-themes-'));
-    const repo = join(__dirname, '../../..');
-    const archive = execFileSync(
-      'git',
-      [
-        'archive',
-        '--format=tar',
-        BEFORE_THEMES,
-        'libs/database/schema',
-        'libs/legal/dpa',
-      ],
-      { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
-    );
-    execFileSync('tar', ['-x', '-C', dir], { input: archive });
-    previous = join(dir, 'libs/database/schema');
-    t = await TestDatabase.create({ migrate: false });
-    // That release, with its walking-skeleton story (data/0003) published, tags and limits.
-    await t.migrate(previousParams(dir), {
-      bundleDir: previous,
-      runner: join(previous, 'migrate.py'),
-    });
-    await run(
-      await t.migrator(),
-      `CREATE tag:hope SET name = 'Hope', category = 'theme';
-       CREATE tag:loss SET name = 'Loss', category = 'theme';
-       CREATE tag:doubt SET name = 'Doubt', category = 'journey';
-       CREATE tag:fear SET name = 'Fear', category = 'emotion';
-       UPDATE story:dev_seed SET tagRefs = [tag:hope, tag:doubt];
-       UPDATE publicStory:dev_seed SET tagRefs = [tag:hope, tag:doubt];
-       UPDATE submissionSettings:current SET tagsMin = 2, tagsMax = 4;
-       -- Like dev, where dev-seed's new image made Other before this script ran.
-       CREATE themeCategory:other SET name = 'Other';`,
-    );
-    // Like dev's row, written by data/0006 before the upload limits were defined: it has none.
-    await run(
-      await t.migrator(),
-      `REMOVE FIELD uploadsPer7Days ON submissionSettings;
-       REMOVE FIELD uploadRequestsPerHour ON submissionSettings;
-       REMOVE FIELD videoMaxBytes ON submissionSettings;
-       REMOVE FIELD audioMaxBytes ON submissionSettings;
-       REMOVE FIELD mediaMaxSeconds ON submissionSettings;
-       UPDATE submissionSettings:current SET uploadsPer7Days = NONE, uploadRequestsPerHour = NONE,
-         videoMaxBytes = NONE, audioMaxBytes = NONE, mediaMaxSeconds = NONE;`,
-    );
-  });
-  afterAll(async () => {
-    await t?.close();
-    if (previous) await rm(join(previous, '../../..'), { recursive: true });
-  });
-
-  it('copies each group to a category and each tag to a theme with a new id, relinking stories', async () => {
-    const summary = await t.migrate();
-    expect(summary.applied).toEqual(['0008-themes', '0009-consent-4e']);
-    const migrator = await t.migrator();
-    const themes = await rows<{
-      id: string;
-      name: string;
-      category: string;
-      highlighted: boolean;
-    }>(
-      migrator,
-      `SELECT record::id(id) AS id, name, category.name AS category, highlighted
-         FROM theme ORDER BY name`,
-    );
-    expect(
-      themes.map(({ name, category, highlighted }) => ({
-        name,
-        category,
-        highlighted,
-      })),
-    ).toEqual([
-      { name: 'Doubt', category: 'Journeys', highlighted: false },
-      { name: 'Fear', category: 'Feelings', highlighted: false },
-      { name: 'Hope', category: 'Topics', highlighted: true },
-      { name: 'Loss', category: 'Topics', highlighted: true },
-    ]);
-    for (const { id } of themes) expect(id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
-    expect(
-      await rows(
-        migrator,
-        'SELECT VALUE name FROM themeCategory ORDER BY name',
-      ),
-    ).toEqual(['Feelings', 'Journeys', 'Other', 'Topics']);
-
-    const byName = Object.fromEntries(themes.map((th) => [th.name, th.id]));
-    const [story] = await rows(
-      migrator,
-      `SELECT themeRefs.map(|$t| record::id($t)) AS themes, tagRefs FROM ONLY story:dev_seed`,
-    );
-    expect(story).toEqual({ themes: [byName['Hope'], byName['Doubt']] });
-    const [published] = await rows(
-      migrator,
-      'SELECT themeIds, tagRefs, tagSlugs FROM ONLY publicStory:dev_seed',
-    );
-    expect(published).toEqual({ themeIds: [byName['Hope'], byName['Doubt']] });
-
-    expect(await rows(migrator, 'SELECT * FROM tag')).toEqual([]);
-    expect(
-      await rows(
-        migrator,
-        'SELECT themesMin, themesMax, tagsMin, tagsMax FROM ONLY submissionSettings:current',
-      ),
-    ).toEqual([{ themesMin: 2, themesMax: 4 }]);
-    // The upload limits it lacked get their defaults (dev's first run failed without them).
-    expect(
-      await rows(
-        migrator,
-        `SELECT uploadsPer7Days, uploadRequestsPerHour, videoMaxBytes, audioMaxBytes, mediaMaxSeconds
-           FROM ONLY submissionSettings:current`,
-      ),
-    ).toEqual([
-      {
-        uploadsPer7Days: 5,
-        uploadRequestsPerHour: 10,
-        videoMaxBytes: 4294967296,
-        audioMaxBytes: 524288000,
-        mediaMaxSeconds: 900,
-      },
-    ]);
-  });
-
-  it('a second run changes nothing', async () => {
-    expect((await t.migrate()).applied).toEqual([]);
-    expect(
-      await rows(
-        await t.migrator(),
-        'SELECT VALUE name FROM theme ORDER BY name',
-      ),
-    ).toEqual(['Doubt', 'Fear', 'Hope', 'Loss']);
+    ).toEqual([{ changedBy: 'user:moderator', changedByRole: 'Admin' }]);
   });
 });

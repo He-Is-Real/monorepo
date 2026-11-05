@@ -2113,9 +2113,10 @@ components:
         createdAt:
           type: string
           format: date-time
-        gdprDeletedAt:
-          type: [string, 'null']
-          format: date-time
+        status:
+          type: string
+          enum: [active, deleted]
+          description: '`deleted` once the person has been erased (only a stub row is left).'
 
     Health:
       type: object

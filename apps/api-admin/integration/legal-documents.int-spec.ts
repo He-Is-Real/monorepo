@@ -122,20 +122,13 @@ describe('legal texts (api-admin)', () => {
     expect(after.data.map((v: { version: number }) => v.version)).toEqual([
       1, 0,
     ]);
-    expect(
-      await rows(
+    // R3: the version names the admin who published it (no audit row).
+    const publishedBy = () =>
+      rows(
         migrator,
-        `SELECT service, actorRole, record::id(actor) AS actor, <string> entity AS entity
-           FROM auditLog WHERE action = 'PublishLegalVersion'`,
-      ),
-    ).toEqual([
-      {
-        service: 'api-admin',
-        actorRole: 'Admin',
-        actor: 'admin',
-        entity: 'testimonyConsent:1',
-      },
-    ]);
+        'SELECT VALUE record::id(publishedBy) FROM testimonyConsent WHERE record::id(id) > 0 ORDER BY id',
+      );
+    expect(await publishedBy()).toEqual(['admin']);
 
     // A Super Admin may too.
     const next = await save(
@@ -144,22 +137,16 @@ describe('legal texts (api-admin)', () => {
     );
     expect(next.status).toBe(201);
     expect(await versions()).toEqual([0, 1, 2]);
+    expect(await publishedBy()).toEqual(['admin', 'superadmin']);
   });
 
   it('refuses a number that isn’t the next one (another admin saved meanwhile) with 409, writing nothing', async () => {
-    const audits = () =>
-      rows(
-        migrator,
-        `SELECT VALUE id FROM auditLog WHERE action = 'PublishLegalVersion'`,
-      );
-    const before = (await audits()).length;
     for (const version of [2, 1, 4]) {
       const res = await save({ version, content: 'A stale edit.' });
       expect(res.status, String(version)).toBe(409);
       expect(await res.json()).toMatchObject({ code: 'document_changed' });
     }
     expect(await versions()).toEqual([0, 1, 2]);
-    expect(await audits()).toHaveLength(before);
   });
 
   it('is for Admin and Super Admin only', async () => {

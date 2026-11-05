@@ -51,11 +51,13 @@ brackets).
 
 - **Commands** (`api-user`, `api-admin`): one handler per intent (`SubmitStory`, `ApproveStory`,
   …). It validates, enforces the aggregate's rules, and writes in **one transaction that also
-  updates every read model the change affects**, plus `auditLog` where relevant.
+  updates every read model the change affects**. There is no audit log (Joel, 2026-11-05): a
+  changeable setting names who changed it last (`changedBy`), and a legal text version who
+  published it (`publishedBy`).
 - **Queries**: query handlers with no side effects.
 - A person sees their own change immediately: the client re-queries, and the read model is already
   current. There is no eventual consistency to handle in `web`.
-- No event store or event sourcing. `auditLog` is the append-only log.
+- No event store or event sourcing.
 - Test every command against the read models it updates.
 
 ## Read models (D26)

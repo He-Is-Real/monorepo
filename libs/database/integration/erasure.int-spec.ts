@@ -169,16 +169,11 @@ describe('erasure on api_user’s service login', () => {
         ok: false,
         error: expect.stringContaining('clerkUserId can only be'),
       });
-      // gdprDeletedAt is immutable once set (its VALUE keeps $before): un-erasing or
-      // re-dating is ignored, and the stored date stays.
-      const [before] = await truth('SELECT VALUE gdprDeletedAt FROM user:ann');
-      await run(db, 'UPDATE user:ann SET gdprDeletedAt = NONE');
-      await run(
-        db,
-        `UPDATE user:ann SET gdprDeletedAt = d'2015-01-01T00:00:00Z'`,
-      );
-      expect(await truth('SELECT VALUE gdprDeletedAt FROM user:ann')).toEqual([
-        before,
+      // A deleted status is final (its VALUE keeps 'deleted'): un-erasing is ignored.
+      await run(db, `UPDATE user:ann SET status = 'active'`);
+      await run(db, 'UPDATE user:ann SET status = NONE');
+      expect(await truth('SELECT VALUE status FROM user:ann')).toEqual([
+        'deleted',
       ]);
     }
     expect(
@@ -195,38 +190,12 @@ describe('erasure on api_user’s service login', () => {
     const [user] = await truth<Record<string, unknown>>(
       'SELECT * FROM user:ann',
     );
-    expect(Object.keys(user ?? {}).sort()).toEqual([
-      'createdAt',
-      'gdprDeletedAt',
-      'id',
-    ]);
-    expect(user['gdprDeletedAt']).toEqual(expect.any(String));
-  });
-
-  it('keeps audit rows (ids only, no testimony text)', async () => {
-    expect(
-      await truth(
-        `SELECT action, entity, createdAt FROM auditLog
-           WHERE entity = user:ann OR entity = story:ann_live ORDER BY createdAt`,
-      ),
-    ).toEqual([
-      // buildWorld makes Ann a trusted submitter (D94).
-      {
-        action: 'UpdateSubmitterLimits',
-        entity: 'user:ann',
-        createdAt: expect.any(String),
-      },
-      {
-        action: 'ApproveStory',
-        entity: 'story:ann_live',
-        createdAt: expect.any(String),
-      },
-      {
-        action: 'EraseAccount',
-        entity: 'user:ann',
-        createdAt: expect.any(String),
-      },
-    ]);
+    // R3 (Joel, 2026-11-05): the stub is just a status, with no date and no reason.
+    expect(user).toEqual({
+      id: 'user:ann',
+      createdAt: expect.any(String),
+      status: 'deleted',
+    });
   });
 
   it('locks the person out: their Clerk token no longer opens a session', async () => {
@@ -235,7 +204,7 @@ describe('erasure on api_user’s service login', () => {
 
   it('is a no-op the second time (D39: the webhook after an in-app deletion)', async () => {
     const before = await truth(
-      'RETURN [(SELECT * FROM auditLog), (SELECT * FROM pendingDeletion), (SELECT * FROM erasedIdentity)]',
+      'RETURN [(SELECT * FROM pendingDeletion), (SELECT * FROM erasedIdentity)]',
     );
     await run(apiUser, ERASE, {
       clerkUserId: 'user_ann',
@@ -243,7 +212,7 @@ describe('erasure on api_user’s service login', () => {
     });
     expect(
       await truth(
-        'RETURN [(SELECT * FROM auditLog), (SELECT * FROM pendingDeletion), (SELECT * FROM erasedIdentity)]',
+        'RETURN [(SELECT * FROM pendingDeletion), (SELECT * FROM erasedIdentity)]',
       ),
     ).toEqual(before);
   });
@@ -283,7 +252,7 @@ describe('erasure on api_user’s service login', () => {
   it('blocks writes from a session opened BEFORE erasure (the webhook race)', async () => {
     // Bob's request authenticates, then the user.deleted webhook erases him, then the request
     // writes, or agrees to newer terms. $auth is a record id, so
-    // `$auth.gdprDeletedAt` reads the user row as it is now, not a sign-in snapshot.
+    // `$auth.status` reads the user row as it is now, not a sign-in snapshot.
     const bob = await t.person('user_bob');
     expect(await rows(bob, 'RETURN $auth')).toEqual(['user:bob']);
     await run(apiUser, ERASE, {
@@ -316,51 +285,5 @@ describe('erasure on api_user’s service login', () => {
       'RETURN [0, 1, 2, 7, 8, 30].map(|$n| duration::hours(fn::erasure::retry_after($n)))',
     );
     expect(waits).toEqual([1, 2, 4, 128, 168, 168]);
-  });
-
-  describe('audit rows are typed, with nowhere to put testimony text (D38)', () => {
-    it.each([
-      ['a payload object', `payload: { body: 'Text of the testimony' }`],
-      ['any other unknown field', `note: 'Text of the testimony'`],
-    ])('refuses %s (SCHEMAFULL rejects unknown fields)', async (_, extra) => {
-      expect(
-        await outcome(
-          apiUser,
-          `CREATE auditLog:typed CONTENT { service: 'api-user', action: 'EditStory',
-             entity: story:bob_draft, storyVersion: 3, ${extra} }`,
-        ),
-      ).toEqual({
-        ok: false,
-        error: expect.stringContaining('no such field exists'),
-      });
-      expect(await truth('SELECT * FROM auditLog:typed')).toEqual([]);
-    });
-
-    it.each([
-      ['a free-text action', `action: 'Approved: "Jesus met me in prison"'`],
-      [
-        'a free-text reason',
-        `action: 'EraseAccount', reason: 'She told me about her faith'`,
-      ],
-      [
-        'an unknown status',
-        `action: 'SubmitStory', toStatus: 'published by moderator'`,
-      ],
-      ['an unknown role', `action: 'AssignRole', role: 'Pastor'`],
-    ])('refuses %s', async (_, fields) => {
-      expect(
-        (
-          await outcome(
-            apiUser,
-            `CREATE auditLog CONTENT { service: 'api-user', ${fields} }`,
-          )
-        ).ok,
-      ).toBe(false);
-    });
-
-    it('holds no testimony text anywhere', async () => {
-      const all = JSON.stringify(await truth('SELECT * FROM auditLog'));
-      expect(all).not.toMatch(/Text of|testimony|faith|prison/);
-    });
   });
 });

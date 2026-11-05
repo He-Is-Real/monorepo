@@ -1,323 +1,7 @@
--- schema.surql: declarative schema v1 (draft, 2026-10-18)
--- Applied in full, in one transaction, on every migration by the migrator Job (D14; runner:
--- infra/k8s/surrealdb/base/migrate.py). Every statement is OVERWRITE, so re-running is safe.
--- Declarative means: what's here is defined; nothing is removed by deleting it from this
--- file (write an explicit REMOVE ... IF EXISTS). Data changes go in data/NNNN-*.surql (run once,
--- recorded in _migration). DEFINE ACCESS clerk is in access-clerk.surql (applied only when
--- Terraform has Clerk's key). No top-level RETURN: inside the transaction it would end it early.
--- CI applies this file to SurrealDB 3.2.4 on every PR, so any syntax below that 3.2.4 rejects
--- is caught before merge.
--- 3.2.4 gotchas found in testing (2026-10-18/19), each covered by a test in ../integration:
---   * a correlated subquery with ORDER BY ... LIMIT 1 returns wrong rows; use array::last(... ORDER BY ASC)
---   * inside a subquery, a COMPUTED field's $parent is the OUTER query's record, not its own
---     (`SELECT (SELECT consent FROM story ...) FROM user` saw the user): computed fields refer to
---     their own record's fields directly (`submitter`), never through $parent
---   * a write the PERMISSIONS deny returns an empty result, not an error; so does an ALLOWED
---     write on a table the caller can't SELECT (e.g. api_user creating auditLog rows)
---   * for a `service` session, `$auth.id` is NONE in queries (the service table is PERMISSIONS
---     NONE) but resolves inside PERMISSIONS clauses; in queries use `$auth` itself
---   * EVENTS RUN WITH ELEVATED PRIVILEGES: an event fired by a person's write could write a
---     PERMISSIONS NONE table. Events are trusted code; they must only write what they intend
---   * transactions read a SNAPSHOT: a permission/consent/erasure check can pass while another
---     transaction commits the opposite. Only write-write conflicts abort (the second commit
---     fails, "Transaction conflict ... can be retried"); hence personFence below
---   * $auth IS usable in a field VALUE (the 2026-10-18 draft said otherwise; tested 2026-10-20):
---     user.gdprDeletedAt uses it to let only the migrator supply a historical date
---   * DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (... READONLY)
---   * inside a function a caller's bound variable shadows a DEFINE PARAM (2026-10-23), so no
---     switch a caller mustn't control lives in a param (D48 uses the _setting row)
---   * array<object> items store undefined keys (media[0].junk), unlike nested objects
---     (image.junk is refused), and REMOVE FIELD keeps stored values: fn::story::shape_problem
---     checks media keys, data/0004 checks rows written earlier
---   * an element index over record links (`themeRefs.*`, `themeRefs[*]`) makes `CONTAINS` return no
---     rows; over strings it works (2026-10-24): publicStory.themeIds
---   * a query inside a closure (`$list.filter(|$x| ...)`) iterates the whole table, never an
---     index (Codex, #67): /v1/themes sends its probes as top-level statements
---   * a field VALUE also runs for a nested SET (`SET media[0].x = ...`), with $value the whole
---     new field and $before the old one (2026-10-23): media/image VALUE use it to reset
---     `processing` (A2)
-
--- ---------------------------------------------------------------- bookkeeping
--- One row per data script, written by the runner in the script's own transaction (so a failed
--- script leaves no row). checksum = sha256 of the file: an applied script that changes later
--- fails the migration (write a new script instead).
-DEFINE TABLE OVERWRITE _migration SCHEMAFULL PERMISSIONS NONE; -- id = _migration:`0001-seed-dpa-v1`
-DEFINE FIELD OVERWRITE appliedAt ON _migration TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE FIELD OVERWRITE checksum  ON _migration TYPE string ASSERT string::len($value) = 64 READONLY;
--- Fencing token (migrate.py): each run takes the next token; every mutating step checks it is
--- still the newest and writes this row, so a run that started later always wins.
-DEFINE TABLE OVERWRITE _migrationRun SCHEMAFULL PERMISSIONS NONE;     -- id = _migrationRun:lock
-DEFINE FIELD OVERWRITE token     ON _migrationRun TYPE int;
-DEFINE FIELD OVERWRITE bundle    ON _migrationRun TYPE string;          -- sha256 of files + parameters
-DEFINE FIELD OVERWRITE takenAt   ON _migrationRun TYPE datetime;
-DEFINE FIELD OVERWRITE touchedAt ON _migrationRun TYPE option<datetime>;
--- A step in progress: committed before the step, deleted as the step's last write. A row left
--- behind means the step may have committed partly: migrations stop until an operator clears it.
-DEFINE TABLE OVERWRITE _migrationPending SCHEMAFULL PERMISSIONS NONE; -- id = the step
-DEFINE FIELD OVERWRITE token     ON _migrationPending TYPE int;
-DEFINE FIELD OVERWRITE startedAt ON _migrationPending TYPE datetime;
--- _identity:current is written by SurrealDB's startup init (init.surql.tmpl), last in its
--- transaction: the identity config the running server started with. _identity:verified is
--- written by the identity-check sidecar once it has signed in with the intended credentials;
--- the migrate Job waits for it. Same definition as in the init.
-DEFINE TABLE OVERWRITE _identity SCHEMAFULL PERMISSIONS NONE;     -- id = _identity:current
-DEFINE FIELD OVERWRITE hash      ON _identity TYPE string;
-DEFINE FIELD OVERWRITE appliedAt ON _identity TYPE datetime;
-
--- Settings from OpenTofu's parameters, written by the runner in the settings step of every
--- migration (migrate.py, SETTINGS). Everyone may read them (functions run with the caller's
--- permissions); only system users write. A row, not DEFINE PARAM: inside a function a caller's
--- bound variable shadows a defined param (3.2.4, tested), so a person could set their own.
--- _setting:current.environment: which environment this database belongs to ('dev', ...), read by
--- dev-seed's guard and submitterLimits.devSeed. Plan 4e removed the dev consent switches (D48's
--- devConsentRelaxed, D75's devLegalPlaceholders) and the old _setting:consent row (data/0009).
-DEFINE TABLE OVERWRITE _setting SCHEMAFULL PERMISSIONS
-  FOR select FULL,
-  FOR create, update, delete NONE;
-DEFINE FIELD OVERWRITE environment       ON _setting TYPE option<string>;  -- e.g. 'dev'
-REMOVE EVENT IF EXISTS _setting_dev_only ON _setting;
-REMOVE EVENT IF EXISTS _setting_dev_legal_only ON _setting;
-REMOVE EVENT IF EXISTS _setting_reconcile ON _setting;
-REMOVE FIELD IF EXISTS devConsentRelaxed ON _setting;
-REMOVE FIELD IF EXISTS devLegalPlaceholders ON _setting;
-
--- ---------------------------------------------------------------- identities (D13 B, D27 B)
--- Services sign in as `service` records: service:api_public_read, :api_user, :api_admin,
--- :workflow, :housekeeping (the nightly Cloud Run Job, apps/housekeeping). SurrealDB's startup init writes their argon2 secret hashes from the Secret Manager
--- passwords (infra/k8s/surrealdb/base/init.surql.tmpl); the migrator never sees them. People
--- reach SurrealDB only through api-user, in a session opened with their own Clerk token
--- (DEFINE ACCESS clerk, access-clerk.surql). In-cluster system users remain: migrator (OWNER,
--- schema + seeds) and backup (VIEWER, nightly export); the startup init removes any other.
-DEFINE TABLE OVERWRITE service SCHEMAFULL PERMISSIONS NONE;
-DEFINE FIELD OVERWRITE secretHash ON service TYPE string;
--- Re-defining svc generates a new signing key (no KEY given: a fixed one would be a secret).
--- Open WebSocket sessions carry on; tokens issued before stop working, and surrealdb.js signs
--- in again with its credentials. So a migration logs out HTTP-token clients, nothing else.
-DEFINE ACCESS OVERWRITE svc ON DATABASE TYPE RECORD
-  SIGNIN (SELECT * FROM service WHERE id = type::record('service', $name)
-          AND crypto::argon2::compare(secretHash, $secret))
-  DURATION FOR TOKEN 15m, FOR SESSION 12h;
-
--- ---------------------------------------------------------------- user (D16, D1, D22)
--- Only a reference to the Clerk user. Email, name and country live in Clerk (D16);
--- roles live in Clerk (D1). A legacy person (D22) has no Clerk account yet: NONE, linked
--- by an admin if they sign up later.
-DEFINE TABLE OVERWRITE user SCHEMAFULL PERMISSIONS
-  FOR select WHERE id = $auth.id OR $auth.id IN [service:api_user, service:api_admin, service:workflow],
-  FOR create WHERE $auth.id = service:api_user,                       -- created on first use
-  FOR update WHERE $auth.id IN [service:api_user, service:api_admin]  -- erasure (gdprDeletedAt)
-    -- plan 4e: the person's own session agrees to the terms of use and the testimony consent
-    -- (user_agreements: those four fields only)
-    OR (id = $auth.id AND $auth.gdprDeletedAt = NONE),
-  FOR delete NONE;
--- The identity binding (D37). Set once: by api-admin linking a legacy person (or on create by
--- api-user). Cleared once: by api-user's erasure, in the same update that sets gdprDeletedAt,
--- leaving a stub (internal id + gdprDeletedAt; plan 4e: no agreement survives it).
--- Never changed otherwise, and never set again after erasure: a compromised service must not
--- point a victim's record at its own token.
-DEFINE FIELD OVERWRITE clerkUserId   ON user TYPE option<string>
-  PERMISSIONS FOR update WHERE $auth IN [service:api_admin, service:api_user] OR $auth = NONE;
-DEFINE EVENT OVERWRITE user_clerk_binding ON user
-  WHEN $event = 'UPDATE' AND $before.clerkUserId != $after.clerkUserId
-   AND !(
-     -- link a legacy person who has no Clerk account yet (api-admin; the migrator)
-     ($before.clerkUserId = NONE AND $before.gdprDeletedAt = NONE AND $after.gdprDeletedAt = NONE
-       AND $auth != service:api_user)
-     -- erasure: api-user clears it once, at the moment gdprDeletedAt is set
-     OR ($after.clerkUserId = NONE AND $before.gdprDeletedAt = NONE AND $after.gdprDeletedAt != NONE
-       AND $auth = service:api_user)
-   )
-  THEN { THROW 'clerkUserId can only be linked once, or cleared once at erasure' };
--- Erasure is final and always leaves a stub without a Clerk id (D37).
-DEFINE EVENT OVERWRITE user_erasure_final ON user              -- also on CREATE/INSERT (round 4)
-  WHEN ($event = 'UPDATE' AND $before.gdprDeletedAt != NONE
-        AND $after.gdprDeletedAt != $before.gdprDeletedAt)
-    OR ($event IN ['CREATE', 'UPDATE'] AND $after.gdprDeletedAt != NONE AND $after.clerkUserId != NONE)
-  THEN { THROW 'an erased user stays erased, without a clerkUserId' };
-DEFINE FIELD OVERWRITE createdAt     ON user TYPE datetime VALUE $before OR time::now() READONLY;
--- Set by the database at erasure, never by the caller, and immutable afterwards (review round 3:
--- a service could backdate it to look erased for longer). Only a system user (the migrator;
--- $auth = NONE) may supply a historical date; D22's legacy import doesn't need one (legacy
--- people aren't erased). A client value is ignored: the server time is stored instead.
-DEFINE FIELD OVERWRITE gdprDeletedAt ON user TYPE option<datetime>
-  VALUE IF $before != NONE { $before }
-        ELSE IF $value = NONE { NONE }
-        ELSE IF $auth = NONE { $value }
-        ELSE { time::now() };
-DEFINE INDEX OVERWRITE user_clerk    ON user FIELDS clerkUserId UNIQUE;
--- Plan 4e: what the person agreed to, each a pointer to a version with the database's time of
--- agreeing (fn::legal::check_pointer has the rules). termsOfUse: before using the account (one
--- "I am 18 or over and agree to the terms of use"; NONE until then: api-user creates the row on
--- first use, and only the person's own session can agree). testimonyConsent: NONE until their
--- first testimony; it covers every story they submit. Both move forward to the latest version
--- when the person re-agrees, and are cleared only by erasure (fn::account::erase).
-DEFINE FIELD OVERWRITE termsOfUse       ON user TYPE option<record<termsOfUseAgreement>>;
-DEFINE FIELD OVERWRITE termsOfUseAgreedAt ON user TYPE option<datetime>
-  VALUE IF $this.termsOfUse = NONE { NONE } ELSE IF $value != $before { time::now() } ELSE { $before };
-DEFINE FIELD OVERWRITE testimonyConsent ON user TYPE option<record<testimonyConsent>>;
-DEFINE FIELD OVERWRITE testimonyConsentAgreedAt ON user TYPE option<datetime>
-  VALUE IF $this.testimonyConsent = NONE { NONE } ELSE IF $value != $before { time::now() } ELSE { $before };
-DEFINE EVENT OVERWRITE user_agreements ON user
-  WHEN $event IN ['CREATE', 'UPDATE']
-  THEN {
-    LET $erasing = $before.gdprDeletedAt = NONE AND $after.gdprDeletedAt != NONE;
-    IF $after.gdprDeletedAt != NONE AND ($after.termsOfUse != NONE OR $after.testimonyConsent != NONE) {
-      THROW 'agreement_kept: an erased account keeps no agreement (plan 4e)';
-    };
-    fn::legal::check_pointer('termsOfUseAgreement', $after.id, $before.termsOfUse, $after.termsOfUse,
-      $before.termsOfUseAgreedAt, $after.termsOfUseAgreedAt, $erasing);
-    fn::legal::check_pointer('testimonyConsent', $after.id, $before.testimonyConsent,
-      $after.testimonyConsent, $before.testimonyConsentAgreedAt, $after.testimonyConsentAgreedAt, $erasing);
-    -- The person's own session writes nothing else on their row.
-    IF $auth = $after.id AND ($before.clerkUserId != $after.clerkUserId
-       OR $before.gdprDeletedAt != $after.gdprDeletedAt) {
-      THROW 'a person agrees on their own row; nothing else there is theirs to change';
-    };
-  };
--- D82: an erased Clerk id never gets a row again, whoever writes it (erasedIdentity below). A token
--- minted before erasure lives 60 s, and a Clerk user whose deletion failed can still sign in, so
--- api-user's first-use create (provisionPerson) and a legacy link are both refused here.
--- Both sides write identityFence:<fingerprint>, so a first-use create racing the erasure of a Clerk
--- id it can't see yet (Clerk's user.deleted for someone who never used the API) conflicts at commit;
--- the retry then sees the tombstone, or the erasure's retry sees the row and erases it.
-DEFINE EVENT OVERWRITE user_not_erased_identity ON user
-  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.clerkUserId != NONE
-   AND $after.clerkUserId != $before.clerkUserId
-  THEN {
-    fn::fence::identity(crypto::sha256($after.clerkUserId));
-    IF record::exists(type::record('erasedIdentity', crypto::sha256($after.clerkUserId))) {
-      THROW 'identity_erased: this Clerk account was deleted';
-    };
-  };
-DEFINE TABLE OVERWRITE identityFence SCHEMAFULL PERMISSIONS NONE; -- id = identityFence:<fingerprint>
-DEFINE FIELD OVERWRITE n ON identityFence TYPE int DEFAULT 0;    -- a counter, nothing else
-DEFINE FUNCTION OVERWRITE fn::fence::identity($fingerprint: string) {
-  UPSERT type::record('identityFence', $fingerprint) SET n += 1 RETURN NONE;
-};
-
--- ---------------------------------------------------------------- personFence (write fence)
--- Transactions read a snapshot, so a check like "agreed to the latest terms" or "not erased" can pass
--- in one transaction while another commits the opposite (review round 2). Every write that
--- depends on or changes a person's state therefore also writes that person's fence record, so
--- of two overlapping transactions the second to commit fails with a retryable conflict.
--- Events run with elevated privileges (tested), so the fence is PERMISSIONS NONE: no session can
--- read or write it directly, and no table's permissions had to widen.
-DEFINE TABLE OVERWRITE personFence SCHEMAFULL PERMISSIONS NONE;   -- id = personFence:<user id>
-DEFINE FIELD OVERWRITE n ON personFence TYPE int DEFAULT 0;      -- a counter, nothing else
-DEFINE FUNCTION OVERWRITE fn::fence::bump($user: option<record<user>>) {
-  IF $user != NONE {
-    UPSERT type::record('personFence', record::id($user)) SET n += 1 RETURN NONE;
-  };
-};
--- Every table holding or linking person data (directly or through story) refuses a new or
--- changed row for a person who doesn't exist or is erased, and bumps that person's fence, so a
--- write racing erasure conflicts at commit. The per-table list is in docs/db-permissions.md;
--- integration/person-linked.int-spec.ts fails if a table is added without being classified.
-DEFINE FUNCTION OVERWRITE fn::person::live($user: option<record<user>>) {
-  IF $user = NONE OR !record::exists($user) OR $user.gdprDeletedAt != NONE {
-    THROW 'this row belongs to a person who doesn’t exist or has been erased';
-  };
-  fn::fence::bump($user);
-};
-DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, binding changes
-  WHEN $event IN ['CREATE', 'UPDATE'] THEN { fn::fence::bump($after.id) };
--- ---------------------------------------------------------------- themes (plan v3, 2026-10-31)
--- Admins manage categories and themes at /admin/themes; every story and published story links
--- the themes it carries (themeRefs). One fixed category, themeCategory:other ("Other"), is where
--- a deleted category's themes go: nobody may delete or rename it. Other categories and every
--- theme have ULID ids. A theme is "highlighted" in its category: highlighted themes are shown
--- first wherever people choose or browse themes. No order, no version per row: categories and
--- themes are listed A-Z (Other last). Names are tidied and checked for duplicates by api-admin
--- (case-insensitive); there's no uniqueness rule here (two saves are serialised by themeCatalog).
-DEFINE TABLE OVERWRITE themeCategory SCHEMAFULL PERMISSIONS     -- id = themeCategory:<ulid> | :other
-  FOR select FULL,
-  FOR create, update, delete WHERE $auth.id = service:api_admin;
-DEFINE FIELD OVERWRITE name ON themeCategory TYPE string
-  ASSERT string::len($value) > 0 AND string::len($value) <= 40;
--- Other can't be renamed, or deleted (by anyone, system users too). Deleting another category
--- moves its themes to Other, not highlighted (so Other's first-shown list doesn't fill with
--- whatever was deleted), in the same transaction, whoever deletes it.
-DEFINE EVENT OVERWRITE themeCategory_other ON themeCategory
-  WHEN $event != 'DELETE' AND $after.id = themeCategory:other AND $after.name != 'Other'
-  THEN { THROW 'theme_category_fixed: the Other category can’t be deleted or renamed' };
-DEFINE EVENT OVERWRITE themeCategory_delete ON themeCategory
-  WHEN $event = 'DELETE'
-  THEN {
-    IF $before.id = themeCategory:other {
-      THROW 'theme_category_fixed: the Other category can’t be deleted or renamed';
-    };
-    UPDATE theme SET category = themeCategory:other, highlighted = false
-      WHERE category = $before.id RETURN NONE;
-  };
-DEFINE TABLE OVERWRITE theme SCHEMAFULL PERMISSIONS             -- id = theme:<ulid>
-  FOR select FULL,
-  FOR create, update, delete WHERE $auth.id = service:api_admin;
-DEFINE FIELD OVERWRITE name        ON theme TYPE string
-  ASSERT string::len($value) > 0 AND string::len($value) <= 40;
-DEFINE FIELD OVERWRITE category    ON theme TYPE record<themeCategory>
-  ASSERT record::exists($value);
-DEFINE FIELD OVERWRITE highlighted ON theme TYPE bool DEFAULT false;
-DEFINE INDEX OVERWRITE theme_category ON theme FIELDS category;
--- Deleting a theme removes it from every story and published story that carries it, whoever
--- deletes it, in the same transaction: the story first, then its published row (which must
--- mirror it). A story left with fewer themes than the minimum isn't re-checked; only its next
--- submission is (plan v3, A9). Removing a deleted theme isn't the person changing their story, so
--- needs no agreement (story_agreements checks the owner's writes only) and passes the owner's content lock
--- (that's the owner only).
--- A transaction reads a snapshot, so the delete's scan can miss a story write that adds the
--- theme and commits meanwhile (leaving a submitted story linking a deleted theme). Both write the
--- theme's themeFence record (story_theme_fence below), so of two overlapping ones the second to
--- commit fails with a retryable conflict, and its retry sees the other. Per theme: stories adding
--- other themes never conflict.
-DEFINE TABLE OVERWRITE themeFence SCHEMAFULL PERMISSIONS NONE;    -- id = themeFence:<theme ulid>
-DEFINE FIELD OVERWRITE n ON themeFence TYPE int DEFAULT 0;
-DEFINE FUNCTION OVERWRITE fn::fence::theme($theme: record<theme>) {
-  UPSERT type::record('themeFence', record::id($theme)) SET n += 1 RETURN NONE;
-};
-DEFINE EVENT OVERWRITE theme_delete ON theme
-  WHEN $event = 'DELETE'
-  THEN {
-    fn::fence::theme($before.id);
-    DELETE type::record('themeFence', record::id($before.id));
-    UPDATE story SET themeRefs -= $before.id
-      WHERE themeRefs CONTAINS $before.id RETURN NONE;
-    UPDATE publicStory SET themeRefs -= $before.id
-      WHERE themeIds CONTAINS record::id($before.id) RETURN NONE;
-  };
--- The themes' version (D29) for /admin/themes: api-admin's save checks it and adds 1 in the same
--- transaction, naming the admin, so of two admins saving from the same version one is refused
--- (and two overlapping saves conflict at commit). Its event writes the audit row.
-DEFINE TABLE OVERWRITE themeCatalog SCHEMAFULL PERMISSIONS     -- id = themeCatalog:current
-  FOR select FULL,
-  FOR create, update WHERE $auth.id = service:api_admin,
-  FOR delete NONE;
-DEFINE FIELD OVERWRITE version       ON themeCatalog TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
-DEFINE FIELD OVERWRITE changedBy     ON themeCatalog TYPE option<record<user>>;
-DEFINE FIELD OVERWRITE changedByRole ON themeCatalog TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
-DEFINE FIELD OVERWRITE updatedAt     ON themeCatalog TYPE datetime VALUE time::now();
-DEFINE EVENT OVERWRITE themeCatalog_audit ON themeCatalog
-  WHEN $event IN ['CREATE', 'UPDATE']
-  THEN {
-    IF $after.id != themeCatalog:current { THROW 'there is one theme catalogue record: themeCatalog:current' };
-    IF $after.changedBy = NONE AND $auth != NONE { THROW 'a themes save names the admin who made it (changedBy)' };
-    CREATE auditLog CONTENT {
-      service: fn::audit::service(), action: 'SaveThemes',
-      entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
-    };
-  };
--- The old tag table (id = tag:<slug>), kept only so data/0008 can copy it into themes; 0008
--- empties it. Remove it (with data/0008) once 0008 has run on every database: before that
--- 0008 would fail on a fresh database, as 3.2.4 refuses a SELECT from an undefined table.
-DEFINE TABLE OVERWRITE tag SCHEMALESS PERMISSIONS NONE;
-REMOVE EVENT IF EXISTS tag_delete ON tag;
-REMOVE FIELD IF EXISTS name ON tag;
-REMOVE FIELD IF EXISTS category ON tag;
-REMOVE FIELD IF EXISTS version ON tag;
-REMOVE FIELD IF EXISTS createdAt ON tag;
-REMOVE TABLE IF EXISTS themesFence;
-REMOVE FUNCTION IF EXISTS fn::fence::themes;
-REMOVE FUNCTION IF EXISTS fn::settings::themes_needed;
+-- schema-04-stories.surql: stories (write model), published stories (read model), hidden
+-- stories, draft retention, moderation reviews and upload grants.
+-- Part of the declarative schema: every schema-NN-*.surql file, applied in name order in one
+-- transaction (see schema-01-system.surql).
 
 -- ---------------------------------------------------------------- story (write model)
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
@@ -333,14 +17,14 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
   FOR select WHERE submitter = $auth.id
     OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping],
   FOR create WHERE submitter = $auth.id AND status = 'draft'                -- own draft only,
-    AND $auth.gdprDeletedAt = NONE,                -- not erased (agreements: story_agreements)
-  FOR update WHERE (submitter = $auth.id AND $auth.gdprDeletedAt = NONE)
+    AND $auth.status != 'deleted',                -- not erased (agreements: story_agreements)
+  FOR update WHERE (submitter = $auth.id AND $auth.status != 'deleted')
     OR $auth.id IN [service:api_admin, service:workflow],
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]   -- erasure
     -- D71: the owner deletes their own draft, withdrawn or rejected story (DeleteStory), and one
     -- sent back for changes (Joel, 2026-10-30: no need to withdraw it first), never one in
     -- moderation's hands or published (pending, in_review, approved).
-    OR (submitter = $auth.id AND $auth.gdprDeletedAt = NONE
+    OR (submitter = $auth.id AND $auth.status != 'deleted'
         AND status IN ['draft', 'changes_requested', 'withdrawn', 'rejected'])
     -- D71: the nightly housekeeping Job deletes a draft nobody has touched for as long as the
     -- retention says (fn::story::draft_expired), and nothing else; the same delete as a
@@ -375,10 +59,6 @@ DEFINE FIELD OVERWRITE primaryFormat ON story TYPE string ASSERT $value IN ['vid
 DEFINE FIELD OVERWRITE themeRefs     ON story TYPE array<record<theme>> DEFAULT []
   ASSERT array::len($value) <= 20 AND array::len(array::distinct($value)) = array::len($value)
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
--- Legacy: was the story's tags. data/0008 moves them to themeRefs and clears this; it stays
--- defined only because data/0003 (dev's walking-skeleton story) still writes `tagRefs: []` on a
--- fresh database. Nothing else may write it. Removed together with 0008 and `tag` later.
-DEFINE FIELD OVERWRITE tagRefs ON story TYPE option<array<record<tag>>> PERMISSIONS NONE;
 -- Status: the owner (submit/withdraw, checked by the events below) and api-admin (moderation).
 DEFINE FIELD OVERWRITE status        ON story TYPE string DEFAULT 'draft'
   ASSERT $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn']
@@ -470,7 +150,6 @@ DEFINE FIELD OVERWRITE media[*].thumbnailPath   ON story TYPE option<string>
 -- D53: the real pixel size, replacing the aspectRatio label. A video's is Bunny's encode result.
 -- An audio file's is its thumbnail's, the picture shown for it (Joel, 2026-10-24): the person's
 -- own image, or the site's default audio thumbnail; never Bunny's audio placeholder.
-REMOVE FIELD IF EXISTS media[*].aspectRatio ON story;
 DEFINE FIELD OVERWRITE media[*].width           ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
   PERMISSIONS FOR update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE media[*].height          ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
@@ -488,7 +167,6 @@ DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
 -- permission to share and can't be withdrawn: deleting or withdrawing the story stops future
 -- use). Recorded with the submission, by the person's own session, on the latest version, with
 -- the database's time (fn::legal::check_pointer, from story_agreements). Gone with the story.
-REMOVE FIELD IF EXISTS consent ON story;
 DEFINE FIELD OVERWRITE socialMediaSharingConsent ON story TYPE option<record<socialMediaSharingConsent>>;
 DEFINE FIELD OVERWRITE socialMediaSharingConsentAgreedAt ON story TYPE option<datetime>
   VALUE IF $this.socialMediaSharingConsent = NONE { NONE } ELSE IF $value != $before { time::now() } ELSE { $before };
@@ -518,11 +196,6 @@ DEFINE FUNCTION OVERWRITE fn::story::content($s: any) {
     image: $s.image
   };
 };
--- Whether a write changed nothing but the story's themes (theme_delete, data/0008).
-DEFINE FUNCTION OVERWRITE fn::story::only_themes_changed($before: any, $after: any) {
-  RETURN fn::story::content(object::extend($before, { themeRefs: $after.themeRefs }))
-    = fn::story::content($after);
-};
 -- D53: whether a picture's pixel size is allowed: positive, and no taller than 1:3 or wider
 -- than 3:1 (strips, not photos). Cards clamp further, between 9:16 and 2:1 (the readers' job).
 DEFINE FUNCTION OVERWRITE fn::shape::allowed($width: any, $height: any) {
@@ -548,7 +221,7 @@ DEFINE FUNCTION OVERWRITE fn::text::trimmed_length($text: option<string>) {
 -- (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its upload).
 -- A written story's minimum length (Joel, 2026-10-23, from the POC; a setting since W3) is
 -- checked when it's submitted (story_text_limits), so a short draft can still be saved.
--- Used by the story_shape event and by data/0004 (the rows written before it).
+-- Used by the story_shape event.
 DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
   LET $media = $s.media ?? [];
   LET $mediaFields = ['format', 'bunnyVideoId', 'thumbnailPath', 'width', 'height', 'durationSeconds',
@@ -682,7 +355,6 @@ DEFINE EVENT OVERWRITE story_owner_transitions ON story
 -- content unchanged) and deleting need neither. Other writers (workflow's media processing,
 -- api-admin's moderation and theme deletions, system users) aren't the person agreeing: the
 -- testimony consent is checked once more when a story is approved (story_approval_testimony).
-REMOVE EVENT IF EXISTS story_consent ON story;
 DEFINE EVENT OVERWRITE story_agreements ON story
   WHEN $event IN ['CREATE', 'UPDATE']
   THEN {
@@ -822,8 +494,7 @@ DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever app
 -- re-encodes it; workflow or a system user sets processing back to 'ready' with its facts) the
 -- same write re-creates the row, with its first publishedAt and its slugHistory, and deletes
 -- hiddenStory. No new approval. Only workflow and system users can cause either: the person's
--- content is locked after submission and api-admin can't write media. auditLog records
--- HideStory/RepublishStory. If the media differs from the row that was hidden (another
+-- content is locked after submission and api-admin can't write media. If the media differs from the row that was hidden (another
 -- bunnyVideoId or image path, or a thumbnail that isn't a frame Bunny generated, D60), it stays
 -- hidden: a moderator must review it (fn::story::hidden_by_media lists it with mediaChanged).
 -- A public story whose media changes that way is hidden too (reason media_changed; D59: changed
@@ -864,7 +535,7 @@ DEFINE FUNCTION OVERWRITE fn::story::thumbnails($s: any) {
   RETURN ($s.media ?? []).map(|$m| $m.thumbnailPath);
 };
 -- Hides a public story (Joel, 2026-10-23): deletes its publicStory row and keeps what
--- re-publishing needs in hiddenStory, in the caller's transaction, with a HideStory audit row.
+-- re-publishing needs in hiddenStory, in the caller's transaction.
 -- $reason: media_unavailable or media_changed. Called by events only (they run elevated).
 -- Nothing to do if the story isn't public.
 DEFINE FUNCTION OVERWRITE fn::story::hide($story: record<story>, $reason: string) {
@@ -878,11 +549,6 @@ DEFINE FUNCTION OVERWRITE fn::story::hide($story: record<story>, $reason: string
     publishedAt: $row.publishedAt, slugHistory: $row.slugHistory,
     identity: fn::story::media_identity($row), thumbnails: fn::story::thumbnails($row)
   } RETURN NONE;
-  CREATE auditLog CONTENT {
-    service: fn::audit::service(), action: 'HideStory', entity: $story,
-    storyVersion: (SELECT VALUE version FROM ONLY $story), fromStatus: 'approved',
-    toStatus: 'approved', reason: $reason
-  };
 };
 -- Brings a hidden story back once nothing keeps it hidden: still approved, its media ready and
 -- still what was reviewed, and its uploader has the testimony consent (plan 4e). The same write
@@ -911,18 +577,7 @@ DEFINE FUNCTION OVERWRITE fn::story::restore($story: record<story>, $reason: str
     media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
       thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height })
   } RETURN NONE;
-  CREATE auditLog CONTENT {
-    service: fn::audit::service(), action: 'RepublishStory', entity: $story,
-    storyVersion: $s.version, fromStatus: 'approved', toStatus: 'approved', reason: $reason
-  };
   RETURN true;
-};
--- Which service a database-made audit row names: the writer's session.
-DEFINE FUNCTION OVERWRITE fn::audit::service() {
-  RETURN IF $auth = NONE { 'migrator' }
-    ELSE IF $auth = service:api_admin { 'api-admin' }
-    ELSE IF $auth = service:workflow { 'workflow' }
-    ELSE { 'api-user' };
 };
 DEFINE EVENT OVERWRITE story_media_availability ON story
   WHEN $event = 'UPDATE' AND $before.status = 'approved'
@@ -948,7 +603,6 @@ DEFINE EVENT OVERWRITE story_media_availability ON story
 -- story they submit; a newer version only gates new stories), whoever approves (system users
 -- too). It can't have gone since submission (only erasure clears it, and erasure deletes the
 -- story); this is defence in depth, as publicStory_mirrors_story's.
-REMOVE EVENT IF EXISTS story_approval_consent ON story;
 DEFINE EVENT OVERWRITE story_approval_testimony ON story
   WHEN $event IN ['CREATE', 'UPDATE'] AND $after.status = 'approved' AND $before.status != 'approved'
    AND $after.submitter.testimonyConsent = NONE
@@ -958,17 +612,17 @@ DEFINE EVENT OVERWRITE story_approval_testimony ON story
 -- removes them in the same transaction, whoever deletes it.
 DEFINE EVENT OVERWRITE story_fence ON story                       -- create, edit, submit, approve, delete
   WHEN true THEN {
-    IF $event = 'DELETE' { fn::fence::bump($before.submitter) }   -- erasure: no live check
+    IF $event = 'DELETE' { fn::fence::touch('person', $before.submitter) }   -- erasure: no live check
     ELSE { fn::person::live($after.submitter) };
   };
--- A story write that adds themes writes each one's fence (themeFence, above), so it conflicts
+-- A story write that adds themes writes each one's fence (fence:theme-<id>), so it conflicts
 -- with that theme's deletion if the two overlap. A link to a theme already gone needs none (the
 -- submission refuses it).
 DEFINE EVENT OVERWRITE story_theme_fence ON story
   WHEN $event IN ['CREATE', 'UPDATE']
   THEN {
     FOR $t IN array::complement($after.themeRefs ?? [], $before.themeRefs ?? []) {
-      IF record::exists($t) { fn::fence::theme($t) };
+      IF record::exists($t) { fn::fence::touch('theme', $t) };
     };
   };
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
@@ -1027,7 +681,7 @@ DEFINE TABLE OVERWRITE publicStory SCHEMAFULL PERMISSIONS
   FOR create, update WHERE $auth.id = service:api_admin,                -- approve, edit
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]    -- erasure
     OR (type::record('story', record::id(id)).submitter = $auth.id      -- owner withdraws
-        AND $auth.gdprDeletedAt = NONE);
+        AND $auth.status != 'deleted');
 DEFINE FIELD OVERWRITE version       ON publicStory TYPE int;           -- mirrors story.version (ETag)
 DEFINE FIELD OVERWRITE slug          ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE slugHistory   ON publicStory TYPE array<string> DEFAULT [];  -- D30: old slugs -> 301
@@ -1037,13 +691,10 @@ DEFINE FIELD OVERWRITE body          ON publicStory TYPE option<string>;
 DEFINE FIELD OVERWRITE bylineName    ON publicStory TYPE option<string>;
 DEFINE FIELD OVERWRITE primaryFormat ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE themeRefs     ON publicStory TYPE array<record<theme>> DEFAULT [];
--- Legacy, as story.tagRefs: data/0003 writes it, data/0008 clears it.
-DEFINE FIELD OVERWRITE tagRefs ON publicStory TYPE option<array<record<tag>>> PERMISSIONS NONE;
 DEFINE FIELD OVERWRITE media         ON publicStory TYPE array<object>;  -- playback fields only
 DEFINE FIELD OVERWRITE media[*].format        ON publicStory TYPE string;
 DEFINE FIELD OVERWRITE media[*].bunnyVideoId  ON publicStory TYPE option<string>;
 DEFINE FIELD OVERWRITE media[*].thumbnailPath ON publicStory TYPE option<string>;
-REMOVE FIELD IF EXISTS media[*].aspectRatio ON publicStory;               -- D53: width + height
 DEFINE FIELD OVERWRITE media[*].width         ON publicStory TYPE option<int>;
 DEFINE FIELD OVERWRITE media[*].height        ON publicStory TYPE option<int>;
 DEFINE FIELD OVERWRITE image                  ON publicStory TYPE option<object>;   -- D53
@@ -1062,7 +713,6 @@ DEFINE FIELD OVERWRITE durationSeconds ON publicStory TYPE option<int>
 -- but indexes strings correctly (see the gotchas).
 DEFINE FIELD OVERWRITE themeIds      ON publicStory TYPE array<string>
   VALUE (themeRefs ?? []).map(|$t| record::id($t));
-REMOVE FIELD IF EXISTS tagSlugs ON publicStory;
 DEFINE FIELD OVERWRITE publishedAt   ON publicStory TYPE datetime;
 DEFINE FIELD OVERWRITE updatedAt     ON publicStory TYPE datetime VALUE time::now();
 -- A full-text index covers one field, so search goes over a computed field.
@@ -1075,7 +725,7 @@ DEFINE FIELD OVERWRITE searchText    ON publicStory TYPE string
 DEFINE EVENT OVERWRITE publicStory_fence ON publicStory           -- publish, re-sync, unpublish
   WHEN true THEN {
     IF $event = 'DELETE' {
-      fn::fence::bump(type::record('story', record::id($before.id)).submitter);
+      fn::fence::touch('person', type::record('story', record::id($before.id)).submitter);
     } ELSE {
       fn::person::live(type::record('story', record::id($after.id)).submitter);
     };
@@ -1136,10 +786,10 @@ DEFINE EVENT OVERWRITE story_published_media_facts ON story
   };
 DEFINE ANALYZER OVERWRITE story_en TOKENIZERS blank, class FILTERS lowercase, ascii, snowball(english);
 DEFINE INDEX OVERWRITE publicStory_slug     ON publicStory FIELDS slug UNIQUE;
-DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory;
+-- An element index (`slugHistory.*`): the old-slug lookup's `CONTAINS` uses it; a plain index over
+-- the array is never used (EXPLAIN on 3.2.4, 2026-11-05: a table scan).
+DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory.*;
 DEFINE INDEX OVERWRITE publicStory_browse   ON publicStory FIELDS publishedAt;
-REMOVE INDEX IF EXISTS publicStory_tags ON publicStory;
-REMOVE INDEX IF EXISTS publicStory_tag_slugs ON publicStory;
 DEFINE INDEX OVERWRITE publicStory_theme_ids ON publicStory FIELDS themeIds.*;  -- D63
 DEFINE INDEX OVERWRITE publicStory_fts      ON publicStory FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
@@ -1165,7 +815,7 @@ DEFINE INDEX OVERWRITE hiddenStory_since ON hiddenStory FIELDS since;
 DEFINE EVENT OVERWRITE hiddenStory_fence ON hiddenStory          -- hide, restore
   WHEN true THEN {
     IF $event = 'DELETE' {
-      fn::fence::bump(type::record('story', record::id($before.id)).submitter);
+      fn::fence::touch('person', type::record('story', record::id($before.id)).submitter);
     } ELSE {
       fn::person::live(type::record('story', record::id($after.id)).submitter);
     };
@@ -1189,179 +839,7 @@ DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
   }).filter(|$r| $r != NONE AND ($r.problem != NONE OR $r.mediaChanged));
 };
 
--- ---------------------------------------------------------------- legal texts (plan 4e)
--- Joel, 2026-10-31 and 2026-11-01 (privacy-consent-architecture.html, sections 4e and 8b): four
--- version tables of exactly the same shape, one per text.
---   termsOfUseAgreement: the terms of use (they say you must be 18 or over); user.termsOfUse
---   testimonyConsent: the Art 9 testimony consent, per person, covering every story they
---     submit; user.testimonyConsent
---   socialMediaSharingConsent: the optional box at the end of an upload, per story, naming every
---     platform; story.socialMediaSharingConsent
---   privacyNotice: shown on the site with its past versions; nothing points to it and nobody
---     agrees to it (no ticks, no approvals, no view logs)
--- id = the version, an int from 0 (testimonyConsent:0, :1...); content = the full Markdown text as
--- shown; release_date = when it was saved, set by the database. A saved version is in force at
--- once (no "takes effect on" date): the latest is the highest id. Only api-admin's login (an
--- Admin or Super Admin publishing at /admin/consent) and the migrator (data/0009 seeds version
--- 0 of each) create versions, each the next number. Nobody changes or deletes one, system
--- users included: a mistake is fixed by saving another version.
--- The old consent machinery is gone (plan 4e, "What goes"): the consent ledger, dpaVersion,
--- termsVersion, the three form-version tables, evidence hashes, legalFence, the computed
--- story.consent, fn::consent::* and the old fn::legal::* / fn::form::*, the dev consent switches
--- and erasureRequest (Joel, 2026-11-01: "Delete my account" erases directly). All of it held
--- dummy data only; removing a table removes its rows and events.
-REMOVE TABLE IF EXISTS consent;
-REMOVE TABLE IF EXISTS dpaVersion;
-REMOVE TABLE IF EXISTS termsVersion;
-REMOVE TABLE IF EXISTS signupFormVersion;
-REMOVE TABLE IF EXISTS testimonyFormVersion;
-REMOVE TABLE IF EXISTS socialSharingFormVersion;
-REMOVE TABLE IF EXISTS legalFence;
-REMOVE TABLE IF EXISTS erasureRequest;
-REMOVE FUNCTION IF EXISTS fn::fence::legal;
-REMOVE FUNCTION IF EXISTS fn::legal::dev_placeholders;
-REMOVE FUNCTION IF EXISTS fn::legal::counts;
-REMOVE FUNCTION IF EXISTS fn::legal::dpa_in_force;
-REMOVE FUNCTION IF EXISTS fn::legal::covers_form;
-REMOVE FUNCTION IF EXISTS fn::legal::terms_counts;
-REMOVE FUNCTION IF EXISTS fn::legal::terms_in_force;
-REMOVE FUNCTION IF EXISTS fn::form::check_change;
-REMOVE FUNCTION IF EXISTS fn::form::counts;
-REMOVE FUNCTION IF EXISTS fn::form::latest;
-REMOVE FUNCTION IF EXISTS fn::form::kind_statements;
-REMOVE FUNCTION IF EXISTS fn::form::required_statements;
-REMOVE FUNCTION IF EXISTS fn::form::statements;
-REMOVE FUNCTION IF EXISTS fn::form::check_statements;
-REMOVE FUNCTION IF EXISTS fn::form::covers;
-REMOVE FUNCTION IF EXISTS fn::form::requires_acceptance;
-REMOVE FUNCTION IF EXISTS fn::consent::current;
-REMOVE FUNCTION IF EXISTS fn::consent::story_sharing;
-REMOVE FUNCTION IF EXISTS fn::consent::valid;
-REMOVE FUNCTION IF EXISTS fn::consent::relaxed;
-REMOVE FUNCTION IF EXISTS fn::consent::granted;
-REMOVE FUNCTION IF EXISTS fn::consent::signup_accepted;
-REMOVE FUNCTION IF EXISTS fn::consent::testimony_version;
-REMOVE FUNCTION IF EXISTS fn::consent::testimony_status;
-REMOVE FUNCTION IF EXISTS fn::consent::may_draft;
-REMOVE FUNCTION IF EXISTS fn::consent::may_submit;
-REMOVE FUNCTION IF EXISTS fn::consent::publishable;
-REMOVE FUNCTION IF EXISTS fn::consent::reconcile;
-REMOVE FUNCTION IF EXISTS fn::consent::may_share;
-REMOVE FUNCTION IF EXISTS fn::story::may_share;
-
-DEFINE TABLE OVERWRITE termsOfUseAgreement SCHEMAFULL PERMISSIONS
-  FOR select FULL,
-  FOR create WHERE $auth.id = service:api_admin,
-  FOR update, delete NONE;
-DEFINE FIELD OVERWRITE content      ON termsOfUseAgreement TYPE string
-  ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 100000;
-DEFINE FIELD OVERWRITE release_date ON termsOfUseAgreement TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE EVENT OVERWRITE termsOfUseAgreement_kept ON termsOfUseAgreement
-  WHEN true THEN { fn::legal::check_version($event, $after) };
-
-DEFINE TABLE OVERWRITE testimonyConsent SCHEMAFULL PERMISSIONS
-  FOR select FULL,
-  FOR create WHERE $auth.id = service:api_admin,
-  FOR update, delete NONE;
-DEFINE FIELD OVERWRITE content      ON testimonyConsent TYPE string
-  ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 100000;
-DEFINE FIELD OVERWRITE release_date ON testimonyConsent TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE EVENT OVERWRITE testimonyConsent_kept ON testimonyConsent
-  WHEN true THEN { fn::legal::check_version($event, $after) };
-
-DEFINE TABLE OVERWRITE socialMediaSharingConsent SCHEMAFULL PERMISSIONS
-  FOR select FULL,
-  FOR create WHERE $auth.id = service:api_admin,
-  FOR update, delete NONE;
-DEFINE FIELD OVERWRITE content      ON socialMediaSharingConsent TYPE string
-  ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 100000;
-DEFINE FIELD OVERWRITE release_date ON socialMediaSharingConsent TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE EVENT OVERWRITE socialMediaSharingConsent_kept ON socialMediaSharingConsent
-  WHEN true THEN { fn::legal::check_version($event, $after) };
-
-DEFINE TABLE OVERWRITE privacyNotice SCHEMAFULL PERMISSIONS
-  FOR select FULL,
-  FOR create WHERE $auth.id = service:api_admin,
-  FOR update, delete NONE;
-DEFINE FIELD OVERWRITE content      ON privacyNotice TYPE string
-  ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 100000;
-DEFINE FIELD OVERWRITE release_date ON privacyNotice TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE EVENT OVERWRITE privacyNotice_kept ON privacyNotice
-  WHEN true THEN { fn::legal::check_version($event, $after) };
-
--- The four tables' one rule, whoever writes (events run for system users too): a version is only
--- ever created, as the next number (0 for the first), and never changed or deleted. Runs after
--- the create, so the table already holds the new row: versions 0..id and nothing else. Two saves
--- of the same number conflict on the record; a save that skips one is refused.
-DEFINE FUNCTION OVERWRITE fn::legal::check_version($event: string, $after: any) {
-  IF $event != 'CREATE' {
-    THROW 'legal_version_kept: a saved version of a legal text is never changed or deleted (plan 4e)';
-  };
-  LET $n = record::id($after.id);
-  LET $count = array::len(SELECT VALUE id FROM type::table(record::tb($after.id)));
-  IF !type::is_int($n) OR $n != $count - 1 {
-    THROW 'legal_version_number: a new version is numbered one after the latest, from 0 (plan 4e)';
-  };
-};
--- The latest version of one of the four tables (the highest id), or NONE while it has none.
-DEFINE FUNCTION OVERWRITE fn::legal::latest($table: string) {
-  LET $n = math::max(SELECT VALUE record::id(id) FROM type::table($table));
-  RETURN IF $n = NONE { NONE } ELSE { type::record($table, $n) };
-};
--- The pointers (user.termsOfUse, user.testimonyConsent, story.socialMediaSharingConsent), each
--- with its agreed-at time; one rule for all three, called by the owning row's event:
---   * the pointer and its time travel together: both NONE or both set, changed in the same write
---     (the time's VALUE is the database's clock whenever a write sends one);
---   * only the person's own session moves a pointer ($owner: the user, or the story's
---     submitter), and only to the latest version: the page sends the version it showed, and a
---     newer one saved meanwhile is refused (agreement_version_changed: the page fetches it and
---     shows the redline). Being the latest, it is always forward;
---   * a pointer is cleared only when its user is erased ($clearing) or its story deleted (the
---     row goes);
---   * system users ($auth = NONE: the migrator, dev-seed's dummy people) load data as given.
-DEFINE FUNCTION OVERWRITE fn::legal::check_pointer($table: string, $owner: any, $was: any, $now: any,
-    $wasAt: any, $nowAt: any, $clearing: bool) {
-  IF $was = $now {
-    IF $wasAt != $nowAt {
-      THROW 'agreement_time: an agreed-at time only changes with its version (plan 4e)';
-    };
-    RETURN NONE;
-  };
-  IF $now = NONE {
-    IF !$clearing AND $auth != NONE {
-      THROW 'agreement_kept: an agreement is only cleared when its account or story is deleted (plan 4e)';
-    };
-    RETURN NONE;
-  };
-  IF $nowAt = NONE OR $nowAt = $wasAt {
-    THROW 'agreement_time: a new agreement is written with its agreed-at time (plan 4e)';
-  };
-  IF $auth = NONE { RETURN NONE };
-  IF $auth != $owner {
-    THROW 'agreement_not_own: only the person’s own session agrees, never a service or an admin (plan 4e)';
-  };
-  IF $now != fn::legal::latest($table) {
-    THROW 'agreement_version_changed: a newer version was saved since the page showed this one (plan 4e)';
-  };
-};
--- Joel, 2026-11-01 (Q2): "agree first", enforced here on the person's own writes. A signed-in
--- write needs the terms of use at the latest version; a story write (create, edit, submit) and
--- an upload need the testimony consent at the latest version too. Messages start with a code
--- api-user answers 403 with, so the page shows the redline and asks again.
-DEFINE FUNCTION OVERWRITE fn::legal::require_terms($user: any) {
-  LET $u = (SELECT termsOfUse FROM ONLY $user);
-  IF $u.termsOfUse = NONE OR $u.termsOfUse != fn::legal::latest('termsOfUseAgreement') {
-    THROW 'terms_agreement_required: agree to the latest terms of use first (plan 4e)';
-  };
-};
-DEFINE FUNCTION OVERWRITE fn::legal::require_testimony($user: any) {
-  fn::legal::require_terms($user);
-  LET $u = (SELECT testimonyConsent FROM ONLY $user);
-  IF $u.testimonyConsent = NONE OR $u.testimonyConsent != fn::legal::latest('testimonyConsent') {
-    THROW 'testimony_consent_required: agree to the latest testimony consent first (plan 4e)';
-  };
-};
-
+-- ---------------------------------------------------------------- draft retention (D71)
 -- D71: an untouched draft is deleted after 6 months (186 days: a month counted as 31 days). It was
 -- the testimony form's draftRetentionMonths; plan 4e's version tables hold only the text, so the
 -- period lives here, unchanged.
@@ -1395,14 +873,14 @@ DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
   RETURN $at != NONE AND $at < time::now();
 };
 
--- ---------------------------------------------------------------- moderationReview (audit, M3)
+-- ---------------------------------------------------------------- moderationReview (M3)
 -- The story's owner reads the outcomes on their own story ("Download my data", Art 15; M2 plan
 -- PR 12), never who decided: `moderator` is api-admin's alone.
 DEFINE TABLE OVERWRITE moderationReview SCHEMAFULL PERMISSIONS
   FOR select WHERE $auth.id = service:api_admin OR story.submitter = $auth.id,
   FOR create WHERE $auth.id = service:api_admin,
   FOR update NONE,
-  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
+  FOR delete WHERE $auth.id = service:api_user;                        -- erasure
 DEFINE FIELD OVERWRITE story       ON moderationReview TYPE record<story>;
 DEFINE FIELD OVERWRITE moderator   ON moderationReview TYPE record<user>
   PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
@@ -1417,7 +895,7 @@ DEFINE INDEX OVERWRITE review_story ON moderationReview FIELDS story, decidedAt;
 DEFINE EVENT OVERWRITE review_live_story ON moderationReview
   WHEN true
   THEN {
-    IF $event = 'DELETE' { fn::fence::bump($before.story.submitter) }   -- NONE in the erasure cascade
+    IF $event = 'DELETE' { fn::fence::touch('person', $before.story.submitter) }   -- NONE in the erasure cascade
     ELSE {
       IF !record::exists($after.story) { THROW 'a moderation review needs an existing story' };
       fn::person::live($after.story.submitter);
@@ -1425,283 +903,6 @@ DEFINE EVENT OVERWRITE review_live_story ON moderationReview
   };
 DEFINE EVENT OVERWRITE review_append_only ON moderationReview
   WHEN $event = 'UPDATE' THEN { THROW 'moderation reviews are append-only' };  -- DELETE allowed for erasure
-
--- ---------------------------------------------------------------- auditLog (append-only, D38)
--- Who did what to which record, with typed fields per action and no free-form payload, so
--- testimony text has nowhere to go. Story ids stay after erasure (they then point nowhere).
--- Retention (D38, decided 2026-10-19): 6 years (for an erased person, from erasure), then
--- deleted by a nightly clean-up job running as the migrator (D14; not built yet).
-DEFINE TABLE OVERWRITE auditLog SCHEMAFULL PERMISSIONS
-  FOR select WHERE $auth.id = service:api_admin,
-  FOR create WHERE $auth.id IN [service:api_user, service:api_admin, service:workflow],
-  FOR update, delete NONE;                                              -- pruning: migrator only
-DEFINE FIELD OVERWRITE service    ON auditLog TYPE string
-  ASSERT $value IN ['api-user', 'api-admin', 'workflow', 'migrator'];
-DEFINE FIELD OVERWRITE action     ON auditLog TYPE string ASSERT $value IN [
-  -- api-user (M2)
-  'CreateDraftStory', 'EditStory', 'RequestUpload', 'SubmitStory', 'WithdrawStory',
-  'UpdateAccount', 'EraseAccount',
-  -- api-admin (M3, M5)
-  'LockStory', 'ReleaseStory', 'ApproveStory', 'RejectStory', 'RequestStoryChanges', 'EscalateStory',
-  'AssignRole', 'LinkLegacyUser', 'SaveThemes',
-  'UpdateSubmissionSettings', 'UpdateSubmitterLimits',
-  'PublishLegalVersion',                                      -- plan 4e: entity = the new version
-  -- workflow (M7)
-  'ProcessMedia',
-  -- the database itself (story_media_availability), in the writer's transaction
-  'HideStory', 'RepublishStory'
-];
-DEFINE FIELD OVERWRITE actor      ON auditLog TYPE option<record<user>>;  -- NONE = system/job
-DEFINE FIELD OVERWRITE actorRole  ON auditLog TYPE option<string>         -- snapshot of the Clerk claim (D1)
-  ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];
-DEFINE FIELD OVERWRITE entity     ON auditLog TYPE option<record>;        -- story, user, themeCatalog, testimonyConsent:3...
-DEFINE FIELD OVERWRITE storyVersion ON auditLog TYPE option<int>;         -- the version acted on (D29)
-DEFINE FIELD OVERWRITE fromStatus ON auditLog TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn'];
-DEFINE FIELD OVERWRITE toStatus   ON auditLog TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn'];
-REMOVE FIELD IF EXISTS consentType ON auditLog;
-REMOVE FIELD IF EXISTS dpaVersion ON auditLog;
-DEFINE FIELD OVERWRITE role       ON auditLog TYPE option<string>         -- AssignRole: the role given
-  ASSERT $value = NONE OR $value IN ['Viewer', 'User', 'Moderator', 'Admin', 'SuperAdmin'];
-DEFINE FIELD OVERWRITE reason     ON auditLog TYPE option<string>         -- a code, never free text
-  ASSERT $value = NONE OR $value IN ['account_deleted', 'clerk_user_deleted',  -- D39 erasure callers
-    'media_unavailable', 'media_changed', 'media_restored'];              -- Hide/RepublishStory
-DEFINE FIELD OVERWRITE createdAt  ON auditLog TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE INDEX OVERWRITE audit_entity ON auditLog FIELDS entity, createdAt;
-DEFINE EVENT OVERWRITE audit_append_only ON auditLog
-  WHEN $event = 'UPDATE' THEN { THROW 'audit log is append-only' };      -- DELETE: retention pruning only
-
--- ---------------------------------------------------------------- idempotencyKey (D29)
--- id = idempotencyKey:['api-user' | 'api-admin', <user record | 'svix' | 'stripe'>, <key>]
--- Scoped by the internal user record, not the Clerk id (review round 3): erasure clears the Clerk
--- id, so a key must not carry it. A person-scoped key needs a live user and bumps their fence;
--- erasure deletes their keys. Moderators and admins act through their own user record too (they
--- already need one for moderationReview.moderator and auditLog.actor).
--- A person's own commands run in their session (D27), so they commit their key in the SAME
--- transaction as the command (PR #41 review round 1: a key saved separately could be lost after
--- the command committed, and a retry then re-applied it). A person may create and read only
--- their own api-user keys; never update or delete them (erasure and pruning run as services).
-DEFINE TABLE OVERWRITE idempotencyKey SCHEMAFULL PERMISSIONS
-  FOR select WHERE $auth.id IN [service:api_user, service:api_admin]
-    OR (record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth.id),
-  FOR create WHERE $auth.id IN [service:api_user, service:api_admin]
-    OR (record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth.id
-        AND $auth.gdprDeletedAt = NONE),
-  FOR update, delete WHERE $auth.id IN [service:api_user, service:api_admin];
-DEFINE FIELD OVERWRITE requestHash ON idempotencyKey TYPE string;           -- same key + different body -> 422
-DEFINE FIELD OVERWRITE status      ON idempotencyKey TYPE int;
-DEFINE FIELD OVERWRITE response    ON idempotencyKey TYPE option<object>;   -- {id, version} only:
-DEFINE FIELD OVERWRITE response.id      ON idempotencyKey TYPE option<record>;  -- typed, so no
-DEFINE FIELD OVERWRITE response.version ON idempotencyKey TYPE option<int>;     -- text can go in
-DEFINE FIELD OVERWRITE expiresAt   ON idempotencyKey TYPE datetime VALUE $before OR time::now() + 24h;
-DEFINE EVENT OVERWRITE idempotencyKey_owner ON idempotencyKey
-  WHEN true
-  THEN {
-    LET $owner = record::id(($after ?? $before).id)[1];
-    IF $event = 'DELETE' {
-      IF type::is_record($owner, 'user') { fn::fence::bump($owner) };
-    }
-    ELSE IF type::is_record($owner, 'user') { fn::person::live($owner) }
-    ELSE IF $owner NOT IN ['svix', 'stripe'] {
-      THROW 'an idempotency key is scoped to a user record or a webhook provider';
-    };
-  };
-DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- pruned by the nightly job
-
--- ---------------------------------------------------------------- favourite (M2: hearts)
--- A person's hearts: their private favourites list (founder, 2026-10-25). Only the person who
--- hearted a story can read the row: no service login, and not the story's owner (who will see a
--- count per story on their profile later, never who gave it: not built, see
--- docs/db-permissions.md item 35). One per person and story. A heart needs the person to have
--- agreed to the latest terms of use (plan 4e, Q2: their own write) and a story that is public now (its publicStory row). A story that stops being public later keeps
--- the heart, but lists read publicStory, so it no longer shows (C15). Person-linked twice: a new
--- heart fences both the person and the story's owner. Erasure deletes the person's hearts
--- (user_erasure_favourites), and deleting a story deletes the hearts on it (story_erasure_cascade). Nothing about a heart changes after it is made.
-DEFINE TABLE OVERWRITE favourite SCHEMAFULL PERMISSIONS        -- id = favourite:<random>
-  FOR select, delete WHERE person = $auth.id,
-  FOR create WHERE person = $auth.id AND $auth.gdprDeletedAt = NONE,
-  FOR update NONE;
-DEFINE FIELD OVERWRITE person    ON favourite TYPE record<user> READONLY;
-DEFINE FIELD OVERWRITE story     ON favourite TYPE record<story> READONLY;
-DEFINE FIELD OVERWRITE createdAt ON favourite TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE INDEX OVERWRITE favourite_unique ON favourite FIELDS person, story UNIQUE;
-DEFINE INDEX OVERWRITE favourite_list   ON favourite FIELDS person, createdAt;  -- newest first
-DEFINE INDEX OVERWRITE favourite_story  ON favourite FIELDS story;              -- story deletion
-DEFINE EVENT OVERWRITE favourite_rules ON favourite
-  WHEN true THEN {
-    IF $event = 'DELETE' { fn::fence::bump($before.person) }      -- erasure: no live check
-    ELSE {
-      fn::person::live($after.person);
-      IF $auth != NONE { fn::legal::require_terms($after.person) };
-      IF !record::exists(type::record('publicStory', record::id($after.story))) {
-        THROW 'favourite_not_published: only a public story can be hearted';
-      };
-      -- The story's owner too (Codex, #117): a heart racing their erasure, which deletes the
-      -- story and the hearts on it, then conflicts at commit instead of outliving the story.
-      fn::person::live($after.story.submitter);
-    };
-  };
-DEFINE EVENT OVERWRITE user_erasure_favourites ON user
-  WHEN $event = 'UPDATE' AND $before.gdprDeletedAt = NONE AND $after.gdprDeletedAt != NONE
-  THEN { DELETE favourite WHERE person = $after.id };
-
--- ---------------------------------------------------------------- submissionSettings (W3, D112)
--- The limits an admin adjusts (Joel, 2026-10-28: "adjustable from the admin account view"), one
--- record, submissionSettings:current, created by data/0006 with today's values (the defaults
--- here, so a missing field reads as them too):
---   storyTextMin / storyTextMax: a written story's text, trimmed, to submit / at most (A3);
---   themesMin / themesMax: how many themes a story needs when it is submitted (only then);
---   openDraftsMax, submissionsPer7Days: D94's limits per person (overridable per person);
---   uploadRequestsPerHour: new uploads (pictures too) per person in any rolling hour
---     (overridable; trusted too);
---   uploadsPer7Days: new video and audio files per person in any rolling 7 days, never pictures
---     (overridable; none if trusted; Joel, 2026-10-30);
---   videoMaxBytes / audioMaxBytes / mediaMaxSeconds: one file's size and length (A4: 4 GB and
---     500 MB, 15 minutes; trusted submitters get the hard ceilings, fn::settings::upload_ceilings).
---   The upload limits (D113, Joel 2026-10-28/30: stop people filling our video storage) are
---   checked when an upload is granted (uploadGrant_attach) and again at submit by api-user, with
---   the values in force then ("new rules apply to everyone", Joel 2026-10-30).
--- Everyone reads it (the submit page shows the numbers); only api-admin's login, naming the admin
--- in changedBy, and the migrator change it, never delete it. Every change is audit-logged. Admins
--- change it at /admin/limits (api-admin's GET/PUT /v1/admin/submission-settings, If-Match on
--- `version`).
--- These are anti-spam and cost controls, not invariants (coordinator, Codex #118 round 2): a
--- change applies to writes that start after it commits; a write already in flight may finish
--- under the old values. No fence ties settings writes to story writes (it would touch every
--- person on each change). Concurrent writes by the same person still conflict on their fence.
-DEFINE TABLE OVERWRITE submissionSettings SCHEMAFULL PERMISSIONS
-  FOR select FULL,
-  FOR create, update WHERE $auth.id = service:api_admin,
-  FOR delete NONE;
-DEFINE FIELD OVERWRITE storyTextMin  ON submissionSettings TYPE int DEFAULT 200 ASSERT $value >= 1;
-DEFINE FIELD OVERWRITE storyTextMax  ON submissionSettings TYPE int DEFAULT 10000
-  ASSERT $value >= 1 AND $value <= 50000;                    -- story.body's hard ceiling
-DEFINE FIELD OVERWRITE themesMin     ON submissionSettings TYPE int DEFAULT 1
-  ASSERT $value >= 0 AND $value <= 20;
-DEFINE FIELD OVERWRITE themesMax     ON submissionSettings TYPE int DEFAULT 5
-  ASSERT $value >= 0 AND $value <= 20;                       -- story.themeRefs' hard ceiling
--- Were tagsMin / tagsMax; data/0008 copies the stored values.
-REMOVE FIELD IF EXISTS tagsMin ON submissionSettings;
-REMOVE FIELD IF EXISTS tagsMax ON submissionSettings;
-DEFINE FIELD OVERWRITE openDraftsMax ON submissionSettings TYPE int DEFAULT 3
-  ASSERT $value >= 1 AND $value <= 1000;
-DEFINE FIELD OVERWRITE submissionsPer7Days ON submissionSettings TYPE int DEFAULT 1
-  ASSERT $value >= 1 AND $value <= 1000;
-DEFINE FIELD OVERWRITE uploadRequestsPerHour ON submissionSettings TYPE int DEFAULT 10
-  ASSERT $value >= 1 AND $value <= 10000;
-DEFINE FIELD OVERWRITE uploadsPer7Days ON submissionSettings TYPE int DEFAULT 5
-  ASSERT $value >= 1 AND $value <= 1000;
-DEFINE FIELD OVERWRITE videoMaxBytes ON submissionSettings TYPE int DEFAULT 4294967296   -- 4 GiB
-  ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().videoMaxBytes;
-DEFINE FIELD OVERWRITE audioMaxBytes ON submissionSettings TYPE int DEFAULT 524288000    -- 500 MiB
-  ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().audioMaxBytes;
-DEFINE FIELD OVERWRITE mediaMaxSeconds ON submissionSettings TYPE int DEFAULT 900        -- 15 minutes
-  ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().mediaMaxSeconds;
-DEFINE FIELD OVERWRITE changedBy     ON submissionSettings TYPE option<record<user>>;
--- The admin's role when they made the change (a snapshot of the Clerk claim, D1), for the audit
--- row's actorRole as PublishLegalDocument records it; api-admin sets it with changedBy.
-DEFINE FIELD OVERWRITE changedByRole ON submissionSettings TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
-DEFINE FIELD OVERWRITE version       ON submissionSettings TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
-DEFINE FIELD OVERWRITE updatedAt     ON submissionSettings TYPE datetime VALUE time::now();
-DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings
-  WHEN $event IN ['CREATE', 'UPDATE']
-  THEN {
-    IF $after.id != submissionSettings:current { THROW 'there is one settings record: submissionSettings:current' };
-    IF $after.storyTextMin > $after.storyTextMax { THROW 'storyTextMin is more than storyTextMax' };
-    IF $after.themesMin > $after.themesMax { THROW 'themesMin is more than themesMax' };
-    IF $after.changedBy = NONE AND $auth != NONE { THROW 'a settings change names the admin who made it (changedBy)' };
-    CREATE auditLog CONTENT {
-      service: fn::audit::service(), action: 'UpdateSubmissionSettings',
-      entity: $after.id, actor: $after.changedBy, actorRole: $after.changedByRole
-    };
-  };
--- The settings in force, with the defaults for anything missing (also before data/0006 ran).
-DEFINE FUNCTION OVERWRITE fn::settings::submission() {
-  LET $s = (SELECT * FROM ONLY submissionSettings:current);
-  RETURN {
-    storyTextMin: $s.storyTextMin ?? 200, storyTextMax: $s.storyTextMax ?? 10000,
-    themesMin: $s.themesMin ?? 1, themesMax: $s.themesMax ?? 5,
-    openDraftsMax: $s.openDraftsMax ?? 3, submissionsPer7Days: $s.submissionsPer7Days ?? 1,
-    uploadRequestsPerHour: $s.uploadRequestsPerHour ?? 10,
-    uploadsPer7Days: $s.uploadsPer7Days ?? 5,
-    videoMaxBytes: $s.videoMaxBytes ?? 4294967296, audioMaxBytes: $s.audioMaxBytes ?? 524288000,
-    mediaMaxSeconds: $s.mediaMaxSeconds ?? 900
-  };
-};
--- The most any setting may allow for one upload, and what a trusted submitter gets: 10 GiB of
--- video, 2 GiB of audio, 3 hours (a cost ceiling, not a product rule).
-DEFINE FUNCTION OVERWRITE fn::settings::upload_ceilings() {
-  RETURN { videoMaxBytes: 10737418240, audioMaxBytes: 2147483648, mediaMaxSeconds: 10800 };
-};
-
--- ---------------------------------------------------------------- submitterLimits (D94, D112)
--- One person's limits, set by an admin (Joel, 2026-10-28: test accounts get values that don't
--- interfere with testing). id = submitterLimits:<user id>. `trusted` (the whitelist: e.g. the
--- church media team, pastors) lifts the open-drafts, weekly and upload limits but the hourly one
--- (fn::limits::effective); each other field, when
--- set, replaces that setting for this person (NONE = the setting). fn::limits::effective reads it.
--- Only api-admin's login (naming the admin in changedBy) and system users (the migrator,
--- dev-seed) write it; every change is audit-logged. An admin resets someone by updating the row
--- (trusted false, overrides NONE), never by deleting it, so the reset is audited too; only
--- erasure deletes it (api-user's login), with the person.
--- `devSeed`: written by dev-seed for dev's test accounts, refused anywhere but dev.
-DEFINE TABLE OVERWRITE submitterLimits SCHEMAFULL PERMISSIONS
-  FOR select WHERE user = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
-  FOR create, update WHERE $auth.id = service:api_admin,
-  FOR delete WHERE $auth.id = service:api_user;                        -- erasure only
-DEFINE FIELD OVERWRITE user          ON submitterLimits TYPE record<user> READONLY
-  ASSERT record::id($value) = record::id($this.id);
-DEFINE FIELD OVERWRITE trusted       ON submitterLimits TYPE bool DEFAULT false;
-DEFINE FIELD OVERWRITE openDraftsMax ON submitterLimits TYPE option<int>
-  ASSERT $value = NONE OR ($value >= 1 AND $value <= 1000);
-DEFINE FIELD OVERWRITE submissionsPer7Days ON submitterLimits TYPE option<int>
-  ASSERT $value = NONE OR ($value >= 1 AND $value <= 1000);
-DEFINE FIELD OVERWRITE uploadRequestsPerHour ON submitterLimits TYPE option<int>
-  ASSERT $value = NONE OR ($value >= 1 AND $value <= 10000);
-DEFINE FIELD OVERWRITE uploadsPer7Days ON submitterLimits TYPE option<int>
-  ASSERT $value = NONE OR ($value >= 1 AND $value <= 1000);
-DEFINE FIELD OVERWRITE devSeed       ON submitterLimits TYPE bool DEFAULT false;
--- The admin who made this change (their own user record); NONE only from a system user.
-DEFINE FIELD OVERWRITE changedBy     ON submitterLimits TYPE option<record<user>>;
-DEFINE FIELD OVERWRITE updatedAt     ON submitterLimits TYPE datetime VALUE time::now();
-DEFINE EVENT OVERWRITE submitterLimits_fence ON submitterLimits
-  WHEN true THEN {
-    IF $event = 'DELETE' { fn::fence::bump($before.user) }
-    ELSE {
-      fn::person::live($after.user);
-      IF $after.changedBy = NONE AND $auth != NONE {
-        THROW 'a change to someone’s limits names the admin who made it (changedBy)';
-      };
-      IF $after.devSeed = true AND (SELECT VALUE environment FROM ONLY _setting:current) != 'dev' {
-        THROW 'dev-seed’s test-account limits are for dev only (D112)';
-      };
-      CREATE auditLog CONTENT {
-        service: fn::audit::service(), action: 'UpdateSubmitterLimits',
-        entity: $after.user, actor: $after.changedBy
-      };
-    };
-  };
-
--- ---------------------------------------------------------------- submissionLog (D113)
--- Each person's submissions for review in the last 7 days (Joel, 2026-10-28: the weekly limit
--- must hold when stories are deleted; his worry is people filling our video storage). One row per
--- first submission, written by story_limits (events run elevated) and pruned there; no story
--- link, so deleting a story leaves it. Person-linked: erasure deletes it. Nobody writes it
--- directly; the person reads their own (fn::story::next_submission_at).
-DEFINE TABLE OVERWRITE submissionLog SCHEMAFULL PERMISSIONS
-  FOR select WHERE person = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
-  FOR create, update NONE,
-  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
-DEFINE FIELD OVERWRITE person ON submissionLog TYPE record<user> READONLY;
-DEFINE FIELD OVERWRITE at     ON submissionLog TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE INDEX OVERWRITE submissionLog_person ON submissionLog FIELDS person, at;
-DEFINE EVENT OVERWRITE submissionLog_fence ON submissionLog
-  WHEN true THEN {
-    IF $event = 'DELETE' { fn::fence::bump($before.person) }
-    ELSE { fn::person::live($after.person) };
-  };
 
 -- ---------------------------------------------------------------- uploadGrant (D65, D80, D113)
 -- One row per video or audio file api-user created at Bunny Stream for a story (RequestUpload,
@@ -1736,7 +937,7 @@ DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
     OR $auth.id IN [service:api_user, service:api_admin, service:housekeeping],
   FOR create WHERE $auth.id = service:api_user,
   FOR update WHERE $auth.id = service:api_user,
-  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin];   -- erasure
+  FOR delete WHERE $auth.id = service:api_user;                        -- erasure
 DEFINE FIELD OVERWRITE story           ON uploadGrant TYPE record<story> READONLY;
 DEFINE FIELD OVERWRITE person          ON uploadGrant TYPE record<user> READONLY;
 DEFINE FIELD OVERWRITE format          ON uploadGrant TYPE string READONLY
@@ -1783,7 +984,7 @@ DEFINE FUNCTION OVERWRITE fn::upload::image_limits() {
 };
 DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
   WHEN $event IN ['CREATE', 'DELETE'] THEN {
-    IF $event = 'DELETE' { fn::fence::bump($before.person) }
+    IF $event = 'DELETE' { fn::fence::touch('person', $before.person) }
     ELSE {
       fn::person::live($after.person);
       LET $s = (SELECT * FROM ONLY $after.story);
@@ -1883,133 +1084,3 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
   RETURN (UPDATE type::record('uploadGrant', $video) SET renewedAt = time::now()
     WHERE story = $story AND person = $person RETURN VALUE renewedAt)[0];
 };
-
--- ---------------------------------------------------------------- erasedIdentity (D82 tombstone)
--- id = erasedIdentity:<sha256 of the Clerk user id>: a retained fingerprint of an erased identity,
--- and nothing else (no date, no user link). It is not anonymous: whoever holds the Clerk id can
--- hash it and match the row, so it stays personal data (pseudonymous), kept on purpose and named
--- in the privacy notes. Written by the erasure (fn::account::erase), even for a Clerk id that
--- never had a row (Clerk's user.deleted for someone who never used the API).
--- user_not_erased_identity refuses that Clerk id for ever after, so a still-valid token can't
--- recreate the person (#44's reproduction). Kept: dropping one would let a leftover Clerk account
--- back in. Only api-user's login reads or writes it.
-DEFINE TABLE OVERWRITE erasedIdentity SCHEMAFULL PERMISSIONS
-  FOR select, create WHERE $auth.id = service:api_user,
-  FOR update, delete NONE;
-DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
-  WHEN $event = 'CREATE'
-  THEN {
-    IF !string::matches(<string> record::id($after.id), '^[0-9a-f]{64}$') {
-      THROW 'an erased identity is a sha256 fingerprint only';
-    };
-    fn::fence::identity(record::id($after.id));                 -- see user_not_erased_identity
-  };
-
--- ---------------------------------------------------------------- pendingDeletion (D40)
--- What must still be deleted outside the database, written in the transaction that made it
--- needed and deleted row by row once done: kind 'bunny_video' (a Stream video api-user made: an
--- erased person's upload grants, never seeded media), 'image' (a deleted story's whole folder in
--- the images storage zone, `stories/<story id>/`: only story_picture_folder writes these, keyed
--- by the story, M2 plan PR 10), 'clerk_user' (the Clerk account, for "Delete my account", which is
--- also how a person withdraws all consent (plan 4e); the only place a Clerk id outlives erasure,
--- until Clerk confirms). No person link:
--- the person or story is gone. api-user deletes an erasure's rows straight after the commit; the
--- nightly housekeeping retries the rest. A failed try counts in `attempts` and waits
--- (fn::erasure::retry_after), so rows that keep failing go to the back and never hold up the
--- others. finalPassAt (folders only): a picture's PUT link may still be used until then, so a
--- delete before it leaves the row, due again at finalPassAt (pendingDeletion_done), and only a
--- delete from then on removes it; a repeat delete of the id moves it later (story_picture_folder),
--- which also refuses the id to anyone but a system user while the row is queued. Only api-user and housekeeping read, delete or count tries on it;
--- only api-user's erasure writes rows itself (never an 'image' one).
-DEFINE TABLE OVERWRITE pendingDeletion SCHEMAFULL PERMISSIONS
-  FOR select, update WHERE $auth.id IN [service:api_user, service:housekeeping],
-  FOR delete WHERE $auth.id IN [service:api_user, service:housekeeping]
-    AND (finalPassAt = NONE OR finalPassAt <= time::now()),
-  FOR create WHERE $auth.id = service:api_user AND kind != 'image';
-DEFINE FIELD OVERWRITE kind ON pendingDeletion TYPE string READONLY
-  ASSERT $value IN ['bunny_video', 'image', 'clerk_user'];
-DEFINE FIELD OVERWRITE ref  ON pendingDeletion TYPE string READONLY
-  ASSERT string::len($value) > 0 AND string::len($value) <= 500;
-DEFINE FIELD OVERWRITE at   ON pendingDeletion TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE FIELD OVERWRITE attempts      ON pendingDeletion TYPE int DEFAULT 0 ASSERT $value >= 0;
-DEFINE FIELD OVERWRITE nextAttemptAt ON pendingDeletion TYPE datetime DEFAULT time::now();
-DEFINE FIELD OVERWRITE finalPassAt   ON pendingDeletion TYPE option<datetime>
-  PERMISSIONS FOR update NONE;                                  -- set by the event only
-DEFINE INDEX OVERWRITE pendingDeletion_at ON pendingDeletion FIELDS at;
-DEFINE INDEX OVERWRITE pendingDeletion_due ON pendingDeletion FIELDS nextAttemptAt;
-REMOVE FUNCTION IF EXISTS fn::erasure::gone_story_image;
--- A deleted story's folder's queue key: one row per folder, however many deletes ask for it.
-DEFINE FUNCTION OVERWRITE fn::erasure::folder_key($story: record<story>) {
-  RETURN 'image-' + <string> record::id($story);
-};
--- How long after a story's deletion its folder's last delete waits: past the 10-minute life of a
--- picture's PUT link (api-user's IMAGE_LINK_SECONDS), with room for a link signed just before.
-DEFINE FUNCTION OVERWRITE fn::erasure::final_pass_after() {
-  RETURN 15m;
-};
--- One queued deletion is done (`$key`): the row goes, unless its final pass is still to come,
--- when it waits for that instead, its tries unchanged.
-DEFINE FUNCTION OVERWRITE fn::erasure::pending_done($key: string) {
-  LET $row = type::record('pendingDeletion', $key);
-  IF $row.finalPassAt != NONE AND $row.finalPassAt > time::now() {
-    UPDATE $row SET nextAttemptAt = finalPassAt RETURN NONE;
-  } ELSE {
-    DELETE $row;
-  };
-};
--- How long a queued deletion waits after its $attempts-th failed try: 1 h,
--- then doubling, at most a week. Set together with the count, from its value before the try.
-DEFINE FUNCTION OVERWRITE fn::erasure::retry_after($attempts: int) {
-  RETURN duration::from_hours(<int> math::min([math::pow(2, $attempts), 168]));
-};
-
--- ---------------------------------------------------------------- EraseAccount (D39, D82, D40)
--- The database half of erasing a person, in the caller's transaction: api-user's ERASE_ACCOUNT
--- (libs/database erasure.ts, on its own login), for "Delete my account" (which is also how a person
--- withdraws all consent, plan 4e) and Clerk's user.deleted. Answers [user, keys]:
--- the erased user (or NONE: already erased, or never known) and the pendingDeletion keys written.
--- - The erased-identity tombstone (D82): the sha256 of the Clerk id, written even when nobody has
---   that id, so provisioning refuses it from now on (user_not_erased_identity).
--- - What must go outside the database (D40): each of the person's video and audio upload grants
---   (bunny_video), each of their stories' picture folders (image: queued by the story's own
---   delete, story_picture_folder, from the story rows, so a pruned grant can't hide one), and,
---   unless Clerk has already deleted the person ($reason clerk_user_deleted), their Clerk account.
--- - Then the stories (the cascade takes publicStory, hiddenStory, reviews and others' hearts),
---   idempotency keys, limits, submission log and grants; the user row becomes a stub (D37) and
---   their own hearts go with it (user_erasure_favourites); an EraseAccount audit row.
--- Plan 4e: the stub keeps no agreement (the terms and testimony pointers are cleared with it), and
--- nothing else kept (the tombstone, the audit row) records consent. On a caller's own
--- permissions (api-user's grants are exactly these); anyone else's leave nothing done.
-DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: string) {
-  LET $fingerprint = type::record('erasedIdentity', crypto::sha256($clerkUserId));
-  IF !record::exists($fingerprint) { CREATE $fingerprint RETURN NONE };
-  LET $u = (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId AND gdprDeletedAt = NONE)[0];
-  LET $media = (SELECT VALUE { kind: 'bunny_video', ref: <string> record::id(id) }
-    FROM uploadGrant WHERE $u != NONE AND person = $u AND format != 'image');
-  LET $account = IF $u = NONE OR $reason = 'clerk_user_deleted' { [] }
-    ELSE { [{ kind: 'clerk_user', ref: $clerkUserId }] };
-  LET $pending = IF array::len(array::concat($media, $account)) = 0 { [] }
-    ELSE { (INSERT INTO pendingDeletion array::concat($media, $account) RETURN VALUE record::id(id)) };
-  -- Each story's picture folder is queued by its delete (story_picture_folder), one per story.
-  -- api-user can't read stories, so their keys are the folder rows written from here on (one
-  -- another delete committed in the same instant may join them: trying it early is harmless).
-  LET $since = time::now();
-  IF $u != NONE {
-    DELETE story WHERE submitter = $u;              -- cascades publicStory, hiddenStory, reviews, hearts
-    DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
-    DELETE submitterLimits WHERE user = $u;         -- D112: their limits and trusted mark
-    DELETE submissionLog WHERE person = $u;         -- D113: their recent submissions
-    DELETE uploadGrant WHERE person = $u;           -- D80, D113: their uploads (queued above, D40)
-    UPDATE $u SET gdprDeletedAt = time::now(), clerkUserId = NONE,   -- D37: a stub remains
-      termsOfUse = NONE, testimonyConsent = NONE;
-    CREATE auditLog CONTENT { service: 'api-user', action: 'EraseAccount', entity: $u,
-      reason: $reason };
-  };
-  LET $folders = IF $u = NONE { [] } ELSE { (SELECT VALUE record::id(id) FROM pendingDeletion
-    WHERE kind = 'image' AND at >= $since) };
-  RETURN [$u, array::concat($pending, $folders)];
-};
-
--- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),
--- helped/concern edges + trust/quality fields (M6), embedOrigin (M8).
-

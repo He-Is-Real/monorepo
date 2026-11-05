@@ -19,7 +19,7 @@ the rest of that block while the transaction goes on and commits):
     blocks, must start with one of ALLOWED_STATEMENTS; the words in REFUSED_WORDS may not appear
     anywhere outside strings and comments; a `;` anywhere but the top level or such a block (a
     block the scanner can't classify) is refused. tests: libs/database/integration, "allow-list";
-  * schema.surql and access-clerk.surql: DDL only (every top-level statement is DEFINE or REMOVE);
+  * the schema files (schema-NN-area.surql) and access-clerk.surql: DDL only (every top-level statement is DEFINE or REMOVE);
     RETURN, BREAK and CONTINUE only inside a DEFINE (function, event, field and param bodies were
     tested: they can't end or skip the caller's transaction); BEGIN, COMMIT, CANCEL nowhere, and
     no OPTION statement.
@@ -60,12 +60,22 @@ Order, validate first:
      system users are exactly MIGRATE_EXPECT_USERS and every MIGRATE_EXPECT_SERVICES has a login;
   2. take the token; refuse if a pending row exists (after waiting for an overtaken run to clean
      up); read-only check: no applied data script changed;
-  3. schema.surql + the Clerk access (or its removal), one step;
+  2b. dev only, once per name: the dev database reset (below);
+  3. the schema files, in name order, + the Clerk access (or its removal), one step;
   3b. the settings row (SETTINGS), one step;
   4. each data script not yet in _migration, in number order, one step each (a pending script that
      uses a parameter whose value is null is refused in step 2, before anything changes). A data
      script that left the bundle (0002, D44; 0001, 0003, 0005 and 0007, plan 4e) only logs a
      warning where it was applied.
+
+Dev database reset (params.json dev_database_reset: a name, or null): before production, dev's
+database may be wiped and rebuilt instead of migrating its test data (Joel, 2026-11-05). OpenTofu
+sets the parameter in the dev root only (modules/db-migration refuses it for any other
+environment), and this runner refuses it unless the environment parameter is "dev" and, when the
+database holds anything, its _setting:current also says "dev". In one step it removes every table
+but RESET_KEEPS, and every function, analyzer and param, and records the name in _migrationReset;
+the schema and every data script then run as on a new database. A name already recorded does
+nothing, so each reset runs once; a later reset needs a new name.
 
 Why not `surreal import`: on 3.2.4 it requires `OPTION IMPORT`, which turns off events and field
 VALUE/ASSERT clauses. This uses the HTTP /rpc `query` method (the one surrealdb.js uses), with
@@ -92,10 +102,16 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-SCHEMA = "schema.surql"
+# The declarative schema, one file per area (R10, 2026-11-05), applied in name order as one step.
+SCHEMA_FILE = re.compile(r"^schema-\d{2}-[a-z]+(-[a-z]+)*\.surql$")
 CLERK = "access-clerk.surql"
-TOP_LEVEL = {SCHEMA, CLERK}
-DDL_FILES = {SCHEMA, CLERK}
+RESET = "dev_database_reset"
+RESET_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+# What the dev reset keeps: the runner's bookkeeping, the startup init's identity record and the
+# service logins (their password hashes come from the init, not from the schema).
+RESET_KEEPS = {"_migrationRun", "_migrationPending", "_migrationReset", "_identity", "service"}
+IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+FUNCTION_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
 DATA_NAME = re.compile(r"^\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.surql$")
 NEVER = {"BEGIN", "COMMIT", "CANCEL"}
 # Data scripts (see the header): what the seeds need, nothing more.
@@ -105,7 +121,7 @@ REFUSED_WORDS = {
     "DEFINE", "REMOVE", "ALTER", "INFO", "KILL", "LIVE",
     "THEN", "END",  # IF … THEN … END: only brace blocks, which the scanner can classify
 }
-RESERVED_PARAMS = {"migration_id", "migration_checksum", "migration_token", "migration_bundle", "migration_step", "migration_current"}
+RESERVED_PARAMS = {"migration_id", "migration_checksum", "migration_token", "migration_bundle", "migration_step", "migration_current", "migration_reset"}
 SUMMARY_PREFIX = "MIGRATION SUMMARY "
 # Characters SurrealDB may treat as line ends (ending a comment early) or that hide text: refused
 # anywhere in a bundled file, strings included (review round 4: a U+2028 after `-- comment` made
@@ -380,17 +396,20 @@ def load_bundle(bundle):
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.surql")):
-            if path.name in TOP_LEVEL and directory == bundle:
+            if directory == bundle and (path.name == CLERK or SCHEMA_FILE.match(path.name)):
                 top[path.name] = path.read_text(encoding="utf-8")
+            elif directory == bundle and path.name == "schema.surql":
+                raise BundleError("schema.surql: the schema is split into schema-NN-area.surql files")
             elif DATA_NAME.match(path.name):
                 if path.name in data:
                     raise BundleError(f"{path.name} is in the bundle twice")
                 data[path.name] = path.read_text(encoding="utf-8")
             else:
                 raise BundleError(f"unexpected file {path} (data scripts are NNNN-name.surql)")
-    for name in TOP_LEVEL:
-        if name not in top:
-            raise BundleError(f"{name} is missing from {bundle}")
+    if CLERK not in top:
+        raise BundleError(f"{CLERK} is missing from {bundle}")
+    if not any(SCHEMA_FILE.match(name) for name in top):
+        raise BundleError(f"no schema-NN-area.surql file in {bundle}")
     numbers = [name[:4] for name in data]
     duplicates = sorted({n for n in numbers if numbers.count(n) > 1})
     if duplicates:
@@ -404,17 +423,17 @@ def load_bundle(bundle):
                     + ", ".join(f"U+{ord(c):04X}" for c in bad)
                     + " (refused anywhere, strings included)"
                 )
-        _, problems = scan(text, "ddl" if name in DDL_FILES else "data")
+        _, problems = scan(text, "ddl" if name in top else "data")
         if problems:
             raise BundleError(f"{name}: {'; '.join(problems)}")
-    return top, dict(sorted(data.items()))
+    return dict(sorted(top.items())), dict(sorted(data.items()))
 
 
 def uses(text, param):
     return re.search(r"\$" + re.escape(param) + r"\b", text) is not None
 
 
-# The bookkeeping tables, as in schema.surql, so the lease works before the schema exists.
+# The bookkeeping tables, as in schema-01-system.surql, so the lease works before the schema exists.
 BOOKKEEPING = """
 DEFINE TABLE IF NOT EXISTS _migrationRun SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD IF NOT EXISTS token     ON _migrationRun TYPE int;
@@ -423,12 +442,14 @@ DEFINE FIELD IF NOT EXISTS takenAt   ON _migrationRun TYPE datetime;
 DEFINE FIELD IF NOT EXISTS touchedAt ON _migrationRun TYPE option<datetime>;
 DEFINE TABLE IF NOT EXISTS _migrationPending SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD IF NOT EXISTS token     ON _migrationPending TYPE int;
-DEFINE FIELD IF NOT EXISTS startedAt ON _migrationPending TYPE datetime"""
+DEFINE FIELD IF NOT EXISTS startedAt ON _migrationPending TYPE datetime;
+DEFINE TABLE IF NOT EXISTS _migrationReset SCHEMAFULL PERMISSIONS NONE;
+DEFINE FIELD IF NOT EXISTS at        ON _migrationReset TYPE datetime"""
 TAKE_TOKEN = """
 LET $previous = (SELECT VALUE token FROM ONLY _migrationRun:lock) ?? 0;
 UPSERT _migrationRun:lock SET token = $previous + 1, bundle = $migration_bundle,
   takenAt = time::now(), touchedAt = NONE"""
-# The settings OpenTofu passes, as the row schema.surql's functions and dev-seed read. A missing
+# The settings OpenTofu passes, as the row the schema's functions and dev-seed read. A missing
 # parameter is NONE.
 SETTINGS = """
 UPSERT _setting:current CONTENT {
@@ -535,11 +556,61 @@ class Runner:
         if len(cleared) != 1:
             raise PartialCommitError(f"{name}: its pending row wasn't there to clear ({why})")
 
+def reset_dev_database(client, runner, params):
+    """The dev database reset (see the header). Returns True if it reset the database now.
+
+    Read-only until every check has passed; the reset itself is one fenced step.
+    """
+    name = params.get(RESET)
+    info = run(client, "INFO FOR DB", "INFO FOR DB", {})[0]["result"]
+    tables = set(info["tables"].keys())
+    if "_migrationReset" in tables:
+        done = run(client, "reset record", "SELECT VALUE id FROM type::record('_migrationReset', $migration_reset)",
+                   {"migration_reset": name})[0]["result"]
+        if done:
+            log(f"dev database reset {name}: already done")
+            return False
+    stored = None
+    if "_setting" in tables:
+        stored = run(client, "environment", "SELECT VALUE environment FROM _setting:current", {})[0]["result"]
+        stored = stored[0] if stored else None
+    others = sorted(tables - RESET_KEEPS)
+    if others and stored != "dev":
+        raise MigrationError(
+            f"{RESET} is set, but this database doesn't say it is dev (_setting:current.environment "
+            f"is {stored!r}): nothing was changed"
+        )
+    names = {"table": others, "function": sorted(info["functions"].keys()),
+             "analyzer": sorted(info["analyzers"].keys()), "param": sorted(info["params"].keys())}
+    for kind, values in names.items():
+        pattern = FUNCTION_NAME if kind == "function" else IDENTIFIER
+        bad = [v for v in values if not pattern.match(v)]
+        if bad:
+            raise MigrationError(f"{RESET}: unexpected {kind} name(s) {bad}: nothing was changed")
+    parts = (
+        [f"REMOVE TABLE `{t}`" for t in names["table"]]
+        + [f"REMOVE FUNCTION fn::{f}" for f in names["function"]]
+        + [f"REMOVE ANALYZER `{a}`" for a in names["analyzer"]]
+        + [f"REMOVE PARAM ${p}" for p in names["param"]]
+        + ["CREATE type::record('_migrationReset', $migration_reset) SET at = time::now()"]
+    )
+    runner.step("reset", parts, {"migration_reset": name})
+    log(f"dev database reset {name}: removed {len(names['table'])} tables, {len(names['function'])} "
+        f"functions, {len(names['analyzer'])} analyzers and {len(names['param'])} params")
+    return True
+
+
 def migrate(client, top, data, params, deadline):
     variables = {k: v for k, v in params.items() if v is not None}
+    reset = params.get(RESET)
+    if reset is not None and (not isinstance(reset, str) or not RESET_NAME.match(reset)):
+        raise MigrationError(f"{RESET} must be null or a short lowercase name: nothing was run")
+    if reset is not None and params.get("environment") != "dev":
+        raise MigrationError(f"{RESET} is set but the environment isn't dev: nothing was run")
     bundle_id = hashlib.sha256(json.dumps([top, data, params], sort_keys=True).encode()).hexdigest()
     summary = {"schemaStatements": 0, "clerk": "clerk_jwt_public_key" in variables,
-               "applied": [], "alreadyApplied": [], "token": None, "bundle": bundle_id}
+               "applied": [], "alreadyApplied": [], "token": None, "bundle": bundle_id,
+               "reset": None}
 
     def try_signin():
         try:
@@ -618,6 +689,9 @@ def migrate(client, top, data, params, deadline):
         log(f"waiting for an overtaken run to clean up: {reason}")
         time.sleep(2)
 
+    if reset is not None and reset_dev_database(client, runner, params):
+        summary["reset"] = reset
+
     existing = run(client, "INFO FOR DB", "INFO FOR DB", {})[0]["result"]["tables"].keys()
     applied = {}
     if "_migration" in existing:
@@ -641,10 +715,11 @@ def migrate(client, top, data, params, deadline):
 
     # 3. Declarative schema + Clerk access, one step; then the settings (see the header).
     access = top[CLERK] if summary["clerk"] else "REMOVE ACCESS IF EXISTS clerk ON DATABASE"
-    runner.step("schema", [top[SCHEMA], access])
+    schema = [text for name, text in top.items() if name != CLERK]
+    runner.step("schema", [*schema, access])
     runner.step("settings", [SETTINGS])
-    summary["schemaStatements"], _ = scan(top[SCHEMA], "runner")
-    log(f"{SCHEMA}: {summary['schemaStatements']} statements applied; clerk access "
+    summary["schemaStatements"] = sum(scan(text, "runner")[0] for text in schema)
+    log(f"schema ({len(schema)} files): {summary['schemaStatements']} statements applied; clerk access "
         + ("defined" if summary["clerk"] else "removed (no clerk_jwt_public_key)"))
 
     # 4. Data scripts, each exactly once; the _migration row is the last write.

@@ -21,8 +21,8 @@ const GUARD_FUNCTIONS = [
   'legal::require_testimony',
 ];
 
-/** D14: schema.surql is declarative and idempotent; seeds run once; only the migrator changes the schema. */
-describe('schema.surql and seeds on the pinned SurrealDB', () => {
+/** D14: the schema files are declarative and idempotent; seeds run once; only the migrator changes the schema. */
+describe('the schema files and seeds on the pinned SurrealDB', () => {
   let t: TestDatabase;
   beforeAll(async () => {
     t = await TestDatabase.create();

@@ -202,6 +202,9 @@ describe('hearts: /v1/account/favourites', () => {
       '?limit=51',
       '?cursor=not-a-cursor',
       `?cursor=${Buffer.from(JSON.stringify({ v: 1, k: ['2026-02-31T00:00:00Z', 'x'] })).toString('base64url')}`,
+      // R14: a cursor is a heart's ULID id; an older (time, id) cursor starts the list again.
+      `?cursor=${Buffer.from(JSON.stringify({ v: 1, k: ['2026-11-05T00:00:00Z', '01M6PP6P5ZSRCBMRGJ15PRD33S'] })).toString('base64url')}`,
+      `?cursor=${Buffer.from(JSON.stringify({ v: 2, k: ['not_a_ulid'] })).toString('base64url')}`,
       '?storyId=a&limit=5',
       `?${Array.from({ length: 51 }, (_, i) => `storyId=s${i}`).join('&')}`,
       '?storyId=bad%20id',
