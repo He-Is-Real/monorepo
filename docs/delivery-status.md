@@ -161,12 +161,6 @@ Not started.
 
 ## Known issues
 
-- **The dev sign-in behaviour test fails on every deploy since plan 4e.** The automatic test
-  that signs a real test person in on dev (`apps/dev-seed/behavioural/account.behaviour.ts`)
-  has failed after every main deploy since the plan 4e merge on 2026-11-01. A fix that resets the
-  test person's agreements on every dev reset merged on 2026-11-04
-  ([#178](https://github.com/He-Is-Real/monorepo/pull/178)), but the first run after it still
-  failed the same test (at 320 and 1280 px), so it is still open.
 - **The nightly clean-up only reports on dev.** It will start deleting once someone has read a
   night's report and it looks right.
 - **Temporary database build.** Dev runs a patched SurrealDB 3.2.4 so it accepts Clerk's sign-in

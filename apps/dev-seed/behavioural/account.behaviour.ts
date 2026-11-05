@@ -98,13 +98,15 @@ for (const viewport of [
     ).toBeEnabled();
     await expect(page.getByText('You’re signed out.')).toHaveCount(0);
 
-    // Signing out from the step goes home, signed out, and the next page load forgets what the
-    // submit flow kept in the tab (account-control.tsx).
+    // The step has no way out of its own (plan 4e): signing out from the header's account menu
+    // goes home, signed out, and the next page load forgets what the submit flow kept in the tab
+    // (account-control.tsx).
     await page.evaluate(() =>
       sessionStorage.setItem('heisreal:share:user_x:new', '{}'),
     );
+    await page.getByRole('button', { name: /^Account: / }).click();
     await page
-      .getByRole('main')
+      .getByRole('dialog', { name: 'Account' })
       .getByRole('button', { name: 'Sign out' })
       .click();
     await expect(page).toHaveURL(`${web}/`);
