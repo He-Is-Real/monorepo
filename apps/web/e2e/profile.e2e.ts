@@ -417,7 +417,9 @@ test.describe('behaviour', () => {
     page,
     request,
   }) => {
+    // Agreed to the testimony consent, so the other tab may edit the story.
     const me = await person(page, request, {
+      testimony: 3,
       stories: [{ id: 'c1', title: 'Busy one' }],
     });
     await page.goto(PROFILE);

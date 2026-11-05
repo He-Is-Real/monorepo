@@ -87,7 +87,7 @@ test(`body text runs to at most ${LINE_LIMIT} characters a line`, async ({
     // Open every FAQ answer and expand a long story, each until it says it's open: a click
     // before the page has hydrated does nothing, so it's clicked again until it takes.
     const toggles = page.locator(
-      'main h3 button[aria-expanded], main [data-story-toggle]',
+      'main h3 button[aria-expanded], main button[data-story-toggle]',
     );
     for (let i = 0; i < (await toggles.count()); i++) {
       const toggle = toggles.nth(i);
