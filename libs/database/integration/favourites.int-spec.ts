@@ -133,13 +133,18 @@ describe('favourites', () => {
   });
 
   it('a heart’s time is its id’s', async () => {
-    const before = Date.now();
-    expect((await heart(ann, 'ann_live')).ok).toBe(true);
-    const [at] = await truth<string>(
-      `SELECT VALUE <string> time::from_ulid(record::id(id)) FROM favourite
-         WHERE person = user:ann AND story = story:ann_live`,
+    // Bounded by the database's own clock, read just before and after the create, in one query.
+    // A ULID keeps milliseconds only, so the lower bound is rounded down to the millisecond.
+    const [, , , , within] = await run(
+      ann,
+      `LET $before = time::now();
+       LET $id = (CREATE ONLY favourite:ulid()
+         SET person = $auth, story = story:ann_live RETURN VALUE id);
+       LET $after = time::now();
+       LET $at = time::from_ulid(record::id($id));
+       RETURN [time::floor($before, 1ms) <= $at, $at <= $after];`,
     );
-    expect(Math.abs(Date.parse(at as string) - before)).toBeLessThan(5000);
+    expect(within).toEqual([true, true]);
     await run(ann, 'DELETE favourite WHERE story = story:ann_live');
   });
 

@@ -30,10 +30,7 @@ DEFINE FIELD OVERWRITE status      ON idempotencyKey TYPE int;
 DEFINE FIELD OVERWRITE response    ON idempotencyKey TYPE option<object>;   -- {id, version} only:
 DEFINE FIELD OVERWRITE response.id      ON idempotencyKey TYPE option<record>;  -- typed, so no
 DEFINE FIELD OVERWRITE response.version ON idempotencyKey TYPE option<int>;     -- text can go in
--- 24 hours after it was written. Only a system user ($auth = NONE: the migrator, tests) may
--- supply another, as for story.updatedAt, so tests can age a key for the nightly delete (R4).
-DEFINE FIELD OVERWRITE expiresAt   ON idempotencyKey TYPE datetime
-  VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { $before OR time::now() + 24h };
+DEFINE FIELD OVERWRITE expiresAt   ON idempotencyKey TYPE datetime VALUE $before OR time::now() + 24h;
 DEFINE EVENT OVERWRITE idempotencyKey_owner ON idempotencyKey
   WHEN true
   THEN {

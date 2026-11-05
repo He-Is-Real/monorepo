@@ -169,7 +169,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
         version: 1,
         path: OLD_PICTURE,
       }),
-    ).toMatchObject({ ok: true });
+    ).not.toHaveProperty('error');
     await touched('old_written_draft', 190);
     await draft(ann, 'young_draft', 'video');
     expect(
@@ -179,7 +179,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
         version: 1,
         path: YOUNG_PICTURE,
       }),
-    ).toMatchObject({ ok: true });
+    ).not.toHaveProperty('error');
     await touched('young_draft', 184, media(V.youngRef));
     // Never a draft: submitted 200 days ago, and withdrawn 200 days ago.
     await draft(bob, 'old_pending', 'video');
@@ -414,6 +414,15 @@ describe('housekeeping: expired request keys', () => {
     adminOld: `idempotencyKey:['api-admin', user:admin, 'admin-old']`,
     adminNew: `idempotencyKey:['api-admin', user:admin, 'admin-new']`,
   };
+  /** Hours until each key expires; a negative number has already passed. */
+  const HOURS_LEFT: Record<string, number> = {
+    [KEYS.annOld]: -1,
+    [KEYS.annNew]: 23,
+    [KEYS.svixOld]: -1,
+    [KEYS.adminOld]: -30,
+    [KEYS.adminNew]: 1,
+  };
+  const LIVE = [KEYS.annNew, KEYS.adminNew];
   const sweep = (over: Partial<TaskContext> = {}) =>
     runTasks(
       [expiredRequestKeysTask],
@@ -427,50 +436,86 @@ describe('housekeeping: expired request keys', () => {
       },
       (entry) => logs.push(entry),
     );
-  const left = () =>
-    rows<string>(
-      migrator,
-      `SELECT VALUE record::id(id)[2] FROM idempotencyKey ORDER BY id`,
-    );
+  const left = async () =>
+    (
+      await rows<string>(
+        migrator,
+        `SELECT VALUE record::id(id)[2] FROM idempotencyKey`,
+      )
+    ).sort();
 
   beforeAll(async () => {
     t = await TestDatabase.create();
     migrator = await t.migrator();
     housekeeping = await t.service('housekeeping');
     await createPeople(t, { ann: 'user_ann', admin: 'user_admin' });
-    // As a system user may: keys written 25 hours ago have expired an hour ago.
-    for (const [key, hoursLeft] of [
-      [KEYS.annOld, -1],
-      [KEYS.annNew, 23],
-      [KEYS.svixOld, -1],
-      [KEYS.adminOld, -30],
-      [KEYS.adminNew, 1],
-    ] as const) {
-      await run(
+    // Nobody may choose a key's expiry (the database sets it to 24 hours after the write). To
+    // write keys that have already expired, the migrator lifts that rule in this file's own
+    // database for these writes only, then puts back the shipped definition unchanged. The
+    // permissions under test are the table's, which stay as shipped throughout.
+    const field = async () =>
+      (
+        await rows<{ fields: Record<string, string> }>(
+          migrator,
+          `INFO FOR TABLE idempotencyKey`,
+        )
+      )[0].fields.expiresAt;
+    const shipped = await field();
+    expect(shipped).toMatch(/ VALUE \$before OR time::now\(\) \+ 1d /);
+    expect(
+      await outcome(
         migrator,
-        `CREATE ${key} SET requestHash = 'h', status = 201,
-           expiresAt = <datetime> $at`,
-        { at: new Date(Date.now() + hoursLeft * 3_600_000).toISOString() },
-      );
-    }
+        [
+          'BEGIN',
+          'DEFINE FIELD OVERWRITE expiresAt ON idempotencyKey TYPE datetime',
+          ...Object.keys(HOURS_LEFT).map(
+            (key, i) =>
+              `CREATE ${key} SET requestHash = 'h', status = 201,
+               expiresAt = <datetime> $at[${i}]`,
+          ),
+          shipped.replace(/^DEFINE FIELD /, 'DEFINE FIELD OVERWRITE '),
+          'COMMIT',
+        ].join(';\n'),
+        {
+          at: Object.values(HOURS_LEFT).map((h) =>
+            new Date(Date.now() + h * 3_600_000).toISOString(),
+          ),
+        },
+      ),
+    ).not.toHaveProperty('error');
+    expect(await field()).toBe(shipped);
   });
   afterAll(() => t?.close());
 
-  it('can neither read nor delete a key that is still valid', async () => {
+  it('can read only expired keys, and can change or delete no key still valid', async () => {
     expect(
-      await rows(
-        housekeeping,
-        `SELECT VALUE record::id(id)[2] FROM idempotencyKey ORDER BY id`,
-      ),
-    ).toEqual(
-      expect.arrayContaining(['admin-old', 'ann-secret-key-old', 'msg_old']),
-    );
-    await run(housekeeping, `DELETE ${KEYS.annNew}`);
+      (
+        await rows<string>(
+          housekeeping,
+          `SELECT VALUE record::id(id)[2] FROM idempotencyKey`,
+        )
+      ).sort(),
+    ).toEqual(['admin-old', 'ann-secret-key-old', 'msg_old']);
+    for (const key of LIVE) {
+      expect(await rows(housekeeping, `SELECT * FROM ${key}`)).toEqual([]);
+      await run(housekeeping, `UPDATE ${key} SET status = 500`);
+      await run(housekeeping, `DELETE ${key}`);
+    }
     await run(housekeeping, `UPDATE ${KEYS.annOld} SET status = 500`);
-    expect(await left()).toHaveLength(5);
     expect(
-      await rows(migrator, `SELECT VALUE status FROM ${KEYS.annOld}`),
-    ).toEqual([201]);
+      (
+        await rows<[string, number]>(
+          migrator,
+          `SELECT VALUE [record::id(id)[2], status] FROM idempotencyKey`,
+        )
+      ).sort(),
+    ).toEqual([
+      ['admin-new', 201],
+      ['admin-old', 201],
+      ['ann-secret-key-new', 201],
+      ['ann-secret-key-old', 201],
+      ['msg_old', 201],
+    ]);
   });
 
   it('in a dry run, only reports how many it would delete, never the keys themselves', async () => {
@@ -690,7 +735,7 @@ describe('housekeeping: queued deletions', () => {
           person: who,
           version: 1,
         }),
-      ).toMatchObject({ ok: true });
+      ).not.toHaveProperty('error');
     }
     // Eva and Fred deleted their accounts; Bunny and Clerk couldn't be reached, so their
     // deletions wait.
@@ -889,7 +934,7 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
           person: who,
           version: 1,
         }),
-      ).toMatchObject({ ok: true });
+      ).not.toHaveProperty('error');
     }
     expect(
       await grantImage(apiUser, {
@@ -898,7 +943,7 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
         version: 2,
         path: HAL_PICTURE,
       }),
-    ).toMatchObject({ ok: true });
+    ).not.toHaveProperty('error');
     // Gus and Hal deleted their accounts, and all their deletions wait.
     for (const who of ['gus', 'hal']) {
       await run(apiUser, ERASE_ACCOUNT, {
