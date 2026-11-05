@@ -23,10 +23,15 @@ const answer = (status: number, body?: unknown, type = 'application/json') =>
   });
 const token = async () => 'tok';
 // Node's fetch, Headers and Response (jsdom lacks them), and the client's browser-only check.
-(globalThis as { window?: unknown }).window = globalThis;
-
+// Each test replaces fetch and pretends to be a browser; both are put back after it.
+const realFetch = global.fetch;
 beforeEach(() => {
   sent.length = 0;
+  (globalThis as { window?: unknown }).window = globalThis;
+});
+afterEach(() => {
+  global.fetch = realFetch;
+  delete (globalThis as { window?: unknown }).window;
 });
 
 it('sends a fresh token, If-Match and the Idempotency-Key, and no cookies', async () => {

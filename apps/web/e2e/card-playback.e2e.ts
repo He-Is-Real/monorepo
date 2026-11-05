@@ -297,11 +297,20 @@ test.describe('signing on demand', () => {
           )
         ).json()
       ).reads as number;
+    // Every request the browser makes for the story's page (a prefetch is one).
+    const asked: string[] = [];
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === `/stories/${slug}`) asked.push(r.url());
+    });
     await page.goto(`/stories?theme=prefetch_test&q=${slug}`);
+    // The card's Play button shows once the page has hydrated: from then on Next would
+    // prefetch the link in view, and on hover.
+    await expect(playButton(page, title)).toBeVisible();
     const link = page.getByRole('link', { name: title });
     await link.scrollIntoViewIfNeeded();
-    await link.hover(); // Next prefetches links in view and on hover
+    await link.hover();
     await page.waitForLoadState('networkidle');
+    expect(asked, 'nothing asked for the story’s page').toEqual([]);
     expect(await reads()).toBe(0);
 
     await playButton(page, title).click();

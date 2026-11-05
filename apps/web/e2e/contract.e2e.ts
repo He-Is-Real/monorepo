@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { type APIRequestContext, expect, test } from '@playwright/test';
 import { Contract } from '@heisreal/contracts/testing';
 import { fixtureToken, STUB_URL, STUB_USER_URL } from './servers';
@@ -232,8 +233,10 @@ test('the stub api-user’s hearts fit the contract', async ({ request }) => {
     ).toEqual([]);
     return res;
   };
-  // Its own session, so no other test's hearts show up.
-  const me = { authorization: `Bearer ${fixtureToken('contract')}` };
+  // Its own session, so no other test's (or repeat's) hearts show up.
+  const me = {
+    authorization: `Bearer ${fixtureToken(`contract-${randomUUID()}`)}`,
+  };
   // Plan 4e: a person on older terms can't add a heart until they agree to the latest.
   const older = `older-terms-contract${Date.now()}`;
   await request.post(`${STUB_USER_URL}/__e2e/sessions/${older}`, {

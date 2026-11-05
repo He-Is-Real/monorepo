@@ -85,17 +85,17 @@ test.describe('/admin/limits', () => {
     };
     const mine = await open();
     const theirs = await open();
-    for (const [page, drafts] of [
-      [theirs, '4'],
-      [mine, '5'],
-    ] as const) {
+    const save = async (page: Page, drafts: string) => {
       await page
         .getByLabel('Unfinished drafts one person can have')
         .fill(drafts);
       await page.getByRole('button', { name: 'Save' }).click();
       await page.getByRole('button', { name: 'Yes, save' }).click();
-    }
+    };
+    // Theirs is saved before mine is sent, so mine is the stale one.
+    await save(theirs, '4');
     await expect(theirs.locator('[data-save-status="done"]')).toBeVisible();
+    await save(mine, '5');
     const stale = mine.locator('[data-save-status="stale"]');
     await expect(stale).toContainText('Someone else changed the limits');
     await stale.getByRole('button', { name: 'Reload' }).click();

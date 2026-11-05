@@ -159,3 +159,53 @@ export async function recordAnnouncements(page: Page) {
       () => (window as unknown as { announced: string[] }).announced,
     );
 }
+
+/**
+ * From the next page load on, counts the page's own `fetch` calls (api-user's client, Next's
+ * server actions and navigations) and the answers it has taken in: read in full (or the call
+ * failed), then one task more, so what the page does with an answer in the same round has run.
+ * Call before the page loads; `fetchesTakenIn` then waits for them.
+ */
+export async function countFetches(page: Page) {
+  await page.addInitScript(() => {
+    const count = { started: 0, takenIn: 0 };
+    (window as unknown as { e2eFetches: typeof count }).e2eFetches = count;
+    const original = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      count.started += 1;
+      const answer = original(input, init);
+      // Registered before the page's own handlers, so the body can still be read.
+      answer
+        .then((res) => res.clone().text())
+        .catch(() => undefined)
+        .then(() => setTimeout(() => (count.takenIn += 1), 0));
+      return answer;
+    };
+  });
+}
+
+/**
+ * Waits until the page has taken in the answer to every fetch it started (`countFetches`), then
+ * two frames for React to render what it set: the positive signal to wait for before checking
+ * that something did not happen.
+ */
+export async function fetchesTakenIn(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const count = (
+          window as unknown as {
+            e2eFetches: { started: number; takenIn: number };
+          }
+        ).e2eFetches;
+        return count.started - count.takenIn;
+      }),
+    )
+    .toBe(0);
+  await page.evaluate(
+    () =>
+      new Promise((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(done)),
+      ),
+  );
+}

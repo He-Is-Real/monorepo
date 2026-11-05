@@ -102,6 +102,7 @@ async function person(
         ).json()
       ).data as {
         id: string;
+        version: number;
         status: string;
         description: string;
         primaryFormat: string;
@@ -549,8 +550,15 @@ test.describe('behaviour', () => {
     await toUpload(page);
     await page.getByLabel('Title').fill('My video');
     await expect(page).toHaveURL(/\/share\?draft=/);
+    // The title is saved, so the other tab edits the version this tab last saw.
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'saved',
+    );
     const [story] = await me.stories();
-    await me.editElsewhere(story.id, 1, { description: 'From the other tab' });
+    await me.editElsewhere(story.id, story.version, {
+      description: 'From the other tab',
+    });
     await page
       .getByLabel('Choose a file')
       .setInputFiles(clip(info.outputPath('clip.mp4')));

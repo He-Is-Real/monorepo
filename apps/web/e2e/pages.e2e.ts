@@ -1,4 +1,11 @@
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import {
+  expect,
+  type Locator,
+  type Page,
+  type Route,
+  test,
+} from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import {
   expectAllTargets,
   expectNoHorizontalOverflow,
@@ -334,6 +341,18 @@ test.describe('behaviour', () => {
   });
 
   test('Back from a story shows the same loaded list', async ({ page }) => {
+    // Loads past the second page wait, so the list stops at 30: where 30 cards still end near
+    // the screen's bottom, it would otherwise load a third page at once, sometimes before the
+    // count is seen. Loading more is a server action, a POST to the page.
+    let loads = 0;
+    const held: Route[] = [];
+    await page.route('**/stories*', (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      loads += 1;
+      if (loads === 1) return route.continue();
+      held.push(route);
+      return undefined;
+    });
     await page.goto('/stories');
     await scrollToEnd(page);
     await expect(cards(page)).toHaveCount(30);
@@ -344,6 +363,9 @@ test.describe('behaviour', () => {
         lis.map((li) => li.querySelector('a')?.getAttribute('href')),
       );
     const loaded = (await links()).slice(0, 30);
+    // Let the held loads go before leaving: the page's router waits for its server actions.
+    await page.unroute('**/stories*');
+    for (const route of held) await route.continue();
     await cards(page).nth(20).getByRole('link').click();
     await expect(page).toHaveURL(/\/stories\/[a-z0-9-]+$/);
     await page.goBack();
@@ -418,17 +440,31 @@ test.describe('behaviour', () => {
     test.skip(info.project.name !== 'desktop-1280', 'three columns');
     await page.goto('/stories');
     await expect(cards(page)).toHaveCount(15);
-    const boxes = await cards(page).evaluateAll((lis) =>
-      lis.map((li) => {
-        const r = (li.firstElementChild as HTMLElement).getBoundingClientRect();
-        return {
-          x: Math.round(r.x),
-          bottom: r.bottom,
-          height: r.height,
-          top: r.top,
-        };
-      }),
-    );
+    // The measured layout: every card's row span (--m, story-masonry.tsx) is the one its
+    // rendered height needs (spanFor in lib/masonry.ts: 4 px rows, 24 px gap). Until then the
+    // spans are the server's predictions, and pictures still loading can change the heights.
+    const layout = () =>
+      cards(page).evaluateAll((lis) =>
+        lis.map((li, index) => {
+          const r = (
+            li.firstElementChild as HTMLElement
+          ).getBoundingClientRect();
+          return {
+            index,
+            x: Math.round(r.x),
+            bottom: r.bottom,
+            height: r.height,
+            top: r.top,
+            measured:
+              li.style.getPropertyValue('--m') ===
+              String(Math.ceil((r.height + 24) / 4)),
+          };
+        }),
+      );
+    await expect
+      .poll(async () => (await layout()).every((b) => b.measured))
+      .toBe(true);
+    const boxes = await layout();
     const columns = new Map<number, number>();
     for (const b of boxes)
       columns.set(b.x, Math.max(columns.get(b.x) ?? 0, b.bottom));
@@ -443,25 +479,34 @@ test.describe('behaviour', () => {
     for (const col of byColumn)
       for (let i = 1; i < col.length; i++)
         expect(col[i].top).toBeGreaterThanOrEqual(col[i - 1].bottom - 1);
+    // Date order: the list is newest first, and down each column the cards keep that order.
+    for (const col of byColumn)
+      expect(col.map((b) => b.index)).toEqual(
+        col.map((b) => b.index).sort((a, b) => a - b),
+      );
   });
 
   // Codex review of #66, findings 1, 3, 4, 5 and 7.
   test('a story hidden since the last render is gone when the same filters are sent again', async ({
     page,
     request,
-  }, info) => {
-    const mine = `hide-test-${info.project.name}`;
+  }) => {
+    // A story of this run's own, so no other test or repeat hides or shows it.
+    const mine = `hide-test-${randomUUID()}`;
     const stub = STUB_URL;
-    await request.post(`${stub}/__test/show?slug=${mine}`);
-    await page.goto('/stories?theme=hide_test');
-    const card = page.getByRole('link', {
-      name: `Hide test story (${info.project.name})`,
-    });
+    expect(
+      (await request.post(`${stub}/__test/story?slug=${mine}`)).status(),
+    ).toBe(204);
+    await page.goto(`/stories?theme=hide_test&q=${mine}`);
+    const card = page.getByRole('link', { name: `Hide test story ${mine}` });
     await expect(card).toBeVisible();
     await request.post(`${stub}/__test/hide?slug=${mine}`);
-    await page.getByRole('button', { name: 'Search' }).click();
-    await expect(card).toHaveCount(0);
-    await request.post(`${stub}/__test/show?slug=${mine}`);
+    try {
+      await page.getByRole('button', { name: 'Search' }).click();
+      await expect(card).toHaveCount(0);
+    } finally {
+      await request.post(`${stub}/__test/show?slug=${mine}`);
+    }
   });
 
   test('after Back, the filter fields show the filters of the list on screen', async ({

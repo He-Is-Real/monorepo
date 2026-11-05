@@ -13,7 +13,12 @@ test('the home page shows the three newest stories', async ({ page }) => {
   // Newest first, never a chosen one (Joel, 2026-10-23: no featured stories).
   const newest = DATASET.stories
     .filter((s) => s.status === 'approved')
-    .sort((a, b) => (a.publishedDaysAgo ?? 0) - (b.publishedDaysAgo ?? 0))
+    // api-public-read's order: publishedAt, then the record id, both newest first.
+    .sort(
+      (a, b) =>
+        (a.publishedDaysAgo ?? 0) - (b.publishedDaysAgo ?? 0) ||
+        (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+    )
     .slice(0, 3)
     .map((s) => s.title);
   await page.goto('/');
