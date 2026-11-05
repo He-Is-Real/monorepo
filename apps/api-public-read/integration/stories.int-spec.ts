@@ -13,6 +13,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
   let t: TestDatabase;
   let app: INestApplication;
   let url: string;
+  let passTime: (ms: number) => void;
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -40,7 +41,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
        };`,
     );
     // Through startPublicRead, so every response is checked against the contract.
-    ({ app, url } = await startPublicRead(t));
+    ({ app, url, passTime } = await startPublicRead(t));
   });
   afterAll(async () => {
     await app?.close();
@@ -157,6 +158,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
          image: { path: 'dev-seed/dev-seed.webp', width: 1200, height: 1600 } });
        COMMIT TRANSACTION;`,
     );
+    passTime(60_000); // the story page read earlier is a minute old (R13)
     const story = (await (await fetch(`${url}/v1/stories/${SLUG}`)).json()) as {
       image: unknown;
     };

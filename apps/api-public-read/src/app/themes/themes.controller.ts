@@ -1,12 +1,4 @@
-import {
-  Controller,
-  Get,
-  Headers,
-  Inject,
-  Module,
-  Query,
-  Res,
-} from '@nestjs/common';
+import { Controller, Get, Inject, Module, Query, Res } from '@nestjs/common';
 import { runQuery, SURREAL } from '@heisreal/database';
 import {
   groupThemes,
@@ -16,7 +8,7 @@ import {
 } from '@heisreal/story-cards';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
-import { collectionETag, sendCached } from '../caching';
+import { collectionETag, withETag } from '../caching';
 import { refuseQueryParameters } from '../stories/browse.query';
 
 /**
@@ -50,7 +42,6 @@ export class ThemesController {
   @Get()
   async listThemes(
     @Query() query: Record<string, unknown>,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ data: ThemeCategory[] } | undefined> {
     refuseQueryParameters(query);
@@ -72,7 +63,7 @@ export class ThemesController {
         (t) => t.highlighted || used.has(t.id),
       ),
     };
-    return sendCached(res, ifNoneMatch, body, collectionETag(body));
+    return withETag(res, body, collectionETag(body));
   }
 }
 

@@ -12,7 +12,7 @@ is for) is the delivery plan in the `project` repo (`context/future/delivery-pla
 - The long dated log and the per-step build notes that used to be here are in git history
   (this file before 2026-11-04).
 
-**Last updated:** 2026-11-04
+**Last updated:** 2026-11-05
 
 Everything below runs on the **dev** site only, with made-up test stories. Nothing reaches the
 public until the "Go live" milestone; the old prototype and the Squarespace site keep running
@@ -114,6 +114,9 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
 - A signed-in request isn't cut off when the person's short-lived sign-in pass expires midway
   ([#165](https://github.com/He-Is-Real/monorepo/pull/165)).
+- The public API answers a repeated request from memory for up to 60 seconds, so busy pages ask
+  the database far less; a withdrawn or hidden story can show for up to a minute (database
+  review 2, Joel's decision R13; [#181](https://github.com/He-Is-Real/monorepo/pull/181)).
 
 **Left in the M2 plan:**
 

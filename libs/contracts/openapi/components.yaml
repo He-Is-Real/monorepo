@@ -108,12 +108,15 @@ components:
         format: uri-reference
     CacheControlPublic:
       description: |
-        Public queries (D30). `no-store` unless shared caching is turned on
-        (`PUBLIC_RESPONSE_CACHING=on`; D51: never in dev), so a hidden, withdrawn or erased story
-        disappears on the next request. When on: `public, max-age=60, stale-while-revalidate=300`.
+        Public queries (D30). The service answers a repeated request from memory for up to 60
+        seconds (R13), so a hidden, withdrawn or erased story disappears within a minute.
+        `no-store` unless shared caching is turned on (`PUBLIC_RESPONSE_CACHING=on`; D51: never in
+        dev). When on: `public, max-age=N`, where N is the seconds the answer has left of its 60
+        (counted from when the database was asked, so a slow read leaves less; `no-store` when none
+        is left), with no `stale-while-revalidate`: 60 seconds in total.
       schema:
         type: string
-        enum: [no-store, 'public, max-age=60, stale-while-revalidate=300']
+        pattern: '^(no-store|public, max-age=([1-9]|[1-5][0-9]|60))$'
         example: no-store
     CacheControlPrivate:
       description: Personal and admin queries (D30).

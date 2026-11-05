@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Headers,
   HttpStatus,
   Inject,
   Module,
@@ -12,7 +11,7 @@ import {
 import { ProblemException } from '@heisreal/http';
 import { MediaUrls } from '@heisreal/story-cards';
 import type { Response } from 'express';
-import { representationETag, sendCached } from '../caching';
+import { representationETag, withETag } from '../caching';
 import { refuseQueryParameters } from '../stories/browse.query';
 
 /**
@@ -59,8 +58,8 @@ const notFound = () =>
 
 /**
  * api-public-read.yaml, tag Site: getSiteVideo. A signed, expiring player link for one site
- * video (D52's token auth, the same key and 6–7 hour links as stories). Public caching, when
- * turned on, keeps it at most 6 minutes, well inside the link's life.
+ * video (D52's token auth, the same key and 6–7 hour links as stories). Memory and public
+ * caching keep it at most 60 seconds in total (R13), well inside the link's life.
  */
 @Controller('v1/site-videos')
 export class SiteVideosController {
@@ -73,7 +72,6 @@ export class SiteVideosController {
   getSiteVideo(
     @Param('key') key: string,
     @Query() query: Record<string, unknown>,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
     refuseQueryParameters(query);
@@ -89,7 +87,7 @@ export class SiteVideosController {
       playbackUrl,
       expiresAt: new Date(expires * 1000).toISOString(),
     };
-    return sendCached(res, ifNoneMatch, body, representationETag(body));
+    return withETag(res, body, representationETag(body));
   }
 }
 

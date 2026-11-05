@@ -81,6 +81,7 @@ describe('browse API over the dev dataset', () => {
   let t: TestDatabase;
   let app: INestApplication;
   let url: string;
+  let passTime: (ms: number) => void;
 
   const get = (path: string, headers: Record<string, string> = {}) =>
     fetch(`${url}${path}`, { headers, redirect: 'manual' });
@@ -115,7 +116,7 @@ describe('browse API over the dev dataset', () => {
          SET publishedAt = (SELECT VALUE publishedAt FROM ONLY type::record('publicStory', $with))`,
       { moved: TIED.moved, with: TIED.with },
     );
-    ({ app, url } = await startPublicRead(t));
+    ({ app, url, passTime } = await startPublicRead(t));
   });
   afterAll(async () => {
     await app?.close();
@@ -622,9 +623,12 @@ describe('browse API over the dev dataset', () => {
          COMMIT TRANSACTION;`,
         { guid: GUID },
       );
+      // One clock for the links and the answer cache (R13), as in production.
       signed = await startPublicRead(
         t,
         signing(() => now),
+        undefined,
+        { now: () => now },
       );
     });
     afterAll(() => signed?.app.close());
@@ -680,26 +684,27 @@ describe('browse API over the dev dataset', () => {
     });
   });
 
-  describe('caching (D51)', () => {
+  describe('caching (D51, R13)', () => {
     const saved = process.env['PUBLIC_RESPONSE_CACHING'];
     afterEach(() => {
       if (saved === undefined) delete process.env['PUBLIC_RESPONSE_CACHING'];
       else process.env['PUBLIC_RESPONSE_CACHING'] = saved;
     });
 
-    it('lets shared caches keep public reads only when turned on (Go live, D56)', async () => {
+    it('lets shared caches keep public reads only when turned on (Go live, D56), 60 seconds in total', async () => {
       process.env['PUBLIC_RESPONSE_CACHING'] = 'on';
+      passTime(60_000); // nothing from earlier tests in memory: each answer is fresh
       for (const path of [
         '/v1/stories?limit=2',
         '/v1/stories/test-video-vertical-phone/related',
         '/v1/stories/test-video-vertical-phone',
       ])
         expect((await get(path)).headers.get('cache-control')).toBe(
-          'public, max-age=60, stale-while-revalidate=300',
+          'public, max-age=60',
         );
     });
 
-    it('drops a hidden story from every read on the next request', async () => {
+    it('drops a hidden story from every read once the answers in memory are a minute old', async () => {
       // The newest story, on every first page; PR #61 hides a story by deleting its row.
       const slug = 'test-story-walking-skeleton';
       const id = 'seed_w06';
@@ -713,6 +718,11 @@ describe('browse API over the dev dataset', () => {
       await run(await t.migrator(), `DELETE type::record('publicStory', $id)`, {
         id,
       });
+      // R13's one trade-off: the answers read a moment ago still show it, for up to 60 seconds.
+      expect(
+        (await page('/v1/stories?limit=5')).data.map((c) => c.id),
+      ).toContain(id);
+      passTime(60_000);
       const list = await get('/v1/stories?limit=5');
       expect(list.headers.get('cache-control')).toBe('no-store');
       expect(((await list.json()) as Page).data.map((c) => c.id)).not.toContain(

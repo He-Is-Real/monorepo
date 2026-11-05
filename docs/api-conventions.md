@@ -172,9 +172,14 @@ short-lived upload credentials.
   the last page. No total counts, and no engagement metrics anywhere public.
 - **Fields:** camelCase, RFC 3339 UTC timestamps, opaque IDs (record IDs without the table prefix;
   clients never parse them).
-- **Caching:** public queries send `Cache-Control: no-store` until shared caching is turned on
+- **Caching:** api-public-read answers a repeated public query from its own memory for up to 60
+  seconds (R13; per running copy, at most 500 answers, no timers: `public-cache.ts`). Public
+  queries send `Cache-Control: no-store` until shared caching is turned on
   (`PUBLIC_RESPONSE_CACHING=on` on api-public-read; D51: never in dev; Go live decides, D56), then
-  `public, max-age=60, stale-while-revalidate=300`. web fetches story data `no-store` too;
+  `public, max-age=N`, N being the seconds the answer has left of its 60 (counted from when the
+  database was asked; `no-store` when none is left), with no
+  `stale-while-revalidate`: a public answer is never more than 60 seconds old in total (a `304`
+  says the same). web fetches story data `no-store` too;
   personal and admin queries send `Cache-Control: private, no-store`. **Every query** returns an
   `ETag` (weak for collections, see above), accepts `If-None-Match`, and answers `304` with the same
   validator the `200` would carry (RFC 9110 §15.4.5).

@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Headers,
   HttpStatus,
   Inject,
   Module,
@@ -17,7 +16,7 @@ import {
 } from '@heisreal/story-cards';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
-import { publicCacheControl, representationETag, sendCached } from '../caching';
+import { publicCacheControl, representationETag, withETag } from '../caching';
 import { BrowseController } from './browse.controller';
 import { isSlug, notFound } from './slug';
 
@@ -126,7 +125,6 @@ export class StoriesController {
   @Get(':slug')
   async getStoryBySlug(
     @Param('slug') slug: string,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StoryPublic | undefined> {
     if (!isSlug(slug)) throw notFound();
@@ -145,7 +143,7 @@ export class StoriesController {
       return undefined;
     }
     const story = toPublic(row, this.urls);
-    return sendCached(res, ifNoneMatch, story, representationETag(story));
+    return withETag(res, story, representationETag(story));
   }
 }
 
