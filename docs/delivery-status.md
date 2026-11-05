@@ -116,7 +116,7 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   ([#165](https://github.com/He-Is-Real/monorepo/pull/165)).
 - The public API answers a repeated request from memory for up to 60 seconds, so busy pages ask
   the database far less; a withdrawn or hidden story can show for up to a minute (database
-  review 2, Joel's decision R13; PR_LINK).
+  review 2, Joel's decision R13; [#181](https://github.com/He-Is-Real/monorepo/pull/181)).
 
 **Left in the M2 plan:**
 
