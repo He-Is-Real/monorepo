@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Headers,
   HttpStatus,
   Inject,
   Param,
@@ -18,7 +17,7 @@ import {
 } from '@heisreal/story-cards';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
-import { collectionETag, publicCacheControl, sendCached } from '../caching';
+import { collectionETag, publicCacheControl, withETag } from '../caching';
 import {
   type BrowseQuery,
   encodeCursor,
@@ -103,7 +102,6 @@ export class BrowseController {
   @Get()
   async browseStories(
     @Query() query: Record<string, unknown>,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StoryPage | undefined> {
     const browse = parseBrowseQuery(query);
@@ -114,7 +112,7 @@ export class BrowseController {
         data: rows.map((row) => toSummary(row, this.urls)),
         nextCursor: null,
       };
-      return sendCached(res, ifNoneMatch, page, collectionETag(page));
+      return withETag(res, page, collectionETag(page));
     }
     const results = await runQuery(this.db, queryFor(browse), {
       q: browse.q ?? undefined,
@@ -139,14 +137,13 @@ export class BrowseController {
             })
           : null,
     };
-    return sendCached(res, ifNoneMatch, page, collectionETag(page));
+    return withETag(res, page, collectionETag(page));
   }
 
   @Get(':slug/related')
   async getRelatedStories(
     @Param('slug') slug: string,
     @Query() query: Record<string, unknown>,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ data: StorySummary[] } | undefined> {
     refuseQueryParameters(query);
@@ -168,7 +165,7 @@ export class BrowseController {
       return undefined;
     }
     const body = { data: related.map((row) => toSummary(row, this.urls)) };
-    return sendCached(res, ifNoneMatch, body, collectionETag(body));
+    return withETag(res, body, collectionETag(body));
   }
 }
 

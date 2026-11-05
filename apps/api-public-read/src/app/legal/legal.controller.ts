@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Headers,
   HttpStatus,
   Inject,
   Module,
@@ -13,7 +12,7 @@ import { runQuery, SURREAL } from '@heisreal/database';
 import { ProblemException } from '@heisreal/http';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
-import { collectionETag, representationETag, sendCached } from '../caching';
+import { collectionETag, representationETag, withETag } from '../caching';
 
 /** Plan 4e: the four legal texts (`LegalDocumentName`) and the table each one's versions live in. */
 const DOCUMENTS = {
@@ -85,7 +84,6 @@ export class LegalController {
   async getDocument(
     @Param('document') document: string,
     @Query() query: Record<string, unknown>,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
     noQuery(query);
@@ -109,7 +107,7 @@ export class LegalController {
       latest: { ...versionOf(latest), content: latest.content },
       versions: versions.map(versionOf),
     };
-    return sendCached(res, ifNoneMatch, body, collectionETag(body));
+    return withETag(res, body, collectionETag(body));
   }
 
   /**
@@ -121,7 +119,6 @@ export class LegalController {
     @Param('document') document: string,
     @Param('version') version: string,
     @Query() query: Record<string, unknown>,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
     noQuery(query);
@@ -143,7 +140,7 @@ export class LegalController {
       content: row.content,
       latest: results[results.length - 1] === row.version,
     };
-    return sendCached(res, ifNoneMatch, body, representationETag(body));
+    return withETag(res, body, representationETag(body));
   }
 }
 

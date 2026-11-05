@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-04
+**Last updated:** 2026-11-05
 
 ## Needs Joel to confirm
 
@@ -272,6 +272,11 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - Sharing links use the site's brand picture, not the story's.
 - Video, audio and pictures load only through signed links that expire (6 to 7 hours on dev).
   (D52, D64)
+- **Public pages may show a change up to 60 seconds late.** The public API keeps recent answers
+  in memory for a minute, so a story that is withdrawn, deleted or hidden, or a new or edited one,
+  can take up to 60 seconds to disappear or appear. Never longer: browsers and any future CDN
+  may keep an answer only for the part of the minute it has left. Nothing personal is kept this
+  way. (R13, Joel 2026-11-05)
 - Every page works from 320-pixel phones to large desktops, in light or dark (following the
   device, with a switch), with text enlarged to 200%. Body text sits in a reading column of at
   most about 80 characters a line.
@@ -397,7 +402,10 @@ For developers. Details are in the linked documents.
   load balancer. (D3, D4; AGENTS.md)
 - **Background work (Dapr)** runs off Google Cloud, on Joel's machine and later church
   hardware, pulling from Pub/Sub; a private Cloud Run service writes results. (D78)
-- **No CDN in front of the site or APIs in dev;** API responses are not cached in dev. (D51)
+- **No CDN in front of the site or APIs in dev;** browsers and CDNs are told not to keep API
+  responses in dev. (D51) api-public-read keeps public answers in its own memory for at most 60
+  seconds, per running copy, with no timers, so Cloud Run still bills only per request and scales
+  to zero. (R13)
 - **Budget:** £15 a month with alerts at £3, £7.50 and £15. (decision 10)
 - **Tests measure behaviour** (AGENTS.md; test clean-up T1–T10, 2026-10-24).
 - **Dependencies** update through Renovate. (D106)

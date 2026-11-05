@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { DatabaseModule } from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
@@ -9,6 +9,7 @@ import { MediaUrlsModule } from '@heisreal/story-cards';
 import { SiteVideosModule } from './site-videos/site-videos.controller';
 import { StoriesModule } from './stories/stories.controller';
 import { ThemesModule } from './themes/themes.controller';
+import { PublicAnswerCache, PublicCacheInterceptor } from './public-cache';
 
 @Module({
   imports: [
@@ -22,6 +23,11 @@ import { ThemesModule } from './themes/themes.controller';
     SiteVideosModule,
   ],
   // RFC 9457 errors (D30). api-user and api-admin adopt it with their first M1/M2 commands.
-  providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
+  // R13: recent public answers from memory, for 60 seconds at most (public-cache.ts).
+  providers: [
+    { provide: APP_FILTER, useClass: ProblemFilter },
+    { provide: PublicAnswerCache, useFactory: () => new PublicAnswerCache() },
+    { provide: APP_INTERCEPTOR, useClass: PublicCacheInterceptor },
+  ],
 })
 export class AppModule {}
