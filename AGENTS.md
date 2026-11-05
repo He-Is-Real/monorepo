@@ -15,11 +15,26 @@ Two docs record where we are and how the site behaves. Read both before starting
 API work follows `docs/api-conventions.md`; the OpenAPI specs in `libs/contracts/openapi` are the
 source of truth, so change them in the same PR as the code.
 
-- **Joel owns the data structure, the API and behaviour (Joel, 2026-11-01).** Consult Joel before any
-  change to the database data structure (schema, fields, migrations that reshape data), the API
-  (OpenAPI contracts, routes, payloads) or behaviour (what users and admins see and can do). Reviewer
-  agents have no authority at these levels: they may block a merge or deployment and make suggestions,
-  but only so the question goes to Joel, who decides.
+- **Joel's input is required for database, API and behaviour changes (Joel, 2026-11-01; made explicit
+  2026-11-05).** Joel owns these levels. No agent (coding, reviewing or coordinating) decides them on its own:
+  - **Database data structure:** tables, fields, types, indexes, record ids, permissions, events and
+    functions that change what is stored or who may read or write it, and migrations or data scripts
+    that reshape or delete data.
+  - **API:** OpenAPI contracts, routes, request and response payloads, status and error codes.
+  - **Behaviour:** what users, moderators and admins see and can do, including legal texts, limits and
+    what is public.
+
+  How it works:
+  - Build only changes Joel has approved (a decision doc in `../project/context/research`, or his direct
+    answer). The PR body names that approval for each such change.
+  - If you find you need a change Joel hasn't approved (a new field, a changed route or payload, different
+    user-visible behaviour), stop and report it as a question with a recommendation. Don't build it.
+  - Reviewer agents have no authority at these levels. They may block a merge or deployment and make
+    suggestions, but a finding that would change any of them is labelled "Needs Joel" and goes to Joel,
+    not to the coding agent as an instruction. An unapproved change at these levels is a blocking finding.
+  - Exempt: bug fixes that restore behaviour Joel already approved, tests, docs, and infrastructure that
+    doesn't affect these levels. Say so in the PR.
+
 - Services never call each other. Each API connects to SurrealDB as its own least-privilege user
   (api-public-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
