@@ -4,7 +4,7 @@
  * `<videoId>/<file>` (MediaUrls.thumbnailUrl, bunny-tokens.ts safePath): at most 500
  * characters, each segment only `A-Z a-z 0-9 . _ -`, no `.` or `..` segment. The database
  * refuses to approve or publish an audio story whose thumbnail breaks the same rule
- * (fn::media::own_thumbnail in libs/database/schema/schema.surql), so a published audio story
+ * (fn::media::own_thumbnail in libs/database/schema/schema-04-stories.surql), so a published audio story
  * always has a picture the API can sign.
  */
 export interface ThumbnailPathCase {

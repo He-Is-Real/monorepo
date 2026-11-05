@@ -1,7 +1,7 @@
 # Database permissions: D13 + D27 spike
 
 Spike for D24 step 3 (`project/context/research/m0-schema-consent-decisions.html`, D13 B and
-D27 B). It proves the draft `schema.surql` permission model on **SurrealDB v3.2.4** (the
+D27 B). It proves the schema's permission model (`libs/database/schema`) on **SurrealDB v3.2.4** (the
 digest the cluster runs) with **surrealdb.js 2.0.8** (the version in the lockfile), using
 automated tests. It also records what had to change in the draft and what is still unproven.
 
@@ -9,7 +9,7 @@ automated tests. It also records what had to change in the draft and what is sti
 
 | Path                                          | What                                                                          |
 | --------------------------------------------- | ----------------------------------------------------------------------------- |
-| `libs/database/schema/schema.surql`           | Declarative schema (D14), applied in full in one transaction                  |
+| `libs/database/schema/schema-0N-*.surql`      | Declarative schema (D14), one file per area, applied in one transaction       |
 | `libs/database/schema/access-clerk.surql`     | `DEFINE ACCESS clerk`, only when `$clerk_jwt_public_key` is set               |
 | `libs/database/schema/data/000N-*.surql`      | Run-once data scripts; 0009 seeds version 0 of the four legal texts (plan 4e) |
 | `libs/database/schema/migrate.py`             | The D14 runner: the migrate Job and these tests both use it                   |
@@ -407,9 +407,9 @@ retried`, on both RocksDB and the in-memory engine.
     match): `trusted` (the whitelist: no open-drafts or weekly limit) and optional overrides of
     `openDraftsMax`, `submissionsPer7Days` and `uploadRequestsPerHour` (NONE = the setting).
     Written by api-admin's login (naming the admin) and system users; the person reads their own
-    row. An admin resets someone with an update (trusted false, overrides NONE), which is audited;
-    only api-user's login deletes the row, at erasure (Codex #118: a delete would change someone's
-    limits with no audit row). Every change writes `UpdateSubmitterLimits`.
+    row. An admin resets someone with an update (trusted false, overrides NONE), which names them
+    in `changedBy`; only api-user's login deletes the row, at erasure (Codex #118: a delete would
+    change someone's limits without saying who).
     `devSeed = true` marks dev-seed's rows for dev's test accounts and is refused unless
     `_setting:consent` says dev. `fn::limits::effective($user)` is the one definition of what
     applies to a person. **Enforced:** `story_limits`, only on the person's own writes (the
@@ -691,25 +691,22 @@ retried`, on both RocksDB and the in-memory engine.
       `themesMin` isn't re-checked; only its next submission is (item 36).
     - **`themeCatalog:current`** `{version, changedBy, changedByRole, updatedAt}` is the themes'
       one version (D29) for `/admin/themes`. Only api-admin's login writes it (naming the admin),
-      nobody deletes it, and its event writes the `SaveThemes` audit row. api-admin's
+      nobody deletes it. api-admin's
       `PUT /v1/admin/themes` checks `If-Match` against it and writes the whole difference (creates,
       renames, moves, highlights, deletes) and the version in one transaction, so two saves from
       the same version can't both land (`412`). The old `CreateTag`/`UpdateTag`/`DeleteTag` routes
       are gone.
     - **`story.themeRefs` / `publicStory.themeRefs`** (`array<record<theme>>`, at most 20) replace
-      `tagRefs` (`story.tagRefs` stays defined, `PERMISSIONS NONE`, only because `data/0003` still
-      writes `tagRefs: []`); `publicStory.themeIds` replaces `tagSlugs` (M1 step 6a above).
+      `tagRefs`; `publicStory.themeIds` replaces `tagSlugs` (M1 step 6a above). Database review 2
+      removed the last `tagRefs` fields and the empty `tag` table.
     - **Removed:** the `tag` table's fields and `tag_delete` event, `themesFence`,
       `fn::fence::themes`, `fn::settings::themes_needed()`, `submissionSettings.tagsMin`/`tagsMax`
       (now `themesMin`/`themesMax`).
-    - **`data/0008-themes.surql`** (runs once): creates Other, then copies the old tag groups to
-      categories with new ULIDs (theme → Topics, all highlighted; journey → Journeys; emotion →
-      Feelings), relinks every story and published story, moves the limits to their new names and
-      empties `tag`. The `tag` table stays defined, empty and `PERMISSIONS NONE` until a later
-      cleanup removes it with 0008: 3.2.4 refuses a `SELECT` from an undefined table on a fresh
-      database, and `data/0003` still writes `tagRefs: []`.
+    - **`data/0008-themes.surql`** (ran once, then left the bundle in database review 2) created
+      Other and turned the old tags into themes. `data/0010-theme-category-other.surql` now
+      creates Other on a new database.
     - Tests: `libs/database/integration/themes.int-spec.ts` (permissions, Other, deletes, submit
-      checks, the version and audit row, 0008 on a migrated database),
+      checks, the version and who changed it),
       `apps/api-admin/integration/themes.int-spec.ts` (the save).
 
 ### Plan 4e: consent, privacy and terms (Joel, 2026-10-31 and 2026-11-01)
@@ -768,34 +765,80 @@ retried`, on both RocksDB and the in-memory engine.
       `schema` (the guard events survive schema-change attempts) and `migration` (0009 once,
       never changing a saved version, and the upgrade from the previous release).
 
+### Database review 2: pre-production tidy (Joel, 2026-11-04 and 2026-11-05)
+
+The items above describe the schema as it was then. Where they differ, this wins (decisions in
+`project/context/research/db-review-2-decisions.html`; dev's database was wiped and rebuilt for
+it, see "Dev database reset" in `infra/k8s/surrealdb/README.md`).
+
+46. **No audit log.** `auditLog`, its actions and every write to it (theme saves, settings,
+    limits, legal publishing, erasure, hiding and restoring stories) are gone. Who changed the
+    settings, a person's limits or the themes last stays on that row (`changedBy`,
+    `changedByRole`). Each legal text version gains `publishedBy` (`record<user>`, readonly): the
+    admin api-admin publishes it for. A version saved by a service without it is refused
+    (`legal_published_by`); only system users (the migrator's version 0) may leave it empty. Only
+    api-admin and system users read it.
+47. **`user.status` replaces `gdprDeletedAt`.** `'active'` (the default) or `'deleted'`, with no
+    date and no reason. Erasure sets it; once `deleted` it never goes back (a write that sets it
+    back is ignored). Every "is this person erased?" rule asks `status = 'deleted'` (the Clerk
+    access, the binding and erasure events, `fn::person::live`, the heart and agreement rules).
+    api-admin's person view returns `status` (OpenAPI `UserAdmin`).
+48. **One fence table.** `personFence`, `identityFence` and `themeFence` became `fence`, with ids
+    `fence:person-<user id>`, `fence:identity-<sha256>` and `fence:theme-<theme id>`, bumped by
+    `fn::fence::touch('person' | 'identity' | 'theme', …)`. The same writes bump the same fence
+    as before (the concurrency, person-linked and themes suites).
+49. **Expired request keys are deleted.** Nightly housekeeping's `expired-request-keys` chore
+    deletes `idempotencyKey` rows past `expiresAt` (a person's, Clerk's webhook's and api-admin's).
+    Housekeeping's login may read and delete only expired keys, nothing else in that table.
+50. **api-admin deletes less.** It can no longer delete `uploadGrant`, `submissionLog` or
+    `moderationReview` rows (api-user's erasure and the story cascades still do). Workflow's rights
+    and api-admin's right to update `user` (the planned legacy import) stay.
+51. **Indexes.** `pendingDeletion_at` is gone (unused). `publicStory_slughist` is now over
+    `slugHistory.*`: on a local 3.2.4, `EXPLAIN` showed the old-slug lookup (`slugHistory CONTAINS
+$slug`) scanning the table with the plain index and using the element index.
+52. **Hearts' ids carry their time.** A heart is `favourite:<ulid>`. `favourite_rules` refuses a
+    new heart whose id isn't a ULID made within 5 seconds of now (`fn::favourite::made_now`), so
+    nobody can backdate one. `favourite.createdAt` and the `favourite_list` index are gone: the
+    list sorts and pages by id (cursor `{v: 2, k: [id]}`), and "Download my data" reads the time
+    back with `time::from_ulid`. `(person, story)` stays unique. Timed on a local database
+    (2026-11-05): a person's list uses `favourite_unique`'s person prefix, about 2 ms for 250
+    hearts and 40 ms for 5,000 (the old index: 1.5 ms); no index can cover the id.
+53. **Removed leftovers.** The 64 `REMOVE …` lines, the empty `tag` table, both `tagRefs` fields
+    and data scripts 0004 and 0008 (they had run everywhere). `data/0010` creates the fixed Other
+    theme category, which 0008 used to create.
+54. **The schema is one file per area**, applied in name order as one step:
+    `schema-01-system.surql` (bookkeeping, service logins, fences), `-02-people`, `-03-themes`,
+    `-04-stories`, `-05-legal-texts`, `-06-settings-and-logs`. The runner refuses a bundle with
+    the old `schema.surql` next to them; the previous release's own runner still reads its
+    single file (the upgrade test).
+55. **The draft legal texts (version 0, data 0009)** say that while a story is a draft, a small
+    number of super admins can also see it (for support and safety), and while it waits for
+    review, the moderators.
+
 ## Person-linked tables
 
-Every table in `schema.surql`; `person-linked.int-spec.ts` fails if a new one isn't listed.
+Every table in the schema; `person-linked.int-spec.ts` fails if a new one isn't listed.
 
-| Table                                                                                                                                                                                                                                                                       | Holds or links                                                                                             | Class      | On create/update                                                                                              | After erasure                                                            |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `user`                                                                                                                                                                                                                                                                      | the person (Clerk id until erasure)                                                                        | root       | fence bump; binding and erasure rules (D37); `gdprDeletedAt` set by the DB                                    | stub: id, `createdAt`, `gdprDeletedAt`                                   |
-| `story`                                                                                                                                                                                                                                                                     | testimony; `submitter`                                                                                     | linked     | submitter live + fence (and owner and agreement rules)                                                        | deleted                                                                  |
-| `publicStory`                                                                                                                                                                                                                                                               | published testimony; same id as the story                                                                  | linked     | story approved + mirrored + testimony consent; submitter live + fence                                         | deleted (cascade)                                                        |
-| `hiddenStory`                                                                                                                                                                                                                                                               | hidden publish data; same id as story                                                                      | linked     | event only; submitter live + fence                                                                            | deleted (cascade)                                                        |
-| `moderationReview`                                                                                                                                                                                                                                                          | feedback about a story; `story`, `moderator` (api-admin only; the owner reads the rest, item 42)           | linked     | story exists, its submitter live + fence                                                                      | deleted (cascade)                                                        |
-| `idempotencyKey`                                                                                                                                                                                                                                                            | `[service, user record, key]`; `{id, version}`                                                             | linked     | user live + fence (webhook keys exempt); people: own keys only                                                | deleted by erasure; others expire in 24 h                                |
-| `favourite`                                                                                                                                                                                                                                                                 | a heart; `person`, `story`                                                                                 | linked     | person + story owner live, fenced; latest terms of use; story public; own rows                                | deleted (erasure event; also with the story)                             |
-| `auditLog`                                                                                                                                                                                                                                                                  | `actor`, `entity` ids; typed codes                                                                         | kept (D38) | none: no person-state dependency, and the fields can't hold text                                              | kept 6 years; ids point nowhere                                          |
-| `personFence`                                                                                                                                                                                                                                                               | a counter keyed by user id                                                                                 | none       | written by events only; `PERMISSIONS NONE`                                                                    | stays (no data); can go with the stub                                    |
-| `identityFence`                                                                                                                                                                                                                                                             | a counter keyed by a Clerk id's fingerprint (D82)                                                          | none       | written by events only; `PERMISSIONS NONE`                                                                    | stays (no data)                                                          |
-| `erasedIdentity`                                                                                                                                                                                                                                                            | a retained fingerprint (sha256) of an erased Clerk id (D82): pseudonymous, not anonymous; no link, no date | kept       | api-user's login creates and reads; nobody updates or deletes                                                 | kept for ever (item 41)                                                  |
-| `pendingDeletion`                                                                                                                                                                                                                                                           | Bunny ids, deleted stories' folders, a Clerk id until Clerk confirms (D40); no person link                 | kept       | written by erasure and by a story's delete (folders); api-user and housekeeping read, count tries and delete  | gone once each deletion is done, a folder after its final pass (item 41) |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                                                                  | --------------------------------------------------------------                                             | ---------- | ------------------------------------------------------------------------------------------------              | -----------------------------------------------------------------        |
-| `submitterLimits`                                                                                                                                                                                                                                                           | D112's per-person limits and trusted mark; `user`, `changedBy`                                             | linked     | user live + fence; `changedBy` required from api-admin; `devSeed` dev only; audit row per change              |
-| `submissionLog`                                                                                                                                                                                                                                                             | D113's recent submissions; `person`                                                                        | linked     | written by `story_limits` only; person live + fence                                                           |
-| `uploadGrant`                                                                                                                                                                                                                                                               | D80's uploads; `person`, `story`                                                                           | linked     | created and renewed by api-user's login only; person live + fence (`uploadGrant_attach`, `uploadGrant_renew`) |
-| `submissionSettings`, `themeCategory`, `theme`, `themeCatalog`, `tag` (empty), `termsOfUseAgreement`, `testimonyConsent`, `socialMediaSharingConsent`, `privacyNotice` (texts only), `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_identity`, `_setting` | no person data                                                                                             | none       | —                                                                                                             | —                                                                        |
+| Table                                                                                                                                                                                                                                                                                                     | Holds or links                                                                                             | Class      | On create/update                                                                                              | After erasure                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `user`                                                                                                                                                                                                                                                                                                    | the person (Clerk id until erasure)                                                                        | root       | fence bump; binding and erasure rules (D37); `status` set to `deleted` by erasure only, never back            | stub: id, `createdAt`, `status`                                          |
+| `story`                                                                                                                                                                                                                                                                                                   | testimony; `submitter`                                                                                     | linked     | submitter live + fence (and owner and agreement rules)                                                        | deleted                                                                  |
+| `publicStory`                                                                                                                                                                                                                                                                                             | published testimony; same id as the story                                                                  | linked     | story approved + mirrored + testimony consent; submitter live + fence                                         | deleted (cascade)                                                        |
+| `hiddenStory`                                                                                                                                                                                                                                                                                             | hidden publish data; same id as story                                                                      | linked     | event only; submitter live + fence                                                                            | deleted (cascade)                                                        |
+| `moderationReview`                                                                                                                                                                                                                                                                                        | feedback about a story; `story`, `moderator` (api-admin only; the owner reads the rest, item 42)           | linked     | story exists, its submitter live + fence                                                                      | deleted (cascade)                                                        |
+| `idempotencyKey`                                                                                                                                                                                                                                                                                          | `[service, user record, key]`; `{id, version}`                                                             | linked     | user live + fence (webhook keys exempt); people: own keys only                                                | deleted by erasure; any key deleted by housekeeping once expired (24 h)  |
+| `favourite`                                                                                                                                                                                                                                                                                               | a heart; `person`, `story`                                                                                 | linked     | person + story owner live, fenced; latest terms of use; story public; own rows                                | deleted (erasure event; also with the story)                             |
+| `fence`                                                                                                                                                                                                                                                                                                   | counters: `fence:person-<user id>`, `fence:identity-<fingerprint>`, `fence:theme-<theme id>`               | none       | written by events only; `PERMISSIONS NONE`                                                                    | stays (no data)                                                          |
+| `erasedIdentity`                                                                                                                                                                                                                                                                                          | a retained fingerprint (sha256) of an erased Clerk id (D82): pseudonymous, not anonymous; no link, no date | kept       | api-user's login creates and reads; nobody updates or deletes                                                 | kept for ever (item 41)                                                  |
+| `pendingDeletion`                                                                                                                                                                                                                                                                                         | Bunny ids, deleted stories' folders, a Clerk id until Clerk confirms (D40); no person link                 | kept       | written by erasure and by a story's delete (folders); api-user and housekeeping read, count tries and delete  | gone once each deletion is done, a folder after its final pass (item 41) |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                                                                                                | --------------------------------------------------------------                                             | ---------- | ------------------------------------------------------------------------------------------------              | -----------------------------------------------------------------        |
+| `submitterLimits`                                                                                                                                                                                                                                                                                         | D112's per-person limits and trusted mark; `user`, `changedBy`                                             | linked     | user live + fence; `changedBy` required from api-admin; `devSeed` dev only; `changedBy` names the last admin  |
+| `submissionLog`                                                                                                                                                                                                                                                                                           | D113's recent submissions; `person`                                                                        | linked     | written by `story_limits` only; person live + fence                                                           |
+| `uploadGrant`                                                                                                                                                                                                                                                                                             | D80's uploads; `person`, `story`                                                                           | linked     | created and renewed by api-user's login only; person live + fence (`uploadGrant_attach`, `uploadGrant_renew`) |
+| `submissionSettings`, `themeCategory`, `theme`, `themeCatalog`, `termsOfUseAgreement`, `testimonyConsent`, `socialMediaSharingConsent`, `privacyNotice` (texts; `publishedBy` names the admin), `service`, `_migration`, `_migrationRun`, `_migrationPending`, `_migrationReset`, `_identity`, `_setting` | no person data                                                                                             | none       | —                                                                                                             | —                                                                        |
 
-- **Audit writes that race erasure.** These are allowed to commit, because audit rows are kept
-  anyway (D38). They can't carry testimony text: every field is typed or an enum, and unknown
-  fields are refused. The `moderationReview.moderator` and `auditLog.actor` links point at
-  staff `user` rows, which become stubs like anyone's.
+- **Staff links.** `moderationReview.moderator`, the legal texts' `publishedBy` and the
+  settings' `changedBy` point at staff `user` rows, which become stubs like anyone's.
 - **Future tables follow the same pattern** (as `favourite` does; donors M4, helped/concern M6): call `fn::person::live` on create/update, bump on
   delete, and classify the table in the spec.
 
@@ -819,13 +862,45 @@ retried`. Re-run the **whole** command (re-read, re-check, re-write) with a smal
   (3 attempts for a plain command, 4 with an `Idempotency-Key`): they can't deadlock, but
   sustained contention could use them up.
 
+## SurrealDB 3.2.4 gotchas
+
+Found in testing (2026-10-18 onwards), each covered by a test in `libs/database/integration`. They
+shape much of the schema (moved here from its header in database review 2).
+
+- a correlated subquery with ORDER BY ... LIMIT 1 returns wrong rows; use array::last(... ORDER
+  BY ASC)
+- inside a subquery, a COMPUTED field's $parent is the OUTER query's record, not its own
+  (`SELECT (SELECT consent FROM story ...) FROM user` saw the user): computed fields refer to
+  their own record's fields directly (`submitter`), never through $parent
+- a write the PERMISSIONS deny returns an empty result, not an error; so does an ALLOWED write
+  on a table the caller can't SELECT
+- for a `service` session, `$auth.id` is NONE in queries (the service table is PERMISSIONS NONE)
+  but resolves inside PERMISSIONS clauses; in queries use `$auth` itself
+- EVENTS RUN WITH ELEVATED PRIVILEGES: an event fired by a person's write could write a
+  PERMISSIONS NONE table. Events are trusted code; they must only write what they intend
+- transactions read a SNAPSHOT: a permission/consent/erasure check can pass while another
+  transaction commits the opposite. Only write-write conflicts abort (the second commit fails,
+  "Transaction conflict ... can be retried"); hence the `fence` table (schema-01-system.surql)
+- $auth IS usable in a field VALUE (the 2026-10-18 draft said otherwise; tested 2026-10-20)
+- DEFAULT accepts a client-supplied value; server-controlled fields use VALUE (... READONLY)
+- inside a function a caller's bound variable shadows a DEFINE PARAM (2026-10-23), so no switch
+  a caller mustn't control lives in a param (D48 uses the _setting row)
+- array<object> items store undefined keys (media[0].junk), unlike nested objects (image.junk is
+  refused), and REMOVE FIELD keeps stored values: fn::story::shape_problem checks media keys
+- an element index over record links (`themeRefs.*`, `themeRefs[*]`) makes `CONTAINS` return no
+  rows; over strings it works (2026-10-24): publicStory.themeIds
+- a query inside a closure (`$list.filter(|$x| ...)`) iterates the whole table, never an index
+  (Codex, #67): /v1/themes sends its probes as top-level statements
+- a field VALUE also runs for a nested SET (`SET media[0].x = ...`), with $value the whole new
+  field and $before the old one (2026-10-23): media/image VALUE use it to reset `processing`
+  (A2)
+
 ## Gotchas (no schema change; for `libs/database` and every command handler)
 
 - **A denied write returns an empty result, and so does an allowed one the caller can't read
-  back.** For example, `api_user`/`workflow` `CREATE auditLog …` succeeds, but the result is
-  `[]` because they can't `SELECT` audit rows. The same holds for `DELETE … RETURN BEFORE` on
-  stories by `api_user`. "Check that the write took effect" therefore only works on tables the
-  caller can read. For audit rows and erasure deletes, these integration tests are the guard.
+  back.** For example, `api_user`'s `DELETE … RETURN BEFORE` on stories succeeds, but the result
+  is `[]` because it can't `SELECT` stories. "Check that the write took effect" therefore only
+  works on tables the caller can read. For erasure deletes, these integration tests are the guard.
 - **Field permissions drop silently.** Moderation fields set by an owner, or content fields set
   by `api_admin`/`workflow`, succeed without the change. Changing a `READONLY` field
   (`submitter`) is an **error**. Denied events (`THROW`) are errors.
@@ -954,7 +1029,7 @@ spec has the reference:
 3. Delete their idempotency keys (`WHERE record::id(id)[1] = $u`).
    Delete their `submitterLimits` row, `submissionLog` and `uploadGrant` rows (D112, D113, D80),
    after queuing each video or audio grant's file in `pendingDeletion` (item 41).
-4. Set `gdprDeletedAt` (the database stamps the time) and clear `clerkUserId` in one update
+4. Set `status = 'deleted'` (no date, no reason) and clear `clerkUserId` in one update
    (D37). From then on `AUTHENTICATE` can't find them. The same update deletes their hearts
    (`user_erasure_favourites`), and step 2 deleted the hearts others gave their stories.
 
@@ -964,27 +1039,23 @@ spec has the reference:
 - a write that overlaps erasure fails at commit;
 - if erasure itself loses that race, it's retried.
 
-Audit rows (kept) may commit alongside erasure by design. Anything outside SurrealDB (Bunny,
-Clerk) is application ordering (D39/D40).
+Anything outside SurrealDB (Bunny, Clerk) is application ordering (D39/D40).
 
-5. Write an `EraseAccount` audit row with `reason` = the caller (D39), and the tombstone and
-   the pending deletions (item 41).
+5. Write the tombstone and the pending deletions (item 41). The caller (D39: "Delete my
+   account" or Clerk's webhook) only decides whether the Clerk account is queued; nothing stores
+   it.
 
 **What remains:**
 
-- a stub `user` row (internal id, `createdAt`, `gdprDeletedAt`): no Clerk id (D37) and no
+- a stub `user` row (internal id, `createdAt`, `status = 'deleted'`): no Clerk id (D37) and no
   agreement (plan 4e: deleting the account is the withdrawal of consent);
 - the tombstone: a sha256 fingerprint of the Clerk id (item 41), a retained identity fingerprint
-  (pseudonymous personal data, not anonymous), kept so that sign-in can't come back;
-- audit rows, typed, with ids only, including the deleted stories' ids (D38).
+  (pseudonymous personal data, not anonymous), kept so that sign-in can't come back.
 
-**Retention (D38, decided 2026-10-19).** Audit records are kept 6 years (the usual UK
-limitation period; for an erased person, counted from erasure), then deleted by a nightly
-clean-up job running as the migrator. Only the migrator can delete them; the 6-year cut-off
-lives in the job. (Plan 4e removed the consent ledger, so there are no consent records to
-keep.)
-
-The job itself isn't built yet; it will run as the migrator.
+**No audit log (database review 2, Joel 2026-11-05).** The audit log and its 6-year retention
+(D38) are gone: nothing about an erased person is kept besides the stub and the tombstone. Who
+changed a setting, the themes or a person's limits last is on that row (`changedBy`), and who
+published a legal text is on its version (`publishedBy`).
 
 **Built in M2 (plan PR 11), in api-user (`apps/api-user/src/app/erasure`):**
 
@@ -1105,7 +1176,7 @@ wanted.
   - Clerk deletion (D39: database first; a failed one waits in the queue, and the tombstone
     refuses that Clerk account meanwhile);
   - an upload to Bunny that finishes after erasure: its id is written by a later story update,
-    which the fence and `gdprDeletedAt` refuse, so the video is an orphan for the nightly sweep.
+    which the fence and `status = 'deleted'` refuse, so the video is an orphan for the nightly sweep.
 - **Silent no-ops.** Every handler must check that its write took effect, and that check can't
   see writes to tables it can't read (above). Put a helper in `libs/database` when the first
   command lands.

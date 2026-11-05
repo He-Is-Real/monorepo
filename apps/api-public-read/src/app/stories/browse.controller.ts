@@ -35,7 +35,7 @@ const PREAMBLE = `
   LET $at = IF $after != NONE AND $sort != 'relevance' { <datetime> $after.key };
   LET $afterId = IF $after != NONE { type::record('publicStory', $after.id) };`;
 // An unknown theme id ($th NONE) filters nothing (themes plan v3, A8). themeIds, not themeRefs:
-// 3.2.4's CONTAINS over an element index on record links finds nothing (schema.surql gotchas).
+// 3.2.4's CONTAINS over an element index on record links finds nothing (docs/db-permissions.md, "SurrealDB 3.2.4 gotchas").
 const FILTERS = `($format = NONE OR primaryFormat = $format) AND ($th = NONE OR themeIds CONTAINS $th)`;
 const SEARCH = `searchText @1@ $q`;
 

@@ -13,8 +13,6 @@ loading again; we don't approve the story again.
 - When the same media is `ready` again with its size and duration, the database publishes the
   story again in the same write. It keeps its first `publishedAt` and its old slugs. Nobody has
   to approve it again.
-- Each step writes an `auditLog` row: `HideStory` (reason `media_unavailable`) and
-  `RepublishStory` (reason `media_restored`). The actor is empty: the database did it.
 - A `hiddenStory` row (same id as the story) says it is hidden and since when. Nobody can
   write it by hand.
 
@@ -23,7 +21,7 @@ Two cases don't come back on their own:
 - **The media changed** (another Bunny video id or image path, or a thumbnail that isn't one of
   Bunny's generated frames). A moderator approved the old media, so the new one needs a
   moderator's review. The list below shows `mediaChanged: true`. This also hides a story that
-  was still public (`auditLog` reason `media_changed`).
+  was still public.
   A generated frame of the same video (`thumbnail_1.jpg` to `thumbnail_5.jpg`) doesn't count
   (D60): re-encoding often picks one, and the story comes back with it. So re-encode a broken
   video. Don't upload it again (a new Bunny video id), and don't upload a custom thumbnail.
@@ -41,8 +39,8 @@ RETURN fn::story::hidden_by_media();
 ```
 
 Each row has the story's `id`, `slug`, `title`, `primaryFormat`, `hiddenSince`, `problem` (what is
-still not ready, or none) and `mediaChanged`. Oldest first. The `auditLog` rows for the story
-(`entity = story:<id>`) show each hide and republish.
+still not ready, or none) and `mediaChanged`. Oldest first. There is no history of hides and
+republishes (Joel, 2026-11-05: no audit log).
 
 ## Get a video loading again
 
@@ -79,7 +77,7 @@ story's picture, or a video's own thumbnail (Joel, 2026-10-30). It's always `sto
 `stories/<story id>/<32 hex>.webp`, never set at Bunny Stream; cards and the story page show it in
 place of Bunny's generated thumbnail (`clipPicture`, `libs/story-cards`). Processing and the
 media-ready step can't change it: `story.image`'s VALUE keeps workflow to `processing` alone
-(`libs/database/schema/schema.surql`).
+(`libs/database/schema/schema-04-stories.surql`).
 
 No personal data goes into Bunny names: a video's title is the story id (D69) and an image's path
 is under the story's folder (D80). Deleting an image leaves its folder behind, so deletions remove

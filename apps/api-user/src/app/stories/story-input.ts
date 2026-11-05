@@ -4,7 +4,7 @@ import { STORY_CEILINGS, trimmedTextLength } from '@heisreal/database';
 /**
  * Validation of the story commands' bodies (components.yaml `CreateDraftStory`, `StoryPatch`)
  * against the hard ceilings; the store then checks the settings' limits (W3). The database checks
- * both (schema.surql, `story`, `story_text_limits`); this answers `400` with field errors first. Errors never echo what was sent (it could be testimony text).
+ * both (schema-04-stories.surql, `story`, `story_text_limits`); this answers `400` with field errors first. Errors never echo what was sent (it could be testimony text).
  */
 
 export const FORMATS = ['video', 'audio', 'written'] as const;

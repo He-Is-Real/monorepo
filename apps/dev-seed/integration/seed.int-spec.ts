@@ -183,7 +183,7 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     // A newer testimony consent: the next reset moves every fixture person to it.
     await run(
       await t.service('api_admin'),
-      `CREATE testimonyConsent:1 CONTENT { content: 'Version one' }`,
+      `CREATE testimonyConsent:1 CONTENT { content: 'Version one', publishedBy: user:legal_admin }`,
     );
     await reset(seeder, vars());
     expect(

@@ -137,7 +137,7 @@ const missing = () =>
  * submits under, in the one record `submissionSettings:current`, for Admin and above (D1). An
  * admin reads them at /admin/limits and saves the whole set at the version they read (If-Match);
  * a new value applies to everyone's next action, with no grandfathering (Joel, 2026-10-30). The
- * database's `submissionSettings_check` event writes the audit row, naming the admin and role.
+ * row names the admin who saved last and their role (`changedBy`, `changedByRole`).
  */
 @Controller('v1/admin/submission-settings')
 export class SubmissionSettingsController {

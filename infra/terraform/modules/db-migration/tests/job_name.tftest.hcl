@@ -30,7 +30,7 @@ run "repo_bundle" {
     schema_dir = "../../../../libs/database/schema"
   }
   assert {
-    condition = alltrue([for f in ["schema.surql", "access-clerk.surql", "0006-submission-settings.surql", "migrate.py", "params.json"] :
+    condition = alltrue([for f in ["schema-01-system.surql", "schema-02-people.surql", "access-clerk.surql", "0006-submission-settings.surql", "migrate.py", "params.json"] :
     contains(keys(output.config_map.data), f)])
     error_message = "The bundle must hold the schema, the clerk access, the data scripts, the runner and params.json."
   }
@@ -39,10 +39,10 @@ run "repo_bundle" {
     error_message = "Plan 4e: no legal files are synced into the database; the legal texts live there."
   }
   assert {
-    condition = (length(keys(output.params)) == 3
+    condition = (length(keys(output.params)) == 4
       && output.params.clerk_jwt_public_key == null && output.params.environment == null
-    && output.params.identity_hash == null)
-    error_message = "The runner gets the Clerk key, the environment and the identity config only; none by default."
+    && output.params.identity_hash == null && output.params.dev_database_reset == null)
+    error_message = "The runner gets the Clerk key, the environment, the identity config and the dev reset only; none by default."
   }
   assert {
     condition     = output.job.metadata.name == output.job_name && output.config_map.metadata.name == "surrealdb-migration-${output.hash}"
@@ -194,4 +194,43 @@ run "extra_system_users_refused" {
     extra_system_users = ["migrator"]
   }
   expect_failures = [var.extra_system_users]
+}
+
+run "dev_database_reset_in_dev" {
+  command = plan
+  variables {
+    base_job_name      = run.a.job_name
+    environment        = "dev"
+    dev_database_reset = "db-review-2"
+  }
+  assert {
+    condition     = output.params.dev_database_reset == "db-review-2" && output.job_name != var.base_job_name
+    error_message = "The dev reset reaches the runner and gives a new Job (which runs it)."
+  }
+}
+
+run "dev_database_reset_refused_outside_dev" {
+  command = plan
+  variables {
+    environment        = "prod"
+    dev_database_reset = "db-review-2"
+  }
+  expect_failures = [output.config_map]
+}
+
+run "dev_database_reset_refused_without_environment" {
+  command = plan
+  variables {
+    dev_database_reset = "db-review-2"
+  }
+  expect_failures = [output.config_map]
+}
+
+run "dev_database_reset_name_refused" {
+  command = plan
+  variables {
+    environment        = "dev"
+    dev_database_reset = "Wipe; everything"
+  }
+  expect_failures = [var.dev_database_reset]
 }

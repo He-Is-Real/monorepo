@@ -1,16 +1,11 @@
-import { cp, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { RecordId, type Surreal, type SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
   trustSubmitters,
   agreeAll,
-  MIGRATION_TIMEOUT_MS,
   outcome,
   rows,
   run,
-  SCHEMA_DIR,
   TestDatabase,
 } from './support/harness';
 import { approve, processed, submit } from './support/world';
@@ -558,80 +553,4 @@ describe('story types and shapes (D53)', () => {
     });
     await run(migrator, 'RETURN true');
   });
-});
-
-/**
- * data/0004: a DEFINE doesn't re-check rows written before it, and REMOVE FIELD leaves stored
- * values, so the script fails the migration (nothing rewritten) while a story written earlier
- * breaks D53 or a read-model row still carries `aspectRatio`. Earlier rows are simulated by
- * removing the guard events for a moment, as only the OWNER migrator can.
- */
-describe('data/0004: rows written before D53', () => {
-  let t: TestDatabase;
-  let migrator: Surreal;
-  let bundle: string;
-
-  beforeAll(async () => {
-    t = await TestDatabase.create({ migrate: false });
-    bundle = await mkdtemp(join(tmpdir(), 'bundle-before-0004-'));
-    await cp(SCHEMA_DIR, bundle, { recursive: true });
-    await rm(join(bundle, 'data', '0004-check-story-shapes.surql'));
-    await t.migrate(undefined, { bundleDir: bundle });
-    await t.createServices();
-    await t.createCommonTheme();
-    await createPeople(t, { old: 'user_old' });
-    await trustSubmitters(t, 'old');
-    await agreeAll(await t.person('user_old'));
-    migrator = await t.migrator();
-  });
-  afterAll(async () => {
-    await rm(bundle, { recursive: true, force: true });
-    await t?.close();
-  });
-
-  const applied = () =>
-    rows(migrator, 'SELECT VALUE record::id(id) FROM _migration ORDER BY id');
-
-  it(
-    'fails while an earlier story or read-model row doesn’t fit, and passes once fixed',
-    async () => {
-      await run(
-        migrator,
-        `REMOVE EVENT story_shape ON story;
-       REMOVE EVENT publicStory_mirrors_story ON publicStory;
-       CREATE story:old_written CONTENT { themeRefs: [theme:common], submitter: user:old, slug: 'old-written', title: 't',
-         description: 'd', primaryFormat: 'written', body: 'x',
-         media: [{ format: 'video', aspectRatio: '9:16' }] };
-       CREATE story:old_video CONTENT { themeRefs: [theme:common], submitter: user:old, slug: 'old-video', title: 't',
-         description: 'd', primaryFormat: 'video', status: 'approved',
-         media: [{ format: 'video', width: 1920, height: 1080, durationSeconds: 30, processing: 'ready' }] };
-       CREATE publicStory:old_video CONTENT { version: 1, slug: 'old-video', title: 't',
-         description: 'd', primaryFormat: 'video', themeRefs: [theme:common], publishedAt: time::now(),
-         media: [{ format: 'video', aspectRatio: '16:9' }] };`,
-      );
-
-      const first = await t.runMigration();
-      expect(first.exitCode).toBe(1);
-      expect(first.output).toContain('these stories don’t fit');
-      expect(first.output).toContain('story:old_written');
-      expect(first.output).not.toContain('story:old_video');
-      expect(await applied()).not.toContain('0004-check-story-shapes');
-
-      await run(migrator, 'DELETE story:old_written');
-      const second = await t.runMigration();
-      expect(second.exitCode).toBe(1);
-      expect(second.output).toContain(
-        'still carry aspectRatio: [publicStory:old_video]',
-      );
-
-      // The re-sync api-admin will do: the read model mirrors the story again.
-      await run(
-        await t.service('api_admin'),
-        `UPDATE publicStory:old_video SET media = [{ format: 'video', width: 1920, height: 1080 }]`,
-      );
-      await t.migrate();
-      expect(await applied()).toContain('0004-check-story-shapes');
-    },
-    3 * MIGRATION_TIMEOUT_MS,
-  );
 });

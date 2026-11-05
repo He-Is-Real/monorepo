@@ -157,10 +157,10 @@ describe('Clerk sign-in → person session', () => {
       expect(await usersFor('user_gone')).toEqual([]);
       const [stub] = await rows(
         migrator,
-        'SELECT clerkUserId, gdprDeletedAt FROM user:gone',
+        'SELECT clerkUserId, status FROM user:gone',
       );
       expect(stub['clerkUserId']).toBeUndefined();
-      expect(stub['gdprDeletedAt']).toBeDefined();
+      expect(stub['status']).toBe('deleted');
     });
   });
 

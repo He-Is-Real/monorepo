@@ -111,6 +111,10 @@ module "cluster" {
   # modules/cluster and modules/db-identity refuse it anywhere else. The Job loads the D47
   # dataset.
   dev_seed_login = true
+  # Wipe dev's database once and rebuild it from the schema and data scripts, then dev-seed
+  # (database review 2, Joel 2026-11-05: dev holds test data only). The migration runner does it
+  # once per name; a later wipe needs a new name. Dev only (refused anywhere else).
+  dev_database_reset = "db-review-2"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

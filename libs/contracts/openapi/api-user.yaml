@@ -268,7 +268,7 @@ paths:
         their own hearts, limits, upload grants and idempotency keys go; the user record becomes a stub
         without the Clerk id, and a fingerprint of the Clerk id is kept so no token can recreate the
         account (D82). This is also how a person withdraws all consent (plan 4e): the user row's
-        agreements go with it, and nothing kept (the tombstone, the audit row) records consent.
+        agreements go with it, and nothing kept (the tombstone) records consent.
         Then the person's videos and pictures at Bunny and their Clerk account are deleted (D40); one
         that fails is retried later. `202` once the database half has committed; afterwards the
         person's token gets `401`. No `If-Match` or `Idempotency-Key` (a listed exception to D29): a
@@ -311,7 +311,6 @@ paths:
           path, which is the person's own write), valid for one hour
           (`about.linksExpireAt`; `null` links while media signing is off). We keep no original upload
           and no downloadable file of a video (Bunny's settings), so the player is how to watch it.
-        - The audit log (ids only, D38) isn't included; `about.notIncluded` says so.
 
         No `ETag`: every copy is new, with fresh links. `Content-Disposition` names the file. Needs no
         agreement: access to your own data is always possible (Art 15). `503` `export_unavailable` when

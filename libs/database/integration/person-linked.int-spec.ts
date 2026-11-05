@@ -21,8 +21,7 @@ import { draft, ERASE, grantUpload, submit } from './support/world';
  *   linked → a new/changed row needs an existing, non-erased person (fn::person::live) and bumps
  *            their fence: refused after erasure, and a write racing erasure loses at commit.
  *   root   → the person record itself (user): erasure turns it into a stub (D37); fenced.
- *   kept   → deliberately kept after erasure (D38 audit): typed fields only, so even a write that
- *            races erasure carries ids and codes, never testimony text.
+ *   kept   → deliberately kept after erasure, and written by erasure itself: no person link.
  *   none   → no person data.
  */
 const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
@@ -42,16 +41,15 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   // D40: Bunny ids and image paths (and, until Clerk confirms, the Clerk id) erasure still has
   // to delete outside the database; written by erasure itself, gone once done. No person link.
   pendingDeletion: 'kept',
-  auditLog: 'kept', // actor/entity ids, typed fields (D38)
-  personFence: 'none', // a counter keyed by user id; events only
-  identityFence: 'none', // a counter keyed by a Clerk id's fingerprint (D82); events only
+  // R5: one table of counters, keyed by what they guard (a user id, a Clerk id's fingerprint, a
+  // theme id); events only.
+  fence: 'none',
   themeCategory: 'none', // admin-managed theme categories: names only
   theme: 'none',
-  themeFence: 'none', // a counter keyed by theme id; events only
   themeCatalog: 'none', // the themes' version and who saved them last, like submissionSettings
-  tag: 'none', // the old tags, emptied by data/0008 and kept defined until it has run everywhere
-  // Plan 4e: the legal texts' versions, text and date only (who published is in auditLog). The
-  // person's agreements are pointers on their user row and story (POINTERS below).
+  // Plan 4e: the legal texts' versions: text, date and (R3) the admin who published it, like
+  // themeCatalog's changedBy. The person's agreements are pointers on their user row and story
+  // (POINTERS below).
   termsOfUseAgreement: 'none',
   testimonyConsent: 'none',
   socialMediaSharingConsent: 'none',
@@ -59,6 +57,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   service: 'none',
   _migration: 'none',
   _migrationRun: 'none', // the migration fencing token
+  _migrationReset: 'none', // the dev database resets carried out (names only)
   _migrationPending: 'none', // a migration step in progress
   _identity: 'none', // the identity config SurrealDB started with
   _setting: 'none', // settings from OpenTofu (the environment's name)
@@ -96,7 +95,10 @@ const LINKED: Record<string, LinkedCase> = {
       ),
     writer: (c) => c.person,
     write: (c, db) =>
-      run(db(c), `CREATE favourite SET person = $auth, story = story:${c.p}_s`),
+      run(
+        db(c),
+        `CREATE favourite:ulid() SET person = $auth, story = story:${c.p}_s`,
+      ),
     landed: (c) => `SELECT VALUE id FROM favourite WHERE person = user:${c.p}`,
   },
   story: {
@@ -320,31 +322,6 @@ describe('person-linked tables (round 3 sweep)', () => {
     });
   });
 
-  it('kept (auditLog): a write racing erasure commits, with typed fields only (D38)', async () => {
-    const ctx = await livePerson('audit_race');
-    const tx = await apiUser.beginTransaction();
-    await tx
-      .query(
-        `CREATE auditLog:race CONTENT { service: 'api-user', action: 'EditStory',
-           entity: story:audit_race_s, storyVersion: 2 }`,
-      )
-      .collect();
-    await erase(ctx.p);
-    await tx.commit(); // no person-state dependency: nothing to fence
-    const [row] = await rows<Record<string, unknown>>(
-      migrator,
-      'SELECT * FROM auditLog:race',
-    );
-    expect(Object.keys(row).sort()).toEqual([
-      'action',
-      'createdAt',
-      'entity',
-      'id',
-      'service',
-      'storyVersion',
-    ]);
-  });
-
   it('root (user): two erasures racing (webhook + in-app, D39): one wins, the retry is a no-op', async () => {
     const ctx = await livePerson('root_race');
     const tx = await apiUser.beginTransaction();
@@ -369,12 +346,17 @@ describe('person-linked tables (round 3 sweep)', () => {
         reason: 'account_deleted',
       }),
     ).toMatchObject({ ok: true });
+    // The webhook's erasure won: Clerk had already deleted the account, so none is queued.
     expect(
       await rows(
         migrator,
-        `SELECT VALUE reason FROM auditLog WHERE entity = user:${ctx.p}`,
+        `SELECT VALUE ref FROM pendingDeletion WHERE kind = 'clerk_user' AND ref = $ref`,
+        { ref: `user_${ctx.p}` },
       ),
-    ).toEqual(['clerk_user_deleted']);
+    ).toEqual([]);
+    expect(
+      await rows(migrator, `SELECT VALUE status FROM user:${ctx.p}`),
+    ).toEqual(['deleted']);
   });
 
   it('a moderation review can’t be created for a story that no longer exists', async () => {
@@ -414,11 +396,11 @@ describe('person-linked tables (round 3 sweep)', () => {
   it.each([
     [
       'CREATE',
-      `CREATE user:pre_erased SET clerkUserId = 'clerk_retained', gdprDeletedAt = time::now()`,
+      `CREATE user:pre_erased SET clerkUserId = 'clerk_retained', status = 'deleted'`,
     ],
     [
       'INSERT',
-      `INSERT INTO user { id: user:pre_erased, clerkUserId: 'clerk_retained', gdprDeletedAt: time::now() }`,
+      `INSERT INTO user { id: user:pre_erased, clerkUserId: 'clerk_retained', status: 'deleted' }`,
     ],
   ])(
     'D37 holds on %s: an erased row can never carry a Clerk id (round 4)',
@@ -448,10 +430,13 @@ describe('person-linked tables (round 3 sweep)', () => {
     );
     const fence = async () =>
       (
-        await rows<number>(migrator, `SELECT VALUE n FROM personFence:${ctx.p}`)
+        await rows<number>(
+          migrator,
+          `SELECT VALUE n FROM type::record('fence', 'person-${ctx.p}')`,
+        )
       )[0];
     const before = await fence();
-    await run(admin, 'DELETE moderationReview:del_r');
+    await run(apiUser, 'DELETE moderationReview:del_r');
     expect(await fence()).toBe(before + 1);
     await run(
       apiUser,

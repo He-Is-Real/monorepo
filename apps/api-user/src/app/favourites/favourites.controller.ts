@@ -96,7 +96,7 @@ export class FavouritesController {
             session,
             `LET $s = type::record('story', $id);
              IF (SELECT VALUE id FROM favourite WHERE person = $auth.id AND story = $s) = [] {
-               CREATE favourite SET person = $auth.id, story = $s RETURN NONE;
+               CREATE favourite:ulid() SET person = $auth.id, story = $s RETURN NONE;
              };
              SELECT VALUE id FROM favourite WHERE person = $auth.id AND story = $s;`,
             { id: storyId },
@@ -147,16 +147,14 @@ export class FavouritesController {
     const results = await runQuery(
       session,
       `LET $among = IF $ids != NONE { $ids.map(|$i| type::record('story', $i)) };
-       LET $at = IF $after != NONE { <datetime> $after.at };
-       LET $afterId = IF $after != NONE { type::record('favourite', $after.id) };
-       LET $hearts = SELECT record::id(id) AS id, record::id(story) AS story,
-           <string> createdAt AS at, createdAt
+       LET $afterId = IF $after != NONE { type::record('favourite', $after) };
+       LET $hearts = SELECT record::id(id) AS id, record::id(story) AS story
          FROM favourite
          WHERE person = $auth.id
            AND ($among = NONE OR story IN $among)
-           AND ($at = NONE OR createdAt < $at OR (createdAt = $at AND id < $afterId))
+           AND ($afterId = NONE OR id < $afterId)
            AND record::exists(type::record('publicStory', record::id(story)))
-         ORDER BY createdAt DESC, id DESC
+         ORDER BY id DESC
          LIMIT $take;
        LET $refs = $hearts.slice(0, $show).map(|$h| type::record('publicStory', $h.story));
        RETURN {
@@ -171,7 +169,7 @@ export class FavouritesController {
       },
     );
     const { hearts, cards } = results.at(-1) as {
-      hearts: { id: string; story: string; at: string }[];
+      hearts: { id: string; story: string }[];
       cards: SummaryRow[];
     };
     const byId = new Map(cards.map((c) => [c.id, c]));
@@ -185,7 +183,7 @@ export class FavouritesController {
       data,
       nextCursor:
         query.kind === 'page' && hearts.length > query.limit && last
-          ? encodeCursor(last.at, last.id)
+          ? encodeCursor(last.id)
           : null,
     };
   }

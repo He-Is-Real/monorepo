@@ -28,12 +28,12 @@ describe('favourites', () => {
   const heart = (db: Surreal, story: string, person = '$auth') =>
     outcome(
       db,
-      `CREATE favourite SET person = ${person}, story = type::record('story', $story)`,
+      `CREATE favourite:ulid() SET person = ${person}, story = type::record('story', $story)`,
       { story },
     );
   const heartsOf = (person: string) =>
     truth<string>(
-      `SELECT VALUE record::id(story) FROM favourite WHERE person = type::record('user', $p) ORDER BY createdAt`,
+      `SELECT VALUE record::id(story) FROM favourite WHERE person = type::record('user', $p) ORDER BY id`,
       { p: person },
     );
 
@@ -100,11 +100,52 @@ describe('favourites', () => {
       const db = await t.service(name);
       await outcome(
         db,
-        `CREATE favourite SET person = user:ann, story = story:ann_live`,
+        `CREATE favourite:ulid() SET person = user:ann, story = story:ann_live`,
       );
       await outcome(db, 'DELETE favourite');
     }
     expect(await heartsOf('ann')).toEqual(['bob_live']);
+  });
+
+  // R14 (Joel, 2026-11-05): the id carries the time, so it must be a ULID made just now.
+  it.each([
+    [
+      'a ULID from yesterday',
+      `type::record('favourite', rand::ulid(time::now() - 1d))`,
+    ],
+    [
+      'a ULID from tomorrow',
+      `type::record('favourite', rand::ulid(time::now() + 1d))`,
+    ],
+    ['an id that isn’t a ULID', 'favourite:mine'],
+    ['a random id', 'favourite'],
+  ])('refuses a heart whose id is %s', async (_, target) => {
+    expect(
+      await outcome(
+        ann,
+        `CREATE ${target} SET person = $auth, story = story:ann_live`,
+      ),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining('favourite_id'),
+    });
+    expect(await heartsOf('ann')).toEqual(['bob_live']);
+  });
+
+  it('a heart’s time is its id’s', async () => {
+    // Bounded by the database's own clock, read just before and after the create, in one query.
+    // A ULID keeps milliseconds only, so the lower bound is rounded down to the millisecond.
+    const [, , , , within] = await run(
+      ann,
+      `LET $before = time::now();
+       LET $id = (CREATE ONLY favourite:ulid()
+         SET person = $auth, story = story:ann_live RETURN VALUE id);
+       LET $after = time::now();
+       LET $at = time::from_ulid(record::id($id));
+       RETURN [time::floor($before, 1ms) <= $at, $at <= $after];`,
+    );
+    expect(within).toEqual([true, true]);
+    await run(ann, 'DELETE favourite WHERE story = story:ann_live');
   });
 
   it('refuses a story that isn’t public: a draft, pending, withdrawn or unknown', async () => {
@@ -201,7 +242,9 @@ describe('favourites', () => {
 
     const tx = await fay.beginTransaction();
     await tx
-      .query(`CREATE favourite SET person = $auth, story = story:gus_live`)
+      .query(
+        `CREATE favourite:ulid() SET person = $auth, story = story:gus_live`,
+      )
       .collect();
     await run(await t.service('api_user'), ERASE, {
       clerkUserId: 'user_gus',

@@ -89,20 +89,38 @@ describe('consent, privacy and terms (plan 4e)', () => {
 
         const skip = await outcome(
           await t2.service('api_admin'),
-          `CREATE privacyNotice:2 CONTENT { content: 'Skips 1' }`,
+          `CREATE privacyNotice:2 CONTENT { content: 'Skips 1', publishedBy: user:eve }`,
         );
         expect(skip).toMatchObject({ ok: false });
         expect(!skip.ok && skip.error).toContain('legal_version_number');
 
-        const before = new Date();
-        const saved = await rows<{ release_date: string }>(
+        // R3 (Joel, 2026-11-04): each version names the admin who published it.
+        const anonymous = await outcome(
           await t2.service('api_admin'),
-          `CREATE privacyNotice:1 CONTENT { content: 'Version one', release_date: d'2001-01-01T00:00:00Z' }`,
+          `CREATE privacyNotice:1 CONTENT { content: 'Version one' }`,
+        );
+        expect(!anonymous.ok && anonymous.error).toContain(
+          'legal_published_by',
+        );
+
+        const before = new Date();
+        const saved = await rows<{ release_date: string; publishedBy: string }>(
+          await t2.service('api_admin'),
+          `CREATE privacyNotice:1 CONTENT { content: 'Version one', publishedBy: user:eve,
+             release_date: d'2001-01-01T00:00:00Z' }`,
         );
         expect(
           new Date(saved[0]?.release_date ?? 0).getTime(),
         ).toBeGreaterThanOrEqual(before.getTime() - 5000);
+        expect(saved[0]?.publishedBy).toBe('user:eve');
         expect(await publishVersion(t2, 'privacyNotice')).toBe(2);
+        // Version 0 is the migration's (data/0009): no admin published it.
+        expect(
+          await rows(
+            await t2.migrator(),
+            `SELECT VALUE publishedBy FROM privacyNotice ORDER BY id`,
+          ),
+        ).toEqual([undefined, 'user:eve', 'user:legal_admin']);
       } finally {
         await t2.close();
       }
@@ -206,11 +224,11 @@ describe('consent, privacy and terms (plan 4e)', () => {
 
     it('a person writes nothing else on their own row', async () => {
       const ann = await t.person('user_ann');
-      await outcome(ann, `UPDATE $auth SET gdprDeletedAt = time::now()`);
+      await outcome(ann, `UPDATE $auth SET status = 'deleted'`);
       await outcome(ann, `UPDATE $auth SET clerkUserId = 'user_someone_else'`);
       expect(
-        await truth(`SELECT clerkUserId, gdprDeletedAt FROM ONLY user:ann`),
-      ).toEqual([{ clerkUserId: 'user_ann' }]);
+        await truth(`SELECT clerkUserId, status FROM ONLY user:ann`),
+      ).toEqual([{ clerkUserId: 'user_ann', status: 'active' }]);
     });
   });
 
@@ -285,7 +303,7 @@ describe('consent, privacy and terms (plan 4e)', () => {
         await publishVersion(t4, 'termsOfUseAgreement', 'Terms one');
         const heart = await outcome(
           quin,
-          `CREATE favourite SET person = $auth, story = story:r1`,
+          `CREATE favourite:ulid() SET person = $auth, story = story:r1`,
         );
         expect(!heart.ok && heart.error).toContain('terms_agreement_required');
         await agree(quin, 'termsOfUse');
@@ -293,7 +311,7 @@ describe('consent, privacy and terms (plan 4e)', () => {
           (
             await outcome(
               quin,
-              `CREATE favourite SET person = $auth, story = story:r1`,
+              `CREATE favourite:ulid() SET person = $auth, story = story:r1`,
             )
           ).ok,
         ).toBe(true);
@@ -376,15 +394,12 @@ describe('consent, privacy and terms (plan 4e)', () => {
       const [stub] = await truth<Record<string, unknown>>(
         `SELECT * FROM ONLY user:ann`,
       );
-      expect(Object.keys(stub ?? {}).sort()).toEqual([
-        'createdAt',
-        'gdprDeletedAt',
-        'id',
-      ]);
-      const audit = await truth<Record<string, unknown>>(
-        `SELECT * FROM auditLog WHERE entity = user:ann`,
-      );
-      expect(JSON.stringify(audit)).not.toMatch(/consent/i);
+      // R3 (Joel, 2026-11-05): just a status, with no date and no reason.
+      expect(stub).toEqual({
+        id: 'user:ann',
+        createdAt: expect.any(String),
+        status: 'deleted',
+      });
     });
   });
 });

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,7 +13,6 @@ import { approve } from './support/world';
 import {
   createPeople,
   LEGAL_TABLES,
-  type MigrationParams,
   type MigrationRun,
   type Outcome,
   outcome,
@@ -48,10 +47,9 @@ const JOB_ENV = {
 // Every data script in libs/database/schema/data (plan 4e: 0001, 0003, 0005 and 0007 left the
 // bundle; 0009 seeds version 0 of the four legal texts).
 const SEEDS = [
-  '0004-check-story-shapes',
   '0006-submission-settings',
-  '0008-themes',
   '0009-consent-4e',
+  '0010-theme-category-other',
 ];
 /** The four legal texts' versions, as the migrator sees them. */
 const legalRows = async (db: Surreal) =>
@@ -131,6 +129,8 @@ async function initAsRoot(t: TestDatabase, sql: string): Promise<boolean> {
 
 const bundles: string[] = [];
 /** A copy of libs/database/schema with some files replaced (null = removed). */
+/** The schema's last area file: tests append scratch DDL to it. */
+const LAST_SCHEMA = 'schema-06-settings-and-logs.surql';
 async function bundleWith(
   changes: Record<string, string | null>,
 ): Promise<string> {
@@ -149,9 +149,9 @@ afterAll(() =>
 
 /** A bundle whose schema also defines a marker table, to see whether the schema step ran. */
 async function withScratchTable(): Promise<string> {
-  const schema = await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
+  const schema = await readFile(join(SCHEMA_DIR, LAST_SCHEMA), 'utf8');
   return bundleWith({
-    'schema.surql': `${schema}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
+    [LAST_SCHEMA]: `${schema}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
   });
 }
 async function tables(t: TestDatabase): Promise<Record<string, string>> {
@@ -331,7 +331,7 @@ describe('init + identity check + migrate on an empty database', () => {
     // An admin saved version 1 of the terms (plan 4e): a later run never changes a saved version.
     await run(
       admin,
-      `CREATE termsOfUseAgreement:1 CONTENT { content: 'Terms, version 1' }`,
+      `CREATE termsOfUseAgreement:1 CONTENT { content: 'Terms, version 1', publishedBy: user:legal_admin }`,
     );
     const before = {
       info: await rows(migrator, 'INFO FOR DB'),
@@ -837,11 +837,37 @@ describe('P1: scripts can never commit partly', () => {
     },
   );
 
+  it.each([
+    [
+      'the old single schema.surql next to the area files',
+      { 'schema.surql': 'DEFINE TABLE OVERWRITE scratch SCHEMALESS;\n' },
+      'schema.surql: the schema is split into schema-NN-area.surql files',
+    ],
+    [
+      'no schema file',
+      Object.fromEntries(
+        readdirSync(SCHEMA_DIR)
+          .filter((f) => f.startsWith('schema-'))
+          .map((f) => [f, null]),
+      ),
+      'no schema-NN-area.surql file',
+    ],
+  ] as [string, Record<string, string | null>, string][])(
+    'refuses a bundle with %s, before anything runs',
+    async (_, changes, message) => {
+      const result = await t.runMigration(t.params(), {
+        bundleDir: await bundleWith(changes),
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.output).toContain(message);
+    },
+  );
+
   it('schema files are DDL only; RETURN only inside a DEFINE (tested contained)', async () => {
-    const schema = await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
+    const schema = await readFile(join(SCHEMA_DIR, LAST_SCHEMA), 'utf8');
     const dml = await t.runMigration(t.params(), {
       bundleDir: await bundleWith({
-        'schema.surql': `${schema}\n${category('in_schema')}`,
+        [LAST_SCHEMA]: `${schema}\n${category('in_schema')}`,
       }),
     });
     expect(dml.exitCode).toBe(2);
@@ -852,7 +878,7 @@ describe('P1: scripts can never commit partly', () => {
       (
         await t.runMigration(t.params(), {
           bundleDir: await bundleWith({
-            'schema.surql': `${schema}\nDEFINE FUNCTION OVERWRITE fn::scratch::one() { RETURN 1; };\n`,
+            [LAST_SCHEMA]: `${schema}\nDEFINE FUNCTION OVERWRITE fn::scratch::one() { RETURN 1; };\n`,
           }),
         })
       ).exitCode,
@@ -1097,137 +1123,84 @@ describe('allow-list: the guard matches 3.2.4', () => {
 // ---------------------------------------------------------------- data scripts
 
 /**
- * The release before plan 4e: main at the start of the consent 4e branch, with the consent ledger,
- * the DPA, terms and form versions and the dev consent switches. Its libs/database/schema is the
- * schema every existing database (dev) was migrated with. A main commit, so it stays reachable.
+ * The release before database review 2: main at the start of that branch, with the schema in one
+ * file (schema.surql), the audit log, the three fence tables, user.gdprDeletedAt and data/0004 and
+ * 0008. Every existing database (dev) was migrated with it. A main commit, so it stays reachable.
  */
-const PREVIOUS_RELEASE = '182715d16af033ce8c8c8468b54bc623eaaf7038';
+const PREVIOUS_RELEASE = '049f5de4d29b034343de50130f1a8bbbe5e752dc';
 
-/**
- * What OpenTofu passed that release in dev (modules/db-migration then): the texts and hashes of
- * the files in its libs/legal, the walking-skeleton story and dev's consent switches. This
- * release takes none of them.
- */
-function previousReleaseParams(
-  t: TestDatabase,
-  legal: string,
-): Record<string, unknown> {
-  const texts = (dir: string) =>
-    Object.fromEntries(
-      readdirSync(join(legal, dir))
-        .filter((f) => f.endsWith('.md') && f !== 'README.md')
-        .map((f) => [
-          f.slice(0, -3),
-          readFileSync(join(legal, dir, f), 'utf8'),
-        ]),
-    );
-  const statements = (dir: string) =>
-    Object.fromEntries(
-      readdirSync(join(legal, dir))
-        .filter((f) => f.endsWith('.statements.json'))
-        .map((f) => [
-          f.slice(0, -'.statements.json'.length),
-          readFileSync(join(legal, dir, f), 'utf8'),
-        ]),
-    );
-  const hashes = (o: Record<string, string>) =>
-    Object.fromEntries(Object.entries(o).map(([k, v]) => [k, sha256(v)]));
-  const kinds = ['signup', 'testimony', 'social'];
-  const perKind = <T>(f: (k: string) => T) =>
-    Object.fromEntries(kinds.map((k) => [k, f(k)]));
-  const dpa = texts('dpa');
-  return {
-    ...t.params({ environment: 'dev' }),
-    dpa_sha256: hashes(dpa),
-    dpa_text: dpa,
-    form_sha256: perKind((k) => hashes(texts(`forms/${k}`))),
-    form_text: perKind((k) => texts(`forms/${k}`)),
-    form_statements: perKind((k) =>
-      Object.fromEntries(
-        Object.entries(statements(`forms/${k}`)).map(([id, text]) => [
-          id,
-          JSON.parse(text) as unknown,
-        ]),
-      ),
-    ),
-    form_statements_sha256: perKind((k) => hashes(statements(`forms/${k}`))),
-    terms_text: texts('terms'),
-    seed_dev_story: true,
-    dev_consent_relaxed: true,
-    dev_legal_placeholders: true,
-  };
-}
-
-describe('upgrading a database migrated by the previous release (plan 4e)', () => {
+describe('upgrading a database migrated by the previous release (database review 2)', () => {
   let t: TestDatabase;
   let previous: string;
+  let refused: MigrationRun;
   let upgrade: MigrationRun;
-  let before: { tables: string[]; settings: unknown[] };
+  let before: string[];
+  let afterRefused: string[];
   const OLD_TABLES = [
-    'consent',
-    'dpaVersion',
-    'termsVersion',
-    'signupFormVersion',
-    'testimonyFormVersion',
-    'socialSharingFormVersion',
-    'legalFence',
-    'erasureRequest',
+    'auditLog',
+    'personFence',
+    'identityFence',
+    'themeFence',
+    'tag',
   ];
   beforeAll(async () => {
-    // That release's bundle, runner and legal files, straight from git.
+    // That release's bundle and runner, straight from git: the old single-file layout.
     const dir = await mkdtemp(join(tmpdir(), 'previous-release-'));
     const repo = join(__dirname, '../../..');
     const archive = execFileSync(
       'git',
-      [
-        'archive',
-        '--format=tar',
-        PREVIOUS_RELEASE,
-        'libs/database/schema',
-        'libs/legal',
-      ],
+      ['archive', '--format=tar', PREVIOUS_RELEASE, 'libs/database/schema'],
       { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
     );
     execFileSync('tar', ['-x', '-C', dir], { input: archive });
     previous = join(dir, 'libs/database/schema');
     t = await TestDatabase.create({ migrate: false });
-    await t.migrate(
-      previousReleaseParams(
-        t,
-        join(dir, 'libs/legal'),
-      ) as unknown as MigrationParams,
-      { bundleDir: previous, runner: join(previous, 'migrate.py') },
-    );
-    // What only the old machinery wrote: an audit row of a consent grant.
+    await t.migrate(t.params({ environment: 'dev' }), {
+      bundleDir: previous,
+      runner: join(previous, 'migrate.py'),
+    });
+    await t.createServices();
+    await t.createCommonTheme();
+    await createPeople(t, { ann: 'user_ann' });
+    const migrator = await t.migrator();
     await run(
-      await t.migrator(),
-      `CREATE auditLog:old_grant CONTENT { service: 'api-user', action: 'GrantConsent',
-         consentType: 'publish', entity: user:dev_seed }`,
+      migrator,
+      `CREATE auditLog:old CONTENT { service: 'api-admin', action: 'SaveThemes',
+         entity: themeCatalog:current }`,
     );
-    before = {
-      tables: Object.keys(await tables(t)),
-      settings: await rows(
-        await t.migrator(),
-        'SELECT VALUE record::id(id) FROM _setting',
-      ),
-    };
-    upgrade = await t.runMigration(t.params({ environment: 'dev' }));
+    before = Object.keys(await tables(t));
+    refused = await t.runMigration(t.params({ environment: 'dev' }));
+    afterRefused = Object.keys(await tables(t));
+    upgrade = await t.runMigration(
+      t.params({ environment: 'dev', dev_database_reset: 'db-review-2' }),
+    );
   }, 3 * 60_000);
   afterAll(async () => {
     await t?.close();
     if (previous) await rm(join(previous, '../../..'), { recursive: true });
   });
 
-  it('started from the old consent machinery', () => {
-    expect(before.tables).toEqual(expect.arrayContaining(OLD_TABLES));
-    expect(before.settings).toContain('consent');
+  it('started from the old tables', () => {
+    expect(before).toEqual(expect.arrayContaining(OLD_TABLES));
   });
 
-  it('migrates to this release: the old tables and their rows are gone, version 0 of each text is in', async () => {
+  it('without the dev reset, refuses before changing anything: the draft legal texts changed', () => {
+    expect(refused.exitCode).toBe(1);
+    expect(refused.output).toContain(
+      '0009-consent-4e.surql changed after it was applied',
+    );
+    // Only the runner's own bookkeeping table is new (its lease defines it).
+    expect(afterRefused.filter((name) => name !== '_migrationReset')).toEqual(
+      before,
+    );
+  });
+
+  it('with it, wipes the database and rebuilds it from this release', async () => {
     expect(upgrade.exitCode).toBe(0);
     expect(upgrade.summary).toMatchObject({
-      applied: ['0009-consent-4e'],
-      alreadyApplied: SEEDS.filter((id) => id !== '0009-consent-4e'),
+      reset: 'db-review-2',
+      applied: SEEDS,
+      alreadyApplied: [],
     });
     const now = Object.keys(await tables(t));
     for (const table of OLD_TABLES) expect(now).not.toContain(table);
@@ -1239,42 +1212,171 @@ describe('upgrading a database migrated by the previous release (plan 4e)', () =
         }),
       ).toEqual([`${table}:0`]);
     }
+    expect(await rows(migrator, 'SELECT VALUE id FROM user')).toEqual([]);
     expect(await rows(migrator, 'SELECT * FROM _setting')).toEqual([
       { id: '_setting:current', environment: 'dev' },
     ]);
+    // The service logins stay: their password hashes come from SurrealDB's startup init.
     expect(
-      await rows(migrator, 'SELECT VALUE id FROM auditLog:old_grant'),
-    ).toEqual([]);
-    // The walking-skeleton story stays, without the removed computed consent.
-    const [story] = await rows<Record<string, unknown>>(
-      migrator,
-      'SELECT * FROM ONLY story:dev_seed',
-    );
-    expect(story).toBeDefined();
-    expect(story).not.toHaveProperty('consent');
+      await rows(await t.service('api_user'), 'RETURN $auth.id'),
+    ).toBeDefined();
   });
 
-  it.each([
-    '0001-seed-dpa-v1',
-    '0003-dev-seed-story',
-    '0005-dev-legal-placeholders',
-    '0007-dev-legal-documents',
-  ])(
-    'only warns about %s, applied by the old release and gone from the bundle',
-    (id) => {
-      expect(upgrade.output).toContain(
-        `warning: _migration:${id} was applied but its script isn't in the bundle`,
-      );
+  it('a second run changes nothing', async () => {
+    await createPeople(t, { bea: 'user_bea' });
+    expect(
+      await t.migrate(
+        t.params({ environment: 'dev', dev_database_reset: 'db-review-2' }),
+      ),
+    ).toMatchObject({ reset: null, applied: [], alreadyApplied: SEEDS });
+    expect(
+      await rows(await t.migrator(), 'SELECT VALUE record::id(id) FROM user'),
+    ).toEqual(['bea']);
+  });
+});
+
+describe('dev database reset', () => {
+  const RESET = { environment: 'dev', dev_database_reset: 'r1' };
+  /** A migrated dev database with a person, a category, a stray table and a stray function. */
+  async function devDatabase(environment: string | null = 'dev') {
+    const t = await TestDatabase.create({ migrate: false });
+    await t.migrate(t.params({ environment }));
+    await t.createServices();
+    await createPeople(t, { ann: 'user_ann' });
+    await run(
+      await t.migrator(),
+      `${category('kept_until_reset')}
+       DEFINE TABLE OVERWRITE stray SCHEMALESS PERMISSIONS NONE;
+       DEFINE FUNCTION OVERWRITE fn::stray::one() { RETURN 1; };`,
+    );
+    return t;
+  }
+  const leftovers = async (t: TestDatabase) => {
+    const [info] = await rows<{
+      tables: Record<string, string>;
+      functions: Record<string, string>;
+    }>(await t.migrator(), 'INFO FOR DB');
+    return {
+      stray: 'stray' in info.tables,
+      strayFunction: 'stray::one' in info.functions,
+      people: await rows(
+        await t.migrator(),
+        'SELECT VALUE record::id(id) FROM user',
+      ),
+      categories: await categoryIds(t, 'kept_until_reset'),
+    };
+  };
+
+  it.each(['prod', null])(
+    'with the environment parameter %s, refuses before changing anything',
+    async (environment: string | null) => {
+      const t = await devDatabase();
+      try {
+        const result = await t.runMigration(
+          t.params({ ...RESET, environment }),
+        );
+        expect(result.exitCode).toBe(1);
+        expect(result.output).toContain(
+          "dev_database_reset is set but the environment isn't dev",
+        );
+        expect(await leftovers(t)).toEqual({
+          stray: true,
+          strayFunction: true,
+          people: ['ann'],
+          categories: ['kept_until_reset'],
+        });
+      } finally {
+        await t.close();
+      }
     },
   );
 
-  it('a second run changes nothing', async () => {
-    const before = await legalRows(await t.migrator());
-    expect(await t.migrate(t.params({ environment: 'dev' }))).toMatchObject({
-      applied: [],
-      alreadyApplied: SEEDS,
-    });
-    expect(await legalRows(await t.migrator())).toEqual(before);
+  it('refuses, before changing anything, a database that doesn’t say it is dev', async () => {
+    const t = await devDatabase('prod');
+    try {
+      const result = await t.runMigration(t.params(RESET));
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toContain(
+        "this database doesn't say it is dev (_setting:current.environment is 'prod')",
+      );
+      expect((await leftovers(t)).people).toEqual(['ann']);
+      expect(await pendingSteps(t)).toEqual([]);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it('refuses a name that isn’t a short lowercase name', async () => {
+    const t = await devDatabase();
+    try {
+      const result = await t.runMigration(
+        t.params({ ...RESET, dev_database_reset: 'r1; REMOVE TABLE user' }),
+      );
+      expect(result.exitCode).toBe(1);
+      expect((await leftovers(t)).people).toEqual(['ann']);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it('wipes a dev database once per name, keeping the service logins, and rebuilds it', async () => {
+    const t = await devDatabase();
+    try {
+      const first = await t.migrate(t.params(RESET));
+      expect(first).toMatchObject({ reset: 'r1', applied: SEEDS });
+      expect(await leftovers(t)).toEqual({
+        stray: false,
+        strayFunction: false,
+        people: [],
+        categories: [],
+      });
+      // Rebuilt: the schema works, the seeds are in, and the services still sign in.
+      await createPeople(t, { bea: 'user_bea' });
+      await run(await t.service('api_admin'), category('kept_until_reset'));
+      expect(await categoryIds(t, 'kept_until_reset')).toEqual([
+        'kept_until_reset',
+      ]);
+
+      // The same name again: nothing is wiped.
+      expect(await t.migrate(t.params(RESET))).toMatchObject({
+        reset: null,
+        applied: [],
+        alreadyApplied: SEEDS,
+      });
+      expect((await leftovers(t)).people).toEqual(['bea']);
+
+      // A new name wipes again.
+      expect(
+        await t.migrate(t.params({ ...RESET, dev_database_reset: 'r2' })),
+      ).toMatchObject({ reset: 'r2', applied: SEEDS });
+      expect((await leftovers(t)).people).toEqual([]);
+      expect(
+        await rows(
+          await t.migrator(),
+          'SELECT VALUE record::id(id) FROM _migrationReset ORDER BY id',
+        ),
+      ).toEqual(['r1', 'r2']);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it('on a new database, only records the name, so a later run doesn’t wipe what was built', async () => {
+    const t = await TestDatabase.create({ migrate: false });
+    try {
+      expect(await t.migrate(t.params(RESET))).toMatchObject({
+        reset: 'r1',
+        applied: SEEDS,
+      });
+      await t.createServices();
+      await createPeople(t, { ann: 'user_ann' });
+      expect(await t.migrate(t.params(RESET))).toMatchObject({ reset: null });
+      expect(
+        await rows(await t.migrator(), 'SELECT VALUE record::id(id) FROM user'),
+      ).toEqual(['ann']);
+    } finally {
+      await t.close();
+    }
   });
 });
 
@@ -1295,7 +1397,7 @@ describe('data/0009 on a database that already has a version 0', () => {
   it('keeps the saved version and seeds only the missing ones', async () => {
     await run(
       await t.service('api_admin'),
-      `CREATE privacyNotice:0 CONTENT { content: 'Our own first notice' }`,
+      `CREATE privacyNotice:0 CONTENT { content: 'Our own first notice', publishedBy: user:legal_admin }`,
     );
     const migrator = await t.migrator();
     const [saved] = await rows(migrator, 'SELECT * FROM privacyNotice:0');
@@ -1342,7 +1444,7 @@ describe('data/0009 fills in the agreements of the people who exist when it runs
     await run(
       migrator,
       `CREATE user:legacy CONTENT {};
-       CREATE user:gone CONTENT { gdprDeletedAt: time::now() };
+       CREATE user:gone CONTENT { status: 'deleted' };
        CREATE story:waiting CONTENT { submitter: user:ann, slug: 'waiting', title: 'T',
          description: 'D', primaryFormat: 'written', body: $body, status: 'pending',
          themeRefs: [theme:common] };`,
@@ -1476,10 +1578,10 @@ describe('data scripts on an already-migrated database', () => {
   });
 
   it('a failing schema leaves the previous schema in place', async () => {
-    const schema = await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8');
+    const schema = await readFile(join(SCHEMA_DIR, LAST_SCHEMA), 'utf8');
     const broken = await bundleWith({
       // DDL only, failing at run time (no IF EXISTS).
-      'schema.surql': `${schema}\nDEFINE TABLE OVERWRITE scratch SCHEMALESS;\nDEFINE FIELD OVERWRITE note ON story TYPE string;\nREMOVE TABLE does_not_exist;\n`,
+      [LAST_SCHEMA]: `${schema}\nDEFINE TABLE OVERWRITE scratch SCHEMALESS;\nDEFINE FIELD OVERWRITE note ON story TYPE string;\nREMOVE TABLE does_not_exist;\n`,
     });
     const result = await t.runMigration(t.params(), { bundleDir: broken });
     expect(result.exitCode).toBe(1);
@@ -1504,7 +1606,7 @@ describe('parameters (OpenTofu values)', () => {
         t.params({ clerk_jwt_public_key: null }),
         {
           bundleDir: await bundleWith({
-            'schema.surql': `${await readFile(join(SCHEMA_DIR, 'schema.surql'), 'utf8')}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
+            [LAST_SCHEMA]: `${await readFile(join(SCHEMA_DIR, LAST_SCHEMA), 'utf8')}\nDEFINE TABLE OVERWRITE scratch_marker SCHEMALESS PERMISSIONS NONE;\n`,
             'data/0113-needs-key.surql': `CREATE themeCategory:k SET name = $clerk_jwt_public_key;\n`,
           }),
         },
@@ -1559,26 +1661,26 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
 
   it('a run paused mid-step loses to a run that started after it, keeping nothing of that step', async () => {
     const withStep = await bundleWith({
-      'data/0010-paused.surql': category('paused'),
+      'data/0110-paused.surql': category('paused'),
     });
-    // A writes 0010's pending row, then holds (an explicit pause, no timing): B starts, takes
-    // the lock and waits for A's pending row; then A sends 0010's transaction.
+    // A writes 0110's pending row, then holds (an explicit pause, no timing): B starts, takes
+    // the lock and waits for A's pending row; then A sends 0110's transaction.
     let inStep: () => void = () => undefined;
     const aInStep = new Promise<void>((r) => (inStep = r));
     let release: () => void = () => undefined;
     const resume = new Promise<void>((r) => (release = r));
     const a = t.runMigration(t.params(), {
       bundleDir: withStep,
-      env: { MIGRATE_TEST_PAUSE_BEFORE: '0010-paused' },
+      env: { MIGRATE_TEST_PAUSE_BEFORE: '0110-paused' },
       onOutput: (chunk) => {
-        if (chunk.includes('0010-paused: paused before its transaction'))
+        if (chunk.includes('0110-paused: paused before its transaction'))
           inStep();
       },
       resume,
     });
     await aInStep;
     const b = t.runMigration(t.params(), {
-      // The newer bundle, without 0010.
+      // The newer bundle, without 0110.
       onOutput: (chunk) => {
         if (chunk.includes('waiting for an overtaken run to clean up'))
           release();
@@ -1588,7 +1690,7 @@ describe('P2: overlapping runners (fencing token from the database)', () => {
     expect(resultB.exitCode).toBe(0);
     expect(resultA.exitCode).toBe(1);
     expect(resultA.output).toMatch(/superseded/i);
-    expect(await appliedIds(t)).not.toContain('0010-paused');
+    expect(await appliedIds(t)).not.toContain('0110-paused');
     expect(await categoryIds(t, 'paused')).toEqual([]);
     expect(await pendingSteps(t)).toEqual([]);
     expect(await lockToken()).toBe(resultB.summary?.token);

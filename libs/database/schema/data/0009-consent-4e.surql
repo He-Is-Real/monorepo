@@ -14,11 +14,10 @@
 --     session is refused. People created later agree in their own session (the terms before using their account, the testimony
 --     consent before their next story);
 --   * removes the old settings row _setting:consent (the dev consent switches; the runner now
---     writes _setting:current);
---   * removes the audit rows only the old machinery wrote (granting and withdrawing consent,
---     publishing the privacy policy, terms or DPA, erasures by consent withdrawal or
---     housekeeping, hides for dev's consent switches) and any row still holding the removed
---     consentType or dpaVersion: none of them fits the audit log's rules now.
+--     writes _setting:current).
+-- Edited before production (database review 2, 2026-11-05), while dev is wiped and rebuilt so
+-- no database keeps the earlier copy: no audit log (R3), no deletion date (R3), and super admins
+-- can see drafts (R15).
 -- The old data scripts 0001, 0003, 0005 and 0007 wrote that machinery's rows and could no longer
 -- run on a fresh database, so they left the bundle (as 0002 did, D44): databases that applied
 -- them keep their _migration rows (the runner warns that the scripts are gone).
@@ -98,7 +97,8 @@ publish it on heisreal.today.
 
 ## Who sees it
 
-While it’s a draft or waiting for review: you and our moderators.
+While it’s a draft: you, and a small number of our super admins (for support and safety).
+While it’s waiting for review: you and our moderators.
 Once it’s approved: anyone visiting heisreal.today.
 
 ## Changing your mind
@@ -162,12 +162,12 @@ use it for advertising.
   one, and how you sign in. Our own database holds only Clerk’s id for you.
 - **Your stories.** What you write, record or upload (text, video, audio and pictures), the
   themes you choose, the name you choose to show, and where each story is in review, with our
-  moderators’ notes to you.
+  moderators’ notes to you. While a story is a draft, you and a small number of our super admins
+  (for support and safety) can see it; once you submit it, our moderators review it.
 - **Your agreements.** Which version of the terms of use and the testimony consent you agreed
   to, and when; and, for each story, whether you agreed to social media sharing.
 - **Favourites.** The stories you heart while signed in.
-- **Limits and records.** How many stories you’ve started and submitted, to keep things fair,
-  and an audit log of what was done on the site and when (internal ids only, never your story).
+- **Limits.** How many stories you’ve started and submitted, to keep things fair.
 - **Security logs.** Our servers’ records of requests, such as your IP address and browser, to
   keep the site working and safe.
 
@@ -193,8 +193,8 @@ is protected as UK law requires.
 - **Sharing a story beyond this site:** your consent for that story.
 - **Your account and favourites:** to provide the service you signed up for (a contract,
   Article 6(1)(b)).
-- **Security logs, limits, the audit log and deleted-account records:** our legitimate interest
-  in keeping the site safe, fair and accountable (Article 6(1)(f)).
+- **Security logs, limits and deleted-account records:** our legitimate interest in keeping the
+  site safe, fair and accountable (Article 6(1)(f)).
 
 ## How long we keep it
 
@@ -203,9 +203,9 @@ is protected as UK law requires.
   story takes it off the site.
 - **Your account:** until you delete it. Then we delete your stories, media, favourites and
   agreements, and Clerk deletes your sign-in details.
-- **What stays after that:** a record that an account existed and when it was deleted, under an
-  internal number; a one-way fingerprint of your Clerk id, so a deleted account can’t be
-  re-created; and the audit log, which holds internal ids only.
+- **What stays after that:** a record that an account existed and was deleted, under an
+  internal number; and a one-way fingerprint of your Clerk id, so a deleted account can’t be
+  re-created.
 - **Backups:** deleted after 30 days.
 
 ## Your rights
@@ -263,11 +263,7 @@ Email us at [contact email to be confirmed].
 };
 -- C1: the agreed-at times are the database's (the fields' VALUE clauses), never supplied here.
 UPDATE user SET termsOfUse = termsOfUseAgreement:0, termsOfUseAgreedAt = time::now()
-  WHERE gdprDeletedAt = NONE AND termsOfUse = NONE;
+  WHERE status != 'deleted' AND termsOfUse = NONE;
 UPDATE user SET testimonyConsent = testimonyConsent:0, testimonyConsentAgreedAt = time::now()
-  WHERE gdprDeletedAt = NONE AND testimonyConsent = NONE;
+  WHERE status != 'deleted' AND testimonyConsent = NONE;
 DELETE _setting:consent;
-DELETE auditLog WHERE action IN ['GrantConsent', 'WithdrawConsent', 'CreateDpaDraft', 'PublishDpa',
-    'PublishPrivacyPolicy', 'PublishTerms']
-  OR reason IN ['consent_withdrawn', 'consent_required', 'consent_restored']
-  OR service = 'housekeeping' OR consentType != NONE OR dpaVersion != NONE;

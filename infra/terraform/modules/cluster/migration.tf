@@ -20,6 +20,7 @@ module "migration" {
   clerk_jwt_public_key = var.clerk_jwt_public_key
   identity_hash        = module.identity.hash
   environment          = local.environment
+  dev_database_reset   = var.dev_database_reset
   # D49: the Job waits for exactly the system users the init creates.
   extra_system_users = var.dev_seed_login ? ["dev_seed"] : []
   job_template       = jsondecode(data.kustomization_overlay.surrealdb.manifests[local.migrate_template_id])

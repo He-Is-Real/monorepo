@@ -192,7 +192,7 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
     await approve(admin, live);
     await run(
       await t.person('user_bob'),
-      `CREATE favourite CONTENT { person: $auth, story: type::record('story', $id) }`,
+      `CREATE favourite:ulid() CONTENT { person: $auth, story: type::record('story', $id) }`,
       { id: live },
     );
     const video = randomUUID();
@@ -229,12 +229,10 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
          publicStories: (SELECT VALUE id FROM publicStory WHERE string::starts_with(record::id(id), $who)),
          hearts: (SELECT VALUE id FROM favourite WHERE string::starts_with(record::id(story), $who)),
          grants: (SELECT VALUE id FROM uploadGrant WHERE person = type::record('user', $who)),
-         user: (SELECT VALUE [clerkUserId, gdprDeletedAt != NONE] FROM ONLY type::record('user', $who)),
+         user: (SELECT VALUE [clerkUserId, status = 'deleted'] FROM ONLY type::record('user', $who)),
          agreements: (SELECT VALUE [termsOfUse, termsOfUseAgreedAt, testimonyConsent,
            testimonyConsentAgreedAt].filter(|$v| $v != NONE).len()
            FROM ONLY type::record('user', $who)),
-         erasedBy: (SELECT VALUE reason FROM auditLog
-           WHERE action = 'EraseAccount' AND entity = type::record('user', $who)),
          rowsForClerkId: (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId),
          queued: (SELECT VALUE id FROM pendingDeletion WHERE kind != 'image'),
          folders: (SELECT VALUE ref FROM pendingDeletion WHERE kind = 'image'
@@ -305,7 +303,6 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
       user: [undefined, true],
       // Deleting the account withdraws every consent: nothing kept says what they agreed to.
       agreements: 0,
-      erasedBy: ['account_deleted'],
       rowsForClerkId: [],
       queued: [],
       // Deleted straight away, and kept for their final pass: a PUT link signed before the
@@ -382,7 +379,6 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
     expect(await left('ida')).toMatchObject({
       stories: [],
       user: [undefined, true],
-      erasedBy: ['account_deleted'],
     });
     expect(
       await rows(
@@ -409,14 +405,13 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
       expect(await left('gus')).toMatchObject({
         stories: [],
         user: [undefined, true],
-        erasedBy: ['clerk_user_deleted'],
         queued: [],
       });
       expect(bunny.deleted).toContain(video);
       expect(clerkApi.deleted).not.toContain('user_gus');
       // Svix redelivers: acknowledged, nothing more.
       expect(await webhook(event, { id })).toBe(204);
-      expect((await left('gus')).erasedBy).toEqual(['clerk_user_deleted']);
+      expect((await left('gus')).user).toEqual([undefined, true]);
       // A Clerk id we never saw: fingerprinted, so a leftover token can't create it.
       expect(
         await webhook({ ...event, data: { id: 'user_never', object: 'user' } }),

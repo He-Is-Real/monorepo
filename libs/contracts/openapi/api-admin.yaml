@@ -195,8 +195,7 @@ paths:
       summary: Approve and publish a story
       description: |
         Command `ApproveStory`. The database checks the submitter has the testimony consent (plan 4e;
-        any version: it covers every story they submit), then creates the `publicStory` row, a `moderationReview` and an `auditLog`
-        entry in one transaction. The caller must hold the lock (`409`). The submitter is emailed after
+        any version: it covers every story they submit), then creates the `publicStory` row and a `moderationReview` in one transaction. The caller must hold the lock (`409`). The submitter is emailed after
         the commit (address fetched from Clerk, D16).
 
         Approval waits for processing (A2): every video, audio file and image must be `ready`, and a
@@ -428,7 +427,7 @@ paths:
       summary: Assign a user's role
       description: |
         Command `AssignRole`. Clerk is the source of truth for roles (D1): this writes Clerk
-        `publicMetadata.role` and an `auditLog` entry. Clerk holds no version, so there is no
+        `publicMetadata.role`. Clerk holds no version, so there is no
         `If-Match` and the result's `version` is `null`.
       x-required-role: SuperAdmin
       x-milestone: M3

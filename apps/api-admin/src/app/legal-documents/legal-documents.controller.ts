@@ -197,9 +197,9 @@ export class LegalDocumentsController {
 
   /**
    * PublishLegalVersion: saves `content` as version `version`, which must be one after the
-   * latest (409 `document_changed` otherwise: another admin saved meanwhile). One transaction
-   * writes the version and its audit row (the admin, and the new version as the entity); the
-   * database sets its release date. It is in force the moment it commits.
+   * latest (409 `document_changed` otherwise: another admin saved meanwhile). The version names
+   * the admin who published it (`publishedBy`, R3: from their own user record, never the
+   * request); the database sets its release date. It is in force the moment it commits.
    */
   @Post(':document/versions')
   @RequiresRole('Admin')
@@ -211,7 +211,6 @@ export class LegalDocumentsController {
   ) {
     if (!isDocument(document)) throw notFound();
     const input = parsePublish(body);
-    const { role } = await this.people.authenticate(req);
     // Who saves it: the admin's own user record, from their own database session (D27).
     const user = await this.people.run(req, async ({ user }) => user);
     let results: unknown[];
@@ -219,14 +218,10 @@ export class LegalDocumentsController {
       results = await runQuery(
         this.db,
         `BEGIN TRANSACTION;
-         LET $row = (CREATE ONLY type::record($table, $version) CONTENT { content: $content }
+         LET $row = (CREATE ONLY type::record($table, $version)
+             CONTENT { content: $content, publishedBy: $user }
            RETURN record::id(id) AS version, release_date, id);
          IF $row = NONE { THROW 'the legal text version was not written' };
-         LET $audit = (CREATE ONLY auditLog CONTENT {
-             service: 'api-admin', action: 'PublishLegalVersion', actor: $user,
-             actorRole: $role, entity: $row.id
-           } RETURN id);
-         IF $audit = NONE { THROW 'the audit row was not written' };
          $row;
          COMMIT TRANSACTION;`,
         {
@@ -234,7 +229,6 @@ export class LegalDocumentsController {
           version: input.version,
           content: input.content,
           user,
-          role,
         },
       );
     } catch (err) {

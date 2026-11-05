@@ -351,14 +351,14 @@ describe('download my data', () => {
     await decide(zedLive.id, 'approve');
     await run(
       ann,
-      `CREATE favourite SET person = $auth, story = type::record('story', $id)`,
+      `CREATE favourite:ulid() SET person = $auth, story = type::record('story', $id)`,
       {
         id: zedLive.id,
       },
     );
     await run(
       zed,
-      `CREATE favourite SET person = $auth, story = type::record('story', $id)`,
+      `CREATE favourite:ulid() SET person = $auth, story = type::record('story', $id)`,
       {
         id: annLive.id,
       },
@@ -525,6 +525,10 @@ describe('download my data', () => {
         publicPath: expect.stringMatching(/^\/stories\//),
       },
     ]);
+    // R14: when it was hearted is read back from the heart's ULID id.
+    const heartedAt = Date.parse(file.favourites[0].heartedAt);
+    expect(heartedAt).toBeGreaterThan(Date.now() - 10 * 60_000);
+    expect(heartedAt).toBeLessThanOrEqual(Date.now());
     expect(file.limits).toMatchObject({
       trusted: true,
       overrides: { uploadRequestsPerHour: 20 },

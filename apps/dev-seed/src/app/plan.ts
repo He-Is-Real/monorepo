@@ -14,7 +14,7 @@ import {
   imagePath,
 } from './media';
 
-/** The schema's limits (libs/database/schema/schema.surql), checked before anything is written. */
+/** The schema's limits (libs/database/schema/schema-0*.surql), checked before anything is written. */
 export const LIMITS = {
   titleMax: 140,
   descriptionMax: 5000,

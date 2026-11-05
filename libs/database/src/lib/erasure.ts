@@ -1,7 +1,8 @@
 /**
- * Why an account is erased (D39): the audit row's `reason`, one per caller. `account_deleted`
- * is "Delete my account" (also how a person withdraws all consent, plan 4e); `clerk_user_deleted`
- * Clerk's `user.deleted` webhook.
+ * Why an account is erased (D39), one per caller. `account_deleted` is "Delete my account" (also
+ * how a person withdraws all consent, plan 4e): the Clerk account is queued for deletion too;
+ * `clerk_user_deleted` is Clerk's `user.deleted` webhook: Clerk has already deleted it. Not
+ * stored anywhere (R3: an erased account is just `status = 'deleted'`).
  */
 export type ErasureReason = 'account_deleted' | 'clerk_user_deleted';
 
@@ -9,8 +10,8 @@ export type ErasureReason = 'account_deleted' | 'clerk_user_deleted';
  * EraseAccount (D39, D82, D40), run by api-user on its own service login in one transaction
  * (docs/db-permissions.md, "Erasure"). Bind `$clerkUserId` and `$reason`. The work is the
  * schema's `fn::account::erase` (the tombstone, the queued deletions outside the database, the
- * stories and everything else of the person's, the stub user row without its agreements, and
- * the audit row).
+ * stories and everything else of the person's, and the stub user row, `status = 'deleted'`,
+ * without its agreements).
  *
  * Idempotent: a person already erased (or never known) leaves only the tombstone, which is
  * already there. A run that loses a race to another write fails at commit and must be retried

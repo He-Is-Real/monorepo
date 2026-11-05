@@ -194,7 +194,7 @@ describe('themes (api-admin)', () => {
     expect(
       await rows(
         migrator,
-        `SELECT VALUE record::id(actor) FROM auditLog WHERE action = 'SaveThemes'`,
+        'SELECT VALUE record::id(changedBy) FROM themeCatalog:current',
       ),
     ).toEqual(['admin']);
   });
