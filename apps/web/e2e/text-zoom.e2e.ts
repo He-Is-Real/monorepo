@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { enlargeText as enlarge, expectNoHorizontalOverflow } from './helpers';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
@@ -90,8 +91,10 @@ test('200% text: /admin/limits with its confirmation fits on a 320 px phone', as
   page,
 }) => {
   await enlarge(page);
-  await page.addInitScript(() =>
-    window.localStorage.setItem('e2e-session', 'admin-text-zoom-limits'),
+  // A session of its own (the stub keeps each session's limits), never shared with a repeat.
+  await page.addInitScript(
+    (s) => window.localStorage.setItem('e2e-session', s),
+    `admin-text-zoom-limits-${randomUUID()}`,
   );
   await page.goto(`${WEB_SIGNED_IN_URL}/admin/limits`);
   await page.getByLabel('Largest video file').fill('10240');
@@ -103,7 +106,7 @@ test('200% text: /admin/limits with its confirmation fits on a 320 px phone', as
 
 // Plan 4e: the agreement steps (first time and with a redline) and /admin/consent with its
 // confirmation, each as its own person at the stub api-user.
-for (const [name, seed, path, session] of [
+for (const [name, seed, path, prefix] of [
   ['first terms', { terms: null }, '/consent/terms', 'unaccepted-text-zoom'],
   ['changed terms', { terms: 0 }, '/consent/terms', 'text-zoom-terms'],
   [
@@ -118,6 +121,8 @@ for (const [name, seed, path, session] of [
     page,
     request,
   }) => {
+    // A session of its own, never shared with a repeat; the prefix keeps its role.
+    const session = `${prefix}-${randomUUID()}`;
     await request.post(`${STUB_USER_URL}/__e2e/sessions/${session}`, {
       data: seed,
     });

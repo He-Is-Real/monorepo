@@ -7,7 +7,12 @@ import {
   test,
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
-import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
+import {
+  countFetches,
+  expectAllTargets,
+  expectNoHorizontalOverflow,
+  fetchesTakenIn,
+} from './helpers';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // Pictures on /share (M2 plan PR 10; D53, D65, D80): a written story's image and a video's own
@@ -470,6 +475,7 @@ test.describe('behaviour', () => {
     page,
     request,
   }) => {
+    await countFetches(page);
     await person(page, request);
     await written(page);
     await choose(page, 900, 1200);
@@ -503,8 +509,8 @@ test.describe('behaviour', () => {
     const answered = page.waitForEvent('requestfinished', isImageEdit);
     release();
     await answered;
-    // The answer's own handling runs in the tasks after it.
-    await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+    // The page has taken in that answer, and every other, before looking.
+    await fetchesTakenIn(page);
     expect(
       await page.evaluate(() => JSON.stringify(window.sessionStorage)),
     ).not.toMatch(/Something private|sunrise/);

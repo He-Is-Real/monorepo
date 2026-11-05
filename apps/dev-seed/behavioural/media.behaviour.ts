@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   expect,
   type Frame,
+  type Locator,
   type Page,
   test,
 } from '@playwright/test';
@@ -349,6 +350,28 @@ async function playerFrame(page: Page) {
   return page.frames().find((f) => f.url().includes('mediadelivery.net'))!;
 }
 
+/**
+ * The player's controls while they show: Bunny's bars hide a moment after the last pointer
+ * movement, so each look first moves the pointer over the player (a different spot each time,
+ * as only a move wakes them), and the measures come from that same look, never a later one.
+ */
+async function shownPlayerControls(player: Locator, frame: Frame) {
+  let controls: Awaited<ReturnType<typeof playerControls>> = [];
+  let look = 0;
+  await expect
+    .poll(
+      async () => {
+        look += 1;
+        await player.hover({ position: { x: 10 + (look % 2) * 10, y: 10 } });
+        controls = await playerControls(frame);
+        return controls.length;
+      },
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThanOrEqual(4);
+  return controls;
+}
+
 test.describe('on a 320 px phone', () => {
   test.use({
     viewport: { width: 320, height: 568 },
@@ -367,12 +390,7 @@ test.describe('on a 320 px phone', () => {
     await expect(card.locator('iframe')).toBeVisible({ timeout: 30_000 });
     const frame = await playerFrame(page);
     await expectPlaying(frame);
-    await expect
-      .poll(async () => (await playerControls(frame)).length, {
-        timeout: 15_000,
-      })
-      .toBeGreaterThanOrEqual(4);
-    for (const c of await playerControls(frame)) {
+    for (const c of await shownPlayerControls(card.locator('iframe'), frame)) {
       expect(c.inside, `${c.name} lies inside the player`).toBe(true);
       expect(c.height, `${c.name} height`).toBeGreaterThanOrEqual(44);
       if (c.name.endsWith('-button')) {
@@ -399,12 +417,10 @@ test.describe('on a 320 px phone', () => {
     // Start playback so the control bar shows (it hides before the first play).
     await largePlay.tap();
     const frame = await playerFrame(page);
-    await expect
-      .poll(async () => (await playerControls(frame)).length, {
-        timeout: 15_000,
-      })
-      .toBeGreaterThanOrEqual(4);
-    const controls = await playerControls(frame);
+    const controls = await shownPlayerControls(
+      page.locator(`iframe[title="${title}"]`),
+      frame,
+    );
     for (const c of controls) {
       expect(c.inside, `${c.name} lies inside the player`).toBe(true);
       expect(c.height, `${c.name} height`).toBeGreaterThanOrEqual(44);

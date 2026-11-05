@@ -15,6 +15,10 @@ import { expectClerkTargetsFullSize, expectFitsScreen } from './clerk-card';
 const TEST_USER = 'behavioural+clerk_test@example.com';
 const TEST_CODE = '424242';
 
+// Both viewports sign in as the same Clerk user: one after the other, never at once, so one
+// sign-in can't race the other's (the config runs tests in parallel).
+test.describe.configure({ mode: 'default' });
+
 for (const viewport of [
   { width: 320, height: 568 },
   { width: 1280, height: 800 },

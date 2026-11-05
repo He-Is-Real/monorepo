@@ -303,10 +303,7 @@ test.describe('/admin/themes', () => {
     };
     const mine = await start();
     const theirs = await start();
-    for (const [page, theme] of [
-      [theirs, 'Grief'],
-      [mine, 'Work'],
-    ] as const) {
+    const highlight = async (page: Page, theme: string) => {
       const dialog = await panel(page, theme);
       await dialog.getByRole('switch', { name: /Highlighted/ }).check();
       await dialog.getByRole('button', { name: 'Done' }).click();
@@ -315,8 +312,11 @@ test.describe('/admin/themes', () => {
         .getByRole('dialog', { name: 'Save 1 change?' })
         .getByRole('button', { name: 'Save changes' })
         .click();
-    }
+    };
+    // Theirs is saved before mine is sent, so mine is the stale one.
+    await highlight(theirs, 'Grief');
     await expect(theirs.locator('[data-save-status="done"]')).toBeVisible();
+    await highlight(mine, 'Work');
     const stale = mine.locator('[data-save-status="stale"]');
     await expect(stale).toContainText(
       'Someone else changed themes. Reload to see their changes',

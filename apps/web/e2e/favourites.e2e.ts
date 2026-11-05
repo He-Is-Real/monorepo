@@ -9,9 +9,11 @@ import {
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES, SCREENSHOT_DEVICES } from './devices';
 import {
+  countFetches,
   expectAllTargets,
   expectNoHorizontalOverflow,
   expectTarget,
+  fetchesTakenIn,
   nearEndSettled,
   recordAnnouncements,
 } from './helpers';
@@ -410,6 +412,7 @@ test.describe('hearts', () => {
   }, info) => {
     const session = sessionFor(info, 'offer-add');
     await useSession(page, session);
+    await countFetches(page);
     // On the device: two public stories, one already in the account, one that isn't public.
     await heartAtStub(request, session, ['browse_03']);
     await seedDeviceHearts(page, [
@@ -465,6 +468,7 @@ test.describe('hearts', () => {
     );
     await page.reload();
     await lookedUp; // the anonymous card lookup for what's left (the story that isn't public)
+    await fetchesTakenIn(page); // and the page has taken its answer in
     await expect(prompt).toHaveCount(0);
   });
 

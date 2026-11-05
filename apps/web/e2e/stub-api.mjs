@@ -278,23 +278,23 @@ for (let i = 0; i < 48; i++) {
 // and /__test/show?slug= withdraw a story from that port's API (every route: the list, related
 // lists and the story itself, which then answers 404) or bring it back. Each port keeps its own
 // set, so the live server's withdrawal test (freshness.e2e.ts) never touches the dev server's.
-// On dev (pages.e2e.ts): stories listed only under `theme=hide_test`, one per device project
-// (projects run in parallel, so each hides its own). Nothing else lists them.
+// On dev (pages.e2e.ts): each run makes its own story (POST /__test/story, `hide-test-…`),
+// listed only under `theme=hide_test`, so no two tests (or repeats) ever hide the same one.
+// Nothing else lists them.
 const HIDE_TEST = 'hide_test';
 const hiddenOn = { dev: new Set(), live: new Set(), down: new Set() };
-for (const name of ['phone-320', 'desktop-1280', 'spare']) {
-  const slug = `hide-test-${name.replace('.', '-')}`;
+const hideStory = (slug) => {
   stories[slug] = {
     ...base,
-    id: `hide_${name}`,
+    id: slug.replaceAll('-', '_'),
     slug,
-    title: `Hide test story (${name})`,
+    title: `Hide test story ${slug}`,
     description: 'Dummy story for the hide test.',
     body: 'Placeholder text.',
     themes: [{ id: HIDE_TEST, name: 'Hide test' }],
     publishedAt: '2026-10-22T20:00:00Z',
   };
-}
+};
 
 // Card playback (card-playback.e2e.ts): stories listed only under `theme=play_test`. Each card
 // plays from its media area; "gone" answers 404 and "down" 503 when the player is asked for.
@@ -746,11 +746,17 @@ const handler = (mode) => (req, res) => {
   const url = new URL(req.url ?? '/', 'http://stub');
   const hook = /^\/__test\/(hide|show)$/.exec(url.pathname);
   // A test's own story: `heart-tmp-…` (favourites.e2e.ts), listed nowhere, or `prefetch-test-…`
-  // (card-playback.e2e.ts), listed under its theme; public on every port.
+  // (card-playback.e2e.ts) or `hide-test-…` (pages.e2e.ts), listed under its theme; public on
+  // every port.
   if (url.pathname === '/__test/story' && req.method === 'POST') {
     const slug = url.searchParams.get('slug') ?? '';
     if (/^prefetch-test-[a-z0-9-]{1,50}$/.test(slug)) {
       prefetchStory(slug);
+      res.writeHead(204);
+      return res.end();
+    }
+    if (/^hide-test-[a-z0-9-]{1,50}$/.test(slug)) {
+      hideStory(slug);
       res.writeHead(204);
       return res.end();
     }

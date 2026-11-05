@@ -9,9 +9,11 @@ import {
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
 import {
+  countFetches,
   enlargeText,
   expectAllTargets,
   expectNoHorizontalOverflow,
+  fetchesTakenIn,
   shots,
 } from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
@@ -80,6 +82,20 @@ async function person(
     (await request.get(`${STUB_USER_URL}${path}`, { headers: auth })).json();
   return {
     id,
+    /** Changes a story as another tab does, at the version it has now. */
+    editElsewhere: async (story: string, patch: object) => {
+      const { version } = await read(`/v1/account/stories/${story}`);
+      return (
+        await request.patch(`${STUB_USER_URL}/v1/stories/${story}`, {
+          headers: {
+            ...auth,
+            'content-type': 'application/merge-patch+json',
+            'if-match': `"${version}"`,
+          },
+          data: patch,
+        })
+      ).status();
+    },
     stories: async () =>
       (
         (await read('/v1/account/stories')).data as {
@@ -355,6 +371,7 @@ test.describe('behaviour', () => {
     page,
     request,
   }) => {
+    await countFetches(page);
     const me = await person(page, request, {
       stories: [
         { id: 'o1', title: 'Gone first' },
@@ -390,12 +407,7 @@ test.describe('behaviour', () => {
     release();
     await (await answered).finished();
     // Let the page take the answer in before looking.
-    await page.evaluate(
-      () =>
-        new Promise((r) =>
-          requestAnimationFrame(() => requestAnimationFrame(r)),
-        ),
-    );
+    await fetchesTakenIn(page);
     expect(await me.stories()).toEqual([]);
     await expect(page.locator('[data-notice]')).toBeEmpty();
     await expect(page.getByText(/Gone (first|later)/)).toHaveCount(0);
@@ -411,19 +423,10 @@ test.describe('behaviour', () => {
     await page.goto(PROFILE);
     const story = row(page, 'Busy one');
     await story.getByRole('button', { name: 'Delete' }).click();
-    // Another tab submits it meanwhile.
-    await page.route(`${STUB_USER_URL}/v1/stories/c1`, (route) =>
-      route.fulfill({
-        status: 412,
-        contentType: 'application/problem+json',
-        body: JSON.stringify({
-          type: 'about:blank',
-          title: 'Precondition failed',
-          status: 412,
-          code: 'stale_version',
-        }),
-      }),
-    );
+    // Another tab edits it meanwhile, so the stub refuses the page's version (412).
+    expect(
+      await me.editElsewhere('c1', { description: 'From the other tab' }),
+    ).toBe(200);
     await story.getByRole('button', { name: 'Delete draft' }).click();
     await expect(story.getByRole('alert')).toContainText(
       'This story changed since the page loaded.',

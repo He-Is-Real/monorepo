@@ -84,14 +84,21 @@ test(`body text runs to at most ${LINE_LIMIT} characters a line`, async ({
     '/donate',
   ]) {
     await page.goto(path);
-    // Open every FAQ answer and expand a long story.
-    await page
-      .locator('main h3 button[aria-expanded="false"]')
-      .evaluateAll((questions) =>
-        questions.forEach((q) => (q as HTMLButtonElement).click()),
-      );
-    const more = page.getByRole('button', { name: 'Continue reading' });
-    if (await more.count()) await more.click();
+    // Open every FAQ answer and expand a long story, each until it says it's open: a click
+    // before the page has hydrated does nothing, so it's clicked again until it takes.
+    const toggles = page.locator(
+      'main h3 button[aria-expanded], main [data-story-toggle]',
+    );
+    for (let i = 0; i < (await toggles.count()); i++) {
+      const toggle = toggles.nth(i);
+      await expect(async () => {
+        if ((await toggle.getAttribute('aria-expanded')) === 'false')
+          await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true', {
+          timeout: 1_000,
+        });
+      }).toPass({ timeout: 15_000 });
+    }
     await page.evaluate(() => document.fonts.ready);
     const lines = await page.evaluate((limit) => {
       const out: string[] = [];
