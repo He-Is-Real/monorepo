@@ -331,10 +331,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
       await rows(migrator, 'RETURN fn::limits::effective(user:ned)'),
     ).toMatchObject([{ trusted: false, openDraftsMax: 3 }]);
     expect(
-      await rows(
-        migrator,
-        'SELECT VALUE changedBy FROM submitterLimits:ned',
-      ),
+      await rows(migrator, 'SELECT VALUE changedBy FROM submitterLimits:ned'),
     ).toEqual(['user:admin']);
   });
 

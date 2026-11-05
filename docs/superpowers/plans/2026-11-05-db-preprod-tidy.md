@@ -47,32 +47,38 @@ cards R1 R3 R4 R5 R7 R8 R10 R14, section 6 item 11) and the task brief `.review/
 - [ ] Commit.
 
 ### Task 2: R1 leftovers, R7 rights, R8 indexes
+
 - [ ] Delete the 64 `REMOVE …` lines, `tag`, both `tagRefs`, data 0004 and 0008 and their tests (themes 0008 replay, story-shape 0004 check, SEEDS lists).
 - [ ] api-admin loses delete on `uploadGrant`, `submissionLog`, `moderationReview` (service-permissions suite asserts the refusal).
 - [ ] Drop `pendingDeletion_at`; `publicStory_slughist` becomes `FIELDS slugHistory.*` (local EXPLAIN: plain index = TableScan, element index = IndexScan).
 - [ ] Integration suites pass; commit.
 
 ### Task 3: R3 audit log out, publishedBy in, user.status
+
 - [ ] Tests first: agreements/legal publish asserts `publishedBy` = the admin and refusal without it from a service; erasure asserts `status = 'deleted'`, stub, no reason; person-session/access asserts a deleted person's session can't write and Clerk sign-in refuses.
 - [ ] Schema: drop `auditLog`, `fn::audit::service` and every `CREATE auditLog`; `user.status` with VALUE rules (only `active → deleted`, never back, set by erasure); every `gdprDeletedAt` check → `status = 'deleted'`/`!= 'deleted'` (schema, access-clerk.surql, 0009); `publishedBy` + `fn::legal::check_version` refusal when NONE and `$auth != NONE`.
 - [ ] api-admin legal publish writes `publishedBy: $user`, no audit row; themes/settings controllers comments; `erasure.ts` comment; my-data drops the audit-log sentence; OpenAPI `UserAdmin.status`; dev-seed stops wiping `auditLog`.
 - [ ] Suites pass; commit.
 
 ### Task 4: R5 one fence table
+
 - [ ] `fence` table + `fn::fence::touch($key: string)`; `fn::fence::bump` → `touch('person-' + id)`; identity and theme callers likewise; theme delete removes `fence:theme-<id>`.
 - [ ] concurrency/person-linked/themes suites (existing race tests are the proof) pass; commit.
 
 ### Task 5: R4 expired request keys
+
 - [ ] Test (housekeeping integration): expired keys of all three owners deleted, live ones kept; housekeeping's own `DELETE idempotencyKey` of a live key deletes nothing.
 - [ ] Schema: idempotencyKey `FOR select, delete` adds `$auth.id = service:housekeeping AND expiresAt < time::now()`; housekeeping chore `expired-request-keys`; fix `idempotency.ts` comment.
 - [ ] Pass; commit.
 
 ### Task 6: R14 hearts' ids carry the time
+
 - [ ] Tests (libs/database favourites): non-ULID id, back-dated ULID and future ULID refused; normal heart ok. api-user favourites/export suites: order and paging by id, `heartedAt` from the id.
 - [ ] Schema: drop `createdAt`, `favourite_list`; event check; api-user creates `favourite:ulid()`… actually `type::record('favourite', rand::ulid())`; list orders `id DESC`, cursor `{v:2,k:[id]}`; export reads `time::from_ulid`.
 - [ ] Pass; commit.
 
 ### Task 7: Legal wording, dev wipe, docs
+
 - [ ] 0009: "While it's a draft: you, and a small number of super admins (for support and safety). While it's waiting for review: our moderators." in testimony consent and the privacy notice's passage; fixtures/e2e quoting it.
 - [ ] Runner reset step: param `dev_database_reset` (string or null). If set and not yet in `_migrationReset`: refuse unless param environment and stored environment are both `dev`; remove every table except `service`, `_identity`, `_migrationRun`, `_migrationPending`, `_migrationReset`, and every function; record the token. Integration test: wipes, runs once, refuses outside dev.
 - [ ] Tofu: `db-migration` variable `dev_database_reset` with a precondition environment == "dev"; cluster module passes it; `live/dev/cluster` sets the token.

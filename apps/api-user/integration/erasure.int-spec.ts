@@ -405,7 +405,7 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
       expect(await left('gus')).toMatchObject({
         stories: [],
         user: [undefined, true],
-          queued: [],
+        queued: [],
       });
       expect(bunny.deleted).toContain(video);
       expect(clerkApi.deleted).not.toContain('user_gus');

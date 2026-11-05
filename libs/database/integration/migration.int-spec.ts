@@ -1272,7 +1272,9 @@ describe('dev database reset', () => {
     async (environment: string | null) => {
       const t = await devDatabase();
       try {
-        const result = await t.runMigration(t.params({ ...RESET, environment }));
+        const result = await t.runMigration(
+          t.params({ ...RESET, environment }),
+        );
         expect(result.exitCode).toBe(1);
         expect(result.output).toContain(
           "dev_database_reset is set but the environment isn't dev",

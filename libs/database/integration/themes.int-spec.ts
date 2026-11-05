@@ -260,25 +260,45 @@ describe('themes and their categories', () => {
       );
       expect(await commit(deleting)).toBe('committed');
 
-      const fence = await rows(migrator, `SELECT * FROM type::record('fence', 'theme-bystander')`);
+      const fence = await rows(
+        migrator,
+        `SELECT * FROM type::record('fence', 'theme-bystander')`,
+      );
       expect(fence).toHaveLength(1);
       for (const db of [fay, admin, await t.service('api_user')]) {
         expect(await rows(db, 'SELECT * FROM fence')).toEqual([]);
-        expect(await rows(db, `UPDATE type::record('fence', 'theme-bystander') SET n = 0`)).toEqual(
-          [],
-        );
-        expect(await rows(db, `CREATE type::record('fence', 'theme-ghost') SET n = 1`)).toEqual([]);
+        expect(
+          await rows(
+            db,
+            `UPDATE type::record('fence', 'theme-bystander') SET n = 0`,
+          ),
+        ).toEqual([]);
+        expect(
+          await rows(
+            db,
+            `CREATE type::record('fence', 'theme-ghost') SET n = 1`,
+          ),
+        ).toEqual([]);
       }
       expect(
-        await rows(migrator, `SELECT * FROM type::record('fence', 'theme-bystander')`),
+        await rows(
+          migrator,
+          `SELECT * FROM type::record('fence', 'theme-bystander')`,
+        ),
       ).toEqual(fence);
-      expect(await rows(migrator, `SELECT * FROM type::record('fence', 'theme-ghost')`)).toEqual(
-        [],
-      );
+      expect(
+        await rows(
+          migrator,
+          `SELECT * FROM type::record('fence', 'theme-ghost')`,
+        ),
+      ).toEqual([]);
       // A deleted theme leaves no fence behind.
-      expect(await rows(migrator, `SELECT * FROM type::record('fence', 'theme-race1')`)).toEqual(
-        [],
-      );
+      expect(
+        await rows(
+          migrator,
+          `SELECT * FROM type::record('fence', 'theme-race1')`,
+        ),
+      ).toEqual([]);
     });
   });
 

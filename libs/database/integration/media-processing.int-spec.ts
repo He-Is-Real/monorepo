@@ -825,7 +825,6 @@ describe('approval waits for media processing (A2)', () => {
       expect(await publicThumbnail(id)).toEqual(['vid/thumbnail_3.jpg']);
     });
 
-
     it.each<[string, () => Promise<string>, string, SurrealQueryable | null]>([
       [
         'a custom thumbnail',

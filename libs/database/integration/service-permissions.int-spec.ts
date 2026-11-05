@@ -247,9 +247,9 @@ describe('service identities (D13 B)', () => {
         // Erasure is one command: the Clerk id and the agreements go with it (fn::account::erase).
         error: expect.stringMatching(/without a clerkUserId|agreement_kept/),
       });
-      expect(
-        await truth('SELECT clerkUserId, status FROM user:ann'),
-      ).toEqual([{ clerkUserId: 'user_ann', status: 'active' }]);
+      expect(await truth('SELECT clerkUserId, status FROM user:ann')).toEqual([
+        { clerkUserId: 'user_ann', status: 'active' },
+      ]);
       expect(await rows(db, 'DELETE user:bob RETURN BEFORE')).toEqual([]);
       expect(await truth('SELECT id FROM user:bob')).toHaveLength(1);
     });
@@ -306,15 +306,22 @@ describe('service identities (D13 B)', () => {
           version: version as number,
         }),
       ).toMatchObject({ ok: true });
-      await run(migrator, 'CREATE submissionLog:r7 CONTENT { person: user:ann }');
+      await run(
+        migrator,
+        'CREATE submissionLog:r7 CONTENT { person: user:ann }',
+      );
       const before = await truth<string[]>(
         'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM moderationReview)]',
       );
       expect(before.map((ids) => ids.length > 0)).toEqual([true, true, true]);
-      for (const table of ['uploadGrant', 'submissionLog', 'moderationReview']) {
-        expect(
-          await rows(svc.admin, `DELETE ${table} RETURN BEFORE`),
-        ).toEqual([]);
+      for (const table of [
+        'uploadGrant',
+        'submissionLog',
+        'moderationReview',
+      ]) {
+        expect(await rows(svc.admin, `DELETE ${table} RETURN BEFORE`)).toEqual(
+          [],
+        );
       }
       expect(
         await truth(

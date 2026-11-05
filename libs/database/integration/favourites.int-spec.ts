@@ -109,8 +109,14 @@ describe('favourites', () => {
 
   // R14 (Joel, 2026-11-05): the id carries the time, so it must be a ULID made just now.
   it.each([
-    ['a ULID from yesterday', `type::record('favourite', rand::ulid(time::now() - 1d))`],
-    ['a ULID from tomorrow', `type::record('favourite', rand::ulid(time::now() + 1d))`],
+    [
+      'a ULID from yesterday',
+      `type::record('favourite', rand::ulid(time::now() - 1d))`,
+    ],
+    [
+      'a ULID from tomorrow',
+      `type::record('favourite', rand::ulid(time::now() + 1d))`,
+    ],
     ['an id that isn’t a ULID', 'favourite:mine'],
     ['a random id', 'favourite'],
   ])('refuses a heart whose id is %s', async (_, target) => {
@@ -231,7 +237,9 @@ describe('favourites', () => {
 
     const tx = await fay.beginTransaction();
     await tx
-      .query(`CREATE favourite:ulid() SET person = $auth, story = story:gus_live`)
+      .query(
+        `CREATE favourite:ulid() SET person = $auth, story = story:gus_live`,
+      )
       .collect();
     await run(await t.service('api_user'), ERASE, {
       clerkUserId: 'user_gus',

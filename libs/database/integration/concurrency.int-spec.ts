@@ -84,9 +84,9 @@ describe('concurrent transactions are fenced per person', () => {
     expect(
       await truth('SELECT * FROM story WHERE submitter = user:bob'),
     ).toEqual([]);
-    expect(
-      await truth('SELECT VALUE status FROM user:bob'),
-    ).toEqual(['deleted']);
+    expect(await truth('SELECT VALUE status FROM user:bob')).toEqual([
+      'deleted',
+    ]);
   });
 
   it('erasure that overlaps a story create fails instead, and its retry erases the story', async () => {
@@ -151,7 +151,11 @@ describe('concurrent transactions are fenced per person', () => {
     const [stub] = await truth<Record<string, unknown>>(
       'SELECT * FROM ONLY user:cy',
     );
-    expect(Object.keys(stub ?? {}).sort()).toEqual(['createdAt', 'id', 'status']);
+    expect(Object.keys(stub ?? {}).sort()).toEqual([
+      'createdAt',
+      'id',
+      'status',
+    ]);
     expect(stub?.['status']).toBe('deleted');
   });
 
@@ -176,7 +180,11 @@ describe('concurrent transactions are fenced per person', () => {
     const [stub] = await truth<Record<string, unknown>>(
       'SELECT * FROM ONLY user:cid',
     );
-    expect(Object.keys(stub ?? {}).sort()).toEqual(['createdAt', 'id', 'status']);
+    expect(Object.keys(stub ?? {}).sort()).toEqual([
+      'createdAt',
+      'id',
+      'status',
+    ]);
     expect(stub?.['status']).toBe('deleted');
   });
 
@@ -214,17 +222,33 @@ describe('concurrent transactions are fenced per person', () => {
       workflow,
       await t.service('api_public_read'),
     ];
-    const before = await truth(`SELECT * FROM type::record('fence', 'person-ula')`);
+    const before = await truth(
+      `SELECT * FROM type::record('fence', 'person-ula')`,
+    );
     for (const db of sessions) {
       expect(await rows(db, 'SELECT * FROM fence')).toEqual([]);
-      expect(await rows(db, `UPDATE type::record('fence', 'person-ula') SET n = 0`)).toEqual([]);
-      expect(await rows(db, `CREATE type::record('fence', 'person-ghost') SET n = 1`)).toEqual([]);
-      expect(await rows(db, `DELETE type::record('fence', 'person-ula') RETURN BEFORE`)).toEqual(
-        [],
-      );
+      expect(
+        await rows(db, `UPDATE type::record('fence', 'person-ula') SET n = 0`),
+      ).toEqual([]);
+      expect(
+        await rows(
+          db,
+          `CREATE type::record('fence', 'person-ghost') SET n = 1`,
+        ),
+      ).toEqual([]);
+      expect(
+        await rows(
+          db,
+          `DELETE type::record('fence', 'person-ula') RETURN BEFORE`,
+        ),
+      ).toEqual([]);
     }
-    expect(await truth(`SELECT * FROM type::record('fence', 'person-ula')`)).toEqual(before);
-    expect(await truth(`SELECT * FROM type::record('fence', 'person-ghost')`)).toEqual([]);
+    expect(
+      await truth(`SELECT * FROM type::record('fence', 'person-ula')`),
+    ).toEqual(before);
+    expect(
+      await truth(`SELECT * FROM type::record('fence', 'person-ghost')`),
+    ).toEqual([]);
     expect(
       Object.keys((before as Record<string, unknown>[])[0]).sort(),
     ).toEqual(['id', 'n']);

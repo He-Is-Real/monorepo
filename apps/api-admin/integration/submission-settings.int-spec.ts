@@ -155,7 +155,9 @@ describe('submission settings (api-admin)', () => {
         `RETURN fn::settings::submission().submissionsPer7Days`,
       ),
     ).toEqual([2]);
-    expect(await changedBy()).toEqual([{ by: 'admin', changedByRole: 'Admin' }]);
+    expect(await changedBy()).toEqual([
+      { by: 'admin', changedByRole: 'Admin' },
+    ]);
     const again = (await (await read()).json()) as { changedBy: string };
     expect(again.changedBy).toBe('admin');
   });

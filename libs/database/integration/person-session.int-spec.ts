@@ -166,11 +166,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
           }),
         ).toEqual([`${table}:0`]);
       }
-      for (const table of [
-        'moderationReview',
-        'idempotencyKey',
-        'service',
-      ]) {
+      for (const table of ['moderationReview', 'idempotencyKey', 'service']) {
         expect(await rows(ann, `SELECT * FROM ${table}`)).toEqual([]);
       }
     });
