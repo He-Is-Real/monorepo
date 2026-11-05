@@ -176,7 +176,8 @@ short-lived upload credentials.
   seconds (R13; per running copy, at most 500 answers, no timers: `public-cache.ts`). Public
   queries send `Cache-Control: no-store` until shared caching is turned on
   (`PUBLIC_RESPONSE_CACHING=on` on api-public-read; D51: never in dev; Go live decides, D56), then
-  `public, max-age=N`, N being the seconds the answer has left of its 60, with no
+  `public, max-age=N`, N being the seconds the answer has left of its 60 (counted from when the
+  database was asked; `no-store` when none is left), with no
   `stale-while-revalidate`: a public answer is never more than 60 seconds old in total (a `304`
   says the same). web fetches story data `no-store` too;
   personal and admin queries send `Cache-Control: private, no-store`. **Every query** returns an

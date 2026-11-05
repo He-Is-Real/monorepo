@@ -10,11 +10,12 @@ export const PUBLIC_MAX_AGE_SECONDS = 60;
  * R13). Shared caching needs `PUBLIC_RESPONSE_CACHING=on`, which no environment sets yet (Go
  * live's front door decides it, D56). Anything else fails safe. When on, a public query may be
  * kept for the `seconds` its answer has left, and never served stale beyond them (no
- * `stale-while-revalidate`): 60 seconds is the total (R13). Signed media links outlive that by
+ * `stale-while-revalidate`): 60 seconds is the total (R13). An answer with no time left is
+ * `no-store`. Signed media links outlive that by
  * hours (D52).
  */
 export function publicCacheControl(seconds = PUBLIC_MAX_AGE_SECONDS): string {
-  return process.env['PUBLIC_RESPONSE_CACHING'] === 'on'
+  return process.env['PUBLIC_RESPONSE_CACHING'] === 'on' && seconds > 0
     ? `public, max-age=${seconds}`
     : 'no-store';
 }

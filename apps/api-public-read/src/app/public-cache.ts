@@ -53,8 +53,17 @@ export class PublicAnswerCache {
     return answer;
   }
 
-  set(key: string, body: unknown, etag: string): Answer {
-    const answer = { body, etag, storedAt: this.now() };
+  /**
+   * Keeps the answer a read that started at `storedAt` gave, and returns it. Its minute counts
+   * from that start, not from when the read finished, so a slow read can't stretch it. An answer
+   * whose minute is already over, or that started before the one kept for `key` (overlapping
+   * reads finishing out of order), is returned but not kept.
+   */
+  set(key: string, body: unknown, etag: string, storedAt: number): Answer {
+    const answer = { body, etag, storedAt };
+    const kept = this.answers.get(key);
+    if (this.secondsLeft(answer) === 0 || (kept && kept.storedAt > storedAt))
+      return answer;
     this.answers.delete(key);
     this.answers.set(key, answer);
     while (this.answers.size > this.capacity) {
@@ -71,17 +80,18 @@ export class PublicAnswerCache {
 }
 
 /**
- * The request as the answer depends on it: the path, and the query with its parameters in a
- * fixed order (a repeated parameter keeps its own order). Nothing else in a request changes a
- * public answer: this service reads no cookies, no auth and no Accept-Language.
+ * The request as the answer depends on it: the path, and the query exactly as the handlers read
+ * it (`req.query`, Express's parser), with the parameter names in a fixed order (a repeated
+ * parameter keeps its own order). Not a re-parse of the URL: a URL that Express reads one way and
+ * another parser reads another (e.g. past Express's 1,000-parameter limit) would otherwise store
+ * one request's answer under another's key. Nothing else in a request changes a public answer:
+ * this service reads no cookies, no auth and no Accept-Language.
  */
 export function answerKey(req: Request): string {
-  const url = req.originalUrl;
-  const q = url.indexOf('?');
-  if (q < 0) return url;
-  const query = new URLSearchParams(url.slice(q + 1));
-  query.sort();
-  return `${url.slice(0, q)}?${query}`;
+  const query = Object.entries(req.query as Record<string, unknown>).sort(
+    ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0),
+  );
+  return `${req.path}?${JSON.stringify(query)}`;
 }
 
 /**
@@ -106,6 +116,7 @@ export class PublicCacheInterceptor implements NestInterceptor {
     const key = answerKey(req);
     const hit = this.cache.get(key);
     if (hit) return of(this.send(req, res, hit));
+    const startedAt = this.cache.now();
     return next.handle().pipe(
       map((body) => {
         const etag = res.getHeader('ETag');
@@ -115,7 +126,7 @@ export class PublicCacheInterceptor implements NestInterceptor {
           body === undefined
         )
           return body;
-        return this.send(req, res, this.cache.set(key, body, etag));
+        return this.send(req, res, this.cache.set(key, body, etag, startedAt));
       }),
     );
   }

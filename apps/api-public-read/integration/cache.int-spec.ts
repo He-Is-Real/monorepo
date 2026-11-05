@@ -98,6 +98,16 @@ describe('the public answer cache (R13)', () => {
     expect(await title('/v1/stories?limit=4&sort=latest')).toBe('After');
   });
 
+  it('keys an answer on the query as the handler read it, so a crafted URL cannot stand in for another', async () => {
+    const { title } = await start();
+    // Express reads at most 1,000 query parameters; the empty ones before `format=video` use them
+    // all up, so this request is answered unfiltered. It must not become `?format=video`'s answer.
+    expect(await title(`/v1/stories?${'&'.repeat(1_000)}format=video`)).toBe(
+      'Before',
+    );
+    expect(await title('/v1/stories?format=video')).toBeUndefined();
+  });
+
   it('never keeps an error or a redirect', async () => {
     const { get, title } = await start();
     expect((await get(`/v1/stories/${SECOND}`)).status).toBe(404);
