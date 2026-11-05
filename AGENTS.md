@@ -4,9 +4,13 @@ Nx + pnpm workspace on Node 24 LTS: Next.js (`apps/web`), NestJS on Express (`ap
 `apps/workflow`), shared libs (`libs/*`), and SurrealDB Kubernetes manifests
 (`infra/k8s/surrealdb`). Read `README.md` first; CLIs and accounts are in `docs/tooling-and-accounts.md`.
 
-`docs/delivery-status.md` tracks progress against the delivery plan (`project` repo) and the
-decisions that override it. Read it before starting a task, and update it in the same PR when a
-task finishes or a recorded decision changes.
+Two docs record where we are and how the site behaves. Read both before starting a task:
+
+- `docs/delivery-status.md`: progress only (done, in progress, next, known issues, what blocks
+  Go live), in plain English. Update it in the same PR when work starts or finishes.
+- `docs/how-the-app-works.md`: the rules for how the app behaves, by area, plus the technical
+  decisions that override the `project` repo's plan. A new or changed rule needs Joel's decision
+  first (the ownership rule below); record it there in the same PR.
 
 API work follows `docs/api-conventions.md`; the OpenAPI specs in `libs/contracts/openapi` are the
 source of truth, so change them in the same PR as the code.
@@ -41,7 +45,7 @@ source of truth, so change them in the same PR as the code.
   CI identity; `TF_SH_IDENTITY=self` uses yours). Never use console clicks, `gcloud … create/update`, or
   `kubectl apply` against GKE. Adopt anything made by hand with `import` blocks. Read-only commands are fine.
   Exceptions: the Clerk instance's settings (`infra/clerk/dev.json`, applied with
-  `infra/clerk/clerk-config.mjs`, decision 17 in `docs/delivery-status.md`), and recovering a KMS key
+  `infra/clerk/clerk-config.mjs`, decision 17 in `docs/how-the-app-works.md`), and recovering a KMS key
   version (`infra/terraform/README.md`, "Break-glass").
 - **Plans run on their own; every apply needs one approval.** An approval means "I read this plan and
   choose to apply it". It isn't access control, and approving your own run is expected. Claude may approve

@@ -5,7 +5,8 @@ Next.js site, the NestJS services and the SurrealDB Kubernetes configuration.
 
 Architecture and decisions live in the separate `project` repository (`context/future/architecture/`),
 notably `service-topology.md`, `stack-decisions.md` and `gdpr-consent.md`. Progress against the
-plan, and the decisions that override it, are in [docs/delivery-status.md](docs/delivery-status.md).
+plan is in [docs/delivery-status.md](docs/delivery-status.md); the rules for how the site behaves, and
+the decisions that override the plan, are in [docs/how-the-app-works.md](docs/how-the-app-works.md).
 The API contracts are in [`libs/contracts`](libs/contracts), and the rules they follow (CQRS-lite,
 commands vs CRUD, errors, versioning, concurrency, "agree first") in
 [docs/api-conventions.md](docs/api-conventions.md).

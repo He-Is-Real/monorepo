@@ -352,7 +352,7 @@ notes, take a backup, update both tag and digest, apply to dev first.
 ### Temporary patched image
 
 **For now we run our own build, `ghcr.io/he-is-real/surrealdb:v3.2.4-jwt11`** (D111 in
-`docs/delivery-status.md`). Every SurrealDB release so far refuses Clerk's session tokens: their
+`docs/how-the-app-works.md`, "Technical decisions"). Every SurrealDB release so far refuses Clerk's session tokens: their
 header has a number field (`oiat`), and the JWT library inside SurrealDB, jsonwebtoken 10.x, only
 accepts text there
 ([surrealdb/surrealdb#7630](https://github.com/surrealdb/surrealdb/issues/7630)). The build is

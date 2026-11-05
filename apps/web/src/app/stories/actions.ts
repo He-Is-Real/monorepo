@@ -46,7 +46,7 @@ export type CardPlayerResult =
   { ok: true; src: string } | { ok: false; reason: 'gone' | 'unavailable' };
 
 /**
- * A card's player link, signed on demand (card playback, delivery-status): browse and home
+ * A card's player link, signed on demand (card playback, docs/how-the-app-works.md): browse and home
  * cards never carry one, so links are signed only for stories someone chose to play. web's
  * server reads the story from api-public-read like the story page does (D32), and the link is
  * the one that page would show, with autoplay on: this runs only when someone presses play.

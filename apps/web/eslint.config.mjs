@@ -6,7 +6,7 @@ import baseConfig from '../../eslint.config.mjs';
 // (same origin), but web never reads, logs, stores or forwards it, or any request header that
 // could carry a token. These rules enforce that in all of web's code.
 // A guardrail against honest mistakes, not a security boundary: code review is the other half
-// (docs/delivery-status.md, D32). Its probes are in eslint-token-boundary.test.mjs.
+// (docs/how-the-app-works.md, D32). Its probes are in eslint-token-boundary.test.mjs.
 const BANNED_MODULES =
   '/^(next\\u002Fheaders|@clerk\\u002F(nextjs|backend))(\\u002F.*)?$/';
 const tokenBoundary =

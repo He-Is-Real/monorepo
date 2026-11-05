@@ -18,7 +18,7 @@
  * Bunny's speaker poster, once. Changing a clip's thumbnail counts as changed media for a story
  * that is already approved (D59/D60: only Bunny's generated frames don't), so after a run that
  * sets one, "Reset dev data" re-seeds the stories with the new `thumbnailPath`. In production
- * the processing workflow sets it before approval (docs/delivery-status.md, card playback).
+ * the processing workflow sets it before approval (docs/how-the-app-works.md, audio).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
