@@ -243,9 +243,9 @@ DEFINE FUNCTION OVERWRITE fn::erasure::retry_after($attempts: int) {
 --   (bunny_video), each of their stories' picture folders (image: queued by the story's own
 --   delete, story_picture_folder, from the story rows, so a pruned grant can't hide one), and,
 --   unless Clerk has already deleted the person ($reason clerk_user_deleted), their Clerk account.
--- - Then the stories (the cascade takes publicStory, hiddenStory, reviews and others' hearts),
---   idempotency keys, limits, submission log and grants; the user row becomes a stub (D37) and
---   their own hearts go with it (user_erasure_favourites). R3: the stub's status is 'deleted',
+-- - Then the user row becomes a stub (D37) and their own hearts go with it
+--   (user_erasure_favourites); then the stories (the cascade takes their status log, hiddenStory
+--   and others' hearts), idempotency keys, limits, submission log and grants. R3: the stub's status is 'deleted',
 --   with no date and no reason ($reason only decides whether the Clerk account is queued).
 -- Plan 4e: the stub keeps no agreement (the terms and testimony pointers are cleared with it), and
 -- nothing else kept (the tombstone) records consent. On a caller's own
@@ -265,13 +265,15 @@ DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: stri
   -- another delete committed in the same instant may join them: trying it early is harmless).
   LET $since = time::now();
   IF $u != NONE {
-    DELETE story WHERE submitter = $u;              -- cascades publicStory, hiddenStory, reviews, hearts
+    -- The stub first (D37): api-user reads a story's submitter only once its owner is erased
+    -- (R11's field rule), which the story delete below needs.
+    UPDATE $u SET status = 'deleted', clerkUserId = NONE,
+      termsOfUse = NONE, testimonyConsent = NONE;
+    DELETE story WHERE submitter = $u;              -- cascades the status log, hiddenStory, hearts
     DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
     DELETE submitterLimits WHERE user = $u;         -- D112: their limits and trusted mark
     DELETE submissionLog WHERE person = $u;         -- D113: their recent submissions
     DELETE uploadGrant WHERE person = $u;           -- D80, D113: their uploads (queued above, D40)
-    UPDATE $u SET status = 'deleted', clerkUserId = NONE,   -- D37: a stub remains
-      termsOfUse = NONE, testimonyConsent = NONE;
   };
   LET $folders = IF $u = NONE { [] } ELSE { (SELECT VALUE record::id(id) FROM pendingDeletion
     WHERE kind = 'image' AND at >= $since) };

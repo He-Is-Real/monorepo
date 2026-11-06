@@ -39,11 +39,13 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
     -- person's own (events and cascade included).
     OR ($auth.id = service:housekeeping AND fn::story::draft_expired(id));
 -- Private (R11's field rule): the owner and the services that need it, never everyone else.
--- api-user's login reads it only to find an erased person's stories (fn::account::erase's
--- DELETE ... WHERE submitter: a WHERE sees only fields the caller may read).
+-- api-user's login reads it only on an erased person's stories, which fn::account::erase deletes
+-- in the same transaction as it marks them erased (its DELETE ... WHERE submitter: a WHERE sees
+-- only fields the caller may read). Never a published story's while its owner exists.
 DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY   -- owner can never be reassigned
   PERMISSIONS FOR select WHERE submitter = $auth.id
-    OR $auth.id IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping]
+    OR ($auth.id = service:api_user AND submitter.status = 'deleted');
 DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every write; ETag
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
 -- housekeeping never reads the words (select below): it needs only ids, the status, dates and media.
@@ -773,8 +775,10 @@ DEFINE FIELD OVERWRITE at           ON storyStatusLog TYPE datetime READONLY
 DEFINE FIELD OVERWRITE publishedAt  ON storyStatusLog TYPE option<datetime> READONLY
   VALUE IF $this.status != 'approved' { NONE }
     ELSE {
+      -- Bound first: inside the SELECT, $this is the row being read.
+      LET $story = $this.story;
       array::min(SELECT VALUE publishedAt FROM storyStatusLog
-        WHERE story = $this.story AND status = 'approved' AND publishedAt != NONE)
+        WHERE story = $story AND status = 'approved' AND publishedAt != NONE)
         ?? (IF $auth = NONE AND $value != NONE { $value } ELSE { $this.at })
     };
 -- On hidden entries: why (media_unavailable or media_changed, for the system's; a moderator's

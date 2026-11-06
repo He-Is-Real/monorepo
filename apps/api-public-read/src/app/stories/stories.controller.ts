@@ -55,14 +55,19 @@ export interface StoryImage {
   alt: string | null;
 }
 
-// Only the read model (D26): never `story`, which this service's login can't see anyway (D13).
+// Approved stories only (R11): this service's login reads nothing else, and the query asks for
+// them itself too. Only the published fields (media: playback fields, never `processing`).
 const BY_SLUG = `
   SELECT record::id(id) AS id, slug, title, description, body, bylineName, primaryFormat,
-    media, image, durationSeconds, publishedAt, updatedAt, version,
+    (media ?? []).map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
+      thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height }) AS media,
+    image, media[0].durationSeconds AS durationSeconds,
+    currentStatus.publishedAt AS publishedAt, updatedAt, version,
     (SELECT record::id(id) AS id, name FROM theme
       WHERE id IN $parent.themeRefs ORDER BY name) AS themes
-  FROM publicStory WHERE slug = $slug LIMIT 1;
-  SELECT VALUE slug FROM publicStory WHERE slugHistory CONTAINS $slug LIMIT 1;`;
+  FROM story WHERE slug = $slug AND currentStatus.status = 'approved' LIMIT 1;
+  SELECT VALUE slug FROM story
+    WHERE slugHistory CONTAINS $slug AND currentStatus.status = 'approved' LIMIT 1;`;
 
 type Row = Omit<StoryPublic, 'body' | 'bylineName' | 'media' | 'image'> & {
   body?: string;
@@ -82,7 +87,7 @@ function toPublic(row: Row, urls: MediaUrls): StoryPublic {
     bylineName: row.bylineName ?? null,
     primaryFormat: row.primaryFormat,
     // D52: signed, expiring links (MediaUrls), never bare ids or storage paths. Only
-    // `publicStory` is read, so only published media is signed. Captions come with M7.
+    // approved stories are read, so only published media is signed. Captions come with M7.
     // The picture shown before playing: the person's own image wins over Bunny's thumbnail
     // (clipPicture, M2 plan PR 10). A video's box keeps the video's size; an audio file's is its
     // picture's (Joel, 2026-10-24).
@@ -95,7 +100,7 @@ function toPublic(row: Row, urls: MediaUrls): StoryPublic {
         width: (m.format === 'audio' ? picture.width : m.width) ?? null,
         height: (m.format === 'audio' ? picture.height : m.height) ?? null,
         captionsUrl: null,
-        // One clip per story (D53); the read model computes its duration from the story.
+        // One clip per story (D53): the first clip's duration.
         durationSeconds: row.durationSeconds ?? null,
       };
     }),

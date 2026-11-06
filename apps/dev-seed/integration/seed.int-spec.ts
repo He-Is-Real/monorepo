@@ -8,7 +8,7 @@ import type { Surreal } from 'surrealdb';
 import { DATASET } from '../src/app/dataset';
 import bunnyMedia from '../src/app/bunny-media.json';
 import type { BunnyMedia } from '../src/app/media';
-import { buildVars, fakeUploads } from '../src/app/plan';
+import { buildVars, fakeUploads, stepsFor } from '../src/app/plan';
 import { reset, RESET_SQL } from '../src/app/seed';
 import { devDatabase } from '../testing';
 
@@ -16,8 +16,8 @@ import { devDatabase } from '../testing';
  * D49: the dev-seed reset against SurrealDB 3.2.4 with the real schema, as the dev-only `dev_seed`
  * system user (EDITOR) that SurrealDB's startup init creates when OpenTofu's dev_seed_login is
  * on. Every event runs, so this is the test that the D47 dataset fits the schema: types and
- * shapes (D53), text limits (A3, the 200-character minimum), the approval gate (A2) and the
- * read model's mirror check. Uploads are stand-ins (fakeUploads) with the media spec's sizes.
+ * shapes (D53), text limits (A3, the 200-character minimum), the status log's steps (R6) and
+ * the approval gate (A2). Uploads are stand-ins (fakeUploads) with the media spec's sizes.
  */
 const vars = () => buildVars(DATASET, fakeUploads());
 const approved = DATASET.stories.filter((s) => s.status === 'approved');
@@ -39,8 +39,8 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     expect(summary).toEqual({
       byStatus: expected,
       publicStories: approved.length,
-      reviews: DATASET.stories.reduce(
-        (n, s) => n + (s.reviews?.length ?? 0),
+      statusEntries: DATASET.stories.reduce(
+        (n, s) => n + stepsFor(s, new Date()).length,
         0,
       ),
       themes: DATASET.themes.length,
@@ -60,12 +60,12 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
   it('is idempotent: a second reset gives the same data', async () => {
     const before = await rows(
       await t.migrator(),
-      'SELECT id, slug, status FROM story ORDER BY id',
+      'SELECT id, slug, currentStatus.status AS status FROM story ORDER BY id',
     );
     await reset(seeder, vars());
     const after = await rows(
       await t.migrator(),
-      'SELECT id, slug, status FROM story ORDER BY id',
+      'SELECT id, slug, currentStatus.status AS status FROM story ORDER BY id',
     );
     expect(after).toEqual(before);
   });
@@ -81,67 +81,65 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     expect(
       await rows(
         migrator,
-        "SELECT VALUE id FROM story WHERE status = 'approved' AND fn::story::approval_problem($this) != NONE",
+        "SELECT VALUE id FROM story WHERE currentStatus.status = 'approved' AND fn::story::approval_problem($this) != NONE",
       ),
     ).toEqual([]);
   });
 
-  it('walks each story through the real states: submitted, reviewed, versions', async () => {
+  it('walks each story through the real states: its status log, who added each entry, versions', async () => {
     const migrator = await t.migrator();
-    const [v03] = await rows<{
-      version: number;
-      submittedAt: unknown;
-      approvedAt: unknown;
-      feedback: unknown;
-    }>(
-      migrator,
-      'SELECT version, submittedAt, approvedAt, rejectionFeedback AS feedback FROM story:seed_v03',
-    );
-    expect(v03.version).toBe(7); // create + 6 moves (sent back once, then approved)
-    expect(v03.submittedAt).toBeTruthy();
-    expect(v03.approvedAt).toBeTruthy();
-    expect(v03.feedback).toBeUndefined();
-    const reviews = await rows<{ decision: string; storyVersion: number }>(
-      migrator,
-      'SELECT decision, storyVersion, decidedAt FROM moderationReview WHERE story = story:seed_v03 ORDER BY decidedAt, storyVersion',
-    );
-    expect(reviews.map((r) => [r.decision, r.storyVersion])).toEqual([
-      ['request_changes', 3],
-      ['approve', 6],
+    const log = (id: string) =>
+      rows<Record<string, unknown>>(
+        migrator,
+        `SELECT status, actor, by, storyVersion, comment, at FROM storyStatusLog
+           WHERE story = type::record('story', $id) ORDER BY at`,
+        { id },
+      );
+    // Sent back once, then approved: create + 6 status entries, each moving the pointer.
+    expect(
+      await rows(migrator, 'SELECT VALUE version FROM story:seed_v03'),
+    ).toEqual([7]);
+    expect(
+      (await log('seed_v03')).map((e) => [e.status, e.actor, e.storyVersion]),
+    ).toEqual([
+      ['pending', 'person', 1],
+      ['in_review', 'moderator', 2],
+      ['changes_requested', 'moderator', 3],
+      ['pending', 'person', 4],
+      ['in_review', 'moderator', 5],
+      ['approved', 'moderator', 6],
     ]);
-    const [sentBack] = await rows<{ feedback: string; lockedBy: unknown }>(
-      migrator,
-      'SELECT rejectionFeedback AS feedback, lockedBy FROM story:seed_w10',
-    );
-    expect(sentBack.feedback).toContain('test feedback');
-    expect(sentBack.lockedBy).toBeUndefined();
-    const [inReview] = await rows<{ lockedBy: unknown }>(
-      migrator,
-      'SELECT lockedBy FROM story:seed_v09',
-    );
-    expect(String(inReview.lockedBy)).toBe('user:seed_moderator');
-    const [draft] = await rows<{ submittedAt: unknown }>(
-      migrator,
-      'SELECT submittedAt FROM story:seed_w11',
-    );
-    expect(draft.submittedAt).toBeUndefined();
+    const sentBack = (await log('seed_w10')).at(-1);
+    expect(sentBack).toMatchObject({
+      status: 'changes_requested',
+      by: 'user:seed_moderator',
+    });
+    expect(sentBack?.comment).toContain('test feedback');
+    expect((await log('seed_v09')).map((e) => e.status)).toEqual([
+      'pending',
+      'in_review',
+    ]);
+    expect(await log('seed_w11')).toEqual([]);
+    expect(
+      await rows(migrator, 'SELECT VALUE currentStatus FROM story:seed_w11'),
+    ).toEqual([undefined]);
   });
 
   it('publishes exactly the approved stories, which api-public-read can read', async () => {
     const reader = await t.service('api_public_read');
     const slugs = await rows<string>(
       reader,
-      'SELECT VALUE slug FROM publicStory ORDER BY slug',
+      'SELECT VALUE slug FROM story ORDER BY slug',
     );
     expect(slugs).toEqual(approved.map((s) => s.slug).sort());
     const [skeleton] = await rows<{ title: string; publishedAt: unknown }>(
       reader,
-      "SELECT title, publishedAt FROM publicStory WHERE slug = 'test-story-walking-skeleton'",
+      "SELECT title, currentStatus.publishedAt AS publishedAt FROM story WHERE slug = 'test-story-walking-skeleton'",
     );
     expect(skeleton.title).toBe('Test story: the walking skeleton');
     const [w01] = await rows<{ image: unknown }>(
       reader,
-      'SELECT image FROM publicStory:seed_w01',
+      'SELECT image FROM story:seed_w01',
     );
     expect(w01.image).toEqual({
       path: 'dev-seed/image-01.webp',
@@ -297,7 +295,9 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     );
     const broken = vars();
     broken.stories[broken.stories.length - 1].draft['primaryFormat'] = 'video'; // no media: refused
-    broken.stories[broken.stories.length - 1].steps = [{ status: 'pending' }];
+    broken.stories[broken.stories.length - 1].steps = [
+      { status: 'pending', actor: 'person', at: new Date() },
+    ];
     await expect(reset(seeder, broken)).rejects.toThrow(
       /needs its video before it is submitted/,
     );

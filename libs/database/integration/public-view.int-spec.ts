@@ -212,6 +212,17 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     ).toEqual([undefined, undefined, undefined]);
   });
 
+  it('each story’s publishedAt is its own first approval’s time', async () => {
+    const dates = await rows<{ story: string; at: string; publishedAt: string }>(
+      migrator,
+      `SELECT story, at, publishedAt FROM storyStatusLog
+         WHERE status = 'approved' AND story IN [story:ann_live, story:bob_live] ORDER BY story`,
+    );
+    expect(dates.map((d) => d.story)).toEqual(['story:ann_live', 'story:bob_live']);
+    for (const d of dates) expect(d.publishedAt).toEqual(d.at);
+    expect(dates[0].publishedAt).not.toEqual(dates[1].publishedAt);
+  });
+
   it('a hidden story comes back to everyone when a moderator shows it again, with its first publishedAt', async () => {
     const reader = readers[0][1];
     const [first] = await rows<string>(

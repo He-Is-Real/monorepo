@@ -9,14 +9,12 @@ import {
   TestDatabase,
 } from './support/harness';
 import {
-  approve,
   buildWorld,
   draft,
   grantImage,
   statusOf,
   step,
   submit,
-  withdraw,
 } from './support/world';
 
 /**

@@ -67,8 +67,20 @@ const approved = DATASET.stories.filter((s) => s.status === 'approved');
 const themeId = (key: string) =>
   (DATASET.themes.find((th) => th.key === key) as { id: string }).id;
 const unpublished = DATASET.stories.filter((s) => s.status !== 'approved');
-// The test makes seed_v02 share seed_v01's publishedAt: ties are broken by id, newest id first.
+// The test publishes seed_v02 at seed_v01's instant: ties are broken by id, newest id first.
 const TIED = { with: 'seed_v01', moved: 'seed_v02' };
+const TIED_DATASET = {
+  ...DATASET,
+  stories: DATASET.stories.map((s) =>
+    s.id === TIED.moved
+      ? {
+          ...s,
+          publishedDaysAgo: approved.find((a) => a.id === TIED.with)
+            ?.publishedDaysAgo,
+        }
+      : s,
+  ),
+};
 const daysAgo = (s: StoryFixture) =>
   s.id === TIED.moved
     ? (approved.find((a) => a.id === TIED.with)?.publishedDaysAgo ?? 0)
@@ -109,13 +121,7 @@ describe('browse API over the dev dataset', () => {
   };
 
   beforeAll(async () => {
-    t = await devDatabaseWithDataset();
-    await run(
-      await t.migrator(),
-      `UPDATE type::record('publicStory', $moved)
-         SET publishedAt = (SELECT VALUE publishedAt FROM ONLY type::record('publicStory', $with))`,
-      { moved: TIED.moved, with: TIED.with },
-    );
+    t = await devDatabaseWithDataset(TIED_DATASET);
     ({ app, url, passTime } = await startPublicRead(t));
   });
   afterAll(async () => {
@@ -428,14 +434,14 @@ describe('browse API over the dev dataset', () => {
       expect(
         (
           await get(
-            `/v1/stories?q=${encodeURIComponent("'; DELETE publicStory; --")}`,
+            `/v1/stories?q=${encodeURIComponent("'; DELETE story; --")}`,
           )
         ).status,
       ).toBe(200);
       expect(
         await rows(
           await t.migrator(),
-          'SELECT count() AS n FROM publicStory GROUP ALL',
+          "SELECT count() AS n FROM story WHERE currentStatus.status = 'approved' GROUP ALL",
         ),
       ).toEqual([{ n: approved.length }]);
     });
@@ -524,7 +530,7 @@ describe('browse API over the dev dataset', () => {
     it('answers 301 for a previous slug', async () => {
       await run(
         await t.migrator(),
-        `UPDATE publicStory:seed_v05 SET slugHistory = ['old-anonymous-slug']`,
+        `UPDATE story:seed_v05 SET slugHistory = ['old-anonymous-slug']`,
       );
       const res = await get('/v1/stories/old-anonymous-slug/related');
       expect(res.status).toBe(301);
@@ -604,24 +610,23 @@ describe('browse API over the dev dataset', () => {
     const NOW = Date.UTC(2026, 9, 23, 10, 15);
     let now = NOW;
     // The dummy clips' ids aren't Bunny GUIDs, so nothing would sign their player: give one
-    // story a GUID, in the write model and the read model, as an upload does.
+    // story a GUID, as an upload does. New media hides a published story (media_changed) until
+    // a moderator shows it again.
     const GUID = '2c3a0a8e-7d39-4f8e-9a51-0d6c1b4a9e11';
     const v03 = approved.find((s) => s.id === 'seed_v03') as StoryFixture;
     let signed: { app: INestApplication; url: string };
     beforeAll(async () => {
       await run(
         await t.migrator(),
-        `BEGIN TRANSACTION;
-         LET $media = [object::extend(
-           (SELECT VALUE media FROM ONLY publicStory:seed_v03)[0],
-           { bunnyVideoId: $guid, thumbnailPath: $guid + '/thumbnail.jpg' })];
-         LET $row = (SELECT * FROM ONLY publicStory:seed_v03);
-         DELETE publicStory:seed_v03;
-         UPDATE story:seed_v03 SET media[0].bunnyVideoId = $guid,
-           media[0].thumbnailPath = $guid + '/thumbnail.jpg';
-         CREATE publicStory:seed_v03 CONTENT object::extend($row, { media: $media });
-         COMMIT TRANSACTION;`,
+        `UPDATE story:seed_v03 SET media[0].bunnyVideoId = $guid,
+           media[0].thumbnailPath = $guid + '/thumbnail.jpg'`,
         { guid: GUID },
+      );
+      await run(
+        await t.service('api_admin'),
+        `CREATE storyStatusLog CONTENT {
+           story: story:seed_v03, status: 'approved', by: user:seed_moderator
+         }`,
       );
       // One clock for the links and the answer cache (R13), as in production.
       signed = await startPublicRead(
@@ -705,7 +710,8 @@ describe('browse API over the dev dataset', () => {
     });
 
     it('drops a hidden story from every read once the answers in memory are a minute old', async () => {
-      // The newest story, on every first page; PR #61 hides a story by deleting its row.
+      // The newest story, on every first page; hidden as a moderator hides it (R6: a hidden
+      // status entry).
       const slug = 'test-story-walking-skeleton';
       const id = 'seed_w06';
       const before = await page('/v1/stories?limit=5');
@@ -715,9 +721,13 @@ describe('browse API over the dev dataset', () => {
           await page('/v1/stories/test-written-portrait-image/related')
         ).data.map((c) => c.id),
       ).toContain(id);
-      await run(await t.migrator(), `DELETE type::record('publicStory', $id)`, {
-        id,
-      });
+      await run(
+        await t.service('api_admin'),
+        `CREATE storyStatusLog CONTENT {
+           story: type::record('story', $id), status: 'hidden', by: user:seed_moderator
+         }`,
+        { id },
+      );
       // R13's one trade-off: the answers read a moment ago still show it, for up to 60 seconds.
       expect(
         (await page('/v1/stories?limit=5')).data.map((c) => c.id),

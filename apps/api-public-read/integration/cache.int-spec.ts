@@ -16,13 +16,11 @@ const publish = (id: string, slug: string, title: string) => `
     submitter: user:cache_seed, slug: '${slug}', title: '${title}',
     description: 'Placeholder content for a cache test. This is not a real testimony.',
     body: 'This is test text, written to check that api-public-read answers the same public request from memory for a minute and then asks the database again. Nobody shared this story and nothing in it happened.',
-    bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [], media: [],
-    status: 'approved', approvedAt: time::now()
+    bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common], media: []
   });
-  CREATE type::record('publicStory', '${id}') CONTENT {
-    version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-    body: $s.body, bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-    themeRefs: [], media: [], publishedAt: time::now()
+  FOR $step IN [['pending', 'person'], ['in_review', 'moderator'], ['approved', 'moderator']] {
+    CREATE storyStatusLog CONTENT { story: $s.id, status: $step[0], actor: $step[1],
+      by: IF $step[1] = 'moderator' { user:cache_moderator } };
   };`;
 
 describe('the public answer cache (R13)', () => {
@@ -47,16 +45,11 @@ describe('the public answer cache (R13)', () => {
     };
     return { ...started, get, title };
   };
-  /** A new title on the story and its public copy, as an approved edit leaves them. */
+  /** A new title on the published story, as an approved edit leaves it. */
   const retitle = async (slug: string, title: string) =>
     run(
       await t.migrator(),
-      `BEGIN TRANSACTION;
-       LET $row = (SELECT * FROM ONLY publicStory WHERE slug = $slug LIMIT 1);
-       DELETE $row.id;
-       UPDATE story SET title = $title WHERE slug = $slug;
-       CREATE $row.id CONTENT object::extend($row, { title: $title });
-       COMMIT TRANSACTION;`,
+      'UPDATE story SET title = $title WHERE slug = $slug',
       { slug, title },
     );
 
@@ -115,14 +108,14 @@ describe('the public answer cache (R13)', () => {
     await run(
       await t.migrator(),
       `${publish('cache_second', SECOND, 'Second')}
-       UPDATE publicStory:cache_first SET slugHistory = ['old-cache-slug'];`,
+       UPDATE story:cache_first SET slugHistory = ['old-cache-slug'];`,
     );
     expect(await title(`/v1/stories/${SECOND}`)).toBe('Second');
     const moved = await get('/v1/stories/old-cache-slug');
     expect(moved.status).toBe(301);
     await run(
       await t.migrator(),
-      `UPDATE publicStory:cache_first SET slugHistory = []`,
+      `UPDATE story:cache_first SET slugHistory = []`,
     );
     expect((await get('/v1/stories/old-cache-slug')).status).toBe(404);
   });
@@ -181,7 +174,7 @@ describe('the public answer cache (R13)', () => {
     // Redirects aren't kept in memory, and never stale-while-revalidate (60 seconds in total).
     await run(
       await t.migrator(),
-      `UPDATE publicStory:cache_first SET slugHistory = ['old-cache-slug']`,
+      `UPDATE story:cache_first SET slugHistory = ['old-cache-slug']`,
     );
     const moved = await get('/v1/stories/old-cache-slug');
     expect(moved.status).toBe(301);
