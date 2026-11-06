@@ -32,6 +32,14 @@ export function parseIdempotencyKey(header: string | undefined): string {
 }
 
 /** `table:id` → `id`: the contracts' IDs are opaque record keys without the table. */
+/**
+ * Whether a path or cursor id can be a story's: the contract calls it opaque (the record id
+ * without `story:`). Ours are ULIDs; dev-seed's (`seed_v01`) and older ones are words. Every
+ * service accepts the same set (Codex, B1 round 1: api-admin refused ids its own list gave out).
+ */
+export const isStoryId = (id: string): boolean =>
+  /^[A-Za-z0-9_-]{1,64}$/.test(id);
+
 export function recordKey(id: string): string {
   const key = id.slice(id.indexOf(':') + 1);
   return key.startsWith('⟨') && key.endsWith('⟩') ? key.slice(1, -1) : key;

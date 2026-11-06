@@ -10,13 +10,10 @@ import {
   Res,
 } from '@nestjs/common';
 import { runQuery, SURREAL } from '@heisreal/database';
-import { recordKey } from '@heisreal/http';
+import { isStoryId, recordKey } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
-
-/** A story id: a ULID (D69). */
-const STORY_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 /** The status as the status log records it (R6): none yet = draft; `hidden` shown as it is. */
 const STATUS = `currentStatus.status ?? 'draft'`;
@@ -130,7 +127,7 @@ function decodeCursor(raw: string | undefined): [string, string] | undefined {
       typeof createdAt === 'string' &&
       !Number.isNaN(Date.parse(createdAt)) &&
       typeof id === 'string' &&
-      STORY_ID.test(id)
+      isStoryId(id)
     ) {
       return [createdAt, id];
     }
@@ -198,7 +195,7 @@ export class AllStoriesController {
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    if (!STORY_ID.test(id)) throw new NotFoundException();
+    if (!isStoryId(id)) throw new NotFoundException();
     const results = await runQuery(this.db, ONE_SQL, { id });
     const [rows, log] = results.slice(-2) as [DetailRow[], EntryRow[]];
     const s = rows[0];
