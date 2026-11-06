@@ -88,7 +88,17 @@ Frankfurt), so "Download my data" can give the person their video as a file: a 7
 to the largest copy (`mp4Url`). api-user asks Bunny's API which copies each video has
 (`hasMP4Fallback`, `availableResolutions`), one call per video, because the database doesn't
 record it. Videos encoded before the switch have none (`mp4Url` is `null`). The upload itself is
-never kept (`original_files_keep = false`). Opening a link from the file sends no `Referer`, so the library allows requests without
+never kept (`original_files_keep = false`).
+
+Bunny's MP4 copies can carry the upload's location: on dev (2026-11-06) the 360p copy of a tagged
+MOV kept it as a `loci` box, while the 480p and 720p copies, the HLS playlists and segments, the
+thumbnail and the preview kept nothing. So the browser removes it before upload (M2, Joel
+2026-11-06; `apps/web/src/lib/strip-media-metadata.ts`): in an MP4, MOV or M4A file, every `udta`,
+`meta` and XMP `uuid` box (top level, `moov`, `trak`, `mdia`, `minf`) becomes a `free` box of the
+same size, zeroed. No offsets move and the media isn't re-encoded. MP3, WAV and WebM files, and
+files whose boxes don't add up, upload as they are.
+
+Opening a link from the file sends no `Referer`, so the library allows requests without
 one; the signed token still guards every file. Anyone allowed to watch a published video can also
 fetch its MP4 with the player's token: it is the same video they can already watch.
 

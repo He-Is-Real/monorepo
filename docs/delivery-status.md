@@ -159,7 +159,9 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   it, and its links last 7 days instead of an hour (Joel's B and C1, 2026-11-06,
   `project/context/research/video-bundle-rethink.html`;
   [#191](https://github.com/He-Is-Real/monorepo/pull/191)). Bunny's MP4 copies start once the bunny
-  root is applied; older videos have none.
+  root is applied; older videos have none. The browser removes a video's or audio file's location
+  and device details before upload (Joel's M2, 2026-11-06), as an MP4 copy can keep the
+  location.
 - A video's own picture shown by Bunny's player (Joel's A, 2026-11-06) is built after the
   media-ready result writer, which it joins. The old video bundle
   ([#160](https://github.com/He-Is-Real/monorepo/pull/160)) is closed.

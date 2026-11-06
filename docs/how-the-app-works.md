@@ -206,6 +206,11 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   device: WebP, at most 2048 pixels on the long side, at least 200 pixels a side, at most 5 MB,
   and no more extreme than 1:3 or 3:1. A description for screen readers is optional, on every
   type.
+- **Videos and audio lose where and on what they were recorded before they leave the device**
+  (M2, Joel 2026-11-06): the browser blanks an MP4, MOV or M4A file's location and device
+  metadata in place, without re-encoding, so the file is the same size and plays the same. Bunny's
+  MP4 copies (for "Download my data") could otherwise keep the location. Other kinds of file (MP3,
+  WAV, WebM) and files it can't read upload as they are.
 - Uploaded videos and audio are stored by Bunny in Frankfurt, Germany (Bunny doesn't offer
   London); pictures are stored in London. (D89)
 - Nothing personal is stored at Bunny: a video's title there is just the story's id. (D69)

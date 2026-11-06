@@ -8,6 +8,7 @@ import {
   StaleVersion,
 } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
+import { stripMediaMetadata } from '@/lib/strip-media-metadata';
 import { formatWhen, UploadsLeft, uploadsState } from './allowance';
 import type {
   ShareApi,
@@ -34,6 +35,10 @@ import {
  * it stopped. After a reload the person chooses the same file again and it carries on: with the
  * same link while it lasts, then with a new one for the same video (`resume`). Choosing another
  * file replaces the draft's video (api-user deletes the old one at Bunny).
+ *
+ * What's uploaded is the file without where and on what it was recorded (M2, Joel 2026-11-06):
+ * an MP4, MOV or M4A file's location and device boxes are blanked in place, the same size, with
+ * its media untouched (`stripMediaMetadata`). Other files upload as they are.
  *
  * What's kept in this tab's storage, per person and draft: the file's name, size and date (to
  * know it again), whether it finished, and the current link (it lasts an hour). tus-js-client
@@ -423,7 +428,10 @@ export function UploadPanel({
       const { target, draftId: id } = link;
       const videoId = target.signed['VideoId'] ?? '';
       current.current = { file, draftId: id };
-      const tus = new Upload(file, {
+      // The same bytes every time for the same file, so a resume carries on where it stopped.
+      const body = await stripMediaMetadata(file);
+      if (gone()) return;
+      const tus = new Upload(body, {
         endpoint: target.uploadUrl,
         headers: target.signed,
         // Bunny's TUS metadata: the type, and a title that is the story id only (D69).

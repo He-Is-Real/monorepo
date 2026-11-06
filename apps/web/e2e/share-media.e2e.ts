@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   type APIRequestContext,
   expect,
@@ -27,6 +28,8 @@ interface Video {
   received: number;
   done: boolean;
   deleted: boolean;
+  /** What arrived, base64. */
+  bytes: string | null;
 }
 
 async function person(
@@ -210,6 +213,35 @@ test.describe('behaviour', () => {
     expect(videos).toMatchObject([
       { story: story.id, length: 256 * 1024, received: 256 * 1024, done: true },
     ]);
+  });
+
+  test('a phone video’s location and make never leave the device (M2)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('Filmed somewhere');
+    // A MOV as a phone writes one: its location and the phone's make and model in QuickTime's
+    // keys and `loci` (apps/web/src/lib/fixtures).
+    const path = join(__dirname, '../src/lib/fixtures/phone.mov');
+    const original = readFileSync(path);
+    expect(original.includes('51.5074')).toBe(true);
+    await page.getByLabel('Choose a file').setInputFiles(path);
+    await expect(page.getByText(/^Uploaded: phone\.mov/)).toBeVisible();
+    // What reached the TUS server: all of it, the same size, with neither the location nor the
+    // phone in it.
+    const [video] = (await me.uploads()).videos;
+    expect(video).toMatchObject({
+      length: original.length,
+      received: original.length,
+      done: true,
+    });
+    const uploaded = Buffer.from(video.bytes ?? '', 'base64');
+    expect(uploaded.length).toBe(original.length);
+    for (const marker of ['51.5074', 'ISO6709', 'loci', 'TestPhone']) {
+      expect([marker, uploaded.includes(marker)]).toEqual([marker, false]);
+    }
   });
 
   test('shows the upload’s progress, and pauses and resumes it', async ({
