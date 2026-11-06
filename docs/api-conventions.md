@@ -61,13 +61,13 @@ brackets).
 - No event store or event sourcing.
 - Test every command against what it changes, on a real database.
 
-## Public reads: one story table (R11; was the `publicStory` read model, D26)
+## Public reads: one story table (R11)
 
 - **There is one `story` table** (database review 2, R11, Joel 2026-11-04/05). The public reads
   the same table as everyone else, and the database's rules decide what it sees: an approved
   story (its current status entry says `approved`), and only its published fields (slug,
   `slugHistory`, title, description and text, byline, themes, playback fields, the publish date on
-  its current approved status entry, and the search text). Never the submitter, consent, raw
+  its current approved status entry). Never the submitter, consent, raw
   transcript, moderation data or quality signal, which only the owner and the services that need
   them can read ([db-permissions.md](db-permissions.md)).
 - Approving publishes it, withdrawal or a hide takes it off at once, and erasure (which is how a
@@ -141,7 +141,7 @@ short-lived upload credentials.
     relationships that either exist or don't. The methods are idempotent, and repeating one gives the
     same result, so there is no lost update to prevent.
 - **`Idempotency-Key` is required on non-idempotent `POST`s:** create draft, submit, request an
-  upload (its grant counts against the person's upload limits), concerns, and donations later. The `idempotencyKey` table stores key + user +
+  upload (its file row counts against the person's upload limits), concerns, and donations later. The `idempotencyKey` table stores key + user +
   request hash + the `{ id, version }` response for 24 hours (pruned nightly). A retry with the same
   body replays the stored response; the same key with a different body → `422`; no key → `400`.
 - Not needed on idempotent methods (`PUT`, `DELETE`) or on creates with a natural key (a legal
@@ -193,8 +193,8 @@ short-lived upload credentials.
 
 ## Agree first: the database's rule (plan 4e)
 
-Joel's Q2 (2026-11-01): the database, not the routes, enforces "agree first". The per-route consent
-decorators, the global consent guard and `x-requires-consent` are gone.
+Joel's Q2 (2026-11-01): the database, not the routes, enforces "agree first"; routes carry no
+consent decorators or guard.
 
 - A person agrees in their own session to the latest version of the terms of use (before using
   their account; it includes being 18 or over) and of the testimony consent (before their first
@@ -226,8 +226,8 @@ decorators, the global consent guard and `x-requires-consent` are gone.
 - A person's own commands run in a database session **as that person**, opened with their Clerk
   token, so the database enforces ownership. Admin commands run as `api-admin`'s login. In code:
   `PersonSessions.run(request, ({ session, user }) => …)` (`libs/auth`), built on
-  `withPersonSession` (`libs/database`). Who the caller is comes from a `PersonAuthenticator`, the
-  seam task 0.5 fills with Clerk verification; until then it refuses everyone (`401`).
+  `withPersonSession` (`libs/database`). Who the caller is comes from a `PersonAuthenticator`
+  (`ClerkAuthenticator` in `libs/auth`).
 - `Idempotency-Key`: `runIdempotent` (`libs/database`) writes the key, the request hash and the
   stored `{ id, version }` **in the same transaction as the command**, in the session the command
   runs in (a person may create and read only their own `api-user` keys). Either both commit or

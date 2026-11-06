@@ -1,9 +1,10 @@
-import { OWNER_FILE_FIELDS, runQuery } from '@heisreal/database';
+import { isPublished, OWNER_FILE_FIELDS, runQuery } from '@heisreal/database';
 import { recordKey } from '@heisreal/http';
 import type { MediaUrls } from '@heisreal/story-cards';
 import type { SurrealQueryable } from 'surrealdb';
 import { agreementOf } from '../account/agreements';
 import type { ClerkProfile } from '../erasure/clerk-backend';
+import { OWNER_STATUS_FIELDS } from '../stories/story-store';
 
 /** How long the file's media links work (M2 decisions: "media as 1-hour links"). */
 export const LINK_SECONDS = 60 * 60;
@@ -12,24 +13,14 @@ export const LINK_SECONDS = 60 * 60;
  * Everything the database holds about the person, read in one query in **their own session**
  * (D27): every table below shows a person their own rows and nobody else's, so the export can't
  * reach anyone else's data whatever this query asks. A status entry's moderator (`by`) reads as
- * absent to them (api-admin's alone). Status, feedback and dates come from each story's status
- * log (R6), as GetStory reads them (story-store.ts), and the file has the whole log (R6: "Download
- * my data includes the log").
+ * absent to them (api-admin's alone). Status, feedback and dates are GetStory's
+ * (OWNER_STATUS_FIELDS), and the file has the whole log (R6: "Download my data includes the log").
  */
 const HELD_SQL = `
-LET $stories = SELECT id, slug,
-    IF currentStatus.status = 'hidden' { 'approved' } ELSE { currentStatus.status ?? 'draft' }
-      AS status,
-    title, description, body, bylineName, primaryFormat,
+LET $stories = SELECT id, slug, title, description, body, bylineName, primaryFormat,
     themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes, ${OWNER_FILE_FIELDS},
-    IF currentStatus.status IN ['changes_requested', 'rejected'] { currentStatus.comment }
-      AS rejectionFeedback,
-    createdAt, updatedAt,
-    array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND status = 'pending')
-      AS submittedAt,
-    array::min(SELECT VALUE publishedAt FROM storyStatusLog
-      WHERE story = $parent.id AND status = 'approved') AS approvedAt,
-    fn::story::draft_expires_at(id) AS draftExpiresAt,
+    ${OWNER_STATUS_FIELDS},
+    createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
     IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
     socialMediaSharingConsentAgreedAt AS sharingAt
   FROM story WHERE submitter = $auth ORDER BY createdAt DESC, id DESC;
@@ -48,7 +39,7 @@ RETURN {
   stories: $stories,
   published: IF array::len($mine) > 0 {
     (SELECT record::id(id) AS id, currentStatus.publishedAt AS publishedAt FROM $mine
-       WHERE currentStatus.status = 'approved')
+       WHERE ${isPublished()})
   } ELSE { [] },
   -- Every entry of their stories' status logs (R6), oldest first: theirs, the moderators' (never
   -- who) and the system's.
@@ -59,7 +50,7 @@ RETURN {
   } ELSE { [] },
   hearts: $hearts.map(|$h| { story: $h.story, createdAt: $h.createdAt }),
   heartedPublic: IF array::len($hearted) > 0 {
-    (SELECT record::id(id) AS id, slug FROM $hearted WHERE currentStatus.status = 'approved')
+    (SELECT record::id(id) AS id, slug FROM $hearted WHERE ${isPublished()})
   } ELSE { [] },
   limits: (SELECT trusted, openDraftsMax, submissionsPer7Days, uploadRequestsPerHour,
       uploadsPer7Days, updatedAt

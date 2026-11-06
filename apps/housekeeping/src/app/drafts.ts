@@ -1,4 +1,4 @@
-import { retryOnConflict, runQuery } from '@heisreal/database';
+import { IS_DRAFT, retryOnConflict, runQuery } from '@heisreal/database';
 import type { Task, TaskContext, TaskResult } from './tasks';
 
 /**
@@ -19,7 +19,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * Races: a resume signs its link only once its grant's renewal commits, and that conflicts with
  * this delete (both fence the person). The loser of a conflict retries and re-checks.
  */
-const EXPIRED = `currentStatus = NONE AND $cutoff != NONE AND updatedAt < $cutoff
+const EXPIRED = `${IS_DRAFT} AND $cutoff != NONE AND updatedAt < $cutoff
   AND fn::story::draft_expired(id)`;
 const CUTOFF = 'LET $cutoff = fn::story::drafts_expire_before();';
 

@@ -7,7 +7,7 @@ import {
   Param,
   Res,
 } from '@nestjs/common';
-import { runQuery, SURREAL } from '@heisreal/database';
+import { isPublished, runQuery, SURREAL } from '@heisreal/database';
 import {
   clipPicture,
   FILE_FIELDS,
@@ -56,17 +56,17 @@ export interface StoryImage {
   alt: string | null;
 }
 
-// Approved stories only (R11): this service's login reads nothing else, and the query asks for
-// them itself too. Only the published fields (its files: playback fields, never `processing`).
+// Approved stories only (R11; isPublished), and only the published fields (its files: playback
+// fields, never `processing`).
 const BY_SLUG = `
   SELECT record::id(id) AS id, slug, title, description, body, bylineName, primaryFormat,
     ${FILE_FIELDS},
     currentStatus.publishedAt AS publishedAt, updatedAt, version,
     (SELECT record::id(id) AS id, name FROM theme
       WHERE id IN $parent.themeRefs ORDER BY name) AS themes
-  FROM story WHERE slug = $slug AND currentStatus.status = 'approved' LIMIT 1;
+  FROM story WHERE slug = $slug AND ${isPublished()} LIMIT 1;
   SELECT VALUE slug FROM story
-    WHERE slugHistory CONTAINS $slug AND currentStatus.status = 'approved' LIMIT 1;`;
+    WHERE slugHistory CONTAINS $slug AND ${isPublished()} LIMIT 1;`;
 
 type Row = Omit<StoryPublic, 'body' | 'bylineName' | 'media' | 'image'> & {
   body?: string;

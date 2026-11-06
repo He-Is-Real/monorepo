@@ -107,7 +107,7 @@ DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, bi
 -- A person's hearts: their private favourites list (founder, 2026-10-25). Only the person who
 -- hearted a story can read the row: no service login, and not the story's owner (who will see a
 -- count per story on their profile later, never who gave it: not built, see
--- docs/db-permissions.md item 35). One per person and story. A heart needs the person to have
+-- docs/db-permissions.md, `favourite`). One per person and story. A heart needs the person to have
 -- agreed to the latest terms of use (plan 4e, Q2: their own write) and a story that is public now
 -- (approved: its newest status entry, R6/R11). A story that stops being public later keeps the
 -- heart, but lists show public stories only, so it no longer shows (C15). Person-linked twice: a new

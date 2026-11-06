@@ -1,5 +1,5 @@
 import { Controller, Get, Inject, Module, Query, Res } from '@nestjs/common';
-import { runQuery, SURREAL } from '@heisreal/database';
+import { isPublished, runQuery, SURREAL } from '@heisreal/database';
 import {
   groupThemes,
   type ThemeCategory,
@@ -23,7 +23,7 @@ export function themeProbes(ids: string[]): {
   return {
     statements: ids.map(
       (_, i) =>
-        `SELECT VALUE id FROM story WHERE themeIds CONTAINS $t${i} AND currentStatus.status = 'approved' LIMIT 1`,
+        `SELECT VALUE id FROM story WHERE themeIds CONTAINS $t${i} AND ${isPublished()} LIMIT 1`,
     ),
     vars: Object.fromEntries(ids.map((id, i) => [`t${i}`, id])),
   };

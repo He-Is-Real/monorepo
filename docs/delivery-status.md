@@ -104,16 +104,6 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 - **Direct uploads proven** on dev before building them ([upload test](https://github.com/He-Is-Real/monorepo/pull/123)).
 - **Process rule recorded:** Joel owns data structure, API and behaviour decisions
   ([AGENTS.md rule](https://github.com/He-Is-Real/monorepo/pull/169)).
-
-**In progress (open pull requests):**
-
-- A video's own picture becomes its thumbnail at Bunny when it is sent for review; Bunny keeps
-  the original files for "Download my data", whose links would then last 7 days instead of 1
-  hour ([#160](https://github.com/He-Is-Real/monorepo/pull/160)).
-- Browse and favourites cards barely move once the page has measured them
-  ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
-- A signed-in request isn't cut off when the person's short-lived sign-in pass expires midway
-  ([#165](https://github.com/He-Is-Real/monorepo/pull/165)).
 - The public API answers a repeated request from memory for up to 60 seconds, so busy pages ask
   the database far less; a withdrawn or hidden story can show for up to a minute (database
   review 2, Joel's decision R13; [#181](https://github.com/He-Is-Real/monorepo/pull/181)).
@@ -122,18 +112,22 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   marked "deleted", the three write-fence tables become one, expired request keys are deleted
   nightly, admins can't delete upload, submission or review records, a heart's time comes from
   its id so it can't be backdated, the draft legal texts say super admins can see drafts, and the
-  schema is split into one file per area. Dev's database is wiped once and rebuilt from scratch
-  with its dummy data when this is applied ([#182](https://github.com/He-Is-Real/monorepo/pull/182)).
-- **One story table and its history** (database review 2, part B1; Joel, 2026-11-04/05), in
-  progress: the public copy of each story goes; the public reads the one story table, and the
+  schema is split into one file per area. Dev's database was wiped once and rebuilt from scratch
+  with its dummy data ([#182](https://github.com/He-Is-Real/monorepo/pull/182)).
+- **One story table and its history** (database review 2, part B1; Joel, 2026-11-04/05;
+  [#187](https://github.com/He-Is-Real/monorepo/pull/187)): the public copy of each story goes; the public reads the one story table, and the
   database shows it only published stories and their public fields. Every change of a story's
   status (submitted, picked up, approved, sent back, rejected, withdrawn, hidden, shown again) is
   a new line in the story's own history, never edited, saying who made it and when. Super admins
   can read every story, drafts included, with its history (API only; no page yet). "Download my
   data" now includes each story's whole history. Nothing else changes for people using the
-  site. Dev's database is wiped and rebuilt once more when this is applied.
-- **Each story's files as their own records** (database review 2, part B2; Joel, 2026-11-05), in
-  progress: every uploaded video, audio file and picture gets its own record, and the story points
+  site. Dev's database was wiped and rebuilt once more.
+- **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
+  ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
+  and whole browser flows run on one phone and one desktop while every page's "fits the screen"
+  checks still run on all 14 devices ([#186](https://github.com/He-Is-Real/monorepo/pull/186)).
+- **Each story's files as their own records** (database review 2, part B2; Joel, 2026-11-05;
+  [#188](https://github.com/He-Is-Real/monorepo/pull/188)): every uploaded video, audio file and picture gets its own record, and the story points
   at the ones it shows. A replaced or removed file is now deleted by the nightly clean-up once its
   upload link has expired (pictures were left behind before). An approval records which files the
   moderator reviewed, and a story hidden because its media broke comes back on its own only while
@@ -144,12 +138,20 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   2–5 s) and searching for a word in nearly every story takes 1.4 s (was 22 s). Renaming a theme
   carried by 15,000 stories takes about 43 s, accepted for now. The super admins' list of every
   story takes about half a second a page; a possible index is with Joel. Nothing changes for
-  people using the site. Dev's
-  database is wiped and rebuilt once more when this is applied.
-- **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
-  ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
-  and whole browser flows run on one phone and one desktop while every page's "fits the screen"
-  checks still run on all 14 devices ([#186](https://github.com/He-Is-Real/monorepo/pull/186)).
+  people using the site. Dev's database is wiped and rebuilt once more for it.
+
+**In progress (open pull requests):**
+
+- A video's own picture becomes its thumbnail at Bunny when it is sent for review; Bunny keeps
+  the original files for "Download my data", whose links would then last 7 days instead of 1
+  hour ([#160](https://github.com/He-Is-Real/monorepo/pull/160)).
+- Browse and favourites cards barely move once the page has measured them
+  ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
+- A signed-in request isn't cut off when the person's short-lived sign-in pass expires midway
+  ([#165](https://github.com/He-Is-Real/monorepo/pull/165)).
+- **Tidy-up after the database rework** ([#189](https://github.com/He-Is-Real/monorepo/pull/189)): the code that reads a story's status says it in one
+  place, and the developer notes on database permissions are cut to the rules in force. Nothing
+  changes for people using the site.
 
 **Left in the M2 plan:**
 

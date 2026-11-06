@@ -7,7 +7,12 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
-import { runQuery, SURREAL } from '@heisreal/database';
+import {
+  isPublished,
+  PUBLISHED_ENTRY,
+  runQuery,
+  SURREAL,
+} from '@heisreal/database';
 import {
   MediaUrls,
   type StorySummary,
@@ -27,8 +32,8 @@ import {
 import { isSlug, notFound } from './slug';
 
 // Published stories and themes, on the read-only login. Its rules let it read approved stories'
-// published fields only (R11); every query also asks for approved stories itself, so a rule
-// change can't widen what it lists. The query text is fixed: one variant per sort, chosen here;
+// published fields only (R11); every query also asks for approved stories itself (isPublished,
+// PUBLISHED_ENTRY), so a rule change can't widen what it lists. The query text is fixed: one variant per sort, chosen here;
 // every value arrives as a bound parameter.
 
 /** Shared by every variant: the filters and the cursor's position, bound once. */
@@ -50,7 +55,7 @@ const PREAMBLE = `
  * left out), and the page's last instant is read whole, so ties sort by id across pages too. Then
  * the story cards for that one page.
  */
-const LOG_FILTERS = `status = 'approved' AND story.currentStatus = id
+const LOG_FILTERS = `${PUBLISHED_ENTRY}
     AND ($format = NONE OR story.primaryFormat = $format)
     AND ($th = NONE OR story.themeIds CONTAINS $th)`;
 const byDate = (direction: 'DESC' | 'ASC') => {
@@ -71,7 +76,7 @@ const byDate = (direction: 'DESC' | 'ASC') => {
     WHERE ${LOG_FILTERS} AND publishedAt = $edgeAt AND ${after};
   LET $page = SELECT * FROM array::union($batch, $ties)
     ORDER BY publishedAt ${direction}, story ${direction} LIMIT $take;
-  SELECT ${SUMMARY_FIELDS} FROM $page.story WHERE currentStatus.status = 'approved'
+  SELECT ${SUMMARY_FIELDS} FROM $page.story WHERE ${isPublished()}
   ORDER BY publishedAt ${direction}, id ${direction};`;
 };
 
@@ -90,7 +95,7 @@ const searchByDate = (direction: 'DESC' | 'ASC') => {
       AND ($at = NONE OR publishedAt ${past} $at
         OR (publishedAt = $at AND story ${past} $afterId))
     ORDER BY publishedAt ${direction}, story ${direction} LIMIT $take;
-  SELECT ${SUMMARY_FIELDS} FROM $page.story WHERE currentStatus.status = 'approved'
+  SELECT ${SUMMARY_FIELDS} FROM $page.story WHERE ${isPublished()}
   ORDER BY publishedAt ${direction}, id ${direction};`;
 };
 
@@ -103,13 +108,13 @@ const BY_RELEVANCE = `${PREAMBLE}
   ORDER BY score DESC, story DESC LIMIT $take;
   LET $scores = object::from_entries($page.map(|$h| [record::id($h.story), $h.score]));
   SELECT ${SUMMARY_FIELDS}, $scores[record::id(id)] AS score FROM $page.story
-  WHERE currentStatus.status = 'approved'
+  WHERE ${isPublished()}
   ORDER BY score DESC, id DESC;`;
 
 /** Cards for these ids (`id=`), the public ones only, newest first; never more than asked. */
 const BY_IDS = `
   LET $refs = $ids.map(|$i| type::record('story', $i));
-  SELECT ${SUMMARY_FIELDS} FROM $refs WHERE currentStatus.status = 'approved'
+  SELECT ${SUMMARY_FIELDS} FROM $refs WHERE ${isPublished()}
   ORDER BY publishedAt DESC, id DESC;`;
 
 const QUERIES = {
@@ -133,15 +138,15 @@ export const RELATED_COUNT = 3;
  */
 const RELATED = `
   LET $s = (SELECT id, themeIds FROM ONLY story
-    WHERE slug = $slug AND currentStatus.status = 'approved' LIMIT 1);
+    WHERE slug = $slug AND ${isPublished()} LIMIT 1);
   RETURN $s != NONE;
   SELECT VALUE slug FROM story
-    WHERE $s = NONE AND slugHistory CONTAINS $slug AND currentStatus.status = 'approved' LIMIT 1;
+    WHERE $s = NONE AND slugHistory CONTAINS $slug AND ${isPublished()} LIMIT 1;
   -- One index scan (story_theme_ids) for every story sharing a theme, with how many it shares.
   -- (Not one query per theme in a closure: 3.2.4 uses no index there.)
   LET $g = array::flatten([IF $s = NONE { [] } ELSE {
     (SELECT id, array::len(array::intersect(themeIds, $s.themeIds)) AS shared FROM story
-      WHERE themeIds CONTAINSANY $s.themeIds AND id != $s.id AND currentStatus.status = 'approved')
+      WHERE themeIds CONTAINSANY $s.themeIds AND id != $s.id AND ${isPublished()})
   }]);
   LET $levels = array::sort::desc(array::distinct($g.shared));
   LET $filled = $levels.filter(|$l| array::len($g[WHERE shared >= $l]) >= ${RELATED_COUNT});
@@ -159,18 +164,17 @@ const RELATED = `
         ORDER BY p DESC, id DESC LIMIT $need)
     } ELSE {
       LET $batch = (SELECT story, publishedAt FROM storyStatusLog
-        WHERE status = 'approved' AND story.currentStatus = id AND $in(story)
+        WHERE ${PUBLISHED_ENTRY} AND $in(story)
         ORDER BY publishedAt DESC LIMIT $need);
       LET $edgeAt = array::last($batch).publishedAt;
       LET $ties = (SELECT story, publishedAt FROM storyStatusLog
-        WHERE status = 'approved' AND publishedAt = $edgeAt AND story.currentStatus = id
-          AND $in(story));
+        WHERE ${PUBLISHED_ENTRY} AND publishedAt = $edgeAt AND $in(story));
       (SELECT VALUE story FROM (SELECT * FROM array::union($batch, $ties)
         ORDER BY publishedAt DESC, story DESC LIMIT $need))
     }]);
   IF $s = NONE { [] } ELSE {
     SELECT ${SUMMARY_FIELDS}, array::len(array::intersect(themeIds, $s.themeIds)) AS shared
-    FROM array::concat($above, $newest) WHERE currentStatus.status = 'approved'
+    FROM array::concat($above, $newest) WHERE ${isPublished()}
     ORDER BY shared DESC, publishedAt DESC, id DESC LIMIT ${RELATED_COUNT}
   };`;
 

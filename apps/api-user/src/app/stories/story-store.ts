@@ -9,6 +9,7 @@ import {
 import {
   DatabaseQueryError,
   type IdempotencyScope,
+  IS_DRAFT,
   isStoryTextTooShortError,
   OWNER_FILE_FIELDS,
   requireWritten,
@@ -16,6 +17,7 @@ import {
   runIdempotent,
   runQuery,
   storyLimitOf,
+  STORY_STATUS,
   SUBMISSION_SETTINGS_SQL,
   type SubmissionSettings,
   submissionLimitOf,
@@ -201,28 +203,33 @@ interface RawStory {
 }
 
 /**
- * The status its owner sees (R6: the story's current status entry; none yet = draft). A story
- * hidden because of its media shows as published, as before the status log: its owner can't
- * act on it, and it comes back by itself.
+ * The status its owner sees: a story hidden because of its media shows as published, as before
+ * the status log (its owner can't act on it, and it comes back by itself).
  */
-const OWNER_STATUS = `IF currentStatus.status = 'hidden' { 'approved' }
-  ELSE { currentStatus.status ?? 'draft' }`;
+const OWNER_STATUS = `IF ${STORY_STATUS} = 'hidden' { 'approved' } ELSE { ${STORY_STATUS} }`;
 
 /**
- * From the story's status log (R6), in the owner's session (they read their own entries, never
- * who moderated): the moderator's note on the current changes request or rejection, the first
- * submission's time and the first publication's. The id as `storyRef`: in a person's session,
- * an alias named `id` changed what `id` meant to the other fields (SurrealDB 3.2.4).
+ * What its owner sees of a story's status log (R6), in their own session (they read their own
+ * entries, never who moderated): that status, the moderator's note on the current changes request
+ * or rejection, the first submission's time and the first publication's. GetStory and "download
+ * my data" (my-data.ts).
  */
-const STORY_FIELDS = `version, slug, ${OWNER_STATUS} AS status, title,
-  description, body, bylineName, primaryFormat, themeRefs.map(|$t| <string> $t) AS themeRefs,
-  ${OWNER_FILE_FIELDS},
-  IF currentStatus.status IN ['changes_requested', 'rejected'] { currentStatus.comment }
+export const OWNER_STATUS_FIELDS = `
+  ${OWNER_STATUS} AS status,
+  IF ${STORY_STATUS} IN ['changes_requested', 'rejected'] { currentStatus.comment }
     AS rejectionFeedback,
   array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND status = 'pending')
     AS submittedAt,
   array::min(SELECT VALUE publishedAt FROM storyStatusLog
-    WHERE story = $parent.id AND status = 'approved') AS approvedAt,
+    WHERE story = $parent.id AND status = 'approved') AS approvedAt`;
+
+/**
+ * The id as `storyRef`: in a person's session, an alias named `id` changed what `id` meant to the
+ * other fields (SurrealDB 3.2.4).
+ */
+const STORY_FIELDS = `version, slug, title,
+  description, body, bylineName, primaryFormat, themeRefs.map(|$t| <string> $t) AS themeRefs,
+  ${OWNER_FILE_FIELDS}, ${OWNER_STATUS_FIELDS},
   createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
   IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
   socialMediaSharingConsentAgreedAt AS sharingAt,
@@ -427,7 +434,7 @@ export class StoryStore {
         const results = await runQuery(
           this.person,
           `BEGIN TRANSACTION;
-           LET $s = (SELECT version, fn::story::status_of($this) AS status
+           LET $s = (SELECT version, ${STORY_STATUS} AS status
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
@@ -568,7 +575,7 @@ export class StoryStore {
         const results = await runQuery(
           this.person,
           `BEGIN TRANSACTION;
-           LET $s = (SELECT version, fn::story::status_of($this) AS status
+           LET $s = (SELECT version, ${STORY_STATUS} AS status
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
@@ -606,7 +613,7 @@ export class StoryStore {
         const results = await runQuery(
           this.person,
           `BEGIN TRANSACTION;
-           LET $s = (SELECT version, fn::story::status_of($this) AS status
+           LET $s = (SELECT version, ${STORY_STATUS} AS status
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
@@ -641,7 +648,7 @@ export class StoryStore {
       this.person,
       `RETURN fn::settings::submission();
        RETURN fn::limits::effective($auth);
-       RETURN count(SELECT id FROM story WHERE submitter = $auth AND currentStatus = NONE);
+       RETURN count(SELECT id FROM story WHERE submitter = $auth AND ${IS_DRAFT});
        RETURN fn::story::next_submission_at($auth);
        RETURN fn::upload::next_allowed_at($auth, 'video');
        RETURN count(SELECT id FROM submissionLog WHERE person = $auth AND at > time::now() - 7d);

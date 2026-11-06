@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-05
+**Last updated:** 2026-11-06
 
 ## Needs Joel to confirm
 
@@ -303,7 +303,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 
 ## Moderation
 
-Built today (in the database): (planned pages and queue are M3)
+Built in the database (the pages and the queue are planned, M3):
 
 - A story's statuses: draft, waiting for review, in review, approved, sent back for changes,
   rejected, withdrawn, and hidden (approved, but off the site while its media is fixed, or
@@ -356,7 +356,7 @@ Planned (M3):
 - **Limits** (Admin and above): the submission limits in plain words with their units; Save
   lists the changes and asks to confirm. If another admin saved meanwhile, the page asks to
   reload. The settings keep the name and role of the admin who changed them last; there is no
-  history of changes (Joel, 2026-11-05: no audit log).
+  history of changes (no audit log, see Moderation).
 - **Themes**: categories and themes on one page (drag on desktop, tap or keyboard on phones),
   delete confirmed by typing "delete <name>", and one Save for the whole picture. Deleting a theme
   removes it from every story. If someone else saved meanwhile, the page asks to reload.
@@ -381,10 +381,9 @@ Planned (M3):
   nightly clean-up. It deletes at most 50 of each kind a night. It started in "report only" mode
   and switches to real deletions after a night whose report looks right (on dev it still only
   reports).
-- **Deleting an account** removes everything about the person, except an empty account record
-  marked deleted (no date, no reason) and the fingerprint that stops the same sign-in coming
-  back. There is no audit log (Joel, 2026-11-05). Their files at Bunny
-  and their Clerk account go straight after; anything that fails is retried. (D39, D40, D82)
+- **Deleting an account** (see "Delete my account") keeps only the account record marked deleted
+  and the sign-in fingerprint. Their files at Bunny and their Clerk account go straight after;
+  anything that fails is retried. (D39, D40, D82)
 - The record of what a person submitted in the last 7 days (for the weekly limit) is kept 7 days
   and deleted with the account. Upload records stay when a story is deleted, so the upload limits
   still count them.
@@ -426,8 +425,7 @@ For developers. Details are in the linked documents.
   (D31, D32; `apps/web/README.md`)
 - **Personal reads run as the person,** so the database itself keeps everyone else's rows out.
   (D27)
-- **One story table (R11, Joel 2026-11-04/05; replaces D26's `publicStory` read model):** the
-  public reads `story` itself, and the database's rules show it only approved stories and only
+- **One story table (R11, Joel 2026-11-04/05):** the public reads `story` itself, and the database's rules show it only approved stories and only
   their published fields. Each story's status lives in its status log (`storyStatusLog`, R6),
   never edited; the story points at its newest entry. (D25, R6, R11;
   [db-permissions.md](db-permissions.md))

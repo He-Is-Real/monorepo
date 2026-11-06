@@ -7,3 +7,4 @@ export * from './lib/idempotency';
 export * from './lib/person-session';
 export * from './lib/query';
 export * from './lib/story-files';
+export * from './lib/story-status';

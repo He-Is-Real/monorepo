@@ -1,3 +1,5 @@
+import { STORY_STATUS } from './story-status';
+
 /**
  * A story's files with their processing state, for those who read the whole storyFile row: the
  * story's owner (GetStory, "download my data") and api-admin (R12). `media`: its video or audio
@@ -54,7 +56,7 @@ export const OLD_FILE_ROW_DELETE = `
  * Also timed by api-public-read's local scale test.
  */
 export const ALL_STORIES_SUMMARY = `record::id(id) AS id, slug, title,
-  currentStatus.status ?? 'draft' AS status, primaryFormat,
+  ${STORY_STATUS} AS status, primaryFormat,
   record::id(submitter) AS submitter, createdAt, updatedAt, version`;
 export const ALL_STORIES_LIST_SQL = `
   LET $c = IF $after != NONE { <datetime> $after[0] };

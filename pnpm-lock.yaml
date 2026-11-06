@@ -568,6 +568,9 @@ importers:
 
   libs/story-cards:
     dependencies:
+      '@heisreal/database':
+        specifier: workspace:*
+        version: link:../database
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../secrets

@@ -22,11 +22,6 @@
 -- Admin or Super Admin publishing at /admin/consent) and the migrator (data/0009 seeds version
 -- 0 of each) create versions, each the next number. Nobody changes or deletes one, system
 -- users included: a mistake is fixed by saving another version.
--- The old consent machinery is gone (plan 4e, "What goes"): the consent ledger, dpaVersion,
--- termsVersion, the three form-version tables, evidence hashes, legalFence, the computed
--- story.consent, fn::consent::* and the old fn::legal::* / fn::form::*, the dev consent switches
--- and erasureRequest (Joel, 2026-11-01: "Delete my account" erases directly). All of it held
--- dummy data only; removing a table removes its rows and events.
 
 DEFINE TABLE OVERWRITE termsOfUseAgreement SCHEMAFULL PERMISSIONS
   FOR select FULL,

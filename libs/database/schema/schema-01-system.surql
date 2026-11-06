@@ -47,8 +47,7 @@ DEFINE FIELD OVERWRITE appliedAt ON _identity TYPE datetime;
 -- permissions); only system users write. A row, not DEFINE PARAM: inside a function a caller's
 -- bound variable shadows a defined param (3.2.4, tested), so a person could set their own.
 -- _setting:current.environment: which environment this database belongs to ('dev', ...), read by
--- dev-seed's guard and submitterLimits.devSeed. Plan 4e removed the dev consent switches (D48's
--- devConsentRelaxed, D75's devLegalPlaceholders) and the old _setting:consent row (data/0009).
+-- dev-seed's guard and submitterLimits.devSeed.
 DEFINE TABLE OVERWRITE _setting SCHEMAFULL PERMISSIONS
   FOR select FULL,
   FOR create, update, delete NONE;
