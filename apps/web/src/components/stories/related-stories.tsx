@@ -1,7 +1,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
-import { cardLabel, cardMedia, NewBadge, StoryCard } from './story-card';
+import { cardLabel } from '@/lib/card-label';
+import { cardMedia, NewBadge, StoryCard } from './story-card';
 
 /** The small list's picture slot, in px: each picture fits inside it at its own shape. */
 const THUMB = { width: 64, height: 80 } as const;
