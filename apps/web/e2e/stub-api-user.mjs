@@ -797,7 +797,7 @@ function myDataOf(s, token, mine) {
   return {
     about: {
       format: 'he-is-real-my-data',
-      formatVersion: 1,
+      formatVersion: 2,
       generatedAt,
       linksExpireAt,
       summary:
@@ -836,13 +836,17 @@ function myDataOf(s, token, mine) {
           bunnyVideoId: st.videoId,
           playbackUrl: `https://player.mediadelivery.net/embed/1/${st.videoId}?token=stub&expires=1`,
         })),
-        moderation: st.rejectionFeedback
+        // R6: the story's status history; a story sent back has its moderator's entry.
+        statusHistory: st.rejectionFeedback
           ? [
               {
-                decision: 'request_changes',
-                feedbackToSubmitter: st.rejectionFeedback,
+                status: 'changes_requested',
+                actor: 'moderator',
+                comment: st.rejectionFeedback,
                 storyVersion: 1,
-                decidedAt: st.updatedAt,
+                at: st.updatedAt,
+                publishedAt: null,
+                hiddenReason: null,
               },
             ]
           : [],
