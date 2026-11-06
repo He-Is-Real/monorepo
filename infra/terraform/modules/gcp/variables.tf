@@ -409,3 +409,34 @@ variable "ci_dev_seeder_email" {
   type        = string
   default     = ""
 }
+
+variable "media_ready" {
+  description = <<-EOT
+    Media ready (M2 plan item 13; D78, D126): the media-jobs, media-results and media-dead-letters
+    topics (London only) and their subscriptions, the media-worker identity, the result writer on
+    Cloud Run (apps/workflow, private) and api-user's Bunny webhook (media.tf). worker_impersonators:
+    the people who may act as media-worker with their own gcloud login (D126), as user:<email>.
+    readonly_key_secret: the Secret Manager secret holding Bunny's read-only library key (the bunny
+    root makes it and lets api-user read it), which api-user checks Bunny's signatures with. Needs
+    api_public_read_media (the Stream library id). null: none of it; the webhook answers 503.
+  EOT
+  type = object({
+    worker_impersonators = list(string)
+    readonly_key_secret  = optional(string, "bunny-stream-readonly-key")
+  })
+  default = null
+  validation {
+    condition = var.media_ready == null || alltrue([for m in var.media_ready.worker_impersonators :
+      can(regex("^user:[a-z0-9._%+-]+@heisreal\\.today$", m))
+    ])
+    error_message = "media_ready.worker_impersonators: people of the organisation only (user:<name>@heisreal.today); never service accounts, groups, allUsers or outside accounts."
+  }
+  validation {
+    condition     = var.media_ready == null || can(regex("^bunny-[a-z0-9-]+$", var.media_ready.readonly_key_secret))
+    error_message = "media_ready.readonly_key_secret is a bunny-* secret name."
+  }
+  validation {
+    condition     = var.media_ready == null || var.api_public_read_media != null
+    error_message = "media_ready needs api_public_read_media (the Stream library id api-user checks webhooks against)."
+  }
+}

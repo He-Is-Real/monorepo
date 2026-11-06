@@ -247,6 +247,7 @@ resource "google_project_iam_member" "tf_deployer" {
     "roles/iam.serviceAccountUser", # run Cloud Run / GKE nodes as their service accounts
     "roles/run.admin",
     "roles/cloudscheduler.admin", # the housekeeping Job's nightly trigger (modules/gcp/housekeeping.tf)
+    "roles/pubsub.admin",         # media ready's topics, subscriptions and their grants (modules/gcp/media.tf)
   ])
   project = google_project.this.project_id
   role    = each.value
