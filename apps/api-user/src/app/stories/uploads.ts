@@ -778,7 +778,8 @@ export class Uploads {
       person,
       `SELECT version, fn::story::status_of($this) AS status, primaryFormat,
          media[0].bunnyVideoId AS videoId,
-         image.path AS imagePath FROM type::record('story', $id)`,
+         image.path AS imagePath FROM type::record('story', $id)
+         WHERE submitter = $auth`,
       { id },
     )) as [DraftMedia[]];
     if (!rows.length) throw new NotFoundException();

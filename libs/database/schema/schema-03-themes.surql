@@ -12,7 +12,7 @@
 -- (case-insensitive); there's no uniqueness rule here (two saves are serialised by themeCatalog).
 DEFINE TABLE OVERWRITE themeCategory SCHEMAFULL PERMISSIONS     -- id = themeCategory:<ulid> | :other
   FOR select FULL,
-  FOR create, update, delete WHERE $auth.id = service:api_admin;
+  FOR create, update, delete WHERE $auth = service:api_admin;
 DEFINE FIELD OVERWRITE name ON themeCategory TYPE string
   ASSERT string::len($value) > 0 AND string::len($value) <= 40;
 -- Other can't be renamed, or deleted (by anyone, system users too). Deleting another category
@@ -32,7 +32,7 @@ DEFINE EVENT OVERWRITE themeCategory_delete ON themeCategory
   };
 DEFINE TABLE OVERWRITE theme SCHEMAFULL PERMISSIONS             -- id = theme:<ulid>
   FOR select FULL,
-  FOR create, update, delete WHERE $auth.id = service:api_admin;
+  FOR create, update, delete WHERE $auth = service:api_admin;
 DEFINE FIELD OVERWRITE name        ON theme TYPE string
   ASSERT string::len($value) > 0 AND string::len($value) <= 40;
 DEFINE FIELD OVERWRITE category    ON theme TYPE record<themeCategory>
@@ -62,7 +62,7 @@ DEFINE EVENT OVERWRITE theme_delete ON theme
 -- (and two overlapping saves conflict at commit). The row keeps who saved last (R3: no audit log).
 DEFINE TABLE OVERWRITE themeCatalog SCHEMAFULL PERMISSIONS     -- id = themeCatalog:current
   FOR select FULL,
-  FOR create, update WHERE $auth.id = service:api_admin,
+  FOR create, update WHERE $auth = service:api_admin,
   FOR delete NONE;
 DEFINE FIELD OVERWRITE version       ON themeCatalog TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
 DEFINE FIELD OVERWRITE changedBy     ON themeCatalog TYPE option<record<user>>;

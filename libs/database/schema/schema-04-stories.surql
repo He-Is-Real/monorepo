@@ -21,31 +21,31 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
   -- content fields below refuse it) to find abandoned drafts and orphaned Bunny videos.
   -- Everyone else: their own stories, and any story whose newest status entry says approved
   -- (R11's row rule; the status log's own rule lets them read that entry, and only that one).
-  FOR select WHERE submitter = $auth.id
-    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping]
+  FOR select WHERE submitter = $auth
+    OR $auth IN [service:api_admin, service:workflow, service:housekeeping]
     OR currentStatus.status = 'approved',
-  FOR create WHERE submitter = $auth.id                -- own draft only (no status entry yet),
+  FOR create WHERE submitter = $auth                -- own draft only (no status entry yet),
     AND $auth.status != 'deleted',                     -- not erased (agreements: story_agreements)
-  FOR update WHERE (submitter = $auth.id AND $auth.status != 'deleted')
-    OR $auth.id IN [service:api_admin, service:workflow],
-  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]   -- erasure
+  FOR update WHERE (submitter = $auth AND $auth.status != 'deleted')
+    OR $auth IN [service:api_admin, service:workflow],
+  FOR delete WHERE $auth IN [service:api_user, service:api_admin]   -- erasure
     -- D71: the owner deletes their own draft, withdrawn or rejected story (DeleteStory), and one
     -- sent back for changes (Joel, 2026-10-30: no need to withdraw it first), never one in
     -- moderation's hands, published or hidden (pending, in_review, approved, hidden).
-    OR (submitter = $auth.id AND $auth.status != 'deleted'
+    OR (submitter = $auth AND $auth.status != 'deleted'
         AND (currentStatus.status ?? 'draft') IN ['draft', 'changes_requested', 'withdrawn', 'rejected'])
     -- D71: the nightly housekeeping Job deletes a draft nobody has touched for as long as the
     -- retention says (fn::story::draft_expired), and nothing else; the same delete as a
     -- person's own (events and cascade included).
-    OR ($auth.id = service:housekeeping AND fn::story::draft_expired(id));
+    OR ($auth = service:housekeeping AND fn::story::draft_expired(id));
 -- Private (R11's field rule): the owner and the services that need it, never everyone else.
 -- api-user's login reads it only on an erased person's stories, which fn::account::erase deletes
 -- in the same transaction as it marks them erased (its DELETE ... WHERE submitter: a WHERE sees
 -- only fields the caller may read). Never a published story's while its owner exists.
 DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY   -- owner can never be reassigned
-  PERMISSIONS FOR select WHERE submitter = $auth.id
-    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping]
-    OR ($auth.id = service:api_user AND submitter.status = 'deleted');
+  PERMISSIONS FOR select WHERE submitter = $auth
+    OR $auth IN [service:api_admin, service:workflow, service:housekeeping]
+    OR ($auth = service:api_user AND submitter.status = 'deleted');
 DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every write; ETag
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
 -- housekeeping never reads the words (select below): it needs only ids, the status, dates and media.
@@ -134,8 +134,8 @@ DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
 -- processing detail: private (R11's field rule).
 DEFINE FIELD OVERWRITE image.processing ON story TYPE option<string>
   ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
-  PERMISSIONS FOR select WHERE submitter = $auth.id
-      OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping],
+  PERMISSIONS FOR select WHERE submitter = $auth
+      OR $auth IN [service:api_admin, service:workflow, service:housekeeping],
     FOR update WHERE $auth != service:api_admin;
 -- Media and processing fields (D80, Joel 2026-10-25): never the person's session, never api-admin.
 -- Workflow writes them (M7 processing). An upload reaches them only through an upload grant that
@@ -181,8 +181,8 @@ DEFINE FIELD OVERWRITE media[*].durationSeconds ON story TYPE option<int>
 -- A2: NONE = not processed yet; then 'processing', 'ready' or 'failed' (set by workflow, M7).
 DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
   ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
-  PERMISSIONS FOR select WHERE submitter = $auth.id
-      OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping],
+  PERMISSIONS FOR select WHERE submitter = $auth
+      OR $auth IN [service:api_admin, service:workflow, service:housekeeping],
     FOR update WHERE $auth = service:workflow;
 -- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary, with the same
 -- rule (and adds them to $mediaFields in fn::story::shape_problem).
@@ -193,16 +193,16 @@ DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
 -- the database's time (fn::legal::check_pointer, from story_agreements). Gone with the story.
 -- Private (R11's field rule).
 DEFINE FIELD OVERWRITE socialMediaSharingConsent ON story TYPE option<record<socialMediaSharingConsent>>
-  PERMISSIONS FOR select WHERE submitter = $auth.id
-    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping];
+  PERMISSIONS FOR select WHERE submitter = $auth
+    OR $auth IN [service:api_admin, service:workflow, service:housekeeping];
 DEFINE FIELD OVERWRITE socialMediaSharingConsentAgreedAt ON story TYPE option<datetime>
   VALUE IF $this.socialMediaSharingConsent = NONE { NONE } ELSE IF $value != $before { time::now() } ELSE { $before }
-  PERMISSIONS FOR select WHERE submitter = $auth.id
-    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping];
+  PERMISSIONS FOR select WHERE submitter = $auth
+    OR $auth IN [service:api_admin, service:workflow, service:housekeeping];
 -- Private (R11's field rule): an internal date.
 DEFINE FIELD OVERWRITE createdAt     ON story TYPE datetime VALUE $before OR time::now() READONLY
-  PERMISSIONS FOR select WHERE submitter = $auth.id
-    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping];
+  PERMISSIONS FOR select WHERE submitter = $auth
+    OR $auth IN [service:api_admin, service:workflow, service:housekeeping];
 -- The server time on every write. Only a system user ($auth = NONE: the migrator, dev's seed)
 -- may keep or supply another: so a migration doesn't make a draft look touched, and tests can
 -- age a draft for D71's 6-month expiry (housekeeping).
@@ -736,10 +736,10 @@ DEFINE INDEX OVERWRITE story_fts       ON story FIELDS searchText
 -- names and reasons never. The owner reads their own story's entries, never who wrote them; only
 -- api-admin reads `by`.
 DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = storyStatusLog:<ulid>
-  FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin
+  FOR select WHERE story.submitter = $auth OR $auth = service:api_admin
     OR (status = 'approved' AND story.currentStatus = id),
-  FOR create WHERE (story.submitter = $auth.id AND $auth.status != 'deleted')
-    OR $auth.id = service:api_admin,
+  FOR create WHERE (story.submitter = $auth AND $auth.status != 'deleted')
+    OR $auth = service:api_admin,
   FOR update, delete NONE;
 DEFINE FIELD OVERWRITE story        ON storyStatusLog TYPE record<story> READONLY;
 DEFINE FIELD OVERWRITE status       ON storyStatusLog TYPE string READONLY
@@ -753,7 +753,7 @@ DEFINE FIELD OVERWRITE actor        ON storyStatusLog TYPE string READONLY
     ELSE IF record::tb($auth) = 'user' { 'person' }
     ELSE { 'system' }
   ASSERT $value IN ['person', 'moderator', 'system']
-  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
 -- Which person or moderator: the person's own session is the person; api-admin names the
 -- moderator (its login is a service); the system has none. api-admin's alone to read, so people
 -- never see a moderator's name.
@@ -761,21 +761,21 @@ DEFINE FIELD OVERWRITE by           ON storyStatusLog TYPE option<record<user>> 
   VALUE IF $auth = NONE OR $auth = service:api_admin { $value }
     ELSE IF record::tb($auth) = 'user' { $auth }
     ELSE { NONE }
-  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
+  PERMISSIONS FOR select WHERE $auth = service:api_admin;
 -- Which edit of the story this was about: its version when the entry was made (the next
 -- "request review" after edits shows they happened). 0 only for a caller who can't read the
 -- story, whose write the permissions refuse anyway.
 DEFINE FIELD OVERWRITE storyVersion ON storyStatusLog TYPE int READONLY
   VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { $this.story.version ?? 0 }
-  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
 -- The moderator's comment to the person (moderator entries only).
 DEFINE FIELD OVERWRITE comment      ON storyStatusLog TYPE option<string> READONLY
   ASSERT $value = NONE OR (string::len($value) > 0 AND string::len($value) <= 5000)
-  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
 -- When, set by the database. A system user may supply it (dev-seed's history), never anyone else.
 DEFINE FIELD OVERWRITE at           ON storyStatusLog TYPE datetime READONLY
   VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { time::now() }
-  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
 -- On approved entries: when the story was first published (the first approval's time, kept on
 -- later approvals: "newest first" on the website). A system user may supply the first one
 -- (dev-seed's dates).
@@ -792,7 +792,7 @@ DEFINE FIELD OVERWRITE publishedAt  ON storyStatusLog TYPE option<datetime> READ
 -- own words go in `comment`).
 DEFINE FIELD OVERWRITE hiddenReason ON storyStatusLog TYPE option<string> READONLY
   ASSERT $value = NONE OR $value IN ['media_unavailable', 'media_changed']
-  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
 -- Public lists, newest or oldest first (db review 2, section 6 items 5 and 6).
 DEFINE INDEX OVERWRITE storyStatusLog_published ON storyStatusLog FIELDS status, publishedAt;
 -- The moderators' queue (pending, oldest first; M3).
@@ -869,7 +869,7 @@ DEFINE EVENT OVERWRITE storyStatusLog_append_only ON storyStatusLog
 -- status log (R6). Written by events only (events run elevated); erasure deletes it with the
 -- story. B2 (R12) replaces it with the approved entry's reviewed files.
 DEFINE TABLE OVERWRITE hiddenStory SCHEMAFULL PERMISSIONS
-  FOR select WHERE $auth.id IN [service:api_admin, service:workflow],
+  FOR select WHERE $auth IN [service:api_admin, service:workflow],
   FOR create, update, delete NONE;
 DEFINE FIELD OVERWRITE since       ON hiddenStory TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE FIELD OVERWRITE identity    ON hiddenStory TYPE string ASSERT string::len($value) = 64;
@@ -966,11 +966,11 @@ DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
 -- then, whatever its version: a picture another tab put on (or took off) is replaced only when
 -- the person chooses to, never by a request the page rebased onto a newer version (Codex #140 r3).
 DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
-  FOR select WHERE person = $auth.id
-    OR $auth.id IN [service:api_user, service:api_admin, service:housekeeping],
-  FOR create WHERE $auth.id = service:api_user,
-  FOR update WHERE $auth.id = service:api_user,
-  FOR delete WHERE $auth.id = service:api_user;                        -- erasure
+  FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:housekeeping],
+  FOR create WHERE $auth = service:api_user,
+  FOR update WHERE $auth = service:api_user,
+  FOR delete WHERE $auth = service:api_user;                        -- erasure
 DEFINE FIELD OVERWRITE story           ON uploadGrant TYPE record<story> READONLY;
 DEFINE FIELD OVERWRITE person          ON uploadGrant TYPE record<user> READONLY;
 DEFINE FIELD OVERWRITE format          ON uploadGrant TYPE string READONLY

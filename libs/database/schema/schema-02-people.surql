@@ -7,12 +7,12 @@
 -- roles live in Clerk (D1). A legacy person (D22) has no Clerk account yet: NONE, linked
 -- by an admin if they sign up later.
 DEFINE TABLE OVERWRITE user SCHEMAFULL PERMISSIONS
-  FOR select WHERE id = $auth.id OR $auth.id IN [service:api_user, service:api_admin, service:workflow],
-  FOR create WHERE $auth.id = service:api_user,                       -- created on first use
-  FOR update WHERE $auth.id IN [service:api_user, service:api_admin]  -- erasure (status)
+  FOR select WHERE id = $auth OR $auth IN [service:api_user, service:api_admin, service:workflow],
+  FOR create WHERE $auth = service:api_user,                       -- created on first use
+  FOR update WHERE $auth IN [service:api_user, service:api_admin]  -- erasure (status)
     -- plan 4e: the person's own session agrees to the terms of use and the testimony consent
     -- (user_agreements: those four fields only)
-    OR (id = $auth.id AND $auth.status != 'deleted'),
+    OR (id = $auth AND $auth.status != 'deleted'),
   FOR delete NONE;
 -- The identity binding (D37). Set once: by api-admin linking a legacy person (or on create by
 -- api-user). Cleared once: by api-user's erasure, in the same update that sets the status to
@@ -119,8 +119,8 @@ DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, bi
 -- so nobody can backdate a heart. The list uses favourite_unique's person prefix (no index can
 -- cover the id; timed on a local database, 2026-11-05: about 2 ms for 250 hearts, 40 ms for 5,000).
 DEFINE TABLE OVERWRITE favourite SCHEMAFULL PERMISSIONS        -- id = favourite:<ulid>
-  FOR select, delete WHERE person = $auth.id,
-  FOR create WHERE person = $auth.id AND $auth.status != 'deleted',
+  FOR select, delete WHERE person = $auth,
+  FOR create WHERE person = $auth AND $auth.status != 'deleted',
   FOR update NONE;
 DEFINE FIELD OVERWRITE person    ON favourite TYPE record<user> READONLY;
 DEFINE FIELD OVERWRITE story     ON favourite TYPE record<story> READONLY;
@@ -165,7 +165,7 @@ DEFINE EVENT OVERWRITE user_erasure_favourites ON user
 -- recreate the person (#44's reproduction). Kept: dropping one would let a leftover Clerk account
 -- back in. Only api-user's login reads or writes it.
 DEFINE TABLE OVERWRITE erasedIdentity SCHEMAFULL PERMISSIONS
-  FOR select, create WHERE $auth.id = service:api_user,
+  FOR select, create WHERE $auth = service:api_user,
   FOR update, delete NONE;
 DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
   WHEN $event = 'CREATE'
@@ -193,10 +193,10 @@ DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
 -- which also refuses the id to anyone but a system user while the row is queued. Only api-user and housekeeping read, delete or count tries on it;
 -- only api-user's erasure writes rows itself (never an 'image' one).
 DEFINE TABLE OVERWRITE pendingDeletion SCHEMAFULL PERMISSIONS
-  FOR select, update WHERE $auth.id IN [service:api_user, service:housekeeping],
-  FOR delete WHERE $auth.id IN [service:api_user, service:housekeeping]
+  FOR select, update WHERE $auth IN [service:api_user, service:housekeeping],
+  FOR delete WHERE $auth IN [service:api_user, service:housekeeping]
     AND (finalPassAt = NONE OR finalPassAt <= time::now()),
-  FOR create WHERE $auth.id = service:api_user AND kind != 'image';
+  FOR create WHERE $auth = service:api_user AND kind != 'image';
 DEFINE FIELD OVERWRITE kind ON pendingDeletion TYPE string READONLY
   ASSERT $value IN ['bunny_video', 'image', 'clerk_user'];
 DEFINE FIELD OVERWRITE ref  ON pendingDeletion TYPE string READONLY

@@ -370,4 +370,52 @@ describe('my stories: withdraw and delete', () => {
     expect((await remove('bob', bobs, 7)).status).toBe(412);
     expect(await statusOf(bobs)).toBe('draft');
   });
+
+  // Everyone reads a published story (R11), so the owner's routes ask for their own themselves
+  // (Codex, B1 round 1: Ann read Bob's as hers).
+  it('someone else’s published story is not found on any of the owner’s routes', async () => {
+    const bobs = await create('bob');
+    expect((await submit('bob', bobs, 1)).status).toBe(200);
+    await approve(admin, bobs);
+    const version = await versionOf(bobs);
+    const ifMatch = { 'if-match': `"${version}"` };
+
+    expect(
+      (await call('GET', `/v1/account/stories/${bobs}`, 'ann')).status,
+    ).toBe(404);
+    expect(
+      (await call('GET', '/v1/account/stories', 'ann')).body.data.map(
+        (s: { id: string }) => s.id,
+      ),
+    ).not.toContain(bobs);
+    for (const res of [
+      await call('PATCH', `/v1/stories/${bobs}`, 'ann', {
+        body: { title: 'Not mine' },
+        headers: { ...ifMatch, 'content-type': 'application/merge-patch+json' },
+      }),
+      await call('POST', `/v1/stories/${bobs}/submit`, 'ann', {
+        headers: { ...ifMatch, 'idempotency-key': key() },
+      }),
+      await withdraw('ann', bobs, version),
+      await remove('ann', bobs, version),
+      await call('POST', `/v1/stories/${bobs}/upload-url`, 'ann', {
+        body: {
+          format: 'video',
+          contentType: 'video/mp4',
+          fileSizeBytes: 1000,
+          durationSeconds: 10,
+        },
+        headers: { ...ifMatch, 'idempotency-key': key() },
+      }),
+    ]) {
+      expect(res.status).toBe(404);
+    }
+    expect([await statusOf(bobs), await versionOf(bobs)]).toEqual([
+      'approved',
+      version,
+    ]);
+    expect(
+      (await call('GET', `/v1/account/stories/${bobs}`, 'bob')).status,
+    ).toBe(200);
+  });
 });

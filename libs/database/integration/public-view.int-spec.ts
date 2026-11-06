@@ -214,6 +214,61 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     },
   );
 
+  // 3.2.4 skips a row rule that reads `$auth.id` when an aggregate has no WHERE (Codex, B1 round
+  // 1: the public counted every status entry). The rules compare `$auth` itself; these are the
+  // exact queries, for the public readers and for those who see more.
+  it('counting without a WHERE sees only what the reader may read', async () => {
+    const counts = async (db: Surreal) =>
+      [
+        await rows(db, 'SELECT count() FROM storyStatusLog GROUP ALL'),
+        await rows(db, 'SELECT count() FROM story GROUP ALL'),
+      ].map((r) => (r[0] as { count: number } | undefined)?.count ?? 0);
+    const [entries, stories] = await counts(migrator);
+    for (const [, db] of readers) expect(await counts(db)).toEqual([2, 2]);
+    // Ann: her own stories and entries, plus Bob's published story and its current entry.
+    const [annEntries, annStories] = await counts(ann);
+    expect(annStories).toBe(
+      (
+        await rows(
+          migrator,
+          'SELECT VALUE id FROM story WHERE submitter = user:ann',
+        )
+      ).length + 1,
+    );
+    expect(annEntries).toBe(
+      (
+        await rows(
+          migrator,
+          'SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann',
+        )
+      ).length + 1,
+    );
+    expect(await counts(admin)).toEqual([entries, stories]);
+  });
+
+  // The same quirk, on every table a session may read: a count without a WHERE is the count the
+  // row rule allows.
+  it.each([
+    'user',
+    'favourite',
+    'pendingDeletion',
+    'idempotencyKey',
+    'submitterLimits',
+    'submissionLog',
+    'storyStatusLog',
+    'story',
+    'hiddenStory',
+    'uploadGrant',
+  ])('counting %s without a WHERE applies its row rule', async (table) => {
+    const count = async (db: Surreal, sql: string) =>
+      (await rows<{ count: number }>(db, sql))[0]?.count ?? 0;
+    for (const db of [...readers.map(([, r]) => r), ann, admin]) {
+      expect(await count(db, `SELECT count() FROM ${table} GROUP ALL`)).toBe(
+        await count(db, `SELECT count() FROM ${table} WHERE true GROUP ALL`),
+      );
+    }
+  });
+
   it('the search index holds only approved stories’ words: its scores can’t reveal others', async () => {
     expect(
       await rows(

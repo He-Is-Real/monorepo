@@ -267,13 +267,17 @@ export class StoryStore {
     return mine;
   }
 
-  /** The story, with how many themes it links (more than `themes` if one no longer exists). */
+  /**
+   * The story, with how many themes it links (more than `themes` if one no longer exists). The
+   * owner's own only: everyone reads published stories (R11), so every owner read and command
+   * lookup here asks for `submitter = $auth` itself (Codex, B1 round 1).
+   */
   private async read(
     id: string,
   ): Promise<(StoryMine & { themeRefCount: number }) | undefined> {
     const [rows] = (await runQuery(
       this.person,
-      `SELECT ${STORY_FIELDS} FROM type::record('story', $id)`,
+      `SELECT ${STORY_FIELDS} FROM type::record('story', $id) WHERE submitter = $auth`,
       { id },
     )) as [RawStory[]];
     if (!rows.length) return undefined;
@@ -423,7 +427,7 @@ export class StoryStore {
           this.person,
           `BEGIN TRANSACTION;
            LET $s = (SELECT version, fn::story::status_of($this) AS status
-             FROM type::record('story', $id))[0];
+             FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
@@ -521,7 +525,7 @@ export class StoryStore {
           return {
             status: 200,
             statements: `LET $s = (SELECT version, socialMediaSharingConsent
-                FROM type::record('story', $id))[0];
+                FROM type::record('story', $id) WHERE submitter = $auth)[0];
               IF $s = NONE { THROW 'story_cmd:not_found' };
               IF $s.version != $version { THROW 'story_cmd:stale_version' };
               ${share}
@@ -564,7 +568,7 @@ export class StoryStore {
           this.person,
           `BEGIN TRANSACTION;
            LET $s = (SELECT version, fn::story::status_of($this) AS status
-             FROM type::record('story', $id))[0];
+             FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN $withdrawable { THROW 'story_cmd:not_withdrawable' };
@@ -602,7 +606,7 @@ export class StoryStore {
           this.person,
           `BEGIN TRANSACTION;
            LET $s = (SELECT version, fn::story::status_of($this) AS status
-             FROM type::record('story', $id))[0];
+             FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN $deletable { THROW 'story_cmd:not_deletable' };
