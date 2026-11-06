@@ -421,19 +421,6 @@ test.describe('behaviour', () => {
     await expect(share).toBeFocused();
   });
 
-  test('the phone menu opens, and Escape closes it', async ({ page }, info) => {
-    test.skip(info.project.name !== 'phone-320', 'phones only');
-    await page.goto('/');
-    const menu = page.getByRole('button', { name: 'Menu' });
-    await expectTarget(page, menu);
-    await menu.click();
-    await expect(page.getByRole('navigation', { name: 'Menu' })).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('navigation', { name: 'Menu' })).toBeHidden();
-    await expect(menu).toBeFocused();
-  });
-
   test('the masonry keeps its columns balanced and in date order', async ({
     page,
   }, info) => {

@@ -667,52 +667,6 @@ test.describe('hearts', () => {
     );
   });
 
-  test('a heart taken off while it is still being saved ends off, on the server too', async ({
-    page,
-  }, info) => {
-    // Codex, #117 round 2: the removal raced the save and lost, so a reload showed it on.
-    const project = info.project.name;
-    await useSession(page, sessionFor(info, 'quick-undo'));
-    const id = heartId(project);
-    const title = `Heart test story (${project})`;
-    // Hold the save until the test lets it go.
-    let release = () => undefined as void;
-    const held = new Promise<void>((resolve) => (release = resolve));
-    let saving = () => undefined as void;
-    const saveSeen = new Promise<void>((resolve) => (saving = resolve));
-    await page.route(`${STUB_USER_URL}${FAVOURITES}/${id}`, async (route) => {
-      if (route.request().method() !== 'PUT') return route.fallback();
-      saving();
-      await held;
-      await route.fallback();
-    });
-    const deletes = countRequests(page, isCommand('DELETE', id));
-
-    await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    const heart = cardHeart(page, title);
-    await expect(heart).toHaveAttribute('data-heart-state', 'off');
-    await heart.click(); // on: the save is held
-    await saveSeen;
-    await expect(heart).toHaveAttribute('aria-pressed', 'true');
-    await heart.click(); // off again, at once, while the save is still on its way
-    await expect(heart).toHaveAttribute('aria-pressed', 'false');
-    // The removal waits for the save, so it can't overtake it.
-    expect(deletes()).toBe(0);
-
-    const removed = page.waitForResponse((r) =>
-      isCommand('DELETE', id)(r.request()),
-    );
-    release();
-    expect((await removed).status()).toBe(204);
-    await expect(heart).toHaveAttribute('aria-pressed', 'false');
-
-    await page.reload();
-    await expect(cardHeart(page, title)).toHaveAttribute(
-      'data-heart-state',
-      'off',
-    );
-  });
-
   test('when saving fails, the heart goes back and says so', async ({
     page,
   }, info) => {

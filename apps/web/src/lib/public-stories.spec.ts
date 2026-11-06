@@ -53,20 +53,6 @@ describe('getPublicStory', () => {
   });
 
   it.each([
-    ['a 5xx', () => respond(503, { status: 503 })],
-    ['an unexpected body', () => respond(200, { nope: true })],
-    [
-      'a network failure',
-      () => fetchMock.mockRejectedValue(new TypeError('fetch failed')),
-    ],
-  ])('throws StoriesUnavailableError on %s', async (_name, arrange) => {
-    arrange();
-    await expect(getPublicStory('test-story')).rejects.toBeInstanceOf(
-      StoriesUnavailableError,
-    );
-  });
-
-  it.each([
     ['media that isn’t a list', { media: 'x' }],
     ['an image without a size', { image: { url: null, alt: null } }],
   ])('throws StoriesUnavailableError on %s', async (_name, change) => {

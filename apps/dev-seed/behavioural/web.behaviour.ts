@@ -25,15 +25,13 @@ test('the home page shows the three newest stories', async ({ page }) => {
   await expect(page.locator('main article h3')).toHaveText(newest);
 });
 
-for (const id of ['seed_w07', 'seed_w03', 'seed_v06', 'seed_a03']) {
-  test(`the story page of ${id} shows its title`, async ({ page }) => {
-    const res = await page.goto(`/stories/${story(id).slug}`);
-    expect(res?.status()).toBe(200);
-    await expect(
-      page.getByRole('heading', { name: story(id).title }),
-    ).toBeVisible();
-  });
-}
+test('a story page shows its title', async ({ page }) => {
+  const res = await page.goto(`/stories/${story('seed_w07').slug}`);
+  expect(res?.status()).toBe(200);
+  await expect(
+    page.getByRole('heading', { name: story('seed_w07').title }),
+  ).toBeVisible();
+});
 
 test('a story that isn’t approved is a 404', async ({ page }) => {
   const res = await page.goto(`/stories/${story('seed_w09').slug}`);

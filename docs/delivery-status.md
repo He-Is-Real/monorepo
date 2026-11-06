@@ -130,8 +130,13 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   status (submitted, picked up, approved, sent back, rejected, withdrawn, hidden, shown again) is
   a new line in the story's own history, never edited, saying who made it and when. Super admins
   can read every story, drafts included, with its history (API only; no page yet). "Download my
-  data" now includes each story's whole history. Nothing else changes for people using the site. Dev's database is wiped and rebuilt once more when this is
-  applied. Part B2 (each story's files as their own records, and a scale test) follows.
+  data" now includes each story's whole history. Nothing else changes for people using the
+  site. Dev's database is wiped and rebuilt once more when this is applied. Part B2 (each
+  story's files as their own records, and a scale test) follows.
+- **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
+  ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
+  and whole browser flows run on one phone and one desktop while every page's "fits the screen"
+  checks still run on all 14 devices ([#186](https://github.com/He-Is-Real/monorepo/pull/186)).
 
 **Left in the M2 plan:**
 

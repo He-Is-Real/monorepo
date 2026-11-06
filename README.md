@@ -95,7 +95,9 @@ GKE Autopilot Spot Pods, about £3–5/month.
   includes kubeconform on the Kubernetes manifests). Beside those, when web is affected, the
   Playwright device matrix runs in parallel shards from one build of the site (each shard runs like
   a local `web:e2e`: 4 workers, no retries; `apps/web/e2e/shard-balance.ts` deals the tests out
-  round-robin so every shard gets an even share of every device); screenshots land in one `web-e2e-screenshots` artifact,
+  round-robin so every shard gets an even share of every device). Every page's "fits the screen" checks (no
+  sideways scroll, 44 px targets, readable layout) run on all devices; whole flows and other behaviour run
+  on the two `BEHAVIOUR_DEVICES` (`apps/web/e2e/devices.ts`). Screenshots land in one `web-e2e-screenshots` artifact,
   and a failure adds one merged `web-e2e-report` (HTML, with traces). The required check is the
   `main` job, which passes only when all of these do. The Nx cache, the pnpm store and Playwright's
   browser are kept between runs in the Actions cache. Both api-public-read's integration tests and web's e2e stub are checked against

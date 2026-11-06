@@ -3,25 +3,21 @@ import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import BUNNY_MEDIA from '../src/app/bunny-media.json';
 import { DEV_PROJECT } from '../src/app/config';
 import { WEB_URL } from './playwright.config';
 import {
   presignStorageUrl,
   type StorageZone,
-  tusSignature,
 } from '@heisreal/story-cards/upload-signing';
 
 // M2's upload spike (the "proven presigned PUT" prerequisite): a real browser at web's dev
 // origin uploads straight to dev Bunny with links signed the way api-user will sign them
 // (upload-signing.ts). A developer runs it, not CI: signing needs the dev upload keys, which
 // only developers, tf-bunny and api-user can read (D57). Run: `pnpm nx run dev-seed:upload-spike`
-// (needs your gcloud ADC and ffmpeg with libx264 and libwebp). It creates one 2-second clip and
-// one ~20 KB WebP, both labelled `upload-spike` (test data, D50), and deletes both, pass or fail.
+// (needs your gcloud ADC and ffmpeg with libx264 and libwebp). It creates one ~20 KB WebP,
+// labelled `upload-spike` (test data, D50), and deletes it, pass or fail. The video upload
+// (presigned TUS to Bunny Stream) is story-upload.developer.ts, through the real share flow.
 
-const LIBRARY_ID = BUNNY_MEDIA.libraryId;
-const STREAM_API = `https://video.bunnycdn.com/library/${LIBRARY_ID}`;
-const TUS_ENDPOINT = 'https://video.bunnycdn.com/tusupload';
 // The images zone's S3 endpoint in London (modules/bunny: region UK, type S3).
 const ZONE = {
   name: 'heisreal-dev-image-store',
@@ -31,10 +27,7 @@ const ZONE = {
 // Edge Storage API host for the same zone: the only way to delete a folder (below).
 const STORAGE_API = 'https://uk.storage.bunnycdn.com/heisreal-dev-image-store';
 const TEST_PREFIX = 'upload-spike';
-// Bunny Stream video statuses: https://docs.bunny.net/reference/video_getvideo
-const FINISHED = 4;
 
-let libraryKey: string;
 let zone: StorageZone;
 
 // Read with the Secret Manager client directly: libs/secrets is a Nest provider, and Playwright's
@@ -49,7 +42,6 @@ async function secret(name: string): Promise<string> {
 }
 
 test.beforeAll(async () => {
-  libraryKey = await secret('bunny-stream-api-key');
   zone = { ...ZONE, password: await secret('bunny-storage-password') };
 });
 
@@ -69,8 +61,6 @@ async function browserFetch(
         });
         return {
           status: res.status,
-          location: res.headers.get('location'),
-          offset: res.headers.get('upload-offset'),
         };
       } catch (e) {
         return { status: null, error: String(e) };
@@ -93,17 +83,6 @@ function ffmpeg(args: string[], out: string): Buffer {
 }
 
 const sha256 = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
-
-function stream(path: string, init: RequestInit = {}) {
-  return fetch(`${STREAM_API}${path}`, {
-    ...init,
-    headers: {
-      AccessKey: libraryKey,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-  });
-}
 
 /**
  * D50: delete what a test uploaded. Every step is tried, even if an earlier one throws or answers
@@ -291,119 +270,4 @@ test('a WebP uploads from web’s origin by presigned PUT, once, and only as sig
     (o) => o.ObjectName,
   );
   expect(names).not.toContain(folder);
-});
-
-test('a 2-second clip uploads from web’s origin by presigned TUS and Bunny encodes it', async ({
-  page,
-}, info) => {
-  test.setTimeout(5 * 60_000);
-  const clip = ffmpeg(
-    [
-      '-f',
-      'lavfi',
-      '-i',
-      'testsrc2=size=320x180:rate=12:duration=2',
-      '-f',
-      'lavfi',
-      '-i',
-      'sine=frequency=440:duration=2',
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-crf',
-      '32',
-      '-pix_fmt',
-      'yuv420p',
-      '-c:a',
-      'aac',
-      '-b:a',
-      '64k',
-      '-ac',
-      '1',
-      '-shortest',
-      '-movflags',
-      '+faststart',
-    ],
-    info.outputPath('spike.mp4'),
-  );
-  // api-user's half: create the video (it saves the id on the draft, D80) and sign for it.
-  const created = await stream('/videos', {
-    method: 'POST',
-    body: JSON.stringify({ title: `${TEST_PREFIX}/${randomUUID()}` }),
-  });
-  expect(created.status).toBe(200);
-  const { guid } = (await created.json()) as { guid: string };
-
-  try {
-    const expires = Math.floor(Date.now() / 1000) + 3600;
-    const tusHeaders = (signature: string, exp = expires) => ({
-      'Tus-Resumable': '1.0.0',
-      AuthorizationSignature: signature,
-      AuthorizationExpire: String(exp),
-      VideoId: guid,
-      LibraryId: LIBRARY_ID,
-    });
-    const signature = tusSignature(LIBRARY_ID, libraryKey, expires, guid);
-    const start = (headers: Record<string, string>) =>
-      browserFetch(page, TUS_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          ...headers,
-          'Upload-Length': String(clip.length),
-          'Upload-Metadata': `filetype ${btoa('video/mp4')}`,
-        },
-      });
-
-    // Refused: a wrong signature, or a moved expiry (the signature binds it).
-    expect((await start(tusHeaders('0'.repeat(64)))).status).toBe(401);
-    expect((await start(tusHeaders(signature, expires + 60))).status).toBe(401);
-
-    const begun = await start(tusHeaders(signature));
-    expect(begun.status).toBe(201);
-    // The browser can read where to send the bytes (Bunny exposes Location to web's origin).
-    expect(begun.location).toMatch(
-      /^(https:\/\/video\.bunnycdn\.com)?\/tusupload\/\w+$/,
-    );
-    const sent = await browserFetch(
-      page,
-      new URL(begun.location ?? '', TUS_ENDPOINT).toString(),
-      {
-        method: 'PATCH',
-        headers: {
-          ...tusHeaders(signature),
-          'Upload-Offset': '0',
-          'Content-Type': 'application/offset+octet-stream',
-        },
-        body: [...clip],
-      },
-    );
-    expect(sent).toMatchObject({ status: 204, offset: String(clip.length) });
-
-    // It arrived: Bunny encodes it, 2 seconds long.
-    await expect
-      .poll(
-        async () =>
-          (
-            (await (await stream(`/videos/${guid}`)).json()) as {
-              status: number;
-            }
-          ).status,
-        { timeout: 4 * 60_000, intervals: [5_000] },
-      )
-      .toBe(FINISHED);
-    const video = (await (await stream(`/videos/${guid}`)).json()) as {
-      length: number;
-    };
-    expect(video.length).toBe(2);
-  } finally {
-    await cleanUp([
-      {
-        name: 'delete the video',
-        ok: [200, 404],
-        run: () => stream(`/videos/${guid}`, { method: 'DELETE' }),
-      },
-    ]);
-  }
-  expect((await stream(`/videos/${guid}`)).status).toBe(404);
 });

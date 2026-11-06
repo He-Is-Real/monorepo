@@ -4,7 +4,8 @@ import { BEHAVIOUR_DEVICES } from './devices';
 import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
 import { WEB_SIGNED_IN_URL } from './servers';
 
-// /admin/themes (themes plan v3), on every device: an admin changes themes and categories
+// /admin/themes (themes plan v3): the page, its panels and its dialogs fit every device; the
+// behaviour runs on one phone and one desktop. An admin changes themes and categories
 // through the panel (phones and keyboards; dragging is never the only way), every change is held
 // on the page, and one Save sends them all after a summary of what reaches beyond the page.
 // Dragging is checked once, on a desktop mouse (A6). A save on themes another admin changed
@@ -43,7 +44,53 @@ async function panel(page: Page, name: string) {
   return dialog;
 }
 
+test('/admin/themes fits with 44 px targets, and a theme’s panel, a delete and the save summary with what reaches beyond the page fit the screen', async ({
+  page,
+}) => {
+  await open(page);
+  await expectNoHorizontalOverflow(page);
+  await expectAllTargets(page);
+  // A one-letter name is still a 44 px target.
+  await zone(page, 'Other', 'rest')
+    .getByRole('button', { name: 'Add a theme to Other' })
+    .click();
+  await page.getByLabel('New theme’s name').fill('A');
+  await page.getByLabel('New theme’s name').press('Enter');
+  await expect(pill(page, 'A')).toBeVisible();
+  await expectAllTargets(page);
+  // The panel, with a longer name and Highlighted on.
+  let dialog = await panel(page, 'Work');
+  await dialog.getByLabel('Name').fill('work and money');
+  await dialog.getByRole('switch', { name: /Highlighted/ }).check();
+  await expectNoHorizontalOverflow(page);
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  // A theme and a category deleted, so the summary lists what reaches beyond the page.
+  await pill(page, 'Doubt')
+    .getByRole('button', { name: 'Delete Doubt' })
+    .click();
+  dialog = page.getByRole('dialog', { name: 'Delete “Doubt”?' });
+  await expectNoHorizontalOverflow(page);
+  await dialog.getByRole('textbox').fill('delete doubt');
+  await dialog.getByRole('button', { name: 'Delete theme' }).click();
+  await category(page, 'Feelings')
+    .getByRole('button', { name: 'Delete category Feelings' })
+    .click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  dialog = page.getByRole('dialog', { name: /^Save \d+ changes\?$/ });
+  await expect(dialog.locator('[data-side-effects] li')).toHaveCount(2);
+  await expect(dialog).toContainText('Work renamed “Work and money”');
+  await expectNoHorizontalOverflow(page);
+});
+
 test.describe('/admin/themes', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'one phone and one desktop',
+    );
+  });
+
   test('an admin changes themes and categories, sees what reaches beyond the page, and saves them all at once', async ({
     page,
   }) => {
@@ -183,8 +230,7 @@ test.describe('/admin/themes', () => {
 
   test('nothing can be changed while a save is in flight, so no change is lost when the page reloads after it', async ({
     page,
-  }, info) => {
-    test.skip(!BEHAVIOUR_DEVICES.includes(info.project.name), 'behaviour');
+  }) => {
     await open(page);
     const dialog = await panel(page, 'Work');
     await dialog.getByRole('switch', { name: /Highlighted/ }).check();
@@ -293,8 +339,7 @@ test.describe('/admin/themes', () => {
 
   test('a save on themes another admin changed meanwhile is refused and asks to reload', async ({
     browser,
-  }, info) => {
-    test.skip(!BEHAVIOUR_DEVICES.includes(info.project.name), 'behaviour');
+  }) => {
     const session = `admin-${randomUUID().slice(0, 8)}`;
     const start = async () => {
       const page = await (await browser.newContext()).newPage();
@@ -332,8 +377,7 @@ test.describe('/admin/themes', () => {
 
   test('only for admins: anyone else is told so and sees no themes', async ({
     page,
-  }, info) => {
-    test.skip(!BEHAVIOUR_DEVICES.includes(info.project.name), 'behaviour');
+  }) => {
     await page.addInitScript(() =>
       window.localStorage.setItem('e2e-session', 'user-themes'),
     );

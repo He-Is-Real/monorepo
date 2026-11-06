@@ -16,24 +16,6 @@ describe('parseBrowseSearch (the browse page’s URL)', () => {
     expect(parseBrowseSearch({})).toEqual({ filters: none, pages: 1 });
   });
 
-  it('reads a search, format and sort', () => {
-    expect(
-      parseBrowseSearch({
-        q: '  healing  ',
-        format: 'video',
-        sort: 'oldest',
-      }),
-    ).toEqual({
-      filters: {
-        q: 'healing',
-        theme: null,
-        format: 'video',
-        sort: 'oldest',
-      },
-      pages: 1,
-    });
-  });
-
   it('sorts by best match with a search, unless asked otherwise', () => {
     expect(parseBrowseSearch({ q: 'x' }).filters.sort).toBe('relevance');
     expect(parseBrowseSearch({ q: 'x', sort: 'latest' }).filters.sort).toBe(
@@ -96,9 +78,5 @@ describe('browseHref', () => {
       sp[key] = all.length > 1 ? all : all[0];
     }
     expect(parseBrowseSearch(sp).filters).toEqual(f);
-  });
-
-  it('adds the page count when asked', () => {
-    expect(browseHref(none, { pages: 3 })).toBe('/stories?pages=3');
   });
 });

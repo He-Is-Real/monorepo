@@ -1,22 +1,4 @@
 import { NoRoleRequired, RequiresRole, resolveRolePolicy } from './role-policy';
-import { DEFAULT_ROLE, hasRole, ROLES } from './roles';
-
-describe('roles', () => {
-  it('are ordered from least to most privileged, User by default', () => {
-    expect(ROLES).toEqual([
-      'Viewer',
-      'User',
-      'Moderator',
-      'Admin',
-      'SuperAdmin',
-    ]);
-    expect(DEFAULT_ROLE).toBe('User');
-    expect(hasRole('Admin', 'Moderator')).toBe(true);
-    expect(hasRole('Moderator', 'Moderator')).toBe(true);
-    expect(hasRole('User', 'Moderator')).toBe(false);
-    expect(hasRole('Viewer', 'User')).toBe(false);
-  });
-});
 
 describe('role decorators', () => {
   class Open {

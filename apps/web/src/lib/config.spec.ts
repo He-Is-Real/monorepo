@@ -65,12 +65,6 @@ describe('indexing (explicit opt-in: INDEXING=allow)', () => {
     process.env['SITE_URL'] = 'https://www.heisreal.today';
   };
 
-  it('is allowed only with INDEXING=allow exactly and a site URL', () => {
-    live();
-    expect(indexingAllowed()).toBe(true);
-    expect(robotsNoindex()).toBe(false);
-  });
-
   it.each([undefined, '', 'Allow', 'allow ', 'true', 'yes', 'alow', 'deny'])(
     'is noindex with INDEXING=%p (omitted or misspelled fails closed)',
     (value) => {
@@ -86,13 +80,6 @@ describe('indexing (explicit opt-in: INDEXING=allow)', () => {
     live();
     delete process.env['SITE_URL'];
     expect(indexingAllowed()).toBe(false);
-    expect(robotsNoindex()).toBe(true);
-  });
-
-  it('ignores the old ROBOTS_NOINDEX switch (kept on Cloud Run only for older images)', () => {
-    delete process.env['INDEXING'];
-    process.env['SITE_URL'] = 'https://www.heisreal.today';
-    process.env['ROBOTS_NOINDEX'] = 'false';
     expect(robotsNoindex()).toBe(true);
   });
 });

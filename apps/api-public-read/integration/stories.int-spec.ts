@@ -81,16 +81,6 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     ]);
   });
 
-  it('answers its health check from the database', async () => {
-    const res = await fetch(`${url}/health`);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      status: 'ok',
-      service: 'api-public-read',
-      db: 'up',
-    });
-  });
-
   it.each(['no-such-story', 'Not_A_Slug', 'a--b', 'a'.repeat(201)])(
     'answers a 404 problem for %p',
     async (slug) => {

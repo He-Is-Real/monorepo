@@ -18,10 +18,4 @@ describe('seedConfig', () => {
   ])('refuses %s', (_, change) => {
     expect(() => seedConfig({ ...DEV, ...change })).toThrow(RefusedError);
   });
-
-  it('names a missing setting', () => {
-    expect(() => seedConfig({ ...DEV, SURREAL_URL: ' ' })).toThrow(
-      'SURREAL_URL',
-    );
-  });
 });

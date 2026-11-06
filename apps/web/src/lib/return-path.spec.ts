@@ -1,4 +1,4 @@
-import { safeReturnPath, signInHref, stepReturnPath } from './return-path';
+import { safeReturnPath, stepReturnPath } from './return-path';
 
 // The return address is a query parameter anyone can write, so it must never send people to
 // another site (an open redirect) or back to sign-in.
@@ -26,15 +26,6 @@ describe('safeReturnPath', () => {
     '/sign-in?redirect_url=/about',
   ])('sends anything else home: %s', (raw) => {
     expect(safeReturnPath(raw)).toBe('/');
-  });
-});
-
-describe('signInHref', () => {
-  it('returns to the page it came from', () => {
-    expect(signInHref('/stories/x?theme=a')).toBe(
-      '/sign-in?redirect_url=%2Fstories%2Fx%3Ftheme%3Da',
-    );
-    expect(signInHref('/')).toBe('/sign-in');
   });
 });
 
