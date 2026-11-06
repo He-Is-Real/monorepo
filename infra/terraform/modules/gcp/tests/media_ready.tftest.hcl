@@ -119,8 +119,11 @@ run "jobs_wait_while_the_worker_is_off" {
     error_message = "The worker's pull subscription never expires and keeps jobs 31 days; 5 failed tries go to dead letters; no subscription expires."
   }
   assert {
-    condition     = google_pubsub_subscription.media_results[0].enable_message_ordering == true
-    error_message = "Answers are delivered in order per video."
+    condition = (
+      google_pubsub_subscription.media_worker[0].enable_message_ordering == true &&
+      google_pubsub_subscription.media_results[0].enable_message_ordering == true
+    )
+    error_message = "Jobs and answers are delivered in order per ordering key (the story's id)."
   }
 }
 

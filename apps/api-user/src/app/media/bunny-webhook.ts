@@ -13,17 +13,19 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { runQuery, SURREAL } from '@heisreal/database';
 import { NoRoleRequired } from '@heisreal/roles';
 import { SecretsService, withTimeout } from '@heisreal/secrets';
 import type { Request } from 'express';
+import type { Surreal } from 'surrealdb';
 import { VIDEO_ID } from '../stories/bunny-stream';
 
 /**
  * Bunny Stream's webhook (`POST /v1/webhooks/bunny`, M2 plan item 13, D78): Bunny tells us a video
  * finished encoding or failed; we check the message really is Bunny's, for our library, and queue a
  * job on `media-jobs` for the media worker, which then asks Bunny itself (the notice only says "go
- * and look"). Nothing here touches the database: the answer comes back through the result writer
- * (apps/workflow).
+ * and look"). The database is only read, for the story the video belongs to (the job's ordering
+ * key); the answer comes back through the result writer (apps/workflow).
  *
  * Bunny signs each call (https://bunny.net/docs/stream-webhook): `X-BunnyStream-Signature` is the
  * lowercase hex HMAC-SHA256 of the exact body, keyed with the library's read-only API key, with
@@ -80,9 +82,13 @@ export interface MediaJob {
   eventId?: string;
 }
 
-/** Puts a job on `media-jobs`; resolves once Pub/Sub has it. A fake stands in for it in tests. */
+/**
+ * Puts a job on `media-jobs`; resolves once Pub/Sub has it. `orderingKey`: the story's id, so a
+ * story's jobs reach the worker in the order they were queued (the later "publish" jobs share the
+ * key; Joel, 2026-11-06, video-bundle-rethink part A). A fake stands in for it in tests.
+ */
 export interface MediaJobs {
-  publish(job: MediaJob): Promise<void>;
+  publish(job: MediaJob, orderingKey?: string): Promise<void>;
 }
 export const MEDIA_JOBS = Symbol('MEDIA_JOBS');
 
@@ -108,6 +114,7 @@ export class BunnyWebhookController {
     @Inject(BUNNY_WEBHOOK_CONFIG)
     private readonly config: BunnyWebhookConfig | null,
     @Inject(MEDIA_JOBS) private readonly jobs: MediaJobs | null,
+    @Inject(SURREAL) private readonly db: Surreal,
   ) {}
 
   @Post()
@@ -165,7 +172,18 @@ export class BunnyWebhookController {
         : {}),
     };
     try {
-      await this.jobs.publish(job);
+      // The story whose file this video is (R12: storyFile:<video id>), on api-user's own login.
+      // A video no file row names (another upload, or none) is queued without a key; the
+      // result writer drops its answer.
+      const [story] = (await runQuery(
+        this.db,
+        `SELECT VALUE <string> record::id(story) FROM ONLY type::record('storyFile', $video)`,
+        { video: job.videoId },
+      )) as [string | undefined];
+      await this.jobs.publish(
+        job,
+        typeof story === 'string' ? story : undefined,
+      );
     } catch (err) {
       this.logger.error(
         `Couldn't queue media job for video ${job.videoId} (${err instanceof Error ? err.message : 'error'}); Bunny retries`,
@@ -212,14 +230,20 @@ export function mediaJobsFromEnv(env: Env = process.env): MediaJobs | null {
   const publisher = new PubSub({
     projectId: project,
     apiEndpoint: 'europe-west2-pubsub.googleapis.com',
-  }).topic(topic, { batching: { maxMessages: 1 } });
+  }).topic(topic, { batching: { maxMessages: 1 }, messageOrdering: true });
   return {
-    async publish(job) {
-      await withTimeout(
-        publisher.publishMessage({ json: job }),
-        PUBLISH_TIMEOUT_MS,
-        'Publishing to Pub/Sub',
-      );
+    async publish(job, orderingKey) {
+      try {
+        await withTimeout(
+          publisher.publishMessage({ json: job, orderingKey }),
+          PUBLISH_TIMEOUT_MS,
+          'Publishing to Pub/Sub',
+        );
+      } catch (err) {
+        // A failed publish pauses its key in the client; Bunny's retry publishes it again.
+        if (orderingKey) publisher.resumePublishing(orderingKey);
+        throw err;
+      }
     },
   };
 }

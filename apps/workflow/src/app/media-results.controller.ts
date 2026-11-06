@@ -24,7 +24,7 @@ interface PushEnvelope {
 
 /**
  * The result writer's one route (M2 plan item 13, D78): Pub/Sub pushes each answer on
- * `media-results` here (subscription `media-results-writer`, in order per video). Cloud Run is
+ * `media-results` here (subscription `media-results-writer`, in order per story). Cloud Run is
  * the gate: internal traffic only, and only Pub/Sub's push identity holds run.invoker
  * (infra/terraform/modules/gcp/media.tf). Any 2xx acknowledges the message; anything else makes
  * Pub/Sub try again (10 seconds up to 10 minutes) and, after 5 tries, moves it to

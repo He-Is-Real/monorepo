@@ -304,9 +304,9 @@ Run service writes the answer.
 
 - **Topics** `media-jobs`, `media-results`, `media-dead-letters`: messages stored in London only
   (`allowed_persistence_regions`, `enforce_in_transit`; the UK guard checks it) and kept 31 days.
-- **Subscriptions:** `media-worker` (pull, the worker's; never expires, so a long holiday with the
+- **Subscriptions:** `media-worker` (pull, the worker's, in order per story; never expires, so a long holiday with the
   machine off doesn't delete it), `media-results-writer` (push to the result writer, in order per
-  video), `media-dead-letters` (pull, for a developer). After 5 failed deliveries a job or answer
+  story, the ordering key), `media-dead-letters` (pull, for a developer). After 5 failed deliveries a job or answer
   goes to `media-dead-letters`; retries back off from 10 seconds to 10 minutes.
 - **Identities:** `media-worker` pulls its subscription and publishes answers, and nothing else
   (the bunny root's `readonly_key_readers` adds Bunny's read-only key, with the worker's PR);

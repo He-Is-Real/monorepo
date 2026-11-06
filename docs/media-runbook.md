@@ -117,7 +117,7 @@ gcloud pubsub subscriptions pull media-dead-letters --limit 10 --format=json \
 The `CloudPubSubDeadLetterSourceSubscription` attribute says where it came from. Fix the cause
 (the writer's log names it: `Refused a media result` for a malformed answer), then send it again
 to its topic (`gcloud pubsub topics publish media-jobs|media-results --message='<data>'`; an
-answer needs `--ordering-key=<video id>`) and acknowledge the dead letter
+message needs `--ordering-key=<story id>`) and acknowledge the dead letter
 (`gcloud pubsub subscriptions ack media-dead-letters --ack-ids=<ackId>`). A video whose size
 is wider than 3:1 or taller than 1:3 is refused by the database (D53) and ends here: re-encode
 won't help; tell the person through moderation.

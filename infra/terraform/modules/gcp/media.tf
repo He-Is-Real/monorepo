@@ -3,7 +3,9 @@
 #
 #   Bunny ──"finished"/"failed"──▶ api-user POST /v1/webhooks/bunny ──▶ media-jobs (topic)
 #   media-jobs ──pull──▶ the media worker (Dapr, Joel's machine, outbound only; piece 4)
-#   media worker ──▶ media-results (topic, in order per video) ──push──▶ result writer (Cloud Run)
+#   media worker ──▶ media-results (topic, in order per story) ──push──▶ result writer (Cloud Run)
+# Both subscriptions deliver in order per ordering key, which is the story's id (Joel, 2026-11-06,
+# video-bundle-rethink part A: a story's jobs, including the later "publish" jobs, run in order).
 #   result writer ──workflow login──▶ SurrealDB: the storyFile row of that Bunny video
 #
 # Everything stays in London: each topic stores messages in europe-west2 only, enforced in transit
@@ -72,6 +74,7 @@ resource "google_pubsub_subscription" "media_worker" {
   ack_deadline_seconds       = 60 # one look at Bunny, then the answer
   message_retention_duration = local.media_retention
   retain_acked_messages      = false
+  enable_message_ordering    = true # per story (the ordering key)
 
   expiration_policy {
     ttl = ""
@@ -87,8 +90,8 @@ resource "google_pubsub_subscription" "media_worker" {
   }
 }
 
-# --- The answers: pushed to the result writer, in order per video ------------------------------
-# The worker publishes each answer with the video id as its ordering key, so an older "failed"
+# --- The answers: pushed to the result writer, in order per story ------------------------------
+# The worker publishes each answer with the story's id as its ordering key, so an older "failed"
 # can't land after a newer "ready".
 resource "google_pubsub_subscription" "media_results" {
   count = local.media_ready ? 1 : 0
