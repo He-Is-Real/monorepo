@@ -311,14 +311,17 @@ paths:
           Clerk's Backend API at the time of the request (D16, D81: the data download is one of the
           three server jobs that may use Clerk's secret key); nothing from Clerk is stored.
         - **Media never passes through our servers.** Each video or audio item carries its Bunny
-          Stream id and a signed player link, and each published picture a signed link (never a draft's
-          path, which is the person's own write), valid for one hour
-          (`about.linksExpireAt`; `null` links while media signing is off). We keep no original upload
-          and no downloadable file of a video (Bunny's settings), so the player is how to watch it.
+          Stream id, a signed player link and a signed link to download Bunny's MP4 copy of it
+          (`mp4Url`; C1, Joel 2026-11-06: the library makes MP4 copies from then on, so files finished
+          earlier have none, and api-user asks Bunny's API which copies each video has, one call per
+          video). Each picture has a signed link. Every link works for 7 days (B, Joel 2026-11-06;
+          `about.linksExpireAt`; `null` links while media signing is off). Nobody keeps the original
+          upload (Bunny's settings), so the MP4 copy is re-encoded, not the file as uploaded.
 
         No `ETag`: every copy is new, with fresh links. `Content-Disposition` names the file. Needs no
         agreement: access to your own data is always possible (Art 15). `503` `export_unavailable` when
-        Clerk can't be reached: we send the whole file or nothing.
+        Clerk, or Bunny (which MP4 copies the person's videos have; asked only if they have any), can't
+        be reached: we send the whole file or nothing.
       x-required-role: User
       x-milestone: M2
       responses:
@@ -341,8 +344,8 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '503':
           description: |
-            `export_unavailable`: the sign-in details couldn't be read from Clerk just now. Try again in
-            a moment.
+            `export_unavailable`: the sign-in details couldn't be read from Clerk, or the videos'
+            details from Bunny, just now. Try again in a moment.
           content:
             application/problem+json:
               schema:

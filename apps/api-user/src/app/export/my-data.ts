@@ -6,8 +6,8 @@ import { agreementOf } from '../account/agreements';
 import type { ClerkProfile } from '../erasure/clerk-backend';
 import { OWNER_STATUS_FIELDS } from '../stories/story-store';
 
-/** How long the file's media links work (M2 decisions: "media as 1-hour links"). */
-export const LINK_SECONDS = 60 * 60;
+/** How long the file's media links work: 7 days, time to save every file (Joel, 2026-11-06, B). */
+export const LINK_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Everything the database holds about the person, read in one query in **their own session**
@@ -147,6 +147,13 @@ interface Held {
   keys: { key: string; status: number; expiresAt: string }[];
 }
 
+/** The Bunny ids of the person's video and audio files, to ask Bunny which MP4 copies they have. */
+export function heldVideoIds(held: Held): string[] {
+  return held.stories.flatMap((s) =>
+    (s.media ?? []).flatMap((m) => (m.bunnyVideoId ? [m.bunnyVideoId] : [])),
+  );
+}
+
 /** The person's rows, read in their own session. */
 export async function readHeld(person: SurrealQueryable): Promise<Held> {
   const results = await runQuery(person, HELD_SQL);
@@ -167,7 +174,7 @@ const SECTIONS = {
   signIn:
     'What Clerk, the company that runs our sign-in, holds about you: your names, email addresses, phone numbers, any accounts you sign in with (such as Google), your picture if you gave one, and when you made the account and last signed in. We read it from Clerk when you asked for this file; we don’t keep a copy. You can change it under Manage account.',
   stories:
-    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "statusHistory" is everything that happened to its status, oldest first: who did it ("person" is you, "moderator" one of our moderators, but never which one, and "system" the site itself, which hides a story while its video or audio can’t play and shows it again once it can), the status it moved to, any feedback a moderator gave you, which edit of the story it was about ("storyVersion"), and when. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "socialMediaSharingConsent" is the version of our social media sharing consent you ticked for that story at the end of its upload, and when (null if you didn’t tick it). We only ever share a story while it is on the site.',
+    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "statusHistory" is everything that happened to its status, oldest first: who did it ("person" is you, "moderator" one of our moderators, but never which one, and "system" the site itself, which hides a story while its video or audio can’t play and shows it again once it can), the status it moved to, any feedback a moderator gave you, which edit of the story it was about ("storyVersion"), and when. A video or audio story has its id at Bunny, the company that stores and plays our videos, a link to watch or listen to it, and a link to download it as an MP4 file ("mp4Url": the largest size Bunny made, up to 1080p; empty for a file Bunny made no MP4 of, which is any file it finished before we turned MP4 copies on in November 2026, or one it hasn’t finished yet); a story’s picture has a link to the picture. These links work for 7 days, until the time in "linksExpireAt"; ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "socialMediaSharingConsent" is the version of our social media sharing consent you ticked for that story at the end of its upload, and when (null if you didn’t tick it). We only ever share a story while it is on the site.',
   agreements:
     'The versions of our terms of use and our testimony consent you agreed to, and when (null if you haven’t). The words of every version are on our site. Deleting your account withdraws them, and we keep no record of them afterwards.',
   favourites:
@@ -183,7 +190,7 @@ const SECTIONS = {
 } as const;
 
 const NOT_INCLUDED = [
-  'The files of your videos and audio. We never keep the file you uploaded once it is ready to play, and our servers never carry your media: use each item’s link to watch or listen to it, or ask us for help to get a copy.',
+  'Your video and audio files exactly as you uploaded them. We don’t keep an upload once Bunny has made it ready to play: use each item’s "mp4Url" to download the MP4 file Bunny made from it, or its link to watch or listen to it. Our servers never carry your media. Ask us for help if an item has no MP4 link.',
   'Who moderated your stories. You get every decision and the feedback to you, not the moderator’s name or id.',
   'Your sign-in sessions and devices, which Clerk keeps. You can see and end them under Manage account.',
   'Anyone else’s data, including the words of the stories you hearted.',
@@ -207,8 +214,16 @@ export function toExport(
     role,
     signIn,
     urls,
+    mp4Heights,
     generatedAt,
-  }: { role: string; signIn: ClerkProfile; urls: MediaUrls; generatedAt: Date },
+  }: {
+    role: string;
+    signIn: ClerkProfile;
+    urls: MediaUrls;
+    /** Each video's largest MP4 copy at Bunny, by its Bunny id (absent: none). */
+    mp4Heights: ReadonlyMap<string, number>;
+    generatedAt: Date;
+  },
 ) {
   const publishedAt = new Map(held.published.map((p) => [p.id, p.publishedAt]));
   const historyOf = (story: string) =>
@@ -265,6 +280,13 @@ export function toExport(
           bunnyVideoId: or(m.bunnyVideoId),
           playbackUrl: urls.playbackUrl(m.bunnyVideoId),
           thumbnailUrl: urls.thumbnailUrl(m.bunnyVideoId, m.thumbnailPath),
+          // C1: the video as a file, where Bunny made an MP4 copy (never the upload itself).
+          mp4Url: m.bunnyVideoId
+            ? urls.mp4Url(
+                m.bunnyVideoId,
+                mp4Heights.get(m.bunnyVideoId) ?? null,
+              )
+            : null,
           width: or(m.width),
           height: or(m.height),
           durationSeconds: or(m.durationSeconds),

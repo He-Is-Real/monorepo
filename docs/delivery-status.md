@@ -155,10 +155,14 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 
 **In progress (open pull requests):**
 
-- The video bundle ([#160](https://github.com/He-Is-Real/monorepo/pull/160), closed) is rebuilt on the new file
-  records (Joel, 2026-11-06, `project/context/research/video-bundle-rethink.html`): "Download my
-  data" links last 7 days and give each video as Bunny's MP4 copy (no originals kept); a video's
-  own picture is set at Bunny by the media-ready service. Being built.
+- "Download my data" gives people each video or audio as an MP4 file Bunny makes when it encodes
+  it, and its links last 7 days instead of an hour (Joel's B and C1, 2026-11-06,
+  `project/context/research/video-bundle-rethink.html`;
+  [#191](https://github.com/He-Is-Real/monorepo/pull/191)). Bunny's MP4 copies start once the bunny
+  root is applied; older videos have none.
+- A video's own picture shown by Bunny's player (Joel's A, 2026-11-06) is built after the
+  media-ready result writer, which it joins. The old video bundle
+  ([#160](https://github.com/He-Is-Real/monorepo/pull/160)) is closed.
 
 **Left in the M2 plan:**
 

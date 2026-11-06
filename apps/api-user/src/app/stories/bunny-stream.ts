@@ -28,6 +28,12 @@ export interface StreamVideo {
   status: number;
   /** Seconds, once Bunny has read the file (0 before). */
   length: number;
+  /**
+   * The height of the largest MP4 copy Bunny made of it (`<id>/play_<height>p.mp4`), or null if
+   * it has none: encoded before the library made MP4 copies, not encoded yet, or no picture to
+   * encode. Bunny makes one per encoded resolution, up to 1080p.
+   */
+  mp4Height: number | null;
 }
 
 /** What RequestUpload returns for the browser's TUS client: the contract's `UploadTarget` bits. */
@@ -101,10 +107,17 @@ export class BunnyStreamApi implements BunnyStream {
     const res = await this.call('GET', `/${id}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Bunny Stream get answered ${res.status}`);
-    const v = (await res.json()) as { status?: unknown; length?: unknown };
+    const v = (await res.json()) as {
+      status?: unknown;
+      length?: unknown;
+      hasMP4Fallback?: unknown;
+      availableResolutions?: unknown;
+    };
     return {
       status: typeof v.status === 'number' ? v.status : -1,
       length: typeof v.length === 'number' ? v.length : 0,
+      mp4Height:
+        v.hasMP4Fallback === true ? largestMp4(v.availableResolutions) : null,
     };
   }
 
@@ -119,6 +132,26 @@ export class BunnyStreamApi implements BunnyStream {
   sign(videoId: string, now = Date.now()): SignedUpload {
     return signUpload(this.libraryId, this.key, videoId, now);
   }
+}
+
+/** Bunny makes MP4 copies up to 1080p (Bunny's docs, "MP4 downloads"). */
+const MP4_MAX_HEIGHT = 1080;
+
+/**
+ * The largest MP4 copy among `availableResolutions` ("360p,480p,720p", the renditions Bunny has
+ * finished): the highest up to 1080p, or the lowest if every one is above it (Bunny then makes
+ * that one), or null if there are none.
+ */
+function largestMp4(resolutions: unknown): number | null {
+  if (typeof resolutions !== 'string') return null;
+  const heights = resolutions
+    .split(',')
+    .map((r) => /^([0-9]{3,4})p$/.exec(r.trim())?.[1])
+    .filter((h): h is string => h !== undefined)
+    .map(Number);
+  if (heights.length === 0) return null;
+  const within = heights.filter((h) => h <= MP4_MAX_HEIGHT);
+  return within.length > 0 ? Math.max(...within) : Math.min(...heights);
 }
 
 export function signUpload(

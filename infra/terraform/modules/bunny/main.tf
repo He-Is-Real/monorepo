@@ -25,12 +25,19 @@ locals {
 resource "bunnynet_stream_library" "media" {
   name = "${local.name}-media"
 
-  # Encoding: free tier, x264 only, a small resolution ladder, no extra copies.
-  encoding_tier                     = "Free"
-  jit_encoding                      = false # premium only
-  output_codecs                     = ["x264"]
-  resolutions                       = var.stream_resolutions
-  mp4_fallback_enabled              = false # would store an MP4 per resolution
+  # Encoding: free tier, x264 only, a small resolution ladder.
+  encoding_tier = "Free"
+  jit_encoding  = false # premium only
+  output_codecs = ["x264"]
+  resolutions   = var.stream_resolutions
+  # C1 (Joel, 2026-11-06): Bunny also stores an MP4 file per encoded resolution
+  # (<video id>/play_<height>p.mp4, up to 1080p), so "Download my data" can give
+  # people their video as a file to keep (GDPR Art 20, portability) without us
+  # keeping the upload, which carries where and on what it was recorded. Costs
+  # storage at Bunny (Frankfurt, D89). Only videos encoded after it's applied
+  # get MP4s. Anyone allowed to watch a video can fetch its MP4 with the
+  # player's token, but it's the same video they can already watch.
+  mp4_fallback_enabled              = true
   original_files_keep               = false # don't keep the upload after encoding
   multi_audio_track_support_enabled = false
   early_play_enabled                = false # also exposes originals via the CDN
@@ -42,13 +49,19 @@ resource "bunnynet_stream_library" "media" {
   content_tagging_enabled                = false
 
   # Security: no domain yet (D7), so no referrer lists. The embed player is how
-  # videos are watched, so direct play URLs are off and requests without a
-  # referrer are refused. Token auth (D52): the player needs a signed embed URL
-  # (view token) and every CDN file, HLS and thumbnails included, a signed URL
-  # (CDN token). The player signs its own HLS requests. Both use the Stream
-  # pull zone's key (secrets.tf), which api-public-read signs with.
+  # videos are watched, so direct play URLs (Bunny's /play page) are off. Token
+  # auth (D52) guards every file: the player needs a signed embed URL (view
+  # token) and every CDN file, HLS, thumbnails and MP4s included, a signed,
+  # expiring URL (CDN token). The player signs its own HLS requests. Both use
+  # the Stream pull zone's key (secrets.tf), which api-public-read signs with.
+  # Requests without a Referer header are allowed (B and C1, Joel 2026-11-06):
+  # "Download my data" links are opened from the file, pasted into an address
+  # bar or a download tool, which send none, and Bunny refuses those with 403
+  # (Bunny's docs, "MP4 downloads"). With no referrer list, the block only
+  # stopped requests that leave the header out, which anyone can add, so an
+  # unsigned or expired link is still refused.
   direct_play_enabled                = false
-  direct_url_file_access_blocked     = true
+  direct_url_file_access_blocked     = false
   view_token_authentication_required = var.token_auth.stream_embed
   cdn_token_authentication_required  = var.token_auth.stream_cdn
   drm_mediacage_basic_enabled        = false

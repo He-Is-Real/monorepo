@@ -792,7 +792,7 @@ function storyMine(s, id, st, uploaded = () => null) {
  */
 function myDataOf(s, token, mine) {
   const generatedAt = new Date().toISOString();
-  const linksExpireAt = new Date(Date.now() + 3600_000).toISOString();
+  const linksExpireAt = new Date(Date.now() + WEEK_MS).toISOString();
   const none = (keys) => Object.fromEntries(keys.map((k) => [k, null]));
   return {
     about: {
@@ -835,6 +835,7 @@ function myDataOf(s, token, mine) {
           ...m,
           bunnyVideoId: st.videoId,
           playbackUrl: `https://player.mediadelivery.net/embed/1/${st.videoId}?token=stub&expires=1`,
+          mp4Url: `https://vz-stub.b-cdn.net/${st.videoId}/play_720p.mp4?token=HS256-stub&expires=1`,
         })),
         // R6: the story's status history; a story sent back has its moderator's entry.
         statusHistory: st.rejectionFeedback

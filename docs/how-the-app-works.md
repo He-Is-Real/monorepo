@@ -235,11 +235,13 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   withdrawals, moderators' decisions with their comments, signed "moderator" and never who made
   them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05), what
   they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
-  audio and pictures come as links that last one hour today. Decided (Joel, 2026-10-31) and being
-  built: Bunny keeps the original upload, and the file's links let the person watch and download
-  the original for 7 days. The file says what it leaves out (who moderated, Clerk's sessions
-  and devices, anyone else's data). If Clerk
-  can't answer, there is no file rather than a partial one.
+  audio and pictures come as links that last 7 days (B, Joel 2026-11-06). Each video or audio item
+  also has a link to download it as an MP4 file, a copy Bunny makes when it encodes the video (C1,
+  Joel 2026-11-06); we never keep the upload itself. Videos encoded before MP4 copies were turned
+  on (November 2026) have none, and the file says so. The file says what it leaves out (who
+  moderated, Clerk's sessions and devices, anyone else's data). If Clerk
+  (or Bunny, asked which MP4 copies the person's videos have) can't answer, there is no file rather
+  than a partial one.
 
 ## Favourites
 
