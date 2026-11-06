@@ -177,6 +177,13 @@ module "gcp" {
   dev_seed            = true
   ci_dev_seeder_email = try(local.bootstrap.ci_dev_seeder_email, "")
 
+  # Media ready (M2 plan item 13; D78): the job and result topics in London, the media-worker
+  # identity Joel's own gcloud login may act as (D126; no key file), the private result writer
+  # (apps/workflow) and api-user's Bunny webhook. The bunny root makes the read-only key's secret.
+  media_ready = {
+    worker_impersonators = ["user:joel@heisreal.today"]
+  }
+
   # The nightly housekeeping Job (abandoned drafts, orphaned story videos), 03:30 London time.
   # Dry run first: it logs what it would delete; turn it off once a night's log looks right.
   # Needs bootstrap's Cloud Scheduler API and tf-deployer's scheduler role applied first.

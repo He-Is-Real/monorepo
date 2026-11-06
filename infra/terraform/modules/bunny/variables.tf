@@ -110,3 +110,26 @@ variable "stream_key_readers" {
     error_message = "Only this project's housekeeping service account may read the Stream library key on its own (api-user reads it through upload_key_readers)."
   }
 }
+
+variable "readonly_key_readers" {
+  description = "Media ready: who may read the Stream library's read-only key (bunny-stream-readonly-key), and no other bunny-* secret through this grant: api-user (Bunny's webhook signatures) and media-worker (a video's facts), as serviceAccount:<name>@<project>.iam.gserviceaccount.com. Empty: no reader."
+  type        = set(string)
+  default     = []
+  validation {
+    condition = alltrue([for m in var.readonly_key_readers : contains([
+      "serviceAccount:api-user@${var.project_id}.iam.gserviceaccount.com",
+      "serviceAccount:media-worker@${var.project_id}.iam.gserviceaccount.com",
+    ], m)])
+    error_message = "Only this project's api-user and media-worker service accounts may read the read-only library key."
+  }
+}
+
+variable "stream_webhook_url" {
+  description = "Media ready: where Bunny posts the library's video events (api-user's POST /v1/webhooks/bunny), an https URL. null: leave the library's setting as it is."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.stream_webhook_url == null || can(regex("^https://[a-z0-9.-]+/v1/webhooks/bunny$", var.stream_webhook_url))
+    error_message = "stream_webhook_url is api-user's https address ending /v1/webhooks/bunny."
+  }
+}
