@@ -16,7 +16,6 @@ import {
   draft,
   ERASE,
   grantUpload,
-  step,
   submit,
 } from './support/world';
 

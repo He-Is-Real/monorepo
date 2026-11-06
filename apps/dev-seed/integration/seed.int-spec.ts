@@ -39,6 +39,13 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     expect(summary).toEqual({
       byStatus: expected,
       publicStories: approved.length,
+      // R12: one row per dummy file a story uses (stories share them).
+      files: new Set(
+        DATASET.stories.flatMap((s) => [
+          ...(s.media ? [s.media.clip] : []),
+          ...(s.image ? [s.image.file] : []),
+        ]),
+      ).size,
       statusEntries: DATASET.stories.reduce(
         (n, s) => n + stepsFor(s, new Date()).length,
         0,
@@ -95,19 +102,20 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
            WHERE story = type::record('story', $id) ORDER BY at`,
         { id },
       );
-    // Sent back once, then approved: create + 6 status entries, each moving the pointer.
+    // Sent back once, then approved: create, its upload (R12: the pointer to its video) and
+    // 6 status entries, each moving the status pointer.
     expect(
       await rows(migrator, 'SELECT VALUE version FROM story:seed_v03'),
-    ).toEqual([7]);
+    ).toEqual([8]);
     expect(
       (await log('seed_v03')).map((e) => [e.status, e.actor, e.storyVersion]),
     ).toEqual([
-      ['pending', 'person', 1],
-      ['in_review', 'moderator', 2],
-      ['changes_requested', 'moderator', 3],
-      ['pending', 'person', 4],
-      ['in_review', 'moderator', 5],
-      ['approved', 'moderator', 6],
+      ['pending', 'person', 2],
+      ['in_review', 'moderator', 3],
+      ['changes_requested', 'moderator', 4],
+      ['pending', 'person', 5],
+      ['in_review', 'moderator', 6],
+      ['approved', 'moderator', 7],
     ]);
     const sentBack = (await log('seed_w10')).at(-1);
     expect(sentBack).toMatchObject({
@@ -139,7 +147,8 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     expect(skeleton.title).toBe('Test story: the walking skeleton');
     const [w01] = await rows<{ image: unknown }>(
       reader,
-      'SELECT image FROM story:seed_w01',
+      `SELECT { path: record::id(image.file), width: image.file.width,
+         height: image.file.height, alt: image.alt } AS image FROM story:seed_w01`,
     );
     expect(w01.image).toEqual({
       path: 'dev-seed/image-01.webp',

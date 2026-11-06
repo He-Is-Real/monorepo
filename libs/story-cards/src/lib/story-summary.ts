@@ -1,7 +1,10 @@
 import type { MediaUrls } from './media-urls';
 import type { ThemeRef } from './themes';
 
-/** A published clip's stored fields (`story.media[*]`). Never sent as they are. */
+/**
+ * A published clip's stored fields (R12: the storyFile row `story.mediaFile` points at; its id is
+ * the Bunny video id). Never sent as they are.
+ */
 export interface StoredMedia {
   format: 'video' | 'audio';
   bunnyVideoId?: string;
@@ -11,8 +14,9 @@ export interface StoredMedia {
 }
 
 /**
- * A story's stored image (`story.image`): a written story's image, an audio story's picture
- * or a video's own thumbnail (M2 plan PR 10). Never sent as it is.
+ * A story's stored image: a written story's image, an audio story's picture or a video's own
+ * thumbnail (M2 plan PR 10). R12: the storyFile row `story.image.file` points at (its id is the
+ * path; its size), with the story's own `image.alt`. Never sent as it is.
  */
 export interface StoredImage {
   path: string;
@@ -56,16 +60,30 @@ const WORD_SLACK = 40;
 export const FETCH_CHARS = EXCERPT_CHARS + 60;
 
 /**
+ * A story's published files as StoredMedia[] (`media`), the clip's length (`durationSeconds`) and
+ * StoredImage (`image`), for `SELECT … FROM story`. R12: read through the story's pointers to its
+ * storyFile rows; only the fields a reader uses, never `processing`, which the public can't read
+ * anyway.
+ */
+export const FILE_FIELDS = `
+  IF mediaFile != NONE {
+    [object::extend(mediaFile.{ format, thumbnailPath, width, height },
+      { bunnyVideoId: record::id(mediaFile) })]
+  } ELSE { [] } AS media,
+  mediaFile.lengthSeconds AS durationSeconds,
+  IF image != NONE {
+    object::extend(image.file.{ width, height }, { path: record::id(image.file), alt: image.alt })
+  } AS image`;
+
+/**
  * The card fields of a published story, for `SELECT … FROM story` (R11: one story table; its
  * publish date is on its current approved status entry). Only the start of the description and
- * text: a description can be 5,000 characters and a text 10,000 (A3). Only the media fields a
- * card uses: never `processing`, which the public can't read anyway.
+ * text: a description can be 5,000 characters and a text 10,000 (A3). Only the file fields a
+ * card uses (FILE_FIELDS).
  */
 export const SUMMARY_FIELDS = `
-  record::id(id) AS id, slug, title, bylineName, primaryFormat, image,
-  (media ?? []).map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
-    thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height }) AS media,
-  media[0].durationSeconds AS durationSeconds,
+  record::id(id) AS id, slug, title, bylineName, primaryFormat,
+  ${FILE_FIELDS},
   string::slice(description, 0, ${FETCH_CHARS}) AS description,
   string::slice(body ?? '', 0, ${FETCH_CHARS}) AS bodyStart,
   string::len(body ?? '') AS textLength,

@@ -588,8 +588,12 @@ describe('browse API over the dev dataset', () => {
     beforeAll(async () => {
       await run(
         await t.migrator(),
-        `UPDATE story:seed_v03 SET media[0].bunnyVideoId = $guid,
-           media[0].thumbnailPath = $guid + '/thumbnail.jpg'`,
+        `LET $old = story:seed_v03.mediaFile.*;
+         CREATE type::record('storyFile', $guid) CONTENT object::extend(
+           $old.{ story, person, format, contentType, sizeBytes, storyVersion, width, height,
+             lengthSeconds, processing },
+           { thumbnailPath: $guid + '/thumbnail.jpg' });
+         UPDATE story:seed_v03 SET mediaFile = type::record('storyFile', $guid);`,
         { guid: GUID },
       );
       await run(

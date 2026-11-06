@@ -192,7 +192,7 @@ describe('download my data', () => {
            FROM ONLY $u),
          hearts: (SELECT VALUE record::id(story) FROM favourite WHERE person = $u),
          submissions: (SELECT VALUE at FROM submissionLog WHERE person = $u),
-         uploads: (SELECT VALUE record::id(id) FROM uploadGrant WHERE person = $u),
+         uploads: (SELECT VALUE record::id(id) FROM storyFile WHERE person = $u),
          keys: (SELECT VALUE record::id(id)[2] FROM idempotencyKey WHERE record::id(id)[1] = $u)
        }`,
       { who },

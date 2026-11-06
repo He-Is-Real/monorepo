@@ -77,7 +77,7 @@ function withFaults(db: Surreal): Surreal {
       }
       return (sql: string, vars?: Record<string, unknown>) => {
         const mode = fault.next;
-        if (!mode || !/CREATE (ONLY )?type::record\('uploadGrant'/.test(sql)) {
+        if (!mode || !/CREATE (ONLY )?type::record\('storyFile'/.test(sql)) {
           return target.query(sql, vars);
         }
         fault.next = undefined;
@@ -184,7 +184,7 @@ describe('video and audio uploads', () => {
   const grants = async (who: string) =>
     rows(
       migrator,
-      `SELECT VALUE record::id(id) FROM uploadGrant WHERE person = type::record('user', $who)`,
+      `SELECT VALUE record::id(id) FROM storyFile WHERE person = type::record('user', $who)`,
       { who },
     );
   const submit = (who: string, id: string, version: number) =>
@@ -192,9 +192,14 @@ describe('video and audio uploads', () => {
       headers: { 'if-match': `"${version}"`, 'idempotency-key': key() },
     });
   const media = async (id: string) =>
-    rows(migrator, `SELECT VALUE media FROM type::record('story', $id)`, {
-      id,
-    });
+    rows(
+      migrator,
+      // R12: the story's video, through its pointer.
+      `SELECT VALUE IF mediaFile != NONE {
+         [{ format: mediaFile.format, bunnyVideoId: record::id(mediaFile) }] } ELSE { [] }
+       FROM type::record('story', $id)`,
+      { id },
+    );
   const settings = (fields: Record<string, unknown>) =>
     run(
       admin,
@@ -302,7 +307,7 @@ describe('video and audio uploads', () => {
     expect(
       await rows(
         migrator,
-        `SELECT currentStatus.status AS status, media[0].bunnyVideoId AS v FROM type::record('story', $id)`,
+        `SELECT currentStatus.status AS status, record::id(mediaFile) AS v FROM type::record('story', $id)`,
         {
           id,
         },
@@ -679,7 +684,7 @@ describe('video and audio uploads', () => {
       (
         await rows(
           migrator,
-          `SELECT VALUE renewedAt FROM type::record('uploadGrant', $v)`,
+          `SELECT VALUE renewedAt FROM type::record('storyFile', $v)`,
           { v: videoId },
         )
       ).filter(Boolean);

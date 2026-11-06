@@ -9,7 +9,7 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
-import { runQuery, SURREAL } from '@heisreal/database';
+import { OWNER_FILE_FIELDS, runQuery, SURREAL } from '@heisreal/database';
 import { isStoryId, recordKey } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Response } from 'express';
@@ -31,7 +31,7 @@ const LIST_SQL = `
 const ONE_SQL = `
   LET $s = type::record('story', $id);
   SELECT ${SUMMARY}, description, body, bylineName,
-    themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes, media, image,
+    themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes, ${OWNER_FILE_FIELDS},
     IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
     socialMediaSharingConsentAgreedAt AS sharingAt
   FROM $s;

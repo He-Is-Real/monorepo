@@ -299,9 +299,11 @@ DEFINE EVENT OVERWRITE story_files ON story
         THROW 'media_not_granted: a story’s picture must be one uploaded for it (D80)';
       };
     };
+    -- Only the story's own rows (dev-seed's stories share its dummy files' rows).
     FOR $old IN [$before.mediaFile, $before.image.file] {
       IF $old != NONE AND $old NOT IN [$media, $image] {
-        UPDATE $old SET detachedAt = time::now() WHERE detachedAt = NONE RETURN NONE;
+        UPDATE $old SET detachedAt = time::now() WHERE detachedAt = NONE AND story = $after.id
+          RETURN NONE;
       };
     };
     IF $event = 'UPDATE' { fn::story::check_files($after) };

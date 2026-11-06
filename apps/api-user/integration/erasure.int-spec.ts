@@ -228,7 +228,7 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
          stories: (SELECT VALUE record::id(id) FROM story WHERE submitter = type::record('user', $who)),
          statusLog: (SELECT VALUE id FROM storyStatusLog WHERE string::starts_with(record::id(story), $who)),
          hearts: (SELECT VALUE id FROM favourite WHERE string::starts_with(record::id(story), $who)),
-         grants: (SELECT VALUE id FROM uploadGrant WHERE person = type::record('user', $who)),
+         grants: (SELECT VALUE id FROM storyFile WHERE person = type::record('user', $who)),
          user: (SELECT VALUE [clerkUserId, status = 'deleted'] FROM ONLY type::record('user', $who)),
          agreements: (SELECT VALUE [termsOfUse, termsOfUseAgreedAt, testimonyConsent,
            testimonyConsentAgreedAt].filter(|$v| $v != NONE).len()

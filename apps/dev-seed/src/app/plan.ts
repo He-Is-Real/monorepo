@@ -54,8 +54,15 @@ export interface SeedVars {
     id: string;
     /** user:<id> */
     submitter: string;
-    /** The draft as its author creates it: content and uploads. */
+    /** The draft as its author creates it: its content. */
     draft: Record<string, unknown>;
+    /**
+     * Its uploads (R12): each a storyFile row's key (the Bunny video id or the picture's path)
+     * and fields. Stories share dev-seed's few dummy files, so a row is made once, for the first
+     * story that uses it, and later ones point at it too (a system user may).
+     */
+    media?: { key: string; row: Record<string, unknown> };
+    image?: { key: string; row: Record<string, unknown>; alt?: string };
     steps: Step[];
     /** Approved stories: their approved entry's publishedAt (browse order). */
     publishedAt?: Date;
@@ -268,17 +275,16 @@ export function buildVars(
           themeRefs: s.themes.map(
             (key) => data.themes.find((t) => t.key === key)?.id,
           ),
-          media: s.media
-            ? [mediaItem(s.media.clip, media, s.media.processing)]
-            : [],
-          image: s.image
-            ? compact({
-                ...imageFields(s.image.file, media),
-                alt: s.image.alt,
-                processing: s.image.processing,
-              })
-            : undefined,
         }),
+        media: s.media
+          ? mediaFile(s.media.clip, media, s.media.processing)
+          : undefined,
+        image: s.image
+          ? compact({
+              ...imageFile(s.image.file, media, s.image.processing),
+              alt: s.image.alt,
+            })
+          : undefined,
         steps: stepsFor(s, publishedAt ?? now),
         publishedAt,
       };
@@ -286,27 +292,43 @@ export function buildVars(
   };
 }
 
-function mediaItem(clip: ClipId, media: BunnyMedia, processing?: string) {
+/** A clip's storyFile row: what processing would have recorded for it (R12). */
+function mediaFile(clip: ClipId, media: BunnyMedia, processing?: string) {
   const uploaded = media.clips[clip];
   if (!uploaded) throw new Error(`${clip} hasn't been uploaded`);
-  return compact({
-    format: CLIPS[clip].kind,
-    bunnyVideoId: uploaded.videoId,
-    thumbnailPath: uploaded.thumbnailPath,
-    width: uploaded.width,
-    height: uploaded.height,
-    durationSeconds: uploaded.durationSeconds,
-    processing,
-  });
+  const kind = CLIPS[clip].kind;
+  return {
+    key: uploaded.videoId,
+    row: compact({
+      format: kind,
+      contentType: kind === 'video' ? 'video/mp4' : 'audio/mpeg',
+      // The dummy files' sizes aren't recorded; nothing reads them for dev-seed's rows.
+      sizeBytes: 1,
+      storyVersion: 1,
+      thumbnailPath: uploaded.thumbnailPath,
+      width: uploaded.width,
+      height: uploaded.height,
+      lengthSeconds: uploaded.durationSeconds,
+      processing,
+    }),
+  };
 }
 
-function imageFields(file: ImageId, media: BunnyMedia) {
+/** A picture's storyFile row (R12): its path is the key. */
+function imageFile(file: ImageId, media: BunnyMedia, processing?: string) {
   const uploaded = media.images[file];
   if (!uploaded) throw new Error(`${file} hasn't been uploaded`);
   return {
-    path: uploaded.path,
-    width: uploaded.width,
-    height: uploaded.height,
+    key: uploaded.path,
+    row: compact({
+      format: 'image',
+      contentType: 'image/webp',
+      sizeBytes: 1,
+      storyVersion: 1,
+      width: uploaded.width,
+      height: uploaded.height,
+      processing,
+    }),
   };
 }
 

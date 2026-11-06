@@ -463,7 +463,7 @@ describe('approval waits for media processing (A2, R12)', () => {
       await expectHidden(id);
       expect(
         (
-          await truth(
+          await truth<string>(
             `SELECT VALUE status FROM storyStatusLog WHERE story = type::record('story', $id)
              ORDER BY at`,
             { id },
@@ -474,7 +474,6 @@ describe('approval waits for media processing (A2, R12)', () => {
 
     it('the person can’t mark it hidden or shown again; the system’s show-again needs the reviewed files, ready', async () => {
       const id = await live(video);
-      expect(await outcome(pat, `RETURN 1`)).toMatchObject({ ok: true });
       expect(
         await outcome(
           pat,

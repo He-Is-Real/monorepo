@@ -16,7 +16,7 @@ const publish = (id: string, slug: string, title: string) => `
     submitter: user:cache_seed, slug: '${slug}', title: '${title}',
     description: 'Placeholder content for a cache test. This is not a real testimony.',
     body: 'This is test text, written to check that api-public-read answers the same public request from memory for a minute and then asks the database again. Nobody shared this story and nothing in it happened.',
-    bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common], media: []
+    bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common]
   });
   FOR $step IN [['pending', 'person'], ['in_review', 'moderator'], ['approved', 'moderator']] {
     CREATE storyStatusLog CONTENT { story: $s.id, status: $step[0], actor: $step[1],
