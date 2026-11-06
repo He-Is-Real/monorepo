@@ -5,8 +5,9 @@ loading again; we don't approve the story again.
 
 ## What happens
 
-- Processing (workflow, M7) records each video, audio file and image as `ready`, `processing` or
-  `failed`, with its size and duration.
+- Processing records each video, audio file and image as `ready`, `processing` or `failed`,
+  with its size and duration: for video and audio, the media-ready step below (the result
+  writer, signed in as `workflow`); for pictures, a later check (M2) and M7's scanning.
 - If an approved story's media stops being ready (it fails, it is checked again, or it loses its
   size or duration), the database hides the story in the same write: it adds a `hidden` entry
   (by the system) to the story's status log, so the public site and API no longer show it. Its
@@ -60,7 +61,66 @@ republishes (Joel, 2026-11-05: no audit log).
 Images live in the images storage zone (`heisreal-dev-image-store` in dev). If an image fails, check the file at its path there (`SELECT record::id(image.file) FROM story:<id>`).
 When processing records it `ready` again, the story comes back.
 
-Until M7 is built nothing marks media as not ready, so nothing is hidden.
+Until the media worker runs (below), nothing marks media as not ready, so nothing is hidden.
+
+## Media ready
+
+How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; plan:
+`project/context/research/m2-media-ready-plan.html`; OpenTofu: `infra/terraform/modules/gcp/media.tf`):
+
+1. Bunny posts each video event to api-user's `POST /v1/webhooks/bunny` (the library's webhook
+   address, set in the bunny root). api-user checks Bunny's signature (the library's read-only
+   key, `bunny-stream-readonly-key`) and, for "finished" or "failed", puts `{ videoId, eventId }`
+   on the Pub/Sub topic `media-jobs`. It answers 200 once Pub/Sub has it, 503 otherwise (Bunny
+   retries for about 4 hours), 401 for a bad signature.
+2. The media worker (Dapr, on Joel's machine; **not built yet**, the next piece) pulls the job
+   from the `media-worker` subscription, asks Bunny itself for the video's status, size, length,
+   thumbnail and title, and publishes its answer to `media-results`.
+3. Pub/Sub pushes the answer to the result writer (`apps/workflow`, the private Cloud Run service
+   `workflow`). It writes the video's `storyFile` row as `service:workflow`, only while the
+   story still shows that video, and nothing if the row already says the same. The database
+   then hides or shows the story again as above. Its log is one JSON line per answer, ids only:
+   `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.
+
+Everything is in London (`europe-west2`): the topics store messages there only. Jobs and answers
+carry ids and facts, never a person's name or words.
+
+### Processing is stalled
+
+A story's video stays "not processed yet" (no `processing`) or `processing`.
+
+1. Is Bunny done? `tools/scripts/tf.sh bunny-cli stream videos show <video id> --library <library id>`.
+   If it's still encoding, wait.
+2. Did Bunny's notice arrive? api-user logs `Refused a Bunny webhook` (bad signature: check the
+   secret `bunny-stream-readonly-key` has the library's current read-only key, which the bunny
+   root writes) or `Couldn't queue media job` (Pub/Sub refused):
+   `gcloud logging read 'resource.labels.service_name="api-user" AND textPayload:"Bunny"' --limit 20`.
+3. Are jobs waiting? The worker is off (Joel's machine), so they wait up to 31 days; start it,
+   and it catches up. How many wait:
+   `gcloud pubsub subscriptions describe media-worker --format='value(name)'` and the
+   `subscription/num_undelivered_messages` metric in Cloud Monitoring.
+4. Did the writer drop it? Its log says `"outcome":"ignored"` when the story no longer shows that
+   video (replaced, removed) or the video's title isn't the story's id.
+5. To queue a job by hand (a developer; ids only):
+   `gcloud pubsub topics publish media-jobs --message='{"videoId":"<video id>"}'`.
+
+### A message ended in dead letters
+
+After 5 failed deliveries (a malformed message, or the writer failing every time) Pub/Sub moves
+it to `media-dead-letters`, kept 31 days. Look at them (a developer; ack only once dealt with):
+
+```bash
+gcloud pubsub subscriptions pull media-dead-letters --limit 10 --format=json \
+  | jq '.[] | {ackId, attributes: .message.attributes, data: (.message.data | @base64d)}'
+```
+
+The `CloudPubSubDeadLetterSourceSubscription` attribute says where it came from. Fix the cause
+(the writer's log names it: `Refused a media result` for a malformed answer), then send it again
+to its topic (`gcloud pubsub topics publish media-jobs|media-results --message='<data>'`; an
+answer needs `--ordering-key=<video id>`) and acknowledge the dead letter
+(`gcloud pubsub subscriptions ack media-dead-letters --ack-ids=<ackId>`). A video whose size
+is wider than 3:1 or taller than 1:3 is refused by the database (D53) and ends here: re-encode
+won't help; tell the person through moderation.
 
 ## Where uploads land
 

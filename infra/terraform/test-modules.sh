@@ -8,11 +8,13 @@
 #   cluster: D49's dev-seed login is refused outside dev.
 #   bunny: D52's token auth is on and only the named service accounts may read the two token
 #     auth keys; only api-user may read the two upload keys (M2, D80), and only housekeeping
-#     the Stream library key alone.
+#     the Stream library key alone; only api-user and media-worker the read-only key (media ready).
 #   gcp: api-public-read gets the BUNNY_* settings only when api_public_read_media is set,
 #     web_site_url is an https origin, and api-user/api-admin get their own identity, database
 #     login, Clerk settings and web's origins; the housekeeping Job and its Scheduler trigger are
-#     in London, each with its own identity, the trigger allowed to start that Job only.
+#     in London, each with its own identity, the trigger allowed to start that Job only; media
+#     ready's topics keep messages in London, the worker's subscription never expires, nothing is
+#     public and the worker reads no database password.
 #   bootstrap: the _Default sink writes to the London log bucket with Google's filter (D101).
 #   org: only London locations are allowed, and new projects' logs start in London (D102, D104;
 #     no root calls it until the organisation admin's setup, D119).

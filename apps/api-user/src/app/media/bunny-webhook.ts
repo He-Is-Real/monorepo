@@ -50,6 +50,10 @@ export function verifyBunnySignature(
   headers: BunnySignatureHeaders,
   body: Buffer,
 ): void {
+  // An empty key would let anyone sign: never accept one (a secret version added empty).
+  if (key.length < 16) {
+    throw new BunnyWebhookVerificationError('no usable key');
+  }
   if (headers.version !== 'v1' || headers.algorithm !== 'hmac-sha256') {
     throw new BunnyWebhookVerificationError('not a v1 hmac-sha256 signature');
   }
@@ -122,10 +126,11 @@ export class BunnyWebhookController {
     let key: string;
     try {
       key = (await this.config.readonlyKey()).trim();
+      if (key.length < 16) throw new Error('EmptyKey');
     } catch (err) {
       // No version yet, or Secret Manager unreachable: Bunny retries for about 4 hours.
       this.logger.warn(
-        `Bunny webhooks are off: the read-only key isn't readable (${err instanceof Error ? err.name : 'error'})`,
+        `Bunny webhooks are off: the read-only key isn't readable (${err instanceof Error && err.message === 'EmptyKey' ? 'empty' : err instanceof Error ? err.name : 'error'})`,
       );
       throw new ServiceUnavailableException('Bunny webhooks are off');
     }

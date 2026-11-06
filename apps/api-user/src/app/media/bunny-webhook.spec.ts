@@ -47,6 +47,10 @@ describe('verifyBunnySignature (Bunny Stream webhooks)', () => {
       { headers: { signature: SIGNED.signature.slice(2) } },
     ],
     ['another signature version', { headers: { version: 'v2' } }],
+    [
+      'anything, while the key is empty',
+      { key: '', headers: { signature: sign('', BODY) } },
+    ],
     ['another algorithm', { headers: { algorithm: 'hmac-sha1' } }],
   ])(
     'refuses %s',
