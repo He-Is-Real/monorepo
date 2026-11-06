@@ -55,3 +55,18 @@ export const OLD_FILE_ROWS = `
 /** One of them (bind `$key`); answers it if deleted. */
 export const OLD_FILE_ROW_DELETE = `
   DELETE type::record('storyFile', $key) RETURN BEFORE`;
+
+/**
+ * Super admins' list of every story (R15; api-admin's GET /v1/admin/stories), newest created
+ * first: its fields, and the page query (bind `$after` = [createdAt, story id] or NONE, `$take`).
+ * Also timed by api-public-read's local scale test.
+ */
+export const ALL_STORIES_SUMMARY = `record::id(id) AS id, slug, title,
+  currentStatus.status ?? 'draft' AS status, primaryFormat,
+  record::id(submitter) AS submitter, createdAt, updatedAt, version`;
+export const ALL_STORIES_LIST_SQL = `
+  LET $c = IF $after != NONE { <datetime> $after[0] };
+  LET $cid = IF $after != NONE { type::record('story', $after[1]) };
+  SELECT ${ALL_STORIES_SUMMARY} FROM story
+  WHERE $c = NONE OR createdAt < $c OR (createdAt = $c AND id < $cid)
+  ORDER BY createdAt DESC, id DESC LIMIT $take;`;

@@ -45,6 +45,14 @@ describe('storySearch: published stories’ words, and only theirs', () => {
     expect(row.searchText).toBe(
       `Story bob_live How I came to faith ${storyText('bob_live')} Common`,
     );
+    // And what the public lists filter and sort on (Joel, 2026-11-06), as the story says.
+    expect(
+      await rows(
+        migrator,
+        `SELECT primaryFormat, themeIds, publishedAt = story.currentStatus.publishedAt AS same
+         FROM storySearch:bob_live`,
+      ),
+    ).toEqual([{ primaryFormat: 'written', themeIds: ['common'], same: true }]);
   });
 
   it('adds the row when a story is published, and removes it when it is withdrawn', async () => {
@@ -209,6 +217,12 @@ describe('theme names in search', () => {
   afterAll(() => t?.close());
 
   it('finds a published story by its theme’s name, though the word isn’t in its text', async () => {
+    expect(
+      await rows(
+        publicRead,
+        `SELECT VALUE themeIds FROM storySearch:bob_tagged`,
+      ),
+    ).toEqual([['common', 'grief']]);
     expect(storyText('bob_tagged')).not.toMatch(/grief/i);
     expect(await found('grief')).toEqual(['bob_tagged']);
   });
@@ -232,6 +246,13 @@ describe('theme names in search', () => {
   it('after the theme is deleted, its name no longer finds it', async () => {
     await run(admin, `DELETE theme:grief`);
     expect(await found('sorrow')).toEqual([]);
+    // Nor does the row list it among the story's themes.
+    expect(
+      await rows(
+        publicRead,
+        `SELECT VALUE themeIds FROM storySearch:bob_tagged`,
+      ),
+    ).toEqual([['common']]);
     // The story is still published and found by its own words.
     expect(await found('bob_tagged')).toEqual(['bob_tagged']);
   });

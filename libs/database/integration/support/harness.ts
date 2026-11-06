@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createPrivateKey, randomBytes } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -162,6 +162,17 @@ export async function outcome(
 /** The theme TestDatabase.create gives every migrated database (in Other); drafts carry it. */
 export const COMMON_THEME = 'theme:common';
 
+/** TestDatabase.saved(): a database's logins and keys, to reconnect to it in a later run. */
+export interface SavedTestDatabase {
+  namespace: string;
+  database: string;
+  migratorPassword: string;
+  backupPassword: string;
+  servicePasswords: [ServiceName, string][];
+  publicKeyPem: string;
+  privateKeyPem: string;
+}
+
 export class TestDatabase {
   readonly keys: SigningKeys = newSigningKeys();
   readonly migratorPassword = randomBytes(18).toString('hex');
@@ -176,6 +187,43 @@ export class TestDatabase {
     readonly namespace: string,
     readonly database: string,
   ) {}
+
+  /**
+   * What reconnecting to this database later needs (its logins and stand-in Clerk keys), for a
+   * database kept between runs: the local scale test's snapshot. Test credentials only.
+   */
+  saved(): SavedTestDatabase {
+    return {
+      namespace: this.namespace,
+      database: this.database,
+      migratorPassword: this.migratorPassword,
+      backupPassword: this.backupPassword,
+      servicePasswords: [...this.servicePasswords],
+      publicKeyPem: this.keys.publicKeyPem,
+      privateKeyPem: this.keys.privateKey
+        .export({ type: 'pkcs8', format: 'pem' })
+        .toString(),
+    };
+  }
+
+  /** A handle on a database `saved()` described, at the test server's URL now; creates nothing. */
+  static restore(saved: SavedTestDatabase): TestDatabase {
+    const t = new TestDatabase(
+      surrealTestLogin().url,
+      saved.namespace,
+      saved.database,
+    );
+    Object.assign(t, {
+      keys: {
+        publicKeyPem: saved.publicKeyPem,
+        privateKey: createPrivateKey(saved.privateKeyPem),
+      },
+      migratorPassword: saved.migratorPassword,
+      backupPassword: saved.backupPassword,
+    });
+    t.servicePasswords = new Map(saved.servicePasswords);
+    return t;
+  }
 
   /** A handle on an existing server and database (e.g. a dedicated container); creates nothing. */
   static at(url: string, namespace: string, database: string): TestDatabase {

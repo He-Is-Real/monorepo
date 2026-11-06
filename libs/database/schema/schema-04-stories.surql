@@ -616,6 +616,10 @@ DEFINE INDEX OVERWRITE story_theme_ids ON story FIELDS themeIds.*;     -- D63
 -- terms search is ranked on too"): the title, description, written text and the current names of
 -- its themes, as one text, all counting equally (one field, one analyzer). Category names aren't
 -- included.
+-- Joel, 2026-11-06 ("store each story's additional fields on search row"): the row also holds
+-- what the public lists filter and sort on (primaryFormat, themeIds, publishedAt: the current
+-- approved entry's), so search filters, scores, sorts and pages inside storySearch and builds
+-- story cards for one page only.
 -- The database alone writes it (fn::story::sync_search), in the same write that publishes the
 -- story or stops it being published (withdrawn, hidden, rejected), deletes it (DeleteStory,
 -- erasure, housekeeping), changes its words or themes, or renames or deletes one of its themes:
@@ -625,7 +629,10 @@ DEFINE TABLE OVERWRITE storySearch SCHEMAFULL PERMISSIONS
   FOR select WHERE story.currentStatus.status = 'approved',
   FOR create, update, delete NONE;
 DEFINE FIELD OVERWRITE story      ON storySearch TYPE record<story> READONLY;
-DEFINE FIELD OVERWRITE searchText ON storySearch TYPE string;
+DEFINE FIELD OVERWRITE searchText    ON storySearch TYPE string;
+DEFINE FIELD OVERWRITE primaryFormat ON storySearch TYPE string;
+DEFINE FIELD OVERWRITE themeIds      ON storySearch TYPE array<string>;
+DEFINE FIELD OVERWRITE publishedAt   ON storySearch TYPE datetime;
 DEFINE INDEX OVERWRITE storySearch_fts ON storySearch FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
 -- A story's search words: title, description, written text and its themes' current names.
@@ -640,9 +647,12 @@ DEFINE FUNCTION OVERWRITE fn::story::sync_search($id: record<story>) {
   LET $s = (SELECT * FROM ONLY $id);
   LET $row = type::record('storySearch', record::id($id));
   IF $s != NONE AND fn::story::status_of($s) = 'approved' {
-    LET $text = fn::story::search_text($s);
-    IF record::exists($row) { UPDATE $row SET searchText = $text RETURN NONE }
-    ELSE { CREATE $row SET story = $id, searchText = $text RETURN NONE };
+    LET $fields = {
+      searchText: fn::story::search_text($s), primaryFormat: $s.primaryFormat,
+      themeIds: $s.themeIds, publishedAt: $s.currentStatus.publishedAt
+    };
+    IF record::exists($row) { UPDATE $row MERGE $fields RETURN NONE }
+    ELSE { CREATE $row CONTENT object::extend($fields, { story: $id }) RETURN NONE };
   } ELSE IF record::exists($row) {
     DELETE $row RETURN NONE;
   };
@@ -651,7 +661,8 @@ DEFINE EVENT OVERWRITE story_search ON story
   WHEN $event = 'DELETE' OR ($event = 'UPDATE' AND (
     fn::story::status_of($before) != fn::story::status_of($after)
     OR $before.title != $after.title OR $before.description != $after.description
-    OR $before.body != $after.body OR $before.themeIds != $after.themeIds))
+    OR $before.body != $after.body OR $before.themeIds != $after.themeIds
+    OR $before.primaryFormat != $after.primaryFormat))
   THEN {
     IF $event = 'DELETE' { DELETE type::record('storySearch', record::id($before.id)) RETURN NONE }
     ELSE { fn::story::sync_search($after.id) };

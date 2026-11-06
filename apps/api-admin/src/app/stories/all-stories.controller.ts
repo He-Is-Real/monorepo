@@ -9,28 +9,21 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
-import { OWNER_FILE_FIELDS, runQuery, SURREAL } from '@heisreal/database';
+import {
+  ALL_STORIES_LIST_SQL,
+  ALL_STORIES_SUMMARY,
+  OWNER_FILE_FIELDS,
+  runQuery,
+  SURREAL,
+} from '@heisreal/database';
 import { isStoryId, recordKey } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
 
-/** The status as the status log records it (R6): none yet = draft; `hidden` shown as it is. */
-const STATUS = `currentStatus.status ?? 'draft'`;
-
-const SUMMARY = `record::id(id) AS id, slug, title, ${STATUS} AS status, primaryFormat,
-  record::id(submitter) AS submitter, createdAt, updatedAt, version`;
-
-const LIST_SQL = `
-  LET $c = IF $after != NONE { <datetime> $after[0] };
-  LET $cid = IF $after != NONE { type::record('story', $after[1]) };
-  SELECT ${SUMMARY} FROM story
-  WHERE $c = NONE OR createdAt < $c OR (createdAt = $c AND id < $cid)
-  ORDER BY createdAt DESC, id DESC LIMIT $take;`;
-
 const ONE_SQL = `
   LET $s = type::record('story', $id);
-  SELECT ${SUMMARY}, description, body, bylineName,
+  SELECT ${ALL_STORIES_SUMMARY}, description, body, bylineName,
     themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes, ${OWNER_FILE_FIELDS},
     IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
     socialMediaSharingConsentAgreedAt AS sharingAt
@@ -170,7 +163,7 @@ export class AllStoriesController {
     @Query('cursor') cursor?: string,
   ) {
     const take = parseLimit(limit);
-    const results = await runQuery(this.db, LIST_SQL, {
+    const results = await runQuery(this.db, ALL_STORIES_LIST_SQL, {
       after: decodeCursor(cursor),
       take: take + 1,
     });

@@ -1,43 +1,45 @@
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
+import { ALL_STORIES_LIST_SQL } from '@heisreal/database';
 import {
-  agreeAll,
-  createPeople,
   rows,
   run,
+  surrealTestLogin,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
 import { FAVOURITES_SQL } from '@heisreal/story-cards';
-import type { Surreal } from 'surrealdb';
+import { inject } from 'vitest';
+import { Surreal } from 'surrealdb';
 import { startPublicRead } from '../integration/app';
+import { COMMON, FAN_HEARTS, loadDataset, RARE } from './dataset';
+import type { ScaleState } from './global-setup';
 
 /**
  * The local scale test (database review 2, B2; R12): LOCAL ONLY, never GCP or Bunny, and not in
- * CI. A throwaway SurrealDB (the cluster's version, RocksDB) gets SCALE_STORIES stories (default
- * 50,000) with a lot of history: sent back and resubmitted, hidden and shown again by a
- * moderator, approved then withdrawn, rejected, drafts. Videos, audio and pictures are storyFile
- * rows the stories point at. One person has 5,000 hearts and 2,000 others 10 each.
+ * CI. A SurrealDB (the cluster's version, RocksDB) holds SCALE_STORIES stories (default 50,000)
+ * with a lot of history: sent back and resubmitted, hidden and shown again by a moderator,
+ * approved then withdrawn, rejected, drafts. Videos, audio and pictures are storyFile rows the
+ * stories point at. One person has 5,000 hearts and 2,000 others 10 each (dataset.ts).
+ *
+ * The data is loaded once through the real write path and kept on a Docker volume
+ * (global-setup.ts): a re-run starts in seconds; a change to the schema or dataset.ts loads
+ * afresh. SCALE_FRESH=1 forces a fresh load.
  *
  * Then it times what the public site asks, through api-public-read's real controllers on its
  * read-only login (the answer cache skipped): browse pages newest and oldest first and deep in
- * the list, a theme's list (a popular and a rare theme), a format's list, search (a common and a
- * rare word), and a story page. And the favourites list (api-user's query, in the person's own
- * session), with and without the favourite_unique index. Each is run once to warm up, then
- * RUNS times; the table prints the median and the slowest.
+ * the list, a theme's list (a popular and a rare theme), a format's list, related stories,
+ * search (a common and a rare word, theme names), and a story page. And the favourites list
+ * (api-user's query, in the person's own session) with and without the favourite_unique index,
+ * the super admins' list of every story (api-admin's query), and a theme rename. Each read is
+ * run once to warm up, then RUNS times; the table prints the median and the slowest. The test
+ * leaves the data as it found it (renames and the index are put back).
  *
  * Re-run: `pnpm nx run api-public-read:scale-test` (SCALE_STORIES=5000 for a quick run).
  */
 const STORIES = Number(process.env['SCALE_STORIES'] ?? 50_000);
-const PEOPLE = 2_000;
-// Small transactions: 3.2.4 slows down sharply as one transaction grows (500 stories at once:
-// 0.3 s a story; 25 at once: 22 ms).
-const BATCH = 25;
 const RUNS = 5;
-const CATEGORIES = 8;
-const THEMES_PER_CATEGORY = 8;
-const FAN_HEARTS = 5_000;
 /** Where the counts and the timings table go (vitest hides a passing test's console). */
 const OUT =
   process.env['SCALE_OUT'] ?? join(tmpdir(), 'heisreal-scale-results.md');
@@ -46,201 +48,38 @@ const report = (line: string) => {
   process.stderr.write(`${line}\n`);
 };
 
-/** The same numbers on every run (mulberry32). */
-function prng(seed: number) {
-  let a = seed;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-const random = prng(20261106);
-const pick = <T>(xs: readonly T[]) => xs[Math.floor(random() * xs.length)];
-
-const WORDS = (
-  'grace hope prayer church family friend morning night road years mother father brother ' +
-  'sister doubt fear peace joy healing hospital work school city village river mountain ' +
-  'letter phone song book bible verse quiet storm light window door table kitchen garden ' +
-  'heart hands voice name answer question journey change trust forgive love kindness'
-).split(' ');
-const COMMON = 'faith';
-const RARE = 'lighthouse';
-
-/** About `chars` characters of plain words; most stories say "faith", a few "lighthouse". */
-function text(chars: number): string {
-  const out: string[] = [];
-  let length = 0;
-  while (length < chars) {
-    const r = random();
-    const w = r < 0.02 ? COMMON : r < 0.0201 ? RARE : pick(WORDS);
-    out.push(w);
-    length += w.length + 1;
+/** The kept dataset, or a fresh load of it (then kept). */
+async function openDataset(): Promise<TestDatabase> {
+  const file = inject('scaleStateFile');
+  const state = JSON.parse(readFileSync(file, 'utf8')) as ScaleState;
+  if (state.db) {
+    report('Reusing the loaded dataset');
+    return TestDatabase.restore(state.db);
   }
-  return out.join(' ') + '.';
-}
-
-const HOUR = 3_600_000;
-const START = Date.UTC(2023, 0, 1);
-const SPAN = Date.UTC(2026, 10, 1) - START;
-
-type Step = {
-  status: string;
-  actor: 'person' | 'moderator';
-  comment?: string;
-};
-
-/** A story's history, from its first submission to its status now (mostly approved). */
-function history(): Step[] {
-  const p = (status: string): Step => ({ status, actor: 'person' });
-  const m = (status: string, comment?: string): Step => ({
-    status,
-    actor: 'moderator',
-    comment,
+  if (state.loading) {
+    // A load that didn't finish: its namespace goes.
+    const login = surrealTestLogin();
+    const root = new Surreal();
+    await root.connect(login.url, {
+      authentication: { username: login.user, password: login.pass },
+    });
+    await root.query(`REMOVE NAMESPACE IF EXISTS ${state.loading}`).collect();
+    await root.close();
+  }
+  const start = performance.now();
+  const t = await TestDatabase.create();
+  writeFileSync(file, JSON.stringify({ ...state, loading: t.namespace }), {
+    mode: 0o600,
   });
-  const r = random();
-  if (r < 0.05) return [];
-  if (r < 0.1) return [p('pending')];
-  if (r < 0.13) return [p('pending'), m('in_review')];
-  if (r < 0.17) return [p('pending'), m('in_review'), m('rejected', 'Sorry')];
-  if (r < 0.21)
-    return [
-      p('pending'),
-      m('in_review'),
-      m('changes_requested', 'Please shorten it'),
-      p('withdrawn'),
-    ];
-  const steps: Step[] = [p('pending'), m('in_review')];
-  if (random() < 0.3)
-    steps.push(
-      m('changes_requested', 'A small change'),
-      p('pending'),
-      m('in_review'),
-    );
-  steps.push(m('approved'));
-  const later = random();
-  if (later < 0.1) steps.push(m('hidden', 'Checking'), m('approved'));
-  else if (later < 0.15) steps.push(p('withdrawn'));
-  return steps;
+  await loadDataset(t, STORIES, report);
+  writeFileSync(
+    file,
+    JSON.stringify({ rootPassword: state.rootPassword, db: t.saved() }),
+    { mode: 0o600 },
+  );
+  report(`Loaded in ${Math.round((performance.now() - start) / 1000)} s`);
+  return t;
 }
-
-const uuid = (i: number) =>
-  `5ca1e000-0000-4000-8000-${String(i).padStart(12, '0')}`;
-
-/** One story's variables for LOAD_SQL. */
-function story(i: number) {
-  const id = `sc_${i}`;
-  const r = random();
-  const format = r < 0.7 ? 'written' : r < 0.9 ? 'video' : 'audio';
-  const themes = new Set<string>();
-  const count = 1 + Math.floor(random() * 4);
-  while (themes.size < count) {
-    // Popular themes first: theme t0_0 is in about a third of the stories.
-    const n = Math.floor(
-      Math.pow(random(), 2.5) * CATEGORIES * THEMES_PER_CATEGORY,
-    );
-    themes.add(
-      `t${Math.floor(n / THEMES_PER_CATEGORY)}_${n % THEMES_PER_CATEGORY}`,
-    );
-  }
-  const steps = history();
-  const publishedAt = new Date(START + random() * SPAN);
-  const video = uuid(i);
-  return {
-    id,
-    person: `sp_${Math.floor(random() * PEOPLE)}`,
-    title: `Story ${i}: ${pick(WORDS)} and ${pick(WORDS)}`,
-    description: `How ${pick(WORDS)} led me to ${pick(WORDS)}, ${text(40)}`,
-    body: format === 'written' ? text(800 + random() * 2_000) : text(220),
-    primaryFormat: format,
-    themes: [...themes],
-    media:
-      format === 'written'
-        ? undefined
-        : {
-            key: video,
-            row: {
-              format,
-              contentType: format === 'video' ? 'video/mp4' : 'audio/mpeg',
-              sizeBytes: 1_000_000,
-              storyVersion: 1,
-              processing: 'ready',
-              lengthSeconds: 30 + Math.floor(random() * 600),
-              width: format === 'video' ? 1080 : 1280,
-              height: format === 'video' ? 1920 : 720,
-              thumbnailPath:
-                format === 'audio'
-                  ? `${video}/thumbnail_0a1b2c3d.jpg`
-                  : undefined,
-            },
-          },
-    image:
-      random() < 0.3
-        ? {
-            key: `stories/${id}/${i.toString(16).padStart(32, '0')}.webp`,
-            row: {
-              format: 'image',
-              contentType: 'image/webp',
-              sizeBytes: 40_000,
-              storyVersion: 1,
-              processing: 'ready',
-              width: 900,
-              height: 1200,
-            },
-            alt: 'A picture',
-          }
-        : undefined,
-    steps: steps.map((s, k) => ({
-      ...s,
-      at: new Date(publishedAt.getTime() - (steps.length - 1 - k) * HOUR),
-    })),
-    publishedAt,
-  };
-}
-
-/** As dev-seed loads its stories (a system user: the events and checks all run). */
-const LOAD_SQL = `
-BEGIN TRANSACTION;
-FOR $s IN $stories {
-  LET $story = type::record('story', $s.id);
-  LET $person = type::record('user', $s.person);
-  CREATE $story CONTENT {
-    submitter: $person, slug: string::replace($s.id, '_', '-'), title: $s.title, description: $s.description,
-    body: $s.body, primaryFormat: $s.primaryFormat,
-    themeRefs: $s.themes.map(|$t| type::record('theme', $t))
-  } RETURN NONE;
-  IF $s.media != NONE {
-    CREATE type::record('storyFile', $s.media.key) CONTENT object::extend($s.media.row, {
-      story: $story, person: $person }) RETURN NONE;
-    UPDATE $story SET mediaFile = type::record('storyFile', $s.media.key) RETURN NONE;
-  };
-  IF $s.image != NONE {
-    CREATE type::record('storyFile', $s.image.key) CONTENT object::extend($s.image.row, {
-      story: $story, person: $person }) RETURN NONE;
-    UPDATE $story SET image = { file: type::record('storyFile', $s.image.key), alt: $s.image.alt }
-      RETURN NONE;
-  };
-  FOR $step IN $s.steps {
-    CREATE storyStatusLog CONTENT {
-      story: $story, status: $step.status, actor: $step.actor, at: $step.at,
-      by: IF $step.actor = 'moderator' { user:sp_moderator },
-      comment: $step.comment,
-      publishedAt: IF $step.status = 'approved' { $s.publishedAt }
-    } RETURN NONE;
-  };
-};
-COMMIT TRANSACTION;`;
-
-/** Hearts on public stories (ULIDs made now, as favourite_rules wants). */
-const HEARTS_SQL = `
-BEGIN TRANSACTION;
-FOR $h IN $hearts {
-  CREATE type::record('favourite', rand::ulid()) CONTENT {
-    person: type::record('user', $h.person), story: type::record('story', $h.story)
-  } RETURN NONE;
-};
-COMMIT TRANSACTION;`;
 
 const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b);
@@ -305,81 +144,13 @@ describe(`scale: ${STORIES} stories`, () => {
 
   beforeAll(async () => {
     writeFileSync(OUT, '');
-    const loadStart = performance.now();
-    t = await TestDatabase.create();
+    t = await openDataset();
     migrator = await t.migrator();
-    await createPeople(t, { fan: 'user_fan' });
     fan = await t.person('user_fan');
-    await agreeAll(fan);
-    // The people, the moderator and the themes, agreed to the latest texts and trusted.
-    await run(
-      migrator,
-      `LET $terms = fn::legal::latest('termsOfUseAgreement');
-       LET $testimony = fn::legal::latest('testimonyConsent');
-       FOR $i IN 0..$people {
-         LET $u = type::record('user', 'sp_' + <string> $i);
-         CREATE $u CONTENT { termsOfUse: $terms, termsOfUseAgreedAt: time::now(), testimonyConsent: $testimony, testimonyConsentAgreedAt: time::now() } RETURN NONE;
-         CREATE type::record('submitterLimits', record::id($u)) SET user = $u, trusted = true RETURN NONE;
-       };
-       CREATE user:sp_moderator RETURN NONE;
-       FOR $c IN 0..$categories {
-         CREATE type::record('themeCategory', 'c' + <string> $c) SET name = 'Category ' + <string> $c RETURN NONE;
-         FOR $k IN 0..$perCategory {
-           CREATE type::record('theme', 't' + <string> $c + '_' + <string> $k) SET
-             name = 'Topic' + $letters[$c] + $letters[$k],
-             category = type::record('themeCategory', 'c' + <string> $c) RETURN NONE;
-         };
-       };`,
-      {
-        people: PEOPLE,
-        categories: CATEGORIES,
-        perCategory: THEMES_PER_CATEGORY,
-        letters: 'abcdefgh'.split(''),
-      },
-    );
-    report(
-      `People and themes: ${Math.round((performance.now() - loadStart) / 1000)} s`,
-    );
-    for (let from = 0; from < STORIES; from += BATCH) {
-      const stories = Array.from(
-        { length: Math.min(BATCH, STORIES - from) },
-        (_, k) => story(from + k),
-      );
-      await run(migrator, LOAD_SQL, { stories });
-      if ((from + BATCH) % 2_500 === 0)
-        report(
-          `  ${from + BATCH} stories: ${Math.round((performance.now() - loadStart) / 1000)} s`,
-        );
-    }
-    report(`Stories: ${Math.round((performance.now() - loadStart) / 1000)} s`);
     publicIds = await rows<string>(
       migrator,
-      `SELECT VALUE record::id(id) FROM story WHERE currentStatus.status = 'approved'`,
+      `SELECT VALUE record::id(id) FROM story WHERE currentStatus.status = 'approved' ORDER BY id`,
     );
-    const seen = new Set<string>();
-    const hearts = [
-      ...publicIds
-        .slice(0, FAN_HEARTS)
-        .map((s) => ({ person: 'fan', story: s })),
-      ...Array.from({ length: PEOPLE }, (_, p) =>
-        Array.from({ length: 10 }, () => ({
-          person: `sp_${p}`,
-          story: pick(publicIds),
-        })),
-      )
-        .flat()
-        .filter((h) => {
-          const key = `${h.person}/${h.story}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        }),
-    ];
-    for (let from = 0; from < hearts.length; from += 100) {
-      await run(migrator, HEARTS_SQL, {
-        hearts: hearts.slice(from, from + 100),
-      });
-    }
     ({ app, url, passTime } = await startPublicRead(t));
     const [counts] = await rows(
       migrator,
@@ -391,13 +162,12 @@ describe(`scale: ${STORIES} stories`, () => {
          hearts: count(SELECT id FROM favourite)
        }`,
     );
-    report(
-      `Loaded in ${Math.round((performance.now() - loadStart) / 1000)} s: ${JSON.stringify(counts)}`,
-    );
+    report(`Data: ${JSON.stringify(counts)}`);
   });
   afterAll(async () => {
     await app?.close();
-    await t?.close();
+    // Not t.close(): that removes the namespace, and the dataset is kept for the next run.
+    await t?.closeConnections();
   });
 
   it('times the public lists, search, the story page and favourites', async () => {
@@ -462,6 +232,26 @@ describe(`scale: ${STORIES} stories`, () => {
     await time('search: renamed theme name ("topicrenamed"), relevance', () =>
       get('/v1/stories?limit=20&q=topicrenamed&sort=relevance'),
     );
+    // Put the names back, so the kept dataset is as it was.
+    await run(
+      admin,
+      `UPDATE theme:t0_0 SET name = 'Topicaa'; UPDATE theme:t7_7 SET name = 'Topichh';`,
+    );
+    // The super admins' list of every story (R15; api-admin's own query and login), newest
+    // created first: page 1 and 50 pages in.
+    const allStories = (after?: [string, string]) =>
+      run(admin, ALL_STORIES_LIST_SQL, { after, take: 21 });
+    await time('super admins: every story, page 1', () => allStories());
+    let after: [string, string] | undefined;
+    for (let i = 0; i < 50; i++) {
+      const page = (await allStories(after)).at(-1) as {
+        id: string;
+        createdAt: string;
+      }[];
+      const last = page[19];
+      after = [last.createdAt, last.id];
+    }
+    await time('super admins: every story, page 51', () => allStories(after));
     const slug = publicIds[Math.floor(publicIds.length / 2)].replace('_', '-');
     await time('story page (by slug)', () => get(`/v1/stories/${slug}`));
     await time('related stories (story page sidebar)', () =>
