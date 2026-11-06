@@ -450,6 +450,9 @@ importers:
       '@heisreal/health':
         specifier: workspace:*
         version: link:../../libs/health
+      '@heisreal/http':
+        specifier: workspace:*
+        version: link:../../libs/http
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -475,6 +478,9 @@ importers:
       '@nestjs/testing':
         specifier: ^12.3.2
         version: 12.3.2(@nestjs/common@12.3.2(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.3.2)(@nestjs/platform-express@12.3.2)
+      surrealdb:
+        specifier: ^2.0.8
+        version: 2.0.8(tslib@2.8.1)(typescript@6.0.3)
 
   libs/auth:
     dependencies:
