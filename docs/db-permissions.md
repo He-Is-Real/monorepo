@@ -925,8 +925,11 @@ wins. Dev's database is wiped and rebuilt for it (reset `db-review-2-b2`).
     `story.searchText` and `story_fts`.** Item 57's `searchText` kept drafts' words out, but BM25
     still counted every story row, so a draft being created or deleted moved published stories'
     scores and the relevance cursor (Codex, #187 review). `storySearch` (id = the story's key)
-    holds one row per published story: `story` and `searchText`, with the full-text index
-    `storySearch_fts`. `searchText` is the title, description, written text and the current names
+    holds one row per published story: `story`, `searchText`, and what the public lists filter
+    and sort on (Joel, 2026-11-06: "store each story's additional fields on search row"):
+    `primaryFormat`, `themeIds` and `publishedAt` (the current approved entry's), with the
+    full-text index `storySearch_fts`. Search filters, scores, sorts and pages inside it and
+    builds story cards for one page only. `searchText` is the title, description, written text and the current names
     of the story's themes, all equally weighted (Joel, 2026-11-06: "include story themes inside
     the terms search is ranked on too"; category names aren't included). `fn::story::sync_search`
     puts a story's row in step: event `story_search` calls it in the same write that publishes the
@@ -939,6 +942,17 @@ wins. Dev's database is wiped and rebuilt for it (reset `db-review-2-b2`).
     `approved`; `create, update, delete NONE` (events only). Person-linked through its story.
     Public search reads the matching rows' stories and scores from it, then the story's own rules
     and filters apply.
+72. **Public lists read the status log's `(status, publishedAt)` index (scale test, B2;
+    coordinator's decision, query only).** Browse newest and oldest first, a theme's or a
+    format's list: the current approved entries in publish order, filtered by the story's format
+    and theme, until a page is full (3.2.4 stops the index scan at the `LIMIT`), then the cards
+    for that page. The cursor is a range on `publishedAt`; the page's last instant is read whole,
+    so ties still sort by story id across pages. Related stories: one `story_theme_ids` scan
+    (`themeIds CONTAINSANY`) counts the themes each candidate shares; the newest of the level
+    that fills the sidebar come from the status log index. 3.2.4 gotchas found: an `ORDER BY`
+    on two fields sorts everything (no index order), an `OR` in the cursor makes the scan start
+    at the top of the list, a query inside a closure (`.map(|$t| …)`) uses no index, and an IF
+    block answers a one-row array as the row itself.
 
 ## Person-linked tables
 
