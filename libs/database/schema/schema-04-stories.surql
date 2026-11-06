@@ -613,6 +613,8 @@ DEFINE FUNCTION OVERWRITE fn::story::hide($s: any, $reviewed: any, $reason: stri
 DEFINE FUNCTION OVERWRITE fn::story::restorable($s: any) {
   LET $h = (SELECT * FROM ONLY type::record('hiddenStory', record::id($s.id)));
   RETURN $h != NONE AND fn::story::status_of($s) = 'hidden'
+    -- Only a hide the system made for media: a moderator's hide stays until a moderator ends it.
+    AND $s.currentStatus.actor = 'system'
     AND fn::story::approval_problem($s) = NONE
     AND fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s)
     AND $s.submitter.testimonyConsent != NONE;

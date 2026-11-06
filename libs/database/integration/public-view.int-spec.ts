@@ -283,6 +283,14 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     expect(await rows(reader, 'SELECT * FROM story:ann_hidden')).toEqual([]);
   });
 
+  it('a story a moderator hid stays hidden through the next write: only a moderator shows it again', async () => {
+    await run(migrator, 'UPDATE story:ann_hidden SET title = title');
+    expect(await statusOf(migrator, 'ann_hidden')).toBe('hidden');
+    expect(await rows(readers[0][1], 'SELECT * FROM story:ann_hidden')).toEqual(
+      [],
+    );
+  });
+
   it('a withdrawn story stays withdrawn: nobody can publish it again', async () => {
     for (const status of ['approved', 'in_review', 'pending']) {
       await run(
