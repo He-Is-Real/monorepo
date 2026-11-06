@@ -24,4 +24,5 @@ export const isPublished = (path = '') =>
  * A storyStatusLog entry that is its story's current, approved one (for queries on the log's
  * (status, publishedAt) index).
  */
-export const PUBLISHED_ENTRY = "status = 'approved' AND story.currentStatus = id";
+export const PUBLISHED_ENTRY =
+  "status = 'approved' AND story.currentStatus = id";

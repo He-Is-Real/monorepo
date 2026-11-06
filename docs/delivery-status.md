@@ -126,18 +126,8 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
   and whole browser flows run on one phone and one desktop while every page's "fits the screen"
   checks still run on all 14 devices ([#186](https://github.com/He-Is-Real/monorepo/pull/186)).
-
-**In progress (open pull requests):**
-
-- A video's own picture becomes its thumbnail at Bunny when it is sent for review; Bunny keeps
-  the original files for "Download my data", whose links would then last 7 days instead of 1
-  hour ([#160](https://github.com/He-Is-Real/monorepo/pull/160)).
-- Browse and favourites cards barely move once the page has measured them
-  ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
-- A signed-in request isn't cut off when the person's short-lived sign-in pass expires midway
-  ([#165](https://github.com/He-Is-Real/monorepo/pull/165)).
-- **Each story's files as their own records** (database review 2, part B2; Joel, 2026-11-05), in
-  progress: every uploaded video, audio file and picture gets its own record, and the story points
+- **Each story's files as their own records** (database review 2, part B2; Joel, 2026-11-05;
+  [#188](https://github.com/He-Is-Real/monorepo/pull/188)): every uploaded video, audio file and picture gets its own record, and the story points
   at the ones it shows. A replaced or removed file is now deleted by the nightly clean-up once its
   upload link has expired (pictures were left behind before). An approval records which files the
   moderator reviewed, and a story hidden because its media broke comes back on its own only while
@@ -148,9 +138,18 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   2–5 s) and searching for a word in nearly every story takes 1.4 s (was 22 s). Renaming a theme
   carried by 15,000 stories takes about 43 s, accepted for now. The super admins' list of every
   story takes about half a second a page; a possible index is with Joel. Nothing changes for
-  people using the site. Dev's
-  database is wiped and rebuilt once more when this is applied.
-- **Tidy-up after the database rework:** the code that reads a story's status says it in one
+  people using the site. Dev's database is wiped and rebuilt once more for it.
+
+**In progress (open pull requests):**
+
+- A video's own picture becomes its thumbnail at Bunny when it is sent for review; Bunny keeps
+  the original files for "Download my data", whose links would then last 7 days instead of 1
+  hour ([#160](https://github.com/He-Is-Real/monorepo/pull/160)).
+- Browse and favourites cards barely move once the page has measured them
+  ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
+- A signed-in request isn't cut off when the person's short-lived sign-in pass expires midway
+  ([#165](https://github.com/He-Is-Real/monorepo/pull/165)).
+- **Tidy-up after the database rework** ([#189](https://github.com/He-Is-Real/monorepo/pull/189)): the code that reads a story's status says it in one
   place, and the developer notes on database permissions are cut to the rules in force. Nothing
   changes for people using the site.
 

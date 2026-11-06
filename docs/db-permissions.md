@@ -176,22 +176,45 @@ their fence (see "Transactions").
     (`upload_refused:`), the upload limits (`limit_upload_size|duration|hourly|weekly:`; a picture
     doesn't count towards the weekly limit) and, for a picture, that the story still shows
     `expectedImage` (`image_changed:`). It then points the draft at the file. `story_files` refuses
-    a pointer to a row of another story, another kind or detached (`media_not_granted`; system
-    users exempt), and marks the replaced row `detachedAt`.
+    a pointer to a row of another story, another kind or detached (`media_not_granted`) for every
+    login, system users included (two stories sharing a row would have it hidden, detached and
+    deleted through one while the other still shows it), and marks the replaced row `detachedAt`.
+    Dev-seed gives each story its own rows; its stories that never go public use a placeholder row
+    with a made-up Bunny-style id (`00000000-0000-0000-0000-…`) and nothing at Bunny.
   - **Update:** workflow the processing fields (`width`, `height`, `lengthSeconds`,
     `thumbnailPath`, `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
     which refuses unless the story still exists, is the person's, is editable and shows that file:
     `nothing_to_resume:`); events `detachedAt`; housekeeping `removedAt` (once, not before
-    `fn::upload::links_expire_after()`, 2 h: `file_not_removable`).
+    `fn::upload::links_expire_after()`, 2 h: `file_not_removable`). Housekeeping deletes the file
+    at Bunny or in the images zone first (a 404 counts as done, so a placeholder's made-up id is
+    fine); a picture outside the stories' folders (dev-seed's fixed pictures, which every reset
+    reuses) is marked removed but never deleted.
+  - **Processing shows in the story's version (D29).** When a file the story points at changes in
+    a field its owner's story shows (`fn::story::file_view`: `format`, `thumbnailPath`, `width`,
+    `height`, `lengthSeconds`, `processing`), `storyFile_update` steps the story's `version` in the
+    same write (once: not again if that write hid it or showed it again), so the owner's `ETag`
+    and `If-Match` see processing.
   - **Delete:** api-user (erasure); housekeeping a row older than 7 days whose file is removed or
     whose story is gone. Counted from these rows, so replacing a file or deleting a story frees no
     upload limit. Specs: `uploads`, `images`, api-user's `uploads`, housekeeping's suite.
 - **`storySearch`** (search option A, Joel 2026-11-06): one row per published story (`story`,
-  `searchText`: title, description, written text and its themes' current names), full-text index
-  `storySearch_fts`. Everyone reads a row only while its story's current entry is `approved`;
-  only events write it (`story_search`, `storySearch_theme_renamed`, via `fn::story::sync_search`).
-  Its own table because BM25 counts every indexed row: drafts in the index moved published
-  stories' scores. Specs: `story-search`.
+  `searchText`: title, description, written text and its themes' current names; and what public
+  lists filter and sort on, Joel 2026-11-06: `primaryFormat`, `themeIds`, `publishedAt` of the
+  current approved entry), full-text index `storySearch_fts`. Search filters, scores, sorts and
+  pages inside it, then builds cards for one page. Everyone reads a row only while its story's
+  current entry is `approved`; only events write it (`story_search`, `storySearch_theme_renamed`,
+  via `fn::story::sync_search`). Writing a row's words bumps `fence:theme-<id>` for each of its
+  themes, as a theme rename or delete does, so a row built from a snapshot can't commit alongside
+  a rename or delete of one of its themes. Its own table because BM25 counts every indexed row:
+  drafts in the index moved published stories' scores. Specs: `story-search`.
+- **Public lists read the status log's `(status, publishedAt)` index** (scale test; query only).
+  Browse newest/oldest, by theme or format: the current approved entries (`PUBLISHED_ENTRY`) in
+  publish order, filtered by the story's format and theme, until a page is full (3.2.4 stops the
+  index scan at the `LIMIT`), then that page's cards. The cursor is a range on `publishedAt`; the
+  page's last instant is read whole, so ties sort by story id across pages. Related stories: one
+  `story_theme_ids` scan (`themeIds CONTAINSANY`) counts shared themes; the newest of the level
+  that fills the sidebar come from the status log index. Local timing:
+  `pnpm nx run api-public-read:scale-test`.
 
 ### Themes (`schema-03-themes.surql`; themes plan v3)
 
@@ -333,8 +356,9 @@ retried`. One fence per person: unrelated people never conflict. The same goes f
 
 ## SurrealDB 3.2.4 gotchas
 
-Found in testing from 2026-10-18. Where a test pins one, it's named; the rest are relied on by
-the schema and caught only by review.
+Found in testing from 2026-10-18. Each names the spec that pins it; `engine-gotchas` pins them
+on scratch tables, so after an engine upgrade a failure there says which gotcha changed. Unnamed
+ones are relied on by the schema and caught only by review.
 
 **Permissions and sessions**
 
@@ -345,11 +369,13 @@ the schema and caught only by review.
 - For a `service` session `$auth.id` is NONE in queries (the `service` table is
   `PERMISSIONS NONE`), and `SELECT count() FROM t GROUP ALL` with no WHERE skips a row rule that
   reads `$auth.id`. So every rule and query compares `$auth` itself (`submitter = $auth`,
-  `$auth IN [service:…]`). (`public-view` counts every readable table without a WHERE)
+  `$auth IN [service:…]`). (`engine-gotchas`; `public-view` counts every readable table without a
+  WHERE)
 - Events run with elevated privileges: an event fired by a person's write can write a
   `PERMISSIONS NONE` table. Events are trusted code; keep them small and deliberate.
+  (`engine-gotchas`)
 - A function runs with the caller's permissions in queries and permission clauses (so it sees
-  nothing the caller can't: fail closed), but elevated inside events.
+  nothing the caller can't: fail closed), but elevated inside events. (`engine-gotchas`)
 - Row and field rules can follow links both ways without recursing (the story's rule reads
   `currentStatus.status`, the entry's rule reads `story.currentStatus`). (`public-view`)
 - In a person's session, a projection aliased `id` (`<string> id AS id`) changed what `id` meant to
@@ -362,28 +388,36 @@ the schema and caught only by review.
 
 - `$auth` is usable in a field `VALUE`.
 - `DEFAULT` accepts a client-supplied value; server-controlled fields use `VALUE` (… `READONLY`).
+  (`engine-gotchas`)
 - A field `VALUE` also runs for a nested `SET` (`SET a.b = …`), with `$value` the whole new
-  field and `$before` the old one.
+  field and `$before` the old one. (`engine-gotchas`)
 - Inside a SELECT in a field's `VALUE`, `$this` is the row that SELECT reads, not the record being
   written: bind it first (`LET $story = $this.story`; `storyStatusLog.publishedAt`). (`public-view`
   checks each story keeps its own `publishedAt`)
 - Inside a subquery, a computed field's `$parent` is the outer query's record: computed fields use
-  their own record's fields directly, never `$parent`.
+  their own record's fields directly, never `$parent`. (`engine-gotchas`)
 - `array<object>` items store undefined keys (nested objects refuse them), and `REMOVE FIELD` keeps
-  stored values: check keys explicitly, clean up with a data script.
+  stored values: check keys explicitly, clean up with a data script. (`engine-gotchas`)
 - Inside a function a caller's bound variable shadows a `DEFINE PARAM`: nothing a caller mustn't
-  control lives in a param (`_setting:current` is a row).
+  control lives in a param (`_setting:current` is a row). (`engine-gotchas`)
 - `string::trim` keeps U+FEFF (JavaScript's `trim()` strips it) and strips U+0085 (JavaScript
   keeps it): `fn::text::trimmed_length` and `trimmedTextLength` agree on both. (`story-shape`)
 
 **Queries and indexes**
 
 - An element index over record links (`themeRefs.*`) makes `CONTAINS` return no rows; over strings
-  it works: hence `story.themeIds`.
-- A query inside a closure (`$list.filter(|$x| …)`) iterates the whole table, never an index:
-  `/v1/themes` sends its probes as top-level statements.
-- A correlated subquery with `ORDER BY … LIMIT 1` returns wrong rows: use
-  `array::last(… ORDER BY … ASC)` or `array::min`.
+  it works: hence `story.themeIds`. (`engine-gotchas`)
+- A query inside a closure (`$list.filter(|$x| …)`, `.map(|$t| …)`) iterates the whole table,
+  never an index: `/v1/themes` sends its probes as top-level statements; related stories use one
+  `CONTAINSANY` scan. (`engine-gotchas`)
+- An `ORDER BY` on two fields sorts every matching row (no index order), and an `OR` in a cursor
+  condition makes an index scan start at the top of the list: the public lists page on one field
+  and a range. (The `OR`: `engine-gotchas`; the `ORDER BY`: the local scale test.)
+- An `IF` block answers a one-row array as the row itself: wrap it in `array::flatten([…])`.
+  (`engine-gotchas`)
+- A correlated subquery with `ORDER BY … LIMIT 1` returned wrong rows (seen on the in-memory
+  engine; a minimal case gives the right rows on RocksDB): use `array::last(… ORDER BY … ASC)` or
+  `array::min`.
 - Left to itself the planner may pick the wrong index (`storyStatusLog.publishedAt` names
   `WITH INDEX storyStatusLog_story`); `EXPLAIN` on a local database before trusting a plan.
 - Re-defining a full-text index over rows can make the COMMIT fail with a retryable conflict: the
