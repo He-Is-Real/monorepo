@@ -317,6 +317,13 @@ Built in the database (the pages and the queue are planned, M3):
   and shows again when media breaks and works again.
 - **A story can't be approved until every upload is processed** and its size and length are
   known, so nothing unchecked reaches the public. (A2)
+- **Media ready (M2 plan item 13; D76, D78):** when Bunny says a video or audio file finished
+  encoding or failed, the media worker asks Bunny itself and the result writer records the answer
+  on that file only: ready with its real size, length and Bunny's thumbnail; still encoding;
+  or failed (also when Bunny no longer has it). An answer about a file the story no longer
+  shows is dropped. Built: Bunny's notice, the queue and the writer; the worker on Joel's machine
+  is the next piece, so until it runs, files stay "not processed yet". An audio file's picture
+  is set by a later step (D127), so audio stories can't be approved until then.
 - **An approved story whose media breaks is hidden, not un-approved**, and comes back on its own
   when the same files work again: the approval records which video or audio file and which
   picture the moderator reviewed, and the story shows again only while it still points at both.
@@ -338,8 +345,6 @@ Planned (M3):
   with Approve, Request changes, Reject and Escalate. Reject and Request changes need feedback,
   written pastorally, which the person sees on their profile.
 - A story changed after it went public needs approving again. (D59, D66)
-- Bunny's "processing finished" notice marks a video ready with its real size and length (end of
-  M2, the "media ready" step). (D76)
 
 ## Donations
 
@@ -455,7 +460,11 @@ For developers. Details are in the linked documents.
 - **Nothing on GKE is reachable from the internet;** public entry points are Cloud Run only. No
   load balancer. (D3, D4; AGENTS.md)
 - **Background work (Dapr)** runs off Google Cloud, on Joel's machine and later church
-  hardware, pulling from Pub/Sub; a private Cloud Run service writes results. (D78)
+  hardware, pulling from Pub/Sub; a private Cloud Run service writes results. (D78) Work waits in
+  Pub/Sub (in London, up to 31 days) while that machine is off; the worker signs in with Joel's
+  own gcloud login acting as a narrow `media-worker` account, never a key file (D126), and uses
+  only Dapr's Pub/Sub part, with nothing stored on the machine (D129). Media ready is the first
+  such work (`docs/media-runbook.md`, "Media ready").
 - **No CDN in front of the site or APIs in dev;** browsers and CDNs are told not to keep API
   responses in dev. (D51) api-public-read keeps public answers in its own memory for at most 60
   seconds, per running copy, with no timers, so Cloud Run still bills only per request and scales
