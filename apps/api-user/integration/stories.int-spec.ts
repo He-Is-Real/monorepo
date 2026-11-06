@@ -104,7 +104,7 @@ describe('the submit flow for written stories', () => {
   const storiesOf = (who: string) =>
     rows(
       migrator,
-      'SELECT VALUE status FROM story WHERE submitter.clerkUserId = $c',
+      'SELECT VALUE fn::story::status_of($this) FROM story WHERE submitter.clerkUserId = $c',
       { c: `user_${who}` },
     );
   /** A person as the flow leaves them: agreed to the latest terms and testimony consent. */

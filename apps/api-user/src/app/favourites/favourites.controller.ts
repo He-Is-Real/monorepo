@@ -47,8 +47,8 @@ export interface FavouritesPage {
  * The person's hearts (M2): `PUT`/`DELETE /v1/account/favourites/{storyId}` and
  * `GET /v1/account/favourites`, all in the person's own database session (D27), where the
  * `favourite` table shows them their own rows and nobody else's. Hearts are private (founder,
- * 2026-10-25): no counts anywhere here. The list reads `publicStory` (C15), so a story that is no
- * longer public drops out of it on its own; with `storyId` it answers "which of these are my
+ * 2026-10-25): no counts anywhere here. The list shows approved stories only (C15; R11: the
+ * story's current status entry), so a story that is no longer public drops out of it on its own; with `storyId` it answers "which of these are my
  * favourites?" for a page of cards, which web's browser asks (D83).
  */
 @Controller('v1/account/favourites')
@@ -153,10 +153,10 @@ export class FavouritesController {
          WHERE person = $auth.id
            AND ($among = NONE OR story IN $among)
            AND ($afterId = NONE OR id < $afterId)
-           AND record::exists(type::record('publicStory', record::id(story)))
+           AND story.currentStatus.status = 'approved'
          ORDER BY id DESC
          LIMIT $take;
-       LET $refs = $hearts.slice(0, $show).map(|$h| type::record('publicStory', $h.story));
+       LET $refs = $hearts.slice(0, $show).map(|$h| type::record('story', $h.story));
        RETURN {
          hearts: $hearts,
          cards: IF array::len($refs) > 0 { (SELECT ${SUMMARY_FIELDS} FROM $refs) } ELSE { [] },

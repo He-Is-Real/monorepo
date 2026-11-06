@@ -151,8 +151,17 @@ const EDITABLE = ['draft', 'changes_requested'];
 /** Codes the commands THROW inside their transaction, read back from the error. */
 const ERR =
   /\bstory_cmd:(not_found|stale_version|locked|not_written|not_withdrawable|not_deletable)\b/;
-/** WithdrawStory: anything submitted and not yet finished with (D61: withdrawn stays withdrawn). */
-const WITHDRAWABLE = ['pending', 'in_review', 'approved', 'changes_requested'];
+/**
+ * WithdrawStory: anything submitted and not yet finished with (D61: withdrawn stays withdrawn),
+ * hidden stories included (shown to their owner as published).
+ */
+const WITHDRAWABLE = [
+  'pending',
+  'in_review',
+  'approved',
+  'hidden',
+  'changes_requested',
+];
 /**
  * DeleteStory (D71): the person's own draft, withdrawn or rejected story, or one sent back for
  * changes (no need to withdraw it first). The database's story permission says the same, so it
@@ -161,7 +170,8 @@ const WITHDRAWABLE = ['pending', 'in_review', 'approved', 'changes_requested'];
 const DELETABLE = ['draft', 'changes_requested', 'withdrawn', 'rejected'];
 
 interface RawStory {
-  id: string;
+  /** `story:<id>` (STORY_FIELDS' storyRef). */
+  storyRef: string;
   version: number;
   slug: string;
   status: string;
@@ -189,11 +199,33 @@ interface RawStory {
   sharingAt?: string | null;
 }
 
-const STORY_FIELDS = `<string> id AS id, version, slug, status, title, description, body,
-  bylineName, primaryFormat, themeRefs.map(|$t| <string> $t) AS themeRefs, media, image, rejectionFeedback,
-  submittedAt, approvedAt, createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
+/**
+ * The status its owner sees (R6: the story's current status entry; none yet = draft). A story
+ * hidden because of its media shows as published, as before the status log: its owner can't
+ * act on it, and it comes back by itself.
+ */
+const OWNER_STATUS = `IF currentStatus.status = 'hidden' { 'approved' }
+  ELSE { currentStatus.status ?? 'draft' }`;
+
+/**
+ * From the story's status log (R6), in the owner's session (they read their own entries, never
+ * who moderated): the moderator's note on the current changes request or rejection, the first
+ * submission's time and the first publication's. The id as `storyRef`: in a person's session,
+ * an alias named `id` changed what `id` meant to the other fields (SurrealDB 3.2.4).
+ */
+const STORY_FIELDS = `version, slug, ${OWNER_STATUS} AS status, title,
+  description, body, bylineName, primaryFormat, themeRefs.map(|$t| <string> $t) AS themeRefs,
+  media, image,
+  IF currentStatus.status IN ['changes_requested', 'rejected'] { currentStatus.comment }
+    AS rejectionFeedback,
+  array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND status = 'pending')
+    AS submittedAt,
+  array::min(SELECT VALUE publishedAt FROM storyStatusLog
+    WHERE story = $parent.id AND status = 'approved') AS approvedAt,
+  createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
   IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
-  socialMediaSharingConsentAgreedAt AS sharingAt`;
+  socialMediaSharingConsentAgreedAt AS sharingAt,
+  <string> id AS storyRef`;
 
 function fail400(pointer: string, message: string): never {
   throw new BadRequestException({
@@ -256,7 +288,7 @@ export class StoryStore {
   ): Promise<{ data: StoryMine[]; next?: { createdAt: string; id: string } }> {
     const where = [
       'submitter = $auth',
-      ...(status ? ['status = $status'] : []),
+      ...(status ? [`(${OWNER_STATUS}) = $status`] : []),
       ...(cursor
         ? [
             '(createdAt < <datetime> $c OR (createdAt = <datetime> $c AND id < <record> $cid))',
@@ -265,7 +297,7 @@ export class StoryStore {
     ].join(' AND ');
     const [rows] = (await runQuery(
       this.person,
-      `SELECT ${STORY_FIELDS}, createdAt AS rawCreatedAt FROM story WHERE ${where}
+      `SELECT ${STORY_FIELDS}, id, createdAt AS rawCreatedAt FROM story WHERE ${where}
          ORDER BY createdAt DESC, id DESC LIMIT $limit`,
       {
         status,
@@ -282,7 +314,7 @@ export class StoryStore {
       ),
       next:
         rows.length > limit && last
-          ? { createdAt: last.rawCreatedAt, id: recordKey(last.id) }
+          ? { createdAt: last.rawCreatedAt, id: recordKey(last.storyRef) }
           : undefined,
     };
   }
@@ -390,7 +422,8 @@ export class StoryStore {
         const results = await runQuery(
           this.person,
           `BEGIN TRANSACTION;
-           LET $s = (SELECT version, status FROM type::record('story', $id))[0];
+           LET $s = (SELECT version, fn::story::status_of($this) AS status
+             FROM type::record('story', $id))[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
@@ -412,13 +445,15 @@ export class StoryStore {
   }
 
   /**
-   * SubmitStory: draft/changes_requested → pending, once per Idempotency-Key, at `ifMatch`.
+   * SubmitStory: draft/changes_requested → pending (R6: a pending status entry, which moves the
+   * story's pointer and version), once per Idempotency-Key, at `ifMatch`.
    * `checkMedia`: a video or audio story's file checks (uploads.ts), run with the others.
    * `shareVersion` (plan 4e): the version of the social media sharing consent ticked at the end
    * of the upload, recorded on the story in the submission's own write, with its
    * Idempotency-Key, so the two commit together or neither does, and a replay records nothing
    * again. It must still be the latest (409 `agreement_version_changed`, nothing submitted).
-   * Without it the story's choice is left as it is: it can't be taken back.
+   * Without it the story's choice is left as it is: it can't be taken back. Answers the story's
+   * version after both writes.
    */
   async submit(
     id: string,
@@ -490,10 +525,14 @@ export class StoryStore {
               IF $s = NONE { THROW 'story_cmd:not_found' };
               IF $s.version != $version { THROW 'story_cmd:stale_version' };
               ${share}
-              LET $u = (UPDATE ONLY type::record('story', $id)
-                MERGE object::extend(${share ? '$sharing' : '{}'}, { status: 'pending' })
-                RETURN id, version);
-              IF $u = NONE { THROW 'story_cmd:not_written' };
+              ${share ? `IF $sharing != {} {
+                LET $w = (UPDATE ONLY type::record('story', $id) MERGE $sharing RETURN id);
+                IF $w = NONE { THROW 'story_cmd:not_written' };
+              };` : ''}
+              LET $e = (CREATE ONLY storyStatusLog CONTENT {
+                story: type::record('story', $id), status: 'pending' } RETURN id);
+              IF $e = NONE { THROW 'story_cmd:not_written' };
+              LET $u = (SELECT id, version FROM ONLY type::record('story', $id));
               LET $result = { id: $u.id, version: $u.version };`,
             vars: {
               id,
@@ -510,9 +549,9 @@ export class StoryStore {
   }
 
   /**
-   * WithdrawStory at `ifMatch`: the story leaves review or the site (→ `withdrawn`), and its
-   * `publicStory` row goes in the same transaction (D17, D51: gone on the next request). No
-   * consent needed, and nothing in it changes.
+   * WithdrawStory at `ifMatch`: the story leaves review or the site (R6: a withdrawn status
+   * entry; D17, D51: gone from public reads on the next request). No consent needed, and nothing
+   * in it changes.
    */
   async withdraw(id: string, ifMatch: number): Promise<CommandResult> {
     try {
@@ -520,13 +559,15 @@ export class StoryStore {
         const results = await runQuery(
           this.person,
           `BEGIN TRANSACTION;
-           LET $s = (SELECT version, status FROM type::record('story', $id))[0];
+           LET $s = (SELECT version, fn::story::status_of($this) AS status
+             FROM type::record('story', $id))[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN $withdrawable { THROW 'story_cmd:not_withdrawable' };
-           LET $u = (UPDATE ONLY type::record('story', $id) SET status = 'withdrawn' RETURN id, version);
-           IF $u = NONE { THROW 'story_cmd:not_written' };
-           DELETE type::record('publicStory', $id);
+           LET $e = (CREATE ONLY storyStatusLog CONTENT {
+             story: type::record('story', $id), status: 'withdrawn' } RETURN id);
+           IF $e = NONE { THROW 'story_cmd:not_written' };
+           LET $u = (SELECT id, version FROM ONLY type::record('story', $id));
            $u;
            COMMIT TRANSACTION;`,
           { id, version: ifMatch, withdrawable: WITHDRAWABLE },
@@ -544,7 +585,7 @@ export class StoryStore {
 
   /**
    * DeleteStory at `ifMatch` (D71): the person's own draft, withdrawn, rejected or
-   * changes-requested story, gone with its read-model rows, reviews and others' hearts
+   * changes-requested story, gone with its status log, hiddenStory row and others' hearts
    * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its video and audio
    * upload grants, D80), for the caller to delete at Bunny once this has committed. Its picture
    * folder is queued by the delete itself (story_picture_folder), for housekeeping. The grants
@@ -556,7 +597,8 @@ export class StoryStore {
         const results = await runQuery(
           this.person,
           `BEGIN TRANSACTION;
-           LET $s = (SELECT version, status FROM type::record('story', $id))[0];
+           LET $s = (SELECT version, fn::story::status_of($this) AS status
+             FROM type::record('story', $id))[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN $deletable { THROW 'story_cmd:not_deletable' };
@@ -590,7 +632,7 @@ export class StoryStore {
       this.person,
       `RETURN fn::settings::submission();
        RETURN fn::limits::effective($auth);
-       RETURN count(SELECT id FROM story WHERE submitter = $auth AND status = 'draft');
+       RETURN count(SELECT id FROM story WHERE submitter = $auth AND currentStatus = NONE);
        RETURN fn::story::next_submission_at($auth);
        RETURN fn::upload::next_allowed_at($auth, 'video');
        RETURN count(SELECT id FROM submissionLog WHERE person = $auth AND at > time::now() - 7d);
@@ -691,7 +733,7 @@ export class StoryStore {
       themes.map(({ ref, ...theme }) => [ref, theme satisfies ThemeRef]),
     );
     return rows.map((r) => ({
-      id: recordKey(r.id),
+      id: recordKey(r.storyRef),
       version: r.version,
       slug: r.slug,
       status: r.status,
@@ -870,7 +912,7 @@ export class StoryStore {
         : undefined;
     if (code === 'not_found') return new NotFoundException();
     if (code === 'stale_version') return new StaleVersionException();
-    if (/status change not allowed/.test(String(err))) {
+    if (/status_step: a person can.t move a story/.test(String(err))) {
       return new ConflictException({
         code: 'story_not_submittable',
         message:

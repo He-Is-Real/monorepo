@@ -48,6 +48,8 @@ tags:
     description: 'The privacy policy and terms of use: their numbered versions and publishing (D121, D125).'
   - name: SubmissionSettings
     description: 'The submission limits everyone submits under (W3, D94, D112, D113), adjusted at /admin/limits.'
+  - name: AllStories
+    description: 'Every story in every status, drafts included, read-only, for super admins (R15).'
 
 paths:
   /health:
@@ -461,6 +463,75 @@ paths:
           $ref: './components.yaml#/components/responses/NotFound'
 
   # ------------------------------------------------------------------ themes (plan v3)
+  /v1/admin/stories:
+    get:
+      tags: [AllStories]
+      operationId: listAllStories
+      summary: Every story, any status, drafts included (super admins)
+      description: |
+        R15 (Joel, 2026-11-05): a read-only list of every story in every status (draft, pending,
+        in review, approved, changes requested, rejected, withdrawn, hidden), newest first (by
+        creation, then id). SuperAdmin only: moderators and admins see stories from `pending` on,
+        through moderation. No command changes a story from here.
+      x-required-role: SuperAdmin
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/limit'
+        - $ref: './components.yaml#/components/parameters/cursor'
+      responses:
+        '200':
+          description: A page of stories.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './components.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: './components.yaml#/components/schemas/StoryAnyStatus'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+
+  /v1/admin/stories/{id}:
+    get:
+      tags: [AllStories]
+      operationId: getAnyStory
+      summary: One story in any status, with its status log and files (super admins)
+      description: |
+        R15: the story as stored (its words, who submitted it, its consent and its media and
+        picture with their processing state) and its whole status log (R6), oldest first, with who
+        added each entry. Read-only; SuperAdmin only.
+      x-required-role: SuperAdmin
+      x-milestone: M2
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+      responses:
+        '200':
+          description: The story.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/StoryAnyStatusDetail'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+
   /v1/admin/themes:
     get:
       tags: [Themes]

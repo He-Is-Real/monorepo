@@ -776,7 +776,8 @@ export class Uploads {
   ): Promise<DraftMedia> {
     const [rows] = (await runQuery(
       person,
-      `SELECT version, status, primaryFormat, media[0].bunnyVideoId AS videoId,
+      `SELECT version, fn::story::status_of($this) AS status, primaryFormat,
+         media[0].bunnyVideoId AS videoId,
          image.path AS imagePath FROM type::record('story', $id)`,
       { id },
     )) as [DraftMedia[]];

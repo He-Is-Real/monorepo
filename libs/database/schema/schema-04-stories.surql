@@ -220,10 +220,15 @@ DEFINE FIELD OVERWRITE slugHistory   ON story TYPE array<string>
 -- fields can't be indexed the same way (db review 2, section 6).
 DEFINE FIELD OVERWRITE themeIds      ON story TYPE array<string>
   VALUE (themeRefs ?? []).map(|$t| record::id($t));
--- A full-text index covers one field, so search goes over a computed field. The index also holds
--- unpublished words, but the public's results are filtered by the row rule (R11).
-DEFINE FIELD OVERWRITE searchText    ON story TYPE string
-  VALUE string::join(' ', title, description, body ?? '')
+-- A full-text index covers one field, so search goes over a computed field. Only an approved
+-- story's words (NONE otherwise, recomputed by the write that moves its status pointer): BM25's
+-- scores, which the public sees in a relevance cursor, are computed over everything the index
+-- holds, so unpublished words in it could be inferred from them (security review, B1). Defined
+-- after currentStatus, so it reads the pointer this write sets.
+DEFINE FIELD OVERWRITE searchText    ON story TYPE option<string>
+  VALUE IF $this.currentStatus.status = 'approved' {
+    string::join(' ', title, description, body ?? '')
+  }
   PERMISSIONS FOR select WHERE $auth != service:housekeeping;
 -- R6: a story's status (a story value already read, e.g. $before / $after in events): its
 -- newest status entry's, or 'draft' with none.

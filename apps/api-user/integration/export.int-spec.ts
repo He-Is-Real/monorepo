@@ -16,6 +16,7 @@ import {
   processed,
   rows,
   run,
+  step,
   STORY_TEXT_PADDING,
   submit,
   TestDatabase,
@@ -156,8 +157,8 @@ describe('download my data', () => {
   }
 
   /**
-   * A moderator's decision on a story, as moderation will record it (M3): the status set as a
-   * system user would (as my-stories does), the published copy and the review by api-admin.
+   * A moderator's decision on a story, as moderation will record it (M3): api-admin's status
+   * entries (R6), picking it up and deciding.
    */
   async function decide(
     id: string,
@@ -167,23 +168,12 @@ describe('download my data', () => {
     if (decision === 'approve') {
       await approve(admin, id);
     } else {
-      await run(
-        migrator,
-        `UPDATE type::record('story', $id) SET status = $status, rejectionFeedback = $feedback`,
-        {
-          id,
-          feedback,
-          status: decision === 'reject' ? 'rejected' : 'changes_requested',
-        },
-      );
-      await run(
+      await step(admin, id, 'in_review');
+      await step(
         admin,
-        `LET $s = type::record('story', $id);
-         CREATE moderationReview CONTENT {
-           story: $s, moderator: user:modq7, decision: $decision,
-           feedbackToSubmitter: $feedback, storyVersion: (SELECT VALUE version FROM ONLY $s)
-         };`,
-        { id, decision, feedback },
+        id,
+        decision === 'reject' ? 'rejected' : 'changes_requested',
+        { comment: feedback },
       );
     }
   }
@@ -195,7 +185,10 @@ describe('download my data', () => {
       `LET $u = type::record('user', $who);
        RETURN {
          stories: (SELECT VALUE record::id(id) FROM story WHERE submitter = $u),
-         reviews: (SELECT VALUE decision FROM moderationReview WHERE story.submitter = $u),
+         reviews: (SELECT VALUE { approved: 'approve', rejected: 'reject',
+             changes_requested: 'request_changes' }[status]
+           FROM storyStatusLog WHERE story.submitter = $u AND actor = 'moderator'
+             AND status IN ['approved', 'rejected', 'changes_requested']),
          agreements: (SELECT VALUE [record::id(termsOfUse), record::id(testimonyConsent)]
            FROM ONLY $u),
          hearts: (SELECT VALUE record::id(story) FROM favourite WHERE person = $u),

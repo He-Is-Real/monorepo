@@ -11,22 +11,32 @@ export const LINK_SECONDS = 60 * 60;
 /**
  * Everything the database holds about the person, read in one query in **their own session**
  * (D27): every table below shows a person their own rows and nobody else's, so the export can't
- * reach anyone else's data whatever this query asks. `moderationReview.moderator` reads as absent
- * to them (api-admin's alone), and the story fields kept from them (`lockedBy`) aren't asked for.
+ * reach anyone else's data whatever this query asks. A status entry's moderator (`by`) reads as
+ * absent to them (api-admin's alone). Status, feedback and dates come from each story's status
+ * log (R6), as GetStory reads them (story-store.ts).
  */
 const HELD_SQL = `
-LET $stories = SELECT id, slug, status, title, description, body, bylineName, primaryFormat,
+LET $stories = SELECT id, slug,
+    IF currentStatus.status = 'hidden' { 'approved' } ELSE { currentStatus.status ?? 'draft' }
+      AS status,
+    title, description, body, bylineName, primaryFormat,
     themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes, media, image,
-    rejectionFeedback, createdAt, updatedAt, submittedAt, approvedAt,
+    IF currentStatus.status IN ['changes_requested', 'rejected'] { currentStatus.comment }
+      AS rejectionFeedback,
+    createdAt, updatedAt,
+    array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND status = 'pending')
+      AS submittedAt,
+    array::min(SELECT VALUE publishedAt FROM storyStatusLog
+      WHERE story = $parent.id AND status = 'approved') AS approvedAt,
     fn::story::draft_expires_at(id) AS draftExpiresAt,
     IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
     socialMediaSharingConsentAgreedAt AS sharingAt
   FROM story WHERE submitter = $auth ORDER BY createdAt DESC, id DESC;
 LET $mine = $stories.map(|$s| $s.id);
-LET $public = $stories.map(|$s| type::record('publicStory', record::id($s.id)));
-LET $hearts = SELECT id, record::id(story) AS story, time::from_ulid(record::id(id)) AS createdAt
+LET $hearts = SELECT id, story AS ref, record::id(story) AS story,
+    time::from_ulid(record::id(id)) AS createdAt
   FROM favourite WHERE person = $auth ORDER BY id DESC;
-LET $hearted = $hearts.map(|$h| type::record('publicStory', $h.story));
+LET $hearted = $hearts.map(|$h| $h.ref);
 RETURN {
   user: (SELECT record::id(id) AS id, createdAt,
       IF termsOfUse != NONE { record::id(termsOfUse) } AS termsVersion,
@@ -35,16 +45,20 @@ RETURN {
       testimonyConsentAgreedAt AS testimonyAt
     FROM ONLY $auth),
   stories: $stories,
-  published: IF array::len($public) > 0 {
-    (SELECT record::id(id) AS id, publishedAt FROM $public)
+  published: IF array::len($mine) > 0 {
+    (SELECT record::id(id) AS id, currentStatus.publishedAt AS publishedAt FROM $mine
+       WHERE currentStatus.status = 'approved')
   } ELSE { [] },
+  -- The moderators' decisions in the status log (R6), as the moderation list has always shown
+  -- them: approve, reject, request_changes.
   reviews: IF array::len($mine) > 0 {
-    (SELECT record::id(story) AS story, decision, feedbackToSubmitter, storyVersion, decidedAt
-       FROM moderationReview WHERE story IN $mine ORDER BY decidedAt ASC)
+    (SELECT record::id(story) AS story, status, comment, storyVersion, at
+       FROM storyStatusLog WHERE story IN $mine AND actor = 'moderator'
+         AND status IN ['approved', 'rejected', 'changes_requested'] ORDER BY at ASC)
   } ELSE { [] },
-  hearts: $hearts,
+  hearts: $hearts.map(|$h| { story: $h.story, createdAt: $h.createdAt }),
   heartedPublic: IF array::len($hearted) > 0 {
-    (SELECT record::id(id) AS id, slug FROM $hearted)
+    (SELECT record::id(id) AS id, slug FROM $hearted WHERE currentStatus.status = 'approved')
   } ELSE { [] },
   limits: (SELECT trusted, openDraftsMax, submissionsPer7Days, uploadRequestsPerHour,
       uploadsPer7Days, updatedAt
@@ -108,10 +122,10 @@ interface Held {
   published: { id: string; publishedAt: string }[];
   reviews: {
     story: string;
-    decision: string;
-    feedbackToSubmitter?: Opt<string>;
+    status: 'approved' | 'rejected' | 'changes_requested';
+    comment?: Opt<string>;
     storyVersion: number;
-    decidedAt: string;
+    at: string;
   }[];
   hearts: { story: string; createdAt: string }[];
   heartedPublic: { id: string; slug: string }[];
@@ -192,6 +206,13 @@ const EFFECTIVE_LIMITS = [
 ] as const;
 
 /** The contract's `AccountExport`. */
+/** A moderator's status entry (R6) as the file names the decision. */
+const DECISION = {
+  approved: 'approve',
+  rejected: 'reject',
+  changes_requested: 'request_changes',
+} as const;
+
 export function toExport(
   held: Held,
   {
@@ -206,10 +227,10 @@ export function toExport(
     held.reviews
       .filter((r) => r.story === story)
       .map((r) => ({
-        decision: r.decision,
-        feedbackToSubmitter: or(r.feedbackToSubmitter),
+        decision: DECISION[r.status],
+        feedbackToSubmitter: or(r.comment),
         storyVersion: r.storyVersion,
-        decidedAt: iso(r.decidedAt) as string,
+        decidedAt: iso(r.at) as string,
       }));
   const publicPath = new Map(
     held.heartedPublic.map((p) => [p.id, `/stories/${p.slug}`]),

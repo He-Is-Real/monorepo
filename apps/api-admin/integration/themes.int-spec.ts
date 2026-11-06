@@ -295,7 +295,7 @@ describe('themes (api-admin)', () => {
     expect(
       await rows(
         migrator,
-        'SELECT VALUE themeIds FROM ONLY publicStory:bob_live',
+        'SELECT VALUE themeIds FROM ONLY story:bob_live',
       ),
     ).toEqual([]);
     expect(

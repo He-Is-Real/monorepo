@@ -120,7 +120,7 @@ describe('my stories: withdraw and delete', () => {
     (
       await rows<string>(
         migrator,
-        `SELECT VALUE status FROM type::record('story', $id)`,
+        `SELECT VALUE fn::story::status_of($this) FROM type::record('story', $id)`,
         { id },
       )
     )[0];
@@ -132,12 +132,27 @@ describe('my stories: withdraw and delete', () => {
         { id },
       )
     )[0];
-  /** A moderator's status (in_review, rejected …), set as a system user would. */
+  /**
+   * A moderator's status (in_review, changes_requested …) on a draft, as the status log (R6)
+   * records the way there: submitted by the person, picked up and decided by a moderator. Added
+   * as a system user, which names who did each step.
+   */
   const moderate = (id: string, status: string) =>
-    run(migrator, `UPDATE type::record('story', $id) SET status = $status`, {
-      id,
-      status,
-    });
+    run(
+      migrator,
+      `FOR $step IN $steps {
+         CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: $step[0],
+           actor: $step[1], by: IF $step[1] = 'moderator' { user:moderator } };
+       };`,
+      {
+        id,
+        steps: [
+          ['pending', 'person'],
+          ['in_review', 'moderator'],
+          ...(status === 'in_review' ? [] : [[status, 'moderator']]),
+        ],
+      },
+    );
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -207,9 +222,11 @@ describe('my stories: withdraw and delete', () => {
     });
     expect(await statusOf(id)).toBe('withdrawn');
     expect(
-      await rows(migrator, `SELECT id FROM type::record('publicStory', $id)`, {
-        id,
-      }),
+      await rows(
+        await t.service('api_public_read'),
+        `SELECT id FROM type::record('story', $id)`,
+        { id },
+      ),
     ).toEqual([]);
     // Withdrawn stays withdrawn (D61): nothing to withdraw again.
     expect((await withdraw('ann', id, live + 1)).body.code).toBe(
@@ -222,7 +239,7 @@ describe('my stories: withdraw and delete', () => {
         migrator,
         `RETURN [
            (SELECT id FROM type::record('story', $id)),
-           (SELECT id FROM moderationReview WHERE story = type::record('story', $id)),
+           (SELECT id FROM storyStatusLog WHERE story = type::record('story', $id)),
            (SELECT id FROM favourite WHERE story = type::record('story', $id))
          ]`,
         { id },

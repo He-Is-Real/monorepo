@@ -197,6 +197,19 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     ).toEqual(['story:ann_live', 'story:bob_live']);
   });
 
+  it('the search index holds only approved stories’ words: its scores can’t reveal others', async () => {
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE id FROM story WHERE searchText != NONE ORDER BY id`,
+      ),
+    ).toEqual(['story:ann_live', 'story:bob_live']);
+    // A draft's own words find nothing, whoever searches (the system user included).
+    expect(
+      await rows(migrator, `SELECT VALUE id FROM story WHERE searchText @1@ 'ann_draft'`),
+    ).toEqual([]);
+  });
+
   it('the owner still sees every one of their stories, and their own log without names', async () => {
     expect(
       (await rows<string>(ann, 'SELECT VALUE id FROM story')).length,

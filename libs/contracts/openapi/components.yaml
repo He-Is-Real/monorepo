@@ -2092,6 +2092,153 @@ components:
                 type: string
                 format: date-time
 
+    StoryStatusLogged:
+      type: string
+      description: |
+        A status as the story's status log records it (R6): `StoryStatus`, plus `hidden` (an
+        approved story off the site because its media isn't ready or changed, or a moderator hid
+        it). The story's owner sees a hidden story as `approved`.
+      enum:
+        [
+          draft,
+          pending,
+          in_review,
+          approved,
+          rejected,
+          changes_requested,
+          withdrawn,
+          hidden,
+        ]
+
+    StoryAnyStatus:
+      type: object
+      description: R15. A story in the super admins' list, in any status. Never public.
+      required: [id, slug, title, status, primaryFormat, submitter, createdAt, updatedAt, version]
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/StoryStatusLogged'
+        primaryFormat:
+          $ref: '#/components/schemas/Format'
+        submitter:
+          type: string
+          description: The submitter's user id (Clerk holds names, D16).
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+
+    StoryStatusEntry:
+      type: object
+      description: |
+        R6: one entry of a story's status log, never changed once written. `actor`: who added it
+        (the person, a moderator, or the system when media stopped or started being ready);
+        `by`: the user id of the person or moderator who added it; `null` for the system.
+      required: [id, status, actor, by, comment, storyVersion, at, publishedAt, hiddenReason]
+      properties:
+        id:
+          type: string
+        status:
+          $ref: '#/components/schemas/StoryStatusLogged'
+        actor:
+          type: string
+          enum: [person, moderator, system]
+        by:
+          type: [string, 'null']
+        comment:
+          type: [string, 'null']
+          description: A moderator's note to the person.
+        storyVersion:
+          type: integer
+          description: The story's version when the entry was added.
+        at:
+          type: string
+          format: date-time
+        publishedAt:
+          type: [string, 'null']
+          format: date-time
+          description: On an approved entry, when the story was first published.
+        hiddenReason:
+          type: [string, 'null']
+          enum: [media_unavailable, media_changed, null]
+
+    StoryAnyStatusDetail:
+      allOf:
+        - $ref: '#/components/schemas/StoryAnyStatus'
+        - type: object
+          description: R15. One story as stored, with its status log and files. Never public.
+          required:
+            [description, body, bylineName, themes, media, image,
+             socialMediaSharingConsent, statusLog]
+          properties:
+            description:
+              type: string
+            body:
+              type: [string, 'null']
+            bylineName:
+              type: [string, 'null']
+            themes:
+              type: array
+              items:
+                $ref: '#/components/schemas/ThemeRef'
+            media:
+              type: array
+              description: The story's video or audio file (one, D53) at Bunny Stream; never a playable link.
+              items:
+                type: object
+                required: [format, bunnyVideoId, thumbnailPath, width, height, durationSeconds, processing]
+                properties:
+                  format:
+                    type: string
+                    enum: [video, audio]
+                  bunnyVideoId:
+                    type: [string, 'null']
+                  thumbnailPath:
+                    type: [string, 'null']
+                  width:
+                    type: [integer, 'null']
+                  height:
+                    type: [integer, 'null']
+                  durationSeconds:
+                    type: [integer, 'null']
+                  processing:
+                    type: [string, 'null']
+                    enum: [processing, ready, failed, null]
+            image:
+              type: [object, 'null']
+              description: The story's picture in the images zone (its path, never a link).
+              required: [path, width, height, alt, processing]
+              properties:
+                path:
+                  type: string
+                width:
+                  type: integer
+                height:
+                  type: integer
+                alt:
+                  type: [string, 'null']
+                processing:
+                  type: [string, 'null']
+                  enum: [processing, ready, failed, null]
+            socialMediaSharingConsent:
+              oneOf:
+                - $ref: '#/components/schemas/Agreement'
+                - type: 'null'
+            statusLog:
+              type: array
+              description: Oldest first.
+              items:
+                $ref: '#/components/schemas/StoryStatusEntry'
+
     UserAdmin:
       type: object
       description: Joins the `user` record with Clerk (fetched at read time, never stored, D16).
