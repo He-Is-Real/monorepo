@@ -133,14 +133,15 @@ for (const scheme of ['light', 'dark'] as const) {
     test.use({ colorScheme: scheme });
 
     test('every step of the written flow fits the screen, with 44 px targets', async ({
+      context,
       page,
       request,
     }, info) => {
       await person(page, request, SIGNED_UP);
-      const fits = async (name: string) => {
-        await expectNoHorizontalOverflow(page);
-        await expectAllTargets(page);
-        await shots(page, info.project.name, scheme, `share-${name}`, {
+      const fits = async (name: string, on = page) => {
+        await expectNoHorizontalOverflow(on);
+        await expectAllTargets(on);
+        await shots(on, info.project.name, scheme, `share-${name}`, {
           signedIn: true,
         });
       };
@@ -180,8 +181,11 @@ for (const scheme of ['light', 'dark'] as const) {
       await step(page, 'Review and submit');
       await fits('review');
 
-      // The last step, for a story already sent (submitting is in the behaviour tests).
-      await person(page, request, {
+      // The last step, for a story already sent (submitting is in the behaviour tests), in
+      // a page of its own so that only this person's session is set in it.
+      await page.close();
+      const done = await context.newPage();
+      await person(done, request, {
         testimony: 3,
         stories: [
           {
@@ -194,14 +198,14 @@ for (const scheme of ['light', 'dark'] as const) {
           },
         ],
       });
-      await page.goto(`${SHARE}?draft=sent`);
+      await done.goto(`${SHARE}?draft=sent`);
       await expect(
-        page.getByRole('heading', {
+        done.getByRole('heading', {
           level: 2,
           name: 'Thank you for sharing your story',
         }),
       ).toBeVisible();
-      await fits('done');
+      await fits('done', done);
     });
   });
 }

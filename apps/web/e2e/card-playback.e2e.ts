@@ -87,7 +87,7 @@ test('a card plays in its own box: same width, only as tall as the controls need
   await expect(audio).toBeVisible();
   expect((await size(audio)).height).toBeGreaterThanOrEqual(PLAYER_MIN_HEIGHT);
 
-  // A failure's message stays inside the card.
+  // A failure's message stays inside the card, the longer one too.
   const gone = card(page, 'Play test: a story that has gone');
   const goneBefore = await size(media(gone));
   await playButton(page, 'Play test: a story that has gone').click();
@@ -95,6 +95,12 @@ test('a card plays in its own box: same width, only as tall as the controls need
     gone.getByText('This story isn’t available any more.'),
   ).toBeVisible();
   expect(await size(media(gone))).toEqual(goneBefore);
+  await expectNoHorizontalOverflow(page);
+  const down = card(page, 'Play test: the API is down');
+  await playButton(page, 'Play test: the API is down').click();
+  await expect(
+    down.getByText('The player couldn’t load. Try again in a moment.'),
+  ).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
 

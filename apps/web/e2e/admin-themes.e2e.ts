@@ -44,7 +44,7 @@ async function panel(page: Page, name: string) {
   return dialog;
 }
 
-test('/admin/themes fits with 44 px targets, and a theme’s panel and the save summary fit the screen', async ({
+test('/admin/themes fits with 44 px targets, and a theme’s panel, a delete and the save summary with what reaches beyond the page fit the screen', async ({
   page,
 }) => {
   await open(page);
@@ -58,13 +58,27 @@ test('/admin/themes fits with 44 px targets, and a theme’s panel and the save 
   await page.getByLabel('New theme’s name').press('Enter');
   await expect(pill(page, 'A')).toBeVisible();
   await expectAllTargets(page);
-  const dialog = await panel(page, 'Work');
+  // The panel, with a longer name and Highlighted on.
+  let dialog = await panel(page, 'Work');
+  await dialog.getByLabel('Name').fill('work and money');
+  await dialog.getByRole('switch', { name: /Highlighted/ }).check();
   await expectNoHorizontalOverflow(page);
   await dialog.getByRole('button', { name: 'Done' }).click();
+  // A theme and a category deleted, so the summary lists what reaches beyond the page.
+  await pill(page, 'Doubt')
+    .getByRole('button', { name: 'Delete Doubt' })
+    .click();
+  dialog = page.getByRole('dialog', { name: 'Delete “Doubt”?' });
+  await expectNoHorizontalOverflow(page);
+  await dialog.getByRole('textbox').fill('delete doubt');
+  await dialog.getByRole('button', { name: 'Delete theme' }).click();
+  await category(page, 'Feelings')
+    .getByRole('button', { name: 'Delete category Feelings' })
+    .click();
   await page.getByRole('button', { name: 'Save changes' }).click();
-  await expect(
-    page.getByRole('dialog', { name: /^Save \d+ changes?\?$/ }),
-  ).toBeVisible();
+  dialog = page.getByRole('dialog', { name: /^Save \d+ changes\?$/ });
+  await expect(dialog.locator('[data-side-effects] li')).toHaveCount(2);
+  await expect(dialog).toContainText('Work renamed “Work and money”');
   await expectNoHorizontalOverflow(page);
 });
 

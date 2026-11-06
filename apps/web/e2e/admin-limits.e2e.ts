@@ -27,9 +27,14 @@ test('/admin/limits fits with 44 px targets, and its confirmation fits the scree
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
   await video.fill('2048');
+  await page.getByLabel('Stories one person can send for review').fill('2');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('alertdialog')).toContainText(
+  const confirm = page.getByRole('alertdialog');
+  await expect(confirm).toContainText(
     'Largest video file: 4,096 MB → 2,048 MB',
+  );
+  await expect(confirm).toContainText(
+    'Stories one person can send for review: 1 per 7 days → 2 per 7 days',
   );
   await expectNoHorizontalOverflow(page);
 });
