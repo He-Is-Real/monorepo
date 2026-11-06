@@ -11,7 +11,7 @@ import {
   shareStory,
   TestDatabase,
 } from './support/harness';
-import { draft, ERASE, grantUpload, submit } from './support/world';
+import { approve, draft, ERASE, grantUpload, step, submit } from './support/world';
 
 /**
  * Review round 3: every table that holds or links person data, directly or through `story`, is
@@ -27,9 +27,8 @@ import { draft, ERASE, grantUpload, submit } from './support/world';
 const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   user: 'root',
   story: 'linked', // submitter
-  publicStory: 'linked', // same id as the story → submitter
+  storyStatusLog: 'linked', // story → submitter (R6)
   hiddenStory: 'linked', // same id as the story → submitter
-  moderationReview: 'linked', // story → submitter
   idempotencyKey: 'linked', // id[1] = user record
   favourite: 'linked', // person (hearts, M2); deleted at erasure
   submitterLimits: 'linked', // user (D112: limits, trusted mark)
@@ -84,15 +83,6 @@ type LinkedCase = {
 
 const LINKED: Record<string, LinkedCase> = {
   favourite: {
-    setup: (c) =>
-      run(
-        c.admin,
-        `LET $s = (SELECT * FROM ONLY story:${c.p}_s);
-         CREATE publicStory:${c.p}_s CONTENT {
-           version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
-           publishedAt: time::now() };`,
-      ),
     writer: (c) => c.person,
     write: (c, db) =>
       run(
@@ -106,53 +96,33 @@ const LINKED: Record<string, LinkedCase> = {
     write: (c, db) => draft(db(c), `${c.p}_new`),
     landed: (c) => `SELECT VALUE id FROM story:${c.p}_new`,
   },
-  publicStory: {
+  storyStatusLog: {
+    // A moderator hides the approved story (R6).
     writer: (c) => c.admin,
     write: (c, db) =>
       run(
         db(c),
-        `LET $s = (SELECT * FROM ONLY story:${c.p}_s);
-         CREATE publicStory:${c.p}_s CONTENT {
-           version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
-           publishedAt: time::now() };`,
+        `CREATE storyStatusLog CONTENT { story: story:${c.p}_s, status: 'hidden', by: user:moderator }`,
       ),
-    landed: (c) => `SELECT VALUE id FROM publicStory:${c.p}_s`,
+    landed: (c) =>
+      `SELECT VALUE id FROM storyStatusLog WHERE story = story:${c.p}_s AND status = 'hidden'`,
   },
   hiddenStory: {
     // Written by story_media_availability when workflow finds a public story's image broken.
     setup: async (c) => {
+      // A new image on the approved story hides it (unreviewed media); a moderator shows it
+      // again with that image.
       await run(
         c.migrator,
         `UPDATE story:${c.p}_s SET image = {
            path: 'dev-seed/x.webp', width: 10, height: 10, processing: 'ready' }`,
       );
-      await run(
-        c.admin,
-        `LET $s = (SELECT * FROM ONLY story:${c.p}_s);
-         CREATE publicStory:${c.p}_s CONTENT {
-           version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-           body: $s.body, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: [],
-           image: { path: $s.image.path, width: $s.image.width, height: $s.image.height },
-           publishedAt: time::now() };`,
-      );
+      await step(c.admin, `${c.p}_s`, 'approved');
     },
     writer: (c) => c.workflow,
     write: (c, db) =>
       run(db(c), `UPDATE story:${c.p}_s SET image.processing = 'failed'`),
     landed: (c) => `SELECT VALUE id FROM hiddenStory:${c.p}_s`,
-  },
-  moderationReview: {
-    writer: (c) => c.admin,
-    write: (c, db) =>
-      run(
-        db(c),
-        `CREATE moderationReview CONTENT { story: story:${c.p}_s, moderator: user:moderator,
-           decision: 'request_changes', storyVersion: 1,
-           feedbackToSubmitter: 'Please say more about your conversion' }`,
-      ),
-    landed: (c) =>
-      `SELECT VALUE id FROM moderationReview WHERE record::id(story) = '${c.p}_s'`,
   },
   idempotencyKey: {
     writer: (c) => c.apiUser,
@@ -248,17 +218,14 @@ describe('person-linked tables (round 3 sweep)', () => {
   let apiUser: Surreal;
   let workflow: Surreal;
 
-  /** A live person who agreed to everything, with an approved story (no publicStory yet). */
+  /** A live person who agreed to everything, with an approved (public) story. */
   async function livePerson(p: string): Promise<Ctx> {
     await createPeople(t, { [p]: `user_${p}` });
     const person = await t.person(`user_${p}`);
     await agreeAll(person);
     await draft(person, `${p}_s`);
     await submit(person, `${p}_s`);
-    await run(
-      admin,
-      `UPDATE story:${p}_s SET status = 'approved', approvedAt = time::now()`,
-    );
+    await approve(admin, `${p}_s`);
     return { t, person, admin, apiUser, workflow, migrator, p };
   }
   const erase = (p: string) =>
@@ -359,12 +326,12 @@ describe('person-linked tables (round 3 sweep)', () => {
     ).toEqual(['deleted']);
   });
 
-  it('a moderation review can’t be created for a story that no longer exists', async () => {
+  it('a status entry can’t be created for a story that no longer exists', async () => {
     expect(
       await outcome(
         admin,
-        `CREATE moderationReview CONTENT { story: story:never_existed, moderator: user:moderator,
-           decision: 'reject', storyVersion: 1 }`,
+        `CREATE storyStatusLog CONTENT { story: story:never_existed, status: 'rejected',
+           by: user:moderator }`,
       ),
     ).toEqual({
       ok: false,
@@ -417,13 +384,8 @@ describe('person-linked tables (round 3 sweep)', () => {
     },
   );
 
-  it('deleting a review or a person-scoped key also bumps the fence (round 4)', async () => {
+  it('deleting a person-scoped key also bumps the fence (round 4)', async () => {
     const ctx = await livePerson('del_fence');
-    await run(
-      admin,
-      `CREATE moderationReview:del_r CONTENT { story: story:del_fence_s, moderator: user:moderator,
-         decision: 'escalate', storyVersion: 1 }`,
-    );
     await run(
       apiUser,
       `CREATE idempotencyKey:['api-user', user:del_fence, 'k'] SET requestHash = 'h', status = 201`,
@@ -436,12 +398,10 @@ describe('person-linked tables (round 3 sweep)', () => {
         )
       )[0];
     const before = await fence();
-    await run(apiUser, 'DELETE moderationReview:del_r');
-    expect(await fence()).toBe(before + 1);
     await run(
       apiUser,
       `DELETE idempotencyKey:['api-user', user:del_fence, 'k']`,
     );
-    expect(await fence()).toBe(before + 2);
+    expect(await fence()).toBe(before + 1);
   });
 });

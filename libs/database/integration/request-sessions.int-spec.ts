@@ -35,7 +35,7 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     const session = await connection.newSession();
     try {
       await session.use(scope);
-      expect(await outcome(session, 'SELECT * FROM publicStory')).toEqual({
+      expect(await outcome(session, 'SELECT * FROM story')).toEqual({
         ok: false,
         error: expect.stringContaining('Anonymous access not allowed'),
       });
@@ -76,7 +76,7 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     const baseline = (await connection.sessions()).length;
     const people = ['user_ann', 'user_bob'] as const;
     const expected = {
-      user_ann: ['story:ann_draft', 'story:ann_pending'],
+      user_ann: ['story:ann_draft', 'story:ann_pending', 'story:bob_live'],
       user_bob: ['story:bob_draft', 'story:bob_live', 'story:bob_pending'],
     };
     const results = await Promise.all(

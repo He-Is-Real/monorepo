@@ -280,7 +280,7 @@ describe('consent, privacy and terms (plan 4e)', () => {
       );
       const withdraw = await outcome(
         pat,
-        `UPDATE story:p1 SET status = 'withdrawn'`,
+        `CREATE storyStatusLog CONTENT { story: story:p1, status: 'withdrawn' }`,
       );
       expect(withdraw.ok).toBe(true);
       await agree(pat, 'testimonyConsent');
@@ -339,17 +339,23 @@ describe('consent, privacy and terms (plan 4e)', () => {
           `SELECT VALUE socialMediaSharingConsent FROM ONLY story:d1`,
         ),
       ).toEqual([]);
+      // The submission's transaction: the sharing pointer, then the pending entry (R6).
       const both = await outcome(
         dan,
-        `UPDATE story:d1 SET status = 'pending',
+        `BEGIN TRANSACTION;
+         UPDATE story:d1 SET
            socialMediaSharingConsent = fn::legal::latest('socialMediaSharingConsent'),
-           socialMediaSharingConsentAgreedAt = time::now()`,
+           socialMediaSharingConsentAgreedAt = time::now();
+         CREATE storyStatusLog CONTENT { story: story:d1, status: 'pending' };
+         COMMIT TRANSACTION;`,
       );
       expect(both.ok).toBe(true);
       const [after] = await truth<{ v: number; s: string; at: string }>(
-        `SELECT version AS v, status AS s, socialMediaSharingConsentAgreedAt AS at FROM ONLY story:d1`,
+        `SELECT version AS v, fn::story::status_of($this) AS s,
+           socialMediaSharingConsentAgreedAt AS at FROM ONLY story:d1`,
       );
-      expect(after).toMatchObject({ v: (before?.v ?? 0) + 1, s: 'pending' });
+      // Two story writes: the pointer, then the status step (D29: +1 each).
+      expect(after).toMatchObject({ v: (before?.v ?? 0) + 2, s: 'pending' });
       expect(after?.at).toBeTruthy();
     });
 
@@ -373,13 +379,16 @@ describe('consent, privacy and terms (plan 4e)', () => {
         migrator,
         `CREATE user:legacy CONTENT {};
          CREATE story:legacy CONTENT { submitter: user:legacy, slug: 'legacy', title: 'T',
-           description: 'D', primaryFormat: 'written', body: $body, status: 'pending',
-           themeRefs: [theme:common] };`,
+           description: 'D', primaryFormat: 'written', body: $body,
+           themeRefs: [theme:common] };
+         CREATE storyStatusLog CONTENT { story: story:legacy, status: 'pending', actor: 'person' };
+         CREATE storyStatusLog CONTENT { story: story:legacy, status: 'in_review', actor: 'moderator',
+           by: user:moderator };`,
         { body: 'x'.repeat(250) },
       );
       const r = await outcome(
         admin,
-        `UPDATE story:legacy SET status = 'approved', approvedAt = time::now()`,
+        `CREATE storyStatusLog CONTENT { story: story:legacy, status: 'approved', by: user:moderator }`,
       );
       expect(!r.ok && r.error).toContain('testimony_consent_required');
     });

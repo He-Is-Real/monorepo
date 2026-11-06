@@ -38,10 +38,12 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
     -- retention says (fn::story::draft_expired), and nothing else; the same delete as a
     -- person's own (events and cascade included).
     OR ($auth.id = service:housekeeping AND fn::story::draft_expired(id));
--- Private (R11's field rule): the owner and the services that read stories, never everyone else.
+-- Private (R11's field rule): the owner and the services that need it, never everyone else.
+-- api-user's login reads it only to find an erased person's stories (fn::account::erase's
+-- DELETE ... WHERE submitter: a WHERE sees only fields the caller may read).
 DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY   -- owner can never be reassigned
   PERMISSIONS FOR select WHERE submitter = $auth.id
-    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping];
+    OR $auth.id IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
 DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every write; ETag
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
 -- housekeeping never reads the words (select below): it needs only ids, the status, dates and media.

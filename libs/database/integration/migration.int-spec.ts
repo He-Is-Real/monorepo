@@ -9,7 +9,7 @@ import type { SecretsService } from '@heisreal/secrets';
 import { connectDatabase } from '../src/lib/database.module';
 import { pinnedSurrealImage } from './support/global-setup';
 import { surrealTestLogin } from './support/login';
-import { approve } from './support/world';
+import { step } from './support/world';
 import {
   createPeople,
   LEGAL_TABLES,
@@ -1172,7 +1172,7 @@ describe('upgrading a database migrated by the previous release (database review
     refused = await t.runMigration(t.params({ environment: 'dev' }));
     afterRefused = Object.keys(await tables(t));
     upgrade = await t.runMigration(
-      t.params({ environment: 'dev', dev_database_reset: 'db-review-2' }),
+      t.params({ environment: 'dev', dev_database_reset: 'db-review-2-b1' }),
     );
   }, 3 * 60_000);
   afterAll(async () => {
@@ -1198,7 +1198,7 @@ describe('upgrading a database migrated by the previous release (database review
   it('with it, wipes the database and rebuilds it from this release', async () => {
     expect(upgrade.exitCode).toBe(0);
     expect(upgrade.summary).toMatchObject({
-      reset: 'db-review-2',
+      reset: 'db-review-2-b1',
       applied: SEEDS,
       alreadyApplied: [],
     });
@@ -1226,7 +1226,7 @@ describe('upgrading a database migrated by the previous release (database review
     await createPeople(t, { bea: 'user_bea' });
     expect(
       await t.migrate(
-        t.params({ environment: 'dev', dev_database_reset: 'db-review-2' }),
+        t.params({ environment: 'dev', dev_database_reset: 'db-review-2-b1' }),
       ),
     ).toMatchObject({ reset: null, applied: [], alreadyApplied: SEEDS });
     expect(
@@ -1446,13 +1446,15 @@ describe('data/0009 fills in the agreements of the people who exist when it runs
       `CREATE user:legacy CONTENT {};
        CREATE user:gone CONTENT { status: 'deleted' };
        CREATE story:waiting CONTENT { submitter: user:ann, slug: 'waiting', title: 'T',
-         description: 'D', primaryFormat: 'written', body: $body, status: 'pending',
-         themeRefs: [theme:common] };`,
+         description: 'D', primaryFormat: 'written', body: $body,
+         themeRefs: [theme:common] };
+       CREATE storyStatusLog CONTENT { story: story:waiting, status: 'pending', actor: 'person' };`,
       { body: 'x'.repeat(250) },
     );
+    await step(admin, 'waiting', 'in_review');
     refusedBefore = await outcome(
       admin,
-      `UPDATE story:waiting SET status = 'approved', approvedAt = time::now()`,
+      `CREATE storyStatusLog CONTENT { story: story:waiting, status: 'approved', by: user:moderator }`,
     );
     ranFrom = await now();
     expect(await t.migrate(t.params())).toMatchObject({
@@ -1499,10 +1501,13 @@ describe('data/0009 fills in the agreements of the people who exist when it runs
   });
 
   it('the waiting story can now be approved and published', async () => {
-    await approve(admin, 'waiting');
+    await step(admin, 'waiting', 'approved');
     expect(
-      await rows(migrator, 'SELECT VALUE id FROM publicStory:waiting'),
-    ).toEqual(['publicStory:waiting']);
+      await rows(
+        await t.service('api_public_read'),
+        'SELECT VALUE id FROM story:waiting',
+      ),
+    ).toEqual(['story:waiting']);
   });
 
   it('someone who arrives afterwards has agreed to nothing until they do so themselves', async () => {

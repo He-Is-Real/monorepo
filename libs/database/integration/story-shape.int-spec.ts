@@ -75,6 +75,13 @@ describe('story types and shapes (D53)', () => {
       await truth(`SELECT * FROM type::record('story', $id)`, { id }),
     ).toEqual([]);
   };
+  /** Pat adds a status entry (R6): a submit (pending) or a withdrawal. */
+  const toStatus = (id: string, status: string, db: SurrealQueryable = pat) =>
+    outcome(
+      db,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: $status }`,
+      { id, status },
+    );
   const update = (id: string, set: string, db: SurrealQueryable = pat) =>
     outcome(db, `UPDATE type::record('story', $id) SET ${set}`, { id });
 
@@ -189,7 +196,7 @@ describe('story types and shapes (D53)', () => {
 
     it('saves a short draft, but submits a written story only from 200 characters (trimmed)', async () => {
       const short = await created(body(`  \n${chars(199)} \n `));
-      expect(await update(short, `status = 'pending'`)).toEqual({
+      expect(await toStatus(short, 'pending')).toEqual({
         ok: false,
         error: expect.stringContaining(
           'a written story needs at least 200 characters before it is submitted',
@@ -197,7 +204,7 @@ describe('story types and shapes (D53)', () => {
       });
       expect(
         await truth(
-          `SELECT VALUE status FROM ONLY type::record('story', $short)`,
+          `SELECT VALUE fn::story::status_of($this) FROM ONLY type::record('story', $short)`,
           {
             short,
           },
@@ -221,7 +228,7 @@ describe('story types and shapes (D53)', () => {
       ],
     ])('refuses to submit %s', async (_name, text) => {
       const id = await created(body(text));
-      expect(await update(id, `status = 'pending'`)).toEqual({
+      expect(await toStatus(id, 'pending')).toEqual({
         ok: false,
         error: expect.stringContaining(SUBMIT_REFUSED),
       });
@@ -252,11 +259,15 @@ describe('story types and shapes (D53)', () => {
     });
 
     it('refuses a system user’s short written story from submit on, too', async () => {
+      await run(
+        migrator,
+        `CREATE story:mig_short CONTENT { themeRefs: [theme:common], submitter: user:pat, slug: 'mig-short', title: 't', description: 'd',
+           primaryFormat: 'written', body: 'Too short' }`,
+      );
       expect(
         await outcome(
           migrator,
-          `CREATE story CONTENT { themeRefs: [theme:common], submitter: user:pat, slug: 'mig-short', title: 't', description: 'd',
-             primaryFormat: 'written', body: 'Too short', status: 'pending' }`,
+          `CREATE storyStatusLog CONTENT { story: story:mig_short, status: 'pending', actor: 'person' }`,
         ),
       ).toEqual({
         ok: false,
@@ -295,7 +306,7 @@ describe('story types and shapes (D53)', () => {
 
     it('can be submitted only with its media, and withdrawn without it', async () => {
       const id = await created(`primaryFormat: '${format}'`);
-      expect(await update(id, `status = 'pending'`)).toEqual({
+      expect(await toStatus(id, 'pending')).toEqual({
         ok: false,
         error: expect.stringContaining(`a ${format} story needs its ${format}`),
       });
@@ -306,7 +317,7 @@ describe('story types and shapes (D53)', () => {
       expect(await submit(pat, id)).toHaveLength(1);
 
       const empty = await created(`primaryFormat: '${format}'`);
-      expect(await update(empty, `status = 'withdrawn'`)).toMatchObject({
+      expect(await toStatus(empty, 'withdrawn')).toMatchObject({
         ok: true,
       });
     });
@@ -452,7 +463,7 @@ describe('story types and shapes (D53)', () => {
     });
   });
 
-  describe('publicStory mirrors the image and media shapes', () => {
+  describe('everyone reads a published story’s image and media shapes (R11)', () => {
     it('publishes a written story with its image, and a video with its size', async () => {
       const w = await created(
         `primaryFormat: 'written', ${TEXT}, image: ${IMAGE}`,
@@ -467,7 +478,7 @@ describe('story types and shapes (D53)', () => {
       expect(
         await rows(
           reader,
-          `SELECT VALUE image FROM ONLY type::record('publicStory', $w)`,
+          `SELECT VALUE image FROM ONLY type::record('story', $w)`,
           { w },
         ),
       ).toEqual([
@@ -481,47 +492,18 @@ describe('story types and shapes (D53)', () => {
       expect(
         await rows(
           reader,
-          `SELECT VALUE media FROM ONLY type::record('publicStory', $v)`,
+          `SELECT VALUE media FROM ONLY type::record('story', $v)`,
           { v },
         ),
       ).toEqual([
-        { format: 'video', bunnyVideoId: 'vid', width: 1080, height: 1920 },
-      ]);
-    });
-
-    it.each([
-      ['a different image', `image.alt = 'Words the person never wrote'`],
-      ['no image', `image = NONE`],
-      ['a different video size', `media[0].width = 1920`],
-      ['an extra media field', `media[0].note = 'free text'`],
-    ])('refuses a read model with %s', async (_name, set) => {
-      const w = await created(
-        `primaryFormat: 'written', ${TEXT}, image: ${IMAGE}`,
-      );
-      const v = await created(`primaryFormat: 'video', media: [${VIDEO}]`);
-      for (const id of [w, v]) {
-        await submit(pat, id);
-        await processed(workflow, id);
-        await approve(admin, id);
-      }
-      const target = set.startsWith('media') ? v : w;
-      const before = await truth(
-        `SELECT * FROM type::record('publicStory', $target)`,
         {
-          target,
+          format: 'video',
+          bunnyVideoId: 'vid',
+          width: 1080,
+          height: 1920,
+          durationSeconds: 60,
         },
-      );
-      const result = await outcome(
-        admin,
-        `UPDATE type::record('publicStory', $target) SET ${set}`,
-        { target },
-      );
-      expect(result).toEqual({ ok: false, error: expect.any(String) });
-      expect(
-        await truth(`SELECT * FROM type::record('publicStory', $target)`, {
-          target,
-        }),
-      ).toEqual(before);
+      ]);
     });
 
     it('approval refuses a video submitted without its media (set by a system user)', async () => {

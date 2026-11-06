@@ -29,7 +29,12 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     return s;
   }
   const status = async (id: string) =>
-    (await rows(migrator, `SELECT VALUE status FROM story:${id}`))[0];
+    (
+      await rows(
+        migrator,
+        `SELECT VALUE fn::story::status_of($this) FROM story:${id}`,
+      )
+    )[0];
   const newDraft = (s: Surreal, id: string) =>
     outcome(
       s,
@@ -38,7 +43,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
       { id, body: `Text${STORY_TEXT_PADDING}` },
     );
   const pend = (s: Surreal, id: string) =>
-    outcome(s, `UPDATE type::record('story', $id) SET status = 'pending'`, {
+    outcome(s, `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'pending' }`, {
       id,
     });
   const limits = (p: string, fields: Record<string, unknown>) =>
@@ -118,7 +123,10 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     );
 
     // Withdrawing it doesn't free the week, and nor does deleting it (D113).
-    await run(bob, `UPDATE story:bob_1 SET status = 'withdrawn'`);
+    await run(
+      bob,
+      `CREATE storyStatusLog CONTENT { story: story:bob_1, status: 'withdrawn' }`,
+    );
     expect(error(await pend(bob, 'bob_2'))).toMatch(/limit_weekly_submission:/);
     await run(await t.service('api_user'), 'DELETE story:bob_1');
     expect(await rows(migrator, 'SELECT id FROM story:bob_1')).toEqual([]);
@@ -129,7 +137,11 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     const cat = await person('cat');
     await draft(cat, 'cat_1');
     await submit(cat, 'cat_1');
-    await run(admin, `UPDATE story:cat_1 SET status = 'changes_requested'`);
+    await run(
+      admin,
+      `CREATE storyStatusLog CONTENT { story: story:cat_1, status: 'in_review', by: user:moderator };
+       CREATE storyStatusLog CONTENT { story: story:cat_1, status: 'changes_requested', by: user:moderator };`,
+    );
     expect(await submit(cat, 'cat_1')).toHaveLength(1);
     expect(await status('cat_1')).toBe('pending');
     expect(

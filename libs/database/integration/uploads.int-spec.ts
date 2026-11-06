@@ -9,7 +9,7 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { draft, grantUpload, processed } from './support/world';
+import { draft, grantUpload, processed, submit } from './support/world';
 
 /**
  * Video and audio uploads (M2 plan PR 7; D65, D80, D113). api-user's own login creates an upload
@@ -238,7 +238,7 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       person: 'fay',
       version: 1,
     });
-    await run(fay, `UPDATE story:fay_v SET status = 'pending'`);
+    await submit(fay, 'fay_v');
     expect(
       error(
         await grantUpload(apiUser, {
