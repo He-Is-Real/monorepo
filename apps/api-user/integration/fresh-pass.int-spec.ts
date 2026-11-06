@@ -6,9 +6,8 @@ import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
+  agreeAll,
   createPeople,
-  grantAll,
-  publishDpa,
   rows,
   run,
   TestDatabase,
@@ -179,7 +178,7 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
   /** A video draft whose file has arrived at Bunny: ready to submit, at version 2. */
   async function readyVideo(who: string) {
     await createPeople(t, { [who]: `user_${who}` });
-    await grantAll(await t.person(`user_${who}`));
+    await agreeAll(await t.person(`user_${who}`));
     const { token } = pass(who);
     const created = await call('POST', '/v1/stories', token, {
       body: {
@@ -227,7 +226,8 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     (
       await rows(
         migrator,
-        `SELECT VALUE status FROM type::record('story', $id)`,
+        // R6: a story's status is its newest status log entry, or draft before any.
+        `SELECT VALUE fn::story::status_of($this) FROM type::record('story', $id)`,
         {
           id,
         },
@@ -274,7 +274,6 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
-    await publishDpa(t, 'v1');
     await run(
       await t.service('api_admin'),
       `UPSERT theme:healing SET name = 'Healing', category = themeCategory:other`,
@@ -296,13 +295,12 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
 
     const sent = await submitLate(id, late.token);
 
-    // The consent check, the media check at Bunny, the limits and the submission itself all ran
-    // in the person's database session, which their own pass could no longer open.
+    // The agreement check, the media check at Bunny, the limits and the submission itself all
+    // ran in the person's database session, which their own pass could no longer open.
     expect(sent.status).toBe(200);
     expect(bunny.asked).toBe(before + 1);
     expect(await statusOf(id)).toBe('pending');
-    // One pass for the whole request (the consent guard's session, then submit's), for this
-    // session only, lasting the database's five minutes plus surrealdb.js's one-minute margin.
+    // One pass for the whole request, for this session only, lasting the database's five minutes plus surrealdb.js's one-minute margin.
     expect(clerkApi.asked).toEqual([
       { sessionId: late.sessionId, seconds: 360 },
     ]);

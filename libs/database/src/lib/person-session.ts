@@ -23,7 +23,7 @@ export class PersonSessionRefusedError extends Error {
  * - The session lasts only as long as `token`: surrealdb.js 2.0.8 can't renew a token given to
  *   `authenticate()`, so at its `exp` (60 s before, for one with over two minutes left) it
  *   invalidates the session, even mid-query (#164). Pass a token that outlasts `work`:
- *   `PersonSessions` (`libs/consent`) gets a fresh one from Clerk when the person's runs short.
+ *   `PersonSessions` (`libs/auth`) gets a fresh one from Clerk when the person's runs short.
  */
 export async function withPersonSession<T>(
   connection: Surreal,

@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { CLERK_SESSION_ID } from '@heisreal/auth';
 import {
+  CLERK_SESSION_ID,
   type PersonPassIssuer,
   PersonPassRefusedError,
-} from '@heisreal/consent';
+} from '@heisreal/auth';
 import type { SecretsService } from '@heisreal/secrets';
 import { svixKey } from './svix';
 
@@ -43,7 +43,7 @@ export interface ClerkBackend {
   /** The webhook endpoint's Svix key, or null while the secret isn't set (webhooks answer 503). */
   webhookKey(): Promise<Buffer | null>;
   /**
-   * Fresh passes (`POST /sessions/{id}/tokens`) for libs/consent's `PersonSessions`, or null
+   * Fresh passes (`POST /sessions/{id}/tokens`) for libs/auth's `PersonSessions`, or null
    * while the key isn't set: people's own passes are then used as they are.
    */
   passIssuer(): PersonPassIssuer | null;
