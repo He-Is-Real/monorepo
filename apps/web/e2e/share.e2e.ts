@@ -45,11 +45,13 @@ async function person(page: Page, request: APIRequestContext, seed: Seed) {
     data: seed,
   });
   expect(res.status()).toBe(204);
-  await page.addInitScript((session) => {
+  const setSession = await page.addInitScript((session) => {
     window.localStorage.setItem('e2e-session', session);
   }, id);
   const auth = { authorization: `Bearer ${fixtureToken(id)}` };
   return {
+    /** Stops this person's session being set on later loads (init scripts run in no set order). */
+    leaveTab: () => setSession.dispose(),
     /** The agreements the page sent to api-user (plan 4e), in order. */
     agreed: async () =>
       (
@@ -671,7 +673,7 @@ test.describe('behaviour', () => {
     page,
     request,
   }) => {
-    await person(page, request, SIGNED_UP);
+    const first = await person(page, request, SIGNED_UP);
     await toWrite(page);
     // Not saved to the server yet (no text): kept in this tab only.
     await page.getByLabel('Title').fill('Something private');
@@ -690,10 +692,14 @@ test.describe('behaviour', () => {
     await page.evaluate((s) => {
       window.localStorage.setItem('e2e-session', s);
     }, other);
+    await first.leaveTab();
     await page.addInitScript((s) => {
       window.localStorage.setItem('e2e-session', s);
     }, other);
     await page.reload();
+    expect(
+      await page.evaluate(() => window.localStorage.getItem('e2e-session')),
+    ).toBe(other);
     await page.getByRole('button', { name: 'Write my story' }).click();
     await page.getByRole('button', { name: 'Start writing' }).click();
     await expect(page.getByLabel('Title')).toHaveValue('');
