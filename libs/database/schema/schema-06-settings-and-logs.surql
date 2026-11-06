@@ -59,7 +59,7 @@ DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- ho
 --   videoMaxBytes / audioMaxBytes / mediaMaxSeconds: one file's size and length (A4: 4 GB and
 --     500 MB, 15 minutes; trusted submitters get the hard ceilings, fn::settings::upload_ceilings).
 --   The upload limits (D113, Joel 2026-10-28/30: stop people filling our video storage) are
---   checked when an upload is granted (uploadGrant_attach) and again at submit by api-user, with
+--   checked when an upload is recorded (storyFile_attach) and again at submit by api-user, with
 --   the values in force then ("new rules apply to everyone", Joel 2026-10-30).
 -- Everyone reads it (the submit page shows the numbers); only api-admin's login, naming the admin
 -- in changedBy, and the migrator change it, never delete it; the row keeps who changed it last. Admins

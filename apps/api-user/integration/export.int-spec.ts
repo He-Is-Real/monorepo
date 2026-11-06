@@ -192,7 +192,7 @@ describe('download my data', () => {
            FROM ONLY $u),
          hearts: (SELECT VALUE record::id(story) FROM favourite WHERE person = $u),
          submissions: (SELECT VALUE at FROM submissionLog WHERE person = $u),
-         uploads: (SELECT VALUE record::id(id) FROM uploadGrant WHERE person = $u),
+         uploads: (SELECT VALUE record::id(id) FROM storyFile WHERE person = $u),
          keys: (SELECT VALUE record::id(id)[2] FROM idempotencyKey WHERE record::id(id)[1] = $u)
        }`,
       { who },
@@ -318,7 +318,7 @@ describe('download my data', () => {
     // Its picture stops being ready, then is again: the system hides it and shows it again (R6).
     await run(
       await t.service('workflow'),
-      `UPDATE type::record('story', $id) SET image.processing = 'failed'`,
+      `UPDATE (SELECT VALUE image.file FROM ONLY type::record('story', $id)) SET processing = 'failed'`,
       { id: annLive.id },
     );
     await processed(await t.service('workflow'), annLive.id);

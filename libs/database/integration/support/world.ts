@@ -33,8 +33,8 @@ export async function draft(
 }
 
 /**
- * RequestUpload's database half (D80), as api-user runs it on its own login after creating the
- * video at Bunny: an upload grant for the person's story, whose event puts the video on the draft.
+ * RequestUpload's database half (D80, R12), as api-user runs it on its own login after creating
+ * the video at Bunny: a storyFile row for the person's story, whose event points the draft at it.
  * `version` is the story's version (If-Match); the defaults suit a small video.
  */
 export function grantUpload(
@@ -51,7 +51,7 @@ export function grantUpload(
 ) {
   return outcome(
     apiUser,
-    `CREATE type::record('uploadGrant', $video) CONTENT {
+    `CREATE type::record('storyFile', $video) CONTENT {
        story: type::record('story', $story), person: type::record('user', $person),
        format: $format, contentType: $contentType, sizeBytes: $sizeBytes,
        durationSeconds: $durationSeconds, storyVersion: $version
@@ -67,8 +67,8 @@ export function grantUpload(
 }
 
 /**
- * RequestUpload's database half for an image (M2 plan PR 10): the grant api-user records for the
- * file it named, `stories/<story>/<32 hex>.webp` unless `path` says otherwise. The defaults suit a
+ * RequestUpload's database half for an image (M2 plan PR 10, R12): the storyFile row api-user
+ * records for the file it named, with the description as the $imageAlt parameter, `stories/<story>/<32 hex>.webp` unless `path` says otherwise. The defaults suit a
  * small portrait WebP with its description. `expectedImage`: the path of the picture the person's
  * page showed (left out: none), which must be the story's picture now.
  */
@@ -91,10 +91,10 @@ export function grantImage(
   const path = g.path ?? `stories/${g.story}/${g.name ?? 'a'.repeat(32)}.webp`;
   return outcome(
     apiUser,
-    `CREATE type::record('uploadGrant', $path) CONTENT {
+    `CREATE type::record('storyFile', $path) CONTENT {
        story: type::record('story', $story), person: type::record('user', $person),
        format: 'image', contentType: $contentType, sizeBytes: $sizeBytes,
-       width: $width, height: $height, alt: $alt, storyVersion: $version,
+       width: $width, height: $height, storyVersion: $version,
        expectedImage: $expected
      } RETURN NONE`,
     {
@@ -106,7 +106,8 @@ export function grantImage(
       sizeBytes: g.sizeBytes ?? 40_000,
       width: g.width ?? 900,
       height: g.height ?? 1200,
-      alt: g.alt === null ? undefined : (g.alt ?? 'A sunrise over the hills'),
+      imageAlt:
+        g.alt === null ? undefined : (g.alt ?? 'A sunrise over the hills'),
       expected: g.expectedImage ?? undefined,
     },
   );
@@ -157,30 +158,30 @@ export async function statusOf(
 }
 
 /**
- * M7 processing as workflow will record it (A2): every media item and the image `ready`, with
- * the facts processing found (a video's size and duration; an audio file's duration and its
- * thumbnail, by default the site's 1280 x 720 default audio thumbnail, with that picture's size).
- * Approval and publishing are refused until then.
+ * M7 processing as workflow will record it (A2, R12): the story's video or audio file and its
+ * picture `ready`, with the facts processing found (a video's size and length; an audio file's
+ * length and its thumbnail, by default the site's 1280 x 720 default audio thumbnail, with that
+ * picture's size). Approval and publishing are refused until then. Answers the files' rows.
  */
-export function processed(
+export async function processed(
   workflow: SurrealQueryable,
   id: string,
   { durationSeconds = 60 }: { durationSeconds?: number } = {},
 ): Promise<Row[]> {
-  return rows(
+  const results = await run(
     workflow,
-    `UPDATE type::record('story', $id) SET
-       media = media.map(|$m| object::extend($m, IF $m.format = 'video' {
-         { processing: 'ready', durationSeconds: $m.durationSeconds ?? $durationSeconds,
-           width: $m.width ?? 1080, height: $m.height ?? 1920 }
-       } ELSE {
-         { processing: 'ready', durationSeconds: $m.durationSeconds ?? $durationSeconds,
-           thumbnailPath: $m.thumbnailPath ?? ($m.bunnyVideoId + '/thumbnail_0a1b2c3d.jpg'),
-           width: $m.width ?? 1280, height: $m.height ?? 720 }
-       })),
-       image = IF image != NONE { object::extend(image, { processing: 'ready' }) }`,
+    `LET $s = (SELECT mediaFile, image FROM ONLY type::record('story', $id));
+     LET $m = IF $s.mediaFile != NONE { (UPDATE ONLY $s.mediaFile SET processing = 'ready',
+       lengthSeconds = lengthSeconds ?? $durationSeconds,
+       width = width ?? (IF format = 'video' { 1080 } ELSE { 1280 }),
+       height = height ?? (IF format = 'video' { 1920 } ELSE { 720 }),
+       thumbnailPath = IF format = 'audio' {
+         thumbnailPath ?? (record::id(id) + '/thumbnail_0a1b2c3d.jpg') } ELSE { thumbnailPath }) };
+     LET $i = IF $s.image != NONE { (UPDATE ONLY $s.image.file SET processing = 'ready') };
+     RETURN [$m, $i].filter(|$f| $f != NONE);`,
     { id, durationSeconds },
   );
+  return results.at(-1) as Row[];
 }
 
 /**

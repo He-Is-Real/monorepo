@@ -131,8 +131,21 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   a new line in the story's own history, never edited, saying who made it and when. Super admins
   can read every story, drafts included, with its history (API only; no page yet). "Download my
   data" now includes each story's whole history. Nothing else changes for people using the
-  site. Dev's database is wiped and rebuilt once more when this is applied. Part B2 (each
-  story's files as their own records, and a scale test) follows.
+  site. Dev's database is wiped and rebuilt once more when this is applied.
+- **Each story's files as their own records** (database review 2, part B2; Joel, 2026-11-05), in
+  progress: every uploaded video, audio file and picture gets its own record, and the story points
+  at the ones it shows. A replaced or removed file is now deleted by the nightly clean-up once its
+  upload link has expired (pictures were left behind before). An approval records which files the
+  moderator reviewed, and a story hidden because its media broke comes back on its own only while
+  it still shows those files. Search now looks at published stories only, so drafts can never
+  shift its "best match" order (Joel's choice, option A), and it matches theme names too. A local
+  scale test with 50,000 stories (run on a developer's machine only) found the browse lists and
+  search too slow at that size; after reworking their queries, list pages take 15–90 ms (were
+  2–5 s) and searching for a word in nearly every story takes 1.4 s (was 22 s). Renaming a theme
+  carried by 15,000 stories takes about 43 s, accepted for now. The super admins' list of every
+  story takes about half a second a page; a possible index is with Joel. Nothing changes for
+  people using the site. Dev's
+  database is wiped and rebuilt once more when this is applied.
 - **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
   ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
   and whole browser flows run on one phone and one desktop while every page's "fits the screen"

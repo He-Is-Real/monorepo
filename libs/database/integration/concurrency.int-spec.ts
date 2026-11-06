@@ -3,12 +3,13 @@ import {
   agree,
   agreeAll,
   createPeople,
+  outcome,
   rows,
   run,
   shareStory,
   TestDatabase,
 } from './support/harness';
-import { draft, ERASE } from './support/world';
+import { draft, ERASE, step, submit } from './support/world';
 
 /**
  * Review round 2, P1-A. A transaction reads a snapshot, so its permission and agreement checks can
@@ -52,6 +53,7 @@ describe('concurrent transactions are fenced per person', () => {
       ann: 'user_ann',
       sam: 'user_sam',
       wes: 'user_wes',
+      vic: 'user_vic',
       ula: 'user_ula',
       cy: 'user_cy',
       cid: 'user_cid',
@@ -114,17 +116,19 @@ describe('concurrent transactions are fenced per person', () => {
     ).toEqual([]);
   });
 
-  it('workflow media write that overlaps erasure: the write never lands', async () => {
+  it('workflow’s write to a file row that overlaps erasure: the write never lands', async () => {
     const wes = await t.person('user_wes');
     await draft(wes, 'wes_story', { primaryFormat: 'video' });
-    // Their upload (as a grant puts it, D80), which workflow then processes.
+    // Their upload (as storyFile_attach makes it, D80, R12), which workflow then processes.
     await run(
       migrator,
-      `UPDATE story:wes_story SET media = [{ format: 'video', bunnyVideoId: 'vid-wes' }]`,
+      `CREATE storyFile:vidwes CONTENT { story: story:wes_story, person: user:wes,
+         format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 };
+       UPDATE story:wes_story SET mediaFile = storyFile:vidwes;`,
     );
     const processing = await begin(workflow);
     await processing
-      .query(`UPDATE story:wes_story SET media[0].processing = 'processing'`)
+      .query(`UPDATE storyFile:vidwes SET processing = 'processing'`)
       .collect();
     await run(apiUser, ERASE, {
       clerkUserId: 'user_wes',
@@ -134,6 +138,46 @@ describe('concurrent transactions are fenced per person', () => {
     expect(
       await truth('SELECT * FROM story WHERE submitter = user:wes'),
     ).toEqual([]);
+    expect(await truth('SELECT * FROM storyFile:vidwes')).toEqual([]);
+  });
+
+  // Db review 2, section 6 item 2: a file's processing and a status entry bump the same fence.
+  it('a video failing while a moderator approves the story: one of them conflicts, and the retry sees the other', async () => {
+    const vic = await t.person('user_vic');
+    await agreeAll(vic);
+    await run(
+      migrator,
+      `CREATE submitterLimits:vic SET user = user:vic, trusted = true`,
+    );
+    await draft(vic, 'vic_story', { primaryFormat: 'video', body: undefined });
+    await run(
+      migrator,
+      `CREATE storyFile:vidvic CONTENT { story: story:vic_story, person: user:vic,
+         format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1,
+         processing: 'ready', width: 720, height: 1280, lengthSeconds: 20 };
+       UPDATE story:vic_story SET mediaFile = storyFile:vidvic;`,
+    );
+    await submit(vic, 'vic_story');
+    await step(admin, 'vic_story', 'in_review');
+    const approving = await begin(admin);
+    await approving
+      .query(
+        `CREATE storyStatusLog CONTENT { story: story:vic_story, status: 'approved', by: user:moderator }`,
+      )
+      .collect();
+    // The video fails meanwhile (commits first).
+    await run(workflow, `UPDATE storyFile:vidvic SET processing = 'failed'`);
+    expect(await commit(approving)).toMatch(CONFLICT);
+    // The retry checks from scratch: the video isn't ready, so it can't be approved.
+    expect(
+      await outcome(
+        admin,
+        `CREATE storyStatusLog CONTENT { story: story:vic_story, status: 'approved', by: user:moderator }`,
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('media_not_ready'),
+    });
   });
 
   // Plan 4e: agreeing (the person's pointers) racing account deletion, which clears them.

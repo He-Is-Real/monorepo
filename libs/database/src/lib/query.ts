@@ -183,7 +183,7 @@ export function submissionLimitOf(err: unknown): SubmissionLimit | undefined {
   return undefined;
 }
 
-/** The upload limits the database refused a grant for (schema-04-stories.surql, uploadGrant_attach; D113). */
+/** The upload limits the database refused a grant for (schema-04-stories.surql, storyFile_attach; D113). */
 export type UploadLimit = 'size' | 'duration' | 'hourly' | 'weekly';
 
 /**

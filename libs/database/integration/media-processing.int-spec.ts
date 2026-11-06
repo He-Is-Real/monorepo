@@ -1,5 +1,5 @@
 import { THUMBNAIL_PATH_CASES } from '@heisreal/contracts/media-paths';
-import { RecordId, type Surreal, type SurrealQueryable } from 'surrealdb';
+import type { Surreal, SurrealQueryable } from 'surrealdb';
 import {
   createPeople,
   trustSubmitters,
@@ -9,19 +9,29 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { approve, processed, step, submit, withdraw } from './support/world';
+import {
+  approve,
+  ERASE,
+  processed,
+  step,
+  submit,
+  withdraw,
+} from './support/world';
 
 /**
  * A2 (Joel, 2026-10-23): "approval should be blocked until size and processing is completed".
- * Every media item and a written story's image carry `processing` (NONE = not processed yet,
- * then 'processing', 'ready' or 'failed'). Only workflow (M7) and system users set it: the
- * person's value is ignored, api-admin's is dropped. Changing an item or the image in any way
- * (another upload, another size, another alt text) sets it back to NONE. The database refuses
- * an approved status entry (R6), whoever adds it, unless every item is 'ready' with its facts:
- * a video its width, height and duration, an audio file its duration and its thumbnail with
- * that picture's width and height (Joel, 2026-10-24), the image 'ready'.
+ * R12: a story's files are storyFile rows it points at (mediaFile, image.file), and each row
+ * carries `processing` (NONE = not processed yet, then 'processing', 'ready' or 'failed') and the
+ * facts processing found. Only workflow (M7) and system users set them: the person and api-admin
+ * can't write a file row at all. A new upload is a new row, so it starts unprocessed. The
+ * database refuses an approved status entry (R6), whoever adds it, unless every file is 'ready'
+ * with its facts: a video its width, height and length, an audio file its length and its
+ * thumbnail with that picture's width and height (Joel, 2026-10-24), the picture 'ready'.
+ * An approved story is hidden while a file isn't ready, and comes back by itself only with the
+ * files its approval recorded (reviewedMediaFile, reviewedImageFile; db review 2, section 6
+ * item 1).
  */
-describe('approval waits for media processing (A2)', () => {
+describe('approval waits for media processing (A2, R12)', () => {
   let t: TestDatabase;
   let migrator: Surreal;
   let admin: Surreal;
@@ -30,35 +40,28 @@ describe('approval waits for media processing (A2)', () => {
   let seq = 0;
 
   const TEXT = `${'Words of the story. '.repeat(11)}`;
-  const VIDEO = `{ format: 'video', bunnyVideoId: 'vid' }`;
-  const AUDIO = `{ format: 'audio', bunnyVideoId: 'aud' }`;
-  const IMAGE = `{ path: 'dev-seed/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
 
   const truth = <T = Record<string, unknown>>(
     sql: string,
     vars?: Record<string, unknown>,
   ) => rows<T>(migrator, sql, vars);
-  const story = async (id: string) =>
+  const statusOf = async (id: string) =>
     (
-      await truth<{
-        status: string;
-        media: Record<string, unknown>[];
-        image?: Record<string, unknown>;
-      }>(
-        `SELECT fn::story::status_of($this) AS status, media, image
-           FROM ONLY type::record('story', $id)`,
-        {
-          id,
-        },
+      await truth<string>(
+        `SELECT VALUE fn::story::status_of($this) FROM ONLY type::record('story', $id)`,
+        { id },
       )
     )[0];
-  const processing = async (id: string) => {
-    const s = await story(id);
-    return {
-      media: s.media.map((m) => m['processing'] ?? null),
-      image: s.image ? (s.image['processing'] ?? null) : undefined,
-    };
-  };
+  /** The story's current entry, as the database recorded it. */
+  const current = async (id: string) =>
+    (
+      await truth(
+        `SELECT VALUE currentStatus.{ status, actor, hiddenReason, publishedAt,
+           reviewedMediaFile, reviewedImageFile }
+         FROM ONLY type::record('story', $id)`,
+        { id },
+      )
+    )[0];
   /** What the public login sees of the story: its id while it is public (R11). */
   const published = async (id: string) =>
     rows(
@@ -66,14 +69,46 @@ describe('approval waits for media processing (A2)', () => {
       `SELECT VALUE id FROM type::record('story', $id)`,
       { id },
     );
+  const version = async (id: string) =>
+    (
+      await truth<number>(
+        `SELECT VALUE version FROM ONLY type::record('story', $id)`,
+        { id },
+      )
+    )[0];
 
   /**
-   * Pat creates a draft with these extra fields (SurrealQL object entries). `media` (a SurrealQL
-   * array) and `image` (an object) are then put on it as an upload would, by a system user: a
-   * person's session never writes media or an image's file (D80), and these tests are about
-   * processing, not grants (uploads.int-spec.ts, images.int-spec.ts).
+   * A system user uploads a file for story `id`, as storyFile_attach would (these tests are about
+   * processing, not uploads: uploads.int-spec.ts, images.int-spec.ts): a new row, and the story
+   * points at it. Answers the row's key.
    */
-  const create = async (fields: string, media?: string, image?: string) => {
+  const upload = async (
+    id: string,
+    format: 'video' | 'audio' | 'image',
+    db: SurrealQueryable = migrator,
+    named?: string,
+  ) => {
+    seq += 1;
+    const key =
+      named ??
+      (format === 'image'
+        ? `stories/${id}/${String(seq).padStart(32, '0')}.webp`
+        : `vid${seq}`);
+    await run(
+      db,
+      `CREATE type::record('storyFile', $key) CONTENT {
+         story: type::record('story', $id), person: user:pat, format: $format,
+         contentType: 'x/y', sizeBytes: 1000, storyVersion: 1,
+         width: IF $format = 'image' { 1200 }, height: IF $format = 'image' { 1600 } };
+       UPDATE type::record('story', $id) SET ${format === 'image' ? `image = { file: type::record('storyFile', $key), alt: 'A sunrise' }` : `mediaFile = type::record('storyFile', $key)`};`,
+      { id, key, format },
+    );
+    return key;
+  };
+  const create = async (
+    fields: string,
+    files: ('video' | 'audio' | 'image')[],
+  ) => {
     seq += 1;
     const id = `proc_${seq}`;
     const result = await outcome(
@@ -85,35 +120,43 @@ describe('approval waits for media processing (A2)', () => {
       { id },
     );
     expect(result).toEqual({ ok: true, result: [`story:${id}`] });
-    if (media) {
-      await run(
-        migrator,
-        `UPDATE type::record('story', $id) SET media = ${media}`,
-        {
-          id,
-        },
-      );
-    }
-    if (image) {
-      await run(
-        migrator,
-        `UPDATE type::record('story', $id) SET image = ${image}`,
-        { id },
-      );
-    }
+    for (const f of files) await upload(id, f);
     return id;
   };
-  const video = () => create(`primaryFormat: 'video'`, `[${VIDEO}]`);
-  const audio = () => create(`primaryFormat: 'audio'`, `[${AUDIO}]`);
+  const video = () => create(`primaryFormat: 'video'`, ['video']);
+  const audio = () => create(`primaryFormat: 'audio'`, ['audio']);
   const written = () =>
-    create(`primaryFormat: 'written', body: '${TEXT}'`, undefined, IMAGE);
-  const update = (id: string, set: string, db: SurrealQueryable = pat) =>
-    outcome(db, `UPDATE type::record('story', $id) SET ${set}`, { id });
+    create(`primaryFormat: 'written', body: '${TEXT}'`, ['image']);
+  /** The key of the story's video/audio file (`media`) or picture (`image`). */
+  const fileOf = async (id: string, which: 'media' | 'image' = 'media') =>
+    (
+      await truth<string>(
+        `SELECT VALUE record::id(${which === 'media' ? 'mediaFile' : 'image.file'})
+         FROM ONLY type::record('story', $id)`,
+        { id },
+      )
+    )[0];
+  /** A write to the story's file row (workflow's, by default). */
+  const setFile = async (
+    id: string,
+    set: string,
+    db: SurrealQueryable = workflow,
+    which: 'media' | 'image' = 'media',
+  ) =>
+    outcome(db, `UPDATE type::record('storyFile', $key) SET ${set}`, {
+      key: await fileOf(id, which),
+    });
+  const fileRow = async (id: string, which: 'media' | 'image' = 'media') =>
+    (
+      await truth(
+        `SELECT * OMIT id, story, person, at FROM ONLY type::record('storyFile', $key)`,
+        { key: await fileOf(id, which) },
+      )
+    )[0];
 
   /** The approval must be refused with this message, leaving nothing approved or published. */
   const refusedApproval = async (id: string, message: string) => {
-    if ((await story(id)).status === 'pending')
-      await step(admin, id, 'in_review');
+    if ((await statusOf(id)) === 'pending') await step(admin, id, 'in_review');
     expect(
       await outcome(
         admin,
@@ -125,11 +168,9 @@ describe('approval waits for media processing (A2)', () => {
       ok: false,
       error: expect.stringContaining(`media_not_ready: ${message}`),
     });
-    expect((await story(id)).status).toBe('in_review');
+    expect(await statusOf(id)).toBe('in_review');
     expect(await published(id)).toEqual([]);
   };
-  /** Approves a story refusedApproval left in review. */
-  const approveInReview = (id: string) => step(admin, id, 'approved');
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -144,178 +185,53 @@ describe('approval waits for media processing (A2)', () => {
   afterAll(() => t?.close());
 
   describe('who sets processing', () => {
-    it('the person can’t: on create, their value is ignored', async () => {
-      // D80: the person's media is dropped altogether.
-      const v = await create(
-        `primaryFormat: 'video', media: [{ format: 'video', bunnyVideoId: 'v', processing: 'ready' }]`,
-      );
-      expect(await processing(v)).toEqual({ media: [], image: undefined });
-      const w = await create(
-        `primaryFormat: 'written', body: 'x',
-         image: { path: 'dev-seed/p.webp', width: 10, height: 10, processing: 'ready' }`,
-      );
-      expect(await processing(w)).toEqual({ media: [], image: undefined });
-    });
-
-    it.each([
-      [`media[0].processing = 'ready'`],
-      [
-        `media = [{ format: 'video', bunnyVideoId: 'vid', processing: 'ready' }]`,
-      ],
-      [`media = media.map(|$m| object::extend($m, { processing: 'ready' }))`],
-    ])('the person can’t: SET %s is ignored', async (set) => {
-      const id = await video();
-      expect(await update(id, set)).toMatchObject({ ok: true });
-      expect(await processing(id)).toEqual({ media: [null], image: undefined });
-    });
-
-    it.each([
-      [`image.processing = 'ready'`],
-      [`image = object::extend(image, { processing: 'ready' })`],
-    ])('the person can’t: SET %s on the image is ignored', async (set) => {
-      const id = await written();
-      expect(await update(id, set)).toMatchObject({ ok: true });
-      expect(await processing(id)).toEqual({ media: [], image: null });
-    });
-
-    it('api-admin can’t: its writes are dropped', async () => {
+    it('neither the person nor api-admin can write a file row', async () => {
       const v = await video();
       const w = await written();
-      await update(v, `media[0].processing = 'ready'`, admin);
-      await update(w, `image.processing = 'ready'`, admin);
-      expect(await processing(v)).toEqual({ media: [null], image: undefined });
-      expect(await processing(w)).toEqual({ media: [], image: null });
-
-      await processed(workflow, v);
-      await processed(workflow, w);
-      await update(v, `media[0].processing = 'failed'`, admin);
-      await update(w, `image.processing = NONE`, admin);
-      expect(await processing(v)).toEqual({
-        media: ['ready'],
-        image: undefined,
-      });
-      expect(await processing(w)).toEqual({ media: [], image: 'ready' });
+      for (const db of [pat, admin]) {
+        await setFile(v, `processing = 'ready', lengthSeconds = 30`, db);
+        await setFile(w, `processing = 'ready'`, db, 'image');
+      }
+      expect((await fileRow(v))?.['processing']).toBeUndefined();
+      expect((await fileRow(w, 'image'))?.['processing']).toBeUndefined();
     });
 
-    it('workflow can, on media and on the image (and only processing on the image)', async () => {
-      const v = await video();
-      expect(
-        await update(v, `media[0].processing = 'processing'`, workflow),
-      ).toMatchObject({ ok: true });
-      expect(await processing(v)).toEqual({
-        media: ['processing'],
-        image: undefined,
-      });
-
+    it('workflow can, and a picture’s size stays the person’s', async () => {
       const w = await written();
       expect(
-        await update(
+        await setFile(
           w,
-          `image.processing = 'failed', image.alt = 'Words the person never wrote'`,
+          `processing = 'ready', width = 10, height = 10`,
           workflow,
+          'image',
         ),
       ).toMatchObject({ ok: true });
-      expect((await story(w)).image).toEqual({
-        path: 'dev-seed/a.webp',
+      expect(await fileRow(w, 'image')).toMatchObject({
+        processing: 'ready',
         width: 1200,
         height: 1600,
-        alt: 'A sunrise',
-        processing: 'failed',
       });
-      // Workflow can't remove the person's image either.
-      await update(w, `image = NONE`, workflow);
-      expect((await story(w)).image).toMatchObject({ path: 'dev-seed/a.webp' });
     });
 
     it('refuses an unknown processing state', async () => {
-      const id = await video();
-      expect(
-        await update(id, `media[0].processing = 'approved'`, workflow),
-      ).toEqual({ ok: false, error: expect.stringContaining('processing') });
-      const w = await written();
-      expect(await update(w, `image.processing = 'done'`, workflow)).toEqual({
+      const v = await video();
+      expect(await setFile(v, `processing = 'done'`)).toEqual({
         ok: false,
         error: expect.stringContaining('processing'),
       });
     });
-  });
 
-  describe('a change sets processing back to not processed', () => {
-    // A video or audio file changes only by a new upload (D80), which starts processing again:
-    // uploads.int-spec.ts ("replacing the file"). The person can't change it at all.
-    it.each([
-      ['another upload', `media[0].bunnyVideoId = 'vid-2'`],
-      [
-        'a replaced media list',
-        `media = [{ format: 'video', bunnyVideoId: 'vid-3' }]`,
-      ],
-      ['another size', `media[0].width = 720, media[0].height = 1280`],
-    ])('video: the person’s %s is ignored (D80)', async (_name, set) => {
+    it('a new upload is a new row, not processed yet, even after the old one was', async () => {
       const id = await video();
       await processed(workflow, id);
-      const before = await story(id);
-      expect(before.media[0]).toMatchObject({ processing: 'ready' });
-      expect(await update(id, set)).toMatchObject({ ok: true });
-      expect((await story(id)).media).toEqual(before.media);
-    });
-
-    it.each([
-      [
-        'another image (dropped: only a grant brings one, D80)',
-        `image = { path: 'dev-seed/b.webp', width: 800, height: 800 }`,
-      ],
-      ['another path (dropped)', `image.path = 'dev-seed/c.webp'`],
-      ['another alt text', `image.alt = 'Sunrise over the hills'`],
-    ])('image: the person’s %s keeps it', async (_name, set) => {
-      const id = await written();
-      await processed(workflow, id);
-      expect(await update(id, set)).toMatchObject({ ok: true });
-      expect(await processing(id)).toEqual({ media: [], image: 'ready' });
-      expect((await story(id)).image).toMatchObject({
-        path: 'dev-seed/a.webp',
-      });
-    });
-
-    it('keeps it while the media and image are unchanged', async () => {
-      const v = await video();
-      const w = await written();
-      await processed(workflow, v);
-      await processed(workflow, w);
-      await update(v, `title = 'A new title'`);
-      await update(w, `body = '${TEXT} More.'`);
-      expect(await processing(v)).toEqual({
-        media: ['ready'],
-        image: undefined,
-      });
-      expect(await processing(w)).toEqual({ media: [], image: 'ready' });
-      // Re-sending the same media (as an edit form would) changes nothing either.
-      await update(
-        v,
-        `media = media.map(|$m| object::remove($m, 'processing'))`,
-      );
-      expect(await processing(v)).toEqual({
-        media: ['ready'],
-        image: undefined,
-      });
-    });
-
-    it('a video replaced after processing can’t be approved until it is processed again', async () => {
-      const id = await video();
-      await processed(workflow, id);
-      // Another file uploaded to the draft (as a grant would put it, D80).
-      await update(
-        id,
-        `media = [{ format: 'video', bunnyVideoId: 'unchecked' }]`,
-        migrator,
-      );
+      const replacement = await upload(id, 'video');
+      expect(await fileOf(id)).toBe(replacement);
+      expect((await fileRow(id))?.['processing']).toBeUndefined();
       expect(await submit(pat, id)).toHaveLength(1);
       await refusedApproval(
         id,
         'the story’s video or audio hasn’t finished processing',
       );
-      await processed(workflow, id);
-      await approveInReview(id);
-      expect(await published(id)).toEqual([`story:${id}`]);
     });
   });
 
@@ -323,8 +239,12 @@ describe('approval waits for media processing (A2)', () => {
     const pending = async (make: () => Promise<string>, set?: string) => {
       const id = await make();
       expect(await submit(pat, id)).toHaveLength(1);
-      if (set)
-        expect(await update(id, set, workflow)).toMatchObject({ ok: true });
+      if (set) {
+        const which = make === written ? 'image' : 'media';
+        expect(await setFile(id, set, workflow, which)).toMatchObject({
+          ok: true,
+        });
+      }
       return id;
     };
 
@@ -338,33 +258,26 @@ describe('approval waits for media processing (A2)', () => {
       [
         'a video still processing',
         video,
-        `media[0].processing = 'processing'`,
+        `processing = 'processing'`,
         'the story’s video or audio hasn’t finished processing',
       ],
       [
         'a video that failed processing',
         video,
-        `media[0].processing = 'failed'`,
+        `processing = 'failed'`,
         'the story’s video or audio hasn’t finished processing',
       ],
       [
         'a ready video without its size',
         video,
-        `media[0].processing = 'ready', media[0].durationSeconds = 30`,
-        'a video needs its width, height and duration',
+        `processing = 'ready', lengthSeconds = 30`,
+        'a video needs its width, height and length',
       ],
       [
-        'a ready video without its duration',
+        'a ready video without its length',
         video,
-        `media[0].processing = 'ready', media[0].width = 1080, media[0].height = 1920`,
-        'a video needs its width, height and duration',
-      ],
-      [
-        'a ready video with a zero duration',
-        video,
-        `media[0].processing = 'ready', media[0].width = 1080, media[0].height = 1920,
-         media[0].durationSeconds = 0`,
-        'a video needs its width, height and duration',
+        `processing = 'ready', width = 1080, height = 1920`,
+        'a video needs its width, height and length',
       ],
       [
         'an unprocessed audio file',
@@ -373,43 +286,41 @@ describe('approval waits for media processing (A2)', () => {
         'the story’s video or audio hasn’t finished processing',
       ],
       [
-        'a ready audio file without its duration',
+        'a ready audio file without its length',
         audio,
-        `media[0].processing = 'ready'`,
-        'an audio file needs its duration',
+        `processing = 'ready'`,
+        'an audio file needs its length',
       ],
       [
         'a ready audio file with an empty thumbnail path',
         audio,
-        `media[0].processing = 'ready', media[0].durationSeconds = 30,
-         media[0].thumbnailPath = '', media[0].width = 1280, media[0].height = 720`,
+        `processing = 'ready', lengthSeconds = 30, thumbnailPath = '', width = 1280, height = 720`,
         'an audio file needs its thumbnail and that picture’s width and height',
       ],
       [
         'a ready audio file with a thumbnail outside its own video’s folder',
         audio,
-        `media[0].processing = 'ready', media[0].durationSeconds = 30,
-         media[0].thumbnailPath = 'other/thumbnail_0a1b2c3d.jpg', media[0].width = 1280,
-         media[0].height = 720`,
+        `processing = 'ready', lengthSeconds = 30,
+         thumbnailPath = 'other/thumbnail_0a1b2c3d.jpg', width = 1280, height = 720`,
         'an audio file needs its thumbnail and that picture’s width and height',
       ],
       [
         'a ready audio file without its thumbnail’s size',
         audio,
-        `media[0].processing = 'ready', media[0].durationSeconds = 30,
-         media[0].thumbnailPath = 'aud/thumbnail_0a1b2c3d.jpg'`,
+        `processing = 'ready', lengthSeconds = 30,
+         thumbnailPath = record::id(id) + '/thumbnail_0a1b2c3d.jpg'`,
         'an audio file needs its thumbnail and that picture’s width and height',
       ],
       [
-        'an unchecked image',
+        'an unchecked picture',
         written,
         undefined,
         'the story’s image hasn’t finished processing',
       ],
       [
-        'a failed image',
+        'a failed picture',
         written,
-        `image.processing = 'failed'`,
+        `processing = 'failed'`,
         'the story’s image hasn’t finished processing',
       ],
     ])('is refused for %s', async (_name, make, set, message) => {
@@ -419,37 +330,51 @@ describe('approval waits for media processing (A2)', () => {
     it.each([
       ['a processed video', video],
       ['a processed audio file', audio],
-      ['a written story with a checked image', written],
-      [
-        'a written story without an image',
-        () => create(`primaryFormat: 'written', body: '${TEXT}'`),
-      ],
-    ])('goes ahead for %s', async (_name, make) => {
-      const id = await pending(make);
+      ['a written story with a checked picture', written],
+    ])('publishes %s, recording the files it reviewed', async (_name, make) => {
+      const id = await make();
+      expect(await submit(pat, id)).toHaveLength(1);
       await processed(workflow, id);
       await approve(admin, id);
-      expect((await story(id)).status).toBe('approved');
       expect(await published(id)).toEqual([`story:${id}`]);
+      expect(await current(id)).toMatchObject(
+        make === written
+          ? {
+              status: 'approved',
+              reviewedImageFile: `storyFile:⟨${await fileOf(id, 'image')}⟩`,
+            }
+          : {
+              status: 'approved',
+              reviewedMediaFile: `storyFile:${await fileOf(id)}`,
+            },
+      );
     });
 
-    // An audio file's thumbnail: the same table api-public-read's signer is tested against
-    // (libs/contracts media-paths), so every path the database lets through can be signed.
     it.each(THUMBNAIL_PATH_CASES.map((c) => [c.why, c] as const))(
-      'audio thumbnail path rule, shared with the signer: %s',
+      'an audio thumbnail path: %s',
       async (_why, c) => {
-        const id = await pending(
-          () =>
-            create(
-              `primaryFormat: 'audio'`,
-              `[{ format: 'audio', bunnyVideoId: ${JSON.stringify(c.videoId)} }]`,
-            ),
-          `media[0].processing = 'ready', media[0].durationSeconds = 30,
-           media[0].thumbnailPath = ${JSON.stringify(c.path)},
-           media[0].width = 1280, media[0].height = 720`,
+        const id = await create(`primaryFormat: 'audio'`, []);
+        // A key as long as the case's video id, so the path keeps its length.
+        await upload(
+          id,
+          'audio',
+          migrator,
+          `a${seq}`.padEnd(c.videoId.length, '0'),
+        );
+        expect(await submit(pat, id)).toHaveLength(1);
+        const key = await fileOf(id);
+        // The cases are written for their own video id; ours is the row's key.
+        const path = c.path.split(c.videoId).join(key);
+        await setFile(
+          id,
+          `processing = 'ready', lengthSeconds = 30, width = 1280, height = 720, thumbnailPath = $path`.replace(
+            '$path',
+            JSON.stringify(path),
+          ),
         );
         if (c.ok) {
-          await approve(admin, id);
-          expect(await published(id)).toEqual([`story:${id}`]);
+          await step(admin, id, 'in_review');
+          expect(await step(admin, id, 'approved')).toHaveLength(1);
         } else {
           await refusedApproval(
             id,
@@ -460,12 +385,9 @@ describe('approval waits for media processing (A2)', () => {
     );
 
     it('is refused for system users too (the migrator)', async () => {
-      const id = await pending(video);
-      const moderator = {
-        actor: 'moderator',
-        by: new RecordId('user', 'moderator'),
-      };
-      await step(migrator, id, 'in_review', moderator);
+      const id = await video();
+      expect(await submit(pat, id)).toHaveLength(1);
+      await step(admin, id, 'in_review');
       expect(
         await outcome(
           migrator,
@@ -477,18 +399,10 @@ describe('approval waits for media processing (A2)', () => {
         ok: false,
         error: expect.stringContaining('media_not_ready:'),
       });
-      expect((await story(id)).status).toBe('in_review');
     });
   });
 
-  /**
-   * Joel, 2026-10-23: "a story should not revert after once it has approval". When an approved
-   * story's media stops being ready, the same write adds a system `hidden` entry to its status
-   * log (R6), so the public no longer sees it. When the same media is ready again (Bunny
-   * re-encodes it), the same write adds a system `approved` entry: public again, with its first
-   * publishedAt and no new approval. fn::story::hidden_by_media lists what's hidden.
-   */
-  describe('an approved story is hidden while its media is not ready', () => {
+  describe('an approved story is hidden while a file is not ready', () => {
     const live = async (make: () => Promise<string>) => {
       const id = await make();
       expect(await submit(pat, id)).toHaveLength(1);
@@ -497,616 +411,231 @@ describe('approval waits for media processing (A2)', () => {
       expect(await published(id)).toEqual([`story:${id}`]);
       return id;
     };
-    const hidden = async () =>
+    const hiddenIds = async () =>
       (
-        await rows<{ id: unknown }>(
-          admin,
-          `RETURN fn::story::hidden_by_media()`,
-        )
-      ).flat() as unknown as Record<string, unknown>[];
-    const hiddenIds = async () => (await hidden()).map((r) => String(r['id']));
-    /** What the public login reads of the story, its publishedAt included. */
-    const publicRow = async (id: string) =>
-      rows(
-        await t.service('api_public_read'),
-        `SELECT *, currentStatus.publishedAt AS publishedAt
-           OMIT updatedAt, version, currentStatus FROM ONLY type::record('story', $id)`,
-        { id },
-      );
-    const expectHidden = async (id: string) => {
-      expect((await story(id)).status).toBe('hidden');
+        (await rows(admin, `RETURN fn::story::hidden_by_media()`)).flat() as {
+          id: unknown;
+        }[]
+      ).map((r) => String(r.id));
+    const expectHidden = async (id: string, reason = 'media_unavailable') => {
+      expect(await current(id)).toMatchObject({
+        status: 'hidden',
+        actor: 'system',
+        hiddenReason: reason,
+      });
       expect(await published(id)).toEqual([]);
       expect(await hiddenIds()).toContain(`story:${id}`);
     };
     const expectLive = async (id: string) => {
-      expect((await story(id)).status).toBe('approved');
+      expect(await statusOf(id)).toBe('approved');
       expect(await published(id)).toEqual([`story:${id}`]);
       expect(await hiddenIds()).not.toContain(`story:${id}`);
     };
 
-    it.each<[string, () => Promise<string>, string, string | undefined]>([
+    it.each<[string, () => Promise<string>, string, 'media' | 'image']>([
+      ['a video marked failed', video, `processing = 'failed'`, 'media'],
       [
-        'a video marked failed',
+        'a video back to processing',
         video,
-        `media[0].processing = 'failed'`,
-        undefined,
+        `processing = 'processing'`,
+        'media',
       ],
+      ['a video losing its length', video, `lengthSeconds = NONE`, 'media'],
       [
-        'a video rescanned',
-        video,
-        `media[0].processing = 'processing'`,
-        undefined,
-      ],
-      [
-        'a video that loses its size',
-        video,
-        `media[0].width = NONE, media[0].height = NONE`,
-        undefined,
-      ],
-      [
-        'a video that loses its duration',
-        video,
-        `media[0].durationSeconds = NONE`,
-        undefined,
-      ],
-      [
-        'an audio file marked failed',
+        'an audio file losing its thumbnail',
         audio,
-        `media[0].processing = 'failed'`,
-        undefined,
+        `thumbnailPath = NONE`,
+        'media',
       ],
-      [
-        'an audio file that loses its duration',
-        audio,
-        `media[0].durationSeconds = 0`,
-        `media[0].durationSeconds = 45`,
-      ],
-      [
-        'an image marked failed',
-        written,
-        `image.processing = 'failed'`,
-        undefined,
-      ],
-      [
-        'an image back to not processed',
-        written,
-        `image.processing = NONE`,
-        undefined,
-      ],
+      ['a picture marked failed', written, `processing = 'failed'`, 'image'],
     ])(
-      '%s: hidden, back on its own when ready',
-      async (_name, make, set, fix) => {
+      'hides it on %s, and shows it again when the same file is ready',
+      async (_name, make, set, which) => {
         const id = await live(make);
-        const before = await publicRow(id);
-        expect(await update(id, set, workflow)).toMatchObject({ ok: true });
-        await expectHidden(id);
-
-        // Bunny re-encodes the same media; processing records it ready again. No admin action.
-        if (fix) await update(id, fix, workflow);
-        else await processed(workflow, id);
-        await expectLive(id);
-        // Same publishedAt, same content. The clip's duration is processing's latest fact.
-        const [after] = (await publicRow(id)) as Record<string, unknown>[];
-        const [was] = before as Record<string, unknown>[];
-        const noDuration = (row: Record<string, unknown>) => ({
-          ...row,
-          media: (row['media'] as Record<string, unknown>[]).map(
-            ({ durationSeconds: _, ...m }) => m,
-          ),
+        const publishedAt = (await current(id))?.['publishedAt'];
+        expect(await setFile(id, set, workflow, which)).toMatchObject({
+          ok: true,
         });
-        expect(noDuration(after)).toEqual(noDuration(was));
-        expect(
-          (after['media'] as Record<string, unknown>[])[0]?.['durationSeconds'],
-        ).toEqual((await story(id)).media[0]?.['durationSeconds']);
+        await expectHidden(id);
+        await processed(workflow, id);
+        await expectLive(id);
+        expect(await current(id)).toMatchObject({
+          actor: 'system',
+          publishedAt,
+        });
       },
     );
 
-    it('keeps its first publishedAt and its slugHistory', async () => {
-      const id = await live(video);
-      await run(
-        migrator,
-        `UPDATE type::record('story', $id) SET slugHistory = ['an-old-slug']`,
-        { id },
-      );
-      const before = await publicRow(id);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      await processed(workflow, id);
-      expect(await publicRow(id)).toEqual(before);
-      // The log shows what happened (Q6b): approved, hidden by the system, approved again.
-      expect(
-        await truth(
-          `SELECT status, actor, hiddenReason, at, id FROM storyStatusLog
-             WHERE story = type::record('story', $id) ORDER BY at, id`,
-          { id },
-        ).then((r) => r.slice(-3).map(({ at: _a, id: _i, ...e }) => e)),
-      ).toEqual([
-        { status: 'approved', actor: 'moderator' },
-        {
-          status: 'hidden',
-          actor: 'system',
-          hiddenReason: 'media_unavailable',
-        },
-        { status: 'approved', actor: 'system' },
-      ]);
-    });
-
     it('a system user hides and restores it too', async () => {
-      const id = await live(audio);
-      await update(id, `media[0].processing = 'failed'`, migrator);
+      const id = await live(video);
+      await setFile(id, `processing = 'failed'`, migrator);
       await expectHidden(id);
-      await update(id, `media[0].processing = 'ready'`, migrator);
+      await setFile(id, `processing = 'ready'`, migrator);
       await expectLive(id);
     });
 
     it('stays hidden while still not ready', async () => {
       const id = await live(video);
-      await update(id, `media[0].processing = 'processing'`, workflow);
-      await update(id, `media[0].processing = 'failed'`, workflow);
+      await setFile(id, `processing = 'failed'`);
+      await setFile(id, `processing = 'processing'`);
       await expectHidden(id);
-      const [row] = (await hidden()).filter(
-        (r) => String(r['id']) === `story:${id}`,
-      );
-      expect(row).toMatchObject({
-        slug: id,
-        primaryFormat: 'video',
-        mediaChanged: false,
-        problem: expect.stringContaining('media_not_ready:'),
-      });
-      expect(row['hiddenSince']).toBeDefined();
-    });
-
-    // D13: hide markers are written only by the guard events and system users. No service
-    // and no person may create or delete one directly (Codex review of #72).
-    it('nobody marks a story hidden or unhidden by hand', async () => {
-      const first = await live(video);
-      const ok = await live(audio);
-      await update(first, `media[0].processing = 'failed'`, workflow);
-      // A denied write is a silent no-op (D13), so the state is what counts, after each one.
-      for (const [name, db] of Object.entries({ admin, workflow, pat })) {
-        await outcome(
-          db,
-          // A valid row (identity is 64 characters), so only the permission can refuse it.
-          `CREATE type::record('hiddenStory', $id) CONTENT { identity: $identity }`,
-          { id: ok, identity: 'a'.repeat(64) },
-        );
-        await outcome(db, `DELETE type::record('hiddenStory', $id)`, {
-          id: first,
-        });
-        const ids = await hiddenIds();
-        expect({ name, kept: ids.includes(`story:${first}`) }).toEqual({
-          name,
-          kept: true,
-        });
-        expect({ name, added: ids.includes(`story:${ok}`) }).toEqual({
-          name,
-          added: false,
-        });
-      }
-      await expectLive(ok);
-      // Nor adds the system's entries: workflow can't write the log, the person only their own
-      // two steps, and a hidden entry without the right step is refused for everyone.
-      for (const db of [workflow, pat]) {
-        await outcome(
-          db,
-          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'hidden',
-             actor: 'system', hiddenReason: 'media_unavailable' }`,
-          { id: ok },
-        );
-        await outcome(
-          db,
-          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'approved', actor: 'system' }`,
-          { id: first },
-        );
-      }
-      await expectLive(ok);
-      await expectHidden(first);
-    });
-
-    it('different media stays hidden: a moderator must review it', async () => {
-      const id = await live(video);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      // Another Bunny id, which only a system user can still write (D80: anyone else needs a
-      // grant for this story, and a submitted story gets none).
-      await update(
-        id,
-        `media = [{ format: 'video', bunnyVideoId: 'replacement', processing: 'ready',
-                    width: 1080, height: 1920, durationSeconds: 60 }]`,
-        migrator,
-      );
-      await expectHidden(id);
-      const [row] = (await hidden()).filter(
-        (r) => String(r['id']) === `story:${id}`,
-      );
-      expect(row).toMatchObject({ mediaChanged: true });
-      expect(row['problem']).toBeUndefined();
-    });
-
-    it.each<[string, string[]]>([
-      [
-        'in the same write as the failure',
-        [
-          `media = [{ format: 'video', bunnyVideoId: 'unreviewed', processing: 'failed' }]`,
-        ],
-      ],
-      [
-        'just before the failure',
-        [
-          `media[0].bunnyVideoId = 'unreviewed'`,
-          `media[0].processing = 'failed'`,
-        ],
-      ],
-      // D60 exempts only Bunny's generated frames of the same video (thumbnail_1..5.jpg). A
-      // custom upload lands in the video's folder too, so any other name is unreviewed media.
-      [
-        'as a custom thumbnail in the same write',
-        [
-          `media[0].thumbnailPath = 'vid/unreviewed-custom.jpg', media[0].processing = 'failed'`,
-        ],
-      ],
-      [
-        'as a custom thumbnail while hidden',
-        [
-          `media[0].processing = 'failed'`,
-          `media[0].thumbnailPath = 'vid/unreviewed-custom.jpg'`,
-        ],
-      ],
-      [
-        'as another video’s generated frame',
-        [
-          `media[0].thumbnailPath = 'other/thumbnail_2.jpg', media[0].processing = 'failed'`,
-        ],
-      ],
-      [
-        'as the selected-thumbnail slot, which can hold a custom image',
-        [
-          `media[0].thumbnailPath = 'vid/thumbnail.jpg', media[0].processing = 'failed'`,
-        ],
-      ],
-      [
-        'as a frame number Bunny doesn’t generate',
-        [
-          `media[0].thumbnailPath = 'vid/thumbnail_6.jpg', media[0].processing = 'failed'`,
-        ],
-      ],
-    ])(
-      'media swapped %s never goes public unreviewed',
-      async (_name, writes) => {
-        const id = await live(video);
-        // A new Bunny id needs a grant for this story from anyone but a system user (D80).
-        for (const set of writes)
-          expect(
-            await update(
-              id,
-              set,
-              /bunnyVideoId/.test(set) ? migrator : workflow,
-            ),
-          ).toMatchObject({ ok: true });
-        await processed(workflow, id);
-        await expectHidden(id);
-        const [row] = (await hidden()).filter(
-          (r) => String(r['id']) === `story:${id}`,
-        );
-        expect(row).toMatchObject({ mediaChanged: true });
-      },
-    );
-
-    const publicThumbnail = async (id: string) =>
-      rows(
-        await t.service('api_public_read'),
-        `SELECT VALUE media[0].thumbnailPath FROM type::record('story', $id)`,
-        { id },
-      );
-
-    it.each([
-      ['in the same write as the failure', true],
-      ['while hidden', false],
-    ])(
-      'a re-encode with a new thumbnail %s comes back on its own (D60)',
-      async (_name, sameWrite) => {
-        // Bunny re-encodes the same video and makes a new thumbnail: a frame of the reviewed
-        // clip, so no moderator is needed. The public row shows the new thumbnail.
-        const id = await live(video);
-        const thumb = `media[0].thumbnailPath = 'vid/thumbnail_2.jpg'`;
-        await update(
-          id,
-          sameWrite
-            ? `${thumb}, media[0].processing = 'failed'`
-            : `media[0].processing = 'failed'`,
-          workflow,
-        );
-        await expectHidden(id);
-        if (!sameWrite) await update(id, thumb, workflow);
-        await processed(workflow, id);
-        await expectLive(id);
-        expect(await publicThumbnail(id)).toEqual(['vid/thumbnail_2.jpg']);
-      },
-    );
-
-    it('a new generated thumbnail on a public story shows at once (D60)', async () => {
-      const id = await live(video);
-      await update(
-        id,
-        `media[0].thumbnailPath = 'vid/thumbnail_3.jpg'`,
-        workflow,
-      );
-      await expectLive(id);
-      expect(await publicThumbnail(id)).toEqual(['vid/thumbnail_3.jpg']);
-    });
-
-    it.each<[string, () => Promise<string>, string, SurrealQueryable | null]>([
-      [
-        'a custom thumbnail',
-        video,
-        `media[0].thumbnailPath = 'vid/unreviewed-custom.jpg'`,
-        null,
-      ],
-      [
-        'another video’s generated frame',
-        video,
-        `media[0].thumbnailPath = 'other/thumbnail_1.jpg'`,
-        null,
-      ],
-      ['another Bunny id', video, `media[0].bunnyVideoId = 'other'`, null],
-      [
-        'another image path',
-        written,
-        `image.path = 'dev-seed/replacement.webp'`,
-        null,
-      ],
-    ])(
-      '%s on a public story hides it until a moderator reviews it (D59, D60)',
-      async (_name, make, set, db) => {
-        // Workflow writes thumbnails; only a system user can swap a Bunny id or image path.
-        const writer =
-          db ?? (set.includes('thumbnailPath') ? workflow : migrator);
-        const id = await live(make);
-        expect(await update(id, set, writer)).toMatchObject({ ok: true });
-        await expectHidden(id);
-        const [row] = (await hidden()).filter(
-          (r) => String(r['id']) === `story:${id}`,
-        );
-        expect(row).toMatchObject({ mediaChanged: true });
-        expect(row['problem']).toBeUndefined();
-        // Processing again doesn't bring it back: it isn't what was reviewed.
-        await processed(workflow, id);
-        await expectHidden(id);
-      },
-    );
-
-    it('a written story’s new image path stays hidden: a moderator must review it', async () => {
-      // Only a system user (or an upload grant, before submit) can write image.path.
-      const id = await live(written);
-      await update(id, `image.processing = 'failed'`, workflow);
-      await update(
-        id,
-        `image.path = 'dev-seed/replacement.webp', image.processing = 'ready'`,
-        migrator,
-      );
-      await expectHidden(id);
-      const [row] = (await hidden()).filter(
-        (r) => String(r['id']) === `story:${id}`,
-      );
-      expect(row).toMatchObject({ mediaChanged: true });
-      expect(row['problem']).toBeUndefined();
-    });
-
-    it('only api-admin and workflow can read the hidden marker', async () => {
-      const id = await live(video);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      const read = (db: SurrealQueryable) =>
-        rows(db, `SELECT VALUE id FROM type::record('hiddenStory', $id)`, {
-          id,
-        });
-      expect(await read(admin)).toEqual([`hiddenStory:${id}`]);
-      expect(await read(workflow)).toEqual([`hiddenStory:${id}`]);
-      expect(await read(pat)).toEqual([]);
-    });
-
-    it('erasure deletes the hidden marker with the story', async () => {
-      const id = await live(video);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      await run(admin, `DELETE type::record('story', $id)`, { id });
       expect(
-        await truth(`SELECT VALUE id FROM type::record('hiddenStory', $id)`, {
-          id,
-        }),
-      ).toEqual([]);
-    });
-
-    /**
-     * D29: the version steps on every write. Hiding and restoring add a status entry, which
-     * moves the story's pointer in the same transaction: the story's version steps for that too.
-     */
-    describe('versions (D29)', () => {
-      const version = async (id: string) =>
         (
-          await truth<number>(
-            `SELECT VALUE version FROM ONLY type::record('story', $id)`,
+          await truth<string>(
+            `SELECT VALUE status FROM storyStatusLog WHERE story = type::record('story', $id)
+             ORDER BY at`,
             { id },
           )
-        )[0];
-      const command = async (db: SurrealQueryable, id: string, set: string) =>
-        (
-          await rows<number>(
-            db,
-            `UPDATE type::record('story', $id) SET ${set} RETURN VALUE version`,
-            { id },
-          )
-        )[0];
-
-      it('hiding: the media write and the status step, two versions', async () => {
-        const id = await live(video);
-        const before = await version(id);
-        await command(workflow, id, `media[0].processing = 'failed'`);
-        expect(await published(id)).toEqual([]);
-        expect(await version(id)).toBe(before + 2);
-      });
-
-      it('restoring: the media write and the status step, two versions', async () => {
-        const id = await live(video);
-        await update(id, `media[0].processing = 'failed'`, workflow);
-        const before = await version(id);
-        await command(workflow, id, `media[0].processing = 'ready'`);
-        expect(await published(id)).toEqual([`story:${id}`]);
-        expect(await version(id)).toBe(before + 2);
-      });
-
-      it('withdrawing a hidden story: one status step, one version', async () => {
-        const id = await live(video);
-        await update(id, `media[0].processing = 'failed'`, workflow);
-        const before = await version(id);
-        expect(await withdraw(pat, id)).toHaveLength(1);
-        expect(await version(id)).toBe(before + 1);
-      });
+        ).filter((s) => s === 'hidden'),
+      ).toHaveLength(1);
     });
 
-    it('reviewed replacement media, published again by a moderator, is hidden when it fails (Codex, #61)', async () => {
+    it('the person can’t mark it hidden or shown again; the system’s show-again needs the reviewed files, ready', async () => {
       const id = await live(video);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      await expectHidden(id);
-      // Bunny can't recover A: workflow records replacement video B, ready.
-      await update(
-        id,
-        `media = [{ format: 'video', bunnyVideoId: 'replacement-b', processing: 'ready',
-                    width: 1080, height: 1920, durationSeconds: 60 }]`,
-        migrator,
-      );
-      await expectHidden(id); // B differs from what was public: it waits for a moderator
-      // The system can't show it again with B; a moderator reviews B and shows it again.
+      expect(
+        await outcome(
+          pat,
+          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'hidden' }`,
+          { id },
+        ),
+      ).toMatchObject({ ok: false });
+      await setFile(id, `processing = 'failed'`);
       expect(
         await outcome(
           migrator,
-          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'approved', actor: 'system' }`,
+          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'approved',
+             actor: 'system' }`,
           { id },
         ),
-      ).toMatchObject({
+      ).toEqual({
         ok: false,
         error: expect.stringContaining('story_not_restorable'),
       });
-      await step(admin, id, 'approved');
-      await expectLive(id);
-      expect(
-        await truth(`SELECT VALUE id FROM type::record('hiddenStory', $id)`, {
-          id,
-        }),
-      ).toEqual([]);
-      // B fails later: hidden again, nothing failed stays public.
-      await update(id, `media[0].processing = 'failed'`, workflow);
       await expectHidden(id);
     });
 
-    it('a hide marker left behind never stops a hide, and showing it again clears it', async () => {
-      const marker = () =>
-        truth(`SELECT VALUE identity FROM type::record('hiddenStory', $id)`, {
-          id,
-        });
+    it('other files stay hidden: a moderator must review them, and their approval records them', async () => {
       const id = await live(video);
-      // A stale marker next to an approved story (only a system user could write it).
-      await run(
-        migrator,
-        `UPSERT type::record('hiddenStory', $id) CONTENT { identity: $x }`,
-        { id, x: 'f'.repeat(64) },
-      );
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      expect(await published(id)).toEqual([]);
-      expect(await marker()).not.toEqual(['f'.repeat(64)]); // replaced by what was reviewed
+      await setFile(id, `processing = 'failed'`);
+      await expectHidden(id);
+      // Only a system user can point a submitted story at another file (content is locked).
+      const other = await upload(id, 'video');
       await processed(workflow, id);
-      await expectLive(id); // so the same media comes back
-      expect(await marker()).toEqual([]);
+      expect(await statusOf(id)).toBe('hidden');
+      expect(
+        (
+          (await rows(admin, `RETURN fn::story::hidden_by_media()`)).flat() as {
+            id: string;
+            mediaChanged: boolean;
+          }[]
+        ).find((r) => String(r.id) === `story:${id}`),
+      ).toMatchObject({ mediaChanged: true });
+      // A moderator's "show again" is their review of what it shows now.
+      expect(await step(admin, id, 'approved')).toHaveLength(1);
+      expect(await current(id)).toMatchObject({
+        actor: 'moderator',
+        reviewedMediaFile: `storyFile:${other}`,
+      });
+      // And those files are what it comes back with next time (Codex, #61).
+      await setFile(id, `processing = 'failed'`);
+      await expectHidden(id);
+      await processed(workflow, id);
+      await expectLive(id);
     });
 
-    it.each([
-      ['the same state again', `media[0].processing = 'ready'`],
-      ['another duration', `media[0].durationSeconds = 61`],
-      ['a generated frame', `media[0].thumbnailPath = 'vid/thumbnail_4.jpg'`],
-      ['nothing', `media = media`],
-    ])(
-      'an unrelated workflow write on a ready item keeps it published: %s',
-      async (_name, set) => {
-        const id = await live(video);
-        expect(await update(id, set, workflow)).toMatchObject({ ok: true });
-        await expectLive(id);
-      },
-    );
-
-    it('an unrelated workflow write on a ready image keeps it published', async () => {
+    it('pointing a published story at another file, even a ready one, hides it (media_changed)', async () => {
       const id = await live(written);
+      await run(
+        migrator,
+        `CREATE storyFile:⟨stories/${id}/ffffffffffffffffffffffffffffffff.webp⟩ CONTENT {
+           story: type::record('story', $id), person: user:pat, format: 'image',
+           contentType: 'image/webp', sizeBytes: 1, storyVersion: 1, width: 900, height: 900,
+           processing: 'ready' };
+         UPDATE type::record('story', $id) SET image.file =
+           storyFile:⟨stories/${id}/ffffffffffffffffffffffffffffffff.webp⟩;`,
+        { id },
+      );
+      await expectHidden(id, 'media_changed');
+    });
+
+    it('a new thumbnail from Bunny on a public story shows at once (D60)', async () => {
+      const id = await live(video);
+      const key = await fileOf(id);
       expect(
-        await update(id, `image.processing = 'ready'`, workflow),
+        await setFile(id, `thumbnailPath = '${key}/thumbnail_3.jpg'`),
       ).toMatchObject({ ok: true });
       await expectLive(id);
     });
 
-    it('the person can’t hide or restore it: processing is ignored, content is locked', async () => {
-      const v = await live(video);
-      const w = await live(written);
-      expect(await update(v, `media[0].processing = 'failed'`)).toMatchObject({
-        ok: true,
-      });
-      expect(await update(w, `image.processing = 'failed'`)).toMatchObject({
-        ok: true,
-      });
-      // D80: the person's media writes are dropped, whatever the status.
-      const media = (await story(v)).media;
-      for (const set of [
-        `media[0].durationSeconds = NONE`,
-        `media = [{ format: 'video', bunnyVideoId: 'other' }]`,
-      ]) {
-        expect(await update(v, set)).toMatchObject({ ok: true });
-        expect((await story(v)).media).toEqual(media);
-      }
-      expect(await update(w, `image.alt = 'Another alt'`)).toEqual({
-        ok: false,
-        error: expect.stringContaining('locked after submission'),
-      });
-      await expectLive(v);
-      await expectLive(w);
-
-      // Hidden by workflow: the person (and api-admin) can't set it ready to bring it back.
-      // (A moderator's "show again" is a status entry: see the moderator test above.)
-      await update(v, `media[0].processing = 'failed'`, workflow);
-      await update(v, `media[0].processing = 'ready'`);
-      await update(v, `media[0].processing = 'ready'`, admin);
-      await expectHidden(v);
-      expect((await processing(v)).media).toEqual(['failed']);
-    });
-
-    it('api-admin can’t hide it: its media writes are dropped', async () => {
-      const id = await live(video);
-      await update(id, `media[0].processing = 'failed'`, admin);
-      await update(id, `media[0].durationSeconds = NONE`, admin);
+    it('an unrelated workflow write to a ready picture keeps it published', async () => {
+      const id = await live(written);
+      expect(
+        await setFile(id, `processing = 'ready'`, workflow, 'image'),
+      ).toMatchObject({ ok: true });
       await expectLive(id);
     });
 
-    it('another person can’t touch it', async () => {
+    it('a moderator’s hide stays until a moderator shows it again', async () => {
       const id = await live(video);
-      await createPeople(t, { eve: 'user_eve' });
-      await trustSubmitters(t, 'eve');
-      const eve = await t.person('user_eve');
-      expect(
-        await outcome(
-          eve,
-          `UPDATE type::record('story', $id) SET media[0].processing = 'failed'
-           RETURN VALUE id`,
-          { id },
-        ),
-      ).toEqual({ ok: true, result: [] });
-      await expectLive(id);
-    });
-
-    it('the owner can still withdraw a hidden story, which leaves the list', async () => {
-      const id = await live(audio);
-      await update(id, `media[0].processing = 'failed'`, workflow);
-      expect(await withdraw(pat, id)).toHaveLength(1);
-      expect((await story(id)).status).toBe('withdrawn');
-      expect(
-        await truth(`SELECT VALUE id FROM type::record('hiddenStory', $id)`, {
-          id,
-        }),
-      ).toEqual([]);
-      // Ready again later: still withdrawn, nothing published.
+      expect(await step(admin, id, 'hidden')).toHaveLength(1);
       await processed(workflow, id);
+      expect(await current(id)).toMatchObject({
+        status: 'hidden',
+        actor: 'moderator',
+      });
+      expect(await hiddenIds()).not.toContain(`story:${id}`);
+    });
+
+    it('steps the story’s version once to hide and once to show again (D29)', async () => {
+      const id = await live(video);
+      const before = await version(id);
+      await setFile(id, `processing = 'failed'`);
+      expect(await version(id)).toBe(before + 1);
+      await processed(workflow, id);
+      expect(await version(id)).toBe(before + 2);
+    });
+
+    it('the owner can still withdraw a hidden story, which then never comes back by itself', async () => {
+      const id = await live(video);
+      await setFile(id, `processing = 'failed'`);
+      expect(await withdraw(pat, id)).toHaveLength(1);
+      await processed(workflow, id);
+      expect(await statusOf(id)).toBe('withdrawn');
       expect(await published(id)).toEqual([]);
+    });
+
+    it('erasure takes a hidden story with its log and file rows', async () => {
+      await createPeople(t, { hid: 'user_hid' });
+      await trustSubmitters(t, 'hid');
+      const hid = await t.person('user_hid');
+      await agreeAll(hid);
+      await run(
+        hid,
+        `CREATE story:hid_v CONTENT { themeRefs: [theme:common], submitter: $auth, slug: 'hid-v',
+           title: 'A story', description: 'd', primaryFormat: 'video' }`,
+      );
+      await run(
+        migrator,
+        `CREATE storyFile:hidvid CONTENT { story: story:hid_v, person: user:hid, format: 'video',
+           contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 };
+         UPDATE story:hid_v SET mediaFile = storyFile:hidvid;`,
+      );
+      expect(await submit(hid, 'hid_v')).toHaveLength(1);
+      await processed(workflow, 'hid_v');
+      await approve(admin, 'hid_v');
+      await run(workflow, `UPDATE storyFile:hidvid SET processing = 'failed'`);
+      expect(await statusOf('hid_v')).toBe('hidden');
+      await run(await t.service('api_user'), ERASE, {
+        clerkUserId: 'user_hid',
+        reason: 'user_requested',
+      });
+      expect(
+        await truth(
+          `RETURN [count(SELECT id FROM story WHERE id = story:hid_v),
+             count(SELECT id FROM storyStatusLog WHERE story = story:hid_v),
+             count(SELECT id FROM storyFile WHERE story = story:hid_v)]`,
+        ),
+      ).toEqual([0, 0, 0]);
     });
   });
 });

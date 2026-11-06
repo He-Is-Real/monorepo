@@ -1,4 +1,4 @@
-import { runQuery } from '@heisreal/database';
+import { OWNER_FILE_FIELDS, runQuery } from '@heisreal/database';
 import { recordKey } from '@heisreal/http';
 import type { MediaUrls } from '@heisreal/story-cards';
 import type { SurrealQueryable } from 'surrealdb';
@@ -21,7 +21,7 @@ LET $stories = SELECT id, slug,
     IF currentStatus.status = 'hidden' { 'approved' } ELSE { currentStatus.status ?? 'draft' }
       AS status,
     title, description, body, bylineName, primaryFormat,
-    themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes, media, image,
+    themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes, ${OWNER_FILE_FIELDS},
     IF currentStatus.status IN ['changes_requested', 'rejected'] { currentStatus.comment }
       AS rejectionFeedback,
     createdAt, updatedAt,
@@ -68,7 +68,7 @@ RETURN {
   submissions: (SELECT at FROM submissionLog WHERE person = $auth ORDER BY at ASC),
   uploads: (SELECT record::id(id) AS id, record::id(story) AS story, format, contentType,
       sizeBytes, durationSeconds, at, renewedAt
-    FROM uploadGrant WHERE person = $auth ORDER BY at ASC, id ASC),
+    FROM storyFile WHERE person = $auth ORDER BY at ASC, id ASC),
   keys: (SELECT record::id(id)[2] AS key, status, expiresAt FROM idempotencyKey
     WHERE record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth ORDER BY expiresAt ASC)
 };`;

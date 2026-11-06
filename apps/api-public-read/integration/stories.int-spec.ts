@@ -31,7 +31,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
          title: 'Test story: the walking skeleton',
          description: 'Placeholder content for the development site. This is not a real testimony.',
          body: 'This is test text, written to check that a published story travels from the database through api-public-read to the page. Nobody shared this story and nothing in it happened. Real stories arrive with the first submissions.',
-         bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common], media: []
+         bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common]
        });
        FOR $step IN [['pending', 'person'], ['in_review', 'moderator'], ['approved', 'moderator']] {
          CREATE storyStatusLog CONTENT { story: $s.id, status: $step[0], actor: $step[1],
@@ -137,8 +137,10 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       await t.migrator(),
       `-- A2: only a processed image can be published (the migrator may record that itself).
        -- A new image on a public story hides it (D59) until a moderator shows it again.
-       UPDATE story:dev_seed SET image = { path: 'dev-seed/dev-seed.webp', width: 1200, height: 1600,
-         processing: 'ready' };
+       CREATE storyFile:⟨dev-seed/dev-seed.webp⟩ CONTENT { story: story:dev_seed,
+         person: user:dev_seed, format: 'image', contentType: 'image/webp',
+         sizeBytes: 1000, storyVersion: 1, width: 1200, height: 1600, processing: 'ready' };
+       UPDATE story:dev_seed SET image = { file: storyFile:⟨dev-seed/dev-seed.webp⟩ };
        CREATE storyStatusLog CONTENT { story: story:dev_seed, status: 'approved',
          actor: 'moderator', by: user:dev_seed_moderator };`,
     );

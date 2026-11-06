@@ -1,23 +1,24 @@
--- schema-04-stories.surql: stories (one table, R11), their status log (R6), hidden stories, draft
--- retention and upload grants.
+-- schema-04-stories.surql: stories (one table, R11), their status log (R6), their files (R12)
+-- and draft retention.
 -- Part of the declarative schema: every schema-NN-*.surql file, applied in name order in one
 -- transaction (see schema-01-system.surql).
 
 -- ---------------------------------------------------------------- story (R11: the one story table)
 -- A story is its content only (R6, Joel 2026-11-05). Its status is its status log's newest entry
--- (storyStatusLog, below), which story.currentStatus points at; no entry = draft. Everyone, signed
--- in or not, reads the published fields of an approved story (R11 B; db review 2, section 6 item
--- 4); the private fields only the owner and the services that need them.
+-- (storyStatusLog, below), which story.currentStatus points at; no entry = draft. Its picture and
+-- its video or audio file are rows of storyFile (R12, below), which image.file and mediaFile point
+-- at. Everyone, signed in or not, reads the published fields of an approved story (R11 B; db
+-- review 2, section 6 item 4); the private fields only the owner and the services that need them.
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
 -- api-user's own login reads only what everyone reads, and deletes (erasure): it can't create,
 -- reassign or edit stories.
--- Write scope per field (D41): the person's words (content fields) only by the person; media
--- fields by workflow (processing) and api-user's login, through an upload grant only (D80: never
--- the person's session; uploadGrant_attach), and `processing` (A2) by workflow only; the status
--- pointer by the status log's event only. A field write outside its scope is silently dropped
--- (field PERMISSIONS, or the field's VALUE for `processing`), so check the stored state.
+-- Write scope per field (D41): the person's words (content fields) only by the person; the file
+-- pointers only by a new upload's storyFile row (D80: api-user's login, never the person's
+-- session; storyFile_attach), except that the person may take their picture off or change its
+-- description; the status pointer by the status log's event only. A field write outside its
+-- scope is silently dropped (field PERMISSIONS or VALUE), so check the stored state.
 DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:<ulid>
-  -- housekeeping reads every story's status pointer, dates and media ids (never its words: the
+  -- housekeeping reads every story's status pointer, dates and file pointers (never its words: the
   -- content fields below refuse it) to find abandoned drafts and orphaned Bunny videos.
   -- Everyone else: their own stories, and any story whose newest status entry says approved
   -- (R11's row rule; the status log's own rule lets them read that entry, and only that one).
@@ -48,7 +49,7 @@ DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY   -- ow
     OR ($auth = service:api_user AND submitter.status = 'deleted');
 DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every write; ETag
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
--- housekeeping never reads the words (select below): it needs only ids, the status, dates and media.
+-- housekeeping never reads the words (select below): it needs only ids, the status, dates and files.
 DEFINE FIELD OVERWRITE slug          ON story TYPE string           -- generated at create, unique
   PERMISSIONS FOR select WHERE $auth != service:housekeeping,
     FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
@@ -79,113 +80,34 @@ DEFINE FIELD OVERWRITE themeRefs     ON story TYPE array<record<theme>> DEFAULT 
 -- to an entry of this story (story_status_pointer); nobody's session can write it (dropped).
 DEFINE FIELD OVERWRITE currentStatus ON story TYPE option<record<storyStatusLog>>
   PERMISSIONS FOR create, update NONE;
--- D53: the optional image of a written story, an audio story's own picture (M2 plan PR 10; it
+-- D53: the optional picture of a written story, an audio story's own picture (M2 plan PR 10; it
 -- becomes the clip's thumbnail through processing, M7), or a video's own thumbnail (Joel,
 -- 2026-10-30): readers show it in place of Bunny's generated thumbnail. One image system: it is
--- never set at Bunny. Processing and the media-ready step (PR 13) can never overwrite it: this
--- VALUE keeps workflow to `processing` alone, and media writes never touch `image`. path = its file in the images storage
--- zone; width/height = the real pixel size; alt = the person's short description (NONE: readers
--- show a neutral default).
--- D65/D80 (M2 plan PR 10): the file is server-assigned like a video. Only an upload grant puts
--- one on a story (uploadGrant_attach, on api-user's login: path, size and alt together); the
--- person's session may then change only `alt`, or remove the image (NONE), never add one or
--- change its path or size. story_media_granted refuses a new path without a grant for the story.
--- A2: image.processing is workflow's (the server-side check before approval), so workflow may
--- write `image`, but its VALUE keeps only workflow's `processing` and the stored other fields.
--- Every other writer's `processing` is ignored: it stays as it was while the file (path, size)
--- is unchanged, and goes back to NONE (not processed) when a new file comes. System users ($auth
--- NONE, the migrator, dev-seed) write it as given.
+-- never set at Bunny. R12 (Joel, 2026-11-05): the picture is a storyFile row (its path in the
+-- images storage zone is the row's id; its pixel size and processing state live there), and the
+-- story keeps only the pointer and the person's description (alt: NONE = readers show a neutral
+-- default), which they may change without uploading again.
+-- D65/D80: only a new upload's row puts a picture on (storyFile_attach, on api-user's login); the
+-- person's session may then change only `alt`, or take the picture off (NONE), never point at
+-- another file. System users ($auth NONE: the migrator, dev-seed) write it as given, still only to
+-- the story's own rows (story_files).
 DEFINE FIELD OVERWRITE image         ON story TYPE option<object>
-  VALUE IF $auth = NONE { $value }
-    ELSE IF $auth = service:workflow {
-      IF $before = NONE OR $value = NONE { $before }
-      ELSE { object::extend(object::remove($before, 'processing'), { processing: $value.processing }) }
-    }
-    ELSE IF $value = NONE { NONE }
-    ELSE IF $auth = service:api_user {
-      object::extend(object::remove($value, 'processing'), {
-        processing: IF $before != NONE
-          AND [$before.path, $before.width, $before.height] = [$value.path, $value.width, $value.height]
-          { $before.processing } ELSE { NONE }
-      })
-    }
-    ELSE IF $before = NONE { NONE }
-    ELSE { object::extend($before, { alt: $value.alt }) }
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
--- The path is always the story's own folder's, as api-user names it (fn::media::own_image),
--- whoever writes, so nothing that signs or deletes a story's picture (its owner's link, erasure,
--- housekeeping) can be pointed at another story's file. The one exception is dev-seed's own fixed
--- files, `dev-seed/<name>.webp`, which only a system user can put on (story_media_granted refuses
--- any other writer a new path outside the story's folder); later writes keep them.
-DEFINE FIELD OVERWRITE image.path    ON story TYPE string
-  ASSERT fn::media::own_image($this.id, $value)
-    OR string::matches($value, '^dev-seed/[a-z0-9-]{1,64}[.]webp$')
+  VALUE IF $auth = NONE OR $auth = service:api_user { $value }
+    ELSE IF $value = NONE OR $before = NONE { NONE }
+    ELSE { { file: $before.file, alt: $value.alt } }
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
-DEFINE FIELD OVERWRITE image.width   ON story TYPE int ASSERT $value > 0
-  PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
-DEFINE FIELD OVERWRITE image.height  ON story TYPE int ASSERT $value > 0
+DEFINE FIELD OVERWRITE image.file    ON story TYPE record<storyFile>
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
   ASSERT $value = NONE OR string::len($value) <= 500
   PERMISSIONS FOR select WHERE $auth != service:housekeeping,
     FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
--- A2: NONE = not processed yet (just uploaded or replaced); then 'processing', 'ready' or
--- 'failed'. Only 'ready' can be approved and published (fn::story::approval_problem). A
--- processing detail: private (R11's field rule).
-DEFINE FIELD OVERWRITE image.processing ON story TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
-  PERMISSIONS FOR select WHERE submitter = $auth
-      OR $auth IN [service:api_admin, service:workflow, service:housekeeping],
-    FOR update WHERE $auth != service:api_admin;
--- Media and processing fields (D80, Joel 2026-10-25): never the person's session, never api-admin.
--- Workflow writes them (M7 processing). An upload reaches them only through an upload grant that
--- api-user's own login creates: its event (uploadGrant_attach, elevated) puts the video on the
--- draft. A person's write to them is dropped. Each nested field carries the same rule, so
--- `SET media[0].x = ...` is covered too; story_media_granted refuses a new Bunny id without a
--- grant for that story, whoever writes it (system users aside).
--- 3.2.4 stores undefined keys inside array<object> items (tested), so fn::story::shape_problem
--- allows only the fields defined here ($mediaFields there).
--- A2: media[*].processing is workflow's. For everyone else (the person) the VALUE keeps an item's
--- stored `processing` only while the item is otherwise unchanged; a new or changed item (another
--- upload, a different size) starts again at NONE, and a person's own `processing` is ignored.
--- A person's session gets its stored media back (none on create); api-user's login (only ever
--- through uploadGrant_attach) gets the new item, processing NONE.
--- Everyone reads a published story's playback fields (format, Bunny id, thumbnail, size,
--- length); `processing` is private (R11's field rule).
-DEFINE FIELD OVERWRITE media                    ON story TYPE array<object> DEFAULT []
-  VALUE IF $auth = NONE OR $auth = service:workflow { $value }
-    ELSE IF $auth != service:api_user { $before ?? [] }
-    ELSE {
-      $value.map(|$m| object::extend(object::remove($m, 'processing'), {
-        processing: ($before ?? []).find(|$b|
-          object::remove($b, 'processing') = object::remove($m, 'processing')).processing
-      }))
-    }
-  PERMISSIONS FOR update WHERE $auth = service:workflow;
-DEFINE FIELD OVERWRITE media[*].format          ON story TYPE string ASSERT $value IN ['video', 'audio']
-  PERMISSIONS FOR update WHERE $auth = service:workflow;
-DEFINE FIELD OVERWRITE media[*].bunnyVideoId    ON story TYPE option<string>
-  PERMISSIONS FOR update WHERE $auth = service:workflow;
-DEFINE FIELD OVERWRITE media[*].thumbnailPath   ON story TYPE option<string>
-  PERMISSIONS FOR update WHERE $auth = service:workflow;
--- D53: the real pixel size, replacing the aspectRatio label. A video's is Bunny's encode result.
--- An audio file's is its thumbnail's, the picture shown for it (Joel, 2026-10-24): the person's
--- own image, or the site's default audio thumbnail; never Bunny's audio placeholder.
-DEFINE FIELD OVERWRITE media[*].width           ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
-  PERMISSIONS FOR update WHERE $auth = service:workflow;
-DEFINE FIELD OVERWRITE media[*].height          ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
-  PERMISSIONS FOR update WHERE $auth = service:workflow;
--- Cards show a clip's length (M1 step 6a); the approval gate (A2) means a published clip has it.
-DEFINE FIELD OVERWRITE media[*].durationSeconds ON story TYPE option<int>
-  PERMISSIONS FOR update WHERE $auth = service:workflow;
--- A2: NONE = not processed yet; then 'processing', 'ready' or 'failed' (set by workflow, M7).
-DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
-  PERMISSIONS FOR select WHERE submitter = $auth
-      OR $auth IN [service:api_admin, service:workflow, service:housekeeping],
-    FOR update WHERE $auth = service:workflow;
--- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary, with the same
--- rule (and adds them to $mediaFields in fn::story::shape_problem).
+-- R12: the story's one video or audio file, a storyFile row (its id is the Bunny video id; its
+-- thumbnail, size, real length and processing state live there). D80 (Joel, 2026-10-25): never
+-- the person's session, never api-admin or workflow: only a new upload's row moves it
+-- (storyFile_attach, elevated), and system users load it as given.
+DEFINE FIELD OVERWRITE mediaFile     ON story TYPE option<record<storyFile>>
+  PERMISSIONS FOR create, update NONE;
 -- Plan 4e: the optional social media sharing consent, per story: NONE until the person ticks
 -- the box at the end of the upload (one box naming every platform; it gives the charity copyright
 -- permission to share and can't be withdrawn: deleting or withdrawing the story stops future
@@ -220,16 +142,6 @@ DEFINE FIELD OVERWRITE slugHistory   ON story TYPE array<string>
 -- fields can't be indexed the same way (db review 2, section 6).
 DEFINE FIELD OVERWRITE themeIds      ON story TYPE array<string>
   VALUE (themeRefs ?? []).map(|$t| record::id($t));
--- A full-text index covers one field, so search goes over a computed field. Only an approved
--- story's words (NONE otherwise, recomputed by the write that moves its status pointer): BM25's
--- scores, which the public sees in a relevance cursor, are computed over everything the index
--- holds, so unpublished words in it could be inferred from them (security review, B1). Defined
--- after currentStatus, so it reads the pointer this write sets.
-DEFINE FIELD OVERWRITE searchText    ON story TYPE option<string>
-  VALUE IF $this.currentStatus.status = 'approved' {
-    string::join(' ', title, description, body ?? '')
-  }
-  PERMISSIONS FOR select WHERE $auth != service:housekeeping;
 -- R6: a story's status (a story value already read, e.g. $before / $after in events): its
 -- newest status entry's, or 'draft' with none.
 DEFINE FUNCTION OVERWRITE fn::story::status_of($s: any) {
@@ -239,8 +151,8 @@ DEFINE FUNCTION OVERWRITE fn::story::status_of($s: any) {
 DEFINE FUNCTION OVERWRITE fn::story::content($s: any) {
   RETURN {
     slug: $s.slug, title: $s.title, description: $s.description, body: $s.body,
-    bylineName: $s.bylineName, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs, media: $s.media,
-    image: $s.image
+    bylineName: $s.bylineName, primaryFormat: $s.primaryFormat, themeRefs: $s.themeRefs,
+    mediaFile: $s.mediaFile, image: $s.image
   };
 };
 -- D53: whether a picture's pixel size is allowed: positive, and no taller than 1:3 or wider
@@ -259,44 +171,32 @@ DEFINE FUNCTION OVERWRITE fn::text::trimmed_length($text: option<string>) {
 };
 -- D53: what's wrong with a story's type and shape, or NONE. Three types, each with one main part
 -- and one optional part:
---   written: text (body, not blank), no video or audio; optional image
---   video / audio: one media item of that format, optional text; an optional image (M2 plan
---   PR 10): an audio story's picture, or a video's own thumbnail (Joel, 2026-10-30), shown in
---   place of Bunny's generated thumbnail
--- A draft is created before its upload (CreateDraftStory), so video and audio need their media
--- item from submit on (pending, in_review, approved, hidden), and may lack it while editable or
--- after (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its
--- upload). The status is the story's newest status entry's (R6), so moving the pointer is
--- checked too.
+--   written: text (body, not blank), no video or audio; optional picture
+--   video / audio: one file of that format (mediaFile), optional text; an optional picture (M2
+--   plan PR 10): an audio story's picture, or a video's own thumbnail (Joel, 2026-10-30), shown
+--   in place of Bunny's generated thumbnail
+-- A draft is created before its upload (CreateDraftStory), so video and audio need their file
+-- from submit on (pending, in_review, approved, hidden), and may lack it while editable or after
+-- (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its upload).
+-- The status is the story's newest status entry's (R6), so moving the pointer is checked too.
+-- The files' own sizes and shapes are checked on their rows (storyFile_shape).
 -- A written story's minimum length (Joel, 2026-10-23, from the POC; a setting since W3) is
 -- checked when it's submitted (story_text_limits), so a short draft can still be saved.
 -- Used by the story_shape event.
 DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
-  LET $media = $s.media ?? [];
-  LET $mediaFields = ['format', 'bunnyVideoId', 'thumbnailPath', 'width', 'height', 'durationSeconds',
-    'processing'];
-  IF $media.any(|$m| object::keys($m).any(|$k| $k NOT IN $mediaFields)) {
-    RETURN 'a media item has a field the schema doesn’t define (D53: width and height replace aspectRatio)';
-  };
-  IF $media.any(|$m| ($m.width = NONE) != ($m.height = NONE)) {
-    RETURN 'a media item needs both width and height, or neither';
-  };
-  IF $media.any(|$m| $m.width != NONE AND !fn::shape::allowed($m.width, $m.height)) {
-    RETURN 'a video’s or audio thumbnail’s shape is beyond 1:3 or 3:1';
-  };
-  IF $s.image != NONE AND !fn::shape::allowed($s.image.width, $s.image.height) {
-    RETURN 'an image’s shape is beyond 1:3 or 3:1';
+  LET $format = $s.mediaFile.format;
+  IF $s.image != NONE AND $s.image.file.format != 'image' {
+    RETURN 'a story’s picture must be an image file';
   };
   IF $s.primaryFormat = 'written' {
     LET $length = fn::text::trimmed_length($s.body);
     IF $length = 0 { RETURN 'a written story needs its text' };
-    IF array::len($media) > 0 { RETURN 'a written story has no video or audio' };
+    IF $s.mediaFile != NONE { RETURN 'a written story has no video or audio' };
   } ELSE {
-    IF array::len($media) > 1 { RETURN 'a ' + $s.primaryFormat + ' story has exactly one media item' };
-    IF $media.any(|$m| $m.format != $s.primaryFormat) {
+    IF $s.mediaFile != NONE AND $format != $s.primaryFormat {
       RETURN 'a ' + $s.primaryFormat + ' story’s media must be ' + $s.primaryFormat;
     };
-    IF array::len($media) = 0
+    IF $s.mediaFile = NONE
       AND fn::story::status_of($s) IN ['pending', 'in_review', 'approved', 'hidden'] {
       RETURN 'a ' + $s.primaryFormat + ' story needs its ' + $s.primaryFormat + ' before it is submitted';
     };
@@ -313,71 +213,89 @@ DEFINE FUNCTION OVERWRITE fn::media::safe_segment($s: any) {
     AND $s NOT IN ['.', '..'];
 };
 -- A story's own picture's path (M2 plan PR 10, D80): `stories/<that story's id>/<32 hex>.webp`,
--- the only name api-user gives one (uploadGrant_attach checks the same at the grant).
+-- the only name api-user gives one (storyFile_attach checks it when the row is made).
 DEFINE FUNCTION OVERWRITE fn::media::own_image($story: any, $path: any) {
   RETURN type::is_record($story) AND type::is_string($path)
     AND string::matches($path, '^stories/[A-Za-z0-9_]{1,64}/[0-9a-f]{32}[.]webp$')
     AND string::starts_with($path, 'stories/' + <string> record::id($story) + '/');
 };
-DEFINE FUNCTION OVERWRITE fn::media::own_thumbnail($m: any) {
-  IF !type::is_string($m.thumbnailPath) OR !type::is_string($m.bunnyVideoId)
-    OR string::len($m.thumbnailPath) > 500 { RETURN false };
-  LET $parts = string::split($m.thumbnailPath, '/');
-  RETURN array::len($parts) = 2 AND $parts[0] = $m.bunnyVideoId
+-- $f: a video or audio file's storyFile row (its id is the Bunny video id).
+DEFINE FUNCTION OVERWRITE fn::media::own_thumbnail($f: any) {
+  LET $video = <string> record::id($f.id);
+  IF !type::is_string($f.thumbnailPath) OR string::len($f.thumbnailPath) > 500 { RETURN false };
+  LET $parts = string::split($f.thumbnailPath, '/');
+  RETURN array::len($parts) = 2 AND $parts[0] = $video
     AND fn::media::safe_segment($parts[0]) AND fn::media::safe_segment($parts[1]);
 };
 -- A2 (Joel, 2026-10-23): what keeps a story from being approved or published, or NONE. Every
 -- upload must be processed by workflow (M7: size, duration, the malware and content checks) and
--- carry the facts processing found: a video its width, height and duration, an audio file its
--- duration and its thumbnail with that picture's width and height (the person's image or the
--- site's default, set by processing; Joel, 2026-10-24), an image (already sized by the person's
--- browser) processing = 'ready'. So nothing
--- unprocessed, or possibly malicious, reaches the public view. Messages start with
+-- carry the facts processing found: a video its width, height and length, an audio file its
+-- length and its thumbnail with that picture's width and height (the person's image or the
+-- site's default, set by processing; Joel, 2026-10-24), a picture (already sized by the person's
+-- browser) processing = 'ready'. So nothing unprocessed, or possibly malicious, reaches the
+-- public view. R12: read from the files the story points at. Messages start with
 -- 'media_not_ready:' so api-admin answers 409 (libs/database isMediaNotReadyError).
 DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
-  LET $media = $s.media ?? [];
-  IF $media.any(|$m| $m.processing != 'ready') {
+  LET $m = IF $s.mediaFile != NONE { (SELECT * FROM ONLY $s.mediaFile) };
+  LET $i = IF $s.image != NONE { (SELECT * FROM ONLY $s.image.file) };
+  IF $s.mediaFile != NONE AND $m.processing != 'ready' {
     RETURN 'media_not_ready: the story’s video or audio hasn’t finished processing';
   };
-  IF $media.any(|$m| $m.format = 'video' AND !(type::is_int($m.width) AND type::is_int($m.height)
-       AND type::is_int($m.durationSeconds) AND $m.durationSeconds > 0)) {
-    RETURN 'media_not_ready: a video needs its width, height and duration';
+  IF $m.format = 'video' AND !(type::is_int($m.width) AND type::is_int($m.height)
+       AND type::is_int($m.lengthSeconds) AND $m.lengthSeconds > 0) {
+    RETURN 'media_not_ready: a video needs its width, height and length';
   };
-  IF $media.any(|$m| $m.format = 'audio' AND !(type::is_int($m.durationSeconds) AND $m.durationSeconds > 0)) {
-    RETURN 'media_not_ready: an audio file needs its duration';
+  IF $m.format = 'audio' AND !(type::is_int($m.lengthSeconds) AND $m.lengthSeconds > 0) {
+    RETURN 'media_not_ready: an audio file needs its length';
   };
-  IF $media.any(|$m| $m.format = 'audio' AND !(fn::media::own_thumbnail($m)
-       AND type::is_int($m.width) AND type::is_int($m.height))) {
+  IF $m.format = 'audio' AND !(fn::media::own_thumbnail($m)
+       AND type::is_int($m.width) AND type::is_int($m.height)) {
     RETURN 'media_not_ready: an audio file needs its thumbnail and that picture’s width and height';
   };
-  IF $s.image != NONE AND $s.image.processing != 'ready' {
+  IF $s.image != NONE AND $i.processing != 'ready' {
     RETURN 'media_not_ready: the story’s image hasn’t finished processing';
   };
   RETURN NONE;
 };
--- D65, D80: a story's video, audio or image is only ever what was uploaded for it. A Bunny id a write
--- adds (one the story didn't have) needs an upload grant naming this story (uploadGrant, made by
--- api-user's login when it created that video at Bunny), whoever writes: workflow, api-user's
--- grant, and a person's write if a permission ever let one through. System users (the migrator,
--- dev-seed's dummy data) load data as given. Thumbnails stay workflow's (M7) and are checked at
--- approval (fn::media::own_thumbnail); the person can't write them (field permissions).
-DEFINE EVENT OVERWRITE story_media_granted ON story
-  WHEN $event IN ['CREATE', 'UPDATE'] AND $auth != NONE
+-- D65, D80, R12: a story points only at files uploaded for it. The pointers are the permission
+-- slip: a new pointer must name a storyFile row of this story, of the right kind, not detached
+-- (one story per file: its id is the Bunny video id or the picture's path), whoever writes,
+-- system users too (Codex, #188 review: a row two stories share is hidden, detached and
+-- deleted through one while the other still shows it; dev-seed gives each story its own rows).
+-- Only storyFile_attach moves them (the person can only take their picture off), so this
+-- guards against a bug or a misused login.
+-- R12 / db review 2, section 6 item 7: whenever a story stops pointing at a file (a new upload
+-- replaced it, or the person took their picture off), the file's row gets detachedAt in the same
+-- write, whoever writes; the nightly clean-up deletes the file once no upload link for it can
+-- still be used, and records removedAt.
+-- And whenever its pointers change (only system users can do that to a published story), an
+-- approved story whose files are no longer the reviewed ones is hidden, and a hidden one shown
+-- again when they are (the same rule as for a file's processing, storyFile_availability).
+DEFINE FUNCTION OVERWRITE fn::story::pointer_problem($story: record<story>, $file: any, $kinds: array) {
+  LET $f = (SELECT story, format, detachedAt FROM ONLY $file);
+  RETURN $f = NONE OR $f.story != $story OR $f.format NOT IN $kinds OR $f.detachedAt != NONE;
+};
+DEFINE EVENT OVERWRITE story_files ON story
+  WHEN $event IN ['CREATE', 'UPDATE']
+    AND ($before.mediaFile != $after.mediaFile OR $before.image.file != $after.image.file)
   THEN {
-    LET $had = ($before.media ?? []).map(|$m| $m.bunnyVideoId);
-    FOR $m IN ($after.media ?? []) {
-      IF $m.bunnyVideoId != NONE AND $m.bunnyVideoId NOT IN $had
-        AND (SELECT VALUE story FROM ONLY type::record('uploadGrant', <string> $m.bunnyVideoId)) != $after.id {
-        THROW 'media_not_granted: a story’s video or audio must be one api-user created for it (D80)';
+    LET $media = $after.mediaFile;
+    LET $image = $after.image.file;
+    IF $media != NONE AND $media != $before.mediaFile
+      AND fn::story::pointer_problem($after.id, $media, ['video', 'audio']) {
+      THROW 'media_not_granted: a story’s video or audio must be one uploaded for it (D80)';
+    };
+    IF $image != NONE AND $image != $before.image.file
+      AND fn::story::pointer_problem($after.id, $image, ['image']) {
+      THROW 'media_not_granted: a story’s picture must be one uploaded for it (D80)';
+    };
+    FOR $old IN [$before.mediaFile, $before.image.file] {
+      IF $old != NONE AND $old NOT IN [$media, $image] {
+        UPDATE $old SET detachedAt = time::now() WHERE detachedAt = NONE AND story = $after.id
+          RETURN NONE;
       };
     };
-    -- Its image likewise (M2 plan PR 10): a new path must be in the story's own folder and
-    -- granted to it.
-    IF $after.image.path != NONE AND $after.image.path != $before.image.path
-      AND (!fn::media::own_image($after.id, $after.image.path)
-        OR (SELECT VALUE story FROM ONLY type::record('uploadGrant', $after.image.path)) != $after.id) {
-      THROW 'media_not_granted: a story’s image must be one api-user picked for it, in its own folder (D80)';
-    };
+    IF $event = 'UPDATE' { fn::story::check_files($after) };
   };
 -- R6: the status pointer only ever moves to an entry of this story, whoever writes (system users
 -- too; sessions can't write it at all), and a new story starts as a draft unless a system user
@@ -485,7 +403,7 @@ DEFINE EVENT OVERWRITE story_limits ON story
       IF $max != NONE AND array::len($open) >= $max {
         THROW 'limit_open_drafts: the person has as many open drafts as they may (D94)';
       };
-    } ELSE IF count(SELECT id FROM storyStatusLog
+    } ELSE IF count(SELECT id FROM storyStatusLog WITH INDEX storyStatusLog_story
         WHERE story = $after.id AND status = 'pending') = 1 {
       IF fn::story::next_submission_at($after.submitter) != NONE {
         THROW 'limit_weekly_submission: the person has submitted as many stories as they may in 7 days (D94)';
@@ -549,94 +467,65 @@ DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever app
     IF $problem != NONE { THROW $problem };
   };
 -- Joel, 2026-10-23: an approved story stays approved when its media stops being ready ('failed',
--- back to 'processing', a size fact removed): "we need to ... get it loading again instead of
--- approving again". While any item isn't ready the story is hidden: the same write adds a
--- system `hidden` entry to its status log (R6), so it leaves the public's view at once, and keeps
--- what the moderator reviewed in hiddenStory (below). When the same media is ready again (Bunny
--- re-encodes it; workflow or a system user sets processing back to 'ready' with its facts) the
--- same write adds a system `approved` entry: it comes back with its first publishedAt and no new
--- approval. Only workflow and system users can cause either: the person's content is locked
--- after submission and api-admin can't write media. If the media differs from what was reviewed
--- (another bunnyVideoId or image path, or a thumbnail that isn't a frame Bunny generated, D60),
--- it stays hidden: a moderator must review it (fn::story::hidden_by_media lists it with
--- mediaChanged). An approved story whose media changes that way is hidden too (reason
--- media_changed; D59: changed after going public needs approving again).
--- What was reviewed: while a story is approved it shows the reviewed media (any change hides it
--- in the same write), so the write that hides it has the reviewed media in $before.
--- Which media is shown: formats, Bunny ids and the image's path. Thumbnails are compared on their
--- own (fn::story::shows_reviewed_media), not hashed here.
-DEFINE FUNCTION OVERWRITE fn::story::media_identity($s: any) {
-  RETURN crypto::sha256(<string> {
-    media: ($s.media ?? []).map(|$m| [$m.format, $m.bunnyVideoId]),
-    image: $s.image.path
-  });
+-- back to 'processing', a fact removed): "we need to ... get it loading again instead of
+-- approving again". While a file isn't ready the story is hidden: the same write adds a system
+-- `hidden` entry to its status log (R6), so it leaves the public's view at once. When the same
+-- files are ready again (Bunny re-encodes the video; workflow sets processing back to 'ready'
+-- with its facts) the same write adds a system `approved` entry: it comes back with its first
+-- publishedAt and no new review. Only workflow and system users can cause either: the person's
+-- content is locked after submission and api-admin can't write files.
+-- What was reviewed (R6/R12; db review 2, section 6 item 1): each approved entry records the
+-- exact files the story pointed at (reviewedMediaFile, reviewedImageFile). It comes back without
+-- a new review only while it still points at both; a new picture or video is a new file row, so
+-- it needs a review. Bunny's thumbnails of the same file (thumbnailPath, set by processing) may
+-- change, as before. A story whose files differ from the reviewed ones (only a system user can
+-- point a published story elsewhere) is hidden too (reason media_changed; D59: changed after
+-- going public needs approving again).
+DEFINE FUNCTION OVERWRITE fn::story::reviewed_files($s: any) {
+  -- Bound first: inside the SELECT, $this is the row being read.
+  LET $story = $s.id;
+  RETURN (SELECT reviewedMediaFile, reviewedImageFile, at FROM storyStatusLog
+    WITH INDEX storyStatusLog_story
+    WHERE story = $story AND status = 'approved' ORDER BY at DESC LIMIT 1)[0];
 };
--- D60 (Joel, 2026-10-23): re-encoding a video on Bunny can give it another thumbnail. A frame
--- Bunny generated from the reviewed video is still reviewed media. Bunny's generated frames are
--- thumbnail_1.jpg to thumbnail_5.jpg in the video's folder (Stream docs: storage structure, set
--- thumbnail). A custom upload is stored in the same folder, and the selected-thumbnail file
--- (thumbnail.jpg) isn't proof of a generated frame, so no other name counts (Codex, #67).
-DEFINE FUNCTION OVERWRITE fn::media::generated_thumbnail($m: any) {
-  RETURN type::is_string($m.bunnyVideoId) AND type::is_string($m.thumbnailPath)
-    AND $m.thumbnailPath IN ['1', '2', '3', '4', '5'].map(|$n|
-      $m.bunnyVideoId + '/thumbnail_' + $n + '.jpg');
+DEFINE FUNCTION OVERWRITE fn::story::shows_reviewed_files($s: any) {
+  LET $r = fn::story::reviewed_files($s);
+  RETURN $r != NONE AND $r.reviewedMediaFile = $s.mediaFile
+    AND $r.reviewedImageFile = $s.image.file;
 };
--- Whether a story's media is still what was reviewed: the same identity (formats, Bunny ids,
--- image path), and each thumbnail either the reviewed one or a frame Bunny generated for that
--- video. $thumbnails: the reviewed thumbnail paths, in media order.
-DEFINE FUNCTION OVERWRITE fn::story::shows_reviewed_media($identity: string, $thumbnails: any, $s: any) {
-  LET $media = $s.media ?? [];
-  RETURN $identity = fn::story::media_identity($s)
-    AND type::is_array($thumbnails) AND array::len($thumbnails) = array::len($media)
-    AND array::all($media.map(|$m, $i|
-      $m.thumbnailPath = $thumbnails[$i] OR fn::media::generated_thumbnail($m)));
-};
-DEFINE FUNCTION OVERWRITE fn::story::thumbnails($s: any) {
-  RETURN ($s.media ?? []).map(|$m| $m.thumbnailPath);
-};
--- Hides an approved story (Joel, 2026-10-23): keeps what was reviewed ($reviewed) in hiddenStory
--- and adds a system `hidden` entry, in the caller's transaction. $reason: media_unavailable or
--- media_changed. Called by events only (they run elevated).
-DEFINE FUNCTION OVERWRITE fn::story::hide($s: any, $reviewed: any, $reason: string) {
-  LET $hidden = type::record('hiddenStory', record::id($s.id));
-  DELETE $hidden;
-  CREATE $hidden CONTENT {
-    identity: fn::story::media_identity($reviewed), thumbnails: fn::story::thumbnails($reviewed)
-  } RETURN NONE;
+-- Hides an approved story: a system `hidden` entry, in the caller's transaction. $reason:
+-- media_unavailable or media_changed. Called by events only (they run elevated).
+DEFINE FUNCTION OVERWRITE fn::story::hide($s: any, $reason: string) {
   CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
     story: $s.id, status: 'hidden', actor: 'system', hiddenReason: $reason
   } RETURN NONE;
 };
--- Whether a hidden story may come back without a new review: its media ready and still what was
--- reviewed, and its uploader has the testimony consent (plan 4e). Elevated in events; with the
--- caller's permissions elsewhere (only api-admin and workflow read hiddenStory).
+-- Whether a hidden story may come back without a new review: the system hid it (a moderator's
+-- hide stays until a moderator ends it), its files are ready and still the reviewed ones, and
+-- its uploader has the testimony consent (plan 4e). Elevated in events; with the caller's
+-- permissions elsewhere.
 DEFINE FUNCTION OVERWRITE fn::story::restorable($s: any) {
-  LET $h = (SELECT * FROM ONLY type::record('hiddenStory', record::id($s.id)));
-  RETURN $h != NONE AND fn::story::status_of($s) = 'hidden'
-    -- Only a hide the system made for media: a moderator's hide stays until a moderator ends it.
+  RETURN fn::story::status_of($s) = 'hidden'
     AND $s.currentStatus.actor = 'system'
     AND fn::story::approval_problem($s) = NONE
-    AND fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s)
+    AND fn::story::shows_reviewed_files($s)
     AND $s.submitter.testimonyConsent != NONE;
 };
--- Not on a status step (the status log's own write moves the pointer: nothing to compare then).
-DEFINE EVENT OVERWRITE story_media_availability ON story
-  WHEN $event = 'UPDATE' AND $before.currentStatus = $after.currentStatus
-    AND fn::story::status_of($after) IN ['approved', 'hidden']
-  THEN {
-    IF fn::story::status_of($after) = 'approved' {
-      LET $problem = fn::story::approval_problem($after);
-      IF $problem != NONE OR !fn::story::shows_reviewed_media(fn::story::media_identity($before),
-        fn::story::thumbnails($before), $after) {
-        fn::story::hide($after, $before, IF $problem != NONE { 'media_unavailable' }
-          ELSE { 'media_changed' });
-      };
-    } ELSE IF fn::story::restorable($after) {
-      CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
-        story: $after.id, status: 'approved', actor: 'system'
-      } RETURN NONE;
+-- After a write to a story's files (a file row's processing, storyFile_availability; or its
+-- pointers, story_files): hide it or show it again as above. $s: the story as it is now.
+DEFINE FUNCTION OVERWRITE fn::story::check_files($s: any) {
+  LET $status = fn::story::status_of($s);
+  IF $status = 'approved' {
+    LET $problem = fn::story::approval_problem($s);
+    IF $problem != NONE OR !fn::story::shows_reviewed_files($s) {
+      fn::story::hide($s, IF $problem != NONE { 'media_unavailable' } ELSE { 'media_changed' });
     };
+  } ELSE IF fn::story::restorable($s) {
+    CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+      story: $s.id, status: 'approved', actor: 'system'
+    } RETURN NONE;
   };
+};
 -- Plan 4e: publishing needs the submitter's testimony consent (any version: it covers every
 -- story they submit; a newer version only gates new stories), whoever approves (system users
 -- too). It can't have gone since submission (only erasure clears it, and erasure deletes the
@@ -661,21 +550,20 @@ DEFINE EVENT OVERWRITE story_theme_fence ON story
       IF record::exists($t) { fn::fence::touch('theme', $t) };
     };
   };
--- Erasure: api-user's login may delete stories but can't read their status log or hidden
--- marker. Deleting a story removes them in the same transaction, whoever deletes it (R6: a status
--- entry goes only with its story).
+-- Erasure: api-user's login may delete stories but can't read their status log. Deleting a story
+-- removes it in the same transaction, whoever deletes it (R6: a status entry goes only with its
+-- story). Its storyFile rows stay: the upload limits count them for 7 days (D113), and its files
+-- go as before (pendingDeletion; db review 2, section 6 item 7).
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
   WHEN $event = 'DELETE'
   THEN {
     DELETE storyStatusLog WHERE story = $before.id;
-    DELETE type::record('hiddenStory', record::id($before.id));
     DELETE favourite WHERE story = $before.id;                  -- others' hearts on it
   };
 -- Every deleted story's picture folder in the images zone (M2 plan PR 10, D82, D40), whoever
 -- deletes it (its owner, erasure, housekeeping's expired drafts, dev-seed): every picture of a
 -- story lives in `stories/<its id>/`, so the folder is queued from the story row itself, never
--- from its upload grants (a grant that is no longer the story's picture is pruned after 7 days,
--- Codex #140 r4). One queue row per folder (its key is the story's id), with its final pass
+-- from its storyFile rows (they are pruned after 7 days, Codex #140 r4). One queue row per folder (its key is the story's id), with its final pass
 -- (fn::erasure::final_pass_after): a PUT link signed just before the delete stays valid for
 -- 10 minutes, so the row isn't done until a delete after that (pendingDeletion FOR delete).
 -- A story without pictures costs one delete that answers 404.
@@ -713,8 +601,94 @@ DEFINE INDEX OVERWRITE story_submitter ON story FIELDS submitter, createdAt;
 -- the array is never used (EXPLAIN on 3.2.4, 2026-11-05: a table scan).
 DEFINE INDEX OVERWRITE story_slughist  ON story FIELDS slugHistory.*;
 DEFINE INDEX OVERWRITE story_theme_ids ON story FIELDS themeIds.*;     -- D63
-DEFINE INDEX OVERWRITE story_fts       ON story FIELDS searchText
+-- No search index on story: search goes over storySearch (below), which holds published stories'
+-- words only.
+
+-- ---------------------------------------------------------------- storySearch (search option A)
+-- Search option A (Joel, 2026-11-06; search-drafts-decision.html): one row per PUBLISHED story,
+-- holding only its search words and the story it belongs to; id = storySearch:<the story's key>.
+-- The full-text index lives here, so BM25's scores and the "best match" order are computed over
+-- published stories only: a draft being created or deleted can't move a score or a page (Codex,
+-- #187 review). It is not a public copy of the story: only the words, which the public already
+-- reads on the story and its themes.
+-- searchText (search-ranking-design.html; Joel, 2026-11-06: "include story themes inside the
+-- terms search is ranked on too"): the title, description, written text and the current names of
+-- its themes, as one text, all counting equally (one field, one analyzer). Category names aren't
+-- included.
+-- Joel, 2026-11-06 ("store each story's additional fields on search row"): the row also holds
+-- what the public lists filter and sort on (primaryFormat, themeIds, publishedAt: the current
+-- approved entry's), so search filters, scores, sorts and pages inside storySearch and builds
+-- story cards for one page only.
+-- The database alone writes it (fn::story::sync_search), in the same write that publishes the
+-- story or stops it being published (withdrawn, hidden, rejected), deletes it (DeleteStory,
+-- erasure, housekeeping), changes its words or themes, or renames or deletes one of its themes:
+-- no service path can forget it. Everyone may read a row only while its story is published now
+-- (the story's own row rule); nobody writes one directly.
+DEFINE TABLE OVERWRITE storySearch SCHEMAFULL PERMISSIONS
+  FOR select WHERE story.currentStatus.status = 'approved',
+  FOR create, update, delete NONE;
+DEFINE FIELD OVERWRITE story      ON storySearch TYPE record<story> READONLY;
+DEFINE FIELD OVERWRITE searchText    ON storySearch TYPE string;
+DEFINE FIELD OVERWRITE primaryFormat ON storySearch TYPE string;
+DEFINE FIELD OVERWRITE themeIds      ON storySearch TYPE array<string>;
+DEFINE FIELD OVERWRITE publishedAt   ON storySearch TYPE datetime;
+DEFINE INDEX OVERWRITE storySearch_fts ON storySearch FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
+-- A story's search words: title, description, written text and its themes' current names.
+DEFINE FUNCTION OVERWRITE fn::story::search_text($s: any) {
+  LET $refs = $s.themeRefs ?? [];
+  LET $themes = (SELECT VALUE name FROM theme WHERE id IN $refs ORDER BY name);
+  RETURN array::join(array::concat([$s.title, $s.description, $s.body ?? ''], $themes), ' ');
+};
+-- Puts the story's row in step with it: its words if it is published now, no row otherwise
+-- (including a story that is gone). Called by events only (they run elevated).
+-- Writing the words reads the themes' names, so it bumps each theme's fence (fence:theme-<id>),
+-- as a rename and a delete do (storySearch_theme_renamed, theme_delete): a row built from a
+-- snapshot can't commit alongside a rename or delete of one of its themes (Codex, #188 review).
+-- The second to commit conflicts, and its retry reads the other's result. $fenced: the caller
+-- (a rename) has bumped the fence already.
+DEFINE FUNCTION OVERWRITE fn::story::sync_search($id: record<story>, $fenced: option<bool>) {
+  LET $s = (SELECT * FROM ONLY $id);
+  LET $row = type::record('storySearch', record::id($id));
+  IF $s != NONE AND fn::story::status_of($s) = 'approved' {
+    IF $fenced != true {
+      FOR $t IN $s.themeRefs ?? [] { IF record::exists($t) { fn::fence::touch('theme', $t) } };
+    };
+    LET $fields = {
+      searchText: fn::story::search_text($s), primaryFormat: $s.primaryFormat,
+      themeIds: $s.themeIds, publishedAt: $s.currentStatus.publishedAt
+    };
+    IF record::exists($row) { UPDATE $row MERGE $fields RETURN NONE }
+    ELSE { CREATE $row CONTENT object::extend($fields, { story: $id }) RETURN NONE };
+  } ELSE IF record::exists($row) {
+    DELETE $row RETURN NONE;
+  };
+};
+DEFINE EVENT OVERWRITE story_search ON story
+  WHEN $event = 'DELETE' OR ($event = 'UPDATE' AND (
+    fn::story::status_of($before) != fn::story::status_of($after)
+    OR $before.title != $after.title OR $before.description != $after.description
+    OR $before.body != $after.body OR $before.themeIds != $after.themeIds
+    OR $before.primaryFormat != $after.primaryFormat))
+  THEN {
+    IF $event = 'DELETE' { DELETE type::record('storySearch', record::id($before.id)) RETURN NONE }
+    ELSE { fn::story::sync_search($after.id) };
+  };
+-- A renamed theme: the published stories that carry it get its new name (deleting a theme takes
+-- it off its stories, theme_delete, which story_search follows). Only those stories: the
+-- story_theme_ids index finds them. The rename bumps the theme's fence, so it conflicts with a
+-- search row being written from the old name meanwhile (fn::story::sync_search).
+DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
+  WHEN $event = 'UPDATE' AND $before.name != $after.name
+  THEN {
+    fn::fence::touch('theme', $after.id);
+    LET $key = record::id($after.id);
+    FOR $s IN (SELECT VALUE id FROM story WHERE themeIds CONTAINS $key) {
+      IF record::exists(type::record('storySearch', record::id($s))) {
+        fn::story::sync_search($s, true);
+      };
+    };
+  };
 
 -- ---------------------------------------------------------------- storyStatusLog (R6)
 -- The story's status log (Joel, 2026-11-05): everything that happens to a story's status is a
@@ -784,7 +758,9 @@ DEFINE FIELD OVERWRITE publishedAt  ON storyStatusLog TYPE option<datetime> READ
     ELSE {
       -- Bound first: inside the SELECT, $this is the row being read.
       LET $story = $this.story;
-      array::min(SELECT VALUE publishedAt FROM storyStatusLog
+      -- WITH INDEX: left to itself, 3.2.4 picks (status, publishedAt) and reads every approved
+      -- entry of every story (local scale test, B2: 18 ms at 5,000 stories, growing with each).
+      array::min(SELECT VALUE publishedAt FROM storyStatusLog WITH INDEX storyStatusLog_story
         WHERE story = $story AND status = 'approved' AND publishedAt != NONE)
         ?? (IF $auth = NONE AND $value != NONE { $value } ELSE { $this.at })
     };
@@ -792,6 +768,15 @@ DEFINE FIELD OVERWRITE publishedAt  ON storyStatusLog TYPE option<datetime> READ
 -- own words go in `comment`).
 DEFINE FIELD OVERWRITE hiddenReason ON storyStatusLog TYPE option<string> READONLY
   ASSERT $value = NONE OR $value IN ['media_unavailable', 'media_changed']
+  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
+-- On approved entries (R6/R12; db review 2, section 6 item 1): the exact files the story pointed
+-- at when it was approved, set by the database. A hidden story comes back without a new review
+-- only while it still points at both (fn::story::restorable).
+DEFINE FIELD OVERWRITE reviewedMediaFile ON storyStatusLog TYPE option<record<storyFile>> READONLY
+  VALUE IF $this.status = 'approved' { $this.story.mediaFile }
+  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
+DEFINE FIELD OVERWRITE reviewedImageFile ON storyStatusLog TYPE option<record<storyFile>> READONLY
+  VALUE IF $this.status = 'approved' { $this.story.image.file }
   PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
 -- Public lists, newest or oldest first (db review 2, section 6 items 5 and 6).
 DEFINE INDEX OVERWRITE storyStatusLog_published ON storyStatusLog FIELDS status, publishedAt;
@@ -801,8 +786,8 @@ DEFINE INDEX OVERWRITE storyStatusLog_queue     ON storyStatusLog FIELDS status,
 DEFINE INDEX OVERWRITE storyStatusLog_story     ON storyStatusLog FIELDS story, at;
 -- Adding an entry checks the step and moves the pointer in the same write (db review 2, section 6
 -- item 2). Every entry bumps the story's owner's fence (fn::person::live), as every write to the
--- story and its erasure do, so two steps at once, or a step racing erasure or a media update,
--- can't both commit: the second conflicts, and its retry checks again from scratch. The moved
+-- story, to its files (storyFile_fence) and its erasure do, so two steps at once, or a step
+-- racing erasure or a file's processing, can't both commit: the second conflicts, and its retry checks again from scratch. The moved
 -- pointer is a story write, so the story's own events check it too: the shape and the text and
 -- theme limits on submit, the weekly limit on a first submit, the agreements on the person's
 -- writes, and the media and testimony consent on approval.
@@ -837,23 +822,14 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
     IF $after.hiddenReason != NONE AND $to != 'hidden' {
       THROW 'status_step: only a hidden entry has a reason';
     };
-    LET $hidden = type::record('hiddenStory', record::id($s.id));
-    IF $to = 'hidden' AND !record::exists($hidden) {
-      -- A moderator's hide: what is shown now is what was reviewed.
-      CREATE $hidden CONTENT {
-        identity: fn::story::media_identity($s), thumbnails: fn::story::thumbnails($s)
-      } RETURN NONE;
-    };
-    -- Shown again: by the system only with the media that was reviewed, ready; a moderator's
+    -- Shown again: by the system only with the files that were reviewed, ready; a moderator's
     -- "show again" is their review of what the story shows now (its approval checks still run,
-    -- on the moved pointer), so a hidden story with replacement media comes back only that way.
-    IF $from = 'hidden' AND $to = 'approved' {
-      IF $after.actor != 'moderator' AND !fn::story::restorable($s) {
-        THROW 'story_not_restorable: a hidden story comes back only with the media that was reviewed, ready';
-      };
-      DELETE $hidden;
+    -- on the moved pointer, and the entry records the files it shows), so a hidden story with
+    -- other files comes back only that way.
+    IF $from = 'hidden' AND $to = 'approved' AND $after.actor != 'moderator'
+      AND !fn::story::restorable($s) {
+      THROW 'story_not_restorable: a hidden story comes back only with the files that were reviewed, ready';
     };
-    IF $to = 'withdrawn' { DELETE $hidden };
     UPDATE $s.id SET currentStatus = $after.id RETURN NONE;
   };
 -- Append-only, for system users too: an entry goes only with its story (the erasure cascade).
@@ -861,45 +837,20 @@ DEFINE EVENT OVERWRITE storyStatusLog_append_only ON storyStatusLog
   WHEN $event = 'UPDATE' OR ($event = 'DELETE' AND record::exists($before.story))
   THEN { THROW 'a story’s status log is append-only: entries go only with their story' };
 
--- ---------------------------------------------------------------- hiddenStory (Joel, 2026-10-23)
--- An approved story hidden because its media isn't ready or changed (story_media_availability),
--- or by a moderator. Keeps what the moderator reviewed (its media's identity and thumbnails), so
--- it comes back on its own once that media is ready again (fn::story::restorable) and never
--- with other media. Same id as the story (hiddenStory:<ulid>). Its status and why live in the
--- status log (R6). Written by events only (events run elevated); erasure deletes it with the
--- story. B2 (R12) replaces it with the approved entry's reviewed files.
-DEFINE TABLE OVERWRITE hiddenStory SCHEMAFULL PERMISSIONS
-  FOR select WHERE $auth IN [service:api_admin, service:workflow],
-  FOR create, update, delete NONE;
-DEFINE FIELD OVERWRITE since       ON hiddenStory TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE FIELD OVERWRITE identity    ON hiddenStory TYPE string ASSERT string::len($value) = 64;
--- D60: the reviewed thumbnail paths, in media order.
-DEFINE FIELD OVERWRITE thumbnails  ON hiddenStory TYPE option<array<option<string>>>;
-DEFINE INDEX OVERWRITE hiddenStory_since ON hiddenStory FIELDS since;
-DEFINE EVENT OVERWRITE hiddenStory_fence ON hiddenStory          -- hide, restore
-  WHEN true THEN {
-    IF $event = 'DELETE' {
-      fn::fence::touch('person', type::record('story', record::id($before.id)).submitter);
-    } ELSE {
-      fn::person::live(type::record('story', record::id($after.id)).submitter);
-    };
-  };
--- For api-admin (someone chases Bunny): stories hidden because of their media, oldest first.
--- problem = what's still not ready; mediaChanged = the media differs from what was reviewed, so
--- it needs a moderator rather than Bunny. A hidden story whose media is fine (its uploader has no
--- testimony consent, or a moderator hid it) isn't listed. Runs with the caller's permissions
--- (only api-admin and workflow read hiddenStory).
+-- For api-admin (someone chases Bunny): stories the system hid because of their files, oldest
+-- first. problem = what's still not ready; mediaChanged = the files differ from the reviewed ones,
+-- so it needs a moderator rather than Bunny. A hidden story whose files are fine (its uploader has
+-- no testimony consent) isn't listed, nor one a moderator hid. Runs with the caller's permissions
+-- (api-admin reads the status log, the stories and their files).
 DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
-  LET $hidden = (SELECT since, identity, thumbnails, type::record('story', record::id(id)) AS story
-    FROM hiddenStory ORDER BY since ASC);
-  RETURN $hidden.map(|$h| {
-    LET $s = (SELECT * FROM ONLY $h.story);
-    RETURN IF fn::story::status_of($s) = 'hidden' {
-      { id: $s.id, slug: $s.slug, title: $s.title, primaryFormat: $s.primaryFormat,
-        hiddenSince: $h.since, problem: fn::story::approval_problem($s),
-        mediaChanged: !fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s) }
-    };
-  }).filter(|$r| $r != NONE AND ($r.problem != NONE OR $r.mediaChanged));
+  LET $hidden = (SELECT VALUE story FROM storyStatusLog
+    WHERE status = 'hidden' AND actor = 'system' AND story.currentStatus = id ORDER BY at ASC);
+  RETURN $hidden.map(|$id| {
+    LET $s = (SELECT * FROM ONLY $id);
+    RETURN { id: $s.id, slug: $s.slug, title: $s.title, primaryFormat: $s.primaryFormat,
+      hiddenSince: $s.currentStatus.at, problem: fn::story::approval_problem($s),
+      mediaChanged: !fn::story::shows_reviewed_files($s) };
+  }).filter(|$r| $r.problem != NONE OR $r.mediaChanged);
 };
 
 -- ---------------------------------------------------------------- draft retention (D71)
@@ -916,20 +867,20 @@ DEFINE FUNCTION OVERWRITE fn::story::drafts_expire_before() {
 };
 -- D71: when `$story` expires if nobody touches it again: fn::story::draft_retention() after its
 -- last activity, the later of its last edit (updatedAt) and the last time an upload link was
--- signed for it again (uploadGrant.renewedAt, a resume). NONE if it isn't a draft. The one rule:
+-- signed for it again (storyFile.renewedAt, a resume). NONE if it isn't a draft. The one rule:
 -- housekeeping deletes by it (draft_expired) and the profile shows it (api-user's
--- StoryMine.draftExpiresAt, R5). The owner's session reads its own grants.
+-- StoryMine.draftExpiresAt, R5). The owner's session reads its own files.
 DEFINE FUNCTION OVERWRITE fn::story::draft_expires_at($story: record<story>) {
   LET $s = (SELECT currentStatus, updatedAt FROM ONLY $story);
   IF $s = NONE OR $s.currentStatus != NONE { RETURN NONE };
-  LET $renewed = array::max(SELECT VALUE renewedAt FROM uploadGrant
+  LET $renewed = array::max(SELECT VALUE renewedAt FROM storyFile
     WHERE story = $story AND renewedAt != NONE);
   LET $last = IF $renewed != NONE AND $renewed > $s.updatedAt { $renewed } ELSE { $s.updatedAt };
   RETURN $last + fn::story::draft_retention();
 };
 -- D71: whether `$story` is a draft past fn::story::draft_expires_at, i.e. nobody has touched it
 -- since fn::story::drafts_expire_before(). story FOR delete (housekeeping) and the chore both
--- ask this. Both writes fence the person (story_fence, uploadGrant_renew), so a resume racing
+-- ask this. Both writes fence the person (story_fence, storyFile_fence), so a resume racing
 -- the delete conflicts and one of them loses.
 DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
   LET $at = fn::story::draft_expires_at($story);
@@ -937,71 +888,146 @@ DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
 };
 
 
--- ---------------------------------------------------------------- uploadGrant (D65, D80, D113)
--- One row per video or audio file api-user created at Bunny Stream for a story (RequestUpload,
--- M2 plan PR 7). id = uploadGrant:<bunnyVideoId>, so a Bunny video is granted once, to one story.
--- Only api-user's own login creates it, after creating the video itself (title = the story id,
--- D69); its event checks the draft and the person's upload limits and puts the video on the draft
--- in the same write (D80: the browser never names a video, and a person's session never writes
--- media). story_media_granted then refuses any Bunny id without a grant for that story.
+-- ---------------------------------------------------------------- storyFile (R12; D65, D80, D113)
+-- One row per file uploaded for a story (R12, Joel 2026-11-05; was uploadGrant): a video or
+-- audio file api-user created at Bunny Stream (RequestUpload, M2 plan PR 7; id =
+-- storyFile:<bunnyVideoId>), or a picture in the images storage zone (M2 plan PR 10; id =
+-- storyFile:`stories/<story id>/<random>.webp`, its path, which api-user picks, D80). So a file
+-- belongs to one story. The story points at its current files (story.mediaFile, story.image.file:
+-- the permission slip, story_files); the row holds what is known about the file.
+-- Only api-user's own login creates a row, after creating the video itself (title = the story
+-- id, D69) or picking the picture's path; its event checks the draft and the person's upload
+-- limits and points the draft at the file in the same write (D80: the browser never names a
+-- file, and a person's session never writes the pointers). The upload links stay as they were:
+-- a TUS link for one video until it expires, a single-use presigned PUT for one picture.
 -- Also the per-person record of uploads (D113, Joel 2026-10-28: the limits must hold when stories
--- or videos are deleted): replacing a draft's file deletes the old video at Bunny but keeps its
--- grant, so the hourly and weekly counts stay honest. A grant that's no longer its story's media
--- goes after 7 days (pruned here); a story's current one stays while the story does. Person-linked:
--- erasure deletes them all. The person reads their own (the limits page, the submit checks).
--- storyVersion: the `If-Match` the command was given: the event refuses another (412).
+-- or videos are deleted): rows stay when a file is replaced or a story deleted, so the hourly and
+-- weekly counts stay honest. Person-linked: erasure deletes them all. The person reads their own
+-- (the limits page, the submit checks, "download my data").
+-- Replaced files are tracked until they are really gone (R12; db review 2, section 6 item 7):
+-- when a story stops pointing at a file, its row gets detachedAt (story_files); the nightly
+-- housekeeping deletes the file at Bunny or in the images zone once no upload link for it can
+-- still be used (fn::upload::links_expire_after), then sets removedAt. A row detached but not
+-- removed a day or two later means the clean-up is failing. housekeeping deletes a row once it no
+-- longer counts towards the limits (7 days) and its file is removed or its story gone (a deleted
+-- story's files go as before: api-user's delete at Bunny, the orphan sweep and pendingDeletion).
+-- Fields: storyVersion: the `If-Match` the command was given: the event refuses another (412).
 -- sizeBytes / durationSeconds: what the browser declared (the TUS link binds neither, D68); the
 -- limits are checked on them here and again at submit, with Bunny's own length once it has one.
--- housekeeping reads them (ids and dates) so a video with a recent grant is never an orphan.
--- renewedAt: when api-user last signed a link for it again (a resume, or a replayed request;
--- fn::upload::renew), the only thing anyone may change. It counts as touching the draft (D71).
--- Images (M2 plan PR 10): id = uploadGrant:`stories/<story id>/<random>.webp`, the file's path in
--- the images storage zone, which api-user picks (D80); the presigned PUT it signs binds that path,
--- the type and the exact size (D68). width/height/alt: the picture's real size (D53, 1:3..3:1) and
--- its description, put on the story with it. Images count towards the hourly upload limit only,
--- never the weekly one (Joel, 2026-10-30: uploadsPer7Days is for video and audio files); their
--- size and pixel bounds are fixed (fn::upload::image_limits).
+-- width/height: a picture's real size (D53, 1:3..3:1), from the person's browser; a video's (and
+-- an audio file's thumbnail's) from processing. lengthSeconds, thumbnailPath, processing:
+-- processing's (workflow, M7; A2). renewedAt: when api-user last signed a link for it again (a
+-- resume, or a replayed request; fn::upload::renew). It counts as touching the draft (D71).
 -- expectedImage: the path of the picture the person's page showed when they chose theirs (NONE:
--- none). The event refuses the grant (image_changed) if the story's picture is another one by
+-- none). The event refuses the row (image_changed) if the story's picture is another one by
 -- then, whatever its version: a picture another tab put on (or took off) is replaced only when
 -- the person chooses to, never by a request the page rebased onto a newer version (Codex #140 r3).
-DEFINE TABLE OVERWRITE uploadGrant SCHEMAFULL PERMISSIONS
+-- Everyone reads the published fields (format, width, height, lengthSeconds, thumbnailPath, and
+-- the id: the Bunny video id or the picture's path) of a file an approved story points at now
+-- (R12; db review 2, section 6 item 4); the rest only the person and the services.
+DEFINE TABLE OVERWRITE storyFile SCHEMAFULL PERMISSIONS
   FOR select WHERE person = $auth
-    OR $auth IN [service:api_user, service:api_admin, service:housekeeping],
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping]
+    OR (story.currentStatus.status = 'approved' AND (story.mediaFile = id OR story.image.file = id)),
   FOR create WHERE $auth = service:api_user,
-  FOR update WHERE $auth = service:api_user,
-  FOR delete WHERE $auth = service:api_user;                        -- erasure
-DEFINE FIELD OVERWRITE story           ON uploadGrant TYPE record<story> READONLY;
-DEFINE FIELD OVERWRITE person          ON uploadGrant TYPE record<user> READONLY;
-DEFINE FIELD OVERWRITE format          ON uploadGrant TYPE string READONLY
+  FOR update WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
+  FOR delete WHERE $auth = service:api_user                          -- erasure
+    -- The nightly clean-up: a row that no longer counts towards the limits, once its file is
+    -- removed or its story is gone.
+    OR ($auth = service:housekeeping AND at <= time::now() - 7d
+        AND (removedAt != NONE OR !record::exists(story)));
+DEFINE FIELD OVERWRITE story           ON storyFile TYPE record<story> READONLY
+  PERMISSIONS FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+DEFINE FIELD OVERWRITE person          ON storyFile TYPE record<user> READONLY
+  PERMISSIONS FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+DEFINE FIELD OVERWRITE format          ON storyFile TYPE string READONLY
   ASSERT $value IN ['video', 'audio', 'image'];
-DEFINE FIELD OVERWRITE contentType     ON uploadGrant TYPE string READONLY
-  ASSERT string::len($value) > 0 AND string::len($value) <= 100;
-DEFINE FIELD OVERWRITE sizeBytes       ON uploadGrant TYPE int READONLY ASSERT $value > 0;
-DEFINE FIELD OVERWRITE durationSeconds ON uploadGrant TYPE option<int> READONLY
-  ASSERT $value = NONE OR $value > 0;
-DEFINE FIELD OVERWRITE width           ON uploadGrant TYPE option<int> READONLY;   -- images
-DEFINE FIELD OVERWRITE height          ON uploadGrant TYPE option<int> READONLY;
-DEFINE FIELD OVERWRITE alt             ON uploadGrant TYPE option<string> READONLY
-  ASSERT $value = NONE OR string::len($value) <= 500;
-DEFINE FIELD OVERWRITE expectedImage   ON uploadGrant TYPE option<string> READONLY;   -- images
-DEFINE FIELD OVERWRITE storyVersion    ON uploadGrant TYPE int READONLY;
-DEFINE FIELD OVERWRITE at              ON uploadGrant TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE FIELD OVERWRITE renewedAt       ON uploadGrant TYPE option<datetime>   -- server time only
-  VALUE IF $value = NONE OR $value = $before { $before } ELSE { time::now() };
-DEFINE INDEX OVERWRITE uploadGrant_person ON uploadGrant FIELDS person, at;
-DEFINE INDEX OVERWRITE uploadGrant_story  ON uploadGrant FIELDS story;
+DEFINE FIELD OVERWRITE contentType     ON storyFile TYPE string READONLY
+  ASSERT string::len($value) > 0 AND string::len($value) <= 100
+  PERMISSIONS FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+DEFINE FIELD OVERWRITE sizeBytes       ON storyFile TYPE int READONLY ASSERT $value > 0
+  PERMISSIONS FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+DEFINE FIELD OVERWRITE durationSeconds ON storyFile TYPE option<int> READONLY
+  ASSERT $value = NONE OR $value > 0
+  PERMISSIONS FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+DEFINE FIELD OVERWRITE expectedImage   ON storyFile TYPE option<string> READONLY   -- pictures
+  PERMISSIONS FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+DEFINE FIELD OVERWRITE storyVersion    ON storyFile TYPE int READONLY
+  PERMISSIONS FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+-- A picture's size is the person's browser's, never changed; a video's comes from processing.
+DEFINE FIELD OVERWRITE width           ON storyFile TYPE option<int> ASSERT $value = NONE OR $value > 0
+  VALUE IF $auth = service:workflow AND $this.format = 'image' { $before } ELSE { $value }
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
+DEFINE FIELD OVERWRITE height          ON storyFile TYPE option<int> ASSERT $value = NONE OR $value > 0
+  VALUE IF $auth = service:workflow AND $this.format = 'image' { $before } ELSE { $value }
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
+-- Bunny's real length (cards show it, M1 step 6a; the approval gate means a published clip has
+-- it) and the thumbnail's path at Bunny (D53/D60: Bunny's generated frame, or for audio the
+-- picture shown for it, Joel 2026-10-24).
+DEFINE FIELD OVERWRITE lengthSeconds   ON storyFile TYPE option<int> ASSERT $value = NONE OR $value > 0
+  PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+DEFINE FIELD OVERWRITE thumbnailPath   ON storyFile TYPE option<string>
+  PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+-- A2: NONE = not processed yet (just uploaded); then 'processing', 'ready' or 'failed'. Only
+-- 'ready' can be approved and published (fn::story::approval_problem).
+DEFINE FIELD OVERWRITE processing      ON storyFile TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
+  PERMISSIONS FOR select WHERE person = $auth
+      OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
+    FOR create, update WHERE $auth = service:workflow;
+-- The server time. Only a system user ($auth = NONE: the migrator, dev-seed, the scale test) may
+-- supply another, for dummy data and tests.
+DEFINE FIELD OVERWRITE at              ON storyFile TYPE datetime READONLY
+  VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { $before OR time::now() }
+  PERMISSIONS FOR select WHERE person = $auth
+    OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping];
+DEFINE FIELD OVERWRITE renewedAt       ON storyFile TYPE option<datetime>   -- server time only
+  VALUE IF $value = NONE OR $value = $before { $before } ELSE { time::now() }
+  PERMISSIONS FOR select WHERE person = $auth
+      OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
+    FOR create NONE, FOR update WHERE $auth = service:api_user;
+-- When its story stopped pointing at it: set by story_files only (events run elevated).
+DEFINE FIELD OVERWRITE detachedAt      ON storyFile TYPE option<datetime>
+  PERMISSIONS FOR select WHERE person = $auth
+      OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
+    FOR create, update NONE;
+-- When housekeeping deleted the file (server time; once): see storyFile_update.
+DEFINE FIELD OVERWRITE removedAt       ON storyFile TYPE option<datetime>
+  VALUE IF $auth = NONE { $value } ELSE IF $before != NONE { $before }
+    ELSE IF $value != NONE { time::now() }
+  PERMISSIONS FOR select WHERE person = $auth
+      OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
+    FOR create NONE, FOR update WHERE $auth = service:housekeeping;
+DEFINE INDEX OVERWRITE storyFile_person   ON storyFile FIELDS person, at;
+DEFINE INDEX OVERWRITE storyFile_story    ON storyFile FIELDS story;
+-- The clean-up's list, and the check that it is keeping up (R12).
+DEFINE INDEX OVERWRITE storyFile_detached ON storyFile FIELDS detachedAt;
+-- How long after its story stops pointing at a file an upload link for it may still be used: a
+-- TUS link lives an hour (api-user's UPLOAD_LINK_SECONDS) and a picture's PUT 10 minutes
+-- (IMAGE_LINK_SECONDS), with room for one signed just before. No new link is signed for a file
+-- its story no longer shows (storyFile_update, and api-user's replay checks). The clean-up
+-- deletes a detached file only after this (removedAt).
+DEFINE FUNCTION OVERWRITE fn::upload::links_expire_after() {
+  RETURN 2h;
+};
 -- When the person may next start an upload of `$format` ('video', 'audio' or 'image'): NONE if
--- now, else when the hourly count (every grant) or, for a video or audio file, the weekly count
--- (video and audio grants only) frees a place (the later of the two). Their own session reads
--- their own grants.
+-- now, else when the hourly count (every file) or, for a video or audio file, the weekly count
+-- (video and audio files only) frees a place (the later of the two). Their own session reads
+-- their own rows.
 DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>>, $format: string) {
   IF $user = NONE { RETURN NONE };
   LET $l = fn::limits::effective($user);
-  LET $grants = (SELECT at, format FROM uploadGrant
+  LET $files = (SELECT at, format FROM storyFile
     WHERE person = $user AND at > time::now() - 7d ORDER BY at ASC);
-  LET $hour = $grants.filter(|$g| $g.at > time::now() - 1h).map(|$g| $g.at);
-  LET $week = $grants.filter(|$g| $g.format != 'image').map(|$g| $g.at);
+  LET $hour = $files.filter(|$g| $g.at > time::now() - 1h).map(|$g| $g.at);
+  LET $week = $files.filter(|$g| $g.format != 'image').map(|$g| $g.at);
   LET $byHour = IF array::len($hour) < $l.uploadRequestsPerHour { NONE }
     ELSE { $hour[array::len($hour) - $l.uploadRequestsPerHour] + 1h };
   LET $byWeek = IF $format = 'image' OR $l.uploadsPer7Days = NONE
@@ -1015,105 +1041,150 @@ DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>
 DEFINE FUNCTION OVERWRITE fn::upload::image_limits() {
   RETURN { maxBytes: 5242880, minSide: 200, maxSide: 4096 };
 };
-DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
-  WHEN $event IN ['CREATE', 'DELETE'] THEN {
-    IF $event = 'DELETE' { fn::fence::touch('person', $before.person) }
-    ELSE {
-      fn::person::live($after.person);
-      LET $s = (SELECT * FROM ONLY $after.story);
-      IF $s = NONE OR $s.submitter != $after.person {
-        THROW 'upload_refused: the story isn’t this person’s';
-      };
-      IF $s.version != $after.storyVersion { THROW 'story_cmd:stale_version' };
-      IF fn::story::status_of($s) NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
-      -- Plan 4e (Q2): an upload is the person's write, made for them by api-user's login: the
-      -- latest terms of use and testimony consent first.
-      fn::legal::require_testimony($after.person);
-      LET $l = fn::limits::effective($after.person);
-      IF $after.format = 'image' {
-        -- A written story's image, an audio story's picture or a video's own thumbnail, in the
-        -- story's own folder, named by api-user (a 32-hex random name), a WebP of a size and
-        -- shape we take (D53).
-        LET $path = record::id($after.id);
-        LET $name = string::replace($path, 'stories/' + record::id($s.id) + '/', '');
-        IF !string::starts_with($path, 'stories/' + record::id($s.id) + '/')
-          OR string::len($name) != 37 OR !string::ends_with($name, '.webp')
-          OR !string::is_hexadecimal(string::slice($name, 0, 32)) {
-          THROW 'upload_refused: an image goes in its story’s own folder, under a name api-user picks';
-        };
-        IF $after.contentType != 'image/webp' { THROW 'upload_refused: an image is a WebP' };
-        IF $s.image.path != $after.expectedImage {
-          THROW 'image_changed: the story’s picture isn’t the one the person was shown';
-        };
-        LET $il = fn::upload::image_limits();
-        IF $after.sizeBytes > $il.maxBytes {
-          THROW 'limit_upload_size: the image is bigger than we take (M2 plan PR 10)';
-        };
-        IF $after.width = NONE OR $after.height = NONE
-          OR $after.width < $il.minSide OR $after.height < $il.minSide
-          OR $after.width > $il.maxSide OR $after.height > $il.maxSide
-          OR !fn::shape::allowed($after.width, $after.height) {
-          THROW 'upload_refused: an image’s pixel size or shape is outside what we take (D53)';
-        };
-      } ELSE {
-        IF $s.primaryFormat != $after.format {
-          THROW 'upload_refused: a ' + $s.primaryFormat + ' story takes no ' + $after.format;
-        };
-        IF $after.sizeBytes > (IF $after.format = 'video' { $l.videoMaxBytes } ELSE { $l.audioMaxBytes }) {
-          THROW 'limit_upload_size: the file is bigger than the person may upload (D113)';
-        };
-        IF $after.durationSeconds != NONE AND $after.durationSeconds > $l.mediaMaxSeconds {
-          THROW 'limit_upload_duration: the file is longer than the person may upload (D113)';
-        };
-      };
-      -- Counted without this row; the fence above makes two overlapping grants conflict. Every
-      -- grant counts per hour; only video and audio files per 7 days (Joel, 2026-10-30).
-      LET $grants = (SELECT at, format FROM uploadGrant
-        WHERE person = $after.person AND id != $after.id AND at > time::now() - 7d);
-      IF array::len($grants.filter(|$g| $g.at > time::now() - 1h)) >= $l.uploadRequestsPerHour {
-        THROW 'limit_upload_hourly: the person has started as many uploads as they may in an hour (D113)';
-      };
-      IF $after.format != 'image' AND $l.uploadsPer7Days != NONE
-        AND array::len($grants.filter(|$g| $g.format != 'image')) >= $l.uploadsPer7Days {
-        THROW 'limit_upload_weekly: the person has started as many uploads as they may in 7 days (D113)';
-      };
-      -- The draft's one video or audio file, or its image, is now this one (D80). The story's
-      -- media or image VALUE starts its processing again (A2); its version steps once, to
-      -- storyVersion + 1. A replaced image's file stays where it is, and the clean-up sweep
-      -- removes it later (media-runbook).
-      IF $after.format = 'image' {
-        UPDATE $after.story SET image = { path: record::id($after.id), width: $after.width,
-          height: $after.height, alt: IF fn::text::trimmed_length($after.alt) = 0 { NONE }
-            ELSE { string::trim($after.alt) } } RETURN NONE;
-      } ELSE {
-        UPDATE $after.story SET media = [{ format: $after.format, bunnyVideoId: record::id($after.id) }]
-          RETURN NONE;
-      };
-      -- Older grants that are no longer any story's media or image.
-      DELETE uploadGrant WHERE person = $after.person AND at <= time::now() - 7d
-        AND record::id(id) NOT IN (story.media ?? []).map(|$m| $m.bunnyVideoId)
-        AND record::id(id) != story.image.path;
-    };
-  };
--- A resume (D71): the link is signed again only if this commits. The story must still be the
--- person's, editable and showing this file, and the person must have the latest terms of use and
--- testimony consent, as for a new grant (plan 4e, Q2). The fence bump makes it conflict with a
--- draft's deletion (story_fence), so housekeeping never deletes a draft whose link was just
--- signed, and a resume never signs a link for a draft that was just deleted.
-DEFINE EVENT OVERWRITE uploadGrant_renew ON uploadGrant
-  WHEN $event = 'UPDATE' THEN {
+-- RequestUpload's write (api-user's login; system users load rows as given): the story must be the
+-- person's and editable at the version they saw, they must have agreed to the latest terms of use
+-- and testimony consent (plan 4e, Q2: an upload is the person's write, made for them), and the file
+-- must be within the limits; then the story points at it (D80), and story_files detaches the
+-- file it replaces. The story's version steps once, to storyVersion + 1.
+-- A picture's description comes with RequestUpload but isn't a fact about the file (R12: it stays
+-- on the story, where the person may change it), so api-user passes it to this write as the
+-- query parameter $imageAlt.
+DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
+  WHEN $event = 'CREATE' AND $auth != NONE THEN {
     fn::person::live($after.person);
-    LET $s = (SELECT submitter, currentStatus, media FROM ONLY $after.story);
-    IF $s = NONE OR $s.submitter != $after.person
-      OR $s.media[0].bunnyVideoId != record::id($after.id) {
-      THROW 'nothing_to_resume: the story is gone or no longer shows this file';
+    LET $s = (SELECT * FROM ONLY $after.story);
+    IF $s = NONE OR $s.submitter != $after.person {
+      THROW 'upload_refused: the story isn’t this person’s';
     };
+    IF $s.version != $after.storyVersion { THROW 'story_cmd:stale_version' };
     IF fn::story::status_of($s) NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
     fn::legal::require_testimony($after.person);
+    LET $l = fn::limits::effective($after.person);
+    IF $after.format = 'image' {
+      -- A written story's image, an audio story's picture or a video's own thumbnail, in the
+      -- story's own folder, named by api-user (a 32-hex random name), a WebP of a size and
+      -- shape we take (D53).
+      IF !fn::media::own_image($s.id, record::id($after.id)) {
+        THROW 'upload_refused: an image goes in its story’s own folder, under a name api-user picks';
+      };
+      IF $after.contentType != 'image/webp' { THROW 'upload_refused: an image is a WebP' };
+      IF (IF $s.image != NONE { record::id($s.image.file) }) != $after.expectedImage {
+        THROW 'image_changed: the story’s picture isn’t the one the person was shown';
+      };
+      LET $il = fn::upload::image_limits();
+      IF $after.sizeBytes > $il.maxBytes {
+        THROW 'limit_upload_size: the image is bigger than we take (M2 plan PR 10)';
+      };
+      IF $after.width = NONE OR $after.height = NONE
+        OR $after.width < $il.minSide OR $after.height < $il.minSide
+        OR $after.width > $il.maxSide OR $after.height > $il.maxSide
+        OR !fn::shape::allowed($after.width, $after.height) {
+        THROW 'upload_refused: an image’s pixel size or shape is outside what we take (D53)';
+      };
+    } ELSE {
+      IF $s.primaryFormat != $after.format {
+        THROW 'upload_refused: a ' + $s.primaryFormat + ' story takes no ' + $after.format;
+      };
+      IF $after.width != NONE OR $after.height != NONE {
+        THROW 'upload_refused: a video’s or audio file’s size comes from processing';
+      };
+      IF $after.sizeBytes > (IF $after.format = 'video' { $l.videoMaxBytes } ELSE { $l.audioMaxBytes }) {
+        THROW 'limit_upload_size: the file is bigger than the person may upload (D113)';
+      };
+      IF $after.durationSeconds != NONE AND $after.durationSeconds > $l.mediaMaxSeconds {
+        THROW 'limit_upload_duration: the file is longer than the person may upload (D113)';
+      };
+    };
+    -- Counted without this row; the fence above makes two overlapping uploads conflict. Every
+    -- file counts per hour; only video and audio files per 7 days (Joel, 2026-10-30).
+    LET $files = (SELECT at, format FROM storyFile
+      WHERE person = $after.person AND id != $after.id AND at > time::now() - 7d);
+    IF array::len($files.filter(|$g| $g.at > time::now() - 1h)) >= $l.uploadRequestsPerHour {
+      THROW 'limit_upload_hourly: the person has started as many uploads as they may in an hour (D113)';
+    };
+    IF $after.format != 'image' AND $l.uploadsPer7Days != NONE
+      AND array::len($files.filter(|$g| $g.format != 'image')) >= $l.uploadsPer7Days {
+      THROW 'limit_upload_weekly: the person has started as many uploads as they may in 7 days (D113)';
+    };
+    IF $after.format = 'image' {
+      UPDATE $after.story SET image = { file: $after.id,
+        alt: IF fn::text::trimmed_length($imageAlt) = 0 { NONE } ELSE { string::trim($imageAlt) } }
+        RETURN NONE;
+    } ELSE {
+      UPDATE $after.story SET mediaFile = $after.id RETURN NONE;
+    };
   };
--- api-user's login, before it signs a link for `$video` again: renews the grant (above). NONE
--- if there is no such grant for this person's story.
+-- Whoever writes (system users too): a picture's path is always its story's own folder's
+-- (fn::media::own_image), so nothing that signs or deletes a story's picture (its owner's link,
+-- erasure, housekeeping) can be pointed at another story's file. The one exception is dev-seed's
+-- own fixed files, `dev-seed/<name>.webp`, which only a system user can add. And a file's pixel
+-- size: both or neither, no taller than 1:3 or wider than 3:1 (D53).
+DEFINE EVENT OVERWRITE storyFile_shape ON storyFile
+  WHEN $event IN ['CREATE', 'UPDATE'] THEN {
+    IF $event = 'CREATE' AND $after.format = 'image'
+      AND !fn::media::own_image($after.story, record::id($after.id))
+      AND !($auth = NONE AND string::matches(<string> record::id($after.id), '^dev-seed/[a-z0-9-]{1,64}[.]webp$')) {
+      THROW 'upload_refused: an image goes in its story’s own folder, under a name api-user picks';
+    };
+    IF ($after.width = NONE) != ($after.height = NONE) {
+      THROW 'a file needs both width and height, or neither';
+    };
+    IF $after.width != NONE AND !fn::shape::allowed($after.width, $after.height) {
+      THROW IF $after.format = 'image' { 'an image’s shape is beyond 1:3 or 3:1' }
+        ELSE { 'a video’s or audio thumbnail’s shape is beyond 1:3 or 3:1' };
+    };
+  };
+-- Db review 2, section 6 item 2: every write to a story's file rows bumps its owner's fence, as
+-- every status entry, story write and erasure do, so a file's processing racing an approval (or
+-- a resume racing a draft's deletion) can't both commit: the second conflicts and its retry
+-- checks again from scratch. Erasure's delete: no live check.
+DEFINE EVENT OVERWRITE storyFile_fence ON storyFile
+  WHEN true THEN {
+    IF $event = 'DELETE' { fn::fence::touch('person', $before.person) }
+    ELSE { fn::person::live($after.person) };
+  };
+-- After a change to a file:
+-- - a resume (renewedAt, D71): the link is signed again only if this commits. The story must
+--   still be the person's, editable and showing this file, and the person must have the latest
+--   terms of use and testimony consent, as for a new upload (plan 4e, Q2). The fence makes it
+--   conflict with a draft's deletion (story_fence), so housekeeping never deletes a draft whose
+--   link was just signed, and a resume never signs a link for a draft that was just deleted;
+-- - removed (removedAt, housekeeping): only a detached file, once no upload link for it can
+--   still be used, and only once;
+-- - processing (workflow): a story showing the file is hidden or shown again
+--   (fn::story::check_files), and its version steps (D29: the owner's ETag and If-Match) when
+--   something its owner's story shows changed (fn::story::file_view): once, so not again if
+--   that write already hid it or showed it again. As before R12, when processing wrote the story.
+DEFINE FUNCTION OVERWRITE fn::story::file_view($f: any) {
+  RETURN $f.{ format, thumbnailPath, width, height, lengthSeconds, processing };
+};
+DEFINE EVENT OVERWRITE storyFile_update ON storyFile
+  WHEN $event = 'UPDATE' THEN {
+    LET $s = (SELECT * FROM ONLY $after.story);
+    IF $after.renewedAt != $before.renewedAt {
+      IF $s = NONE OR $s.submitter != $after.person OR $s.mediaFile != $after.id {
+        THROW 'nothing_to_resume: the story is gone or no longer shows this file';
+      };
+      IF fn::story::status_of($s) NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
+      fn::legal::require_testimony($after.person);
+    };
+    IF $after.removedAt != $before.removedAt AND $auth != NONE
+      AND ($before.removedAt != NONE OR $after.detachedAt = NONE
+        OR $after.detachedAt > time::now() - fn::upload::links_expire_after()) {
+      THROW 'file_not_removable: only a file its story stopped showing, once no upload link for it can be used';
+    };
+    IF $s != NONE AND $after.detachedAt = NONE
+      AND ($s.mediaFile = $after.id OR $s.image.file = $after.id) {
+      fn::story::check_files($s);
+      IF fn::story::file_view($before) != fn::story::file_view($after)
+        AND (SELECT VALUE version FROM ONLY $s.id) = $s.version {
+        UPDATE $s.id RETURN NONE;
+      };
+    };
+  };
+-- api-user's login, before it signs a link for `$video` again: renews the row (above). NONE if
+-- there is no such file for this person's story.
 DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: record<user>, $video: string) {
-  RETURN (UPDATE type::record('uploadGrant', $video) SET renewedAt = time::now()
+  RETURN (UPDATE type::record('storyFile', $video) SET renewedAt = time::now()
     WHERE story = $story AND person = $person RETURN VALUE renewedAt)[0];
 };

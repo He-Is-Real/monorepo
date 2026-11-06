@@ -10,6 +10,7 @@ import {
   DatabaseQueryError,
   type IdempotencyScope,
   isStoryTextTooShortError,
+  OWNER_FILE_FIELDS,
   requireWritten,
   retryOnConflict,
   runIdempotent,
@@ -215,7 +216,7 @@ const OWNER_STATUS = `IF currentStatus.status = 'hidden' { 'approved' }
  */
 const STORY_FIELDS = `version, slug, ${OWNER_STATUS} AS status, title,
   description, body, bylineName, primaryFormat, themeRefs.map(|$t| <string> $t) AS themeRefs,
-  media, image,
+  ${OWNER_FILE_FIELDS},
   IF currentStatus.status IN ['changes_requested', 'rejected'] { currentStatus.comment }
     AS rejectionFeedback,
   array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND status = 'pending')
@@ -410,8 +411,8 @@ export class StoryStore {
           sets.push("themeRefs = $themes.map(|$t| type::record('theme', $t))");
           vars['themes'] = patch.themeIds;
         }
-        // The image (M2 plan PR 10): removed, or its description changed. Its file stays at
-        // Bunny for the clean-up sweep (an approved copy may still show it). Only RequestUpload
+        // The image (M2 plan PR 10): removed, or its description changed. A removed picture's
+        // row is detached, and housekeeping deletes its file later (R12). Only RequestUpload
         // puts one on (D80); the database keeps the person to these two changes.
         if (patch.image === null) sets.push('image = NONE');
         else if (patch.image) {
@@ -593,11 +594,11 @@ export class StoryStore {
 
   /**
    * DeleteStory at `ifMatch` (D71): the person's own draft, withdrawn, rejected or
-   * changes-requested story, gone with its status log, hiddenStory row and others' hearts
+   * changes-requested story, gone with its status log and others' hearts
    * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its video and audio
-   * upload grants, D80), for the caller to delete at Bunny once this has committed. Its picture
-   * folder is queued by the delete itself (story_picture_folder), for housekeeping. The grants
-   * themselves stay: the upload limits count them for 7 days (D113).
+   * storyFile rows, D80, R12), for the caller to delete at Bunny once this has committed. Its
+   * picture folder is queued by the delete itself (story_picture_folder), for housekeeping. The
+   * rows themselves stay: the upload limits count them for 7 days (D113).
    */
   async delete(id: string, ifMatch: number): Promise<{ videos: string[] }> {
     try {
@@ -610,8 +611,8 @@ export class StoryStore {
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
            IF $s.status NOT IN $deletable { THROW 'story_cmd:not_deletable' };
-           LET $videos = (SELECT VALUE record::id(id) FROM uploadGrant
-             WHERE story = type::record('story', $id) AND format != 'image');
+           LET $videos = (SELECT VALUE record::id(id) FROM storyFile
+             WHERE story = type::record('story', $id) AND format != 'image' AND removedAt = NONE);
            LET $gone = (DELETE type::record('story', $id) RETURN BEFORE);
            IF array::len($gone) = 0 { THROW 'story_cmd:not_deletable' };
            $videos;
@@ -644,7 +645,7 @@ export class StoryStore {
        RETURN fn::story::next_submission_at($auth);
        RETURN fn::upload::next_allowed_at($auth, 'video');
        RETURN count(SELECT id FROM submissionLog WHERE person = $auth AND at > time::now() - 7d);
-       RETURN count(SELECT id FROM uploadGrant
+       RETURN count(SELECT id FROM storyFile
          WHERE person = $auth AND format != 'image' AND at > time::now() - 7d);`,
     )) as [
       SubmissionSettings,

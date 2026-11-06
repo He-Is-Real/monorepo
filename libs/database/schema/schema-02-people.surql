@@ -179,7 +179,7 @@ DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
 -- ---------------------------------------------------------------- pendingDeletion (D40)
 -- What must still be deleted outside the database, written in the transaction that made it
 -- needed and deleted row by row once done: kind 'bunny_video' (a Stream video api-user made: an
--- erased person's upload grants, never seeded media), 'image' (a deleted story's whole folder in
+-- erased person's video and audio storyFile rows, never seeded media), 'image' (a deleted story's whole folder in
 -- the images storage zone, `stories/<story id>/`: only story_picture_folder writes these, keyed
 -- by the story, M2 plan PR 10), 'clerk_user' (the Clerk account, for "Delete my account", which is
 -- also how a person withdraws all consent (plan 4e); the only place a Clerk id outlives erasure,
@@ -239,23 +239,24 @@ DEFINE FUNCTION OVERWRITE fn::erasure::retry_after($attempts: int) {
 -- the erased user (or NONE: already erased, or never known) and the pendingDeletion keys written.
 -- - The erased-identity tombstone (D82): the sha256 of the Clerk id, written even when nobody has
 --   that id, so provisioning refuses it from now on (user_not_erased_identity).
--- - What must go outside the database (D40): each of the person's video and audio upload grants
---   (bunny_video), each of their stories' picture folders (image: queued by the story's own
---   delete, story_picture_folder, from the story rows, so a pruned grant can't hide one), and,
+-- - What must go outside the database (D40): each of the person's video and audio files not yet
+--   removed (storyFile, bunny_video), each of their stories' picture folders (image: queued by the
+--   story's own delete, story_picture_folder, from the story rows, so a pruned row can't hide
+--   one), and,
 --   unless Clerk has already deleted the person ($reason clerk_user_deleted), their Clerk account.
 -- - Then the user row becomes a stub (D37) and their own hearts go with it
---   (user_erasure_favourites); then the stories (the cascade takes their status log, hiddenStory
---   and others' hearts), idempotency keys, limits, submission log and grants. R3: the stub's status is 'deleted',
+--   (user_erasure_favourites); then the stories (the cascade takes their status log and others'
+--   hearts), idempotency keys, limits, submission log and files (storyFile). R3: the stub's status is 'deleted',
 --   with no date and no reason ($reason only decides whether the Clerk account is queued).
 -- Plan 4e: the stub keeps no agreement (the terms and testimony pointers are cleared with it), and
 -- nothing else kept (the tombstone) records consent. On a caller's own
--- permissions (api-user's grants are exactly these); anyone else's leave nothing done.
+-- permissions (api-user's rights are exactly these); anyone else's leave nothing done.
 DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: string) {
   LET $fingerprint = type::record('erasedIdentity', crypto::sha256($clerkUserId));
   IF !record::exists($fingerprint) { CREATE $fingerprint RETURN NONE };
   LET $u = (SELECT VALUE id FROM user WHERE clerkUserId = $clerkUserId AND status != 'deleted')[0];
   LET $media = (SELECT VALUE { kind: 'bunny_video', ref: <string> record::id(id) }
-    FROM uploadGrant WHERE $u != NONE AND person = $u AND format != 'image');
+    FROM storyFile WHERE $u != NONE AND person = $u AND format != 'image' AND removedAt = NONE);
   LET $account = IF $u = NONE OR $reason = 'clerk_user_deleted' { [] }
     ELSE { [{ kind: 'clerk_user', ref: $clerkUserId }] };
   LET $pending = IF array::len(array::concat($media, $account)) = 0 { [] }
@@ -269,11 +270,11 @@ DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: stri
     -- (R11's field rule), which the story delete below needs.
     UPDATE $u SET status = 'deleted', clerkUserId = NONE,
       termsOfUse = NONE, testimonyConsent = NONE;
-    DELETE story WHERE submitter = $u;              -- cascades the status log, hiddenStory, hearts
+    DELETE story WHERE submitter = $u;              -- cascades the status log and hearts
     DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
     DELETE submitterLimits WHERE user = $u;         -- D112: their limits and trusted mark
     DELETE submissionLog WHERE person = $u;         -- D113: their recent submissions
-    DELETE uploadGrant WHERE person = $u;           -- D80, D113: their uploads (queued above, D40)
+    DELETE storyFile WHERE person = $u;             -- D80, D113, R12: their files (queued above, D40)
   };
   LET $folders = IF $u = NONE { [] } ELSE { (SELECT VALUE record::id(id) FROM pendingDeletion
     WHERE kind = 'image' AND at >= $since) };

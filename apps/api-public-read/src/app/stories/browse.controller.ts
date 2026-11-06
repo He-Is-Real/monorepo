@@ -38,33 +38,73 @@ const PREAMBLE = `
   LET $afterId = IF $after != NONE { type::record('story', $after.id) };`;
 // An unknown theme id ($th NONE) filters nothing (themes plan v3, A8). themeIds, not themeRefs:
 // 3.2.4's CONTAINS over an element index on record links finds nothing (docs/db-permissions.md, "SurrealDB 3.2.4 gotchas").
-const FILTERS = `currentStatus.status = 'approved' AND ($format = NONE OR primaryFormat = $format) AND ($th = NONE OR themeIds CONTAINS $th)`;
-const SEARCH = `searchText @1@ $q`;
 
 /**
- * Newest or oldest first by publish date (the current approved status entry's publishedAt);
- * the story's id breaks ties, so the order is total, pages never overlap, and the "load more"
- * cursor carries both. One row per story (R11 item 5): every row the query reads counts towards
- * the page, so a page is full unless the list has ended.
+ * Newest or oldest first by publish date; the story's id breaks ties, so the order is total,
+ * pages never overlap, and the "load more" cursor carries both (publishedAt, id).
+ *
+ * Read from the status log's (status, publishedAt) index in that order (current approved entries
+ * only), filtered by the story's format and theme, until a page is full (3.2.4 stops the index
+ * scan at the LIMIT; local scale test, B2): never the whole story table. The cursor is a range
+ * on publishedAt (inclusive; the cursor's own story and those before it at the same instant are
+ * left out), and the page's last instant is read whole, so ties sort by id across pages too. Then
+ * the story cards for that one page.
  */
-const byDate = (direction: 'DESC' | 'ASC', search: boolean) => {
+const LOG_FILTERS = `status = 'approved' AND story.currentStatus = id
+    AND ($format = NONE OR story.primaryFormat = $format)
+    AND ($th = NONE OR story.themeIds CONTAINS $th)`;
+const byDate = (direction: 'DESC' | 'ASC') => {
+  const past = direction === 'DESC' ? '<' : '>';
+  const edge =
+    direction === 'DESC'
+      ? "d'9999-12-31T00:00:00Z'"
+      : "d'0001-01-01T00:00:00Z'";
+  const after = `($afterId = NONE OR publishedAt != $at OR story ${past} $afterId)`;
+  return `${PREAMBLE}
+  LET $from = $at ?? ${edge};
+  LET $batch = SELECT story, publishedAt FROM storyStatusLog
+    WHERE ${LOG_FILTERS} AND publishedAt ${past}= $from AND ${after}
+    ORDER BY publishedAt ${direction} LIMIT $take;
+  LET $edgeAt = IF array::len($batch) = $take { array::last($batch).publishedAt };
+  -- (NONE when the batch isn't full: no row has that publishedAt.)
+  LET $ties = SELECT story, publishedAt FROM storyStatusLog
+    WHERE ${LOG_FILTERS} AND publishedAt = $edgeAt AND ${after};
+  LET $page = SELECT * FROM array::union($batch, $ties)
+    ORDER BY publishedAt ${direction}, story ${direction} LIMIT $take;
+  SELECT ${SUMMARY_FIELDS} FROM $page.story WHERE currentStatus.status = 'approved'
+  ORDER BY publishedAt ${direction}, id ${direction};`;
+};
+
+/**
+ * Search (option A, Joel 2026-11-06): storySearch holds published stories only, so drafts never
+ * count towards a score; it also holds each story's format, theme ids and publishedAt (Joel,
+ * 2026-11-06), so search filters, scores, sorts and pages inside it, and builds story cards for
+ * one page only.
+ */
+const SEARCH_FILTERS = `searchText @1@ $q AND ($format = NONE OR primaryFormat = $format) AND ($th = NONE OR themeIds CONTAINS $th)`;
+const searchByDate = (direction: 'DESC' | 'ASC') => {
   const past = direction === 'DESC' ? '<' : '>';
   return `${PREAMBLE}
-  SELECT ${SUMMARY_FIELDS} FROM story
-  WHERE ${FILTERS}${search ? ` AND ${SEARCH}` : ''}
-    AND ($at = NONE OR currentStatus.publishedAt ${past} $at
-      OR (currentStatus.publishedAt = $at AND id ${past} $afterId))
-  ORDER BY publishedAt ${direction}, id ${direction} LIMIT $take;`;
+  LET $page = SELECT story, publishedAt FROM storySearch
+    WHERE ${SEARCH_FILTERS}
+      AND ($at = NONE OR publishedAt ${past} $at
+        OR (publishedAt = $at AND story ${past} $afterId))
+    ORDER BY publishedAt ${direction}, story ${direction} LIMIT $take;
+  SELECT ${SUMMARY_FIELDS} FROM $page.story WHERE currentStatus.status = 'approved'
+  ORDER BY publishedAt ${direction}, id ${direction};`;
 };
 
 /** Best BM25 score first, then id. */
 const BY_RELEVANCE = `${PREAMBLE}
-  SELECT * FROM (
-    SELECT ${SUMMARY_FIELDS}, search::score(1) AS score FROM story
-    WHERE ${FILTERS} AND searchText @1@ $q
+  LET $page = SELECT * FROM (
+    SELECT story, search::score(1) AS score FROM storySearch WHERE ${SEARCH_FILTERS}
   )
-  WHERE $after = NONE OR score < $after.key OR (score = $after.key AND id < $after.id)
-  ORDER BY score DESC, id DESC LIMIT $take;`;
+  WHERE $after = NONE OR score < $after.key OR (score = $after.key AND story < $afterId)
+  ORDER BY score DESC, story DESC LIMIT $take;
+  LET $scores = object::from_entries($page.map(|$h| [record::id($h.story), $h.score]));
+  SELECT ${SUMMARY_FIELDS}, $scores[record::id(id)] AS score FROM $page.story
+  WHERE currentStatus.status = 'approved'
+  ORDER BY score DESC, id DESC;`;
 
 /** Cards for these ids (`id=`), the public ones only, newest first; never more than asked. */
 const BY_IDS = `
@@ -73,25 +113,64 @@ const BY_IDS = `
   ORDER BY publishedAt DESC, id DESC;`;
 
 const QUERIES = {
-  latest: byDate('DESC', false),
-  oldest: byDate('ASC', false),
-  searchLatest: byDate('DESC', true),
-  searchOldest: byDate('ASC', true),
+  latest: byDate('DESC'),
+  oldest: byDate('ASC'),
+  searchLatest: searchByDate('DESC'),
+  searchOldest: searchByDate('ASC'),
   relevance: BY_RELEVANCE,
 };
 
 /** The sidebar's related stories (the mockups show three). */
 export const RELATED_COUNT = 3;
 
+/**
+ * Most shared themes first, then newest, then id. Without reading every story: the stories that
+ * share a theme come from the story_theme_ids index, with how many they share; all of
+ * those above the level that fills the sidebar are in, and that level's newest come from its
+ * stories directly (a small level) or from the status log's publishedAt index, newest first,
+ * until enough are found (a large one; its last instant read whole, for ties). With fewer than
+ * enough sharing a theme, the newest of the rest fill it, the same way.
+ */
 const RELATED = `
-  LET $s = (SELECT id, themeRefs FROM ONLY story
+  LET $s = (SELECT id, themeIds FROM ONLY story
     WHERE slug = $slug AND currentStatus.status = 'approved' LIMIT 1);
   RETURN $s != NONE;
   SELECT VALUE slug FROM story
     WHERE $s = NONE AND slugHistory CONTAINS $slug AND currentStatus.status = 'approved' LIMIT 1;
+  -- One index scan (story_theme_ids) for every story sharing a theme, with how many it shares.
+  -- (Not one query per theme in a closure: 3.2.4 uses no index there.)
+  LET $g = array::flatten([IF $s = NONE { [] } ELSE {
+    (SELECT id, array::len(array::intersect(themeIds, $s.themeIds)) AS shared FROM story
+      WHERE themeIds CONTAINSANY $s.themeIds AND id != $s.id AND currentStatus.status = 'approved')
+  }]);
+  LET $levels = array::sort::desc(array::distinct($g.shared));
+  LET $filled = $levels.filter(|$l| array::len($g[WHERE shared >= $l]) >= ${RELATED_COUNT});
+  LET $level = $filled[0];
+  -- array::flatten: 3.2.4 answers an IF block's one-row array as the row itself.
+  LET $above = array::flatten([IF $level = NONE { $g.id } ELSE { $g[WHERE shared > $level].id }]);
+  LET $group = array::flatten([IF $level = NONE { [] } ELSE { $g[WHERE shared = $level].id }]);
+  LET $need = ${RELATED_COUNT} - array::len($above);
+  -- Fewer than enough share a theme: the newest of the rest fill the sidebar (shared: 0).
+  LET $exclude = IF $s = NONE { [] } ELSE { array::concat($above, [$s.id]) };
+  LET $in = |$r| IF $level = NONE { $r NOT IN $exclude } ELSE { $r IN $group };
+  LET $newest = array::flatten([IF $need <= 0 { [] }
+    ELSE IF $level != NONE AND array::len($group) <= 1000 {
+      (SELECT VALUE id FROM (SELECT id, currentStatus.publishedAt AS p FROM $group)
+        ORDER BY p DESC, id DESC LIMIT $need)
+    } ELSE {
+      LET $batch = (SELECT story, publishedAt FROM storyStatusLog
+        WHERE status = 'approved' AND story.currentStatus = id AND $in(story)
+        ORDER BY publishedAt DESC LIMIT $need);
+      LET $edgeAt = array::last($batch).publishedAt;
+      LET $ties = (SELECT story, publishedAt FROM storyStatusLog
+        WHERE status = 'approved' AND publishedAt = $edgeAt AND story.currentStatus = id
+          AND $in(story));
+      (SELECT VALUE story FROM (SELECT * FROM array::union($batch, $ties)
+        ORDER BY publishedAt DESC, story DESC LIMIT $need))
+    }]);
   IF $s = NONE { [] } ELSE {
-    SELECT ${SUMMARY_FIELDS}, array::len(array::intersect(themeRefs, $s.themeRefs)) AS shared
-    FROM story WHERE id != $s.id AND currentStatus.status = 'approved'
+    SELECT ${SUMMARY_FIELDS}, array::len(array::intersect(themeIds, $s.themeIds)) AS shared
+    FROM array::concat($above, $newest) WHERE currentStatus.status = 'approved'
     ORDER BY shared DESC, publishedAt DESC, id DESC LIMIT ${RELATED_COUNT}
   };`;
 
@@ -160,11 +239,9 @@ export class BrowseController {
     refuseQueryParameters(query);
     if (!isSlug(slug)) throw notFound();
     const results = await runQuery(this.db, RELATED, { slug });
-    const [found, previous, related] = results.slice(-3) as [
-      boolean,
-      string[],
-      Row[],
-    ];
+    // RETURN $s != NONE, the old slug's story, then (last) the related stories.
+    const [found, previous] = results.slice(1, 3) as [boolean, string[]];
+    const related = (results.at(-1) ?? []) as Row[];
     if (!found) {
       const moved = previous[0];
       if (!moved) throw notFound();

@@ -270,7 +270,7 @@ describe('my stories: withdraw and delete', () => {
     expect(
       await rows(
         migrator,
-        `SELECT VALUE record::id(id) FROM type::record('uploadGrant', $v)`,
+        `SELECT VALUE record::id(id) FROM type::record('storyFile', $v)`,
         { v: videoId },
       ),
     ).toEqual([videoId]);
@@ -320,7 +320,7 @@ describe('my stories: withdraw and delete', () => {
     // The upload is resumed later (api-user renews its grant): that counts as activity.
     const [renewedAt] = await rows<string>(
       migrator,
-      `UPDATE type::record('uploadGrant', $v) SET renewedAt = time::now() RETURN VALUE <string> time::floor(renewedAt, 1ms)`,
+      `UPDATE type::record('storyFile', $v) SET renewedAt = time::now() RETURN VALUE <string> time::floor(renewedAt, 1ms)`,
       { v: upload.body.headers.VideoId },
     );
 

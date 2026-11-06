@@ -12,7 +12,9 @@
     "src/**/*.spec.ts",
     "src/**/*.d.ts",
     "vitest.integration.config.mts",
-    "integration/**/*.ts"
+    "integration/**/*.ts",
+    "vitest.scale.config.mts",
+    "scale/**/*.ts"
   ],
   "references": [
     {

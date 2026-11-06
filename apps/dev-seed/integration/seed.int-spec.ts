@@ -39,6 +39,10 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     expect(summary).toEqual({
       byStatus: expected,
       publicStories: approved.length,
+      // R12: one row per file a story uses: each story its own.
+      files:
+        DATASET.stories.filter((s) => s.media).length +
+        DATASET.stories.filter((s) => s.image).length,
       statusEntries: DATASET.stories.reduce(
         (n, s) => n + stepsFor(s, new Date()).length,
         0,
@@ -86,6 +90,39 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     ).toEqual([]);
   });
 
+  it('gives every story its own file rows; the stories never public share no upload, through placeholders (R12; Codex, #188 review)', async () => {
+    const migrator = await t.migrator();
+    // A story points only at its own rows: no row is pointed at by two stories.
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE id FROM story WHERE (mediaFile != NONE AND mediaFile.story != id)
+           OR (image != NONE AND image.file.story != id)`,
+      ),
+    ).toEqual([]);
+    expect(
+      await rows(
+        migrator,
+        `SELECT record::id(id) AS story, record::id(mediaFile) AS file,
+           mediaFile.processing AS processing, mediaFile.lengthSeconds AS lengthSeconds,
+           mediaFile.thumbnailPath AS thumbnailPath
+         FROM story WHERE mediaFile != NONE
+           AND string::starts_with(record::id(mediaFile), '00000000-')
+         ORDER BY story`,
+      ),
+    ).toEqual([
+      // Submitted, not processed yet: no facts.
+      { story: 'seed_v08', file: '00000000-0000-0000-0000-00000000a008' },
+      ...['09', '10', '11'].map((n) => ({
+        story: `seed_v${n}`,
+        file: `00000000-0000-0000-0000-00000000a0${n}`,
+        processing: 'ready',
+        lengthSeconds: expect.any(Number),
+        thumbnailPath: `00000000-0000-0000-0000-00000000a0${n}/thumbnail.jpg`,
+      })),
+    ]);
+  });
+
   it('walks each story through the real states: its status log, who added each entry, versions', async () => {
     const migrator = await t.migrator();
     const log = (id: string) =>
@@ -95,19 +132,20 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
            WHERE story = type::record('story', $id) ORDER BY at`,
         { id },
       );
-    // Sent back once, then approved: create + 6 status entries, each moving the pointer.
+    // Sent back once, then approved: create, its upload (R12: the pointer to its video) and
+    // 6 status entries, each moving the status pointer.
     expect(
       await rows(migrator, 'SELECT VALUE version FROM story:seed_v03'),
-    ).toEqual([7]);
+    ).toEqual([8]);
     expect(
       (await log('seed_v03')).map((e) => [e.status, e.actor, e.storyVersion]),
     ).toEqual([
-      ['pending', 'person', 1],
-      ['in_review', 'moderator', 2],
-      ['changes_requested', 'moderator', 3],
-      ['pending', 'person', 4],
-      ['in_review', 'moderator', 5],
-      ['approved', 'moderator', 6],
+      ['pending', 'person', 2],
+      ['in_review', 'moderator', 3],
+      ['changes_requested', 'moderator', 4],
+      ['pending', 'person', 5],
+      ['in_review', 'moderator', 6],
+      ['approved', 'moderator', 7],
     ]);
     const sentBack = (await log('seed_w10')).at(-1);
     expect(sentBack).toMatchObject({
@@ -139,7 +177,8 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     expect(skeleton.title).toBe('Test story: the walking skeleton');
     const [w01] = await rows<{ image: unknown }>(
       reader,
-      'SELECT image FROM story:seed_w01',
+      `SELECT { path: record::id(image.file), width: image.file.width,
+         height: image.file.height, alt: image.alt } AS image FROM story:seed_w01`,
     );
     expect(w01.image).toEqual({
       path: 'dev-seed/image-01.webp',

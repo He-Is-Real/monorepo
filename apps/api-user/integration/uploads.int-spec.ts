@@ -9,6 +9,7 @@ import {
   agree,
   agreeAll,
   createPeople,
+  processed,
   publishVersion,
   rows,
   run,
@@ -77,7 +78,7 @@ function withFaults(db: Surreal): Surreal {
       }
       return (sql: string, vars?: Record<string, unknown>) => {
         const mode = fault.next;
-        if (!mode || !/CREATE (ONLY )?type::record\('uploadGrant'/.test(sql)) {
+        if (!mode || !/CREATE (ONLY )?type::record\('storyFile'/.test(sql)) {
           return target.query(sql, vars);
         }
         fault.next = undefined;
@@ -184,7 +185,7 @@ describe('video and audio uploads', () => {
   const grants = async (who: string) =>
     rows(
       migrator,
-      `SELECT VALUE record::id(id) FROM uploadGrant WHERE person = type::record('user', $who)`,
+      `SELECT VALUE record::id(id) FROM storyFile WHERE person = type::record('user', $who)`,
       { who },
     );
   const submit = (who: string, id: string, version: number) =>
@@ -192,9 +193,14 @@ describe('video and audio uploads', () => {
       headers: { 'if-match': `"${version}"`, 'idempotency-key': key() },
     });
   const media = async (id: string) =>
-    rows(migrator, `SELECT VALUE media FROM type::record('story', $id)`, {
-      id,
-    });
+    rows(
+      migrator,
+      // R12: the story's video, through its pointer.
+      `SELECT VALUE IF mediaFile != NONE {
+         [{ format: mediaFile.format, bunnyVideoId: record::id(mediaFile) }] } ELSE { [] }
+       FROM type::record('story', $id)`,
+      { id },
+    );
   const settings = (fields: Record<string, unknown>) =>
     run(
       admin,
@@ -302,7 +308,7 @@ describe('video and audio uploads', () => {
     expect(
       await rows(
         migrator,
-        `SELECT currentStatus.status AS status, media[0].bunnyVideoId AS v FROM type::record('story', $id)`,
+        `SELECT currentStatus.status AS status, record::id(mediaFile) AS v FROM type::record('story', $id)`,
         {
           id,
         },
@@ -337,6 +343,37 @@ describe('video and audio uploads', () => {
     bunny.arrived(secondId);
     const done = await upload('bob', id, 3, { ...FILE, resume: true });
     expect([done.status, done.body.code]).toEqual([409, 'nothing_to_resume']);
+  });
+
+  it('processing the draft’s video steps its version, so the owner’s conditional GET sees the new media state (Codex, #188 review)', async () => {
+    await person('pru');
+    const id = await draft('pru');
+    expect((await upload('pru', id, 1)).status).toBe(200);
+    const read = (etag: string) =>
+      call('GET', `/v1/account/stories/${id}`, 'pru', {
+        headers: { 'if-none-match': etag },
+      });
+    expect((await read('"2"')).status).toBe(304);
+
+    // Workflow's processing result (A2, R12) writes only the file's row; the story the owner
+    // reads (its media state) has changed, so its version steps in the same write.
+    await processed(await t.service('workflow'), id, { durationSeconds: 42 });
+    const after = await read('"2"');
+    expect(after.status).toBe(200);
+    expect(after.body.version).toBe(3);
+    expect(after.body.media).toEqual([
+      expect.objectContaining({
+        format: 'video',
+        processing: 'ready',
+        durationSeconds: 42,
+        width: 1080,
+        height: 1920,
+      }),
+    ]);
+    expect((await read('"3"')).status).toBe(304);
+    // A resume signs a link again without changing what the owner sees: no new version.
+    const resumed = await upload('pru', id, 3, { ...FILE, resume: true });
+    expect([resumed.status, resumed.body.version]).toEqual([200, 3]);
   });
 
   it('checks the file and the person’s limits before creating anything at Bunny', async () => {
@@ -679,7 +716,7 @@ describe('video and audio uploads', () => {
       (
         await rows(
           migrator,
-          `SELECT VALUE renewedAt FROM type::record('uploadGrant', $v)`,
+          `SELECT VALUE renewedAt FROM type::record('storyFile', $v)`,
           { v: videoId },
         )
       ).filter(Boolean);

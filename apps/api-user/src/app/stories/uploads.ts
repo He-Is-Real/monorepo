@@ -33,24 +33,24 @@ import { agreementRefusalOf } from '../account/agreements';
  * SubmitStory makes on a video or audio story's file.
  *
  * - api-user creates the video at Bunny (title = the story id, D69), then on its own login records
- *   an upload grant, whose event puts the video on the person's draft in the same write (D80): the
- *   browser never names a video, and the TUS link it gets binds only that video.
+ *   its storyFile row (R12), whose event points the person's draft at it in the same write (D80):
+ *   the browser never names a video, and the TUS link it gets binds only that video.
  * - One video per draft: a new file replaces the draft's video, and the old one is deleted at
  *   Bunny at once (nobody reviewed it). A resume signs the draft's own video again, only while
- *   nothing has arrived for it, and only once its grant's renewal commits: that counts as
+ *   nothing has arrived for it, and only once its row's renewal commits: that counts as
  *   touching the draft, so housekeeping doesn't delete it as abandoned (D71).
  * - The TUS link bounds neither size nor type (D68), so the person's limits (D113, admin
  *   settings) are checked before anything is created at Bunny, by the database again when the
- *   grant is written, and at submit with the limits in force then and Bunny's own length.
+ *   row is written, and at submit with the limits in force then and Bunny's own length.
  *
  * Images (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's picture or a
  * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's, never set at Bunny). The
  * browser re-encodes it to WebP without metadata and sends its size, pixel size and description;
- * api-user picks its path, `stories/<story id>/<random>.webp`, records the grant (whose event puts
- * it on the draft) and signs an S3 presigned PUT binding that path, the type and the exact size
- * (D68). Nothing is made at Bunny before the grant, so a refusal leaves nothing behind. A replaced
- * image's file is never deleted here: an approved story's public copy may still show it, so it's
- * an orphan for the clean-up sweep (media-runbook).
+ * api-user picks its path, `stories/<story id>/<random>.webp`, records its storyFile row (whose
+ * event points the draft at it) and signs an S3 presigned PUT binding that path, the type and the
+ * exact size (D68). Nothing is made at Bunny before the row, so a refusal leaves nothing behind. A
+ * replaced picture's file is never deleted here: its row is detached, and housekeeping deletes it
+ * once its PUT link can no longer be used (R12; media-runbook).
  */
 
 export interface UploadRequest {
@@ -276,7 +276,7 @@ export class Uploads {
   private readonly arrived = new Set<string>();
 
   constructor(
-    /** api-user's own login: only it creates upload grants (D80). */
+    /** api-user's own login: only it creates storyFile rows (D80, R12). */
     private readonly service: SurrealQueryable,
     private readonly bunny: BunnyStream | null,
     private readonly images: ImageStore | null = null,
@@ -294,7 +294,7 @@ export class Uploads {
 
   /**
    * RequestUpload on the person's draft `id` at version `ifMatch`, once per Idempotency-Key (D29):
-   * a new file's grant is counted against the person's upload limits, so a retry after a lost
+   * a new file's row is counted against the person's upload limits, so a retry after a lost
    * answer replays the same video and version instead of starting (and counting) another.
    */
   async request(
@@ -333,13 +333,13 @@ export class Uploads {
       replaced = draft.videoId;
       return {
         status: 200,
-        // The grant's event attaches the video; it's the story's only version step (D29).
-        statements: `LET $grant = (CREATE ONLY type::record('uploadGrant', $video) CONTENT {
+        // The row's event attaches the video; it's the story's only version step (D29).
+        statements: `LET $grant = (CREATE ONLY type::record('storyFile', $video) CONTENT {
             story: type::record('story', $id), person: $person, format: $format,
             contentType: $contentType, sizeBytes: $size, durationSeconds: $duration,
             storyVersion: $version
           } RETURN id, storyVersion);
-          IF $grant = NONE { THROW 'upload_refused: upload grant not written' };
+          IF $grant = NONE { THROW 'upload_refused: storyFile row not written' };
           LET $result = { id: $grant.id, version: $grant.storyVersion + 1 };`,
         vars: {
           video: videoId,
@@ -368,8 +368,8 @@ export class Uploads {
         if (videoId) await this.discard(videoId, 'a refused upload');
         throw await this.refusal(err, person, input.format);
       }
-      // No answer (a lost connection, a timeout): the grant may have committed with the video
-      // on the draft. Never delete it; look the key up again, which commits with the grant.
+      // No answer (a lost connection, a timeout): the row may have committed with the video
+      // on the draft. Never delete it; look the key up again, which commits with the row.
       outcome = await this.reconcile(
         scope,
         idempotency.requestHash,
@@ -380,7 +380,7 @@ export class Uploads {
     const granted = recordKey(outcome.response.id);
     const version = outcome.response.version ?? ifMatch + 1;
     if (!outcome.replayed || granted === videoId) {
-      // This request's own grant: the draft's previous file was replaced before anyone
+      // This request's own row: the draft's previous file was replaced before anyone
       // reviewed it, so it goes at once (M2 plan PR 7).
       if (replaced && replaced !== granted) {
         await this.discard(replaced, 'a replaced video');
@@ -402,8 +402,8 @@ export class Uploads {
 
   /**
    * RequestUpload for an image (M2 plan PR 10), once per Idempotency-Key like a video's: its
-   * grant counts towards the hourly upload limit (never the weekly one: Joel, 2026-10-30), so a
-   * retry after a lost answer replays the same path. The path is picked here, never by the browser (D80), and the grant's event puts it on
+   * row counts towards the hourly upload limit (never the weekly one: Joel, 2026-10-30), so a
+   * retry after a lost answer replays the same path. The path is picked here, never by the browser (D80), and the row's event puts it on
    * the draft with its size and description. A replay signs the same path again only while it's
    * still the story's image and the story editable; the PUT is one use (`If-None-Match: *`), so
    * a file already there can't be replaced.
@@ -425,7 +425,7 @@ export class Uploads {
     const path = `stories/${id}/${randomBytes(16).toString('hex')}.webp`;
     const prepare = async (): Promise<PreparedCommand> => {
       const draft = await this.checkDraft(person, id, ifMatch, input);
-      // The database checks it again in the grant's write (image_changed).
+      // The database checks it again in the row's write (image_changed).
       if ((draft.imagePath ?? null) !== input.expectedImage)
         throw imageChanged();
       // Per hour only: pictures never count towards the weekly limit (Joel, 2026-10-30).
@@ -433,12 +433,14 @@ export class Uploads {
       if (availableAt) throw limitReached(availableAt);
       return {
         status: 200,
-        statements: `LET $grant = (CREATE ONLY type::record('uploadGrant', $path) CONTENT {
+        // The description isn't a fact about the file (R12: it stays on the story): the row's
+        // event puts it there with the pointer, from $imageAlt.
+        statements: `LET $grant = (CREATE ONLY type::record('storyFile', $path) CONTENT {
             story: type::record('story', $id), person: $person, format: 'image',
             contentType: $contentType, sizeBytes: $size, width: $width, height: $height,
-            alt: $alt, expectedImage: $expected, storyVersion: $version
+            expectedImage: $expected, storyVersion: $version
           } RETURN id, storyVersion);
-          IF $grant = NONE { THROW 'upload_refused: upload grant not written' };
+          IF $grant = NONE { THROW 'upload_refused: storyFile row not written' };
           LET $result = { id: $grant.id, version: $grant.storyVersion + 1 };`,
         vars: {
           path,
@@ -448,7 +450,7 @@ export class Uploads {
           size: input.fileSizeBytes,
           width: input.width,
           height: input.height,
-          alt: input.alt,
+          imageAlt: input.alt,
           expected: input.expectedImage ?? undefined,
           version: ifMatch,
         },
@@ -525,7 +527,7 @@ export class Uploads {
   }
 
   /**
-   * After a write with no answer: the key's stored response if it committed (its grant and the
+   * After a write with no answer: the key's stored response if it committed (its row and the
    * video on the draft went with it), else `503`, keeping the video. Trying again with the same
    * key then replays it, or makes the upload, without counting a second one.
    */
@@ -541,7 +543,7 @@ export class Uploads {
       });
     } catch (err) {
       this.logger.warn(
-        `Upload grant${videoId ? ` for video ${videoId}` : ''} has no known outcome; video kept (an orphan until the sweep if it never committed): ${String(cause)}`,
+        `Upload row${videoId ? ` for video ${videoId}` : ''} has no known outcome; video kept (an orphan until the sweep if it never committed): ${String(cause)}`,
       );
       if (err instanceof IdempotencyKeyReusedError) throw err;
       throw new ServiceUnavailableException({
@@ -571,7 +573,7 @@ export class Uploads {
   }
 
   /**
-   * Before a link for an existing grant is signed again: its renewal (fn::upload::renew) counts
+   * Before a link for an existing file is signed again: its row's renewal (fn::upload::renew) counts
    * as touching the draft (D71). It conflicts with housekeeping deleting the draft as abandoned,
    * so if the deletion wins, the retry finds no draft and no link is signed.
    */
@@ -590,7 +592,7 @@ export class Uploads {
         err instanceof DatabaseQueryError ? err.message : String(err);
       if (/story_cmd:locked/.test(message)) throw locked();
       if (/nothing_to_resume/.test(message)) throw nothingToResume();
-      // Plan 4e: a new link needs the latest terms of use and testimony consent, as a grant does.
+      // Plan 4e: a new link needs the latest terms of use and testimony consent, as a new upload does.
       throw agreementRefusalOf(err) ?? err;
     }
     if (!renewed) throw nothingToResume();
@@ -598,7 +600,7 @@ export class Uploads {
 
   /**
    * Before a picture's PUT is signed again (a replay): the database's own check that the person
-   * has the latest terms of use and testimony consent (plan 4e), as its grant had (403).
+   * has the latest terms of use and testimony consent (plan 4e), as its upload had (403).
    */
   private async requireAgreements(user: RecordId) {
     try {
@@ -698,7 +700,7 @@ export class Uploads {
     if (!draft.videoId) throw notUploaded();
     const [grant] = (await runQuery(
       person,
-      `SELECT sizeBytes, durationSeconds, format FROM ONLY type::record('uploadGrant', $v)`,
+      `SELECT sizeBytes, durationSeconds, format FROM ONLY type::record('storyFile', $v)`,
       { v: draft.videoId },
     )) as [
       { sizeBytes: number; durationSeconds?: number; format: string } | null,
@@ -777,8 +779,8 @@ export class Uploads {
     const [rows] = (await runQuery(
       person,
       `SELECT version, fn::story::status_of($this) AS status, primaryFormat,
-         media[0].bunnyVideoId AS videoId,
-         image.path AS imagePath FROM type::record('story', $id)
+         IF mediaFile != NONE { record::id(mediaFile) } AS videoId,
+         IF image != NONE { record::id(image.file) } AS imagePath FROM type::record('story', $id)
          WHERE submitter = $auth`,
       { id },
     )) as [DraftMedia[]];

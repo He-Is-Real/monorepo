@@ -1,4 +1,4 @@
-import type { Surreal } from 'surrealdb';
+import { RecordId, type Surreal } from 'surrealdb';
 import {
   createPeople,
   agree,
@@ -12,13 +12,13 @@ import {
 import { draft, grantUpload, processed, submit } from './support/world';
 
 /**
- * Video and audio uploads (M2 plan PR 7; D65, D80, D113). api-user's own login creates an upload
- * grant once it has created the video at Bunny, and the grant's event puts it on the person's
- * draft. The database refuses everything else: a person's session never writes media, no Bunny id
- * reaches a story without a grant for that story, and the per-person upload limits hold whatever
- * happens to stories or videos afterwards.
+ * Video and audio uploads (M2 plan PR 7; D65, D80, D113; R12). api-user's own login writes a
+ * storyFile row once it has created the video at Bunny, and the row's event points the person's
+ * draft at it. The database refuses everything else: no session or other service writes the
+ * story's file pointer, a file belongs to one story, and the per-person upload limits hold
+ * whatever happens to stories or videos afterwards.
  */
-describe('uploads: grants, server-assigned media and their limits (D65, D80, D113)', () => {
+describe('uploads: storyFile rows, server-assigned media and their limits (D65, D80, D113, R12)', () => {
   let t: TestDatabase;
   let migrator: Surreal;
   let admin: Surreal;
@@ -38,9 +38,15 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       await rows<{
         version: number;
         media: Record<string, unknown>[];
-      }>(migrator, `SELECT version, media FROM type::record('story', $id)`, {
-        id,
-      })
+      }>(
+        migrator,
+        `SELECT version, IF mediaFile != NONE {
+             [{ format: mediaFile.format, bunnyVideoId: record::id(mediaFile) }] } ELSE { [] } AS media
+           FROM type::record('story', $id)`,
+        {
+          id,
+        },
+      )
     )[0];
   const settings = (fields: Record<string, unknown>) =>
     run(
@@ -85,12 +91,12 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       version: 2,
       media: [{ format: 'video', bunnyVideoId: v }],
     });
-    // The person sees it on their own story, and reads their own grant.
+    // The person sees it on their own story, and reads their own file's row.
     expect(
-      await rows(ann, 'SELECT VALUE media[0].bunnyVideoId FROM story:ann_v'),
+      await rows(ann, 'SELECT VALUE record::id(mediaFile) FROM story:ann_v'),
     ).toEqual([v]);
     expect(
-      await rows(ann, 'SELECT VALUE record::id(id) FROM uploadGrant'),
+      await rows(ann, 'SELECT VALUE record::id(id) FROM storyFile'),
     ).toEqual([v]);
   });
 
@@ -107,10 +113,8 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       version: 1,
     });
     for (const set of [
-      `media = [{ format: 'video', bunnyVideoId: '${catsVideo}' }]`,
-      `media = [{ format: 'video', bunnyVideoId: '${vid()}' }]`,
-      `media = [{ format: 'video', bunnyVideoId: '${catsVideo}',
-         thumbnailPath: '${catsVideo}/thumbnail_1.jpg' }]`,
+      `mediaFile = storyFile:⟨${catsVideo}⟩`,
+      `mediaFile = storyFile:⟨${vid()}⟩`,
     ]) {
       await run(bob, `UPDATE story:bob_v SET ${set}`);
       expect((await story('bob_v')).media).toEqual([]);
@@ -119,7 +123,7 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
     await draft(bob, 'bob_v2', {
       primaryFormat: 'video',
       body: undefined,
-      media: [{ format: 'video', bunnyVideoId: catsVideo }],
+      mediaFile: new RecordId('storyFile', catsVideo),
     });
     expect((await story('bob_v2')).media).toEqual([]);
     // Nor by making a grant itself (refused: nothing written).
@@ -130,10 +134,7 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       version: 1,
     });
     expect(
-      await rows(
-        migrator,
-        'SELECT id FROM uploadGrant WHERE person = user:bob',
-      ),
+      await rows(migrator, 'SELECT id FROM storyFile WHERE person = user:bob'),
     ).toEqual([]);
   });
 
@@ -156,19 +157,32 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       person: 'eve',
       version: 1,
     });
-    // Workflow writes media (processing), but can't swap in another story's video or an
-    // ungranted one.
-    for (const id of [eves, vid()]) {
-      expect(
-        error(
-          await outcome(
-            workflow,
-            `UPDATE story:dan_v SET media[0].bunnyVideoId = $id`,
-            { id },
-          ),
-        ),
-      ).toMatch(/media_not_granted:/);
+    // Workflow and api-admin write file rows or moderate, never the pointer: their writes to it
+    // are dropped, so no story shows another story's video or one nobody uploaded for it.
+    for (const db of [workflow, admin]) {
+      for (const id of [eves, vid()]) {
+        await outcome(
+          db,
+          `UPDATE story:dan_v SET mediaFile = type::record('storyFile', $id)`,
+          { id },
+        );
+      }
     }
+    expect((await story('dan_v')).media).toEqual([
+      { format: 'video', bunnyVideoId: dans },
+    ]);
+    // Nor a system user (the migrator, dev-seed): a story points only at its own rows, for
+    // everyone (R12; Codex, #188 review). A shared row is detached, deleted and hidden through
+    // one story while the other still shows it.
+    expect(
+      error(
+        await outcome(
+          migrator,
+          `UPDATE story:dan_v SET mediaFile = type::record('storyFile', $id)`,
+          { id: eves },
+        ),
+      ),
+    ).toMatch(/media_not_granted:/);
     expect((await story('dan_v')).media).toEqual([
       { format: 'video', bunnyVideoId: dans },
     ]);
@@ -252,12 +266,12 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
     expect(
       await rows(
         migrator,
-        'RETURN count(SELECT id FROM uploadGrant WHERE person = user:fay)',
+        'RETURN count(SELECT id FROM storyFile WHERE person = user:fay)',
       ),
     ).toEqual([1]);
   });
 
-  it('replacing the file starts processing again and keeps the old grant for the limits', async () => {
+  it('replacing the file starts processing again, detaches the old file and keeps its row for the limits', async () => {
     const gus = await person('gus');
     await video(gus, 'gus_v');
     const first = vid();
@@ -269,11 +283,19 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       version: 1,
     });
     await processed(workflow, 'gus_v');
-    expect((await story('gus_v')).media[0]).toMatchObject({
-      bunnyVideoId: first,
-      processing: 'ready',
-      width: 1080,
-    });
+    const file = (key: string) =>
+      rows(
+        migrator,
+        `SELECT VALUE { processing: processing, detached: detachedAt != NONE }
+         FROM ONLY type::record('storyFile', $key)`,
+        { key },
+      );
+    expect(await file(first)).toEqual([
+      { detached: false, processing: 'ready' },
+    ]);
+    // Processing writes the file's row, and steps the story's version (what its owner reads
+    // changed: D29's ETag): version 3.
+    expect((await story('gus_v')).version).toBe(3);
     await grantUpload(apiUser, {
       video: second,
       story: 'gus_v',
@@ -284,10 +306,14 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       version: 4,
       media: [{ format: 'video', bunnyVideoId: second }],
     });
+    expect(await file(first)).toEqual([
+      { detached: true, processing: 'ready' },
+    ]);
+    expect(await file(second)).toEqual([{ detached: false }]);
     expect(
       await rows(
         gus,
-        'SELECT VALUE record::id(id) FROM uploadGrant WHERE person = $auth ORDER BY at',
+        'SELECT VALUE record::id(id) FROM storyFile WHERE person = $auth ORDER BY at',
       ),
     ).toEqual([first, second]);
   });
@@ -391,7 +417,7 @@ describe('uploads: grants, server-assigned media and their limits (D65, D80, D11
       ).toMatch(/limit_upload_hourly:/);
       const [first] = await rows<string>(
         hal,
-        'SELECT VALUE at FROM uploadGrant WHERE person = $auth ORDER BY at ASC',
+        'SELECT VALUE at FROM storyFile WHERE person = $auth ORDER BY at ASC',
       );
       const [next] = await rows<string>(
         hal,

@@ -22,9 +22,9 @@ import {
 import { ifNoneMatches, ProblemException, weakETag } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import {
+  FAVOURITES_SQL,
   MediaUrls,
   type StorySummary,
-  SUMMARY_FIELDS,
   type SummaryRow,
   toSummary,
 } from '@heisreal/story-cards';
@@ -144,30 +144,12 @@ export class FavouritesController {
     const among = query.kind === 'among' ? query.storyIds : null;
     const after = query.kind === 'page' ? query.after : null;
     const take = query.kind === 'page' ? query.limit + 1 : among!.length;
-    const results = await runQuery(
-      session,
-      `LET $among = IF $ids != NONE { $ids.map(|$i| type::record('story', $i)) };
-       LET $afterId = IF $after != NONE { type::record('favourite', $after) };
-       LET $hearts = SELECT record::id(id) AS id, record::id(story) AS story
-         FROM favourite
-         WHERE person = $auth.id
-           AND ($among = NONE OR story IN $among)
-           AND ($afterId = NONE OR id < $afterId)
-           AND story.currentStatus.status = 'approved'
-         ORDER BY id DESC
-         LIMIT $take;
-       LET $refs = $hearts.slice(0, $show).map(|$h| type::record('story', $h.story));
-       RETURN {
-         hearts: $hearts,
-         cards: IF array::len($refs) > 0 { (SELECT ${SUMMARY_FIELDS} FROM $refs) } ELSE { [] },
-       };`,
-      {
-        ids: among ?? undefined,
-        after: after ?? undefined,
-        take,
-        show: query.kind === 'page' ? query.limit : take,
-      },
-    );
+    const results = await runQuery(session, FAVOURITES_SQL, {
+      ids: among ?? undefined,
+      after: after ?? undefined,
+      take,
+      show: query.kind === 'page' ? query.limit : take,
+    });
     const { hearts, cards } = results.at(-1) as {
       hearts: { id: string; story: string }[];
       cards: SummaryRow[];

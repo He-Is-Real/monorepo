@@ -21,7 +21,8 @@ import type { SeedVars } from './plan';
  * Its newcomer accounts (newcomerAccounts) go back to never having agreed to either, so their
  * next sign-in meets the terms step; a system user may clear a pointer, nobody else may.
  *
- * Wiped: story (and, through its cascade, its status log and hiddenStory), idempotencyKey,
+ * Wiped: story (and, through its cascade, its status log), dev-seed's own storyFile rows,
+ * idempotencyKey,
  * every theme and every category
  * but Other (which can't be deleted). Kept: people who aren't
  * fixtures (Clerk sign-ins), the legal texts' versions, settings and the migration ledger. Fixture people are `user:seed_*`; ones no longer in the dataset are removed.
@@ -42,6 +43,9 @@ IF $terms = NONE OR $testimony = NONE {
 };
 
 DELETE story RETURN NONE;
+-- R12: dev-seed's own file rows (its stories' ids start seed_); other rows (dev's test accounts'
+-- uploads) stay, as the upload limits count them, until housekeeping prunes them.
+DELETE storyFile WHERE string::starts_with(<string> record::id(story), 'seed_') RETURN NONE;
 DELETE idempotencyKey RETURN NONE;
 DELETE theme RETURN NONE;
 DELETE themeCategory WHERE id != themeCategory:other RETURN NONE;
@@ -95,10 +99,27 @@ UPSERT themeCatalog:current SET changedBy = NONE RETURN NONE;
 
 FOR $s IN $stories {
   LET $story = type::record('story', $s.id);
+  LET $submitter = type::record('user', $s.submitter);
   CREATE $story CONTENT object::extend($s.draft, {
-    submitter: type::record('user', $s.submitter),
+    submitter: $submitter,
     themeRefs: $s.draft.themeRefs.map(|$t| type::record('theme', $t))
   }) RETURN NONE;
+  -- R12: its uploads, as storyFile rows of its own that the story points at (a story points only
+  -- at its own rows, system users too).
+  FOR $f IN [$s.media, $s.image] {
+    IF $f != NONE {
+      CREATE type::record('storyFile', $f.key) CONTENT object::extend($f.row, {
+        story: $story, person: $submitter
+      }) RETURN NONE;
+    };
+  };
+  IF $s.media != NONE {
+    UPDATE $story SET mediaFile = type::record('storyFile', $s.media.key) RETURN NONE;
+  };
+  IF $s.image != NONE {
+    UPDATE $story SET image = { file: type::record('storyFile', $s.image.key), alt: $s.image.alt }
+      RETURN NONE;
+  };
   -- R6: each step is a status entry; the database checks it and moves story.currentStatus.
   FOR $step IN $s.steps {
     CREATE storyStatusLog CONTENT {
@@ -119,6 +140,7 @@ SELECT status, count() AS stories FROM
   (SELECT fn::story::status_of($this) AS status FROM story) GROUP BY status;
 RETURN {
   publicStories: count(SELECT id FROM story WHERE currentStatus.status = 'approved'),
+  files: count(SELECT id FROM storyFile WHERE string::starts_with(<string> record::id(story), 'seed_')),
   statusEntries: count(SELECT id FROM storyStatusLog),
   themes: count(SELECT id FROM theme),
   fixturePeople: count(SELECT id FROM user WHERE string::starts_with(<string> record::id(id), 'seed_'))
@@ -128,6 +150,7 @@ RETURN {
 export interface SeedSummary {
   byStatus: Record<string, number>;
   publicStories: number;
+  files: number;
   statusEntries: number;
   themes: number;
   fixturePeople: number;

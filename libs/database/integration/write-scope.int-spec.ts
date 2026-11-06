@@ -4,9 +4,9 @@ import { approve, buildWorld, statusOf, step } from './support/world';
 
 /**
  * D41 (review round 1, finding 3): field-level write scope on `story`.
- *   workflow  → media and processing fields only;
+ *   workflow  → nothing on the story itself: processing writes its files' rows (R12);
  *   api-admin → nothing on the story itself: moderation is its status log (R6), never what the
- *     person wrote (moderators request changes).
+ *     person wrote (moderators request changes), nor its files.
  * A field write outside the scope is silently dropped, so every test asserts the STORED state.
  */
 describe('write scope on story fields (D41)', () => {
@@ -18,9 +18,16 @@ describe('write scope on story fields (D41)', () => {
     (
       await rows<Record<string, unknown>>(
         migrator,
-        `SELECT slug, title, description, body, bylineName, primaryFormat, themeRefs, media, image,
-                currentStatus FROM type::record('story', $id)`,
+        `SELECT slug, title, description, body, bylineName, primaryFormat, themeRefs, mediaFile,
+                image, currentStatus FROM type::record('story', $id)`,
         { id },
+      )
+    )[0];
+  const file = async () =>
+    (
+      await rows<Record<string, unknown>>(
+        migrator,
+        `SELECT * OMIT at FROM ONLY storyFile:vidorig`,
       )
     )[0];
 
@@ -30,7 +37,8 @@ describe('write scope on story fields (D41)', () => {
     `body = 'Words the person never wrote'`,
     `bylineName = 'Someone else'`,
     `primaryFormat = 'audio'`,
-    `image = { path: 'dev-seed/not-theirs.webp', width: 10, height: 10 }`,
+    `image = { file: storyFile:⟨dev-seed/not-theirs.webp⟩ }`,
+    `mediaFile = NONE`,
     `themeRefs = [theme:doubt]`,
     `slug = 'hijacked-slug'`,
   ];
@@ -41,19 +49,20 @@ describe('write scope on story fields (D41)', () => {
     migrator = await t.migrator();
     admin = await t.service('api_admin');
     workflow = await t.service('workflow');
-    // A video story with its media entry as the person's upload would leave it (D53: only
-    // video and audio stories have media).
+    // A video story with its file as the person's upload would leave it (D53: only video and
+    // audio stories have one; R12: a storyFile row the story points at).
     await run(
       migrator,
-      `UPDATE story:bob_pending SET primaryFormat = 'video',
-         media = [{ format: 'video', bunnyVideoId: 'vid-orig' }]`,
+      `CREATE storyFile:vidorig CONTENT { story: story:bob_pending, person: user:bob,
+         format: 'video', contentType: 'video/mp4', sizeBytes: 1000, storyVersion: 1 };
+       UPDATE story:bob_pending SET primaryFormat = 'video', mediaFile = storyFile:vidorig;`,
     );
   });
   afterAll(() => t?.close());
 
   describe('workflow', () => {
     it.each(CONTENT_WRITES)(
-      'cannot change testimony content: SET %s',
+      'cannot change testimony content or its files: SET %s',
       async (set) => {
         const before = await stored('bob_pending');
         await run(workflow, `UPDATE story:bob_pending SET ${set}`);
@@ -73,30 +82,34 @@ describe('write scope on story fields (D41)', () => {
       expect(await statusOf(migrator, 'bob_pending')).toBe('pending');
     });
 
-    it('can write media and processing fields', async () => {
+    it('writes the file’s processing facts on its row, never what api-user recorded', async () => {
       await run(
         workflow,
-        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'thumbs/1.jpg',
-           media[0].durationSeconds = 93, media[0].width = 1080, media[0].height = 1920,
-           media[0].processing = 'ready'`,
+        `UPDATE storyFile:vidorig SET thumbnailPath = 'vidorig/thumbnail_1.jpg',
+           lengthSeconds = 93, width = 1080, height = 1920, processing = 'ready',
+           sizeBytes = 1, contentType = 'text/plain', story = story:bob_live`,
+      ).catch(() => undefined);
+      await run(
+        workflow,
+        `UPDATE storyFile:vidorig SET thumbnailPath = 'vidorig/thumbnail_1.jpg',
+           lengthSeconds = 93, width = 1080, height = 1920, processing = 'ready'`,
       );
-      expect((await stored('bob_pending'))['media']).toEqual([
-        {
-          format: 'video',
-          bunnyVideoId: 'vid-orig',
-          thumbnailPath: 'thumbs/1.jpg',
-          durationSeconds: 93,
-          width: 1080,
-          height: 1920,
-          processing: 'ready',
-        },
-      ]);
+      expect(await file()).toMatchObject({
+        story: 'story:bob_pending',
+        sizeBytes: 1000,
+        contentType: 'video/mp4',
+        thumbnailPath: 'vidorig/thumbnail_1.jpg',
+        lengthSeconds: 93,
+        width: 1080,
+        height: 1920,
+        processing: 'ready',
+      });
     });
   });
 
   describe('api_admin', () => {
     it.each(CONTENT_WRITES)(
-      'cannot change testimony content: SET %s',
+      'cannot change testimony content or its files: SET %s',
       async (set) => {
         const before = await stored('bob_pending');
         await run(admin, `UPDATE story:bob_pending SET ${set}`);
@@ -104,15 +117,13 @@ describe('write scope on story fields (D41)', () => {
       },
     );
 
-    it.each([
-      `media = []`,
-      `media[0].bunnyVideoId = 'someone-elses-video'`,
-      `media[0].thumbnailPath = 'admin.jpg'`,
-      `media[0].processing = 'failed'`,
-    ])('cannot change media: SET %s', async (set) => {
-      const before = await stored('bob_pending');
-      await run(admin, `UPDATE story:bob_pending SET ${set}`);
-      expect(await stored('bob_pending')).toEqual(before);
+    it('cannot write a file’s row', async () => {
+      const before = await file();
+      await run(
+        admin,
+        `UPDATE storyFile:vidorig SET processing = 'failed', thumbnailPath = 'admin.jpg'`,
+      );
+      expect(await file()).toEqual(before);
     });
 
     it('moderates by adding status entries only, and publishes exactly what the person wrote', async () => {
@@ -123,138 +134,64 @@ describe('write scope on story fields (D41)', () => {
       expect(await statusOf(migrator, 'bob_pending')).toBe('changes_requested');
       await step(await t.person('user_bob'), 'bob_pending', 'pending');
       await approve(admin, 'bob_pending');
-      // What everyone reads is the story itself: no copy api-admin could write.
-      expect(await published()).toEqual([
-        {
-          title: 'Story bob_pending',
-          durationSeconds: 93,
-          media: [clip(93, 'thumbs/1.jpg', 1080, 1920)],
-        },
-      ]);
+      // What everyone reads is the story and its file: no copy api-admin could write.
+      expect(await published()).toEqual(
+        clip(93, 'vidorig/thumbnail_1.jpg', 1080, 1920),
+      );
     });
 
-    it('follows processing’s corrections of a published clip in the same write', async () => {
-      // Workflow re-measures the approved clip (M7): its duration and size change, the clip
-      // itself (format, Bunny id) doesn't. The public reads the story's latest facts.
+    it('shows processing’s corrections of a published clip at once (R12: no copy to update)', async () => {
+      // Workflow re-measures the approved clip (M7) and Bunny makes another frame of it (D60):
+      // the same file, so it stays public, with the latest facts.
       await run(
         workflow,
-        `UPDATE story:bob_pending SET media[0].durationSeconds = 120,
-           media[0].width = 720, media[0].height = 1280`,
+        `UPDATE storyFile:vidorig SET lengthSeconds = 120, width = 720, height = 1280,
+           thumbnailPath = 'vidorig/thumbnail_2.jpg'`,
       );
-      expect(await published()).toEqual(reviewedClip(120, 'thumbs/1.jpg'));
+      expect(await published()).toEqual(clip(120, 'vidorig/thumbnail_2.jpg'));
     });
+
+    it('leaves the hide and show-again working, with the latest facts on return (#61)', async () => {
+      await run(
+        workflow,
+        `UPDATE storyFile:vidorig SET processing = 'processing'`,
+      );
+      expect(await published()).toEqual([]);
+      await run(
+        workflow,
+        `UPDATE storyFile:vidorig SET thumbnailPath = 'vidorig/thumbnail_3.jpg'`,
+      );
+      expect(await published()).toEqual([]);
+      await run(workflow, `UPDATE storyFile:vidorig SET processing = 'ready'`);
+      expect(await published()).toEqual(clip(120, 'vidorig/thumbnail_3.jpg'));
+    });
+
     function clip(
-      durationSeconds: number,
+      lengthSeconds: number,
       thumbnailPath: string,
       width = 720,
       height = 1280,
     ) {
-      return {
-        format: 'video',
-        bunnyVideoId: 'vid-orig',
-        thumbnailPath,
-        width,
-        height,
-        durationSeconds,
-      };
+      return [
+        {
+          title: 'Story bob_pending',
+          media: {
+            id: 'storyFile:vidorig',
+            format: 'video',
+            thumbnailPath,
+            width,
+            height,
+            lengthSeconds,
+          },
+        },
+      ];
     }
-    /** What the public login reads of the story (R11): never `processing`. */
+    /** What the public login reads of the story (R11, R12): never `processing`. */
     async function published() {
       return rows(
         await t.service('api_public_read'),
-        'SELECT title, media[0].durationSeconds AS durationSeconds, media FROM story:bob_pending',
+        'SELECT title, mediaFile.* AS media FROM story:bob_pending',
       );
     }
-    const migrator_ = () => migrator;
-    const workflow_ = () => workflow;
-    const reviewedClip = (durationSeconds: number, thumbnailPath: string) => [
-      {
-        title: 'Story bob_pending',
-        durationSeconds,
-        media: [clip(durationSeconds, thumbnailPath)],
-      },
-    ];
-
-    it('shows a thumbnail Bunny regenerated for the same clip (D60)', async () => {
-      // A re-encode can make a new thumbnail for the same video. It's a frame of the reviewed
-      // clip, so it isn't new media: the story stays public with it, so its link works.
-      await run(
-        workflow,
-        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'vid-orig/thumbnail_2.jpg'`,
-      );
-      expect(await published()).toEqual(
-        reviewedClip(120, 'vid-orig/thumbnail_2.jpg'),
-      );
-      // Later corrections still show.
-      await run(
-        workflow,
-        'UPDATE story:bob_pending SET media[0].durationSeconds = 150',
-      );
-      expect(await published()).toEqual(
-        reviewedClip(150, 'vid-orig/thumbnail_2.jpg'),
-      );
-    });
-
-    it.each([
-      ['another clip', `media[0].bunnyVideoId = 'vid-other'`, migrator_],
-      [
-        'a custom thumbnail',
-        `media[0].thumbnailPath = 'vid-orig/custom.jpg'`,
-        workflow_,
-      ],
-    ])(
-      'never shows %s: the story is hidden until it is reviewed (D59, D60)',
-      async (_name, set, who) => {
-        // Unreviewed media is never public: the story leaves the public site in the same write.
-        const db = who();
-        await run(db, `UPDATE story:bob_pending SET ${set}`);
-        await run(
-          workflow,
-          'UPDATE story:bob_pending SET media[0].durationSeconds = 160',
-        );
-        expect(await published()).toEqual([]);
-        // What was reviewed back: public again, with the latest facts.
-        await run(
-          migrator,
-          `UPDATE story:bob_pending SET media[0].bunnyVideoId = 'vid-orig',
-             media[0].thumbnailPath = 'vid-orig/thumbnail_2.jpg'`,
-        );
-        expect(await published()).toEqual(
-          reviewedClip(160, 'vid-orig/thumbnail_2.jpg'),
-        );
-      },
-    );
-
-    it('leaves #61’s hide and restore working, with the latest facts on return', async () => {
-      // Not ready: #61 hides the story (a hidden entry; its reviewed fingerprint is kept).
-      await run(
-        workflow,
-        `UPDATE story:bob_pending SET media[0].processing = 'processing'`,
-      );
-      expect(await published()).toEqual([]);
-      expect(
-        await rows(
-          migrator,
-          'SELECT VALUE record::id(id) FROM hiddenStory:bob_pending',
-        ),
-      ).toEqual(['bob_pending']);
-      // Bunny re-encodes the same clip with another new thumbnail: ready again, it comes back
-      // on its own (D60), with that thumbnail and the duration processing found since.
-      await run(
-        workflow,
-        `UPDATE story:bob_pending SET media[0].thumbnailPath = 'vid-orig/thumbnail_3.jpg'`,
-      );
-      expect(await published()).toEqual([]);
-      await run(
-        workflow,
-        `UPDATE story:bob_pending SET media[0].processing = 'ready'`,
-      );
-      expect(await published()).toEqual(
-        reviewedClip(160, 'vid-orig/thumbnail_3.jpg'),
-      );
-      expect(
-        await rows(migrator, 'SELECT VALUE id FROM hiddenStory:bob_pending'),
-      ).toEqual([]);
-    });
   });
 });

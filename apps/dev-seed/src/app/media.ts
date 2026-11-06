@@ -2,7 +2,9 @@
  * The dummy media set (D47): ~10 synthetic clips of at most 20 s and ~5 small WebP images.
  * `src/media/generate.ts` makes the files from this list with ffmpeg; `src/media/upload.ts`
  * uploads each one once to the dev Bunny library or storage zone and records what Bunny
- * reports in `bunny-media.json`. Stories reuse clips where only the shape matters.
+ * reports in `bunny-media.json`. A story points only at its own file rows (R12), so each clip's upload
+ * belongs to one story; a story that is never public and needs the same clip gets a placeholder row
+ * of its own (StoryFixture.media.placeholder).
  *
  * Sizes are the files' real pixel sizes: small, so encoding and storage cost next to nothing
  * (Bunny's $1 monthly minimum is the actual bill).

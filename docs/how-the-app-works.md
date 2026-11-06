@@ -270,6 +270,15 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
   More stories load on their own as the reader nears the end, to the end of the list, with an end
   message. Without JavaScript there is a link to the next page. (D55)
+- **Search looks at published stories only.** Its "best match" order compares each story only
+  with the other published stories, so drafts and unpublished stories can never change a score,
+  the order or where "load more" carries on. The database keeps the published stories' words in
+  their own search table and updates it in the same step as a story is published or stops being
+  published. (Search option A, Joel 2026-11-06)
+- **Search also matches theme names.** A story's search words are its title, description,
+  written text and the current names of its themes, all counting equally (category names
+  aren't included). Renaming or deleting a theme updates the stories that carry it straight
+  away. (Joel, 2026-11-06)
 - **Themes** are grouped in categories that admins manage. One category, "Other", is fixed: it
   can't be renamed or deleted and takes the themes of a deleted category. A theme with no
   published stories is hidden unless it is highlighted. (D130, D63)
@@ -309,8 +318,14 @@ Built today (in the database): (planned pages and queue are M3)
 - **A story can't be approved until every upload is processed** and its size and length are
   known, so nothing unchecked reaches the public. (A2)
 - **An approved story whose media breaks is hidden, not un-approved**, and comes back on its own
-  when the same media works again. Bunny re-making a frame of the same video doesn't count as a
-  change; any other new thumbnail, video or picture does, and the story stays hidden. (D60)
+  when the same files work again: the approval records which video or audio file and which
+  picture the moderator reviewed, and the story shows again only while it still points at both.
+  A new video or picture counts as a change, and the story stays hidden until a moderator looks.
+  (D60, R12)
+- **A replaced file is deleted once its upload link has expired.** When a story stops pointing at
+  a video or picture, the nightly clean-up deletes it at Bunny or in the images storage zone
+  once no upload link for it can still be used (2 hours), and forgets the file once it no longer
+  counts towards the 7-day upload limits. (R12)
 - Moderators and admins can never change the words of someone's testimony. (D41)
 - A person can read moderators' decisions and feedback on their own stories, never who made them.
 - The status log is the moderation history; there is no separate audit log (Joel, 2026-11-05).

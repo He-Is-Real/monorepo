@@ -10,6 +10,7 @@ import {
 import { runQuery, SURREAL } from '@heisreal/database';
 import {
   clipPicture,
+  FILE_FIELDS,
   MediaUrls,
   type StoredImage,
   type StoredMedia,
@@ -56,12 +57,10 @@ export interface StoryImage {
 }
 
 // Approved stories only (R11): this service's login reads nothing else, and the query asks for
-// them itself too. Only the published fields (media: playback fields, never `processing`).
+// them itself too. Only the published fields (its files: playback fields, never `processing`).
 const BY_SLUG = `
   SELECT record::id(id) AS id, slug, title, description, body, bylineName, primaryFormat,
-    (media ?? []).map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
-      thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height }) AS media,
-    image, media[0].durationSeconds AS durationSeconds,
+    ${FILE_FIELDS},
     currentStatus.publishedAt AS publishedAt, updatedAt, version,
     (SELECT record::id(id) AS id, name FROM theme
       WHERE id IN $parent.themeRefs ORDER BY name) AS themes

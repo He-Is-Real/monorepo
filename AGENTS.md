@@ -55,6 +55,11 @@ source of truth, so change them in the same PR as the code.
   - Tests must give the same result locally and in CI: no dependence on timing, machine load, ports or shared state.
   - Remove a flaky test, or one that stubs away the behaviour it claims to check, or rebuild it at the right level. Deleting low-value tests is welcome.
   - TDD belongs at the behaviour level, at the point in our process where that behaviour is defined.
+- **Performance and scale tests stay local and separate (Joel, 2026-11-06).** They run only on a
+  developer's machine against a throwaway local SurrealDB in Docker: never in CI, and never against
+  GCP or Bunny (budget). They live under `scale/*.scale-spec.ts` with their own Vitest config and Nx
+  `scale-test` target, so CI's `test` and `test-integration` targets can't pick them up. Don't wire
+  them into CI. Example: `pnpm nx run api-public-read:scale-test`.
 - **All cloud deployments and modifications go through OpenTofu (`infra/terraform`; D54: never Terraform),
   including proofs of concept.** Run it with `tools/scripts/tf.sh <root> …` (locally it acts as the root's
   CI identity; `TF_SH_IDENTITY=self` uses yours). Never use console clicks, `gcloud … create/update`, or
