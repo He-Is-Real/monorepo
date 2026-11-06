@@ -212,7 +212,10 @@ const STORIES: StoryFixture[] = [
     submitter: 'seed_grace',
     format: 'video',
     themes: ['loneliness', 'hope'],
-    media: { clip: 'clip-01' },
+    media: {
+      clip: 'clip-01',
+      placeholder: '00000000-0000-0000-0000-00000000a008',
+    },
     status: 'pending',
   },
   {
@@ -225,7 +228,11 @@ const STORIES: StoryFixture[] = [
     submitter: 'seed_daniel',
     format: 'video',
     themes: ['doubt'],
-    media: { clip: 'clip-03', processing: 'ready' },
+    media: {
+      clip: 'clip-03',
+      processing: 'ready',
+      placeholder: '00000000-0000-0000-0000-00000000a009',
+    },
     status: 'in_review',
   },
   {
@@ -239,7 +246,11 @@ const STORIES: StoryFixture[] = [
     submitter: 'seed_joon',
     format: 'video',
     themes: ['grief', 'loss'],
-    media: { clip: 'clip-05', processing: 'ready' },
+    media: {
+      clip: 'clip-05',
+      processing: 'ready',
+      placeholder: '00000000-0000-0000-0000-00000000a010',
+    },
     status: 'changes_requested',
     reviews: [{ decision: 'request_changes', feedback: FEEDBACK_CHANGES }],
   },
@@ -253,7 +264,11 @@ const STORIES: StoryFixture[] = [
     submitter: 'seed_ruth',
     format: 'video',
     themes: ['parenting'],
-    media: { clip: 'clip-06', processing: 'ready' },
+    media: {
+      clip: 'clip-06',
+      processing: 'ready',
+      placeholder: '00000000-0000-0000-0000-00000000a011',
+    },
     status: 'withdrawn',
   },
   {

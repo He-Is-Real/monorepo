@@ -9,6 +9,7 @@ import {
   agree,
   agreeAll,
   createPeople,
+  processed,
   publishVersion,
   rows,
   run,
@@ -342,6 +343,37 @@ describe('video and audio uploads', () => {
     bunny.arrived(secondId);
     const done = await upload('bob', id, 3, { ...FILE, resume: true });
     expect([done.status, done.body.code]).toEqual([409, 'nothing_to_resume']);
+  });
+
+  it('processing the draft’s video steps its version, so the owner’s conditional GET sees the new media state (Codex, #188 review)', async () => {
+    await person('pru');
+    const id = await draft('pru');
+    expect((await upload('pru', id, 1)).status).toBe(200);
+    const read = (etag: string) =>
+      call('GET', `/v1/account/stories/${id}`, 'pru', {
+        headers: { 'if-none-match': etag },
+      });
+    expect((await read('"2"')).status).toBe(304);
+
+    // Workflow's processing result (A2, R12) writes only the file's row; the story the owner
+    // reads (its media state) has changed, so its version steps in the same write.
+    await processed(await t.service('workflow'), id, { durationSeconds: 42 });
+    const after = await read('"2"');
+    expect(after.status).toBe(200);
+    expect(after.body.version).toBe(3);
+    expect(after.body.media).toEqual([
+      expect.objectContaining({
+        format: 'video',
+        processing: 'ready',
+        durationSeconds: 42,
+        width: 1080,
+        height: 1920,
+      }),
+    ]);
+    expect((await read('"3"')).status).toBe(304);
+    // A resume signs a link again without changing what the owner sees: no new version.
+    const resumed = await upload('pru', id, 3, { ...FILE, resume: true });
+    expect([resumed.status, resumed.body.version]).toEqual([200, 3]);
   });
 
   it('checks the file and the person’s limits before creating anything at Bunny', async () => {

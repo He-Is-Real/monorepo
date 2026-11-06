@@ -1,4 +1,8 @@
-import { StringRecordId, type Surreal } from 'surrealdb';
+import {
+  StringRecordId,
+  type Surreal,
+  type SurrealTransaction,
+} from 'surrealdb';
 import { rows, run, TestDatabase } from './support/harness';
 import {
   approve,
@@ -255,5 +259,96 @@ describe('theme names in search', () => {
     ).toEqual([['common']]);
     // The story is still published and found by its own words.
     expect(await found('bob_tagged')).toEqual(['bob_tagged']);
+  });
+});
+
+/**
+ * A rename (or delete) of a theme racing a write that builds a story's search row from that
+ * theme's name (Codex, #188 review): a transaction reads a snapshot, so without a shared write
+ * both commit and the new row keeps the old name. Both write the theme's fence
+ * (fence:theme-<id>), so the second to commit conflicts and its retry reads the other's result.
+ * Two sessions, interleaved deterministically, as in concurrency.int-spec.ts.
+ */
+describe('theme renames and deletes racing a story’s publication', () => {
+  const CONFLICT = /Transaction conflict.*can be retried/s;
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let admin: Surreal;
+  let world: Awaited<ReturnType<typeof buildWorld>>;
+  const commit = async (tx: SurrealTransaction) => {
+    try {
+      await tx.commit();
+      return 'committed';
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  };
+  const APPROVE = (id: string) =>
+    `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+       story: story:${id}, status: 'approved', by: user:moderator }`;
+  const words = async (id: string) =>
+    (
+      await rows<string>(
+        migrator,
+        `SELECT VALUE searchText FROM type::record('storySearch', $id)`,
+        { id },
+      )
+    )[0];
+  /** A story of Bob's carrying `theme`, picked up by a moderator (in review). */
+  const inReview = async (id: string, theme: string) => {
+    await run(
+      admin,
+      `CREATE type::record('theme', $theme) SET name = $name, category = themeCategory:other`,
+      { theme, name: `Old ${theme}` },
+    );
+    await draft(world.bob, id, {
+      themeRefs: [new StringRecordId(`theme:${theme}`)],
+    });
+    await submit(world.bob, id);
+    await step(admin, id, 'in_review');
+  };
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    world = await buildWorld(t);
+    ({ admin } = world);
+  });
+  afterAll(() => t?.close());
+
+  it('the approval starts first, the rename commits: the approval conflicts, its retry has the new name', async () => {
+    await inReview('bob_race_a', 'racea');
+    const approving = await admin.beginTransaction();
+    await run(approving as unknown as Surreal, APPROVE('bob_race_a')); // uncommitted
+    await run(admin, `UPDATE theme:racea SET name = 'Renamed racea'`);
+    expect(await commit(approving)).toMatch(CONFLICT);
+
+    await run(admin, APPROVE('bob_race_a')); // the retry
+    expect(await words('bob_race_a')).toMatch(/Renamed racea$/);
+  });
+
+  it('the rename starts first, the approval commits: the rename conflicts, its retry renames the new row', async () => {
+    await inReview('bob_race_b', 'raceb');
+    const renaming = await admin.beginTransaction();
+    await run(
+      renaming as unknown as Surreal,
+      `UPDATE theme:raceb SET name = 'Renamed raceb'`,
+    );
+    await run(admin, APPROVE('bob_race_b'));
+    expect(await commit(renaming)).toMatch(CONFLICT);
+
+    await run(admin, `UPDATE theme:raceb SET name = 'Renamed raceb'`); // the retry
+    expect(await words('bob_race_b')).toMatch(/Renamed raceb$/);
+  });
+
+  it('a delete racing the approval: one conflicts, and the row never keeps the deleted name', async () => {
+    await inReview('bob_race_c', 'racec');
+    const approving = await admin.beginTransaction();
+    await run(approving as unknown as Surreal, APPROVE('bob_race_c'));
+    await run(admin, `DELETE theme:racec`);
+    expect(await commit(approving)).toMatch(CONFLICT);
+
+    await run(admin, APPROVE('bob_race_c'));
+    expect(await words('bob_race_c')).not.toMatch(/racec/);
   });
 });

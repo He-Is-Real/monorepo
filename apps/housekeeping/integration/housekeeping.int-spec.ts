@@ -697,7 +697,8 @@ describe('housekeeping: files stories stopped showing', () => {
   const logs: Record<string, unknown>[] = [];
   const OLD_VIDEO = guid();
   const NEW_VIDEO = guid();
-  const SHARED = guid();
+  // A dev-seed placeholder's made-up id (nothing at Bunny: its delete answers 404).
+  const PLACEHOLDER = '00000000-0000-0000-0000-00000000a0ff';
   const OLD_PICTURE = `stories/dot_video/${'e'.repeat(32)}.webp`;
   const NEW_PICTURE = `stories/dot_video/${'f'.repeat(32)}.webp`;
   const SEED_PICTURE = 'dev-seed/hills.webp';
@@ -768,24 +769,27 @@ describe('housekeeping: files stories stopped showing', () => {
         expectedImage: OLD_PICTURE,
       }),
     ).not.toHaveProperty('error');
-    // Dev-seed's way (a system user): two stories share a clip, and a picture outside the
-    // stories' folders; one story then points elsewhere, which detaches them.
+    // Dev-seed's way (a system user): its story's own rows, a placeholder clip and a picture
+    // outside the stories' folders; the story then points at another file of its own, which
+    // detaches them.
     await createDraft(dot, 'seed_a', 'video');
     await createDraft(dot, 'seed_b', 'video');
     await run(
       migrator,
-      `CREATE type::record('storyFile', $shared) CONTENT { story: story:seed_a, person: user:dot,
-         format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 };
+      `CREATE type::record('storyFile', $placeholder) CONTENT { story: story:seed_a,
+         person: user:dot, format: 'video', contentType: 'video/mp4', sizeBytes: 1,
+         storyVersion: 1 };
        CREATE type::record('storyFile', $seed) CONTENT { story: story:seed_a, person: user:dot,
          format: 'image', contentType: 'image/webp', sizeBytes: 1, storyVersion: 1 };
-       UPDATE story:seed_a SET mediaFile = type::record('storyFile', $shared),
+       CREATE type::record('storyFile', $other) CONTENT { story: story:seed_a, person: user:dot,
+         format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 };
+       UPDATE story:seed_a SET mediaFile = type::record('storyFile', $placeholder),
          image = { file: type::record('storyFile', $seed), alt: 'Hills' };
-       UPDATE story:seed_b SET mediaFile = type::record('storyFile', $shared);
        UPDATE story:seed_a SET mediaFile = type::record('storyFile', $other), image = NONE;`,
       {
-        shared: SHARED,
+        placeholder: PLACEHOLDER,
         seed: SEED_PICTURE,
-        other: NEW_VIDEO,
+        other: guid(),
       },
     );
     library = new FakeLibrary([]);
@@ -800,7 +804,7 @@ describe('housekeeping: files stories stopped showing', () => {
           `SELECT VALUE record::id(id) FROM storyFile WHERE detachedAt != NONE`,
         )
       ).sort(),
-    ).toEqual([SHARED, OLD_VIDEO, SEED_PICTURE, OLD_PICTURE].sort());
+    ).toEqual([PLACEHOLDER, OLD_VIDEO, SEED_PICTURE, OLD_PICTURE].sort());
     const zone = new FakeZone();
     expect(await sweep({ images: zone })).toBe(0);
     expect(last('detached-files')).toMatchObject({ selected: 0, deleted: 0 });
@@ -820,19 +824,21 @@ describe('housekeeping: files stories stopped showing', () => {
     expect(await removed(OLD_VIDEO)).toEqual([false]);
   });
 
-  it('then deletes the person’s files, and only marks removed the ones another story shows or dev-seed’s', async () => {
+  it('then deletes the files, a dev-seed placeholder’s too, and only marks dev-seed’s fixed pictures removed', async () => {
     await detachedLongAgo();
     // Without the images zone, the picture waits.
     expect(await sweep({ dryRun: true })).toBe(0);
     expect(last('detached-files')).toMatchObject({ selected: 3, more: true });
     expect(await sweep()).toBe(0);
-    expect(library.deleted).toEqual([OLD_VIDEO]);
+    // The placeholder's made-up id is deleted like any video (at Bunny it answers 404: done).
+    const videos = [OLD_VIDEO, PLACEHOLDER].sort();
+    expect([...library.deleted].sort()).toEqual(videos);
     expect(await removed(OLD_PICTURE)).toEqual([false]);
     const zone = new FakeZone();
     expect(await sweep({ images: zone })).toBe(0);
     expect(zone.files).toEqual([OLD_PICTURE]);
-    expect(library.deleted).toEqual([OLD_VIDEO]);
-    for (const key of [OLD_VIDEO, OLD_PICTURE, SHARED, SEED_PICTURE]) {
+    expect([...library.deleted].sort()).toEqual(videos);
+    for (const key of [OLD_VIDEO, OLD_PICTURE, PLACEHOLDER, SEED_PICTURE]) {
       expect(await removed(key)).toEqual([true]);
     }
     for (const key of [NEW_VIDEO, NEW_PICTURE]) {

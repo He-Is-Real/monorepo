@@ -297,11 +297,12 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       `UPDATE storyFile:⟨stories/gus_w/${hex(10)}.webp⟩ SET processing = 'ready'`,
     );
     expect((await image('gus_w')).image).toMatchObject({ processing: 'ready' });
-    // Processing writes the file's row, never the story: still version 2.
+    // Processing writes the file's row, and steps the story's version (what its owner reads
+    // changed: D29's ETag): version 3.
     await grantImage(apiUser, {
       story: 'gus_w',
       person: 'gus',
-      version: 2,
+      version: 3,
       name: hex(11),
       expectedImage: `stories/gus_w/${hex(10)}.webp`,
     });

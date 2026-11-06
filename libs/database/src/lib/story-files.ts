@@ -18,27 +18,19 @@ export interface DetachedFile {
   /** The Bunny video id, or the picture's path in the images zone. */
   key: string;
   format: 'video' | 'audio' | 'image';
-  /** Another story still points at it (dev-seed's shared dummy files): never deleted, only marked removed. */
-  shared: boolean;
 }
 
 /**
  * Files a story stopped pointing at (R12, storyFile.detachedAt) once no upload link for them can
  * still be used (fn::upload::links_expire_after), the longest-detached first, at most `$limit`.
- * One read (a snapshot): a file another story still points at is marked `shared`.
+ * No story points at a detached file: a story points only at its own rows, never at a detached
+ * one (story_files, for every login).
  */
 export const DETACHED_FILES_DUE = `
-  BEGIN TRANSACTION;
-  LET $due = SELECT id, record::id(id) AS key, format, detachedAt FROM storyFile
+  SELECT record::id(id) AS key, format, detachedAt FROM storyFile
     WHERE detachedAt != NONE AND detachedAt <= time::now() - fn::upload::links_expire_after()
       AND removedAt = NONE
-    ORDER BY detachedAt LIMIT $limit;
-  LET $ids = $due.id;
-  LET $shown = array::union(
-    (SELECT VALUE mediaFile FROM story WHERE mediaFile IN $ids),
-    (SELECT VALUE image.file FROM story WHERE image.file IN $ids));
-  RETURN $due.map(|$f| { key: $f.key, format: $f.format, shared: $f.id IN $shown });
-  COMMIT TRANSACTION;`;
+    ORDER BY detachedAt LIMIT $limit`;
 
 /** The file is gone (bind `$key`): its row records removedAt (the database refuses it too early). */
 export const DETACHED_FILE_REMOVED = `

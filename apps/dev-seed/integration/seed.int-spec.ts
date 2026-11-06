@@ -39,13 +39,10 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     expect(summary).toEqual({
       byStatus: expected,
       publicStories: approved.length,
-      // R12: one row per dummy file a story uses (stories share them).
-      files: new Set(
-        DATASET.stories.flatMap((s) => [
-          ...(s.media ? [s.media.clip] : []),
-          ...(s.image ? [s.image.file] : []),
-        ]),
-      ).size,
+      // R12: one row per file a story uses: each story its own.
+      files:
+        DATASET.stories.filter((s) => s.media).length +
+        DATASET.stories.filter((s) => s.image).length,
       statusEntries: DATASET.stories.reduce(
         (n, s) => n + stepsFor(s, new Date()).length,
         0,
@@ -91,6 +88,39 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
         "SELECT VALUE id FROM story WHERE currentStatus.status = 'approved' AND fn::story::approval_problem($this) != NONE",
       ),
     ).toEqual([]);
+  });
+
+  it('gives every story its own file rows; the stories never public share no upload, through placeholders (R12; Codex, #188 review)', async () => {
+    const migrator = await t.migrator();
+    // A story points only at its own rows: no row is pointed at by two stories.
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE id FROM story WHERE (mediaFile != NONE AND mediaFile.story != id)
+           OR (image != NONE AND image.file.story != id)`,
+      ),
+    ).toEqual([]);
+    expect(
+      await rows(
+        migrator,
+        `SELECT record::id(id) AS story, record::id(mediaFile) AS file,
+           mediaFile.processing AS processing, mediaFile.lengthSeconds AS lengthSeconds,
+           mediaFile.thumbnailPath AS thumbnailPath
+         FROM story WHERE mediaFile != NONE
+           AND string::starts_with(record::id(mediaFile), '00000000-')
+         ORDER BY story`,
+      ),
+    ).toEqual([
+      // Submitted, not processed yet: no facts.
+      { story: 'seed_v08', file: '00000000-0000-0000-0000-00000000a008' },
+      ...['09', '10', '11'].map((n) => ({
+        story: `seed_v${n}`,
+        file: `00000000-0000-0000-0000-00000000a0${n}`,
+        processing: 'ready',
+        lengthSeconds: expect.any(Number),
+        thumbnailPath: `00000000-0000-0000-0000-00000000a0${n}/thumbnail.jpg`,
+      })),
+    ]);
   });
 
   it('walks each story through the real states: its status log, who added each entry, versions', async () => {

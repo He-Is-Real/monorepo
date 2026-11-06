@@ -21,6 +21,8 @@ export const LIMITS = {
 } as const;
 
 const SUBMITTED: StoryStatus[] = ['pending', 'in_review', 'approved'];
+/** A made-up Bunny video id, clearly no real one (StoryFixture.media.placeholder). */
+const PLACEHOLDER = /^00000000-0000-0000-0000-[0-9a-f]{12}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -57,9 +59,8 @@ export interface SeedVars {
     /** The draft as its author creates it: its content. */
     draft: Record<string, unknown>;
     /**
-     * Its uploads (R12): each a storyFile row's key (the Bunny video id or the picture's path)
-     * and fields. Stories share dev-seed's few dummy files, so a row is made once, for the first
-     * story that uses it, and later ones point at it too (a system user may).
+     * Its uploads (R12): each a storyFile row of its own (a story points only at its own rows):
+     * its key (the Bunny video id, a placeholder's made-up id, or the picture's path) and fields.
      */
     media?: { key: string; row: Record<string, unknown> };
     image?: { key: string; row: Record<string, unknown>; alt?: string };
@@ -120,6 +121,8 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
   const people = new Set(data.people);
   const ids = new Set<string>();
   const slugs = new Set<string>();
+  /** Each storyFile row's story: a clip's or picture's upload, or a placeholder id. */
+  const files = new Map<string, string>();
 
   if (people.has(data.moderator))
     problems.push('the moderator is also a submitter');
@@ -228,6 +231,21 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
       p(`${s.media.clip} hasn't been uploaded (bunny-media.json)`);
     if (s.image && !media.images[s.image.file])
       p(`${s.image.file} hasn't been uploaded (bunny-media.json)`);
+
+    // R12: a story points only at its own storyFile rows, so each upload belongs to one story;
+    // another story with the same clip uses a placeholder of its own, and is never public.
+    const placeholder = s.media?.placeholder;
+    if (placeholder !== undefined) {
+      if (!PLACEHOLDER.test(placeholder))
+        p(`placeholder ${placeholder} isn't 00000000-0000-0000-0000-<12 hex>`);
+      if (s.status === 'approved') p('a placeholder file is never public');
+    }
+    const key = placeholder ?? (s.media && `clip ${s.media.clip}`);
+    for (const k of [key, s.image && `image ${s.image.file}`]) {
+      if (!k) continue;
+      if (files.has(k)) p(`${k} is already ${files.get(k)}'s`);
+      else files.set(k, s.id);
+    }
   }
   return problems;
 }
@@ -277,7 +295,12 @@ export function buildVars(
           ),
         }),
         media: s.media
-          ? mediaFile(s.media.clip, media, s.media.processing)
+          ? mediaFile(
+              s.media.clip,
+              media,
+              s.media.processing,
+              s.media.placeholder,
+            )
           : undefined,
         image: s.image
           ? compact({
@@ -292,23 +315,42 @@ export function buildVars(
   };
 }
 
-/** A clip's storyFile row: what processing would have recorded for it (R12). */
-function mediaFile(clip: ClipId, media: BunnyMedia, processing?: string) {
+/**
+ * A clip's storyFile row: what processing would have recorded for it (R12). With a placeholder
+ * (a story never public): a row of its own under that made-up id, with the clip's facts only once
+ * processed, and its thumbnail's path under that id (nothing is there at Bunny).
+ */
+function mediaFile(
+  clip: ClipId,
+  media: BunnyMedia,
+  processing?: string,
+  placeholder?: string,
+) {
   const uploaded = media.clips[clip];
   if (!uploaded) throw new Error(`${clip} hasn't been uploaded`);
   const kind = CLIPS[clip].kind;
+  const facts = placeholder === undefined || processing !== undefined;
+  const key = placeholder ?? uploaded.videoId;
+  const thumbnail = uploaded.thumbnailPath?.split('/').pop();
   return {
-    key: uploaded.videoId,
+    key,
     row: compact({
       format: kind,
       contentType: kind === 'video' ? 'video/mp4' : 'audio/mpeg',
       // The dummy files' sizes aren't recorded; nothing reads them for dev-seed's rows.
       sizeBytes: 1,
       storyVersion: 1,
-      thumbnailPath: uploaded.thumbnailPath,
-      width: uploaded.width,
-      height: uploaded.height,
-      lengthSeconds: uploaded.durationSeconds,
+      ...(facts
+        ? {
+            thumbnailPath:
+              placeholder === undefined
+                ? uploaded.thumbnailPath
+                : thumbnail && `${key}/${thumbnail}`,
+            width: uploaded.width,
+            height: uploaded.height,
+            lengthSeconds: uploaded.durationSeconds,
+          }
+        : {}),
       processing,
     }),
   };

@@ -55,8 +55,14 @@ export interface StoryFixture {
   format: StoryFormat;
   /** theme keys, at most 5 */
   themes: string[];
-  /** Video and audio: the clip. Omitted on a draft before its upload. */
-  media?: { clip: ClipId; processing?: Processing };
+  /**
+   * Video and audio: the clip. Omitted on a draft before its upload. A story points only at its
+   * own storyFile rows (R12), so a clip's upload at Bunny belongs to one story. `placeholder`: a
+   * story that is never public gets a row of its own under this made-up Bunny-style id
+   * (`00000000-0000-0000-0000-<12 hex>`), with the clip's facts once processed and no file at
+   * Bunny: nothing is uploaded or deleted there for it (a delete answers 404, which counts as done).
+   */
+  media?: { clip: ClipId; processing?: Processing; placeholder?: string };
   /** Written only: the optional image. */
   image?: { file: ImageId; alt?: string; processing?: Processing };
   /**

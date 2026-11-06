@@ -89,7 +89,8 @@ DEFINE FIELD OVERWRITE currentStatus ON story TYPE option<record<storyStatusLog>
 -- default), which they may change without uploading again.
 -- D65/D80: only a new upload's row puts a picture on (storyFile_attach, on api-user's login); the
 -- person's session may then change only `alt`, or take the picture off (NONE), never point at
--- another file. System users ($auth NONE: the migrator, dev-seed) write it as given.
+-- another file. System users ($auth NONE: the migrator, dev-seed) write it as given, still only to
+-- the story's own rows (story_files).
 DEFINE FIELD OVERWRITE image         ON story TYPE option<object>
   VALUE IF $auth = NONE OR $auth = service:api_user { $value }
     ELSE IF $value = NONE OR $before = NONE { NONE }
@@ -259,9 +260,10 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
 -- D65, D80, R12: a story points only at files uploaded for it. The pointers are the permission
 -- slip: a new pointer must name a storyFile row of this story, of the right kind, not detached
 -- (one story per file: its id is the Bunny video id or the picture's path), whoever writes,
--- system users aside (the migrator and dev-seed load data as given: dev-seed's stories share
--- its few dummy files). Only storyFile_attach moves them (the person can only take their picture
--- off), so this guards against a bug or a misused login.
+-- system users too (Codex, #188 review: a row two stories share is hidden, detached and
+-- deleted through one while the other still shows it; dev-seed gives each story its own rows).
+-- Only storyFile_attach moves them (the person can only take their picture off), so this
+-- guards against a bug or a misused login.
 -- R12 / db review 2, section 6 item 7: whenever a story stops pointing at a file (a new upload
 -- replaced it, or the person took their picture off), the file's row gets detachedAt in the same
 -- write, whoever writes; the nightly clean-up deletes the file once no upload link for it can
@@ -279,17 +281,14 @@ DEFINE EVENT OVERWRITE story_files ON story
   THEN {
     LET $media = $after.mediaFile;
     LET $image = $after.image.file;
-    IF $auth != NONE {
-      IF $media != NONE AND $media != $before.mediaFile
-        AND fn::story::pointer_problem($after.id, $media, ['video', 'audio']) {
-        THROW 'media_not_granted: a story’s video or audio must be one uploaded for it (D80)';
-      };
-      IF $image != NONE AND $image != $before.image.file
-        AND fn::story::pointer_problem($after.id, $image, ['image']) {
-        THROW 'media_not_granted: a story’s picture must be one uploaded for it (D80)';
-      };
+    IF $media != NONE AND $media != $before.mediaFile
+      AND fn::story::pointer_problem($after.id, $media, ['video', 'audio']) {
+      THROW 'media_not_granted: a story’s video or audio must be one uploaded for it (D80)';
     };
-    -- Only the story's own rows (dev-seed's stories share its dummy files' rows).
+    IF $image != NONE AND $image != $before.image.file
+      AND fn::story::pointer_problem($after.id, $image, ['image']) {
+      THROW 'media_not_granted: a story’s picture must be one uploaded for it (D80)';
+    };
     FOR $old IN [$before.mediaFile, $before.image.file] {
       IF $old != NONE AND $old NOT IN [$media, $image] {
         UPDATE $old SET detachedAt = time::now() WHERE detachedAt = NONE AND story = $after.id
@@ -643,10 +642,18 @@ DEFINE FUNCTION OVERWRITE fn::story::search_text($s: any) {
 };
 -- Puts the story's row in step with it: its words if it is published now, no row otherwise
 -- (including a story that is gone). Called by events only (they run elevated).
-DEFINE FUNCTION OVERWRITE fn::story::sync_search($id: record<story>) {
+-- Writing the words reads the themes' names, so it bumps each theme's fence (fence:theme-<id>),
+-- as a rename and a delete do (storySearch_theme_renamed, theme_delete): a row built from a
+-- snapshot can't commit alongside a rename or delete of one of its themes (Codex, #188 review).
+-- The second to commit conflicts, and its retry reads the other's result. $fenced: the caller
+-- (a rename) has bumped the fence already.
+DEFINE FUNCTION OVERWRITE fn::story::sync_search($id: record<story>, $fenced: option<bool>) {
   LET $s = (SELECT * FROM ONLY $id);
   LET $row = type::record('storySearch', record::id($id));
   IF $s != NONE AND fn::story::status_of($s) = 'approved' {
+    IF $fenced != true {
+      FOR $t IN $s.themeRefs ?? [] { IF record::exists($t) { fn::fence::touch('theme', $t) } };
+    };
     LET $fields = {
       searchText: fn::story::search_text($s), primaryFormat: $s.primaryFormat,
       themeIds: $s.themeIds, publishedAt: $s.currentStatus.publishedAt
@@ -669,13 +676,17 @@ DEFINE EVENT OVERWRITE story_search ON story
   };
 -- A renamed theme: the published stories that carry it get its new name (deleting a theme takes
 -- it off its stories, theme_delete, which story_search follows). Only those stories: the
--- story_theme_ids index finds them.
+-- story_theme_ids index finds them. The rename bumps the theme's fence, so it conflicts with a
+-- search row being written from the old name meanwhile (fn::story::sync_search).
 DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
   WHEN $event = 'UPDATE' AND $before.name != $after.name
   THEN {
+    fn::fence::touch('theme', $after.id);
     LET $key = record::id($after.id);
     FOR $s IN (SELECT VALUE id FROM story WHERE themeIds CONTAINS $key) {
-      IF record::exists(type::record('storySearch', record::id($s))) { fn::story::sync_search($s) };
+      IF record::exists(type::record('storySearch', record::id($s))) {
+        fn::story::sync_search($s, true);
+      };
     };
   };
 
@@ -1141,7 +1152,12 @@ DEFINE EVENT OVERWRITE storyFile_fence ON storyFile
 -- - removed (removedAt, housekeeping): only a detached file, once no upload link for it can
 --   still be used, and only once;
 -- - processing (workflow): a story showing the file is hidden or shown again
---   (fn::story::check_files).
+--   (fn::story::check_files), and its version steps (D29: the owner's ETag and If-Match) when
+--   something its owner's story shows changed (fn::story::file_view): once, so not again if
+--   that write already hid it or showed it again. As before R12, when processing wrote the story.
+DEFINE FUNCTION OVERWRITE fn::story::file_view($f: any) {
+  RETURN $f.{ format, thumbnailPath, width, height, lengthSeconds, processing };
+};
 DEFINE EVENT OVERWRITE storyFile_update ON storyFile
   WHEN $event = 'UPDATE' THEN {
     LET $s = (SELECT * FROM ONLY $after.story);
@@ -1160,6 +1176,10 @@ DEFINE EVENT OVERWRITE storyFile_update ON storyFile
     IF $s != NONE AND $after.detachedAt = NONE
       AND ($s.mediaFile = $after.id OR $s.image.file = $after.id) {
       fn::story::check_files($s);
+      IF fn::story::file_view($before) != fn::story::file_view($after)
+        AND (SELECT VALUE version FROM ONLY $s.id) = $s.version {
+        UPDATE $s.id RETURN NONE;
+      };
     };
   };
 -- api-user's login, before it signs a link for `$video` again: renews the row (above). NONE if

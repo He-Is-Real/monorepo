@@ -226,7 +226,8 @@ describe('story types and shapes (D53)', () => {
       [
         'a video file as its picture',
         `primaryFormat: 'written', body: 'x', image: { file: storyFile:⟨vid-as-picture⟩ }`,
-        'picture must be an image file',
+        // The pointer check refuses it first, for every login (R12): not a picture of its own.
+        'media_not_granted: a story’s picture must be one uploaded for it',
         {},
       ],
     ])('refuses %s', async (_name, fields, message, files: Files) => {

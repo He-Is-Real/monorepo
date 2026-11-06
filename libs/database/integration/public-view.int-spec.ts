@@ -156,7 +156,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
         db,
         'SELECT * FROM story:ann_live',
       );
-      expect(live).toMatchObject({ title: 'Story ann_live', version: 6 });
+      expect(live).toMatchObject({ title: 'Story ann_live', version: 7 });
       for (const field of PRIVATE_STORY_FIELDS) {
         expect(live).not.toHaveProperty(field);
         expect(

@@ -104,10 +104,10 @@ FOR $s IN $stories {
     submitter: $submitter,
     themeRefs: $s.draft.themeRefs.map(|$t| type::record('theme', $t))
   }) RETURN NONE;
-  -- R12: its uploads, as storyFile rows the story points at. dev-seed's few dummy files are
-  -- shared: a row is made for the first story that uses it, and later ones point at it too.
+  -- R12: its uploads, as storyFile rows of its own that the story points at (a story points only
+  -- at its own rows, system users too).
   FOR $f IN [$s.media, $s.image] {
-    IF $f != NONE AND !record::exists(type::record('storyFile', $f.key)) {
+    IF $f != NONE {
       CREATE type::record('storyFile', $f.key) CONTENT object::extend($f.row, {
         story: $story, person: $submitter
       }) RETURN NONE;

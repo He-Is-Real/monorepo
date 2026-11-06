@@ -9,25 +9,26 @@ import {
 import { STORY_IMAGE_PATH } from '@heisreal/story-cards/upload-signing';
 import type { Task, TaskResult } from './tasks';
 
-/** Not a person's file: shown by another story too, or a picture outside the stories' folders (dev-seed's). */
+/** Not a person's file: a picture outside the stories' folders (dev-seed's fixed pictures, which every reset reuses). */
 const keep = (f: DetachedFile) =>
-  f.shared || (f.format === 'image' && !STORY_IMAGE_PATH.test(f.key));
+  f.format === 'image' && !STORY_IMAGE_PATH.test(f.key);
 
 /**
  * Replaced and removed files (R12; db review 2, section 6 item 7): a video, audio file or picture
  * its story stopped pointing at (storyFile.detachedAt), once no upload link for it can still be
- * used. The file goes at Bunny Stream or in the images zone (already gone is fine), then its row
- * records removedAt. A file another story still points at, or a picture outside the stories'
- * folders (dev-seed's shared dummy files), is only marked removed, never deleted. A kind whose key couldn't be read waits. Ids in the logs are the
- * Bunny video id or the picture's path.
+ * used. The file goes at Bunny Stream or in the images zone (already gone is fine: a 404 counts
+ * as done, so a dev-seed placeholder's made-up id costs one 404), then its row records
+ * removedAt. A picture outside the stories' folders (dev-seed's) is only marked removed, never
+ * deleted. A kind whose key couldn't be read waits. Ids in the logs are the Bunny video id or the
+ * picture's path.
  */
 export const detachedFilesTask: Task = {
   name: 'detached-files',
   async run(ctx): Promise<TaskResult> {
-    const results = await runQuery(ctx.db, DETACHED_FILES_DUE, {
+    const [found] = (await runQuery(ctx.db, DETACHED_FILES_DUE, {
       limit: ctx.maxDeletions + 1,
-    });
-    const due = (results[results.length - 2] ?? []) as DetachedFile[];
+    })) as [DetachedFile[]];
+    const due = found ?? [];
     const ready = due
       .slice(0, ctx.maxDeletions)
       .filter(

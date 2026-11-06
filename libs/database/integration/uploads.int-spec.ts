@@ -171,6 +171,21 @@ describe('uploads: storyFile rows, server-assigned media and their limits (D65, 
     expect((await story('dan_v')).media).toEqual([
       { format: 'video', bunnyVideoId: dans },
     ]);
+    // Nor a system user (the migrator, dev-seed): a story points only at its own rows, for
+    // everyone (R12; Codex, #188 review). A shared row is detached, deleted and hidden through
+    // one story while the other still shows it.
+    expect(
+      error(
+        await outcome(
+          migrator,
+          `UPDATE story:dan_v SET mediaFile = type::record('storyFile', $id)`,
+          { id: eves },
+        ),
+      ),
+    ).toMatch(/media_not_granted:/);
+    expect((await story('dan_v')).media).toEqual([
+      { format: 'video', bunnyVideoId: dans },
+    ]);
     // A video is granted once: the same Bunny id can't be granted to a second story.
     expect(
       await grantUpload(apiUser, {
@@ -278,15 +293,17 @@ describe('uploads: storyFile rows, server-assigned media and their limits (D65, 
     expect(await file(first)).toEqual([
       { detached: false, processing: 'ready' },
     ]);
-    // Processing writes the file's row, not the story: still version 2.
+    // Processing writes the file's row, and steps the story's version (what its owner reads
+    // changed: D29's ETag): version 3.
+    expect((await story('gus_v')).version).toBe(3);
     await grantUpload(apiUser, {
       video: second,
       story: 'gus_v',
       person: 'gus',
-      version: 2,
+      version: 3,
     });
     expect(await story('gus_v')).toEqual({
-      version: 3,
+      version: 4,
       media: [{ format: 'video', bunnyVideoId: second }],
     });
     expect(await file(first)).toEqual([

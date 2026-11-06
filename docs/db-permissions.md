@@ -896,10 +896,17 @@ wins. Dev's database is wiped and rebuilt for it (reset `db-review-2-b2`).
     `image.height`, `image.processing` and `media[*]`. A person's session never writes the
     pointers (`mediaFile` is `create, update NONE`; `image.file` is kept from before for them, so
     they can change only the description). Event `story_files` checks a new pointer (a row of this
-    story, of the right kind, not detached: `media_not_granted`; system users, such as dev-seed,
-    are exempt so dummy files can be shared) and marks the row it replaced `detachedAt`. The API
-    payloads are unchanged: the services build `media[]` and `image` from the pointers
-    (`OWNER_FILE_FIELDS`, `FILE_FIELDS`).
+    story, of the right kind, not detached: `media_not_granted`) for every login, system users
+    such as dev-seed too: two stories sharing a row would have it hidden, detached and deleted
+    through one while the other still shows it (Codex, #188 review). Dev-seed gives each story its
+    own rows; its stories that never go public use a placeholder row with a made-up Bunny-style id
+    (`00000000-0000-0000-0000-…`) and nothing at Bunny. The event marks the row it replaced
+    `detachedAt`. The API payloads are unchanged: the services build `media[]` and `image` from
+    the pointers (`OWNER_FILE_FIELDS`, `FILE_FIELDS`). When a file the story points at changes
+    in a field its owner's story shows (`format`, `thumbnailPath`, `width`, `height`,
+    `lengthSeconds`, `processing`: `fn::story::file_view`), `storyFile_update` steps the story's
+    `version` in the same write (once: not again if that write hid it or showed it again), so the
+    owner's `ETag` and `If-Match` see processing, as when processing wrote the story (D29).
 67. **What was reviewed (replaces `hiddenStory`).** An approved status entry records
     `reviewedMediaFile` and `reviewedImageFile` (read by the owner and api-admin only).
     `fn::story::check_files` runs whenever a story's file row or pointer changes: an approved
@@ -912,9 +919,10 @@ wins. Dev's database is wiped and rebuilt for it (reset `db-review-2-b2`).
 68. **Cleaning up replaced files (section 6 item 7).** The nightly housekeeping deletes a detached
     file at Bunny or in the images zone once no upload link for it can still be used
     (`fn::upload::links_expire_after()`, 2 hours: a TUS link lives 1 hour, a picture's PUT 10
-    minutes), then sets `removedAt` (the database refuses it earlier: `file_not_removable`). A file
-    another story still points at, or a picture outside the stories' folders (dev-seed's), is
-    marked removed but never deleted. It deletes a row once the row no longer counts towards the
+    minutes), then sets `removedAt` (the database refuses it earlier: `file_not_removable`). A
+    picture outside the stories' folders (dev-seed's fixed pictures, which every reset reuses) is
+    marked removed but never deleted; a placeholder's made-up id is deleted at Bunny like any
+    video (a 404 counts as done). It deletes a row once the row no longer counts towards the
     7-day upload limits and its file is removed or its story gone. `pendingDeletion` stays for
     deleted stories, erased people and Clerk accounts.
 69. **One fence (section 6 item 2).** Every write to a story's file rows, every status entry and
@@ -936,7 +944,10 @@ wins. Dev's database is wiped and rebuilt for it (reset `db-review-2-b2`).
     story (approved, or shown again), stops it being published (withdrawn, hidden, rejected),
     changes its words or themes, or deletes it (DeleteStory, erasure, housekeeping);
     `storySearch_theme_renamed` calls it for the published stories that carry a renamed theme
-    (found through `story_theme_ids`), and `theme_delete` (which now finds its stories through
+    (found through `story_theme_ids`). Writing a row's words bumps the fence of each of the
+    story's themes (`fence:theme-<id>`), as a rename and a delete do, so a row built from a
+    snapshot can't commit alongside a rename or delete of one of its themes: the second to commit
+    conflicts and its retry reads the other's result (Codex, #188 review). `theme_delete` (which now finds its stories through
     `themeIds`, the same index) takes a deleted theme off its stories, which `story_search`
     follows. `PERMISSIONS`: everyone may read a row only while its story's current entry is
     `approved`; `create, update, delete NONE` (events only). Person-linked through its story.
