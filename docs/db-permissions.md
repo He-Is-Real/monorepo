@@ -974,6 +974,10 @@ try {
   person's token is then rejected, the fork **keeps running as `service:api_user`**. A rejected
   token on a `newSession()` leaves a session that can't run any query ("Anonymous access not
   allowed").
+- The interleaving and `forkSession()` hazards above were pinned by two SDK tests, removed in the
+  2026-11-05 test clean-up: our code uses neither pattern, and `request-sessions.int-spec.ts`
+  keeps checking the safe one (a fresh session per request, isolated, cleaned up). Don't reintroduce
+  either pattern; this note is the record.
 - **2.0.8 renewal-timer leak.** A session closed without `invalidate()` leaves its token-renewal
   timer running; at expiry it emits an `error` event on the connection. 2.1.0 cancels it on
   close (surrealdb.js#688). `withPersonSession` always invalidates first. (The SDK-diagnostic

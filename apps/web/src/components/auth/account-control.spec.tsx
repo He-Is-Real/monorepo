@@ -24,12 +24,6 @@ jest.mock('@clerk/react', () => ({
 const mockUseUser = useUser as unknown as jest.Mock;
 
 describe('AccountControl', () => {
-  it('shows nothing interactive while Clerk loads', () => {
-    mockUseUser.mockReturnValue({ isLoaded: false });
-    render(<AccountControl />);
-    expect(screen.queryByRole('button')).toBeNull();
-  });
-
   it('falls back to the email address when there is no name', () => {
     mockUseUser.mockReturnValue({
       isLoaded: true,
@@ -80,14 +74,6 @@ describe('what the submit flow kept in the tab, for anyone but the person signed
     render(<AccountControl />);
     expect(left()).toEqual([]);
     expect(window.sessionStorage.getItem('theme')).toBe('dark');
-  });
-
-  it('a page that loads signed in as B forgets A’s and keeps B’s', () => {
-    keep();
-    mockAuthUserId = 'user_b';
-    mockUseUser.mockReturnValue(signedIn('user_b'));
-    render(<AccountControl />);
-    expect(left()).toEqual(['heisreal:share:user_b:new']);
   });
 
   it('nothing is forgotten while Clerk is still loading', () => {

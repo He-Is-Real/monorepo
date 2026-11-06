@@ -145,11 +145,11 @@ const phase = (page: Page) => page.locator('[data-upload-phase]');
 const alert = (page: Page, text: string) =>
   page.getByRole('alert').filter({ hasText: text });
 
-test('the upload step fits every device, and a video story goes all the way to “waiting for review”', async ({
+test('the upload step fits the screen before and after the upload, with 44 px targets', async ({
   page,
   request,
 }, info) => {
-  const me = await person(page, request);
+  await person(page, request);
   await toUpload(page);
   const fits = async (name: string) => {
     await expectNoHorizontalOverflow(page);
@@ -169,25 +169,6 @@ test('the upload step fits every device, and a video story goes all the way to �
   await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
   await expect(phase(page)).toHaveAttribute('data-upload-phase', 'done');
   await fits('upload-done');
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await step(page, 'Add some details');
-  await page.getByText('Hope', { exact: true }).click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await step(page, 'Review and submit');
-  await expect(page.getByText('Your video', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Submit for review' }).click();
-  await step(page, 'Thank you for sharing your story');
-
-  const [story] = await me.stories();
-  expect(story).toMatchObject({
-    status: 'pending',
-    primaryFormat: 'video',
-    media: [expect.anything()],
-  });
-  const { videos } = await me.uploads();
-  expect(videos).toMatchObject([
-    { story: story.id, length: 256 * 1024, received: 256 * 1024, done: true },
-  ]);
 });
 
 test.describe('behaviour', () => {
@@ -197,6 +178,38 @@ test.describe('behaviour', () => {
       !BEHAVIOUR_DEVICES.includes(info.project.name),
       'one phone and one desktop',
     );
+  });
+
+  test('a video story goes all the way to “waiting for review”, with all of its file', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('Twenty years of searching');
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(clip(info.outputPath('clip.mp4')));
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    await expect(page.getByText('Your video', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await step(page, 'Thank you for sharing your story');
+
+    const [story] = await me.stories();
+    expect(story).toMatchObject({
+      status: 'pending',
+      primaryFormat: 'video',
+      media: [expect.anything()],
+    });
+    const { videos } = await me.uploads();
+    expect(videos).toMatchObject([
+      { story: story.id, length: 256 * 1024, received: 256 * 1024, done: true },
+    ]);
   });
 
   test('shows the upload’s progress, and pauses and resumes it', async ({
@@ -661,6 +674,8 @@ test.describe('behaviour', () => {
       expect([requests, videos.length, videos[0].done]).toEqual([2, 1, true]);
     });
 
+    // One variant is enough: not agreeing to the terms of use takes the same path.
+    if (again.code !== 'testimony_consent_required') continue;
     test(`not agreeing to the ${again.text} for an upload leaves the panel with the reason and a way to try again`, async ({
       page,
       request,

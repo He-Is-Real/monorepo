@@ -13,14 +13,6 @@ const browse = browseStories as jest.Mock;
 describe('loadMoreStories (the browse page’s next page, server-side, D32)', () => {
   beforeEach(() => browse.mockReset());
 
-  it('re-validates what the browser sent', async () => {
-    browse.mockResolvedValue({ data: [], nextCursor: null });
-    await loadMoreStories({ format: 'x', sort: 'relevance' }, 'c');
-    expect(browse).toHaveBeenCalledWith(
-      expect.objectContaining({ format: undefined, sort: 'latest' }),
-    );
-  });
-
   it.each([undefined, 7, '', 'x'.repeat(301)])(
     'refuses cursor %p',
     async (cursor) => {

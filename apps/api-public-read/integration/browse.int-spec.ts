@@ -265,27 +265,6 @@ describe('browse API over the dev dataset', () => {
       expect(JSON.stringify(problem)).not.toContain('aaaaaaaaaa');
     });
 
-    it.each([
-      ['an impossible date', 'latest', '2026-99-99T99:99:99Z'],
-      ['31 February', 'oldest', '2026-02-31T00:00:00Z'],
-    ])(
-      'refuses a forged cursor with %s as a 400, never a 500',
-      async (_, sort, date) => {
-        const { nextCursor } = await page(`/v1/stories?limit=2&sort=${sort}`);
-        const decoded = JSON.parse(
-          Buffer.from(nextCursor as string, 'base64url').toString(),
-        ) as { k: unknown[] };
-        const forged = Buffer.from(
-          JSON.stringify({ ...decoded, k: [date, decoded.k[1]] }),
-        ).toString('base64url');
-        const res = await get(
-          `/v1/stories?limit=2&sort=${sort}&cursor=${forged}`,
-        );
-        expect(res.status).toBe(400);
-        expect(await res.json()).toMatchObject({ code: 'invalid_cursor' });
-      },
-    );
-
     describe('forged relevance scores', () => {
       const withScore = async (score: number) => {
         const { nextCursor } = await page('/v1/stories?q=test&limit=2');
@@ -297,15 +276,6 @@ describe('browse API over the dev dataset', () => {
         ).toString('base64url');
         return get(`/v1/stories?q=test&limit=2&cursor=${forged}`);
       };
-
-      it.each([[1e20], [Number.MAX_SAFE_INTEGER + 1], [9007199254740994]])(
-        'refuses %d as a 400, never a 500',
-        async (score) => {
-          const res = await withScore(score);
-          expect(res.status).toBe(400);
-          expect(await res.json()).toMatchObject({ code: 'invalid_cursor' });
-        },
-      );
 
       it('still takes the largest safe score: the page after it is the whole list', async () => {
         const res = await withScore(Number.MAX_SAFE_INTEGER);
@@ -685,25 +655,6 @@ describe('browse API over the dev dataset', () => {
   });
 
   describe('caching (D51, R13)', () => {
-    const saved = process.env['PUBLIC_RESPONSE_CACHING'];
-    afterEach(() => {
-      if (saved === undefined) delete process.env['PUBLIC_RESPONSE_CACHING'];
-      else process.env['PUBLIC_RESPONSE_CACHING'] = saved;
-    });
-
-    it('lets shared caches keep public reads only when turned on (Go live, D56), 60 seconds in total', async () => {
-      process.env['PUBLIC_RESPONSE_CACHING'] = 'on';
-      passTime(60_000); // nothing from earlier tests in memory: each answer is fresh
-      for (const path of [
-        '/v1/stories?limit=2',
-        '/v1/stories/test-video-vertical-phone/related',
-        '/v1/stories/test-video-vertical-phone',
-      ])
-        expect((await get(path)).headers.get('cache-control')).toBe(
-          'public, max-age=60',
-        );
-    });
-
     it('drops a hidden story from every read once the answers in memory are a minute old', async () => {
       // The newest story, on every first page; PR #61 hides a story by deleting its row.
       const slug = 'test-story-walking-skeleton';

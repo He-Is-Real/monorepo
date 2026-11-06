@@ -1,10 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { newTestClerk } from '../testing';
-import {
-  ClerkConfigError,
-  clerkConfigFromEnv,
-  parseClerkConfig,
-} from './clerk-config';
+import { ClerkConfigError, parseClerkConfig } from './clerk-config';
 
 const clerk = newTestClerk();
 const good = {
@@ -52,20 +48,6 @@ describe('parseClerkConfig', () => {
   ])('refuses %s', (_name, override) => {
     expect(() => parseClerkConfig({ ...good, ...override })).toThrow(
       ClerkConfigError,
-    );
-  });
-});
-
-describe('clerkConfigFromEnv', () => {
-  const saved = { ...process.env };
-  afterEach(() => {
-    process.env = { ...saved };
-  });
-
-  it('fails at startup when a setting is missing', () => {
-    delete process.env['CLERK_ISSUER'];
-    expect(() => clerkConfigFromEnv()).toThrow(
-      'Missing required environment variable CLERK_ISSUER',
     );
   });
 });

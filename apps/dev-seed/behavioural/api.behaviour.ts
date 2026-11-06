@@ -7,12 +7,6 @@ import { API_URL } from './playwright.config';
 const approved = DATASET.stories.filter((s) => s.status === 'approved');
 const unpublished = DATASET.stories.filter((s) => s.status !== 'approved');
 
-test('reports the database up', async ({ request }) => {
-  const res = await request.get(`${API_URL}/health`);
-  expect(res.status()).toBe(200);
-  expect(await res.json()).toMatchObject({ db: 'up' });
-});
-
 test('serves the four legal texts, each with its versions', async ({
   request,
 }) => {

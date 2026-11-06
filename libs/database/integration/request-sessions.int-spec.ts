@@ -6,11 +6,9 @@ import { buildWorld } from './support/world';
 /**
  * How api-user runs ONE PERSON'S session per request without a new connection per request
  * (surrealdb.js 2.0.8, SurrealDB 3.2.4 multi-session WebSocket RPC), with the real
- * `withPersonSession` (src/lib/person-session.ts), and the hazards it avoids:
- *   - newSession(), never forkSession(): a fresh session has no identity, a fork inherits the
- *     service login and KEEPS it if the person's token is rejected;
- *   - one session per request: authenticating requests on one shared session interleaves them.
- * The per-request cost of the alternatives was measured once (docs/db-permissions.md).
+ * `withPersonSession` (src/lib/person-session.ts). The SDK hazards it avoids (forkSession()
+ * keeping the service login, requests interleaving on one shared session) are recorded in
+ * docs/db-permissions.md, "Per-request person sessions"; so is the cost of the alternatives.
  */
 const storyIds = async (db: SurrealSession) =>
   (await rows<{ id: string }>(db, 'SELECT id FROM story'))
@@ -45,17 +43,6 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
       ]);
     } finally {
       await session.closeSession();
-    }
-  });
-
-  it('DANGER: forkSession() inherits the service login and keeps it if the person’s token is rejected', async () => {
-    const fork = await connection.forkSession();
-    try {
-      await expect(fork.authenticate(t.token('user_nobody'))).rejects.toThrow();
-      expect(await rows(fork, 'RETURN $auth')).toEqual(['service:api_user']);
-    } finally {
-      await fork.invalidate();
-      await fork.closeSession();
     }
   });
 
@@ -127,25 +114,5 @@ describe('per-request person sessions on one connection (surrealdb.js)', () => {
     expect(await rows(connection, 'RETURN $auth')).toEqual([
       'service:api_user',
     ]);
-  });
-
-  it('DANGER: authenticating requests on ONE shared session lets them interleave', async () => {
-    // What happens if api-user called authenticate() on its connection (or one session) per
-    // request: request A authenticates, request B authenticates before A queries, A then reads
-    // as B. The auth state belongs to the session, not to the request.
-    const shared = await connection.newSession();
-    try {
-      await shared.use(scope);
-      await shared.authenticate(t.token('user_ann')); // request A
-      await shared.authenticate(t.token('user_bob')); // request B, interleaved
-      expect(await storyIds(shared)).toEqual([
-        'story:bob_draft',
-        'story:bob_live',
-        'story:bob_pending',
-      ]); // request A sees Bob's drafts
-    } finally {
-      await shared.invalidate();
-      await shared.closeSession();
-    }
   });
 });

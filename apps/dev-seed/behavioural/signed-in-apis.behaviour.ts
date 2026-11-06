@@ -8,12 +8,6 @@ for (const [service, url] of [
   ['api-user', API_USER_URL],
   ['api-admin', API_ADMIN_URL],
 ] as const) {
-  test(`${service} reports the database up`, async ({ request }) => {
-    const res = await request.get(`${url}/health`);
-    expect(res.status()).toBe(200);
-    expect(await res.json()).toMatchObject({ service, db: 'up' });
-  });
-
   test(`${service} lets the browser call it from web’s origin only`, async ({
     request,
   }) => {

@@ -9,7 +9,7 @@ useTestClerkEnv();
 
 /**
  * D1: every api-admin route declares its minimum role (@RequiresRole) or @NoRoleRequired(reason);
- * the app refuses to start otherwise (app.module.spec.ts). The declared minimum must equal the contract's
+ * the app refuses to start otherwise (libs/auth role.guard.spec.ts). The declared minimum must equal the contract's
  * `x-required-role` (api-admin.yaml, the source of truth), read from the spec itself.
  */
 describe('api-admin routes and their role policy (D1)', () => {

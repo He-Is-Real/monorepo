@@ -125,6 +125,10 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   schema is split into one file per area. Dev's database is wiped once and rebuilt from scratch
   with its dummy data when this is applied ([#182](https://github.com/He-Is-Real/monorepo/pull/182)).
   Part B (one story table and its history) follows.
+- **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
+  ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
+  and whole browser flows run on one phone and one desktop while every page's "fits the screen"
+  checks still run on all 14 devices ([#186](https://github.com/He-Is-Real/monorepo/pull/186)).
 
 **Left in the M2 plan:**
 

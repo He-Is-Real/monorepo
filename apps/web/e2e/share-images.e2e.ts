@@ -161,23 +161,21 @@ async function toWrite(page: Page) {
   await step(page, 'Write your story');
 }
 
-test('a written story’s picture: previewed at its real shape, described, and uploaded as WebP without its EXIF or GPS', async ({
+test('a written story’s picture is previewed at its real shape, and the step fits the screen', async ({
   page,
   request,
 }) => {
-  const me = await person(page, request);
+  await person(page, request);
   await toWrite(page);
   await page.getByLabel('Title').fill('A picture of where it happened');
   await page
     .getByLabel('Your story')
     .fill('It happened on a hill. '.repeat(10));
-
-  const photo = withExif(await drawn(page, 900, 1200, 'image/jpeg'));
-  for (const marker of MARKERS) expect(photo.includes(marker)).toBe(true);
-  await page
-    .getByLabel('Choose a picture')
-    .setInputFiles({ name: 'hill.jpg', mimeType: 'image/jpeg', buffer: photo });
-
+  await page.getByLabel('Choose a picture').setInputFiles({
+    name: 'hill.jpg',
+    mimeType: 'image/jpeg',
+    buffer: await drawn(page, 900, 1200, 'image/jpeg'),
+  });
   // At its real shape (3:4), before anything is sent.
   const preview = page.locator('[data-picture-preview]');
   await expect(preview.locator('img')).toBeVisible();
@@ -185,26 +183,6 @@ test('a written story’s picture: previewed at its real shape, described, and u
   expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(0.75, 1);
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
-
-  // The description is never required (Joel, 2026-10-30); it can be added afterwards.
-  await page.getByRole('button', { name: 'Add this picture' }).click();
-  await expect(page.getByText('Picture added.')).toBeVisible();
-  await page.getByLabel('Describe the picture').fill('A green hill at dawn');
-  await page.getByRole('button', { name: 'Save description' }).click();
-  await expect(page.getByText('Description saved.')).toBeVisible();
-
-  const { images } = await me.uploads();
-  expect(images).toHaveLength(1);
-  expect(images[0].path).toMatch(
-    new RegExp(`^stories/${images[0].story}/[0-9a-f]{32}\\.webp$`),
-  );
-  const sent = Buffer.from(images[0].bytes ?? '', 'base64');
-  expect(sent.length).toBe(images[0].size);
-  expect(sent.subarray(0, 4).toString('ascii')).toBe('RIFF');
-  expect(sent.subarray(8, 12).toString('ascii')).toBe('WEBP');
-  expect(sent.includes('EXIF')).toBe(false);
-  expect(sent.includes('Exif')).toBe(false);
-  for (const marker of MARKERS) expect(sent.includes(marker)).toBe(false);
 });
 
 test.describe('behaviour', () => {
@@ -214,6 +192,46 @@ test.describe('behaviour', () => {
       !BEHAVIOUR_DEVICES.includes(info.project.name),
       'one phone and one desktop',
     );
+  });
+
+  test('a written story’s picture: described, and uploaded as WebP without its EXIF or GPS', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('A picture of where it happened');
+    await page
+      .getByLabel('Your story')
+      .fill('It happened on a hill. '.repeat(10));
+
+    const photo = withExif(await drawn(page, 900, 1200, 'image/jpeg'));
+    for (const marker of MARKERS) expect(photo.includes(marker)).toBe(true);
+    await page.getByLabel('Choose a picture').setInputFiles({
+      name: 'hill.jpg',
+      mimeType: 'image/jpeg',
+      buffer: photo,
+    });
+
+    // The description is never required (Joel, 2026-10-30); it can be added afterwards.
+    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    await page.getByLabel('Describe the picture').fill('A green hill at dawn');
+    await page.getByRole('button', { name: 'Save description' }).click();
+    await expect(page.getByText('Description saved.')).toBeVisible();
+
+    const { images } = await me.uploads();
+    expect(images).toHaveLength(1);
+    expect(images[0].path).toMatch(
+      new RegExp(`^stories/${images[0].story}/[0-9a-f]{32}\\.webp$`),
+    );
+    const sent = Buffer.from(images[0].bytes ?? '', 'base64');
+    expect(sent.length).toBe(images[0].size);
+    expect(sent.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(sent.subarray(8, 12).toString('ascii')).toBe('WEBP');
+    expect(sent.includes('EXIF')).toBe(false);
+    expect(sent.includes('Exif')).toBe(false);
+    for (const marker of MARKERS) expect(sent.includes(marker)).toBe(false);
   });
 
   test('a picture wider than 3:1 is refused with a plain message, before anything is sent', async ({

@@ -176,7 +176,7 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
   expect((await get('/v1/account')).status()).toBe(401);
   expect((await get('/health')).status()).toBe(200);
   // Download my data (M2 plan PR 12): a session with stories, agreements and a video draft.
-  const session = `export${Date.now()}`;
+  const session = `export-${randomUUID()}`;
   await request.post(`${STUB_USER_URL}/__e2e/sessions/${session}`, {
     data: {
       testimony: 3,
@@ -199,7 +199,7 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
   });
   const mine = { authorization: `Bearer ${fixtureToken(session)}` };
   expect((await get('/v1/account/export', mine)).status()).toBe(200);
-  const failing = `export-fails${Date.now()}`;
+  const failing = `export-fails-${randomUUID()}`;
   expect(
     (
       await get('/v1/account/export', {
@@ -238,7 +238,7 @@ test('the stub api-user’s hearts fit the contract', async ({ request }) => {
     authorization: `Bearer ${fixtureToken(`contract-${randomUUID()}`)}`,
   };
   // Plan 4e: a person on older terms can't add a heart until they agree to the latest.
-  const older = `older-terms-contract${Date.now()}`;
+  const older = `older-terms-contract-${randomUUID()}`;
   await request.post(`${STUB_USER_URL}/__e2e/sessions/${older}`, {
     data: { terms: 0 },
   });
@@ -282,15 +282,17 @@ test('the stub api-user’s hearts fit the contract', async ({ request }) => {
   expect((await send('DELETE', `${list}/browse_01`)).status()).toBe(401);
 });
 
-test('the stub api-user’s submit flow fits the contract, answers and errors', async ({
-  request,
-}) => {
-  const session = `contract${Date.now()}`;
+/**
+ * Calls the stub api-user as a new person of its own (a UUID session, so no other test or repeat
+ * shares it) and checks every answer against api-user.yaml.
+ */
+async function userCaller(request: APIRequestContext, seed: object) {
+  const session = `contract-${randomUUID()}`;
   await request.post(`${STUB_USER_URL}/__e2e/sessions/${session}`, {
-    data: { terms: 0 },
+    data: seed,
   });
   const auth = { authorization: `Bearer ${fixtureToken(session)}` };
-  const call = async (
+  return async (
     method: string,
     path: string,
     {
@@ -317,206 +319,83 @@ test('the stub api-user’s submit flow fits the contract, answers and errors', 
     ).toEqual([]);
     return { status: res.status(), body };
   };
-  const key = () =>
-    `contract-key-${Math.random().toString(36).slice(2)}-xxxxxxxx`;
-  const text = 'A story long enough to submit. '.repeat(8);
+}
+const key = () => `contract-${randomUUID()}`;
+
+// One check per answer the share flow and the profile read. The rules behind them (limits,
+// versions, locking) are the real api-user's, checked in its integration tests.
+test('the stub api-user’s submit flow answers fit the contract', async ({
+  request,
+}) => {
+  const call = await userCaller(request, { terms: 0 });
+  const draft = {
+    title: 'T',
+    primaryFormat: 'written',
+    body: 'A story long enough to submit. '.repeat(8),
+    themeIds: ['hope'],
+  };
+  const create = (data: object = draft) =>
+    call('POST', '/v1/stories', {
+      data,
+      headers: { 'idempotency-key': key() },
+    });
+  const agree = (agreement: string, version: number) =>
+    call('POST', `/v1/account/agreements/${agreement}`, {
+      data: { version },
+    });
 
   expect((await call('GET', '/v1/account/limits')).status).toBe(200);
   expect((await call('GET', '/v1/themes')).status).toBe(200);
-  const draft = { title: 'T', primaryFormat: 'written', body: text };
-  const create = () =>
-    call('POST', '/v1/stories', {
-      data: draft,
-      headers: { 'idempotency-key': key() },
-    });
-  const agree = (agreement: string, data: unknown) =>
-    call('POST', `/v1/account/agreements/${agreement}`, { data });
-  // Plan 4e: on older terms, nothing until the latest is agreed; then the testimony consent.
-  expect((await create()).body.code).toBe('terms_agreement_required');
-  expect((await agree('terms-of-use', { version: 1 })).body.code).toBe(
-    'agreement_version_changed',
-  );
-  expect((await agree('terms-of-use', {})).status).toBe(400);
-  expect((await agree('terms-of-use', { version: 2 })).body).toMatchObject({
-    agreed: { version: 2 },
-    latestVersion: 2,
-    upToDate: true,
-  });
-  expect((await call('GET', '/v1/account')).status).toBe(200);
-  expect((await create()).body.code).toBe('testimony_consent_required');
-  expect((await agree('testimony-consent', { version: 3 })).status).toBe(200);
-  expect(
-    (
-      await call('POST', '/v1/stories', {
-        data: { title: ' ' },
-        headers: { 'idempotency-key': key() },
-      })
-    ).status,
-  ).toBe(400);
-  const created = await call('POST', '/v1/stories', {
-    data: draft,
-    headers: { 'idempotency-key': key() },
-  });
+  // A refusal with a code (the agree-again screen reads it), then the agreements.
+  expect((await create()).status).toBe(403);
+  expect((await agree('terms-of-use', 2)).status).toBe(200);
+  expect((await agree('testimony-consent', 3)).status).toBe(200);
+  // A refusal with field errors (the form reads their pointers).
+  expect((await create({ title: ' ' })).status).toBe(400);
+  const created = await create();
   expect(created.status).toBe(201);
   const id = created.body.id;
   expect((await call('GET', '/v1/account/stories?status=draft')).status).toBe(
     200,
   );
   expect((await call('GET', `/v1/account/stories/${id}`)).status).toBe(200);
-  expect((await call('GET', '/v1/account/stories/none')).status).toBe(404);
-  const patch = (version?: number, data: object = { themeIds: ['hope'] }) =>
-    call('PATCH', `/v1/stories/${id}`, {
-      data,
-      headers: {
-        'content-type': 'application/merge-patch+json',
-        ...(version ? { 'if-match': `"${version}"` } : {}),
-      },
-    });
-  expect((await patch()).status).toBe(428);
-  expect((await patch(1, { body: ' ' })).status).toBe(400);
-  expect((await patch(1)).status).toBe(200);
-  expect((await patch(1)).status).toBe(412);
-  const submit = (version: number, data?: unknown, k = key()) =>
-    call('POST', `/v1/stories/${id}/submit`, {
-      headers: { 'if-match': `"${version}"`, 'idempotency-key': k },
-      data,
-    });
-  expect((await submit(1)).status).toBe(412);
-  // Plan 4e: the social media sharing box ticked on Review goes with the submission (both or
-  // neither), on the latest version only.
-  const socialMediaSharingConsent = { version: 1 };
-  expect((await submit(2, { socialMediaSharingConsent: true })).status).toBe(
-    400,
-  );
-  expect(
-    (await submit(2, { socialMediaSharingConsent: { version: 0 } })).body.code,
-  ).toBe('agreement_version_changed');
-  expect(
-    (await call('GET', `/v1/account/stories/${id}`)).body
-      .socialMediaSharingConsent,
-  ).toBeNull();
-  const submitKey = key();
-  expect(
-    (await submit(2, { socialMediaSharingConsent }, submitKey)).status,
-  ).toBe(200);
-  expect(
-    (await submit(2, { socialMediaSharingConsent }, submitKey)).status,
-  ).toBe(200); // replayed
-  expect((await submit(2, undefined, submitKey)).status).toBe(422);
-  expect(
-    (await call('GET', `/v1/account/stories/${id}`)).body
-      .socialMediaSharingConsent,
-  ).toMatchObject({ version: 1 });
-  expect((await patch(3)).status).toBe(409); // locked once submitted
-  const second = await call('POST', '/v1/stories', {
-    data: { ...draft, themeIds: ['hope'] },
-    headers: { 'idempotency-key': key() },
+  const patched = await call('PATCH', `/v1/stories/${id}`, {
+    data: { description: 'About it' },
+    headers: {
+      'content-type': 'application/merge-patch+json',
+      'if-match': '"1"',
+    },
   });
-  const weekly = await call('POST', `/v1/stories/${second.body.id}/submit`, {
-    headers: { 'if-match': '"1"', 'idempotency-key': key() },
+  expect(patched.status).toBe(200);
+  const submitted = await call('POST', `/v1/stories/${id}/submit`, {
+    data: { socialMediaSharingConsent: { version: 1 } },
+    headers: {
+      'if-match': `"${patched.body.version}"`,
+      'idempotency-key': key(),
+    },
   });
-  expect(weekly).toMatchObject({
-    status: 409,
-    body: { code: 'weekly_submission_limit_reached' },
+  expect(submitted.status).toBe(200);
+  const withdrawn = await call('POST', `/v1/stories/${id}/withdraw`, {
+    headers: { 'if-match': `"${submitted.body.version}"` },
   });
-  const short = await call('POST', '/v1/stories', {
-    data: { ...draft, body: 'Short', themeIds: ['hope'] },
-    headers: { 'idempotency-key': key() },
-  });
+  expect(withdrawn.status).toBe(200);
   expect(
     (
-      await call('POST', `/v1/stories/${short.body.id}/submit`, {
-        headers: { 'if-match': '"1"', 'idempotency-key': key() },
+      await call('DELETE', `/v1/stories/${id}`, {
+        headers: { 'if-match': `"${withdrawn.body.version}"` },
       })
-    ).body.code,
-  ).toBe('story_text_too_short');
-  await call('POST', '/v1/stories', {
-    data: draft,
-    headers: { 'idempotency-key': key() },
-  }); // the third open draft
-  const limit = await call('POST', '/v1/stories', {
-    data: draft,
-    headers: { 'idempotency-key': key() },
-  });
-  expect(limit).toMatchObject({
-    status: 409,
-    body: { code: 'draft_limit_reached' },
-  });
-  // With 3 drafts and a submission this week, as the page reads it.
-  expect((await call('GET', '/v1/account/limits')).body).toMatchObject({
-    openDrafts: { max: 3, open: 3 },
-    submissions: {
-      per7Days: 1,
-      usedIn7Days: 1,
-      nextAvailableAt: expect.any(String),
-    },
-  });
-
-  // The profile (M2 plan PR 8): withdraw the submitted story, delete it and a draft.
-  const withdraw = (story: string, version?: number) =>
-    call('POST', `/v1/stories/${story}/withdraw`, {
-      headers: version ? { 'if-match': `"${version}"` } : {},
-    });
-  const remove = (story: string, version?: number) =>
-    call('DELETE', `/v1/stories/${story}`, {
-      headers: version ? { 'if-match': `"${version}"` } : {},
-    });
-  expect((await remove(id, 3)).status).toBe(409); // pending: withdraw it first
-  expect((await withdraw(id)).status).toBe(428);
-  expect((await withdraw(id, 2)).status).toBe(412);
-  expect((await call('GET', '/v1/account/export')).status).toBe(200);
-  expect((await withdraw(id, 3)).status).toBe(200);
-  expect((await withdraw(id, 4)).status).toBe(409);
-  expect((await remove(id, 4)).status).toBe(204);
-  expect((await remove(id, 4)).status).toBe(404);
-  expect((await withdraw(short.body.id, 1)).status).toBe(409); // a draft
-  expect((await remove(short.body.id, 1)).status).toBe(204);
-  // Erasure (M2 plan PR 11): the account goes, and its token gets 401 from then on.
+    ).status,
+  ).toBe(204);
   expect((await call('DELETE', '/v1/account')).status).toBe(202);
-  expect((await call('GET', '/v1/account')).status).toBe(401);
-  expect((await call('DELETE', '/v1/account')).status).toBe(401);
 });
 
-test('the stub api-user’s uploads fit the contract, answers and errors (M2 plan PR 7)', async ({
+test('the stub api-user’s upload answers fit the contract (M2 plan PR 7)', async ({
   request,
 }) => {
-  const session = `contractup${Date.now()}`;
-  await request.post(`${STUB_USER_URL}/__e2e/sessions/${session}`, {
-    data: {
-      testimony: 3,
-    },
-  });
-  const auth = { authorization: `Bearer ${fixtureToken(session)}` };
-  const call = async (
-    method: string,
-    path: string,
-    {
-      data,
-      headers = {},
-    }: { data?: unknown; headers?: Record<string, string> } = {},
-  ) => {
-    const res = await request.fetch(`${STUB_USER_URL}${path}`, {
-      method,
-      headers: { ...auth, ...headers },
-      data,
-    });
-    const text = await res.text();
-    const body = text === '' ? undefined : JSON.parse(text);
-    expect(
-      userContract.problems({
-        method,
-        path,
-        status: res.status(),
-        contentType: res.headers()['content-type'] ?? null,
-        body,
-      }),
-      `${method} ${path} ${res.status()}`,
-    ).toEqual([]);
-    return { status: res.status(), body };
-  };
+  const call = await userCaller(request, { testimony: 3 });
   const created = await call('POST', '/v1/stories', {
     data: { title: 'My video', primaryFormat: 'video', themeIds: ['hope'] },
-    headers: { 'idempotency-key': `contract-up-${Date.now()}-xxxxxxxx` },
+    headers: { 'idempotency-key': key() },
   });
   expect(created.status).toBe(201);
   const id = created.body.id;
@@ -526,53 +405,24 @@ test('the stub api-user’s uploads fit the contract, answers and errors (M2 pla
     fileSizeBytes: 1000,
     durationSeconds: 3,
   };
-  let n = 0;
-  const upload = (
-    version: number | undefined,
-    data: object = file,
-    key = `contract-upl-${Date.now()}-${++n}-xxxx`,
-  ) =>
+  const upload = (data: object) =>
     call('POST', `/v1/stories/${id}/upload-url`, {
       data,
-      headers: {
-        'idempotency-key': key,
-        ...(version ? { 'if-match': `"${version}"` } : {}),
-      },
+      headers: { 'idempotency-key': key(), 'if-match': '"1"' },
     });
-  expect((await upload(undefined)).status).toBe(428);
-  expect((await upload(1, { ...file, fileSizeBytes: 5e9 })).status).toBe(400);
-  expect((await upload(1, { ...file, resume: true })).body.code).toBe(
-    'nothing_to_resume',
-  );
-  const key = `contract-upload-${Date.now()}-xxxx`;
-  const target = await upload(1, file, key);
-  expect(target).toMatchObject({ status: 200, body: { version: 2 } });
-  // The same key again (a lost answer's retry) replays it; another key at the old version is 412.
-  expect((await upload(1, file, key)).body).toEqual(target.body);
-  expect((await upload(1, { ...file, fileSizeBytes: 9 }, key)).status).toBe(
-    422,
-  );
-  expect((await upload(1)).status).toBe(412);
-  expect((await upload(2, { ...file, resume: true })).body.version).toBe(2);
-  // The file hasn't arrived: submit says so.
+  expect((await upload({ ...file, resume: true })).status).toBe(409);
+  const target = await upload(file);
+  expect(target.status).toBe(200);
+  // Submitting before the file has arrived: a refusal the upload step reads.
   const early = await call('POST', `/v1/stories/${id}/submit`, {
     headers: {
-      'if-match': '"2"',
-      'idempotency-key': `contract-sub-${Date.now()}-xxxx`,
+      'if-match': `"${target.body.version}"`,
+      'idempotency-key': key(),
     },
   });
-  expect(early).toMatchObject({
-    status: 409,
-    body: { code: 'media_not_uploaded' },
-  });
-  expect(
-    (await call('GET', `/v1/account/stories/${id}`)).body.media,
-  ).toHaveLength(1);
-  expect((await call('GET', '/v1/account/limits')).body.uploads).toMatchObject({
-    perHour: 10,
-    per7Days: 5,
-    usedIn7Days: 1,
-  });
+  expect(early.status).toBe(409);
+  expect((await call('GET', `/v1/account/stories/${id}`)).status).toBe(200);
+  expect((await call('GET', '/v1/account/limits')).status).toBe(200);
 });
 
 // Plan 4e: the stub api-admin's legal texts (/admin/consent) answer as api-admin.yaml says.
