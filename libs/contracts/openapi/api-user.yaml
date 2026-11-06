@@ -63,7 +63,7 @@ tags:
   - name: Community
     description: '"This helped me" and concerns.'
   - name: Webhooks
-    description: 'Inbound from Clerk and Stripe. Signature-verified, no Clerk JWT.'
+    description: 'Inbound from Clerk, Bunny and Stripe. Signature-verified, no Clerk JWT.'
 
 paths:
   /health:
@@ -1041,6 +1041,74 @@ paths:
           description: Acknowledged (including duplicates, and events other than `user.deleted`).
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/webhooks/bunny:
+    post:
+      tags: [Webhooks]
+      operationId: bunnyWebhook
+      summary: Bunny Stream video events (queues a media-ready check)
+      description: |
+        Media ready (M2 plan item 13, D78). Bunny Stream posts each video's events here (the library's
+        webhook address). Verified, not a Clerk JWT: `X-BunnyStream-Signature` must be the lowercase hex
+        HMAC-SHA256 of the exact body, keyed with the library's read-only API key, with version `v1` and
+        algorithm `hmac-sha256`; anything else answers `401` (Bunny doesn't retry it). Only our library's
+        `Status` 3 (finished) and 5 (failed) for a video are acted on: api-user puts a job
+        (`{ videoId, eventId }`, `MediaJob` in `worker.yaml`) on the `media-jobs` queue and answers `200`
+        once the queue has it. Every other event is acknowledged with `200` and ignored. Nothing is
+        stored here: the media worker asks Bunny itself and the result writer records the answer.
+        `503` while the read-only key isn't set or the queue can't take the job (Bunny retries for about
+        4 hours). Redeliveries are harmless (each job means "look at Bunny now").
+      security: []
+      x-milestone: M2
+      parameters:
+        - name: X-BunnyStream-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+        - name: X-BunnyStream-Signature-Version
+          in: header
+          required: true
+          schema:
+            type: string
+            const: v1
+        - name: X-BunnyStream-Signature-Algorithm
+          in: header
+          required: true
+          schema:
+            type: string
+            const: hmac-sha256
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Bunny's video event (https://bunny.net/docs/stream-webhook).
+              properties:
+                VideoLibraryId:
+                  type: integer
+                VideoGuid:
+                  type: string
+                Status:
+                  type: integer
+                  description: 3 finished and 5 failed are acted on; every other status is ignored.
+                EventId:
+                  type: string
+                  description: The same on every redelivery.
+                Timestamp:
+                  type: string
+                  format: date-time
+                IsLiveStreamWebhook:
+                  type: boolean
+      responses:
+        '200':
+          description: Acknowledged; for a finished or failed video of our library, the job is queued.
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 

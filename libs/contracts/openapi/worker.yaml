@@ -19,13 +19,20 @@ info:
     - Handlers are idempotent (at-least-once delivery), keyed on `(storyId, jobType)`. A stored story is
       processed only after a fresh consent-ledger check (D21).
     - Paths are under `/v1` except `/health` (D30); errors are RFC 9457 `application/problem+json`.
+
+    **Media ready (M2 plan item 13; D78, D129).** Built now, ahead of the M7 jobs above. api-user's
+    Bunny webhook publishes a `MediaJob` to Pub/Sub topic `media-jobs`; the media worker (Dapr's
+    Pub/Sub building block only, off Google Cloud, outbound only) pulls it, asks Bunny itself and
+    publishes a `MediaResult` to `media-results`, with the video id as the ordering key. Pub/Sub pushes
+    each answer to the result writer (`workflow` on Cloud Run, private), `POST /v1/media-results`.
+    Messages are JSON in the message's `data` (no CloudEvents envelope).
   contact:
     name: He Is Real Today
     url: https://www.heisreal.today
 
 servers:
   - url: https://workflow.internal
-    description: 'workflow (GKE, internal only)'
+    description: 'workflow: the media result writer (Cloud Run, internal traffic only)'
   - url: https://inference-worker.internal
     description: 'inference-worker (on-prem and GKE, internal only)'
 
@@ -37,6 +44,8 @@ tags:
     description: 'Liveness and readiness.'
   - name: Jobs
     description: 'Async jobs (M7).'
+  - name: Media ready
+    description: "The media worker's answers about Bunny videos (M2)."
 
 paths:
   /health:
@@ -51,6 +60,38 @@ paths:
           $ref: './components.yaml#/components/responses/Health'
         '503':
           $ref: './components.yaml#/components/responses/HealthDown'
+
+  /v1/media-results:
+    post:
+      tags: [Media ready]
+      operationId: writeMediaResult
+      summary: Record the media worker's answer about one Bunny video (Pub/Sub push)
+      description: |
+        Pub/Sub's push of one `media-results` message (subscription `media-results-writer`). The answer
+        is written to the storyFile row of that video, signed in as `service:workflow`, only while its
+        story still shows it (unknown, replaced and removed videos, and a `ready` answer whose `title`
+        isn't the story's id, are dropped), and only what differs (a repeated answer writes nothing).
+        `ready` sets `processing` and, for a video, its width, height, length and Bunny's thumbnail;
+        for an audio file only its length (its picture comes from the default-picture step). `encoding`
+        sets `processing` to `processing`; `failed` and `gone` set `failed`. The database then hides an
+        approved story whose file isn't ready and shows it again when the same file is.
+        Any `2xx` acknowledges; anything else is retried and after 5 tries dead-lettered.
+      security:
+        - pubsubPushOidc: []
+      x-milestone: M2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PubSubPush'
+      responses:
+        '204':
+          description: Written, already so, or dropped as not a file any story shows now.
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/tasks/{job}:
     post:
@@ -105,7 +146,74 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Google-signed OIDC token (Cloud Tasks fallback), verified against the worker service account.
+    pubsubPushOidc:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Google-signed OIDC token of the `media-results-push` service account, checked by Cloud Run (run.invoker).
   schemas:
+    MediaJob:
+      type: object
+      description: 'A job on `media-jobs`: go and look at this Bunny video. JSON in the message data.'
+      required: [videoId]
+      properties:
+        videoId:
+          type: string
+          description: The Bunny video id (a GUID).
+        eventId:
+          type: string
+          description: Bunny's webhook event id, for the logs.
+    MediaResult:
+      type: object
+      description: |
+        The media worker's answer on `media-results` (ordering key: the video id). JSON in the message
+        data. `ready` needs every fact below; the others carry only the ids.
+      required: [videoId, outcome]
+      properties:
+        videoId:
+          type: string
+          description: The Bunny video id (a GUID).
+        eventId:
+          type: string
+        outcome:
+          type: string
+          enum: [ready, failed, encoding, gone]
+        title:
+          type: string
+          description: The video's title at Bunny, which is its story's id (D69).
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        lengthSeconds:
+          type: integer
+          minimum: 1
+        thumbnailFileName:
+          type: string
+          description: Bunny's thumbnail file in the video's folder, e.g. `thumbnail.jpg`.
+    PubSubPush:
+      type: object
+      description: Pub/Sub's push body; `message.data` is a base64 `MediaResult`.
+      required: [message]
+      properties:
+        message:
+          type: object
+          required: [data]
+          properties:
+            data:
+              type: string
+              contentEncoding: base64
+              contentMediaType: application/json
+              contentSchema:
+                $ref: '#/components/schemas/MediaResult'
+            messageId:
+              type: string
+            orderingKey:
+              type: string
+        subscription:
+          type: string
     WorkflowJob:
       type: object
       description: Payload of a `workflow` job.

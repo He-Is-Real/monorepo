@@ -10,6 +10,7 @@ import { AccountModule } from './account/account.controller';
 import { ErasureModule } from './erasure/erasure.module';
 import { ExportModule } from './export/export.controller';
 import { FavouritesModule } from './favourites/favourites.controller';
+import { BunnyWebhookModule } from './media/bunny-webhook';
 import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
 
 @Module({
@@ -27,6 +28,9 @@ import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
     // M2 plan PR 11: erasure for "Delete my account" and Clerk's user.deleted webhook (D39, D40,
     // D82).
     ErasureModule,
+    // Media ready (M2 plan item 13, D78): Bunny's "finished"/"failed" notices, checked and queued
+    // on media-jobs for the media worker.
+    BunnyWebhookModule,
     // The account bootstrap, agreeing (plan 4e) and "Delete my account".
     AccountModule,
     // Hearts (M2). Their cards carry signed thumbnail and image links, signed like
