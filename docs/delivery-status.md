@@ -147,15 +147,18 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   through: slow work (submit, upload links, "Download my data") always runs on a fresh pass that
   api-user gets from Clerk for the same sign-in (Joel's decision T, option B, re-approved
   2026-11-06; [#165](https://github.com/He-Is-Real/monorepo/pull/165)).
+- Browse and favourites cards barely move once the page has measured them: the server guesses
+  each card's height for every narrow band of list widths, wrapping text with the site font's
+  real letter widths, and a wrong guess can only hide a card's last line for a moment, never
+  overlap the next card. Without JavaScript the cards show in one column (Joel's option B,
+  re-approved 2026-11-06; [#163](https://github.com/He-Is-Real/monorepo/pull/163)).
 
 **In progress (open pull requests):**
 
-- Browse and favourites cards barely move once the page has measured them
-  ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
-- The video bundle ([#160](https://github.com/He-Is-Real/monorepo/pull/160)) is being redesigned on the new
-  file records: a video's own picture set at Bunny by the media-ready service, 7-day "Download
-  my data" links, and how people download their video
-  (`project/context/research/video-bundle-rethink.html`, waiting on Joel).
+- The video bundle ([#160](https://github.com/He-Is-Real/monorepo/pull/160), closed) is rebuilt on the new file
+  records (Joel, 2026-11-06, `project/context/research/video-bundle-rethink.html`): "Download my
+  data" links last 7 days and give each video as Bunny's MP4 copy (no originals kept); a video's
+  own picture is set at Bunny by the media-ready service. Being built.
 
 **Left in the M2 plan:**
 
