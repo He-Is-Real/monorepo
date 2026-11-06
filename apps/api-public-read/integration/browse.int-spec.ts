@@ -382,6 +382,50 @@ describe('browse API over the dev dataset', () => {
       expect(new Set(all).size).toBe(all.length);
     });
 
+    // The reproduction from Codex's #187 review: with search over the story table, a private
+    // draft being created or deleted moved published stories' scores, so the relevance cursor
+    // (and sometimes the order) changed under a visitor. Search option A (Joel, 2026-11-06):
+    // scores are computed over published stories only.
+    it('keeps best-match pages, scores and cursors the same while drafts come and go', async () => {
+      const pages = async () => {
+        const out: Page[] = [];
+        let cursor: string | null = null;
+        do {
+          passTime(61_000); // past the answer cache
+          const p = await page(
+            `/v1/stories?q=test&sort=relevance&limit=3${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+          );
+          out.push(p);
+          cursor = p.nextCursor;
+        } while (cursor);
+        return out;
+      };
+      const before = await pages();
+      expect(before.length).toBeGreaterThan(1);
+      const migrator = await t.migrator();
+      const person = DATASET.stories[0].submitter;
+      for (let i = 0; i < 5; i++) {
+        await run(
+          migrator,
+          `CREATE type::record('story', $id) CONTENT {
+             submitter: type::record('user', $person), slug: $id, title: 'test test test',
+             description: 'A test draft', body: $body, primaryFormat: 'written',
+             themeRefs: [] }`,
+          {
+            id: `draft-test-${i}`,
+            person,
+            body: `test ${'test words '.repeat(30)}`,
+          },
+        );
+      }
+      expect(await pages()).toEqual(before);
+      await run(
+        migrator,
+        `DELETE story WHERE string::starts_with(slug, 'draft-test-')`,
+      );
+      expect(await pages()).toEqual(before);
+    });
+
     it('sorts search results by date when asked', async () => {
       const ids = await search('test', '&sort=latest&limit=4');
       expect(ids).toEqual(latestFirst.filter((id) => ids.includes(id)));

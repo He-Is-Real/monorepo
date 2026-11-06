@@ -270,6 +270,11 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
   More stories load on their own as the reader nears the end, to the end of the list, with an end
   message. Without JavaScript there is a link to the next page. (D55)
+- **Search looks at published stories only.** Its "best match" order compares each story only
+  with the other published stories, so drafts and unpublished stories can never change a score,
+  the order or where "load more" carries on. The database keeps the published stories' words in
+  their own search table and updates it in the same step as a story is published or stops being
+  published. (Search option A, Joel 2026-11-06)
 - **Themes** are grouped in categories that admins manage. One category, "Other", is fixed: it
   can't be renamed or deleted and takes the themes of a deleted category. A theme with no
   published stories is hidden unless it is highlighted. (D130, D63)

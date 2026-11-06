@@ -36,10 +36,16 @@ const PREAMBLE = `
   LET $th = IF $theme != NONE AND record::exists(type::record('theme', $theme)) { $theme };
   LET $at = IF $after != NONE AND $sort != 'relevance' { <datetime> $after.key };
   LET $afterId = IF $after != NONE { type::record('story', $after.id) };`;
+/**
+ * Search (option A, Joel 2026-11-06): the published stories whose words match, with their BM25
+ * score, from storySearch, which holds published stories only, so drafts never count towards a
+ * score. Only in the search variants.
+ */
+const HITS = `
+  LET $hits = SELECT story, search::score(1) AS score FROM storySearch WHERE text @1@ $q;`;
 // An unknown theme id ($th NONE) filters nothing (themes plan v3, A8). themeIds, not themeRefs:
 // 3.2.4's CONTAINS over an element index on record links finds nothing (docs/db-permissions.md, "SurrealDB 3.2.4 gotchas").
 const FILTERS = `currentStatus.status = 'approved' AND ($format = NONE OR primaryFormat = $format) AND ($th = NONE OR themeIds CONTAINS $th)`;
-const SEARCH = `searchText @1@ $q`;
 
 /**
  * Newest or oldest first by publish date (the current approved status entry's publishedAt);
@@ -49,19 +55,20 @@ const SEARCH = `searchText @1@ $q`;
  */
 const byDate = (direction: 'DESC' | 'ASC', search: boolean) => {
   const past = direction === 'DESC' ? '<' : '>';
-  return `${PREAMBLE}
-  SELECT ${SUMMARY_FIELDS} FROM story
-  WHERE ${FILTERS}${search ? ` AND ${SEARCH}` : ''}
+  return `${PREAMBLE}${search ? HITS : ''}
+  SELECT ${SUMMARY_FIELDS} FROM ${search ? '$hits.story' : 'story'}
+  WHERE ${FILTERS}
     AND ($at = NONE OR currentStatus.publishedAt ${past} $at
       OR (currentStatus.publishedAt = $at AND id ${past} $afterId))
   ORDER BY publishedAt ${direction}, id ${direction} LIMIT $take;`;
 };
 
 /** Best BM25 score first, then id. */
-const BY_RELEVANCE = `${PREAMBLE}
+const BY_RELEVANCE = `${PREAMBLE}${HITS}
+  LET $scores = object::from_entries($hits.map(|$h| [record::id($h.story), $h.score]));
   SELECT * FROM (
-    SELECT ${SUMMARY_FIELDS}, search::score(1) AS score FROM story
-    WHERE ${FILTERS} AND searchText @1@ $q
+    SELECT ${SUMMARY_FIELDS}, $scores[record::id(id)] AS score FROM $hits.story
+    WHERE ${FILTERS}
   )
   WHERE $after = NONE OR score < $after.key OR (score = $after.key AND id < $after.id)
   ORDER BY score DESC, id DESC LIMIT $take;`;

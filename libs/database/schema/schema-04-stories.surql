@@ -141,16 +141,6 @@ DEFINE FIELD OVERWRITE slugHistory   ON story TYPE array<string>
 -- fields can't be indexed the same way (db review 2, section 6).
 DEFINE FIELD OVERWRITE themeIds      ON story TYPE array<string>
   VALUE (themeRefs ?? []).map(|$t| record::id($t));
--- A full-text index covers one field, so search goes over a computed field. Only an approved
--- story's words (NONE otherwise, recomputed by the write that moves its status pointer): BM25's
--- scores, which the public sees in a relevance cursor, are computed over everything the index
--- holds, so unpublished words in it could be inferred from them (security review, B1). Defined
--- after currentStatus, so it reads the pointer this write sets.
-DEFINE FIELD OVERWRITE searchText    ON story TYPE option<string>
-  VALUE IF $this.currentStatus.status = 'approved' {
-    string::join(' ', title, description, body ?? '')
-  }
-  PERMISSIONS FOR select WHERE $auth != service:housekeeping;
 -- R6: a story's status (a story value already read, e.g. $before / $after in events): its
 -- newest status entry's, or 'draft' with none.
 DEFINE FUNCTION OVERWRITE fn::story::status_of($s: any) {
@@ -612,8 +602,46 @@ DEFINE INDEX OVERWRITE story_submitter ON story FIELDS submitter, createdAt;
 -- the array is never used (EXPLAIN on 3.2.4, 2026-11-05: a table scan).
 DEFINE INDEX OVERWRITE story_slughist  ON story FIELDS slugHistory.*;
 DEFINE INDEX OVERWRITE story_theme_ids ON story FIELDS themeIds.*;     -- D63
-DEFINE INDEX OVERWRITE story_fts       ON story FIELDS searchText
+-- No search index on story: search goes over storySearch (below), which holds published stories'
+-- words only.
+
+-- ---------------------------------------------------------------- storySearch (search option A)
+-- Search option A (Joel, 2026-11-06; search-drafts-decision.html): one row per PUBLISHED story,
+-- holding only its search words (title, description, text) and the story it belongs to; id =
+-- storySearch:<the story's key>. The full-text index lives here, so BM25's scores and the
+-- "best match" order are computed over published stories only: a draft being created or deleted
+-- can't move a score or a page (Codex, #187 review). It is not a public copy of the story: only
+-- the words, which the public already reads on the story.
+-- The database alone writes it (story_search, below), in the same write that publishes the story
+-- or stops it being published (withdrawn, hidden, rejected, deleted, erased): no service path can
+-- forget it. Everyone may read a row only while its story is published now (the story's own row
+-- rule); nobody writes one directly.
+DEFINE TABLE OVERWRITE storySearch SCHEMAFULL PERMISSIONS
+  FOR select WHERE story.currentStatus.status = 'approved',
+  FOR create, update, delete NONE;
+DEFINE FIELD OVERWRITE story ON storySearch TYPE record<story> READONLY;
+DEFINE FIELD OVERWRITE text  ON storySearch TYPE string;
+DEFINE INDEX OVERWRITE storySearch_fts ON storySearch FIELDS text
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
+-- A published story's words are in storySearch; any other story's are not. Runs on every write
+-- that changes the status pointer or the words (events run elevated), and on delete (erasure,
+-- DeleteStory, housekeeping).
+DEFINE EVENT OVERWRITE story_search ON story
+  WHEN $event = 'DELETE' OR ($event = 'UPDATE' AND (
+    fn::story::status_of($before) != fn::story::status_of($after)
+    OR $before.title != $after.title OR $before.description != $after.description
+    OR $before.body != $after.body))
+  THEN {
+    LET $id = IF $event = 'DELETE' { $before.id } ELSE { $after.id };
+    LET $row = type::record('storySearch', record::id($id));
+    IF $event != 'DELETE' AND fn::story::status_of($after) = 'approved' {
+      LET $text = string::join(' ', $after.title, $after.description, $after.body ?? '');
+      IF record::exists($row) { UPDATE $row SET text = $text RETURN NONE }
+      ELSE { CREATE $row SET story = $id, text = $text RETURN NONE };
+    } ELSE {
+      DELETE $row RETURN NONE;
+    };
+  };
 
 -- ---------------------------------------------------------------- storyStatusLog (R6)
 -- The story's status log (Joel, 2026-11-05): everything that happens to a story's status is a

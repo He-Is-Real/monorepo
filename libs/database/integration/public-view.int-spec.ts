@@ -322,7 +322,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       expect(
         await rows(
           db,
-          `SELECT VALUE id FROM story WHERE searchText @1@ 'story' ORDER BY id`,
+          `SELECT VALUE story FROM storySearch WHERE text @1@ 'story' ORDER BY story`,
         ),
       ).toEqual(['story:ann_live', 'story:bob_live']);
     },
@@ -372,6 +372,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     'storyStatusLog',
     'story',
     'storyFile',
+    'storySearch',
   ])('counting %s without a WHERE applies its row rule', async (table) => {
     const count = async (db: Surreal, sql: string) =>
       (await rows<{ count: number }>(db, sql))[0]?.count ?? 0;
@@ -386,14 +387,14 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     expect(
       await rows(
         migrator,
-        `SELECT VALUE id FROM story WHERE searchText != NONE ORDER BY id`,
+        `SELECT VALUE story FROM storySearch ORDER BY story`,
       ),
     ).toEqual(['story:ann_live', 'story:bob_live']);
     // A draft's own words find nothing, whoever searches (the system user included).
     expect(
       await rows(
         migrator,
-        `SELECT VALUE id FROM story WHERE searchText @1@ 'ann_draft'`,
+        `SELECT VALUE story FROM storySearch WHERE text @1@ 'ann_draft'`,
       ),
     ).toEqual([]);
   });

@@ -33,6 +33,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   submitterLimits: 'linked', // user (D112: limits, trusted mark)
   submissionLog: 'linked', // person (D113: recent submissions)
   storyFile: 'linked', // person, story (D80, R12: the files api-user made for them)
+  storySearch: 'linked', // story → submitter (search option A: a published story's words)
   submissionSettings: 'none', // the limits an admin sets (W3, D112)
   // D82: the sha256 of an erased Clerk id, so it never gets a row again; no link, no date.
   erasedIdentity: 'kept',
@@ -142,6 +143,28 @@ const LINKED: Record<string, LinkedCase> = {
         if (!o.ok) throw new Error(o.error);
       }),
     landed: (c) => `SELECT VALUE id FROM storyFile WHERE person = user:${c.p}`,
+  },
+  storySearch: {
+    // Written by story_search when a moderator approves the person's story (search option A).
+    setup: async (c) => {
+      await run(
+        c.migrator,
+        `UPSERT submitterLimits:${c.p} SET user = user:${c.p}, trusted = true`,
+      );
+      await draft(c.person, `${c.p}_sr`);
+      await submit(c.person, `${c.p}_sr`);
+      await run(
+        c.admin,
+        `CREATE storyStatusLog CONTENT { story: story:${c.p}_sr, status: 'in_review', by: user:moderator }`,
+      );
+    },
+    writer: (c) => c.admin,
+    write: (c, db) =>
+      run(
+        db(c),
+        `CREATE storyStatusLog CONTENT { story: story:${c.p}_sr, status: 'approved', by: user:moderator }`,
+      ),
+    landed: (c) => `SELECT VALUE id FROM storySearch:${c.p}_sr`,
   },
   submissionLog: {
     // Written by story_limits when the person first submits a story. livePerson's own
