@@ -30,7 +30,7 @@
 
 DEFINE TABLE OVERWRITE termsOfUseAgreement SCHEMAFULL PERMISSIONS
   FOR select FULL,
-  FOR create WHERE $auth.id = service:api_admin,
+  FOR create WHERE $auth = service:api_admin,
   FOR update, delete NONE;
 DEFINE FIELD OVERWRITE content      ON termsOfUseAgreement TYPE string
   ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 100000;
@@ -42,7 +42,7 @@ DEFINE EVENT OVERWRITE termsOfUseAgreement_kept ON termsOfUseAgreement
 
 DEFINE TABLE OVERWRITE testimonyConsent SCHEMAFULL PERMISSIONS
   FOR select FULL,
-  FOR create WHERE $auth.id = service:api_admin,
+  FOR create WHERE $auth = service:api_admin,
   FOR update, delete NONE;
 DEFINE FIELD OVERWRITE content      ON testimonyConsent TYPE string
   ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 100000;
@@ -54,7 +54,7 @@ DEFINE EVENT OVERWRITE testimonyConsent_kept ON testimonyConsent
 
 DEFINE TABLE OVERWRITE socialMediaSharingConsent SCHEMAFULL PERMISSIONS
   FOR select FULL,
-  FOR create WHERE $auth.id = service:api_admin,
+  FOR create WHERE $auth = service:api_admin,
   FOR update, delete NONE;
 DEFINE FIELD OVERWRITE content      ON socialMediaSharingConsent TYPE string
   ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 100000;
@@ -66,7 +66,7 @@ DEFINE EVENT OVERWRITE socialMediaSharingConsent_kept ON socialMediaSharingConse
 
 DEFINE TABLE OVERWRITE privacyNotice SCHEMAFULL PERMISSIONS
   FOR select FULL,
-  FOR create WHERE $auth.id = service:api_admin,
+  FOR create WHERE $auth = service:api_admin,
   FOR update, delete NONE;
 DEFINE FIELD OVERWRITE content      ON privacyNotice TYPE string
   ASSERT string::len(string::trim($value)) > 0 AND string::len($value) <= 100000;

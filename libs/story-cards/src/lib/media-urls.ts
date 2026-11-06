@@ -3,8 +3,8 @@ import { SecretsService } from '@heisreal/secrets';
 import { linkExpiry, signCdnUrl, signEmbedUrl } from './bunny-tokens';
 
 /**
- * Signed, expiring media links for published stories (D52). api-public-read reads only
- * `publicStory`, so whatever it signs is published. Identifiers come from the environment
+ * Signed, expiring media links for published stories (D52). api-public-read's login reads
+ * only approved stories (R11), so whatever it signs is published. Identifiers come from the environment
  * (OpenTofu, gcp root); the two keys only from Secret Manager, read once at startup and never
  * logged. Without any `BUNNY_*` variable, signing is off and every URL is `null`.
  */

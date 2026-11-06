@@ -7,7 +7,14 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { approve, buildWorld, draft, ERASE, submit } from './support/world';
+import {
+  approve,
+  buildWorld,
+  draft,
+  ERASE,
+  submit,
+  withdraw,
+} from './support/world';
 
 /**
  * Favourites (M2, hearts): a person's private list of published stories. Hearts are private
@@ -50,13 +57,7 @@ describe('favourites', () => {
       await submit(person, id);
       await approve(admin, id);
     }
-    await run(
-      bob,
-      `BEGIN TRANSACTION;
-       UPDATE story:bob_gone SET status = 'withdrawn';
-       DELETE publicStory:bob_gone;
-       COMMIT TRANSACTION;`,
-    );
+    await withdraw(bob, 'bob_gone');
   });
   afterAll(() => t?.close());
 
@@ -162,20 +163,14 @@ describe('favourites', () => {
 
   it('a story hidden or withdrawn later keeps the heart, which the person can still remove', async () => {
     expect((await heart(bob, 'ann_live')).ok).toBe(true);
-    await run(
-      ann,
-      `BEGIN TRANSACTION;
-       UPDATE story:ann_live SET status = 'withdrawn';
-       DELETE publicStory:ann_live;
-       COMMIT TRANSACTION;`,
-    );
+    await withdraw(ann, 'ann_live');
     expect(await heartsOf('bob')).toEqual(['ann_live']);
-    // Lists read publicStory, so it no longer shows (C15).
+    // Lists show only stories the person can read as published, so it no longer shows (C15).
     expect(
       await rows(
         bob,
         `SELECT VALUE record::id(story) FROM favourite
-         WHERE record::exists(type::record('publicStory', record::id(story)))`,
+         WHERE story.currentStatus.status = 'approved'`,
       ),
     ).toEqual([]);
     await run(bob, 'DELETE favourite WHERE story = story:ann_live');

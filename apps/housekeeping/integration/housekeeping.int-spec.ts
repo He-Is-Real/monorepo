@@ -8,8 +8,10 @@ import {
   outcome,
   rows,
   run,
+  submit,
   TestDatabase,
   trustSubmitters,
+  withdraw,
 } from '@heisreal/database/integration-testing';
 import type { Surreal, SurrealTransaction } from 'surrealdb';
 import { CHORES } from '../src/app/chores';
@@ -184,11 +186,11 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     // Never a draft: submitted 200 days ago, and withdrawn 200 days ago.
     await draft(bob, 'old_pending', 'video');
     await touched('old_pending', 0, media(V.pendingRef));
-    await run(bob, `UPDATE story:old_pending SET status = 'pending'`);
+    await submit(bob, 'old_pending');
     await touched('old_pending', 200);
     await draft(bob, 'old_withdrawn', 'written');
-    await run(bob, `UPDATE story:old_withdrawn SET status = 'pending'`);
-    await run(bob, `UPDATE story:old_withdrawn SET status = 'withdrawn'`);
+    await submit(bob, 'old_withdrawn');
+    await withdraw(bob, 'old_withdrawn');
     await touched('old_withdrawn', 200);
     // RequestUpload twice on Bob's video draft: the first video is replaced, its grant recent.
     await draft(bob, 'bob_video', 'video');
@@ -227,11 +229,10 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
   it('lets housekeeping read ids, status, dates and media, never what a person wrote', async () => {
     const [s] = await rows(
       housekeeping,
-      `SELECT status, updatedAt, media, title, description, body, bylineName, slug
+      `SELECT currentStatus, updatedAt, media, title, description, body, bylineName, slug
        FROM story:young_draft`,
     );
     expect(s).toMatchObject({
-      status: 'draft',
       media: [{ bunnyVideoId: V.youngRef }],
     });
     for (const field of [

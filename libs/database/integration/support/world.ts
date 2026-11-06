@@ -112,13 +112,48 @@ export function grantImage(
   );
 }
 
-/** The owner submits: draft/changes_requested → pending. */
-export function submit(person: SurrealQueryable, id: string): Promise<Row[]> {
+/**
+ * Adds a status entry to the story's log (R6) as `who` (the person's session, api-admin's login,
+ * a system user): the database checks the step and moves story.currentStatus. Answers the entry
+ * as `who` reads it back. A moderator's entry names user:moderator unless `extra` says otherwise.
+ */
+export function step(
+  who: SurrealQueryable,
+  id: string,
+  status: string,
+  extra: Record<string, unknown> = {},
+): Promise<Row[]> {
   return rows(
-    person,
-    `UPDATE type::record('story', $id) SET status = 'pending'`,
+    who,
+    `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT object::extend({
+       story: type::record('story', $id), status: $status,
+       by: IF $auth = service:api_admin { user:moderator }
+     }, $extra)`,
+    { id, status, extra },
+  );
+}
+
+/** The owner submits (R6: a pending entry): draft/changes_requested → pending. */
+export function submit(person: SurrealQueryable, id: string): Promise<Row[]> {
+  return step(person, id, 'pending');
+}
+
+/** The owner withdraws (R6: a withdrawn entry), from any status. */
+export function withdraw(person: SurrealQueryable, id: string): Promise<Row[]> {
+  return step(person, id, 'withdrawn');
+}
+
+/** A story's status as its newest entry says (R6), read by a system user. */
+export async function statusOf(
+  migrator: SurrealQueryable,
+  id: string,
+): Promise<string> {
+  const [found] = await rows(
+    migrator,
+    `SELECT VALUE fn::story::status_of($this) FROM type::record('story', $id)`,
     { id },
   );
+  return found as unknown as string;
 }
 
 /**
@@ -149,26 +184,17 @@ export function processed(
 }
 
 /**
- * ApproveStory as api-admin will run it (D25/D26): story, read model and review in one
- * transaction.
+ * A moderator picks a pending story up and approves it (R6: in_review, then approved), as
+ * api-admin will (M3). The approval publishes it: the public rules read its newest entry (R11).
  */
 export async function approve(admin: SurrealQueryable, id: string) {
   await run(
     admin,
     `BEGIN TRANSACTION;
-     LET $s = (UPDATE ONLY type::record('story', $id) SET status = 'approved', approvedAt = time::now());
-     CREATE type::record('publicStory', $id) CONTENT {
-       version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-       body: $s.body, bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-       themeRefs: $s.themeRefs, publishedAt: time::now(),
-       image: IF $s.image != NONE { { path: $s.image.path, width: $s.image.width,
-         height: $s.image.height, alt: $s.image.alt } },
-       media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
-         thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height })
-     };
-     CREATE moderationReview CONTENT {
-       story: $s.id, moderator: user:moderator, decision: 'approve', storyVersion: $s.version
-     };
+     CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+       story: type::record('story', $id), status: 'in_review', by: user:moderator };
+     CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+       story: type::record('story', $id), status: 'approved', by: user:moderator };
      COMMIT TRANSACTION;`,
     { id },
   );
@@ -177,7 +203,7 @@ export async function approve(admin: SurrealQueryable, id: string) {
 /**
  * Ann and Bob, each agreed to the latest terms of use and testimony consent (version 0), plus:
  * story:ann_draft (draft), story:ann_pending (pending), story:bob_draft (draft),
- * story:bob_pending (pending), story:bob_live (approved, with a publicStory row),
+ * story:bob_pending (pending), story:bob_live (approved: public),
  * theme:doubt (in Other).
  */
 export async function buildWorld(t: TestDatabase) {

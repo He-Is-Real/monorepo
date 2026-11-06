@@ -216,18 +216,17 @@ const STORIES: StoryFixture[] = [
     status: 'pending',
   },
   {
-    // A moderator has it open, and escalated it.
+    // A moderator has it open.
     id: 'seed_v09',
     slug: 'test-video-in-review',
     title: 'Test video: being reviewed',
-    description: 'Dummy video story a moderator is reviewing (escalated once).',
+    description: 'Dummy video story a moderator is reviewing.',
     bylineName: 'Daniel (test)',
     submitter: 'seed_daniel',
     format: 'video',
     themes: ['doubt'],
     media: { clip: 'clip-03', processing: 'ready' },
     status: 'in_review',
-    reviews: [{ decision: 'escalate' }],
   },
   {
     id: 'seed_v10',

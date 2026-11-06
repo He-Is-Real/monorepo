@@ -52,39 +52,35 @@ describe('erasure on api_user’s service login', () => {
       `CREATE idempotencyKey:['api-user', user:ann, 'k1'] SET requestHash = 'h', status = 201;
        CREATE idempotencyKey:['api-user', user:bob, 'k1'] SET requestHash = 'h', status = 201;`,
     );
-    // Before: Ann has four stories, one live with a review; Bob has three, one live.
+    // Before: Ann has four stories, one live, with their status logs; Bob has three, one live.
     expect(
       await truth('SELECT VALUE id FROM story WHERE submitter = user:ann'),
     ).toHaveLength(4);
-    expect(await truth('SELECT VALUE id FROM publicStory')).toHaveLength(2);
-    expect(await truth('SELECT VALUE id FROM moderationReview')).toHaveLength(
-      2,
-    );
+    expect(
+      await truth(
+        'SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann',
+      ),
+    ).toHaveLength(4); // ann_pending: 1; ann_live: 3
   });
   afterAll(() => t?.close());
 
-  it('cannot find a person’s read-model rows or reviews without the cascade', async () => {
-    // Why the story_erasure_cascade event exists: the lookups go through story.submitter,
-    // which api_user can't read, so they match nothing (and return an empty result).
+  it('can’t delete a person’s status log without the cascade', async () => {
+    // Why the story_erasure_cascade event exists: nobody deletes status entries directly
+    // (append-only, R6); they go only with their story.
     expect(
       await rows(
         apiUser,
-        `DELETE publicStory WHERE type::record('story', record::id(id)).submitter = user:ann RETURN BEFORE`,
+        'DELETE storyStatusLog WHERE story.submitter = user:ann RETURN BEFORE',
       ),
     ).toEqual([]);
     expect(
-      await rows(
-        apiUser,
-        'DELETE moderationReview WHERE story.submitter = user:ann',
+      await truth(
+        'SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann',
       ),
-    ).toEqual([]);
-    expect(await truth('SELECT VALUE id FROM publicStory')).toHaveLength(2);
-    expect(await truth('SELECT VALUE id FROM moderationReview')).toHaveLength(
-      2,
-    );
+    ).toHaveLength(4);
   });
 
-  it('erases the person’s stories, read-model rows, reviews and idempotency keys', async () => {
+  it('erases the person’s stories, their status logs and idempotency keys', async () => {
     await run(apiUser, ERASE, {
       clerkUserId: 'user_ann',
       reason: 'account_deleted',
@@ -92,12 +88,19 @@ describe('erasure on api_user’s service login', () => {
     expect(
       await truth('SELECT VALUE id FROM story WHERE submitter = user:ann'),
     ).toEqual([]);
-    expect(await truth('SELECT VALUE id FROM publicStory')).toEqual([
-      'publicStory:bob_live',
-    ]);
     expect(
-      await truth<{ story: string }>('SELECT story FROM moderationReview'),
-    ).toEqual([{ story: 'story:bob_live' }]);
+      (
+        await truth<string>(
+          'SELECT VALUE record::id(story) FROM storyStatusLog',
+        )
+      ).sort(),
+    ).toEqual(['bob_live', 'bob_live', 'bob_live', 'bob_pending']);
+    expect(
+      await rows(
+        await t.service('api_public_read'),
+        'SELECT VALUE id FROM story',
+      ),
+    ).toEqual(['story:bob_live']);
     expect(
       await truth('SELECT VALUE record::id(id)[1] FROM idempotencyKey'),
     ).toEqual(['user:bob']);

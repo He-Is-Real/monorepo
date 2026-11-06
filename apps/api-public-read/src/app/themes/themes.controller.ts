@@ -13,7 +13,7 @@ import { refuseQueryParameters } from '../stories/browse.query';
 
 /**
  * D63: one probe per theme for whether a published story uses it, each a top-level statement
- * with the id bound ($t0, $t1, ...), at most one match through `publicStory_theme_ids`. Only top
+ * with the id bound ($t0, $t1, ...), at most one match through `story_theme_ids`. Only top
  * level: inside a closure 3.2.4 iterates the whole table instead (Codex, #67).
  */
 export function themeProbes(ids: string[]): {
@@ -23,7 +23,7 @@ export function themeProbes(ids: string[]): {
   return {
     statements: ids.map(
       (_, i) =>
-        `SELECT VALUE id FROM publicStory WHERE themeIds CONTAINS $t${i} LIMIT 1`,
+        `SELECT VALUE id FROM story WHERE themeIds CONTAINS $t${i} AND currentStatus.status = 'approved' LIMIT 1`,
     ),
     vars: Object.fromEntries(ids.map((id, i) => [`t${i}`, id])),
   };

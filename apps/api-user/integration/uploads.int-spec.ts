@@ -302,7 +302,7 @@ describe('video and audio uploads', () => {
     expect(
       await rows(
         migrator,
-        `SELECT status, media[0].bunnyVideoId AS v FROM type::record('story', $id)`,
+        `SELECT currentStatus.status AS status, media[0].bunnyVideoId AS v FROM type::record('story', $id)`,
         {
           id,
         },

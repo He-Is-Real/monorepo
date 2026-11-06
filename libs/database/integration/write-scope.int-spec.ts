@@ -1,11 +1,12 @@
 import type { Surreal } from 'surrealdb';
-import { outcome, rows, run, TestDatabase } from './support/harness';
-import { approve, buildWorld, storyText } from './support/world';
+import { rows, run, TestDatabase } from './support/harness';
+import { approve, buildWorld, statusOf, step } from './support/world';
 
 /**
  * D41 (review round 1, finding 3): field-level write scope on `story`.
  *   workflow  → media and processing fields only;
- *   api-admin → moderation fields only, never what the person wrote (moderators request changes).
+ *   api-admin → nothing on the story itself: moderation is its status log (R6), never what the
+ *     person wrote (moderators request changes).
  * A field write outside the scope is silently dropped, so every test asserts the STORED state.
  */
 describe('write scope on story fields (D41)', () => {
@@ -18,8 +19,7 @@ describe('write scope on story fields (D41)', () => {
       await rows<Record<string, unknown>>(
         migrator,
         `SELECT slug, title, description, body, bylineName, primaryFormat, themeRefs, media, image,
-                status, approvedAt, rejectionFeedback, lockedBy, lockedAt
-           FROM type::record('story', $id)`,
+                currentStatus FROM type::record('story', $id)`,
         { id },
       )
     )[0];
@@ -61,32 +61,16 @@ describe('write scope on story fields (D41)', () => {
       },
     );
 
-    it('cannot approve, reject or change status', async () => {
-      for (const set of [
-        `status = 'approved', approvedAt = time::now()`,
-        `status = 'rejected', rejectionFeedback = 'Rejected by workflow'`,
-        `status = 'draft'`,
-      ]) {
-        await run(workflow, `UPDATE story:bob_pending SET ${set}`);
+    it('cannot approve, reject or change status: no status entry, no pointer (R6)', async () => {
+      for (const status of ['in_review', 'approved', 'rejected']) {
+        await run(
+          workflow,
+          `CREATE storyStatusLog CONTENT { story: story:bob_pending, status: $status }`,
+          { status },
+        ).catch(() => undefined);
       }
-      expect(await stored('bob_pending')).toMatchObject({ status: 'pending' });
-      const s = await stored('bob_pending');
-      expect(s['approvedAt']).toBeUndefined();
-      expect(s['rejectionFeedback']).toBeUndefined();
-    });
-
-    it('cannot write moderation fields (lock, feedback)', async () => {
-      await run(
-        workflow,
-        `UPDATE story:bob_pending SET lockedBy = user:moderator, lockedAt = time::now(),
-           rejectionFeedback = 'from workflow'`,
-      );
-      const s = await stored('bob_pending');
-      expect([s['lockedBy'], s['lockedAt'], s['rejectionFeedback']]).toEqual([
-        undefined,
-        undefined,
-        undefined,
-      ]);
+      await run(workflow, `UPDATE story:bob_pending SET currentStatus = NONE`);
+      expect(await statusOf(migrator, 'bob_pending')).toBe('pending');
     });
 
     it('can write media and processing fields', async () => {
@@ -131,124 +115,69 @@ describe('write scope on story fields (D41)', () => {
       expect(await stored('bob_pending')).toEqual(before);
     });
 
-    it('writes moderation fields and status', async () => {
-      await run(
-        admin,
-        `UPDATE story:bob_pending SET lockedBy = user:moderator, lockedAt = time::now(),
-           status = 'changes_requested', rejectionFeedback = 'Please add a little more detail'`,
-      );
-      expect(await stored('bob_pending')).toMatchObject({
-        lockedBy: 'user:moderator',
-        status: 'changes_requested',
-        rejectionFeedback: 'Please add a little more detail',
+    it('moderates by adding status entries only, and publishes exactly what the person wrote', async () => {
+      await step(admin, 'bob_pending', 'in_review');
+      await step(admin, 'bob_pending', 'changes_requested', {
+        comment: 'Please add a little more detail',
       });
-      await run(
-        admin,
-        `UPDATE story:bob_pending SET status = 'pending', lockedBy = NONE, lockedAt = NONE`,
-      );
-    });
-
-    it('cannot publish text the person didn’t write through the read model', async () => {
-      // A normal approval works (the read model mirrors the story)...
+      expect(await statusOf(migrator, 'bob_pending')).toBe('changes_requested');
+      await step(await t.person('user_bob'), 'bob_pending', 'pending');
       await approve(admin, 'bob_pending');
-      expect(
-        await rows(migrator, 'SELECT VALUE title FROM publicStory:bob_pending'),
-      ).toEqual(['Story bob_pending']);
-      // ...but rewriting the published copy is refused, and the row is unchanged.
-      for (const set of [
-        `title = 'Rewritten'`,
-        `body = 'Not their words'`,
-        `media = []`,
-      ]) {
-        expect(
-          await outcome(admin, `UPDATE publicStory:bob_pending SET ${set}`),
-        ).toEqual({
-          ok: false,
-          error: expect.stringContaining('must mirror'),
-        });
-      }
-      expect(
-        await rows(migrator, 'SELECT title, body FROM publicStory:bob_pending'),
-      ).toEqual([
-        { title: 'Story bob_pending', body: storyText('bob_pending') },
+      // What everyone reads is the story itself: no copy api-admin could write.
+      expect(await published()).toEqual([
+        {
+          title: 'Story bob_pending',
+          durationSeconds: 93,
+          media: [clip(93, 'thumbs/1.jpg', 1080, 1920)],
+        },
       ]);
-    });
-
-    it('takes the clip’s duration from the story, whatever the writer sends', async () => {
-      // Cards show a clip's length (step 6a). The read model computes it from the approved
-      // story's processed media, so no publisher copies it and none can change it.
-      expect(
-        await rows(
-          migrator,
-          'SELECT VALUE durationSeconds FROM publicStory:bob_pending',
-        ),
-      ).toEqual([93]);
-      await run(
-        admin,
-        'UPDATE publicStory:bob_pending SET durationSeconds = 1',
-      );
-      expect(
-        await rows(
-          migrator,
-          'SELECT VALUE durationSeconds FROM publicStory:bob_pending',
-        ),
-      ).toEqual([93]);
     });
 
     it('follows processing’s corrections of a published clip in the same write', async () => {
       // Workflow re-measures the approved clip (M7): its duration and size change, the clip
-      // itself (format, Bunny id) doesn't. The published row must not keep the old facts.
+      // itself (format, Bunny id) doesn't. The public reads the story's latest facts.
       await run(
         workflow,
         `UPDATE story:bob_pending SET media[0].durationSeconds = 120,
            media[0].width = 720, media[0].height = 1280`,
       );
-      expect(
-        await rows(
-          migrator,
-          'SELECT durationSeconds, media FROM publicStory:bob_pending',
-        ),
-      ).toEqual([
-        {
-          durationSeconds: 120,
-          media: [
-            {
-              format: 'video',
-              bunnyVideoId: 'vid-orig',
-              thumbnailPath: 'thumbs/1.jpg',
-              width: 720,
-              height: 1280,
-            },
-          ],
-        },
-      ]);
+      expect(await published()).toEqual(reviewedClip(120, 'thumbs/1.jpg'));
     });
-
-    const published = () =>
-      rows(
-        migrator,
-        'SELECT durationSeconds, media FROM publicStory:bob_pending',
+    function clip(
+      durationSeconds: number,
+      thumbnailPath: string,
+      width = 720,
+      height = 1280,
+    ) {
+      return {
+        format: 'video',
+        bunnyVideoId: 'vid-orig',
+        thumbnailPath,
+        width,
+        height,
+        durationSeconds,
+      };
+    }
+    /** What the public login reads of the story (R11): never `processing`. */
+    async function published() {
+      return rows(
+        await t.service('api_public_read'),
+        'SELECT title, media[0].durationSeconds AS durationSeconds, media FROM story:bob_pending',
       );
+    }
     const migrator_ = () => migrator;
     const workflow_ = () => workflow;
     const reviewedClip = (durationSeconds: number, thumbnailPath: string) => [
       {
+        title: 'Story bob_pending',
         durationSeconds,
-        media: [
-          {
-            format: 'video',
-            bunnyVideoId: 'vid-orig',
-            thumbnailPath,
-            width: 720,
-            height: 1280,
-          },
-        ],
+        media: [clip(durationSeconds, thumbnailPath)],
       },
     ];
 
-    it('copies a thumbnail Bunny regenerated for the same clip (D60)', async () => {
+    it('shows a thumbnail Bunny regenerated for the same clip (D60)', async () => {
       // A re-encode can make a new thumbnail for the same video. It's a frame of the reviewed
-      // clip, so it isn't new media: the published row follows it, so its link works.
+      // clip, so it isn't new media: the story stays public with it, so its link works.
       await run(
         workflow,
         `UPDATE story:bob_pending SET media[0].thumbnailPath = 'vid-orig/thumbnail_2.jpg'`,
@@ -256,7 +185,7 @@ describe('write scope on story fields (D41)', () => {
       expect(await published()).toEqual(
         reviewedClip(120, 'vid-orig/thumbnail_2.jpg'),
       );
-      // Later corrections still reach the row.
+      // Later corrections still show.
       await run(
         workflow,
         'UPDATE story:bob_pending SET media[0].durationSeconds = 150',
@@ -274,9 +203,9 @@ describe('write scope on story fields (D41)', () => {
         workflow_,
       ],
     ])(
-      'never copies %s: the story is hidden until it is reviewed (D59, D60)',
+      'never shows %s: the story is hidden until it is reviewed (D59, D60)',
       async (_name, set, who) => {
-        // The row isn't changed to unreviewed media; the story leaves the public site instead.
+        // Unreviewed media is never public: the story leaves the public site in the same write.
         const db = who();
         await run(db, `UPDATE story:bob_pending SET ${set}`);
         await run(
@@ -297,7 +226,7 @@ describe('write scope on story fields (D41)', () => {
     );
 
     it('leaves #61’s hide and restore working, with the latest facts on return', async () => {
-      // Not ready: #61 hides the story (the row goes, its reviewed fingerprint is kept).
+      // Not ready: #61 hides the story (a hidden entry; its reviewed fingerprint is kept).
       await run(
         workflow,
         `UPDATE story:bob_pending SET media[0].processing = 'processing'`,

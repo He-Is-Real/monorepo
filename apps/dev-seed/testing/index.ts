@@ -32,10 +32,13 @@ export async function devDatabase(params: {
 /**
  * A dev database holding the whole D47 dataset (uploads are stand-ins with the media spec's
  * sizes and durations), loaded by the real reset. Other projects' integration tests read it
- * through their own service logins.
+ * through their own service logins. `dataset`: the D47 dataset with a test's changes (two
+ * stories given the same publishedDaysAgo are published at the same instant).
  */
-export async function devDatabaseWithDataset(): Promise<TestDatabase> {
+export async function devDatabaseWithDataset(
+  dataset = DATASET,
+): Promise<TestDatabase> {
   const { t, seeder } = await devDatabase({ environment: 'dev' });
-  await reset(seeder, buildVars(DATASET, fakeUploads()));
+  await reset(seeder, buildVars(dataset, fakeUploads()));
   return t;
 }

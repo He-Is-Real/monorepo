@@ -209,7 +209,7 @@ describe('concurrent transactions are fenced per person', () => {
     const ula = await t.person('user_ula');
     const tx = await begin(ula);
     await draft(tx as unknown as Surreal, 'ula_story');
-    await run(admin, `UPDATE story:ann_story SET status = 'changes_requested'`); // someone else
+    await run(admin, `UPDATE story:ann_story SET updatedAt = time::now()`); // someone else's story
     expect(await commit(tx)).toBe('committed');
     expect(await truth('SELECT VALUE id FROM story:ula_story')).toHaveLength(1);
   });

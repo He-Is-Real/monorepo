@@ -8,13 +8,15 @@ loading again; we don't approve the story again.
 - Processing (workflow, M7) records each video, audio file and image as `ready`, `processing` or
   `failed`, with its size and duration.
 - If an approved story's media stops being ready (it fails, it is checked again, or it loses its
-  size or duration), the database hides the story in the same write. Its `publicStory` row is
-  deleted, so the public site and API no longer show it. Its status stays `approved`.
+  size or duration), the database hides the story in the same write: it adds a `hidden` entry
+  (by the system) to the story's status log, so the public site and API no longer show it. Its
+  owner still sees it as published.
 - When the same media is `ready` again with its size and duration, the database publishes the
-  story again in the same write. It keeps its first `publishedAt` and its old slugs. Nobody has
-  to approve it again.
-- A `hiddenStory` row (same id as the story) says it is hidden and since when. Nobody can
-  write it by hand.
+  story again in the same write (an `approved` entry by the system). It keeps its first
+  `publishedAt` and its old slugs. Nobody has to approve it again.
+- A `hiddenStory` row (same id as the story) keeps what the moderator reviewed (the media's
+  identity and thumbnails) and since when; the status log says why (`hiddenReason`). Nobody can
+  write either by hand.
 
 Two cases don't come back on their own:
 
@@ -190,8 +192,7 @@ Otherwise each of these leaves an orphan file in the images zone until the clean
   request until its PUT succeeds (or answers 412: the file is there), so a PUT that failed or
   whose answer was lost is retried at the same path with a freshly signed link, never a new grant.
 
-Find orphans by listing a story's folder and comparing with `story.image.path` (and the
-`publicStory`'s), then delete the file and, if it's empty, the folder (the Edge Storage API,
+Find orphans by listing a story's folder and comparing with `story.image.path`, then delete the file and, if it's empty, the folder (the Edge Storage API,
 `DELETE https://uk.storage.bunnycdn.com/<zone>/stories/<story id>/`; deleting a folder's last
 object by S3 leaves the folder behind).
 

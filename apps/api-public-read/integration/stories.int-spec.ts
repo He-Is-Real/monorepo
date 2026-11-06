@@ -31,13 +31,11 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
          title: 'Test story: the walking skeleton',
          description: 'Placeholder content for the development site. This is not a real testimony.',
          body: 'This is test text, written to check that a published story travels from the database through api-public-read to the page. Nobody shared this story and nothing in it happened. Real stories arrive with the first submissions.',
-         bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [], media: [],
-         status: 'approved', approvedAt: time::now()
+         bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common], media: []
        });
-       CREATE publicStory:dev_seed CONTENT {
-         version: $s.version, slug: $s.slug, title: $s.title, description: $s.description,
-         body: $s.body, bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-         themeRefs: [], media: [], publishedAt: time::now()
+       FOR $step IN [['pending', 'person'], ['in_review', 'moderator'], ['approved', 'moderator']] {
+         CREATE storyStatusLog CONTENT { story: $s.id, status: $step[0], actor: $step[1],
+           by: IF $step[1] = 'moderator' { user:dev_seed_moderator } };
        };`,
     );
     // Through startPublicRead, so every response is checked against the contract.
@@ -48,7 +46,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     await t?.close();
   });
 
-  it('serves the seeded test story from the read model', async () => {
+  it('serves the seeded test story', async () => {
     const res = await fetch(`${url}/v1/stories/${SLUG}`);
     expect(res.status).toBe(200);
     expect(res.headers.get('etag')).toMatch(/^"[A-Za-z0-9_-]{27}"$/);
@@ -61,11 +59,11 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       primaryFormat: 'written',
       media: [],
       image: null,
-      themes: [],
-      version: 1,
+      themes: [{ id: 'common', name: 'Common' }],
+      version: 4, // created, then three status entries (submitted, picked up, approved)
     });
     expect(Date.parse(String(story['publishedAt']))).not.toBeNaN();
-    // Nothing from the write model or the person: no submitter, consent or status.
+    // Nothing private or about moderation: no submitter, consent or status.
     expect(Object.keys(story).sort()).toEqual([
       'body',
       'bylineName',
@@ -126,7 +124,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
   it('answers 301 for a previous slug', async () => {
     await run(
       await t.migrator(),
-      `UPDATE publicStory:dev_seed SET slugHistory = ['old-test-slug']`,
+      `UPDATE story:dev_seed SET slugHistory = ['old-test-slug']`,
     );
     const moved = await fetch(`${url}/v1/stories/old-test-slug`, {
       redirect: 'manual',
@@ -137,16 +135,12 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
   it('serves a written story’s image by its shape, never its storage path (D53)', async () => {
     await run(
       await t.migrator(),
-      `BEGIN TRANSACTION;
-       -- A2: only a processed image can be published (the migrator may record that itself).
-       -- A new image on a public story hides it (D59), so publish the row again after it.
-       LET $row = (SELECT * FROM ONLY publicStory:dev_seed);
-       DELETE publicStory:dev_seed;
+      `-- A2: only a processed image can be published (the migrator may record that itself).
+       -- A new image on a public story hides it (D59) until a moderator shows it again.
        UPDATE story:dev_seed SET image = { path: 'dev-seed/dev-seed.webp', width: 1200, height: 1600,
          processing: 'ready' };
-       CREATE publicStory:dev_seed CONTENT object::extend($row, {
-         image: { path: 'dev-seed/dev-seed.webp', width: 1200, height: 1600 } });
-       COMMIT TRANSACTION;`,
+       CREATE storyStatusLog CONTENT { story: story:dev_seed, status: 'approved',
+         actor: 'moderator', by: user:dev_seed_moderator };`,
     );
     passTime(60_000); // the story page read earlier is a minute old (R13)
     const story = (await (await fetch(`${url}/v1/stories/${SLUG}`)).json()) as {

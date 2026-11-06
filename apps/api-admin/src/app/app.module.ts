@@ -6,6 +6,7 @@ import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 import { LegalDocumentsModule } from './legal-documents/legal-documents.controller';
+import { AllStoriesModule } from './stories/all-stories.controller';
 import { SubmissionSettingsModule } from './submission-settings/submission-settings.controller';
 import { ThemesModule } from './themes/themes.controller';
 
@@ -18,6 +19,7 @@ import { ThemesModule } from './themes/themes.controller';
     // otherwise. Staff need an existing `user` row: api-admin's login can't create one (D13).
     ClerkAuthModule.forRoot({ authenticator: ApiAdminAuthenticator }),
     HealthModule.forService('api-admin'),
+    AllStoriesModule,
     LegalDocumentsModule,
     SubmissionSettingsModule,
     ThemesModule,

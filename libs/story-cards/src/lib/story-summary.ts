@@ -1,7 +1,7 @@
 import type { MediaUrls } from './media-urls';
 import type { ThemeRef } from './themes';
 
-/** A published clip's stored fields (`publicStory.media[*]`). Never sent as they are. */
+/** A published clip's stored fields (`story.media[*]`). Never sent as they are. */
 export interface StoredMedia {
   format: 'video' | 'audio';
   bunnyVideoId?: string;
@@ -11,7 +11,7 @@ export interface StoredMedia {
 }
 
 /**
- * A story's stored image (`publicStory.image`): a written story's image, an audio story's picture
+ * A story's stored image (`story.image`): a written story's image, an audio story's picture
  * or a video's own thumbnail (M2 plan PR 10). Never sent as it is.
  */
 export interface StoredImage {
@@ -56,15 +56,20 @@ const WORD_SLACK = 40;
 export const FETCH_CHARS = EXCERPT_CHARS + 60;
 
 /**
- * The card fields of `publicStory`, for `SELECT … FROM publicStory`. Only the start of the
- * description and text: a description can be 5,000 characters and a text 10,000 (A3).
+ * The card fields of a published story, for `SELECT … FROM story` (R11: one story table; its
+ * publish date is on its current approved status entry). Only the start of the description and
+ * text: a description can be 5,000 characters and a text 10,000 (A3). Only the media fields a
+ * card uses: never `processing`, which the public can't read anyway.
  */
 export const SUMMARY_FIELDS = `
-  record::id(id) AS id, slug, title, bylineName, primaryFormat, media, image, durationSeconds,
+  record::id(id) AS id, slug, title, bylineName, primaryFormat, image,
+  (media ?? []).map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
+    thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height }) AS media,
+  media[0].durationSeconds AS durationSeconds,
   string::slice(description, 0, ${FETCH_CHARS}) AS description,
   string::slice(body ?? '', 0, ${FETCH_CHARS}) AS bodyStart,
   string::len(body ?? '') AS textLength,
-  publishedAt, <string> publishedAt AS cursorAt,
+  currentStatus.publishedAt AS publishedAt, <string> currentStatus.publishedAt AS cursorAt,
   (SELECT record::id(id) AS id, name FROM theme
     WHERE id IN $parent.themeRefs ORDER BY name) AS themes`;
 

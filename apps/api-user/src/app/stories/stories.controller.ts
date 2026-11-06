@@ -27,7 +27,12 @@ import {
   requestHash,
   SURREAL,
 } from '@heisreal/database';
-import { ifNoneMatches, parseIdempotencyKey, weakETag } from '@heisreal/http';
+import {
+  ifNoneMatches,
+  isStoryId,
+  parseIdempotencyKey,
+  weakETag,
+} from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import { SecretsService } from '@heisreal/secrets';
 import { MediaUrls, type ThemeCategory } from '@heisreal/story-cards';
@@ -69,10 +74,8 @@ const STATUSES = [
   'changes_requested',
   'withdrawn',
 ];
-const STORY_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
 function storyId(id: string): string {
-  if (!STORY_ID.test(id)) throw new NotFoundException();
+  if (!isStoryId(id)) throw new NotFoundException();
   return id;
 }
 
@@ -99,7 +102,7 @@ function decodeCursor(
       typeof createdAt === 'string' &&
       !Number.isNaN(Date.parse(createdAt)) &&
       typeof id === 'string' &&
-      STORY_ID.test(id)
+      isStoryId(id)
     ) {
       return { createdAt, id };
     }

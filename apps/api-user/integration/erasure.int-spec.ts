@@ -226,7 +226,7 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
       migrator,
       `RETURN {
          stories: (SELECT VALUE record::id(id) FROM story WHERE submitter = type::record('user', $who)),
-         publicStories: (SELECT VALUE id FROM publicStory WHERE string::starts_with(record::id(id), $who)),
+         statusLog: (SELECT VALUE id FROM storyStatusLog WHERE string::starts_with(record::id(story), $who)),
          hearts: (SELECT VALUE id FROM favourite WHERE string::starts_with(record::id(story), $who)),
          grants: (SELECT VALUE id FROM uploadGrant WHERE person = type::record('user', $who)),
          user: (SELECT VALUE [clerkUserId, status = 'deleted'] FROM ONLY type::record('user', $who)),
@@ -297,7 +297,7 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
     });
     expect(await left('ann')).toEqual({
       stories: [],
-      publicStories: [],
+      statusLog: [],
       hearts: [],
       grants: [],
       user: [undefined, true],

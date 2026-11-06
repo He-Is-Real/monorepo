@@ -7,12 +7,12 @@
 -- roles live in Clerk (D1). A legacy person (D22) has no Clerk account yet: NONE, linked
 -- by an admin if they sign up later.
 DEFINE TABLE OVERWRITE user SCHEMAFULL PERMISSIONS
-  FOR select WHERE id = $auth.id OR $auth.id IN [service:api_user, service:api_admin, service:workflow],
-  FOR create WHERE $auth.id = service:api_user,                       -- created on first use
-  FOR update WHERE $auth.id IN [service:api_user, service:api_admin]  -- erasure (status)
+  FOR select WHERE id = $auth OR $auth IN [service:api_user, service:api_admin, service:workflow],
+  FOR create WHERE $auth = service:api_user,                       -- created on first use
+  FOR update WHERE $auth IN [service:api_user, service:api_admin]  -- erasure (status)
     -- plan 4e: the person's own session agrees to the terms of use and the testimony consent
     -- (user_agreements: those four fields only)
-    OR (id = $auth.id AND $auth.status != 'deleted'),
+    OR (id = $auth AND $auth.status != 'deleted'),
   FOR delete NONE;
 -- The identity binding (D37). Set once: by api-admin linking a legacy person (or on create by
 -- api-user). Cleared once: by api-user's erasure, in the same update that sets the status to
@@ -108,8 +108,9 @@ DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, bi
 -- hearted a story can read the row: no service login, and not the story's owner (who will see a
 -- count per story on their profile later, never who gave it: not built, see
 -- docs/db-permissions.md item 35). One per person and story. A heart needs the person to have
--- agreed to the latest terms of use (plan 4e, Q2: their own write) and a story that is public now (its publicStory row). A story that stops being public later keeps
--- the heart, but lists read publicStory, so it no longer shows (C15). Person-linked twice: a new
+-- agreed to the latest terms of use (plan 4e, Q2: their own write) and a story that is public now
+-- (approved: its newest status entry, R6/R11). A story that stops being public later keeps the
+-- heart, but lists show public stories only, so it no longer shows (C15). Person-linked twice: a new
 -- heart fences both the person and the story's owner. Erasure deletes the person's hearts
 -- (user_erasure_favourites), and deleting a story deletes the hearts on it (story_erasure_cascade). Nothing about a heart changes after it is made.
 -- R14 (Joel, 2026-11-05): the id is a ULID, which starts with the moment the heart was made, so
@@ -118,8 +119,8 @@ DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, bi
 -- so nobody can backdate a heart. The list uses favourite_unique's person prefix (no index can
 -- cover the id; timed on a local database, 2026-11-05: about 2 ms for 250 hearts, 40 ms for 5,000).
 DEFINE TABLE OVERWRITE favourite SCHEMAFULL PERMISSIONS        -- id = favourite:<ulid>
-  FOR select, delete WHERE person = $auth.id,
-  FOR create WHERE person = $auth.id AND $auth.status != 'deleted',
+  FOR select, delete WHERE person = $auth,
+  FOR create WHERE person = $auth AND $auth.status != 'deleted',
   FOR update NONE;
 DEFINE FIELD OVERWRITE person    ON favourite TYPE record<user> READONLY;
 DEFINE FIELD OVERWRITE story     ON favourite TYPE record<story> READONLY;
@@ -142,7 +143,7 @@ DEFINE EVENT OVERWRITE favourite_rules ON favourite
         THROW 'favourite_id: a heart’s id is a ULID made just now (R14)';
       };
       IF $auth != NONE { fn::legal::require_terms($after.person) };
-      IF !record::exists(type::record('publicStory', record::id($after.story))) {
+      IF fn::story::status_of($after.story) != 'approved' {
         THROW 'favourite_not_published: only a public story can be hearted';
       };
       -- The story's owner too (Codex, #117): a heart racing their erasure, which deletes the
@@ -164,7 +165,7 @@ DEFINE EVENT OVERWRITE user_erasure_favourites ON user
 -- recreate the person (#44's reproduction). Kept: dropping one would let a leftover Clerk account
 -- back in. Only api-user's login reads or writes it.
 DEFINE TABLE OVERWRITE erasedIdentity SCHEMAFULL PERMISSIONS
-  FOR select, create WHERE $auth.id = service:api_user,
+  FOR select, create WHERE $auth = service:api_user,
   FOR update, delete NONE;
 DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
   WHEN $event = 'CREATE'
@@ -192,10 +193,10 @@ DEFINE EVENT OVERWRITE erasedIdentity_fingerprint ON erasedIdentity
 -- which also refuses the id to anyone but a system user while the row is queued. Only api-user and housekeeping read, delete or count tries on it;
 -- only api-user's erasure writes rows itself (never an 'image' one).
 DEFINE TABLE OVERWRITE pendingDeletion SCHEMAFULL PERMISSIONS
-  FOR select, update WHERE $auth.id IN [service:api_user, service:housekeeping],
-  FOR delete WHERE $auth.id IN [service:api_user, service:housekeeping]
+  FOR select, update WHERE $auth IN [service:api_user, service:housekeeping],
+  FOR delete WHERE $auth IN [service:api_user, service:housekeeping]
     AND (finalPassAt = NONE OR finalPassAt <= time::now()),
-  FOR create WHERE $auth.id = service:api_user AND kind != 'image';
+  FOR create WHERE $auth = service:api_user AND kind != 'image';
 DEFINE FIELD OVERWRITE kind ON pendingDeletion TYPE string READONLY
   ASSERT $value IN ['bunny_video', 'image', 'clerk_user'];
 DEFINE FIELD OVERWRITE ref  ON pendingDeletion TYPE string READONLY
@@ -242,9 +243,9 @@ DEFINE FUNCTION OVERWRITE fn::erasure::retry_after($attempts: int) {
 --   (bunny_video), each of their stories' picture folders (image: queued by the story's own
 --   delete, story_picture_folder, from the story rows, so a pruned grant can't hide one), and,
 --   unless Clerk has already deleted the person ($reason clerk_user_deleted), their Clerk account.
--- - Then the stories (the cascade takes publicStory, hiddenStory, reviews and others' hearts),
---   idempotency keys, limits, submission log and grants; the user row becomes a stub (D37) and
---   their own hearts go with it (user_erasure_favourites). R3: the stub's status is 'deleted',
+-- - Then the user row becomes a stub (D37) and their own hearts go with it
+--   (user_erasure_favourites); then the stories (the cascade takes their status log, hiddenStory
+--   and others' hearts), idempotency keys, limits, submission log and grants. R3: the stub's status is 'deleted',
 --   with no date and no reason ($reason only decides whether the Clerk account is queued).
 -- Plan 4e: the stub keeps no agreement (the terms and testimony pointers are cleared with it), and
 -- nothing else kept (the tombstone) records consent. On a caller's own
@@ -264,13 +265,15 @@ DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: stri
   -- another delete committed in the same instant may join them: trying it early is harmless).
   LET $since = time::now();
   IF $u != NONE {
-    DELETE story WHERE submitter = $u;              -- cascades publicStory, hiddenStory, reviews, hearts
+    -- The stub first (D37): api-user reads a story's submitter only once its owner is erased
+    -- (R11's field rule), which the story delete below needs.
+    UPDATE $u SET status = 'deleted', clerkUserId = NONE,
+      termsOfUse = NONE, testimonyConsent = NONE;
+    DELETE story WHERE submitter = $u;              -- cascades the status log, hiddenStory, hearts
     DELETE idempotencyKey WHERE record::id(id)[1] = $u;   -- keys are scoped by user record
     DELETE submitterLimits WHERE user = $u;         -- D112: their limits and trusted mark
     DELETE submissionLog WHERE person = $u;         -- D113: their recent submissions
     DELETE uploadGrant WHERE person = $u;           -- D80, D113: their uploads (queued above, D40)
-    UPDATE $u SET status = 'deleted', clerkUserId = NONE,   -- D37: a stub remains
-      termsOfUse = NONE, testimonyConsent = NONE;
   };
   LET $folders = IF $u = NONE { [] } ELSE { (SELECT VALUE record::id(id) FROM pendingDeletion
     WHERE kind = 'image' AND at >= $since) };

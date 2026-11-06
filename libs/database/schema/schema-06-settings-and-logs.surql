@@ -16,15 +16,15 @@
 -- R4 (Joel, 2026-11-05): a key is useless after expiresAt (nobody resends that late); the nightly
 -- housekeeping Job deletes those, and may read and delete nothing else here.
 DEFINE TABLE OVERWRITE idempotencyKey SCHEMAFULL PERMISSIONS
-  FOR select WHERE $auth.id IN [service:api_user, service:api_admin]
-    OR (record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth.id)
-    OR ($auth.id = service:housekeeping AND expiresAt < time::now()),
-  FOR create WHERE $auth.id IN [service:api_user, service:api_admin]
-    OR (record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth.id
+  FOR select WHERE $auth IN [service:api_user, service:api_admin]
+    OR (record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth)
+    OR ($auth = service:housekeeping AND expiresAt < time::now()),
+  FOR create WHERE $auth IN [service:api_user, service:api_admin]
+    OR (record::id(id)[0] = 'api-user' AND record::id(id)[1] = $auth
         AND $auth.status != 'deleted'),
-  FOR update WHERE $auth.id IN [service:api_user, service:api_admin],
-  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]
-    OR ($auth.id = service:housekeeping AND expiresAt < time::now());
+  FOR update WHERE $auth IN [service:api_user, service:api_admin],
+  FOR delete WHERE $auth IN [service:api_user, service:api_admin]
+    OR ($auth = service:housekeeping AND expiresAt < time::now());
 DEFINE FIELD OVERWRITE requestHash ON idempotencyKey TYPE string;           -- same key + different body -> 422
 DEFINE FIELD OVERWRITE status      ON idempotencyKey TYPE int;
 DEFINE FIELD OVERWRITE response    ON idempotencyKey TYPE option<object>;   -- {id, version} only:
@@ -71,7 +71,7 @@ DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- ho
 -- person on each change). Concurrent writes by the same person still conflict on their fence.
 DEFINE TABLE OVERWRITE submissionSettings SCHEMAFULL PERMISSIONS
   FOR select FULL,
-  FOR create, update WHERE $auth.id = service:api_admin,
+  FOR create, update WHERE $auth = service:api_admin,
   FOR delete NONE;
 DEFINE FIELD OVERWRITE storyTextMin  ON submissionSettings TYPE int DEFAULT 200 ASSERT $value >= 1;
 DEFINE FIELD OVERWRITE storyTextMax  ON submissionSettings TYPE int DEFAULT 10000
@@ -140,9 +140,9 @@ DEFINE FUNCTION OVERWRITE fn::settings::upload_ceilings() {
 -- erasure deletes it (api-user's login), with the person.
 -- `devSeed`: written by dev-seed for dev's test accounts, refused anywhere but dev.
 DEFINE TABLE OVERWRITE submitterLimits SCHEMAFULL PERMISSIONS
-  FOR select WHERE user = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
-  FOR create, update WHERE $auth.id = service:api_admin,
-  FOR delete WHERE $auth.id = service:api_user;                        -- erasure only
+  FOR select WHERE user = $auth OR $auth IN [service:api_user, service:api_admin],
+  FOR create, update WHERE $auth = service:api_admin,
+  FOR delete WHERE $auth = service:api_user;                        -- erasure only
 DEFINE FIELD OVERWRITE user          ON submitterLimits TYPE record<user> READONLY
   ASSERT record::id($value) = record::id($this.id);
 DEFINE FIELD OVERWRITE trusted       ON submitterLimits TYPE bool DEFAULT false;
@@ -179,9 +179,9 @@ DEFINE EVENT OVERWRITE submitterLimits_fence ON submitterLimits
 -- link, so deleting a story leaves it. Person-linked: erasure deletes it. Nobody writes it
 -- directly; the person reads their own (fn::story::next_submission_at).
 DEFINE TABLE OVERWRITE submissionLog SCHEMAFULL PERMISSIONS
-  FOR select WHERE person = $auth.id OR $auth.id IN [service:api_user, service:api_admin],
+  FOR select WHERE person = $auth OR $auth IN [service:api_user, service:api_admin],
   FOR create, update NONE,
-  FOR delete WHERE $auth.id = service:api_user;                        -- erasure
+  FOR delete WHERE $auth = service:api_user;                        -- erasure
 DEFINE FIELD OVERWRITE person ON submissionLog TYPE record<user> READONLY;
 DEFINE FIELD OVERWRITE at     ON submissionLog TYPE datetime VALUE $before OR time::now() READONLY;
 DEFINE INDEX OVERWRITE submissionLog_person ON submissionLog FIELDS person, at;

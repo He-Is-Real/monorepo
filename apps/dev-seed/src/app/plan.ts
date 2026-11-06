@@ -1,9 +1,4 @@
-import type {
-  Dataset,
-  ReviewFixture,
-  StoryFixture,
-  StoryStatus,
-} from './dataset';
+import type { Dataset, StoryFixture, StoryStatus } from './dataset';
 import {
   type BunnyMedia,
   CLIPS,
@@ -28,15 +23,16 @@ export const LIMITS = {
 const SUBMITTED: StoryStatus[] = ['pending', 'in_review', 'approved'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** One update on the way to a story's final status, as the services would make it. */
+/**
+ * One entry of a story's status log on the way to its final status (R6), as the person or a
+ * moderator would add it: who (`actor`), when (`at`) and the moderator's note to the person.
+ */
 export interface Step {
-  status: StoryStatus;
-  /** A moderator picks it up (lockedBy/lockedAt). */
-  lock?: true;
-  /** The moderator's feedback to the author (rejectionFeedback). */
-  feedback?: string;
-  /** The decision recorded before this update (moderationReview). */
-  review?: ReviewFixture;
+  status: Exclude<StoryStatus, 'draft'>;
+  actor: 'person' | 'moderator';
+  /** The moderator's feedback to the author (a changes request's or rejection's comment). */
+  comment?: string;
+  at: Date;
 }
 
 /** The variables the seed script binds (seed.ts). No secrets, no SurrealQL text. */
@@ -61,55 +57,52 @@ export interface SeedVars {
     /** The draft as its author creates it: content and uploads. */
     draft: Record<string, unknown>;
     steps: Step[];
-    /** Approved stories: publicStory.publishedAt and story.approvedAt. */
+    /** Approved stories: their approved entry's publishedAt (browse order). */
     publishedAt?: Date;
   }[];
 }
 
-/** The moves from draft to a story's final status. */
-export function stepsFor(story: StoryFixture): Step[] {
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The status log from draft to a story's final status, an hour apart, the last one at `end`
+ * (an approved story's: its publish date).
+ */
+export function stepsFor(story: StoryFixture, end: Date): Step[] {
   const reviews = story.reviews ?? [];
-  const steps: Step[] = [];
-  if (story.status === 'draft') return steps;
-  steps.push({ status: 'pending' });
+  const steps: Omit<Step, 'at'>[] = [];
+  if (story.status === 'draft') return [];
+  steps.push({ status: 'pending', actor: 'person' });
   for (const review of reviews) {
-    steps.push({ status: 'in_review', lock: true });
-    switch (review.decision) {
-      case 'approve':
-        steps.push({ status: 'approved', review });
-        break;
-      case 'reject':
-        steps.push({ status: 'rejected', review, feedback: review.feedback });
-        break;
-      case 'request_changes':
-        steps.push({
-          status: 'changes_requested',
-          review,
-          feedback: review.feedback,
-        });
-        break;
-      case 'escalate':
-        // Stays in review, still locked by the moderator.
-        steps.push({ status: 'in_review', lock: true, review });
-        break;
-    }
+    steps.push({ status: 'in_review', actor: 'moderator' });
+    const decision = {
+      approve: 'approved',
+      reject: 'rejected',
+      request_changes: 'changes_requested',
+    } as const;
+    steps.push(
+      compact({
+        status: decision[review.decision],
+        actor: 'moderator' as const,
+        comment: review.feedback,
+      }),
+    );
     // After a request for changes, the author resubmits before the next decision.
-    const last = steps[steps.length - 1];
     if (
-      last.status === 'changes_requested' &&
+      review.decision === 'request_changes' &&
       review !== reviews[reviews.length - 1]
     ) {
-      steps.push({ status: 'pending' });
+      steps.push({ status: 'pending', actor: 'person' });
     }
   }
-  if (
-    story.status === 'in_review' &&
-    steps[steps.length - 1].status !== 'in_review'
-  ) {
-    steps.push({ status: 'in_review', lock: true });
-  }
-  if (story.status === 'withdrawn') steps.push({ status: 'withdrawn' });
-  return steps;
+  if (story.status === 'in_review')
+    steps.push({ status: 'in_review', actor: 'moderator' });
+  if (story.status === 'withdrawn')
+    steps.push({ status: 'withdrawn', actor: 'person' });
+  return steps.map((step, i) => ({
+    ...step,
+    at: new Date(end.getTime() - (steps.length - 1 - i) * HOUR_MS),
+  }));
 }
 
 /** Everything wrong with the dataset (and the uploads it needs), or an empty list. */
@@ -208,22 +201,11 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
     ) {
       p(`a ${s.status} story has no reviews here`);
     }
-    if (
-      s.status === 'in_review' &&
-      reviews.some((r) => r.decision !== 'escalate')
-    ) {
-      p('an in_review story has only escalations');
+    if (s.status === 'in_review' && reviews.length > 0) {
+      p('an in_review story has no decision yet');
     }
-    if (
-      reviews
-        .slice(0, -1)
-        .some(
-          (r) => r.decision !== 'request_changes' && r.decision !== 'escalate',
-        )
-    ) {
-      p(
-        'only a request for changes or an escalation comes before the last review',
-      );
+    if (reviews.slice(0, -1).some((r) => r.decision !== 'request_changes')) {
+      p('only a request for changes comes before the last review');
     }
     for (const r of reviews) {
       if (
@@ -268,36 +250,39 @@ export function buildVars(
         data.categories.find((c) => c.key === t.category)?.id ?? 'other',
       highlighted: t.highlighted === true,
     })),
-    stories: data.stories.map((s) => ({
-      id: s.id,
-      submitter: s.submitter,
-      draft: compact({
-        slug: s.slug,
-        title: s.title,
-        description: s.description,
-        body: s.body,
-        bylineName: s.bylineName,
-        primaryFormat: s.format,
-        themeRefs: s.themes.map(
-          (key) => data.themes.find((t) => t.key === key)?.id,
-        ),
-        media: s.media
-          ? [mediaItem(s.media.clip, media, s.media.processing)]
-          : [],
-        image: s.image
-          ? compact({
-              ...imageFields(s.image.file, media),
-              alt: s.image.alt,
-              processing: s.image.processing,
-            })
-          : undefined,
-      }),
-      steps: stepsFor(s),
-      publishedAt:
+    stories: data.stories.map((s) => {
+      const publishedAt =
         s.publishedDaysAgo === undefined
           ? undefined
-          : new Date(now.getTime() - s.publishedDaysAgo * DAY_MS),
-    })),
+          : new Date(now.getTime() - s.publishedDaysAgo * DAY_MS);
+      return {
+        id: s.id,
+        submitter: s.submitter,
+        draft: compact({
+          slug: s.slug,
+          title: s.title,
+          description: s.description,
+          body: s.body,
+          bylineName: s.bylineName,
+          primaryFormat: s.format,
+          themeRefs: s.themes.map(
+            (key) => data.themes.find((t) => t.key === key)?.id,
+          ),
+          media: s.media
+            ? [mediaItem(s.media.clip, media, s.media.processing)]
+            : [],
+          image: s.image
+            ? compact({
+                ...imageFields(s.image.file, media),
+                alt: s.image.alt,
+                processing: s.image.processing,
+              })
+            : undefined,
+        }),
+        steps: stepsFor(s, publishedAt ?? now),
+        publishedAt,
+      };
+    }),
   };
 }
 

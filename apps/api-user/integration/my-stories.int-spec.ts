@@ -120,7 +120,7 @@ describe('my stories: withdraw and delete', () => {
     (
       await rows<string>(
         migrator,
-        `SELECT VALUE status FROM type::record('story', $id)`,
+        `SELECT VALUE fn::story::status_of($this) FROM type::record('story', $id)`,
         { id },
       )
     )[0];
@@ -132,12 +132,27 @@ describe('my stories: withdraw and delete', () => {
         { id },
       )
     )[0];
-  /** A moderator's status (in_review, rejected …), set as a system user would. */
+  /**
+   * A moderator's status (in_review, changes_requested …) on a draft, as the status log (R6)
+   * records the way there: submitted by the person, picked up and decided by a moderator. Added
+   * as a system user, which names who did each step.
+   */
   const moderate = (id: string, status: string) =>
-    run(migrator, `UPDATE type::record('story', $id) SET status = $status`, {
-      id,
-      status,
-    });
+    run(
+      migrator,
+      `FOR $step IN $steps {
+         CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: $step[0],
+           actor: $step[1], by: IF $step[1] = 'moderator' { user:moderator } };
+       };`,
+      {
+        id,
+        steps: [
+          ['pending', 'person'],
+          ['in_review', 'moderator'],
+          ...(status === 'in_review' ? [] : [[status, 'moderator']]),
+        ],
+      },
+    );
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -207,9 +222,11 @@ describe('my stories: withdraw and delete', () => {
     });
     expect(await statusOf(id)).toBe('withdrawn');
     expect(
-      await rows(migrator, `SELECT id FROM type::record('publicStory', $id)`, {
-        id,
-      }),
+      await rows(
+        await t.service('api_public_read'),
+        `SELECT id FROM type::record('story', $id)`,
+        { id },
+      ),
     ).toEqual([]);
     // Withdrawn stays withdrawn (D61): nothing to withdraw again.
     expect((await withdraw('ann', id, live + 1)).body.code).toBe(
@@ -222,7 +239,7 @@ describe('my stories: withdraw and delete', () => {
         migrator,
         `RETURN [
            (SELECT id FROM type::record('story', $id)),
-           (SELECT id FROM moderationReview WHERE story = type::record('story', $id)),
+           (SELECT id FROM storyStatusLog WHERE story = type::record('story', $id)),
            (SELECT id FROM favourite WHERE story = type::record('story', $id))
          ]`,
         { id },
@@ -352,5 +369,53 @@ describe('my stories: withdraw and delete', () => {
     );
     expect((await remove('bob', bobs, 7)).status).toBe(412);
     expect(await statusOf(bobs)).toBe('draft');
+  });
+
+  // Everyone reads a published story (R11), so the owner's routes ask for their own themselves
+  // (Codex, B1 round 1: Ann read Bob's as hers).
+  it('someone else’s published story is not found on any of the owner’s routes', async () => {
+    const bobs = await create('bob');
+    expect((await submit('bob', bobs, 1)).status).toBe(200);
+    await approve(admin, bobs);
+    const version = await versionOf(bobs);
+    const ifMatch = { 'if-match': `"${version}"` };
+
+    expect(
+      (await call('GET', `/v1/account/stories/${bobs}`, 'ann')).status,
+    ).toBe(404);
+    expect(
+      (await call('GET', '/v1/account/stories', 'ann')).body.data.map(
+        (s: { id: string }) => s.id,
+      ),
+    ).not.toContain(bobs);
+    for (const res of [
+      await call('PATCH', `/v1/stories/${bobs}`, 'ann', {
+        body: { title: 'Not mine' },
+        headers: { ...ifMatch, 'content-type': 'application/merge-patch+json' },
+      }),
+      await call('POST', `/v1/stories/${bobs}/submit`, 'ann', {
+        headers: { ...ifMatch, 'idempotency-key': key() },
+      }),
+      await withdraw('ann', bobs, version),
+      await remove('ann', bobs, version),
+      await call('POST', `/v1/stories/${bobs}/upload-url`, 'ann', {
+        body: {
+          format: 'video',
+          contentType: 'video/mp4',
+          fileSizeBytes: 1000,
+          durationSeconds: 10,
+        },
+        headers: { ...ifMatch, 'idempotency-key': key() },
+      }),
+    ]) {
+      expect(res.status).toBe(404);
+    }
+    expect([await statusOf(bobs), await versionOf(bobs)]).toEqual([
+      'approved',
+      version,
+    ]);
+    expect(
+      (await call('GET', `/v1/account/stories/${bobs}`, 'bob')).status,
+    ).toBe(200);
   });
 });

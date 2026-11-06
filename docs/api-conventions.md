@@ -50,30 +50,35 @@ brackets).
 ## CQRS-lite (D25)
 
 - **Commands** (`api-user`, `api-admin`): one handler per intent (`SubmitStory`, `ApproveStory`,
-  …). It validates, enforces the aggregate's rules, and writes in **one transaction that also
-  updates every read model the change affects**. There is no audit log (Joel, 2026-11-05): a
+  …). It validates, enforces the aggregate's rules, and writes in **one transaction**. A story's
+  status changes by adding an entry to its status log, which moves the story's pointer in the
+  same write (R6). There is no audit log (Joel, 2026-11-05): a
   changeable setting names who changed it last (`changedBy`), and a legal text version who
   published it (`publishedBy`).
 - **Queries**: query handlers with no side effects.
-- A person sees their own change immediately: the client re-queries, and the read model is already
+- A person sees their own change immediately: the client re-queries, and what it reads is already
   current. There is no eventual consistency to handle in `web`.
 - No event store or event sourcing.
-- Test every command against the read models it updates.
+- Test every command against what it changes, on a real database.
 
-## Read models (D26)
+## Public reads: one story table (R11; was the `publicStory` read model, D26)
 
-- **`publicStory` is the only read model.** It holds approved stories only: slug, `slugHistory`,
-  title, description/body, byline, theme links, playback fields, published date and the search text.
-  Never the submitter, consent, raw transcript, moderation data or quality signal.
-- Approve creates it; editing an approved story updates it; withdrawal and erasure (which is how a
-  person withdraws their consent) delete it, in the same transaction. Theme renames need nothing (themes are
-  fetched by reference, D15); deleting a theme removes it from every story and published story in
-  the same transaction (`theme_delete` event).
-- **Anonymous queries read only read models** (and reference data: `theme`, `themeCategory` and the four
-  legal texts' versions).
-  Personal queries read the person's own rows in the write tables, as the person. Moderation reads
-  the `story` write model on `api-admin`.
-- `publicStory` holds Art 9 data: it is on the erasure checklist.
+- **There is one `story` table** (database review 2, R11, Joel 2026-11-04/05). The public reads
+  the same table as everyone else, and the database's rules decide what it sees: an approved
+  story (its current status entry says `approved`), and only its published fields (slug,
+  `slugHistory`, title, description and text, byline, themes, playback fields, the publish date on
+  its current approved status entry, and the search text). Never the submitter, consent, raw
+  transcript, moderation data or quality signal, which only the owner and the services that need
+  them can read ([db-permissions.md](db-permissions.md)).
+- Approving publishes it, withdrawal or a hide takes it off at once, and erasure (which is how a
+  person withdraws their consent) deletes it with its status log: one write each, nothing to
+  copy. Theme renames need nothing (themes are fetched by reference, D15); deleting a theme
+  removes it from every story in the same transaction (`theme_delete` event).
+- **Anonymous queries read only published stories** (and reference data: `theme`,
+  `themeCategory` and the four legal texts' versions), and ask for approved stories themselves
+  too. Personal queries read the person's own rows, as the person. Moderation and the super
+  admins' story view (R15) read `story` on `api-admin`.
+- `story` and `storyStatusLog` hold Art 9 data: they are on the erasure checklist.
 
 ## Commands and CRUD (D28)
 
@@ -82,7 +87,7 @@ brackets).
 | Plain resource (no lifecycle, no side effects)      | CRUD: `POST` creates, `GET`, `PATCH` with JSON Merge Patch (`application/merge-patch+json`) on editable fields only, `DELETE`. Relationships use idempotent `PUT`/`DELETE`. |
 | State change (lifecycle, side effects, permissions) | One named command per intent: `POST /v1/<resource>/{id}/<verb>`. **Never `PATCH` a status.**                                                                                |
 
-**What a command returns:** `{ id, version }` and nothing from the read model. Creates answer `201`
+**What a command returns:** `{ id, version }` and nothing else about the resource. Creates answer `201`
 with `Location` (when the resource can be read); work that continues asynchronously (erasure)
 answers `202`. `version` is `null` only where the target has none (what Clerk holds: roles and
 account settings). The one exception is `/upload-url`, which also returns

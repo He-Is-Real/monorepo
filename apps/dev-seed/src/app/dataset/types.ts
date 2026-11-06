@@ -34,14 +34,14 @@ export interface ThemeFixture {
   highlighted?: true;
 }
 
-/** A moderation decision (moderationReview.decision) and what the submitter is told. */
+/** A moderator's decision (a status log entry, R6) and what the submitter is told. */
 export interface ReviewFixture {
-  decision: 'approve' | 'reject' | 'request_changes' | 'escalate';
+  decision: 'approve' | 'reject' | 'request_changes';
   feedback?: string;
 }
 
 export interface StoryFixture {
-  /** story:<id> (and publicStory:<id>); always starts with `seed_` */
+  /** story:<id>; always starts with `seed_` */
   id: string;
   slug: string;
   title: string;
@@ -61,14 +61,14 @@ export interface StoryFixture {
   image?: { file: ImageId; alt?: string; processing?: Processing };
   /**
    * Where the story ends up. The seed walks it there the way the services will (draft →
-   * pending → in_review → …), so submittedAt, versions and reviews look real.
+   * pending → in_review → …), so its status log and versions look real.
    */
   status: StoryStatus;
   /**
    * The moderation decisions, in order. Each one follows a submit and a moderator picking the
    * story up. `request_changes` sends it back; the next decision follows a resubmit. The last
    * one decides the final status (approve → approved, reject → rejected, request_changes →
-   * changes_requested; escalate keeps it in review).
+   * changes_requested). An in_review story has none yet.
    */
   reviews?: ReviewFixture[];
   /** Approved stories: how many days ago it was published (browse order). */

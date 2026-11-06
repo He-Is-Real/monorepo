@@ -7,8 +7,9 @@ import type { SeedVars } from './plan';
  *
  * It runs as `dev_seed`, a dev-only system user (EDITOR; created by SurrealDB's startup init only
  * when OpenTofu's dev_seed_login is on). A system user skips table permissions, but every event
- * still runs: the story types and shapes (D53), the approval gate (A2) and the read model's
- * mirror check all hold, exactly as for the services. Agreements are real (plan 4e): every
+ * still runs: the story types and shapes (D53), the status log's steps (R6) and the approval
+ * gate (A2) all hold, exactly as for the services. A system user names who added each status
+ * entry (person or moderator), and when, so the log reads as if they had. Agreements are real (plan 4e): every
  * fixture person has agreed to the latest terms of use and testimony consent (their pointers on
  * the user row; a system user may set them), so the published stories pass the real rules. A
  * pointer is moved only when it isn't on the latest version already, so a reset keeps the time
@@ -20,8 +21,8 @@ import type { SeedVars } from './plan';
  * Its newcomer accounts (newcomerAccounts) go back to never having agreed to either, so their
  * next sign-in meets the terms step; a system user may clear a pointer, nobody else may.
  *
- * Wiped: story (and, through its erasure cascade, publicStory and moderationReview), whatever
- * read-model rows or reviews are left, idempotencyKey, every theme and every category
+ * Wiped: story (and, through its cascade, its status log and hiddenStory), idempotencyKey,
+ * every theme and every category
  * but Other (which can't be deleted). Kept: people who aren't
  * fixtures (Clerk sign-ins), the legal texts' versions, settings and the migration ledger. Fixture people are `user:seed_*`; ones no longer in the dataset are removed.
  *
@@ -41,8 +42,6 @@ IF $terms = NONE OR $testimony = NONE {
 };
 
 DELETE story RETURN NONE;
-DELETE publicStory RETURN NONE;
-DELETE moderationReview RETURN NONE;
 DELETE idempotencyKey RETURN NONE;
 DELETE theme RETURN NONE;
 DELETE themeCategory WHERE id != themeCategory:other RETURN NONE;
@@ -98,38 +97,15 @@ FOR $s IN $stories {
   LET $story = type::record('story', $s.id);
   CREATE $story CONTENT object::extend($s.draft, {
     submitter: type::record('user', $s.submitter),
-    themeRefs: $s.draft.themeRefs.map(|$t| type::record('theme', $t)),
-    status: 'draft'
+    themeRefs: $s.draft.themeRefs.map(|$t| type::record('theme', $t))
   }) RETURN NONE;
+  -- R6: each step is a status entry; the database checks it and moves story.currentStatus.
   FOR $step IN $s.steps {
-    IF $step.review != NONE {
-      CREATE moderationReview CONTENT {
-        story: $story,
-        moderator: type::record('user', $moderator),
-        decision: $step.review.decision,
-        feedbackToSubmitter: $step.review.feedback,
-        storyVersion: (SELECT VALUE version FROM ONLY $story)
-      } RETURN NONE;
-    };
-    UPDATE $story SET
-      status = $step.status,
-      lockedBy = IF $step.lock = true { type::record('user', $moderator) } ELSE { NONE },
-      lockedAt = IF $step.lock = true { time::now() } ELSE { NONE },
-      rejectionFeedback = $step.feedback,
-      approvedAt = IF $step.status = 'approved' { $s.publishedAt } ELSE { approvedAt }
-    RETURN NONE;
-  };
-  IF $s.publishedAt != NONE {
-    LET $a = (SELECT * FROM ONLY $story);
-    CREATE type::record('publicStory', $s.id) CONTENT {
-      version: $a.version, slug: $a.slug, title: $a.title, description: $a.description,
-      body: $a.body, bylineName: $a.bylineName, primaryFormat: $a.primaryFormat,
-      themeRefs: $a.themeRefs,
-      media: $a.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
-        thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height }),
-      image: IF $a.image != NONE { { path: $a.image.path, width: $a.image.width,
-        height: $a.image.height, alt: $a.image.alt } },
-      publishedAt: $s.publishedAt
+    CREATE storyStatusLog CONTENT {
+      story: $story, status: $step.status, actor: $step.actor, at: $step.at,
+      by: IF $step.actor = 'moderator' { type::record('user', $moderator) },
+      comment: $step.comment,
+      publishedAt: IF $step.status = 'approved' { $s.publishedAt }
     } RETURN NONE;
   };
 };
@@ -139,10 +115,11 @@ COMMIT TRANSACTION;
 
 /** What the database holds after a reset: counted, not assumed. */
 export const SUMMARY_SQL = /* surql */ `
-SELECT status, count() AS stories FROM story GROUP BY status;
+SELECT status, count() AS stories FROM
+  (SELECT fn::story::status_of($this) AS status FROM story) GROUP BY status;
 RETURN {
-  publicStories: count(SELECT id FROM publicStory),
-  reviews: count(SELECT id FROM moderationReview),
+  publicStories: count(SELECT id FROM story WHERE currentStatus.status = 'approved'),
+  statusEntries: count(SELECT id FROM storyStatusLog),
   themes: count(SELECT id FROM theme),
   fixturePeople: count(SELECT id FROM user WHERE string::starts_with(<string> record::id(id), 'seed_'))
 };
@@ -151,7 +128,7 @@ RETURN {
 export interface SeedSummary {
   byStatus: Record<string, number>;
   publicStories: number;
-  reviews: number;
+  statusEntries: number;
   themes: number;
   fixturePeople: number;
 }

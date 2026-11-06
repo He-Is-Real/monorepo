@@ -10,9 +10,9 @@ import {
   buildWorld,
   createPeople,
   draft,
-  run,
   submit,
   TestDatabase,
+  withdraw,
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import { AppModule } from '../src/app/app.module';
@@ -149,13 +149,7 @@ describe('hearts: /v1/account/favourites', () => {
         .ids,
     ).toEqual(['bob_two']);
     // A story withdrawn after the heart drops out of the list and the lookup (C15).
-    await run(
-      await t.person('user_bob'),
-      `BEGIN TRANSACTION;
-       UPDATE story:bob_two SET status = 'withdrawn';
-       DELETE publicStory:bob_two;
-       COMMIT TRANSACTION;`,
-    );
+    await withdraw(await t.person('user_bob'), 'bob_two');
     expect((await listed('user_ann')).ids).toEqual(['bob_three', 'bob_live']);
     expect(
       (await among('user_ann', ['bob_two', 'bob_three', 'bob_live'])).ids,

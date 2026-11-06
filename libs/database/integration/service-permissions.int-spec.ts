@@ -8,7 +8,14 @@ import {
   SERVICES,
   TestDatabase,
 } from './support/harness';
-import { buildWorld, grantImage } from './support/world';
+import {
+  buildWorld,
+  draft,
+  grantImage,
+  statusOf,
+  step,
+  submit,
+} from './support/world';
 
 /**
  * D13 B: each service signs in as its own `service` record through DEFINE ACCESS svc, and
@@ -96,11 +103,9 @@ describe('service identities (D13 B)', () => {
   });
 
   describe('api_public_read', () => {
-    it('reads publicStory, and the four legal texts with every version', async () => {
+    it('reads approved stories, and the four legal texts with every version', async () => {
       const db = svc.publicRead;
-      expect(await ids(db, 'SELECT id FROM publicStory')).toEqual([
-        'publicStory:bob_live',
-      ]);
+      expect(await ids(db, 'SELECT id FROM story')).toEqual(['story:bob_live']);
       for (const table of LEGAL_TABLES) {
         expect(
           await rows(db, `SELECT VALUE id FROM type::table($table)`, { table }),
@@ -139,57 +144,47 @@ describe('service identities (D13 B)', () => {
     });
 
     it.each([
-      'story',
       'user',
-      'moderationReview',
+      'hiddenStory',
       'idempotencyKey',
       '_migration',
       '_migrationRun',
       '_migrationPending',
       '_identity',
-    ])(
-      'sees nothing in %s (not even approved stories in the write model)',
-      async (table) => {
-        expect(await rows(svc.publicRead, `SELECT * FROM ${table}`)).toEqual(
-          [],
-        );
-        expect(
-          (await truth(`SELECT count() FROM ${table} GROUP ALL`)).length,
-        ).toBe(1);
-      },
-    );
-
-    it('cannot read a draft or pending story by id', async () => {
+    ])('sees nothing in %s', async (table) => {
+      expect(await rows(svc.publicRead, `SELECT * FROM ${table}`)).toEqual([]);
       expect(
-        await rows(
-          svc.publicRead,
-          'SELECT * FROM story:ann_draft, story:ann_pending',
-        ),
-      ).toEqual([]);
+        (await truth(`SELECT count() FROM ${table} GROUP ALL`)).length,
+      ).toBe(1);
     });
 
     it('cannot write anything: every write returns an empty result and changes nothing', async () => {
       const db = svc.publicRead;
       expect(
-        await rows(db, `UPDATE publicStory:bob_live SET title = 'defaced'`),
+        await rows(db, `UPDATE story:bob_live SET title = 'defaced'`),
       ).toEqual([]);
+      expect(await rows(db, 'DELETE story:bob_live RETURN BEFORE')).toEqual([]);
       expect(
-        await rows(db, 'DELETE publicStory:bob_live RETURN BEFORE'),
+        await rows(
+          db,
+          `CREATE storyStatusLog CONTENT { story: story:bob_pending, status: 'approved' }`,
+        ),
       ).toEqual([]);
       expect(
         await rows(db, `CREATE user:sneak SET clerkUserId = 'user_sneak'`),
       ).toEqual([]);
-      expect(
-        await truth('SELECT VALUE title FROM publicStory:bob_live'),
-      ).toEqual(['Story bob_live']);
+      expect(await truth('SELECT VALUE title FROM story:bob_live')).toEqual([
+        'Story bob_live',
+      ]);
+      expect(await statusOf(migrator, 'bob_pending')).toBe('pending');
       expect(await truth('SELECT * FROM user:sneak')).toEqual([]);
     });
   });
 
   describe('api_user (its own login, not a person session)', () => {
-    it('cannot read, create or edit stories', async () => {
+    it('reads only what everyone reads; cannot create or edit stories', async () => {
       const db = svc.apiUser;
-      expect(await rows(db, 'SELECT * FROM story')).toEqual([]);
+      expect(await ids(db, 'SELECT id FROM story')).toEqual(['story:bob_live']);
       expect(
         await rows(
           db,
@@ -264,25 +259,23 @@ describe('service identities (D13 B)', () => {
       ).toHaveLength(1);
       expect(await rows(db, 'SELECT * FROM idempotencyKey')).toHaveLength(1);
       expect(
-        await rows(db, `UPDATE story:bob_pending SET status = 'approved'`),
+        await rows(
+          db,
+          `CREATE storyStatusLog CONTENT { story: story:bob_pending, status: 'in_review' }`,
+        ),
       ).toEqual([]);
       expect(
         await rows(
           db,
-          `CREATE publicStory:ann_pending CONTENT { version: 1, slug: 'x', title: 'x',
-             description: 'x', primaryFormat: 'written', themeRefs: [], media: [], publishedAt: time::now() }`,
+          'SELECT * FROM storyStatusLog WHERE status != "approved"',
         ),
       ).toEqual([]);
-      expect(await rows(db, 'SELECT * FROM moderationReview')).toEqual([]);
-      expect(await truth('SELECT VALUE status FROM story:bob_pending')).toEqual(
-        ['pending'],
-      );
-      expect(await truth('SELECT * FROM publicStory:ann_pending')).toEqual([]);
+      expect(await statusOf(migrator, 'bob_pending')).toBe('pending');
     });
   });
 
   describe('api_admin', () => {
-    it('reads every story and review', async () => {
+    it('reads every story and status entry', async () => {
       const db = svc.admin;
       expect(await ids(db, 'SELECT id FROM story')).toEqual([
         'story:ann_draft',
@@ -291,11 +284,11 @@ describe('service identities (D13 B)', () => {
         'story:bob_live',
         'story:bob_pending',
       ]);
-      expect(await rows(db, 'SELECT * FROM moderationReview')).toHaveLength(1);
+      expect(await rows(db, 'SELECT * FROM storyStatusLog')).toHaveLength(5);
     });
 
     // R7 (Joel, 2026-11-04): erasure runs on api-user's login, so api-admin deletes none of these.
-    it('cannot delete upload grants, submission log rows or reviews', async () => {
+    it('cannot delete upload grants, submission log rows or status entries', async () => {
       const [version] = await truth<number>(
         'SELECT VALUE version FROM ONLY story:ann_draft',
       );
@@ -311,37 +304,66 @@ describe('service identities (D13 B)', () => {
         'CREATE submissionLog:r7 CONTENT { person: user:ann }',
       );
       const before = await truth<string[]>(
-        'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM moderationReview)]',
+        'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM storyStatusLog)]',
       );
       expect(before.map((ids) => ids.length > 0)).toEqual([true, true, true]);
-      for (const table of [
-        'uploadGrant',
-        'submissionLog',
-        'moderationReview',
-      ]) {
+      for (const table of ['uploadGrant', 'submissionLog', 'storyStatusLog']) {
         expect(await rows(svc.admin, `DELETE ${table} RETURN BEFORE`)).toEqual(
           [],
         );
       }
       expect(
         await truth(
-          'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM moderationReview)]',
+          'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM storyStatusLog)]',
         ),
       ).toEqual(before);
     });
 
-    it('moderates: request changes on a pending story', async () => {
-      const [after] = await rows(
-        svc.admin,
-        `UPDATE story:ann_pending SET status = 'changes_requested',
-           rejectionFeedback = 'Please add more detail' RETURN status, rejectionFeedback`,
-      );
-      expect(after).toEqual({
-        status: 'changes_requested',
-        rejectionFeedback: 'Please add more detail',
+    it('moderates through the status log only, naming the moderator (R6)', async () => {
+      await draft(await t.person('user_ann'), 'ann_mod');
+      await submit(await t.person('user_ann'), 'ann_mod');
+      // Not straight from pending to a decision: a moderator picks it up first.
+      expect(
+        await outcome(
+          svc.admin,
+          `CREATE storyStatusLog CONTENT { story: story:ann_mod, status: 'approved', by: user:moderator }`,
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('status_step'),
       });
-      // Put it back for the other tests.
-      await run(svc.admin, `UPDATE story:ann_pending SET status = 'pending'`);
+      // Every moderator entry names the moderator.
+      expect(
+        await outcome(
+          svc.admin,
+          `CREATE storyStatusLog CONTENT { story: story:ann_mod, status: 'in_review' }`,
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('names the moderator'),
+      });
+      expect(await step(svc.admin, 'ann_mod', 'in_review')).toHaveLength(1);
+      const [entry] = await step(svc.admin, 'ann_mod', 'changes_requested', {
+        comment: 'Please add more detail',
+        actor: 'person',
+      });
+      expect(entry).toMatchObject({
+        status: 'changes_requested',
+        actor: 'moderator',
+        by: 'user:moderator',
+        comment: 'Please add more detail',
+      });
+      expect(await statusOf(migrator, 'ann_mod')).toBe('changes_requested');
+      // The story itself: api-admin can't write its words or its status pointer.
+      await run(
+        svc.admin,
+        `UPDATE story:ann_mod SET title = 'moderator words', currentStatus = NONE`,
+      );
+      expect(
+        await truth(
+          'SELECT title, fn::story::status_of($this) AS status FROM story:ann_mod',
+        ),
+      ).toEqual([{ title: 'Story ann_mod', status: 'changes_requested' }]);
     });
 
     it('links a legacy person to a Clerk account once; the binding never changes after', async () => {
@@ -363,7 +385,9 @@ describe('service identities (D13 B)', () => {
   describe('workflow', () => {
     it('reads and updates stories (M7 media), but cannot create, delete or publish them', async () => {
       const db = svc.workflow;
-      expect((await ids(db, 'SELECT id FROM story')).length).toBe(5);
+      expect(
+        (await ids(db, 'SELECT id FROM story')).length,
+      ).toBeGreaterThanOrEqual(5);
       // A video story (D53: only video and audio stories have media), as its upload left it.
       await run(
         migrator,
@@ -392,19 +416,22 @@ describe('service identities (D13 B)', () => {
       expect(
         await rows(
           db,
-          `CREATE publicStory:bob_pending CONTENT { version: 1, slug: 'x', title: 'x',
-             description: 'x', primaryFormat: 'written', themeRefs: [], media: [], publishedAt: time::now() }`,
+          `CREATE storyStatusLog CONTENT { story: story:bob_pending, status: 'in_review' }`,
         ),
       ).toEqual([]);
-      expect(
-        await truth('SELECT * FROM story:wf, publicStory:bob_pending'),
-      ).toEqual([]);
+      expect(await truth('SELECT * FROM story:wf')).toEqual([]);
+      expect(await statusOf(migrator, 'bob_pending')).toBe('pending');
       expect(await truth('SELECT id FROM story:bob_draft')).toHaveLength(1);
     });
 
-    it('cannot see reviews', async () => {
+    it('sees only the status entries everyone sees', async () => {
       const db = svc.workflow;
-      expect(await rows(db, 'SELECT * FROM moderationReview')).toEqual([]);
+      expect(
+        await rows(
+          db,
+          `SELECT * FROM storyStatusLog WHERE status != 'approved'`,
+        ),
+      ).toEqual([]);
     });
   });
 
