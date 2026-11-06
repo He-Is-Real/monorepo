@@ -1,4 +1,4 @@
-import type { Surreal } from 'surrealdb';
+import { StringRecordId, type Surreal } from 'surrealdb';
 import { rows, run, TestDatabase } from './support/harness';
 import {
   approve,
@@ -37,12 +37,13 @@ describe('storySearch: published stories’ words, and only theirs', () => {
 
   it('has a row for each published story only, with its words', async () => {
     expect(await indexed()).toEqual(['bob_live']);
-    const [row] = await rows<{ text: string }>(
+    const [row] = await rows<{ searchText: string }>(
       migrator,
-      `SELECT text FROM storySearch:bob_live`,
+      `SELECT searchText FROM storySearch:bob_live`,
     );
-    expect(row.text).toBe(
-      `Story bob_live How I came to faith ${storyText('bob_live')}`,
+    // Its title, description, text and its themes' names (Common).
+    expect(row.searchText).toBe(
+      `Story bob_live How I came to faith ${storyText('bob_live')} Common`,
     );
   });
 
@@ -88,8 +89,8 @@ describe('storySearch: published stories’ words, and only theirs', () => {
     ]) {
       await run(
         db,
-        `CREATE storySearch:fake SET story = story:ann_draft, text = 'injected';
-         UPDATE storySearch SET text = 'changed';
+        `CREATE storySearch:fake SET story = story:ann_draft, searchText = 'injected';
+         UPDATE storySearch SET searchText = 'changed';
          DELETE storySearch;`,
       ).catch(() => undefined);
     }
@@ -111,7 +112,7 @@ describe('drafts never move best-match scores', () => {
     rows<{ story: string; score: number }>(
       publicRead,
       `SELECT record::id(story) AS story, search::score(1) AS score FROM storySearch
-       WHERE text @1@ 'faith' ORDER BY score DESC, story DESC`,
+       WHERE searchText @1@ 'faith' ORDER BY score DESC, story DESC`,
     );
   const counts = async () =>
     [
@@ -160,5 +161,78 @@ describe('drafts never move best-match scores', () => {
     expect(
       await rows(migrator, `SELECT count() FROM storySearch GROUP ALL`),
     ).toEqual([{ count: 2 }]);
+  });
+});
+
+/**
+ * Theme names are searched too (Joel, 2026-11-06: "include story themes inside the terms search is
+ * ranked on too"; search-ranking-design.html): a published story's search words include its
+ * themes' current names, kept right by the database when a theme is renamed or deleted.
+ */
+describe('theme names in search', () => {
+  let t: TestDatabase;
+  let admin: Surreal;
+  let ann: Surreal;
+  let publicRead: Surreal;
+  const found = (word: string) =>
+    rows<string>(
+      publicRead,
+      `SELECT VALUE record::id(story) FROM storySearch WHERE searchText @1@ $word ORDER BY story`,
+      { word },
+    );
+  const scores = (word: string) =>
+    rows<{ story: string; score: number }>(
+      publicRead,
+      `SELECT record::id(story) AS story, search::score(1) AS score FROM storySearch
+       WHERE searchText @1@ $word ORDER BY score DESC, story DESC`,
+      { word },
+    );
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    const world = await buildWorld(t);
+    ({ admin, ann } = world);
+    publicRead = await t.service('api_public_read');
+    await run(
+      admin,
+      `CREATE theme:grief SET name = 'Grief', category = themeCategory:other`,
+    );
+    await draft(world.bob, 'bob_tagged', {
+      themeRefs: [
+        new StringRecordId('theme:common'),
+        new StringRecordId('theme:grief'),
+      ],
+    });
+    await submit(world.bob, 'bob_tagged');
+    await approve(admin, 'bob_tagged');
+  });
+  afterAll(() => t?.close());
+
+  it('finds a published story by its theme’s name, though the word isn’t in its text', async () => {
+    expect(storyText('bob_tagged')).not.toMatch(/grief/i);
+    expect(await found('grief')).toEqual(['bob_tagged']);
+  });
+
+  it('a draft carrying the theme moves no score', async () => {
+    const before = await scores('grief');
+    await draft(ann, 'ann_tagged', {
+      themeRefs: [new StringRecordId('theme:grief')],
+    });
+    expect(await scores('grief')).toEqual(before);
+    await run(ann, `DELETE story:ann_tagged`);
+    expect(await scores('grief')).toEqual(before);
+  });
+
+  it('after a rename, the old name no longer finds it and the new one does', async () => {
+    await run(admin, `UPDATE theme:grief SET name = 'Sorrow'`);
+    expect(await found('grief')).toEqual([]);
+    expect(await found('sorrow')).toEqual(['bob_tagged']);
+  });
+
+  it('after the theme is deleted, its name no longer finds it', async () => {
+    await run(admin, `DELETE theme:grief`);
+    expect(await found('sorrow')).toEqual([]);
+    // The story is still published and found by its own words.
+    expect(await found('bob_tagged')).toEqual(['bob_tagged']);
   });
 });

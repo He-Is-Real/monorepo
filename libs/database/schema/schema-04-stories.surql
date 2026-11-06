@@ -607,39 +607,64 @@ DEFINE INDEX OVERWRITE story_theme_ids ON story FIELDS themeIds.*;     -- D63
 
 -- ---------------------------------------------------------------- storySearch (search option A)
 -- Search option A (Joel, 2026-11-06; search-drafts-decision.html): one row per PUBLISHED story,
--- holding only its search words (title, description, text) and the story it belongs to; id =
--- storySearch:<the story's key>. The full-text index lives here, so BM25's scores and the
--- "best match" order are computed over published stories only: a draft being created or deleted
--- can't move a score or a page (Codex, #187 review). It is not a public copy of the story: only
--- the words, which the public already reads on the story.
--- The database alone writes it (story_search, below), in the same write that publishes the story
--- or stops it being published (withdrawn, hidden, rejected, deleted, erased): no service path can
--- forget it. Everyone may read a row only while its story is published now (the story's own row
--- rule); nobody writes one directly.
+-- holding only its search words and the story it belongs to; id = storySearch:<the story's key>.
+-- The full-text index lives here, so BM25's scores and the "best match" order are computed over
+-- published stories only: a draft being created or deleted can't move a score or a page (Codex,
+-- #187 review). It is not a public copy of the story: only the words, which the public already
+-- reads on the story and its themes.
+-- searchText (search-ranking-design.html; Joel, 2026-11-06: "include story themes inside the
+-- terms search is ranked on too"): the title, description, written text and the current names of
+-- its themes, as one text, all counting equally (one field, one analyzer). Category names aren't
+-- included.
+-- The database alone writes it (fn::story::sync_search), in the same write that publishes the
+-- story or stops it being published (withdrawn, hidden, rejected), deletes it (DeleteStory,
+-- erasure, housekeeping), changes its words or themes, or renames or deletes one of its themes:
+-- no service path can forget it. Everyone may read a row only while its story is published now
+-- (the story's own row rule); nobody writes one directly.
 DEFINE TABLE OVERWRITE storySearch SCHEMAFULL PERMISSIONS
   FOR select WHERE story.currentStatus.status = 'approved',
   FOR create, update, delete NONE;
-DEFINE FIELD OVERWRITE story ON storySearch TYPE record<story> READONLY;
-DEFINE FIELD OVERWRITE text  ON storySearch TYPE string;
-DEFINE INDEX OVERWRITE storySearch_fts ON storySearch FIELDS text
+DEFINE FIELD OVERWRITE story      ON storySearch TYPE record<story> READONLY;
+DEFINE FIELD OVERWRITE searchText ON storySearch TYPE string;
+DEFINE INDEX OVERWRITE storySearch_fts ON storySearch FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
--- A published story's words are in storySearch; any other story's are not. Runs on every write
--- that changes the status pointer or the words (events run elevated), and on delete (erasure,
--- DeleteStory, housekeeping).
+-- A story's search words: title, description, written text and its themes' current names.
+DEFINE FUNCTION OVERWRITE fn::story::search_text($s: any) {
+  LET $refs = $s.themeRefs ?? [];
+  LET $themes = (SELECT VALUE name FROM theme WHERE id IN $refs ORDER BY name);
+  RETURN array::join(array::concat([$s.title, $s.description, $s.body ?? ''], $themes), ' ');
+};
+-- Puts the story's row in step with it: its words if it is published now, no row otherwise
+-- (including a story that is gone). Called by events only (they run elevated).
+DEFINE FUNCTION OVERWRITE fn::story::sync_search($id: record<story>) {
+  LET $s = (SELECT * FROM ONLY $id);
+  LET $row = type::record('storySearch', record::id($id));
+  IF $s != NONE AND fn::story::status_of($s) = 'approved' {
+    LET $text = fn::story::search_text($s);
+    IF record::exists($row) { UPDATE $row SET searchText = $text RETURN NONE }
+    ELSE { CREATE $row SET story = $id, searchText = $text RETURN NONE };
+  } ELSE IF record::exists($row) {
+    DELETE $row RETURN NONE;
+  };
+};
 DEFINE EVENT OVERWRITE story_search ON story
   WHEN $event = 'DELETE' OR ($event = 'UPDATE' AND (
     fn::story::status_of($before) != fn::story::status_of($after)
     OR $before.title != $after.title OR $before.description != $after.description
-    OR $before.body != $after.body))
+    OR $before.body != $after.body OR $before.themeIds != $after.themeIds))
   THEN {
-    LET $id = IF $event = 'DELETE' { $before.id } ELSE { $after.id };
-    LET $row = type::record('storySearch', record::id($id));
-    IF $event != 'DELETE' AND fn::story::status_of($after) = 'approved' {
-      LET $text = string::join(' ', $after.title, $after.description, $after.body ?? '');
-      IF record::exists($row) { UPDATE $row SET text = $text RETURN NONE }
-      ELSE { CREATE $row SET story = $id, text = $text RETURN NONE };
-    } ELSE {
-      DELETE $row RETURN NONE;
+    IF $event = 'DELETE' { DELETE type::record('storySearch', record::id($before.id)) RETURN NONE }
+    ELSE { fn::story::sync_search($after.id) };
+  };
+-- A renamed theme: the published stories that carry it get its new name (deleting a theme takes
+-- it off its stories, theme_delete, which story_search follows). Only those stories: the
+-- story_theme_ids index finds them.
+DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
+  WHEN $event = 'UPDATE' AND $before.name != $after.name
+  THEN {
+    LET $key = record::id($after.id);
+    FOR $s IN (SELECT VALUE id FROM story WHERE themeIds CONTAINS $key) {
+      IF record::exists(type::record('storySearch', record::id($s))) { fn::story::sync_search($s) };
     };
   };
 

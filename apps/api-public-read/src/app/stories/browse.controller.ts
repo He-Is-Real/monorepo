@@ -42,7 +42,7 @@ const PREAMBLE = `
  * score. Only in the search variants.
  */
 const HITS = `
-  LET $hits = SELECT story, search::score(1) AS score FROM storySearch WHERE text @1@ $q;`;
+  LET $hits = SELECT story, search::score(1) AS score FROM storySearch WHERE searchText @1@ $q;`;
 // An unknown theme id ($th NONE) filters nothing (themes plan v3, A8). themeIds, not themeRefs:
 // 3.2.4's CONTAINS over an element index on record links finds nothing (docs/db-permissions.md, "SurrealDB 3.2.4 gotchas").
 const FILTERS = `currentStatus.status = 'approved' AND ($format = NONE OR primaryFormat = $format) AND ($th = NONE OR themeIds CONTAINS $th)`;

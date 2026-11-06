@@ -322,7 +322,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       expect(
         await rows(
           db,
-          `SELECT VALUE story FROM storySearch WHERE text @1@ 'story' ORDER BY story`,
+          `SELECT VALUE story FROM storySearch WHERE searchText @1@ 'story' ORDER BY story`,
         ),
       ).toEqual(['story:ann_live', 'story:bob_live']);
     },
@@ -394,7 +394,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     expect(
       await rows(
         migrator,
-        `SELECT VALUE story FROM storySearch WHERE text @1@ 'ann_draft'`,
+        `SELECT VALUE story FROM storySearch WHERE searchText @1@ 'ann_draft'`,
       ),
     ).toEqual([]);
   });

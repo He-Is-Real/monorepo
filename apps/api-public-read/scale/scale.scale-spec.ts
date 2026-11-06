@@ -326,7 +326,7 @@ describe(`scale: ${STORIES} stories`, () => {
          CREATE type::record('themeCategory', 'c' + <string> $c) SET name = 'Category ' + <string> $c RETURN NONE;
          FOR $k IN 0..$perCategory {
            CREATE type::record('theme', 't' + <string> $c + '_' + <string> $k) SET
-             name = 'Theme ' + <string> $c + '.' + <string> $k,
+             name = 'Topic' + $letters[$c] + $letters[$k],
              category = type::record('themeCategory', 'c' + <string> $c) RETURN NONE;
          };
        };`,
@@ -334,6 +334,7 @@ describe(`scale: ${STORIES} stories`, () => {
         people: PEOPLE,
         categories: CATEGORIES,
         perCategory: THEMES_PER_CATEGORY,
+        letters: 'abcdefgh'.split(''),
       },
     );
     report(
@@ -428,6 +429,38 @@ describe(`scale: ${STORIES} stories`, () => {
     );
     await time(`search: rare word ("${RARE}"), relevance`, () =>
       get(`/v1/stories?limit=20&q=${RARE}&sort=relevance`),
+    );
+    // Theme names are searched too (Joel, 2026-11-06): t0_0 is "Topicaa", t7_7 "Topichh".
+    await time('search: popular theme name ("topicaa"), relevance', () =>
+      get('/v1/stories?limit=20&q=topicaa&sort=relevance'),
+    );
+    await time('search: rare theme name ("topichh"), relevance', () =>
+      get('/v1/stories?limit=20&q=topichh&sort=relevance'),
+    );
+    // Renaming a theme rewrites the search words of the published stories that carry it, in the
+    // same write (api-admin's login, as the admin themes page saves it). Timed once each way.
+    const admin = await t.service('api_admin');
+    const [carrying] = await rows<number>(
+      migrator,
+      `RETURN count(SELECT id FROM story WHERE themeIds CONTAINS 't0_0' AND currentStatus.status = 'approved')`,
+    );
+    for (const [theme, to, label] of [
+      ['t0_0', 'Topicrenamed', `popular theme (${carrying} published stories)`],
+      ['t7_7', 'Topicrare', 'rare theme'],
+    ] as const) {
+      const start = performance.now();
+      await run(admin, `UPDATE type::record('theme', $theme) SET name = $to`, {
+        theme,
+        to,
+      });
+      results.push({
+        what: `theme rename: ${label}`,
+        median: Math.round(performance.now() - start),
+        max: Math.round(performance.now() - start),
+      });
+    }
+    await time('search: renamed theme name ("topicrenamed"), relevance', () =>
+      get('/v1/stories?limit=20&q=topicrenamed&sort=relevance'),
     );
     const slug = publicIds[Math.floor(publicIds.length / 2)].replace('_', '-');
     await time('story page (by slug)', () => get(`/v1/stories/${slug}`));

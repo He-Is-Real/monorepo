@@ -54,8 +54,9 @@ DEFINE EVENT OVERWRITE theme_delete ON theme
   THEN {
     fn::fence::touch('theme', $before.id);
     DELETE type::record('fence', 'theme-' + <string> record::id($before.id));
+    -- themeIds: its element index finds them (3.2.4 finds nothing through one over record links).
     UPDATE story SET themeRefs -= $before.id
-      WHERE themeRefs CONTAINS $before.id RETURN NONE;
+      WHERE themeIds CONTAINS record::id($before.id) RETURN NONE;
   };
 -- The themes' version (D29) for /admin/themes: api-admin's save checks it and adds 1 in the same
 -- transaction, naming the admin, so of two admins saving from the same version one is refused

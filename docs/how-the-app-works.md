@@ -275,6 +275,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   the order or where "load more" carries on. The database keeps the published stories' words in
   their own search table and updates it in the same step as a story is published or stops being
   published. (Search option A, Joel 2026-11-06)
+- **Search also matches theme names.** A story's search words are its title, description,
+  written text and the current names of its themes, all counting equally (category names
+  aren't included). Renaming or deleting a theme updates the stories that carry it straight
+  away. (Joel, 2026-11-06)
 - **Themes** are grouped in categories that admins manage. One category, "Other", is fixed: it
   can't be renamed or deleted and takes the themes of a deleted category. A theme with no
   published stories is hidden unless it is highlighted. (D130, D63)

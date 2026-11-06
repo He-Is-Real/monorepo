@@ -925,11 +925,17 @@ wins. Dev's database is wiped and rebuilt for it (reset `db-review-2-b2`).
     `story.searchText` and `story_fts`.** Item 57's `searchText` kept drafts' words out, but BM25
     still counted every story row, so a draft being created or deleted moved published stories'
     scores and the relevance cursor (Codex, #187 review). `storySearch` (id = the story's key)
-    holds one row per published story: `story` and `text` (title, description and text), with
-    the full-text index `storySearch_fts`. Event `story_search` writes the row in the same write
-    that publishes the story (approved, or shown again) and deletes it in the write that stops it
-    being published (withdrawn, hidden, rejected) or deletes the story (DeleteStory, erasure,
-    housekeeping). `PERMISSIONS`: everyone may read a row only while its story's current entry is
+    holds one row per published story: `story` and `searchText`, with the full-text index
+    `storySearch_fts`. `searchText` is the title, description, written text and the current names
+    of the story's themes, all equally weighted (Joel, 2026-11-06: "include story themes inside
+    the terms search is ranked on too"; category names aren't included). `fn::story::sync_search`
+    puts a story's row in step: event `story_search` calls it in the same write that publishes the
+    story (approved, or shown again), stops it being published (withdrawn, hidden, rejected),
+    changes its words or themes, or deletes it (DeleteStory, erasure, housekeeping);
+    `storySearch_theme_renamed` calls it for the published stories that carry a renamed theme
+    (found through `story_theme_ids`), and `theme_delete` (which now finds its stories through
+    `themeIds`, the same index) takes a deleted theme off its stories, which `story_search`
+    follows. `PERMISSIONS`: everyone may read a row only while its story's current entry is
     `approved`; `create, update, delete NONE` (events only). Person-linked through its story.
     Public search reads the matching rows' stories and scores from it, then the story's own rules
     and filters apply.

@@ -138,7 +138,7 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   upload link has expired (pictures were left behind before). An approval records which files the
   moderator reviewed, and a story hidden because its media broke comes back on its own only while
   it still shows those files. Search now looks at published stories only, so drafts can never
-  shift its "best match" order (Joel's choice, option A). A local scale test with 50,000 stories timed the public lists,
+  shift its "best match" order (Joel's choice, option A), and it matches theme names too. A local scale test with 50,000 stories timed the public lists,
   search, the story page and favourites. Nothing changes for people using the site. Dev's
   database is wiped and rebuilt once more when this is applied.
 - **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
