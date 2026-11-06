@@ -77,13 +77,15 @@ export class ExportController {
   }
 
   /**
-   * The largest MP4 copy Bunny made of each of these videos. Without Bunny's key (uploads off,
-   * so no videos either) there is nothing to ask, and no MP4 links.
+   * The largest MP4 copy Bunny made of each of these videos. A person with no videos needs no
+   * answer from Bunny. Without Bunny's key (uploads switched off) existing videos still have
+   * copies we can't look up, so that is "unavailable" too, never "no MP4": all or nothing.
    */
   private async mp4Copies(videoIds: string[]): Promise<Map<string, number>> {
+    if (videoIds.length === 0) return new Map();
     const bunny = this.bunny;
-    if (!bunny || videoIds.length === 0) return new Map();
     try {
+      if (!bunny) throw new Error('no Bunny Stream key configured');
       const videos = await Promise.all(videoIds.map((id) => bunny.video(id)));
       return new Map(
         videoIds.flatMap((id, i) => {
