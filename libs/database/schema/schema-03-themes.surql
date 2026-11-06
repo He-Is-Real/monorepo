@@ -3,7 +3,7 @@
 -- transaction (see schema-01-system.surql).
 
 -- ---------------------------------------------------------------- themes (plan v3, 2026-10-31)
--- Admins manage categories and themes at /admin/themes; every story and published story links
+-- Admins manage categories and themes at /admin/themes; every story links
 -- the themes it carries (themeRefs). One fixed category, themeCategory:other ("Other"), is where
 -- a deleted category's themes go: nobody may delete or rename it. Other categories and every
 -- theme have ULID ids. A theme is "highlighted" in its category: highlighted themes are shown
@@ -39,9 +39,8 @@ DEFINE FIELD OVERWRITE category    ON theme TYPE record<themeCategory>
   ASSERT record::exists($value);
 DEFINE FIELD OVERWRITE highlighted ON theme TYPE bool DEFAULT false;
 DEFINE INDEX OVERWRITE theme_category ON theme FIELDS category;
--- Deleting a theme removes it from every story and published story that carries it, whoever
--- deletes it, in the same transaction: the story first, then its published row (which must
--- mirror it). A story left with fewer themes than the minimum isn't re-checked; only its next
+-- Deleting a theme removes it from every story that carries it, whoever deletes it, in the same
+-- transaction (published stories included: R11, one story table). A story left with fewer themes than the minimum isn't re-checked; only its next
 -- submission is (plan v3, A9). Removing a deleted theme isn't the person changing their story, so
 -- needs no agreement (story_agreements checks the owner's writes only) and passes the owner's content lock
 -- (that's the owner only).
@@ -57,8 +56,6 @@ DEFINE EVENT OVERWRITE theme_delete ON theme
     DELETE type::record('fence', 'theme-' + <string> record::id($before.id));
     UPDATE story SET themeRefs -= $before.id
       WHERE themeRefs CONTAINS $before.id RETURN NONE;
-    UPDATE publicStory SET themeRefs -= $before.id
-      WHERE themeIds CONTAINS record::id($before.id) RETURN NONE;
   };
 -- The themes' version (D29) for /admin/themes: api-admin's save checks it and adds 1 in the same
 -- transaction, naming the admin, so of two admins saving from the same version one is refused

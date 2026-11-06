@@ -108,8 +108,9 @@ DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, bi
 -- hearted a story can read the row: no service login, and not the story's owner (who will see a
 -- count per story on their profile later, never who gave it: not built, see
 -- docs/db-permissions.md item 35). One per person and story. A heart needs the person to have
--- agreed to the latest terms of use (plan 4e, Q2: their own write) and a story that is public now (its publicStory row). A story that stops being public later keeps
--- the heart, but lists read publicStory, so it no longer shows (C15). Person-linked twice: a new
+-- agreed to the latest terms of use (plan 4e, Q2: their own write) and a story that is public now
+-- (approved: its newest status entry, R6/R11). A story that stops being public later keeps the
+-- heart, but lists show public stories only, so it no longer shows (C15). Person-linked twice: a new
 -- heart fences both the person and the story's owner. Erasure deletes the person's hearts
 -- (user_erasure_favourites), and deleting a story deletes the hearts on it (story_erasure_cascade). Nothing about a heart changes after it is made.
 -- R14 (Joel, 2026-11-05): the id is a ULID, which starts with the moment the heart was made, so
@@ -142,7 +143,7 @@ DEFINE EVENT OVERWRITE favourite_rules ON favourite
         THROW 'favourite_id: a heart’s id is a ULID made just now (R14)';
       };
       IF $auth != NONE { fn::legal::require_terms($after.person) };
-      IF !record::exists(type::record('publicStory', record::id($after.story))) {
+      IF fn::story::status_of($after.story) != 'approved' {
         THROW 'favourite_not_published: only a public story can be hearted';
       };
       -- The story's owner too (Codex, #117): a heart racing their erasure, which deletes the

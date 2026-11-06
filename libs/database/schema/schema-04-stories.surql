@@ -1,39 +1,50 @@
--- schema-04-stories.surql: stories (write model), published stories (read model), hidden
--- stories, draft retention, moderation reviews and upload grants.
+-- schema-04-stories.surql: stories (one table, R11), their status log (R6), hidden stories, draft
+-- retention and upload grants.
 -- Part of the declarative schema: every schema-NN-*.surql file, applied in name order in one
 -- transaction (see schema-01-system.surql).
 
--- ---------------------------------------------------------------- story (write model)
+-- ---------------------------------------------------------------- story (R11: the one story table)
+-- A story is its content only (R6, Joel 2026-11-05). Its status is its status log's newest entry
+-- (storyStatusLog, below), which story.currentStatus points at; no entry = draft. Everyone, signed
+-- in or not, reads the published fields of an approved story (R11 B; db review 2, section 6 item
+-- 4); the private fields only the owner and the services that need them.
 -- A person's commands run in their own session (D27), so ownership is checked by the database.
--- api-user's own login can only delete (erasure): it can't read, create, reassign or edit stories.
--- Write scope per field (D41): the person's words (content fields) only by the person; moderation
--- fields only by api-admin; media fields by workflow (processing) and api-user's login, through an
--- upload grant only (D80: never the person's session; uploadGrant_attach), and `processing` (A2)
--- by workflow only. A field write outside its scope is silently dropped (field PERMISSIONS,
--- or the field's VALUE for `processing`), so check the stored state.
+-- api-user's own login reads only what everyone reads, and deletes (erasure): it can't create,
+-- reassign or edit stories.
+-- Write scope per field (D41): the person's words (content fields) only by the person; media
+-- fields by workflow (processing) and api-user's login, through an upload grant only (D80: never
+-- the person's session; uploadGrant_attach), and `processing` (A2) by workflow only; the status
+-- pointer by the status log's event only. A field write outside its scope is silently dropped
+-- (field PERMISSIONS, or the field's VALUE for `processing`), so check the stored state.
 DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:<ulid>
-  -- housekeeping reads every story's status, dates and media ids (never its words: the content
-  -- fields below refuse it) to find abandoned drafts and orphaned Bunny videos.
+  -- housekeeping reads every story's status pointer, dates and media ids (never its words: the
+  -- content fields below refuse it) to find abandoned drafts and orphaned Bunny videos.
+  -- Everyone else: their own stories, and any story whose newest status entry says approved
+  -- (R11's row rule; the status log's own rule lets them read that entry, and only that one).
   FOR select WHERE submitter = $auth.id
-    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping],
-  FOR create WHERE submitter = $auth.id AND status = 'draft'                -- own draft only,
-    AND $auth.status != 'deleted',                -- not erased (agreements: story_agreements)
+    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping]
+    OR currentStatus.status = 'approved',
+  FOR create WHERE submitter = $auth.id                -- own draft only (no status entry yet),
+    AND $auth.status != 'deleted',                     -- not erased (agreements: story_agreements)
   FOR update WHERE (submitter = $auth.id AND $auth.status != 'deleted')
     OR $auth.id IN [service:api_admin, service:workflow],
   FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]   -- erasure
     -- D71: the owner deletes their own draft, withdrawn or rejected story (DeleteStory), and one
     -- sent back for changes (Joel, 2026-10-30: no need to withdraw it first), never one in
-    -- moderation's hands or published (pending, in_review, approved).
+    -- moderation's hands, published or hidden (pending, in_review, approved, hidden).
     OR (submitter = $auth.id AND $auth.status != 'deleted'
-        AND status IN ['draft', 'changes_requested', 'withdrawn', 'rejected'])
+        AND (currentStatus.status ?? 'draft') IN ['draft', 'changes_requested', 'withdrawn', 'rejected'])
     -- D71: the nightly housekeeping Job deletes a draft nobody has touched for as long as the
     -- retention says (fn::story::draft_expired), and nothing else; the same delete as a
     -- person's own (events and cascade included).
     OR ($auth.id = service:housekeeping AND fn::story::draft_expired(id));
-DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY;   -- owner can never be reassigned
-DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every command; ETag
+-- Private (R11's field rule): the owner and the services that read stories, never everyone else.
+DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY   -- owner can never be reassigned
+  PERMISSIONS FOR select WHERE submitter = $auth.id
+    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping];
+DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every write; ETag
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
--- housekeeping never reads the words (select below): it needs only ids, status, dates and media.
+-- housekeeping never reads the words (select below): it needs only ids, the status, dates and media.
 DEFINE FIELD OVERWRITE slug          ON story TYPE string           -- generated at create, unique
   PERMISSIONS FOR select WHERE $auth != service:housekeeping,
     FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
@@ -59,10 +70,11 @@ DEFINE FIELD OVERWRITE primaryFormat ON story TYPE string ASSERT $value IN ['vid
 DEFINE FIELD OVERWRITE themeRefs     ON story TYPE array<record<theme>> DEFAULT []
   ASSERT array::len($value) <= 20 AND array::len(array::distinct($value)) = array::len($value)
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
--- Status: the owner (submit/withdraw, checked by the events below) and api-admin (moderation).
-DEFINE FIELD OVERWRITE status        ON story TYPE string DEFAULT 'draft'
-  ASSERT $value IN ['draft', 'pending', 'in_review', 'approved', 'rejected', 'changes_requested', 'withdrawn']
-  PERMISSIONS FOR update WHERE $auth != service:workflow;
+-- R6 (Joel, 2026-11-05): the story's newest status entry; NONE = draft. Only the status log's
+-- event moves it (storyStatusLog_step: events run elevated, so this rule doesn't stop it), always
+-- to an entry of this story (story_status_pointer); nobody's session can write it (dropped).
+DEFINE FIELD OVERWRITE currentStatus ON story TYPE option<record<storyStatusLog>>
+  PERMISSIONS FOR create, update NONE;
 -- D53: the optional image of a written story, an audio story's own picture (M2 plan PR 10; it
 -- becomes the clip's thumbnail through processing, M7), or a video's own thumbnail (Joel,
 -- 2026-10-30): readers show it in place of Bunny's generated thumbnail. One image system: it is
@@ -114,10 +126,13 @@ DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
   PERMISSIONS FOR select WHERE $auth != service:housekeeping,
     FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 -- A2: NONE = not processed yet (just uploaded or replaced); then 'processing', 'ready' or
--- 'failed'. Only 'ready' can be approved and published (fn::story::approval_problem).
+-- 'failed'. Only 'ready' can be approved and published (fn::story::approval_problem). A
+-- processing detail: private (R11's field rule).
 DEFINE FIELD OVERWRITE image.processing ON story TYPE option<string>
   ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
-  PERMISSIONS FOR update WHERE $auth != service:api_admin;
+  PERMISSIONS FOR select WHERE submitter = $auth.id
+      OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping],
+    FOR update WHERE $auth != service:api_admin;
 -- Media and processing fields (D80, Joel 2026-10-25): never the person's session, never api-admin.
 -- Workflow writes them (M7 processing). An upload reaches them only through an upload grant that
 -- api-user's own login creates: its event (uploadGrant_attach, elevated) puts the video on the
@@ -131,6 +146,8 @@ DEFINE FIELD OVERWRITE image.processing ON story TYPE option<string>
 -- upload, a different size) starts again at NONE, and a person's own `processing` is ignored.
 -- A person's session gets its stored media back (none on create); api-user's login (only ever
 -- through uploadGrant_attach) gets the new item, processing NONE.
+-- Everyone reads a published story's playback fields (format, Bunny id, thumbnail, size,
+-- length); `processing` is private (R11's field rule).
 DEFINE FIELD OVERWRITE media                    ON story TYPE array<object> DEFAULT []
   VALUE IF $auth = NONE OR $auth = service:workflow { $value }
     ELSE IF $auth != service:api_user { $before ?? [] }
@@ -154,12 +171,15 @@ DEFINE FIELD OVERWRITE media[*].width           ON story TYPE option<int> ASSERT
   PERMISSIONS FOR update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE media[*].height          ON story TYPE option<int> ASSERT $value = NONE OR $value > 0
   PERMISSIONS FOR update WHERE $auth = service:workflow;
+-- Cards show a clip's length (M1 step 6a); the approval gate (A2) means a published clip has it.
 DEFINE FIELD OVERWRITE media[*].durationSeconds ON story TYPE option<int>
   PERMISSIONS FOR update WHERE $auth = service:workflow;
 -- A2: NONE = not processed yet; then 'processing', 'ready' or 'failed' (set by workflow, M7).
 DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
   ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
-  PERMISSIONS FOR update WHERE $auth = service:workflow;
+  PERMISSIONS FOR select WHERE submitter = $auth.id
+      OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping],
+    FOR update WHERE $auth = service:workflow;
 -- M7 adds media[*].rawTranscriptText / transcriptText / captionsUrl / aiSummary, with the same
 -- rule (and adds them to $mediaFields in fn::story::shape_problem).
 -- Plan 4e: the optional social media sharing consent, per story: NONE until the person ticks
@@ -167,27 +187,45 @@ DEFINE FIELD OVERWRITE media[*].processing      ON story TYPE option<string>
 -- permission to share and can't be withdrawn: deleting or withdrawing the story stops future
 -- use). Recorded with the submission, by the person's own session, on the latest version, with
 -- the database's time (fn::legal::check_pointer, from story_agreements). Gone with the story.
-DEFINE FIELD OVERWRITE socialMediaSharingConsent ON story TYPE option<record<socialMediaSharingConsent>>;
+-- Private (R11's field rule).
+DEFINE FIELD OVERWRITE socialMediaSharingConsent ON story TYPE option<record<socialMediaSharingConsent>>
+  PERMISSIONS FOR select WHERE submitter = $auth.id
+    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping];
 DEFINE FIELD OVERWRITE socialMediaSharingConsentAgreedAt ON story TYPE option<datetime>
-  VALUE IF $this.socialMediaSharingConsent = NONE { NONE } ELSE IF $value != $before { time::now() } ELSE { $before };
-DEFINE FIELD OVERWRITE submittedAt   ON story TYPE option<datetime>   -- set by the server on first submit
-  VALUE IF $this.status = 'pending' { $before OR time::now() } ELSE { $before };
-DEFINE FIELD OVERWRITE createdAt     ON story TYPE datetime VALUE $before OR time::now() READONLY;
+  VALUE IF $this.socialMediaSharingConsent = NONE { NONE } ELSE IF $value != $before { time::now() } ELSE { $before }
+  PERMISSIONS FOR select WHERE submitter = $auth.id
+    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping];
+-- Private (R11's field rule): an internal date.
+DEFINE FIELD OVERWRITE createdAt     ON story TYPE datetime VALUE $before OR time::now() READONLY
+  PERMISSIONS FOR select WHERE submitter = $auth.id
+    OR $auth.id IN [service:api_admin, service:workflow, service:housekeeping];
 -- The server time on every write. Only a system user ($auth = NONE: the migrator, dev's seed)
 -- may keep or supply another: so a migration doesn't make a draft look touched, and tests can
 -- age a draft for D71's 6-month expiry (housekeeping).
 DEFINE FIELD OVERWRITE updatedAt     ON story TYPE datetime
   VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { time::now() };
--- Moderation fields: only api-admin (D41; not workflow).
-DEFINE FIELD OVERWRITE lockedBy      ON story TYPE option<record<user>>
-  PERMISSIONS FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
-DEFINE FIELD OVERWRITE lockedAt      ON story TYPE option<datetime>
-  PERMISSIONS FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
-DEFINE FIELD OVERWRITE rejectionFeedback ON story TYPE option<string>
-  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
-    FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
-DEFINE FIELD OVERWRITE approvedAt    ON story TYPE option<datetime>
-  PERMISSIONS FOR create, update WHERE $auth = service:api_admin OR $auth = NONE;
+-- D30: the story's old slugs, so an old link answers 301 to the current one (R11: moved from
+-- the published copy). Only a system user writes it (nothing in the services changes a
+-- published story's slug); anyone else's value is ignored.
+DEFINE FIELD OVERWRITE slugHistory   ON story TYPE array<string>
+  VALUE IF $auth = NONE { $value ?? [] } ELSE { $before ?? [] };
+-- The themes' ids as text, computed on every write (no writer sets them), for ?theme= and for
+-- whether a published story uses a theme (D63: /v1/themes lists a theme that isn't highlighted
+-- only then). 3.2.4 returns no rows from an element index over record links (`themeRefs.*`),
+-- but indexes strings correctly (see the gotchas). Kept stored, not computed on read: computed
+-- fields can't be indexed the same way (db review 2, section 6).
+DEFINE FIELD OVERWRITE themeIds      ON story TYPE array<string>
+  VALUE (themeRefs ?? []).map(|$t| record::id($t));
+-- A full-text index covers one field, so search goes over a computed field. The index also holds
+-- unpublished words, but the public's results are filtered by the row rule (R11).
+DEFINE FIELD OVERWRITE searchText    ON story TYPE string
+  VALUE string::join(' ', title, description, body ?? '')
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping;
+-- R6: a story's status (a story value already read, e.g. $before / $after in events): its
+-- newest status entry's, or 'draft' with none.
+DEFINE FUNCTION OVERWRITE fn::story::status_of($s: any) {
+  RETURN $s.currentStatus.status ?? 'draft';
+};
 -- The content fields as one value, for comparing before/after.
 DEFINE FUNCTION OVERWRITE fn::story::content($s: any) {
   RETURN {
@@ -217,8 +255,10 @@ DEFINE FUNCTION OVERWRITE fn::text::trimmed_length($text: option<string>) {
 --   PR 10): an audio story's picture, or a video's own thumbnail (Joel, 2026-10-30), shown in
 --   place of Bunny's generated thumbnail
 -- A draft is created before its upload (CreateDraftStory), so video and audio need their media
--- item from submit on (pending, in_review, approved), and may lack it while editable or after
--- (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its upload).
+-- item from submit on (pending, in_review, approved, hidden), and may lack it while editable or
+-- after (draft, changes_requested, rejected, withdrawn: a draft can be withdrawn before its
+-- upload). The status is the story's newest status entry's (R6), so moving the pointer is
+-- checked too.
 -- A written story's minimum length (Joel, 2026-10-23, from the POC; a setting since W3) is
 -- checked when it's submitted (story_text_limits), so a short draft can still be saved.
 -- Used by the story_shape event.
@@ -247,7 +287,8 @@ DEFINE FUNCTION OVERWRITE fn::story::shape_problem($s: any) {
     IF $media.any(|$m| $m.format != $s.primaryFormat) {
       RETURN 'a ' + $s.primaryFormat + ' story’s media must be ' + $s.primaryFormat;
     };
-    IF array::len($media) = 0 AND $s.status IN ['pending', 'in_review', 'approved'] {
+    IF array::len($media) = 0
+      AND fn::story::status_of($s) IN ['pending', 'in_review', 'approved', 'hidden'] {
       RETURN 'a ' + $s.primaryFormat + ' story needs its ' + $s.primaryFormat + ' before it is submitted';
     };
   };
@@ -329,6 +370,17 @@ DEFINE EVENT OVERWRITE story_media_granted ON story
       THROW 'media_not_granted: a story’s image must be one api-user picked for it, in its own folder (D80)';
     };
   };
+-- R6: the status pointer only ever moves to an entry of this story, whoever writes (system users
+-- too; sessions can't write it at all), and a new story starts as a draft unless a system user
+-- loads it otherwise.
+DEFINE EVENT OVERWRITE story_status_pointer ON story
+  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.currentStatus != $before.currentStatus
+    AND $after.currentStatus != NONE
+  THEN {
+    IF $after.currentStatus.story != $after.id {
+      THROW 'a story’s status points only at an entry of its own status log (R6)';
+    };
+  };
 -- Every write, by anyone (system users too): the stored story always has a valid type and shape.
 DEFINE EVENT OVERWRITE story_shape ON story
   WHEN $event IN ['CREATE', 'UPDATE']
@@ -337,18 +389,13 @@ DEFINE EVENT OVERWRITE story_shape ON story
     IF $problem != NONE { THROW $problem };
   };
 -- Once a story leaves draft/changes_requested, its owner can no longer change its content
--- (only withdraw it); what a moderator reviewed is what gets published.
+-- (only withdraw it); what a moderator reviewed is what gets published. Which steps the owner may
+-- take is the status log's rule (storyStatusLog_step).
 DEFINE EVENT OVERWRITE story_owner_content_lock ON story
   WHEN $event = 'UPDATE' AND $after.submitter = $auth
-   AND $before.status NOT IN ['draft', 'changes_requested']
+   AND fn::story::status_of($before) NOT IN ['draft', 'changes_requested']
    AND fn::story::content($before) != fn::story::content($after)
   THEN { THROW 'story content is locked after submission' };
--- The owner may only move their story draft/changes_requested -> pending, or withdraw it.
-DEFINE EVENT OVERWRITE story_owner_transitions ON story
-  WHEN $event = 'UPDATE' AND $after.submitter = $auth AND $before.status != $after.status
-   AND !(($before.status IN ['draft', 'changes_requested'] AND $after.status = 'pending')
-         OR $after.status = 'withdrawn')
-  THEN { THROW 'status change not allowed for the story owner' };
 -- Plan 4e, Joel 2026-11-01 (Q2): "agree first", in the database. The person's own writes to their
 -- story (create, edit, submit; plus the sharing pointer) need the terms of use and the testimony
 -- consent at the latest version (fn::legal::require_testimony). Withdrawing (-> withdrawn,
@@ -362,7 +409,8 @@ DEFINE EVENT OVERWRITE story_agreements ON story
       $before.socialMediaSharingConsent, $after.socialMediaSharingConsent,
       $before.socialMediaSharingConsentAgreedAt, $after.socialMediaSharingConsentAgreedAt, false);
     IF $auth != NONE AND $auth = $after.submitter
-       AND !($event = 'UPDATE' AND $after.status = 'withdrawn' AND $before.status != 'withdrawn'
+       AND !($event = 'UPDATE' AND fn::story::status_of($after) = 'withdrawn'
+             AND fn::story::status_of($before) != 'withdrawn'
              AND fn::story::content($before) = fn::story::content($after)) {
       fn::legal::require_testimony($after.submitter);
     };
@@ -374,7 +422,8 @@ DEFINE EVENT OVERWRITE story_agreements ON story
 -- migrator and dev-seed load data as themselves. A submission counts from its first submit, kept
 -- in submissionLog (D113) for 7 days whatever happens to the story since (withdrawn, rejected,
 -- deleted), so withdrawing or deleting and submitting again doesn't get round it; sending a story
--- back after "changes requested" isn't a new one. Messages start with a code so api-user answers
+-- back after "changes requested" isn't a new one (R6: a story's first submission is its first
+-- pending status entry). Messages start with a code so api-user answers
 -- 409 with it (libs/database submissionLimitOf). Both checks read the person's other rows; every
 -- story write bumps their fence (story_fence), so two overlapping creates or submissions conflict
 -- at commit and the retry sees the other.
@@ -417,17 +466,18 @@ DEFINE FUNCTION OVERWRITE fn::story::next_submission_at($user: option<record<use
 DEFINE EVENT OVERWRITE story_limits ON story
   WHEN $after.submitter = $auth
    AND ($event = 'CREATE'
-        OR ($event = 'UPDATE' AND $after.status = 'pending' AND $before.status != 'pending'
-            AND $before.submittedAt = NONE))
+        OR ($event = 'UPDATE' AND fn::story::status_of($after) = 'pending'
+            AND fn::story::status_of($before) != 'pending'))
   THEN {
     IF $event = 'CREATE' {
       LET $max = fn::limits::effective($after.submitter).openDraftsMax;
       LET $open = (SELECT VALUE id FROM story
-        WHERE submitter = $after.submitter AND status = 'draft' AND id != $after.id);
+        WHERE submitter = $after.submitter AND currentStatus = NONE AND id != $after.id);
       IF $max != NONE AND array::len($open) >= $max {
         THROW 'limit_open_drafts: the person has as many open drafts as they may (D94)';
       };
-    } ELSE {
+    } ELSE IF count(SELECT id FROM storyStatusLog
+        WHERE story = $after.id AND status = 'pending') = 1 {
       IF fn::story::next_submission_at($after.submitter) != NONE {
         THROW 'limit_weekly_submission: the person has submitted as many stories as they may in 7 days (D94)';
       };
@@ -444,8 +494,8 @@ DEFINE EVENT OVERWRITE story_limits ON story
 --     over a newly lowered maximum can still trim their draft;
 --   - the number of themes is checked only at submission (themes plan v3, 2026-10-31): a draft
 --     may hold any number up to the field's hard ceiling;
---   - submitting (entering pending, in_review or approved from an editable status, or created
---     there by a system user) needs the text's minimum and maximum length, from themesMin to
+--   - submitting (its pending status entry moving the pointer from an editable status) needs
+--     the text's minimum and maximum length, from themesMin to
 --     themesMax themes, and every theme still there, as they are now. A story already submitted
 --     or published is never re-checked (a deleted theme may leave it under the minimum).
 -- Hard ceilings stay on the fields (body, themeRefs). Messages start with a code for api-user.
@@ -458,14 +508,15 @@ DEFINE EVENT OVERWRITE story_text_limits ON story
     IF $len > $set.storyTextMax AND $len > $was_len {
       THROW 'story_text_too_long: the story’s body is longer than the setting allows (W3)';
     };
-    IF $after.status IN ['pending', 'in_review', 'approved']
-       AND ($event = 'CREATE' OR $before.status NOT IN ['pending', 'in_review', 'approved']) {
+    LET $status = fn::story::status_of($after);
+    IF $status IN ['pending', 'in_review', 'approved']
+       AND ($event = 'CREATE' OR fn::story::status_of($before) NOT IN ['pending', 'in_review', 'approved', 'hidden']) {
       IF $len > $set.storyTextMax {
         THROW 'story_text_too_long: the story’s body is longer than the setting allows (W3)';
       };
       -- Themes (plan v3): checked when the person submits (into pending) only, never again
       -- later (deleting a theme may leave a published story under the minimum).
-      IF $after.status = 'pending' {
+      IF $status = 'pending' {
         LET $themes = $after.themeRefs ?? [];
         IF $themes.any(|$t| !record::exists($t)) {
           THROW 'story_themes_changed: a story’s theme no longer exists';
@@ -482,29 +533,29 @@ DEFINE EVENT OVERWRITE story_text_limits ON story
     };
   };
 DEFINE EVENT OVERWRITE story_approval_media ON story          -- A2: whoever approves (system users too)
-  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.status = 'approved' AND $before.status != 'approved'
+  WHEN $event IN ['CREATE', 'UPDATE'] AND fn::story::status_of($after) = 'approved'
+    AND fn::story::status_of($before) != 'approved'
   THEN {
     LET $problem = fn::story::approval_problem($after);
     IF $problem != NONE { THROW $problem };
   };
 -- Joel, 2026-10-23: an approved story stays approved when its media stops being ready ('failed',
 -- back to 'processing', a size fact removed): "we need to ... get it loading again instead of
--- approving again". While any item isn't ready the story is hidden: the same write deletes its
--- publicStory row and creates hiddenStory (below). When the same media is ready again (Bunny
+-- approving again". While any item isn't ready the story is hidden: the same write adds a
+-- system `hidden` entry to its status log (R6), so it leaves the public's view at once, and keeps
+-- what the moderator reviewed in hiddenStory (below). When the same media is ready again (Bunny
 -- re-encodes it; workflow or a system user sets processing back to 'ready' with its facts) the
--- same write re-creates the row, with its first publishedAt and its slugHistory, and deletes
--- hiddenStory. No new approval. Only workflow and system users can cause either: the person's
--- content is locked after submission and api-admin can't write media. If the media differs from the row that was hidden (another
--- bunnyVideoId or image path, or a thumbnail that isn't a frame Bunny generated, D60), it stays
--- hidden: a moderator must review it (fn::story::hidden_by_media lists it with mediaChanged).
--- A public story whose media changes that way is hidden too (reason media_changed; D59: changed
--- after going public needs approving again). Only a story that was public is hidden and
--- restored. The event never writes the story itself, so the command's own write is
--- the story's only version step (D29) and returns the committed version.
--- Which media is shown: formats, Bunny ids and the image's path. Works on a story or a
--- publicStory row. The hide stores the identity of the row it deletes (what a moderator
--- approved), never the story's: workflow may have swapped the media in that write.
--- Thumbnails are compared on their own (fn::story::shows_reviewed_media), not hashed here.
+-- same write adds a system `approved` entry: it comes back with its first publishedAt and no new
+-- approval. Only workflow and system users can cause either: the person's content is locked
+-- after submission and api-admin can't write media. If the media differs from what was reviewed
+-- (another bunnyVideoId or image path, or a thumbnail that isn't a frame Bunny generated, D60),
+-- it stays hidden: a moderator must review it (fn::story::hidden_by_media lists it with
+-- mediaChanged). An approved story whose media changes that way is hidden too (reason
+-- media_changed; D59: changed after going public needs approving again).
+-- What was reviewed: while a story is approved it shows the reviewed media (any change hides it
+-- in the same write), so the write that hides it has the reviewed media in $before.
+-- Which media is shown: formats, Bunny ids and the image's path. Thumbnails are compared on their
+-- own (fn::story::shows_reviewed_media), not hashed here.
 DEFINE FUNCTION OVERWRITE fn::story::media_identity($s: any) {
   RETURN crypto::sha256(<string> {
     media: ($s.media ?? []).map(|$m| [$m.format, $m.bunnyVideoId]),
@@ -523,7 +574,7 @@ DEFINE FUNCTION OVERWRITE fn::media::generated_thumbnail($m: any) {
 };
 -- Whether a story's media is still what was reviewed: the same identity (formats, Bunny ids,
 -- image path), and each thumbnail either the reviewed one or a frame Bunny generated for that
--- video. $thumbnails: the reviewed row's thumbnail paths, in media order.
+-- video. $thumbnails: the reviewed thumbnail paths, in media order.
 DEFINE FUNCTION OVERWRITE fn::story::shows_reviewed_media($identity: string, $thumbnails: any, $s: any) {
   LET $media = $s.media ?? [];
   RETURN $identity = fn::story::media_identity($s)
@@ -534,83 +585,57 @@ DEFINE FUNCTION OVERWRITE fn::story::shows_reviewed_media($identity: string, $th
 DEFINE FUNCTION OVERWRITE fn::story::thumbnails($s: any) {
   RETURN ($s.media ?? []).map(|$m| $m.thumbnailPath);
 };
--- Hides a public story (Joel, 2026-10-23): deletes its publicStory row and keeps what
--- re-publishing needs in hiddenStory, in the caller's transaction.
--- $reason: media_unavailable or media_changed. Called by events only (they run elevated).
--- Nothing to do if the story isn't public.
-DEFINE FUNCTION OVERWRITE fn::story::hide($story: record<story>, $reason: string) {
-  LET $public = type::record('publicStory', record::id($story));
-  LET $hidden = type::record('hiddenStory', record::id($story));
-  LET $row = (SELECT * FROM ONLY $public);
-  IF $row = NONE { RETURN NONE };
-  DELETE $public;
+-- Hides an approved story (Joel, 2026-10-23): keeps what was reviewed ($reviewed) in hiddenStory
+-- and adds a system `hidden` entry, in the caller's transaction. $reason: media_unavailable or
+-- media_changed. Called by events only (they run elevated).
+DEFINE FUNCTION OVERWRITE fn::story::hide($s: any, $reviewed: any, $reason: string) {
+  LET $hidden = type::record('hiddenStory', record::id($s.id));
   DELETE $hidden;
   CREATE $hidden CONTENT {
-    publishedAt: $row.publishedAt, slugHistory: $row.slugHistory,
-    identity: fn::story::media_identity($row), thumbnails: fn::story::thumbnails($row)
+    identity: fn::story::media_identity($reviewed), thumbnails: fn::story::thumbnails($reviewed)
+  } RETURN NONE;
+  CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+    story: $s.id, status: 'hidden', actor: 'system', hiddenReason: $reason
   } RETURN NONE;
 };
--- Brings a hidden story back once nothing keeps it hidden: still approved, its media ready and
--- still what was reviewed, and its uploader has the testimony consent (plan 4e). The same write
--- re-creates the publicStory row with its first publishedAt and its slugHistory, and deletes
--- hiddenStory; no new approval. $reason: media_restored. Returns whether it did. Called by
--- events only.
-DEFINE FUNCTION OVERWRITE fn::story::restore($story: record<story>, $reason: string) {
-  LET $public = type::record('publicStory', record::id($story));
-  LET $hidden = type::record('hiddenStory', record::id($story));
-  LET $h = (SELECT * FROM ONLY $hidden);
-  LET $s = (SELECT * FROM ONLY $story);
-  IF $h = NONE OR $s = NONE OR $s.status != 'approved' OR record::exists($public)
-    OR fn::story::approval_problem($s) != NONE
-    OR !fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s)
-    OR $s.submitter.testimonyConsent = NONE {
-    RETURN false;
-  };
-  DELETE $hidden;
-  CREATE $public CONTENT {
-    version: $s.version, slug: $s.slug, slugHistory: $h.slugHistory,
-    title: $s.title, description: $s.description, body: $s.body,
-    bylineName: $s.bylineName, primaryFormat: $s.primaryFormat,
-    themeRefs: $s.themeRefs, publishedAt: $h.publishedAt,
-    image: IF $s.image != NONE { { path: $s.image.path, width: $s.image.width,
-      height: $s.image.height, alt: $s.image.alt } },
-    media: $s.media.map(|$m| { format: $m.format, bunnyVideoId: $m.bunnyVideoId,
-      thumbnailPath: $m.thumbnailPath, width: $m.width, height: $m.height })
-  } RETURN NONE;
-  RETURN true;
+-- Whether a hidden story may come back without a new review: its media ready and still what was
+-- reviewed, and its uploader has the testimony consent (plan 4e). Elevated in events; with the
+-- caller's permissions elsewhere (only api-admin and workflow read hiddenStory).
+DEFINE FUNCTION OVERWRITE fn::story::restorable($s: any) {
+  LET $h = (SELECT * FROM ONLY type::record('hiddenStory', record::id($s.id)));
+  RETURN $h != NONE AND fn::story::status_of($s) = 'hidden'
+    AND fn::story::approval_problem($s) = NONE
+    AND fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s)
+    AND $s.submitter.testimonyConsent != NONE;
 };
+-- Not on a status step (the status log's own write moves the pointer: nothing to compare then).
 DEFINE EVENT OVERWRITE story_media_availability ON story
-  WHEN $event = 'UPDATE' AND $before.status = 'approved'
+  WHEN $event = 'UPDATE' AND $before.currentStatus = $after.currentStatus
+    AND fn::story::status_of($after) IN ['approved', 'hidden']
   THEN {
-    LET $public = type::record('publicStory', record::id($after.id));
-    LET $hidden = type::record('hiddenStory', record::id($after.id));
-    IF $after.status != 'approved' {
-      -- Left approved (withdrawn): nothing is hidden any more.
-      DELETE $hidden;
-    } ELSE IF record::exists($public) AND (fn::story::approval_problem($after) != NONE
-      OR !fn::story::shows_reviewed_media(fn::story::media_identity($public),
-        fn::story::thumbnails($public), $after)) {
-      -- Only what is public gets hidden (and so restored): a story that wasn't public is
-      -- never published by a media fix. A marker left from an earlier hide never
-      -- stops this one (Codex, #61): it is replaced by what is public now.
-      fn::story::hide($after.id, IF fn::story::approval_problem($after) != NONE
-        { 'media_unavailable' } ELSE { 'media_changed' });
-    } ELSE IF record::exists($hidden) {
-      fn::story::restore($after.id, 'media_restored');
+    IF fn::story::status_of($after) = 'approved' {
+      LET $problem = fn::story::approval_problem($after);
+      IF $problem != NONE OR !fn::story::shows_reviewed_media(fn::story::media_identity($before),
+        fn::story::thumbnails($before), $after) {
+        fn::story::hide($after, $before, IF $problem != NONE { 'media_unavailable' }
+          ELSE { 'media_changed' });
+      };
+    } ELSE IF fn::story::restorable($after) {
+      CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+        story: $after.id, status: 'approved', actor: 'system'
+      } RETURN NONE;
     };
   };
 -- Plan 4e: publishing needs the submitter's testimony consent (any version: it covers every
 -- story they submit; a newer version only gates new stories), whoever approves (system users
 -- too). It can't have gone since submission (only erasure clears it, and erasure deletes the
--- story); this is defence in depth, as publicStory_mirrors_story's.
+-- story); this is defence in depth.
 DEFINE EVENT OVERWRITE story_approval_testimony ON story
-  WHEN $event IN ['CREATE', 'UPDATE'] AND $after.status = 'approved' AND $before.status != 'approved'
+  WHEN $event IN ['CREATE', 'UPDATE'] AND fn::story::status_of($after) = 'approved'
+   AND fn::story::status_of($before) != 'approved'
    AND $after.submitter.testimonyConsent = NONE
   THEN { THROW 'testimony_consent_required: approving a story needs its submitter’s testimony consent (plan 4e)' };
--- Erasure: api-user's login may delete stories but can't read them, so it can't find their
--- read-model rows or reviews (both are reached through story.submitter). Deleting a story
--- removes them in the same transaction, whoever deletes it.
-DEFINE EVENT OVERWRITE story_fence ON story                       -- create, edit, submit, approve, delete
+DEFINE EVENT OVERWRITE story_fence ON story              -- create, edit, status steps, delete
   WHEN true THEN {
     IF $event = 'DELETE' { fn::fence::touch('person', $before.submitter) }   -- erasure: no live check
     ELSE { fn::person::live($after.submitter) };
@@ -625,12 +650,14 @@ DEFINE EVENT OVERWRITE story_theme_fence ON story
       IF record::exists($t) { fn::fence::touch('theme', $t) };
     };
   };
+-- Erasure: api-user's login may delete stories but can't read their status log or hidden
+-- marker. Deleting a story removes them in the same transaction, whoever deletes it (R6: a status
+-- entry goes only with its story).
 DEFINE EVENT OVERWRITE story_erasure_cascade ON story
   WHEN $event = 'DELETE'
   THEN {
-    DELETE type::record('publicStory', record::id($before.id));
+    DELETE storyStatusLog WHERE story = $before.id;
     DELETE type::record('hiddenStory', record::id($before.id));
-    DELETE moderationReview WHERE story = $before.id;
     DELETE favourite WHERE story = $before.id;                  -- others' hearts on it
   };
 -- Every deleted story's picture folder in the images zone (M2 plan PR 10, D82, D40), whoever
@@ -668,148 +695,172 @@ DEFINE EVENT OVERWRITE story_picture_folder ON story
         finalPassAt: time::now() + fn::erasure::final_pass_after() } RETURN NONE;
     };
   };
-DEFINE INDEX OVERWRITE story_slug      ON story FIELDS slug UNIQUE;
-DEFINE INDEX OVERWRITE story_queue     ON story FIELDS status, submittedAt;
-DEFINE INDEX OVERWRITE story_submitter ON story FIELDS submitter, createdAt;
-
--- ---------------------------------------------------------------- publicStory (read model, D25/D26)
--- Approved stories only, written in the same transaction as the command that changes them.
--- Same id as the story (publicStory:<ulid>). No submitter, consent, raw transcript,
--- moderation or quality data. An Art 9 location: erasure deletes it in the same transaction.
-DEFINE TABLE OVERWRITE publicStory SCHEMAFULL PERMISSIONS
-  FOR select FULL,                                                      -- api-public-read and everyone
-  FOR create, update WHERE $auth.id = service:api_admin,                -- approve, edit
-  FOR delete WHERE $auth.id IN [service:api_user, service:api_admin]    -- erasure
-    OR (type::record('story', record::id(id)).submitter = $auth.id      -- owner withdraws
-        AND $auth.status != 'deleted');
-DEFINE FIELD OVERWRITE version       ON publicStory TYPE int;           -- mirrors story.version (ETag)
-DEFINE FIELD OVERWRITE slug          ON publicStory TYPE string;
-DEFINE FIELD OVERWRITE slugHistory   ON publicStory TYPE array<string> DEFAULT [];  -- D30: old slugs -> 301
-DEFINE FIELD OVERWRITE title         ON publicStory TYPE string;
-DEFINE FIELD OVERWRITE description   ON publicStory TYPE string;
-DEFINE FIELD OVERWRITE body          ON publicStory TYPE option<string>;
-DEFINE FIELD OVERWRITE bylineName    ON publicStory TYPE option<string>;
-DEFINE FIELD OVERWRITE primaryFormat ON publicStory TYPE string;
-DEFINE FIELD OVERWRITE themeRefs     ON publicStory TYPE array<record<theme>> DEFAULT [];
-DEFINE FIELD OVERWRITE media         ON publicStory TYPE array<object>;  -- playback fields only
-DEFINE FIELD OVERWRITE media[*].format        ON publicStory TYPE string;
-DEFINE FIELD OVERWRITE media[*].bunnyVideoId  ON publicStory TYPE option<string>;
-DEFINE FIELD OVERWRITE media[*].thumbnailPath ON publicStory TYPE option<string>;
-DEFINE FIELD OVERWRITE media[*].width         ON publicStory TYPE option<int>;
-DEFINE FIELD OVERWRITE media[*].height        ON publicStory TYPE option<int>;
-DEFINE FIELD OVERWRITE image                  ON publicStory TYPE option<object>;   -- D53
-DEFINE FIELD OVERWRITE image.path             ON publicStory TYPE string;
-DEFINE FIELD OVERWRITE image.width            ON publicStory TYPE int;
-DEFINE FIELD OVERWRITE image.height           ON publicStory TYPE int;
-DEFINE FIELD OVERWRITE image.alt              ON publicStory TYPE option<string>;
--- Cards show a clip's length (M1 step 6a). Computed from the story on every write, so no
--- publisher copies it and none can change it. The approval gate (A2) means a published video or
--- audio story always has it; NONE for written stories.
-DEFINE FIELD OVERWRITE durationSeconds ON publicStory TYPE option<int>
-  VALUE type::record('story', record::id(id)).media[0].durationSeconds;
--- The themes' ids as text, computed on every write (no writer sets them), for ?theme= and for
--- whether a published story uses a theme (D63: /v1/themes lists a theme that isn't highlighted
--- only then). 3.2.4 returns no rows from an element index over record links (`themeRefs.*`),
--- but indexes strings correctly (see the gotchas).
-DEFINE FIELD OVERWRITE themeIds      ON publicStory TYPE array<string>
-  VALUE (themeRefs ?? []).map(|$t| record::id($t));
-DEFINE FIELD OVERWRITE publishedAt   ON publicStory TYPE datetime;
-DEFINE FIELD OVERWRITE updatedAt     ON publicStory TYPE datetime VALUE time::now();
--- A full-text index covers one field, so search goes over a computed field.
-DEFINE FIELD OVERWRITE searchText    ON publicStory TYPE string
-  VALUE string::join(' ', title, description, body ?? '');
--- D41 + plan 4e: the read model can only publish what the person wrote, for an approved story whose
--- submitter has the testimony consent (checked when the row is created: it can't go while the
--- story exists). Otherwise api-admin (which writes this table) could publish text the person
--- never wrote.
-DEFINE EVENT OVERWRITE publicStory_fence ON publicStory           -- publish, re-sync, unpublish
-  WHEN true THEN {
-    IF $event = 'DELETE' {
-      fn::fence::touch('person', type::record('story', record::id($before.id)).submitter);
-    } ELSE {
-      fn::person::live(type::record('story', record::id($after.id)).submitter);
-    };
-  };
-DEFINE EVENT OVERWRITE publicStory_mirrors_story ON publicStory
-  WHEN $event IN ['CREATE', 'UPDATE']
-  THEN {
-    LET $s = (SELECT * FROM ONLY type::record('story', record::id($after.id)));
-    IF $s = NONE OR $s.status != 'approved' {
-      THROW 'publicStory needs an approved story with the same id';
-    };
-    -- A2, defence in depth: never publish unprocessed media, even for a story approved earlier.
-    LET $unready = fn::story::approval_problem($s);
-    IF $unready != NONE { THROW $unready };
-    IF [$after.slug, $after.title, $after.description, $after.body, $after.bylineName,
-        $after.primaryFormat, $after.themeRefs]
-       != [$s.slug, $s.title, $s.description, $s.body, $s.bylineName, $s.primaryFormat, $s.themeRefs]
-       OR $after.media.map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath, $m.width, $m.height])
-       != $s.media.map(|$m| [$m.format, $m.bunnyVideoId, $m.thumbnailPath, $m.width, $m.height])
-       -- array<object> items take undefined keys (3.2.4): playback fields only, nothing else
-       OR $after.media.any(|$m| object::keys($m).any(|$k|
-            $k NOT IN ['format', 'bunnyVideoId', 'thumbnailPath', 'width', 'height']))
-       OR [$after.image.path, $after.image.width, $after.image.height, $after.image.alt]
-       != [$s.image.path, $s.image.width, $s.image.height, $s.image.alt] {
-      THROW 'publicStory must mirror the approved story’s content';
-    };
-    IF $event = 'CREATE' AND $s.submitter.testimonyConsent = NONE {
-      THROW 'testimony_consent_required: publishing needs the submitter’s testimony consent (plan 4e)';
-    };
-  };
--- Any publication (ApproveStory, a moderator's re-publish, or the media restore) ends a media
--- hide: the row now shows what was reviewed, so a later failure hides it afresh (Codex, #61:
--- a stale marker for replaced media blocked the next hide).
-DEFINE EVENT OVERWRITE publicStory_clears_hide ON publicStory
-  WHEN $event = 'CREATE'
-  THEN { DELETE type::record('hiddenStory', record::id($after.id)) };
--- Processing (workflow, M7) may correct a published clip's size or duration, and a re-encode may
--- give it another frame Bunny generated as its thumbnail (D60). The same write copies them into
--- the published row (durationSeconds is recomputed there), so cards never keep old facts or a
--- dead thumbnail link. Only while the clip is ready and the story's media is still what was
--- reviewed (fn::story::shows_reviewed_media against the published row). Anything else (another
--- clip or image, a custom thumbnail) is never copied: story_media_availability hides the story
--- in the same write, for a moderator to review.
-DEFINE EVENT OVERWRITE story_published_media_facts ON story
-  WHEN $event = 'UPDATE' AND $after.status = 'approved'
-    AND $after.media.map(|$m| [$m.width, $m.height, $m.durationSeconds, $m.thumbnailPath])
-      != $before.media.map(|$m| [$m.width, $m.height, $m.durationSeconds, $m.thumbnailPath])
-    AND fn::story::approval_problem($after) = NONE
-  THEN {
-    LET $public = type::record('publicStory', record::id($after.id));
-    LET $row = (SELECT media, image FROM ONLY $public);
-    IF $row != NONE AND fn::story::shows_reviewed_media(fn::story::media_identity($row),
-      fn::story::thumbnails($row), $after) {
-      UPDATE $public SET media = $row.media.map(|$m, $i| object::extend($m, {
-        width: $after.media[$i].width, height: $after.media[$i].height,
-        thumbnailPath: $after.media[$i].thumbnailPath })) RETURN NONE;
-    };
-  };
 DEFINE ANALYZER OVERWRITE story_en TOKENIZERS blank, class FILTERS lowercase, ascii, snowball(english);
-DEFINE INDEX OVERWRITE publicStory_slug     ON publicStory FIELDS slug UNIQUE;
+DEFINE INDEX OVERWRITE story_slug      ON story FIELDS slug UNIQUE;
+DEFINE INDEX OVERWRITE story_submitter ON story FIELDS submitter, createdAt;
 -- An element index (`slugHistory.*`): the old-slug lookup's `CONTAINS` uses it; a plain index over
 -- the array is never used (EXPLAIN on 3.2.4, 2026-11-05: a table scan).
-DEFINE INDEX OVERWRITE publicStory_slughist ON publicStory FIELDS slugHistory.*;
-DEFINE INDEX OVERWRITE publicStory_browse   ON publicStory FIELDS publishedAt;
-DEFINE INDEX OVERWRITE publicStory_theme_ids ON publicStory FIELDS themeIds.*;  -- D63
-DEFINE INDEX OVERWRITE publicStory_fts      ON publicStory FIELDS searchText
+DEFINE INDEX OVERWRITE story_slughist  ON story FIELDS slugHistory.*;
+DEFINE INDEX OVERWRITE story_theme_ids ON story FIELDS themeIds.*;     -- D63
+DEFINE INDEX OVERWRITE story_fts       ON story FIELDS searchText
   FULLTEXT ANALYZER story_en BM25 HIGHLIGHTS;                -- 3.x syntax (was SEARCH ANALYZER)
 
+-- ---------------------------------------------------------------- storyStatusLog (R6)
+-- The story's status log (Joel, 2026-11-05): everything that happens to a story's status is a
+-- row here, never changed afterwards, and story.currentStatus points at the newest; its status is
+-- the story's (no entry = draft). The same pattern as the legal-text agreements (plan 4e).
+-- Who adds which entry (db review 2, R6), checked by storyStatusLog_step whoever writes:
+--   the person (their own session, own story): pending (request review, from draft or
+--     changes_requested) and withdrawn (from any status but withdrawn); never a comment;
+--   a moderator (api-admin, naming the moderator in `by`): in_review (picks it up, from
+--     pending), then approved, changes_requested or rejected (from in_review), each with an
+--     optional comment; hidden (from approved) and show again (approved, from hidden);
+--   the system (events, on workflow's media writes): hidden (from approved) when the media
+--     fails or changes, approved (from hidden) when the same media is ready again.
+-- The database sets each entry's time, who wrote it and, on approval, publishedAt; refuses a step
+-- the current status doesn't allow; and moves the pointer, in the same write. No session can move
+-- the pointer, or change or delete an entry; entries go only with their story (erasure).
+-- Everyone (R11; db review 2, section 6 items 3 and 4) may read an entry's story, status and
+-- publishedAt only while it is its story's current, approved entry; older entries, comments,
+-- names and reasons never. The owner reads their own story's entries, never who wrote them; only
+-- api-admin reads `by`.
+DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = storyStatusLog:<ulid>
+  FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin
+    OR (status = 'approved' AND story.currentStatus = id),
+  FOR create WHERE (story.submitter = $auth.id AND $auth.status != 'deleted')
+    OR $auth.id = service:api_admin,
+  FOR update, delete NONE;
+DEFINE FIELD OVERWRITE story        ON storyStatusLog TYPE record<story> READONLY;
+DEFINE FIELD OVERWRITE status       ON storyStatusLog TYPE string READONLY
+  ASSERT $value IN ['pending', 'in_review', 'approved', 'changes_requested', 'rejected',
+    'withdrawn', 'hidden'];
+-- Who wrote it, set by the database: what the person's page shows ("Moderator", Q6c). System
+-- users (the migrator, dev-seed) say it themselves.
+DEFINE FIELD OVERWRITE actor        ON storyStatusLog TYPE string READONLY
+  VALUE IF $auth = NONE { $value }
+    ELSE IF $auth = service:api_admin { 'moderator' }
+    ELSE IF record::tb($auth) = 'user' { 'person' }
+    ELSE { 'system' }
+  ASSERT $value IN ['person', 'moderator', 'system']
+  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+-- Which person or moderator: the person's own session is the person; api-admin names the
+-- moderator (its login is a service); the system has none. api-admin's alone to read, so people
+-- never see a moderator's name.
+DEFINE FIELD OVERWRITE by           ON storyStatusLog TYPE option<record<user>> READONLY
+  VALUE IF $auth = NONE OR $auth = service:api_admin { $value }
+    ELSE IF record::tb($auth) = 'user' { $auth }
+    ELSE { NONE }
+  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
+-- Which edit of the story this was about: its version when the entry was made (the next
+-- "request review" after edits shows they happened). 0 only for a caller who can't read the
+-- story, whose write the permissions refuse anyway.
+DEFINE FIELD OVERWRITE storyVersion ON storyStatusLog TYPE int READONLY
+  VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { $this.story.version ?? 0 }
+  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+-- The moderator's comment to the person (moderator entries only).
+DEFINE FIELD OVERWRITE comment      ON storyStatusLog TYPE option<string> READONLY
+  ASSERT $value = NONE OR (string::len($value) > 0 AND string::len($value) <= 5000)
+  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+-- When, set by the database. A system user may supply it (dev-seed's history), never anyone else.
+DEFINE FIELD OVERWRITE at           ON storyStatusLog TYPE datetime READONLY
+  VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { time::now() }
+  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+-- On approved entries: when the story was first published (the first approval's time, kept on
+-- later approvals: "newest first" on the website). A system user may supply the first one
+-- (dev-seed's dates).
+DEFINE FIELD OVERWRITE publishedAt  ON storyStatusLog TYPE option<datetime> READONLY
+  VALUE IF $this.status != 'approved' { NONE }
+    ELSE {
+      array::min(SELECT VALUE publishedAt FROM storyStatusLog
+        WHERE story = $this.story AND status = 'approved' AND publishedAt != NONE)
+        ?? (IF $auth = NONE AND $value != NONE { $value } ELSE { $this.at })
+    };
+-- On hidden entries: why (media_unavailable or media_changed, for the system's; a moderator's
+-- own words go in `comment`).
+DEFINE FIELD OVERWRITE hiddenReason ON storyStatusLog TYPE option<string> READONLY
+  ASSERT $value = NONE OR $value IN ['media_unavailable', 'media_changed']
+  PERMISSIONS FOR select WHERE story.submitter = $auth.id OR $auth.id = service:api_admin;
+-- Public lists, newest or oldest first (db review 2, section 6 items 5 and 6).
+DEFINE INDEX OVERWRITE storyStatusLog_published ON storyStatusLog FIELDS status, publishedAt;
+-- The moderators' queue (pending, oldest first; M3).
+DEFINE INDEX OVERWRITE storyStatusLog_queue     ON storyStatusLog FIELDS status, at;
+-- One story's log, in order.
+DEFINE INDEX OVERWRITE storyStatusLog_story     ON storyStatusLog FIELDS story, at;
+-- Adding an entry checks the step and moves the pointer in the same write (db review 2, section 6
+-- item 2). Every entry bumps the story's owner's fence (fn::person::live), as every write to the
+-- story and its erasure do, so two steps at once, or a step racing erasure or a media update,
+-- can't both commit: the second conflicts, and its retry checks again from scratch. The moved
+-- pointer is a story write, so the story's own events check it too: the shape and the text and
+-- theme limits on submit, the weekly limit on a first submit, the agreements on the person's
+-- writes, and the media and testimony consent on approval.
+DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
+  WHEN $event = 'CREATE'
+  THEN {
+    LET $s = (SELECT * FROM ONLY $after.story);
+    IF $s = NONE { THROW 'a status entry needs an existing story' };
+    fn::person::live($s.submitter);
+    LET $from = fn::story::status_of($s);
+    LET $to = $after.status;
+    LET $allowed = IF $after.actor = 'person' {
+        ($to = 'pending' AND $from IN ['draft', 'changes_requested'])
+          OR ($to = 'withdrawn' AND $from != 'withdrawn')
+      } ELSE IF $after.actor = 'moderator' {
+        ($to = 'in_review' AND $from = 'pending')
+          OR ($to IN ['approved', 'changes_requested', 'rejected'] AND $from = 'in_review')
+          OR ($to = 'hidden' AND $from = 'approved')
+          OR ($to = 'approved' AND $from = 'hidden')
+      } ELSE {
+        ($to = 'hidden' AND $from = 'approved') OR ($to = 'approved' AND $from = 'hidden')
+      };
+    IF !$allowed {
+      THROW 'status_step: a ' + $after.actor + ' can’t move a story from ' + $from + ' to ' + $to;
+    };
+    IF $after.comment != NONE AND $after.actor != 'moderator' {
+      THROW 'status_step: only a moderator’s entry has a comment';
+    };
+    IF $after.actor = 'moderator' AND $after.by = NONE {
+      THROW 'status_step: a moderator’s entry names the moderator (by)';
+    };
+    IF $after.hiddenReason != NONE AND $to != 'hidden' {
+      THROW 'status_step: only a hidden entry has a reason';
+    };
+    LET $hidden = type::record('hiddenStory', record::id($s.id));
+    IF $to = 'hidden' AND !record::exists($hidden) {
+      -- A moderator's hide: what is shown now is what was reviewed.
+      CREATE $hidden CONTENT {
+        identity: fn::story::media_identity($s), thumbnails: fn::story::thumbnails($s)
+      } RETURN NONE;
+    };
+    -- Shown again: by the system only with the media that was reviewed, ready; a moderator's
+    -- "show again" is their review of what the story shows now (its approval checks still run,
+    -- on the moved pointer), so a hidden story with replacement media comes back only that way.
+    IF $from = 'hidden' AND $to = 'approved' {
+      IF $after.actor != 'moderator' AND !fn::story::restorable($s) {
+        THROW 'story_not_restorable: a hidden story comes back only with the media that was reviewed, ready';
+      };
+      DELETE $hidden;
+    };
+    IF $to = 'withdrawn' { DELETE $hidden };
+    UPDATE $s.id SET currentStatus = $after.id RETURN NONE;
+  };
+-- Append-only, for system users too: an entry goes only with its story (the erasure cascade).
+DEFINE EVENT OVERWRITE storyStatusLog_append_only ON storyStatusLog
+  WHEN $event = 'UPDATE' OR ($event = 'DELETE' AND record::exists($before.story))
+  THEN { THROW 'a story’s status log is append-only: entries go only with their story' };
+
 -- ---------------------------------------------------------------- hiddenStory (Joel, 2026-10-23)
--- An approved story hidden because its media isn't ready or changed (story_media_availability).
--- It comes back on its own once its media is ready again (fn::story::restore). Same id as the story
--- (hiddenStory:<ulid>). Keeps what re-publishing needs: the deleted row's publishedAt and
--- slugHistory, and the identity of its media. A table of its own, not a story field, so
--- hiding and restoring add no story write (D29: one version step per command). Written by the
--- event only (events run elevated); erasure deletes it with the story.
+-- An approved story hidden because its media isn't ready or changed (story_media_availability),
+-- or by a moderator. Keeps what the moderator reviewed (its media's identity and thumbnails), so
+-- it comes back on its own once that media is ready again (fn::story::restorable) and never
+-- with other media. Same id as the story (hiddenStory:<ulid>). Its status and why live in the
+-- status log (R6). Written by events only (events run elevated); erasure deletes it with the
+-- story. B2 (R12) replaces it with the approved entry's reviewed files.
 DEFINE TABLE OVERWRITE hiddenStory SCHEMAFULL PERMISSIONS
   FOR select WHERE $auth.id IN [service:api_admin, service:workflow],
   FOR create, update, delete NONE;
 DEFINE FIELD OVERWRITE since       ON hiddenStory TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE FIELD OVERWRITE publishedAt ON hiddenStory TYPE datetime;
-DEFINE FIELD OVERWRITE slugHistory ON hiddenStory TYPE array<string>;
 DEFINE FIELD OVERWRITE identity    ON hiddenStory TYPE string ASSERT string::len($value) = 64;
--- D60: the hidden row's thumbnail paths, in media order (rows from before D60 have none, so
--- they stay hidden for a moderator).
+-- D60: the reviewed thumbnail paths, in media order.
 DEFINE FIELD OVERWRITE thumbnails  ON hiddenStory TYPE option<array<option<string>>>;
 DEFINE INDEX OVERWRITE hiddenStory_since ON hiddenStory FIELDS since;
 DEFINE EVENT OVERWRITE hiddenStory_fence ON hiddenStory          -- hide, restore
@@ -820,18 +871,17 @@ DEFINE EVENT OVERWRITE hiddenStory_fence ON hiddenStory          -- hide, restor
       fn::person::live(type::record('story', record::id($after.id)).submitter);
     };
   };
--- For api-admin (someone chases Bunny): approved stories hidden because of their media, oldest
--- first. problem = what's still not ready; mediaChanged = the media differs from what was
--- public, so it needs a moderator rather than Bunny. A story whose media is fine but still hidden
--- (its uploader has no testimony consent: only rows from before plan 4e) isn't listed. Runs with
--- the caller's permissions (only
--- api-admin and workflow read hiddenStory).
+-- For api-admin (someone chases Bunny): stories hidden because of their media, oldest first.
+-- problem = what's still not ready; mediaChanged = the media differs from what was reviewed, so
+-- it needs a moderator rather than Bunny. A hidden story whose media is fine (its uploader has no
+-- testimony consent, or a moderator hid it) isn't listed. Runs with the caller's permissions
+-- (only api-admin and workflow read hiddenStory).
 DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
   LET $hidden = (SELECT since, identity, thumbnails, type::record('story', record::id(id)) AS story
     FROM hiddenStory ORDER BY since ASC);
   RETURN $hidden.map(|$h| {
     LET $s = (SELECT * FROM ONLY $h.story);
-    RETURN IF $s.status = 'approved' {
+    RETURN IF fn::story::status_of($s) = 'hidden' {
       { id: $s.id, slug: $s.slug, title: $s.title, primaryFormat: $s.primaryFormat,
         hiddenSince: $h.since, problem: fn::story::approval_problem($s),
         mediaChanged: !fn::story::shows_reviewed_media($h.identity, $h.thumbnails, $s) }
@@ -857,8 +907,8 @@ DEFINE FUNCTION OVERWRITE fn::story::drafts_expire_before() {
 -- housekeeping deletes by it (draft_expired) and the profile shows it (api-user's
 -- StoryMine.draftExpiresAt, R5). The owner's session reads its own grants.
 DEFINE FUNCTION OVERWRITE fn::story::draft_expires_at($story: record<story>) {
-  LET $s = (SELECT status, updatedAt FROM ONLY $story);
-  IF $s = NONE OR $s.status != 'draft' { RETURN NONE };
+  LET $s = (SELECT currentStatus, updatedAt FROM ONLY $story);
+  IF $s = NONE OR $s.currentStatus != NONE { RETURN NONE };
   LET $renewed = array::max(SELECT VALUE renewedAt FROM uploadGrant
     WHERE story = $story AND renewedAt != NONE);
   LET $last = IF $renewed != NONE AND $renewed > $s.updatedAt { $renewed } ELSE { $s.updatedAt };
@@ -873,36 +923,6 @@ DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
   RETURN $at != NONE AND $at < time::now();
 };
 
--- ---------------------------------------------------------------- moderationReview (M3)
--- The story's owner reads the outcomes on their own story ("Download my data", Art 15; M2 plan
--- PR 12), never who decided: `moderator` is api-admin's alone.
-DEFINE TABLE OVERWRITE moderationReview SCHEMAFULL PERMISSIONS
-  FOR select WHERE $auth.id = service:api_admin OR story.submitter = $auth.id,
-  FOR create WHERE $auth.id = service:api_admin,
-  FOR update NONE,
-  FOR delete WHERE $auth.id = service:api_user;                        -- erasure
-DEFINE FIELD OVERWRITE story       ON moderationReview TYPE record<story>;
-DEFINE FIELD OVERWRITE moderator   ON moderationReview TYPE record<user>
-  PERMISSIONS FOR select WHERE $auth.id = service:api_admin;
-DEFINE FIELD OVERWRITE decision    ON moderationReview TYPE string
-  ASSERT $value IN ['approve', 'reject', 'request_changes', 'escalate'];  -- one per command (D28)
-DEFINE FIELD OVERWRITE feedbackToSubmitter ON moderationReview TYPE option<string>;
-DEFINE FIELD OVERWRITE storyVersion ON moderationReview TYPE int;      -- the version reviewed (D29)
-DEFINE FIELD OVERWRITE decidedAt   ON moderationReview TYPE datetime VALUE $before OR time::now() READONLY;
-DEFINE INDEX OVERWRITE review_story ON moderationReview FIELDS story, decidedAt;
--- Review round 3: a review must belong to an existing story of a live person, and bumps that
--- person's fence, so a review racing erasure can't outlive it (the cascade deletes the rest).
-DEFINE EVENT OVERWRITE review_live_story ON moderationReview
-  WHEN true
-  THEN {
-    IF $event = 'DELETE' { fn::fence::touch('person', $before.story.submitter) }   -- NONE in the erasure cascade
-    ELSE {
-      IF !record::exists($after.story) { THROW 'a moderation review needs an existing story' };
-      fn::person::live($after.story.submitter);
-    };
-  };
-DEFINE EVENT OVERWRITE review_append_only ON moderationReview
-  WHEN $event = 'UPDATE' THEN { THROW 'moderation reviews are append-only' };  -- DELETE allowed for erasure
 
 -- ---------------------------------------------------------------- uploadGrant (D65, D80, D113)
 -- One row per video or audio file api-user created at Bunny Stream for a story (RequestUpload,
@@ -992,7 +1012,7 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
         THROW 'upload_refused: the story isn’t this person’s';
       };
       IF $s.version != $after.storyVersion { THROW 'story_cmd:stale_version' };
-      IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
+      IF fn::story::status_of($s) NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
       -- Plan 4e (Q2): an upload is the person's write, made for them by api-user's login: the
       -- latest terms of use and testimony consent first.
       fn::legal::require_testimony($after.person);
@@ -1046,8 +1066,8 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
       };
       -- The draft's one video or audio file, or its image, is now this one (D80). The story's
       -- media or image VALUE starts its processing again (A2); its version steps once, to
-      -- storyVersion + 1. A replaced image's file stays where it is: an approved story's public
-      -- copy may still show it, so the clean-up sweep removes it later (media-runbook).
+      -- storyVersion + 1. A replaced image's file stays where it is, and the clean-up sweep
+      -- removes it later (media-runbook).
       IF $after.format = 'image' {
         UPDATE $after.story SET image = { path: record::id($after.id), width: $after.width,
           height: $after.height, alt: IF fn::text::trimmed_length($after.alt) = 0 { NONE }
@@ -1070,12 +1090,12 @@ DEFINE EVENT OVERWRITE uploadGrant_attach ON uploadGrant
 DEFINE EVENT OVERWRITE uploadGrant_renew ON uploadGrant
   WHEN $event = 'UPDATE' THEN {
     fn::person::live($after.person);
-    LET $s = (SELECT submitter, status, media FROM ONLY $after.story);
+    LET $s = (SELECT submitter, currentStatus, media FROM ONLY $after.story);
     IF $s = NONE OR $s.submitter != $after.person
       OR $s.media[0].bunnyVideoId != record::id($after.id) {
       THROW 'nothing_to_resume: the story is gone or no longer shows this file';
     };
-    IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
+    IF fn::story::status_of($s) NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
     fn::legal::require_testimony($after.person);
   };
 -- api-user's login, before it signs a link for `$video` again: renews the grant (above). NONE

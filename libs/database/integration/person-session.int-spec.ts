@@ -13,7 +13,16 @@ import {
   signRs256,
   clerkClaims,
 } from './support/jwt';
-import { approve, buildWorld, draft, ERASE, submit } from './support/world';
+import {
+  approve,
+  buildWorld,
+  draft,
+  ERASE,
+  statusOf,
+  step,
+  submit,
+  withdraw,
+} from './support/world';
 
 /**
  * D27 B: a person's reads and commands run in a SurrealDB session opened with their Clerk
@@ -129,23 +138,41 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
   });
 
   describe('reads', () => {
-    it('sees only their own stories, drafts and pending included', async () => {
+    it('sees their own stories, drafts and pending included, and others’ approved ones', async () => {
       expect(await ids(ann, 'SELECT id FROM story')).toEqual([
         'story:ann_draft',
         'story:ann_pending',
+        'story:bob_live',
       ]);
     });
 
-    it('never sees anyone else’s stories in the write model, approved or not', async () => {
+    it('sees someone else’s story only while it is approved, and only its published fields (R11)', async () => {
       expect(
-        await rows(
-          ann,
-          'SELECT * FROM story:bob_draft, story:bob_pending, story:bob_live',
-        ),
+        await rows(ann, 'SELECT * FROM story:bob_draft, story:bob_pending'),
       ).toEqual([]);
-      // Published stories are read through the read model instead.
-      expect(await ids(ann, 'SELECT id FROM publicStory')).toEqual([
-        'publicStory:bob_live',
+      const [live] = await rows<Record<string, unknown>>(
+        ann,
+        'SELECT * FROM story:bob_live',
+      );
+      expect(live).toMatchObject({ id: 'story:bob_live', title: 'Story bob_live' });
+      for (const field of [
+        'submitter',
+        'createdAt',
+        'socialMediaSharingConsent',
+        'socialMediaSharingConsentAgreedAt',
+      ]) {
+        expect(live).not.toHaveProperty(field);
+      }
+      // Of Bob's log, only the story's current approved entry, and only its public fields.
+      expect(
+        await rows(ann, 'SELECT * FROM storyStatusLog WHERE story = story:bob_live'),
+      ).toEqual([
+        {
+          id: expect.stringMatching(/^storyStatusLog:/),
+          story: 'story:bob_live',
+          status: 'approved',
+          publishedAt: expect.any(String),
+        },
       ]);
     });
 
@@ -166,24 +193,30 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
           }),
         ).toEqual([`${table}:0`]);
       }
-      for (const table of ['moderationReview', 'idempotencyKey', 'service']) {
+      for (const table of ['hiddenStory', 'idempotencyKey', 'service']) {
         expect(await rows(ann, `SELECT * FROM ${table}`)).toEqual([]);
       }
     });
 
-    it('sees the moderation outcomes on their own story, never who decided (Art 15)', async () => {
+    it('sees their own story’s status log, never who wrote an entry (R6, Art 15)', async () => {
       const bob = await t.person('user_bob');
       expect(
-        await rows(
-          bob,
-          'SELECT decision, storyVersion, moderator FROM moderationReview',
-        ),
-      ).toEqual([{ decision: 'approve', storyVersion: 3 }]);
+        (
+          await rows<Record<string, unknown>>(
+            bob,
+            `SELECT status, actor, storyVersion, by, at, id FROM storyStatusLog
+               WHERE story = story:bob_live ORDER BY at, id`,
+          )
+        ).map(({ at: _at, id: _id, ...entry }) => entry),
+      ).toEqual([
+        { status: 'pending', actor: 'person', storyVersion: 1 },
+        { status: 'in_review', actor: 'moderator', storyVersion: 2 },
+        { status: 'approved', actor: 'moderator', storyVersion: 3 },
+      ]);
+      // Bob's pending story's entries aren't Ann's to see.
       expect(
-        await rows(bob, 'SELECT VALUE moderator FROM moderationReview'),
-      ).toEqual([undefined]);
-      // Bob's review isn't Ann's to see.
-      expect(await rows(ann, 'SELECT * FROM moderationReview')).toEqual([]);
+        await rows(ann, 'SELECT * FROM storyStatusLog WHERE story = story:bob_pending'),
+      ).toEqual([]);
     });
   });
 
@@ -192,15 +225,15 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       const [created] = await draft(ann, 'ann_new', {
         version: 99,
         createdAt: new Date('2020-01-01T00:00:00Z'),
-        submittedAt: new Date('2020-01-01T00:00:00Z'),
+        slugHistory: ['someone-elses-slug'],
       });
       expect(created).toMatchObject({
         id: 'story:ann_new',
         submitter: 'user:ann',
-        status: 'draft',
         version: 1,
+        slugHistory: [],
       });
-      expect(created['submittedAt']).toBeUndefined();
+      expect(created['currentStatus']).toBeUndefined(); // a draft
       expect(Date.parse(String(created['createdAt']))).toBeGreaterThan(
         Date.now() - 60_000,
       );
@@ -217,30 +250,12 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       expect(await truth('SELECT * FROM story:for_bob')).toEqual([]);
     });
 
-    it.each(['pending', 'approved'])(
-      'cannot create a story already %s',
-      async (status) => {
-        expect(await draft(ann, `ann_${status}_direct`, { status })).toEqual(
-          [],
-        );
-        expect(await truth(`SELECT * FROM story:ann_${status}_direct`)).toEqual(
-          [],
-        );
-      },
-    );
-
-    it('cannot pre-fill moderation fields', async () => {
+    it('cannot create a story with a status: its pointer is dropped, it is a draft (R6)', async () => {
       const [created] = await draft(ann, 'ann_prefilled', {
-        approvedAt: new Date('2026-01-01T00:00:00Z'),
-        rejectionFeedback: 'looks great',
-        lockedBy: new RecordId('user', 'ann'),
-        lockedAt: new Date('2026-01-01T00:00:00Z'),
+        currentStatus: new RecordId('storyStatusLog', 'forged'),
       });
       expect(created).toBeDefined();
-      const [stored] = await truth<Record<string, unknown>>(
-        'SELECT approvedAt, rejectionFeedback, lockedBy, lockedAt FROM story:ann_prefilled',
-      );
-      expect(stored).toEqual({});
+      expect(await statusOf(migrator, 'ann_prefilled')).toBe('draft');
     });
   });
 
@@ -273,47 +288,56 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       ).toEqual(['user:ann']);
     });
 
-    it('cannot set moderation fields on their own story', async () => {
+    it('cannot move their story’s status pointer themselves (R6)', async () => {
       await run(
         ann,
-        `UPDATE story:ann_draft SET approvedAt = time::now(), rejectionFeedback = 'self-approved'`,
+        `UPDATE story:ann_draft SET currentStatus =
+           (SELECT VALUE id FROM storyStatusLog WHERE story = story:ann_pending)[0]`,
       );
-      expect(
-        await truth(
-          'SELECT approvedAt, rejectionFeedback FROM story:ann_draft',
-        ),
-      ).toEqual([{}]);
+      expect(await statusOf(migrator, 'ann_draft')).toBe('draft');
     });
 
-    it.each(['approved', 'in_review', 'rejected'])(
-      'cannot move their own story to %s',
+    it.each(['approved', 'in_review', 'rejected', 'changes_requested', 'hidden'])(
+      'cannot add a %s entry to their own story',
       async (status) => {
         const result = await outcome(
           ann,
-          `UPDATE story:ann_draft SET status = $status`,
+          `CREATE storyStatusLog CONTENT { story: story:ann_draft, status: $status }`,
           { status },
         );
         expect(result).toEqual({
           ok: false,
-          error: expect.stringContaining('status change not allowed'),
+          error: expect.stringContaining('status_step'),
         });
-        expect(await truth('SELECT VALUE status FROM story:ann_draft')).toEqual(
-          ['draft'],
-        );
+        expect(await statusOf(migrator, 'ann_draft')).toBe('draft');
       },
     );
 
-    it('submits with a server-set submittedAt (no backdating)', async () => {
+    it('submits with a server-set time, version and actor (no backdating, no forging)', async () => {
       await draft(ann, 'ann_submit');
-      const [after] = await rows<{ status: string; submittedAt: string }>(
+      const [entry] = await step(ann, 'ann_submit', 'pending', {
+        at: new Date('2020-01-01T00:00:00Z'),
+        actor: 'moderator',
+        storyVersion: 99,
+        by: new RecordId('user', 'bob'),
+      });
+      expect(entry).toMatchObject({ status: 'pending', actor: 'person', storyVersion: 1 });
+      expect(Date.parse(String(entry['at']))).toBeGreaterThan(Date.now() - 60_000);
+      expect(
+        await truth('SELECT VALUE by FROM storyStatusLog WHERE story = story:ann_submit'),
+      ).toEqual(['user:ann']);
+      expect(await statusOf(migrator, 'ann_submit')).toBe('pending');
+    });
+
+    it('cannot change or delete an entry, even their own (append-only)', async () => {
+      await run(
         ann,
-        `UPDATE story:ann_submit SET status = 'pending', submittedAt = d'2020-01-01T00:00:00Z'
-           RETURN status, submittedAt`,
+        `UPDATE storyStatusLog SET status = 'approved' WHERE story = story:ann_submit`,
       );
-      expect(after.status).toBe('pending');
-      expect(Date.parse(after.submittedAt)).toBeGreaterThan(
-        Date.now() - 60_000,
-      );
+      await run(ann, `DELETE storyStatusLog WHERE story = story:ann_submit`);
+      expect(
+        await truth('SELECT VALUE status FROM storyStatusLog WHERE story = story:ann_submit'),
+      ).toEqual(['pending']);
     });
 
     it('cannot edit content once submitted (content lock)', async () => {
@@ -338,15 +362,15 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
     });
 
     it('can edit again after changes are requested, then resubmit', async () => {
-      await run(
-        admin,
-        `UPDATE story:ann_submit SET status = 'changes_requested'`,
-      );
+      await step(admin, 'ann_submit', 'in_review');
+      await step(admin, 'ann_submit', 'changes_requested', {
+        comment: 'Please trim the start',
+      });
       await run(ann, `UPDATE story:ann_submit SET title = 'Revised'`);
-      await submit(ann, 'ann_submit');
-      expect(await truth('SELECT title, status FROM story:ann_submit')).toEqual(
-        [{ title: 'Revised', status: 'pending' }],
-      );
+      expect(await submit(ann, 'ann_submit')).toHaveLength(1);
+      expect(
+        await truth('SELECT title, fn::story::status_of($this) AS status FROM story:ann_submit'),
+      ).toEqual([{ title: 'Revised', status: 'pending' }]);
     });
 
     it('deletes only their own draft, changes-requested, withdrawn or rejected story (D71), never one in review or published', async () => {
@@ -359,14 +383,25 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         'rejected',
         'withdrawn',
       ];
+      // The steps to each status, each by whoever may take it (R6).
+      const path: Record<string, [Surreal | 'ann', string][]> = {
+        draft: [],
+        pending: [['ann', 'pending']],
+        in_review: [['ann', 'pending'], [admin, 'in_review']],
+        approved: [['ann', 'pending'], [admin, 'in_review'], [admin, 'approved']],
+        changes_requested: [
+          ['ann', 'pending'],
+          [admin, 'in_review'],
+          [admin, 'changes_requested'],
+        ],
+        rejected: [['ann', 'pending'], [admin, 'in_review'], [admin, 'rejected']],
+        withdrawn: [['ann', 'withdrawn']],
+      };
       for (const status of statuses) {
         await draft(ann, `ann_del_${status}`);
-        // Moderation's statuses, set as a system user would (the person can't).
-        await run(
-          migrator,
-          `UPDATE type::record('story', $id) SET status = $status`,
-          { id: `ann_del_${status}`, status },
-        );
+        for (const [who, to] of path[status]) {
+          await step(who === 'ann' ? ann : who, `ann_del_${status}`, to);
+        }
       }
       for (const status of statuses) {
         await rows(ann, `DELETE type::record('story', $id)`, {
@@ -376,7 +411,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       expect(
         (
           await truth<string>(
-            `SELECT VALUE status FROM story WHERE string::starts_with(record::id(id), 'ann_del_')`,
+            `SELECT VALUE fn::story::status_of($this) FROM story WHERE string::starts_with(record::id(id), 'ann_del_')`,
           )
         ).sort(),
       ).toEqual(['approved', 'in_review', 'pending']);
@@ -395,44 +430,37 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       await approve(admin, 'ann_live');
     });
 
-    it('cannot write the read model directly', async () => {
-      expect(
-        await rows(
-          ann,
-          `UPDATE publicStory:ann_live SET title = 'edited live'`,
-        ),
-      ).toEqual([]);
-      expect(
-        await rows(
-          ann,
-          `CREATE publicStory:ann_draft CONTENT { version: 1, slug: 'x', title: 'x',
-             description: 'x', primaryFormat: 'written', themeRefs: [], media: [], publishedAt: time::now() }`,
-        ),
-      ).toEqual([]);
-      expect(
-        await truth('SELECT VALUE title FROM publicStory:ann_live'),
-      ).toEqual(['Story ann_live']);
-    });
-
-    it('cannot unpublish someone else’s story', async () => {
-      await run(ann, 'DELETE publicStory:bob_live');
-      expect(await truth('SELECT id FROM publicStory:bob_live')).toHaveLength(
-        1,
-      );
-    });
-
-    it('withdraws their own: status withdrawn and the publicStory row deleted together', async () => {
-      await run(
+    it('cannot change a published story’s words', async () => {
+      const result = await outcome(
         ann,
-        `BEGIN TRANSACTION;
-         UPDATE story:ann_live SET status = 'withdrawn';
-         DELETE publicStory:ann_live;
-         COMMIT TRANSACTION;`,
+        `UPDATE story:ann_live SET title = 'edited live'`,
       );
-      expect(await truth('SELECT VALUE status FROM story:ann_live')).toEqual([
-        'withdrawn',
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringContaining('story content is locked'),
+      });
+      expect(await truth('SELECT VALUE title FROM story:ann_live')).toEqual([
+        'Story ann_live',
       ]);
-      expect(await truth('SELECT * FROM publicStory:ann_live')).toEqual([]);
+    });
+
+    it('cannot withdraw someone else’s story', async () => {
+      expect(await withdraw(ann, 'bob_live')).toEqual([]);
+      expect(await statusOf(migrator, 'bob_live')).toBe('approved');
+    });
+
+    it('withdraws their own: one entry, and the story leaves the public’s view at once', async () => {
+      const reader = await t.service('api_public_read');
+      expect(await rows(reader, 'SELECT id FROM story:ann_live')).toHaveLength(1);
+      expect(await withdraw(ann, 'ann_live')).toHaveLength(1);
+      expect(await statusOf(migrator, 'ann_live')).toBe('withdrawn');
+      expect(await rows(reader, 'SELECT id FROM story:ann_live')).toEqual([]);
+      // Its old approved entry is no longer anyone else's to read.
+      expect(
+        await rows(reader, 'SELECT * FROM storyStatusLog WHERE story = story:ann_live'),
+      ).toEqual([]);
+      // Withdrawn stays withdrawn (D61).
+      expect(await outcome(ann, `CREATE storyStatusLog CONTENT { story: story:ann_live, status: 'withdrawn' }`)).toMatchObject({ ok: false });
     });
   });
 
