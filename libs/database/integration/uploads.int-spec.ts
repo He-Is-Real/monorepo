@@ -44,8 +44,9 @@ describe('uploads: storyFile rows, server-assigned media and their limits (D65, 
              [{ format: mediaFile.format, bunnyVideoId: record::id(mediaFile) }] } ELSE { [] } AS media
            FROM type::record('story', $id)`,
         {
-        id,
-      })
+          id,
+        },
+      )
     )[0];
   const settings = (fields: Record<string, unknown>) =>
     run(
@@ -133,10 +134,7 @@ describe('uploads: storyFile rows, server-assigned media and their limits (D65, 
       version: 1,
     });
     expect(
-      await rows(
-        migrator,
-        'SELECT id FROM storyFile WHERE person = user:bob',
-      ),
+      await rows(migrator, 'SELECT id FROM storyFile WHERE person = user:bob'),
     ).toEqual([]);
   });
 
@@ -277,7 +275,9 @@ describe('uploads: storyFile rows, server-assigned media and their limits (D65, 
          FROM ONLY type::record('storyFile', $key)`,
         { key },
       );
-    expect(await file(first)).toEqual([{ detached: false, processing: 'ready' }]);
+    expect(await file(first)).toEqual([
+      { detached: false, processing: 'ready' },
+    ]);
     // Processing writes the file's row, not the story: still version 2.
     await grantUpload(apiUser, {
       video: second,
@@ -289,7 +289,9 @@ describe('uploads: storyFile rows, server-assigned media and their limits (D65, 
       version: 3,
       media: [{ format: 'video', bunnyVideoId: second }],
     });
-    expect(await file(first)).toEqual([{ detached: true, processing: 'ready' }]);
+    expect(await file(first)).toEqual([
+      { detached: true, processing: 'ready' },
+    ]);
     expect(await file(second)).toEqual([{ detached: false }]);
     expect(
       await rows(

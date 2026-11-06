@@ -42,11 +42,15 @@ class FakeLibrary implements StreamLibrary {
   }
 }
 
-/** The images zone, in memory: the story folders it was asked to delete. */
+/** The images zone, in memory: the story folders and pictures it was asked to delete. */
 class FakeZone implements ImageZone {
   deleted: string[] = [];
+  files: string[] = [];
   async deleteFolder(folder: string) {
     this.deleted.push(folder);
+  }
+  async deleteFile(path: string) {
+    this.files.push(path);
   }
 }
 
@@ -121,9 +125,20 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     daysAgo: number,
     fields: Record<string, unknown> = {},
   ) => touch(migrator, id, daysAgo, fields);
-  const media = (v: string) => ({
-    media: [{ format: 'video', bunnyVideoId: v }],
-  });
+  /** The story's video (R12): a file row made long ago, which the story points at. */
+  const media = (id: string, v: string) =>
+    run(
+      migrator,
+      `CREATE type::record('storyFile', $v) CONTENT {
+         story: type::record('story', $id), person: (SELECT VALUE submitter FROM ONLY type::record('story', $id)),
+         format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1,
+         at: time::now() - 200d };
+       UPDATE type::record('story', $id) SET mediaFile = type::record('storyFile', $v);`,
+      { id, v },
+    );
+  /** The newest log line of each chore named, in that order. */
+  const last = (...tasks: string[]) =>
+    tasks.map((task) => [...logs].reverse().find((l) => l['task'] === task));
   const draft = createDraft;
   const sweep = (over: Partial<TaskContext> = {}) =>
     runTasks(
@@ -162,7 +177,8 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     // Drafts: two abandoned (200 and 190 days), and one touched 184 days ago: inside the forms'
     // 6 months, counted as 186 days.
     await draft(ann, 'old_video_draft', 'video');
-    await touched('old_video_draft', 200, media(V.expired));
+    await media('old_video_draft', V.expired);
+    await touched('old_video_draft', 200);
     await draft(ann, 'old_written_draft', 'written');
     expect(
       await grantImage(apiUser, {
@@ -182,17 +198,18 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
         path: YOUNG_PICTURE,
       }),
     ).not.toHaveProperty('error');
-    await touched('young_draft', 184, media(V.youngRef));
+    await media('young_draft', V.youngRef);
+    await touched('young_draft', 184);
     // Never a draft: submitted 200 days ago, and withdrawn 200 days ago.
     await draft(bob, 'old_pending', 'video');
-    await touched('old_pending', 0, media(V.pendingRef));
+    await media('old_pending', V.pendingRef);
     await submit(bob, 'old_pending');
     await touched('old_pending', 200);
     await draft(bob, 'old_withdrawn', 'written');
     await submit(bob, 'old_withdrawn');
     await withdraw(bob, 'old_withdrawn');
     await touched('old_withdrawn', 200);
-    // RequestUpload twice on Bob's video draft: the first video is replaced, its grant recent.
+    // RequestUpload twice on Bob's video draft: the first video is replaced, its row recent.
     await draft(bob, 'bob_video', 'video');
     for (const k of ['replaced', 'current']) {
       V[k] = guid();
@@ -202,7 +219,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
       );
       await run(
         apiUser,
-        `CREATE type::record('uploadGrant', $video) CONTENT {
+        `CREATE type::record('storyFile', $video) CONTENT {
            story: story:bob_video, person: user:bob, format: 'video', contentType: 'video/mp4',
            sizeBytes: 1000000, durationSeconds: 60, storyVersion: $version }`,
         { video: V[k], version },
@@ -214,7 +231,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
       story(V.expired, ago(240)),
       story(V.youngRef, ago(240)),
       story(V.pendingRef, ago(240)),
-      story(V.replaced, ago(240)), // older than its grant: Bunny's clock isn't ours
+      story(V.replaced, ago(240)), // older than its row: Bunny's clock isn't ours
       story(V.current, ago(240)),
       story(V.orphanOld, ago(480)),
       story(V.orphanNew, ago(120)),
@@ -229,12 +246,11 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
   it('lets housekeeping read ids, status, dates and media, never what a person wrote', async () => {
     const [s] = await rows(
       housekeeping,
-      `SELECT currentStatus, updatedAt, media, title, description, body, bylineName, slug
+      `SELECT currentStatus, updatedAt, record::id(mediaFile) AS video, title, description, body,
+         bylineName, slug
        FROM story:young_draft`,
     );
-    expect(s).toMatchObject({
-      media: [{ bunnyVideoId: V.youngRef }],
-    });
+    expect(s).toMatchObject({ video: V.youngRef });
     for (const field of [
       'title',
       'description',
@@ -255,7 +271,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
       housekeeping,
       `UPDATE story:young_draft SET updatedAt = time::now() - 400d`,
     );
-    await run(housekeeping, `DELETE uploadGrant`);
+    await run(housekeeping, `DELETE storyFile`);
     // Nor may it queue a live story's picture, or anything but a picture, for deletion.
     await run(
       housekeeping,
@@ -267,7 +283,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     expect(await exists('young_draft')).toBe(true);
     expect(await exists('old_pending')).toBe(true);
     expect(await exists('old_withdrawn')).toBe(true);
-    expect(await rows(migrator, `SELECT id FROM uploadGrant`)).toHaveLength(4);
+    expect(await rows(migrator, `SELECT id FROM storyFile`)).toHaveLength(7);
     const [young] = await rows<{ days: number }>(
       migrator,
       `SELECT VALUE duration::days(time::now() - updatedAt) FROM story:young_draft`,
@@ -277,7 +293,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
 
   it('in a dry run, only reports what it would delete', async () => {
     expect(await sweep({ dryRun: true })).toBe(0);
-    expect(logs.slice(-2)).toEqual([
+    expect(last('expired-drafts', 'orphan-videos')).toEqual([
       expect.objectContaining({
         task: 'expired-drafts',
         dryRun: true,
@@ -300,7 +316,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
 
   it('deletes at most maxDeletions per chore, oldest first', async () => {
     expect(await sweep({ maxDeletions: 1 })).toBe(0);
-    expect(logs.slice(-2)).toEqual([
+    expect(last('expired-drafts', 'orphan-videos')).toEqual([
       expect.objectContaining({
         task: 'expired-drafts',
         deleted: 1,
@@ -383,7 +399,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
   it('is safe to run again: nothing left to do', async () => {
     const before = library.deleted.length;
     expect(await sweep()).toBe(0);
-    expect(logs.slice(-2)).toEqual([
+    expect(last('expired-drafts', 'orphan-videos')).toEqual([
       expect.objectContaining({
         task: 'expired-drafts',
         selected: 0,
@@ -572,9 +588,9 @@ describe('housekeeping racing a resumed upload', () => {
       .length === 1;
   /** As the expired-drafts chore deletes one. */
   const DELETE = `DELETE type::record('story', $id) WHERE fn::story::draft_expired(id) RETURN BEFORE`;
-  /** As api-user renews a grant before signing its link again (Uploads.request, resume). */
+  /** As api-user renews a file row before signing its link again (Uploads.request, resume). */
   const RENEW = `RETURN fn::upload::renew(type::record('story', $id), user:cat, $video)`;
-  /** Cat's video draft with its upload granted, then left for 200 days: expired. */
+  /** Cat's video draft with its upload's row, then left for 200 days: expired. */
   async function abandonedVideoDraft(id: string): Promise<string> {
     const video = guid();
     await createDraft(cat, id, 'video');
@@ -585,7 +601,7 @@ describe('housekeeping racing a resumed upload', () => {
     );
     await run(
       apiUser,
-      `CREATE type::record('uploadGrant', $video) CONTENT {
+      `CREATE type::record('storyFile', $video) CONTENT {
          story: type::record('story', $id), person: user:cat, format: 'video',
          contentType: 'video/mp4', sizeBytes: 1000000, durationSeconds: 60,
          storyVersion: $version }`,
@@ -660,10 +676,224 @@ describe('housekeeping racing a resumed upload', () => {
     expect(await exists('deleted_first')).toBe(false);
     const [grant] = await rows(
       migrator,
-      `SELECT renewedAt FROM type::record('uploadGrant', $video)`,
+      `SELECT renewedAt FROM type::record('storyFile', $video)`,
       { video },
     );
     expect(grant.renewedAt ?? null).toBeNull();
+  });
+});
+
+/**
+ * R12 (Joel, 2026-11-05; db review 2, section 6 item 7): a file a story stopped pointing at is
+ * deleted once no upload link for it can still be used, and its row records removedAt; a row goes
+ * once it no longer counts towards the upload limits (7 days) and its file is removed or its story
+ * gone.
+ */
+describe('housekeeping: files stories stopped showing', () => {
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let housekeeping: Surreal;
+  let library: FakeLibrary;
+  const logs: Record<string, unknown>[] = [];
+  const OLD_VIDEO = guid();
+  const NEW_VIDEO = guid();
+  const SHARED = guid();
+  const OLD_PICTURE = `stories/dot_video/${'e'.repeat(32)}.webp`;
+  const NEW_PICTURE = `stories/dot_video/${'f'.repeat(32)}.webp`;
+  const SEED_PICTURE = 'dev-seed/hills.webp';
+  const sweep = (over: Partial<TaskContext> = {}) =>
+    runTasks(
+      CHORES,
+      {
+        db: housekeeping,
+        stream: library,
+        dryRun: false,
+        maxDeletions: 50,
+        now: NOW,
+        ...over,
+      },
+      (entry) => logs.push(entry),
+    );
+  const last = (task: string) =>
+    [...logs].reverse().find((l) => l['task'] === task);
+  const removed = (key: string) =>
+    rows(
+      migrator,
+      `SELECT VALUE removedAt != NONE FROM type::record('storyFile', $key)`,
+      { key },
+    );
+  /** As if the story stopped pointing at them three hours ago. */
+  const detachedLongAgo = () =>
+    run(
+      migrator,
+      `UPDATE storyFile SET detachedAt = time::now() - 3h WHERE detachedAt != NONE`,
+    );
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    housekeeping = await t.service('housekeeping');
+    const apiUser = await t.service('api_user');
+    await createPeople(t, { dot: 'user_dot' });
+    await trustSubmitters(t, 'dot');
+    const dot = await t.person('user_dot');
+    await agreeAll(dot);
+    await createDraft(dot, 'dot_video', 'video');
+    // Dot uploads a video and a picture, then replaces each: the first ones are detached.
+    let version = 1;
+    for (const video of [OLD_VIDEO, NEW_VIDEO]) {
+      expect(
+        await grantUpload(apiUser, {
+          video,
+          story: 'dot_video',
+          person: 'dot',
+          version: version++,
+        }),
+      ).not.toHaveProperty('error');
+    }
+    expect(
+      await grantImage(apiUser, {
+        story: 'dot_video',
+        person: 'dot',
+        version: version++,
+        path: OLD_PICTURE,
+      }),
+    ).not.toHaveProperty('error');
+    expect(
+      await grantImage(apiUser, {
+        story: 'dot_video',
+        person: 'dot',
+        version: version++,
+        path: NEW_PICTURE,
+        expectedImage: OLD_PICTURE,
+      }),
+    ).not.toHaveProperty('error');
+    // Dev-seed's way (a system user): two stories share a clip, and a picture outside the
+    // stories' folders; one story then points elsewhere, which detaches them.
+    await createDraft(dot, 'seed_a', 'video');
+    await createDraft(dot, 'seed_b', 'video');
+    await run(
+      migrator,
+      `CREATE type::record('storyFile', $shared) CONTENT { story: story:seed_a, person: user:dot,
+         format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 };
+       CREATE type::record('storyFile', $seed) CONTENT { story: story:seed_a, person: user:dot,
+         format: 'image', contentType: 'image/webp', sizeBytes: 1, storyVersion: 1 };
+       UPDATE story:seed_a SET mediaFile = type::record('storyFile', $shared),
+         image = { file: type::record('storyFile', $seed), alt: 'Hills' };
+       UPDATE story:seed_b SET mediaFile = type::record('storyFile', $shared);
+       UPDATE story:seed_a SET mediaFile = type::record('storyFile', $other), image = NONE;`,
+      {
+        shared: SHARED,
+        seed: SEED_PICTURE,
+        other: NEW_VIDEO,
+      },
+    );
+    library = new FakeLibrary([]);
+  });
+  afterAll(() => t?.close());
+
+  it('marks a replaced file detached, and leaves it while an upload link for it may still be used', async () => {
+    expect(
+      (
+        await rows<string>(
+          migrator,
+          `SELECT VALUE record::id(id) FROM storyFile WHERE detachedAt != NONE`,
+        )
+      ).sort(),
+    ).toEqual([SHARED, OLD_VIDEO, SEED_PICTURE, OLD_PICTURE].sort());
+    const zone = new FakeZone();
+    expect(await sweep({ images: zone })).toBe(0);
+    expect(last('detached-files')).toMatchObject({ selected: 0, deleted: 0 });
+    expect(library.deleted).toEqual([]);
+    expect(zone.files).toEqual([]);
+    // Nor may housekeeping record it removed yet.
+    expect(
+      await outcome(
+        housekeeping,
+        `UPDATE type::record('storyFile', $key) SET removedAt = time::now()`,
+        { key: OLD_VIDEO },
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('file_not_removable'),
+    });
+    expect(await removed(OLD_VIDEO)).toEqual([false]);
+  });
+
+  it('then deletes the person’s files, and only marks removed the ones another story shows or dev-seed’s', async () => {
+    await detachedLongAgo();
+    // Without the images zone, the picture waits.
+    expect(await sweep({ dryRun: true })).toBe(0);
+    expect(last('detached-files')).toMatchObject({ selected: 3, more: true });
+    expect(await sweep()).toBe(0);
+    expect(library.deleted).toEqual([OLD_VIDEO]);
+    expect(await removed(OLD_PICTURE)).toEqual([false]);
+    const zone = new FakeZone();
+    expect(await sweep({ images: zone })).toBe(0);
+    expect(zone.files).toEqual([OLD_PICTURE]);
+    expect(library.deleted).toEqual([OLD_VIDEO]);
+    for (const key of [OLD_VIDEO, OLD_PICTURE, SHARED, SEED_PICTURE]) {
+      expect(await removed(key)).toEqual([true]);
+    }
+    for (const key of [NEW_VIDEO, NEW_PICTURE]) {
+      expect(await removed(key)).toEqual([false]);
+    }
+    // Once is enough.
+    expect(await sweep({ images: zone })).toBe(0);
+    expect(last('detached-files')).toMatchObject({ selected: 0 });
+    const when = `SELECT VALUE removedAt FROM type::record('storyFile', $key)`;
+    const first = await rows(migrator, when, { key: OLD_VIDEO });
+    await run(
+      housekeeping,
+      `UPDATE type::record('storyFile', $key) SET removedAt = time::now()`,
+      { key: OLD_VIDEO },
+    );
+    expect(await rows(migrator, when, { key: OLD_VIDEO })).toEqual(first);
+  });
+
+  it('deletes a row once it no longer counts towards the limits and its file is removed or its story gone, and no other', async () => {
+    const row = (key: string, story: string, extra: string) =>
+      run(
+        migrator,
+        `CREATE type::record('storyFile', $key) CONTENT object::extend({
+           story: type::record('story', $story), person: user:dot, format: 'video',
+           contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 }, ${extra})`,
+        { key, story },
+      );
+    const OLD_REMOVED = guid();
+    const OLD_GONE = guid();
+    const OLD_KEPT = guid();
+    const NEW_REMOVED = guid();
+    await row(
+      OLD_REMOVED,
+      'dot_video',
+      `{ at: time::now() - 8d, detachedAt: time::now() - 8d, removedAt: time::now() - 8d }`,
+    );
+    await row(OLD_GONE, 'never_was', `{ at: time::now() - 8d }`);
+    await row(OLD_KEPT, 'seed_b', `{ at: time::now() - 8d }`);
+    await row(
+      NEW_REMOVED,
+      'dot_video',
+      `{ at: time::now() - 6d, detachedAt: time::now() - 6d, removedAt: time::now() - 6d }`,
+    );
+    // Its own delete of a row it must keep is refused.
+    await run(
+      housekeeping,
+      `DELETE type::record('storyFile', $a); DELETE type::record('storyFile', $b)`,
+      { a: OLD_KEPT, b: NEW_REMOVED },
+    );
+    expect(await sweep()).toBe(0);
+    expect(last('old-file-rows')).toMatchObject({
+      deleted: 2,
+      ids: expect.arrayContaining([OLD_REMOVED, OLD_GONE]),
+    });
+    const left = await rows(
+      migrator,
+      `SELECT VALUE record::id(id) FROM storyFile`,
+    );
+    expect(left).toEqual(expect.arrayContaining([OLD_KEPT, NEW_REMOVED]));
+    expect(left).not.toContain(OLD_REMOVED);
+    expect(left).not.toContain(OLD_GONE);
   });
 });
 

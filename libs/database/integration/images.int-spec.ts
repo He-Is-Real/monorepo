@@ -144,10 +144,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     }
     expect((await image('bob_w')).image).toBeUndefined();
     expect(
-      await rows(
-        migrator,
-        'SELECT id FROM storyFile WHERE person = user:bob',
-      ),
+      await rows(migrator, 'SELECT id FROM storyFile WHERE person = user:bob'),
     ).toEqual([]);
   });
 

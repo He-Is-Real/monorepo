@@ -12,3 +12,46 @@ export const OWNER_FILE_FIELDS = `
     object::extend(image.file.{ width, height, processing },
       { path: record::id(image.file), alt: image.alt })
   } AS image`;
+
+/** A detached file the nightly clean-up may delete now (DETACHED_FILES_DUE). */
+export interface DetachedFile {
+  /** The Bunny video id, or the picture's path in the images zone. */
+  key: string;
+  format: 'video' | 'audio' | 'image';
+  /** Another story still points at it (dev-seed's shared dummy files): never deleted, only marked removed. */
+  shared: boolean;
+}
+
+/**
+ * Files a story stopped pointing at (R12, storyFile.detachedAt) once no upload link for them can
+ * still be used (fn::upload::links_expire_after), the longest-detached first, at most `$limit`.
+ * One read (a snapshot): a file another story still points at is marked `shared`.
+ */
+export const DETACHED_FILES_DUE = `
+  BEGIN TRANSACTION;
+  LET $due = SELECT id, record::id(id) AS key, format, detachedAt FROM storyFile
+    WHERE detachedAt != NONE AND detachedAt <= time::now() - fn::upload::links_expire_after()
+      AND removedAt = NONE
+    ORDER BY detachedAt LIMIT $limit;
+  LET $ids = $due.id;
+  LET $shown = array::union(
+    (SELECT VALUE mediaFile FROM story WHERE mediaFile IN $ids),
+    (SELECT VALUE image.file FROM story WHERE image.file IN $ids));
+  RETURN $due.map(|$f| { key: $f.key, format: $f.format, shared: $f.id IN $shown });
+  COMMIT TRANSACTION;`;
+
+/** The file is gone (bind `$key`): its row records removedAt (the database refuses it too early). */
+export const DETACHED_FILE_REMOVED = `
+  UPDATE type::record('storyFile', $key) SET removedAt = time::now() RETURN NONE`;
+
+/**
+ * Rows that no longer count towards the upload limits (7 days, D113) whose file is removed or
+ * whose story is gone (R12), at most `$limit`; the database refuses deleting any other.
+ */
+export const OLD_FILE_ROWS = `
+  SELECT VALUE record::id(id) FROM storyFile
+    WHERE at <= time::now() - 7d AND (removedAt != NONE OR !record::exists(story))
+    ORDER BY at LIMIT $limit`;
+/** One of them (bind `$key`); answers it if deleted. */
+export const OLD_FILE_ROW_DELETE = `
+  DELETE type::record('storyFile', $key) RETURN BEFORE`;

@@ -106,7 +106,8 @@ export function grantImage(
       sizeBytes: g.sizeBytes ?? 40_000,
       width: g.width ?? 900,
       height: g.height ?? 1200,
-      imageAlt: g.alt === null ? undefined : (g.alt ?? 'A sunrise over the hills'),
+      imageAlt:
+        g.alt === null ? undefined : (g.alt ?? 'A sunrise over the hills'),
       expected: g.expectedImage ?? undefined,
     },
   );

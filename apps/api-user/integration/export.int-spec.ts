@@ -318,7 +318,7 @@ describe('download my data', () => {
     // Its picture stops being ready, then is again: the system hides it and shows it again (R6).
     await run(
       await t.service('workflow'),
-      `UPDATE type::record('story', $id) SET image.processing = 'failed'`,
+      `UPDATE (SELECT VALUE image.file FROM ONLY type::record('story', $id)) SET processing = 'failed'`,
       { id: annLive.id },
     );
     await processed(await t.service('workflow'), annLive.id);

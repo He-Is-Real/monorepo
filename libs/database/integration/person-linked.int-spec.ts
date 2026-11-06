@@ -11,13 +11,7 @@ import {
   shareStory,
   TestDatabase,
 } from './support/harness';
-import {
-  approve,
-  draft,
-  ERASE,
-  grantUpload,
-  submit,
-} from './support/world';
+import { approve, draft, ERASE, grantUpload, submit } from './support/world';
 
 /**
  * Review round 3: every table that holds or links person data, directly or through `story`, is
@@ -147,8 +141,7 @@ const LINKED: Record<string, LinkedCase> = {
       }).then((o) => {
         if (!o.ok) throw new Error(o.error);
       }),
-    landed: (c) =>
-      `SELECT VALUE id FROM storyFile WHERE person = user:${c.p}`,
+    landed: (c) => `SELECT VALUE id FROM storyFile WHERE person = user:${c.p}`,
   },
   submissionLog: {
     // Written by story_limits when the person first submits a story. livePerson's own

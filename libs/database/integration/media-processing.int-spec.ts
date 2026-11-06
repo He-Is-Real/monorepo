@@ -91,7 +91,9 @@ describe('approval waits for media processing (A2, R12)', () => {
     seq += 1;
     const key =
       named ??
-      (format === 'image' ? `stories/${id}/${String(seq).padStart(32, '0')}.webp` : `vid${seq}`);
+      (format === 'image'
+        ? `stories/${id}/${String(seq).padStart(32, '0')}.webp`
+        : `vid${seq}`);
     await run(
       db,
       `CREATE type::record('storyFile', $key) CONTENT {
@@ -103,7 +105,10 @@ describe('approval waits for media processing (A2, R12)', () => {
     );
     return key;
   };
-  const create = async (fields: string, files: ('video' | 'audio' | 'image')[]) => {
+  const create = async (
+    fields: string,
+    files: ('video' | 'audio' | 'image')[],
+  ) => {
     seq += 1;
     const id = `proc_${seq}`;
     const result = await outcome(
@@ -338,7 +343,10 @@ describe('approval waits for media processing (A2, R12)', () => {
               status: 'approved',
               reviewedImageFile: `storyFile:⟨${await fileOf(id, 'image')}⟩`,
             }
-          : { status: 'approved', reviewedMediaFile: `storyFile:${await fileOf(id)}` },
+          : {
+              status: 'approved',
+              reviewedMediaFile: `storyFile:${await fileOf(id)}`,
+            },
       );
     });
 
@@ -347,7 +355,12 @@ describe('approval waits for media processing (A2, R12)', () => {
       async (_why, c) => {
         const id = await create(`primaryFormat: 'audio'`, []);
         // A key as long as the case's video id, so the path keeps its length.
-        await upload(id, 'audio', migrator, `a${seq}`.padEnd(c.videoId.length, '0'));
+        await upload(
+          id,
+          'audio',
+          migrator,
+          `a${seq}`.padEnd(c.videoId.length, '0'),
+        );
         expect(await submit(pat, id)).toHaveLength(1);
         const key = await fileOf(id);
         // The cases are written for their own video id; ours is the row's key.
@@ -421,7 +434,12 @@ describe('approval waits for media processing (A2, R12)', () => {
 
     it.each<[string, () => Promise<string>, string, 'media' | 'image']>([
       ['a video marked failed', video, `processing = 'failed'`, 'media'],
-      ['a video back to processing', video, `processing = 'processing'`, 'media'],
+      [
+        'a video back to processing',
+        video,
+        `processing = 'processing'`,
+        'media',
+      ],
       ['a video losing its length', video, `lengthSeconds = NONE`, 'media'],
       [
         'an audio file losing its thumbnail',

@@ -114,6 +114,38 @@ export const STORY_IMAGE_PATH =
  */
 const STORY_FOLDER = /^stories\/([A-Za-z0-9_]{1,64})\/(?:[0-9a-f]{32}\.webp)?$/;
 
+/** The images zone's Edge Storage API host for its S3 host (deleteStoryFolder). */
+function edgeStorageBase(zone: Pick<StorageZone, 'name' | 'host'>): string {
+  const region = /^([a-z0-9]+)-s3\.storage\.bunnycdn\.com$/.exec(
+    zone.host,
+  )?.[1];
+  if (!region) throw new Error(`No Edge Storage host for ${zone.host}`);
+  return `https://${region}.storage.bunnycdn.com/${uriEncode(zone.name)}`;
+}
+
+/**
+ * Deletes one picture of a story that is still there (R12: a replaced or removed picture,
+ * `stories/<story id>/<32 hex>.webp`), the same way as deleteStoryFolder. Done on 200, or 404
+ * (already gone); anything else throws.
+ */
+export async function deleteStoryImage(
+  zone: Pick<StorageZone, 'name' | 'password' | 'host'>,
+  path: string,
+): Promise<void> {
+  if (!STORY_IMAGE_PATH.test(path)) throw new Error('Not a story’s picture');
+  const res = await fetch(`${edgeStorageBase(zone)}/${path}`, {
+    method: 'DELETE',
+    headers: { AccessKey: zone.password },
+    signal: AbortSignal.timeout(10_000),
+  });
+  await res.body?.cancel().catch(() => undefined);
+  if (res.status !== 200 && res.status !== 404) {
+    throw new Error(
+      `The images zone answered ${res.status} to deleting a story’s picture`,
+    );
+  }
+}
+
 /**
  * Deletes a story's whole folder in the images zone (`stories/<story id>/`), with everything in
  * it: the story's picture and any it replaced, or one a late PUT put there. Only for a story that
@@ -129,18 +161,11 @@ export async function deleteStoryFolder(
 ): Promise<void> {
   const story = STORY_FOLDER.exec(folder)?.[1];
   if (!story) throw new Error('Not a story’s folder');
-  const region = /^([a-z0-9]+)-s3\.storage\.bunnycdn\.com$/.exec(
-    zone.host,
-  )?.[1];
-  if (!region) throw new Error(`No Edge Storage host for ${zone.host}`);
-  const res = await fetch(
-    `https://${region}.storage.bunnycdn.com/${uriEncode(zone.name)}/stories/${story}/`,
-    {
-      method: 'DELETE',
-      headers: { AccessKey: zone.password },
-      signal: AbortSignal.timeout(10_000),
-    },
-  );
+  const res = await fetch(`${edgeStorageBase(zone)}/stories/${story}/`, {
+    method: 'DELETE',
+    headers: { AccessKey: zone.password },
+    signal: AbortSignal.timeout(10_000),
+  });
   await res.body?.cancel().catch(() => undefined);
   if (res.status !== 200 && res.status !== 404) {
     throw new Error(

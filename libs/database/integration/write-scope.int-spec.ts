@@ -135,7 +135,9 @@ describe('write scope on story fields (D41)', () => {
       await step(await t.person('user_bob'), 'bob_pending', 'pending');
       await approve(admin, 'bob_pending');
       // What everyone reads is the story and its file: no copy api-admin could write.
-      expect(await published()).toEqual(clip(93, 'vidorig/thumbnail_1.jpg', 1080, 1920));
+      expect(await published()).toEqual(
+        clip(93, 'vidorig/thumbnail_1.jpg', 1080, 1920),
+      );
     });
 
     it('shows processing’s corrections of a published clip at once (R12: no copy to update)', async () => {
@@ -150,7 +152,10 @@ describe('write scope on story fields (D41)', () => {
     });
 
     it('leaves the hide and show-again working, with the latest facts on return (#61)', async () => {
-      await run(workflow, `UPDATE storyFile:vidorig SET processing = 'processing'`);
+      await run(
+        workflow,
+        `UPDATE storyFile:vidorig SET processing = 'processing'`,
+      );
       expect(await published()).toEqual([]);
       await run(
         workflow,

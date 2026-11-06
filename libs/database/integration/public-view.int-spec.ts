@@ -69,7 +69,12 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     await createPeople(t, { cara: 'user_cara' });
     // Pictures (R12): ann_draft's, ann_withdrawn's and ann_hidden's, and ann_live's, whose first
     // picture was replaced before it was submitted (detached).
-    const picture = async (id: string, n: number, version: number, expected?: string) => {
+    const picture = async (
+      id: string,
+      n: number,
+      version: number,
+      expected?: string,
+    ) => {
       const o = await grantImage(apiUser, {
         story: id,
         person: 'ann',
@@ -271,7 +276,12 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
            FROM story:ann_live`,
         ),
       ).toEqual([
-        { path: pic('ann_live', 2), width: 900, processing: undefined, person: undefined },
+        {
+          path: pic('ann_live', 2),
+          width: 900,
+          processing: undefined,
+          person: undefined,
+        },
       ]);
       for (const field of PRIVATE_FILE_FIELDS) {
         expect(
@@ -361,8 +371,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     'submissionLog',
     'storyStatusLog',
     'story',
-    'hiddenStory',
-    'uploadGrant',
+    'storyFile',
   ])('counting %s without a WHERE applies its row rule', async (table) => {
     const count = async (db: Surreal, sql: string) =>
       (await rows<{ count: number }>(db, sql))[0]?.count ?? 0;

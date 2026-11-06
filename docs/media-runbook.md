@@ -14,19 +14,19 @@ loading again; we don't approve the story again.
 - When the same media is `ready` again with its size and duration, the database publishes the
   story again in the same write (an `approved` entry by the system). It keeps its first
   `publishedAt` and its old slugs. Nobody has to approve it again.
-- A `hiddenStory` row (same id as the story) keeps what the moderator reviewed (the media's
-  identity and thumbnails) and since when; the status log says why (`hiddenReason`). Nobody can
-  write either by hand.
+- The approval's status entry keeps what the moderator reviewed (`reviewedMediaFile`,
+  `reviewedImageFile`: the story's file rows, R12); the hide's entry says why (`hiddenReason`)
+  and since when. Nobody can write either by hand.
 
 Two cases don't come back on their own:
 
-- **The media changed** (another Bunny video id or image path, or a thumbnail that isn't one of
-  Bunny's generated frames). A moderator approved the old media, so the new one needs a
+- **The media changed** (the story points at another video or audio file, or another picture,
+  than the approval reviewed). A moderator approved the old media, so the new one needs a
   moderator's review. The list below shows `mediaChanged: true`. This also hides a story that
   was still public.
-  A generated frame of the same video (`thumbnail_1.jpg` to `thumbnail_5.jpg`) doesn't count
-  (D60): re-encoding often picks one, and the story comes back with it. So re-encode a broken
-  video. Don't upload it again (a new Bunny video id), and don't upload a custom thumbnail.
+  A new thumbnail of the same file doesn't count (R12): re-encoding often picks another frame, and
+  the story comes back with it. So re-encode a broken video. Don't upload it again (a new Bunny
+  video id).
 - **The person withdrew consent.** Consent rules publishing (D17), so the story stays off the
   public site. Withdrawing consent also ends the hide, so giving consent again later doesn't
   publish it. A story that wasn't public when its media broke is never hidden or published by
@@ -46,7 +46,7 @@ republishes (Joel, 2026-11-05: no audit log).
 
 ## Get a video loading again
 
-1. Find the story's Bunny video id: `SELECT media FROM story:<id>` (`bunnyVideoId`).
+1. Find the story's Bunny video id: `SELECT record::id(mediaFile) FROM story:<id>`.
 2. Look at it in Bunny Stream:
    `tools/scripts/tf.sh bunny-cli stream videos show <video id> --library <library id>`.
    The status and encode progress show what went wrong.
@@ -57,7 +57,7 @@ republishes (Joel, 2026-11-05: no audit log).
 5. When Bunny has encoded it, processing records it `ready` with its size and duration, and the
    story comes back by itself. Check that `fn::story::hidden_by_media()` no longer lists it.
 
-Images live in the images storage zone (`heisreal-dev-image-store` in dev). If an image fails, check the file at its `path` there.
+Images live in the images storage zone (`heisreal-dev-image-store` in dev). If an image fails, check the file at its path there (`SELECT record::id(image.file) FROM story:<id>`).
 When processing records it `ready` again, the story comes back.
 
 Until M7 is built nothing marks media as not ready, so nothing is hidden.
@@ -78,7 +78,8 @@ signed and what each link enforces: [infra/terraform/README.md](../infra/terrafo
 story's picture, or a video's own thumbnail (Joel, 2026-10-30). It's always `story.image`, at
 `stories/<story id>/<32 hex>.webp`, never set at Bunny Stream; cards and the story page show it in
 place of Bunny's generated thumbnail (`clipPicture`, `libs/story-cards`). Processing and the
-media-ready step can't change it: `story.image`'s VALUE keeps workflow to `processing` alone
+media-ready step can't change it: the story points at the picture's own file row (`image.file`,
+R12), and workflow writes only that row's processing fields
 (`libs/database/schema/schema-04-stories.surql`).
 
 No personal data goes into Bunny names: a video's title is the story id (D69) and an image's path
@@ -90,19 +91,23 @@ developer, with gcloud ADC and ffmpeg; it deletes what it uploads).
 
 Each video or audio story has one Bunny video at a time, titled with the story id (D69). api-user
 creates it when the person chooses a file (RequestUpload), and the database puts it on the draft
-through an upload grant (D80; the person's browser never names a video).
+through its file row (`storyFile`, R12; D80: the person's browser never names a video).
 
 - **Replaced:** choosing another file creates a new video and deletes the old one at Bunny at
-  once, because nobody reviewed it. Its grant row stays for 7 days so the upload limits still
-  count it.
+  once, because nobody reviewed it. Its file row is marked detached (`detachedAt`); the nightly
+  sweep deletes the file again once no upload link for it can be used (2 hours; a 404 counts as
+  done) and records `removedAt`, so a delete that failed is retried. The same goes for a replaced
+  or removed picture. The row stays until it no longer counts towards the 7-day upload limits.
+  A detached row with no `removedAt` a day or two later means the clean-up is failing:
+  `SELECT * FROM storyFile WHERE detachedAt < time::now() - 1d AND removedAt = NONE`.
 - **Deleted stories:** when a person deletes their draft, withdrawn or rejected story (D71),
-  api-user deletes every video it made for that story (its upload grants) at Bunny straight
-  after the database commits. Only granted videos: dev's seeded media and site assets are never
-  touched. The grants stay for the upload limits.
+  api-user deletes every video it made for that story (its file rows) at Bunny straight
+  after the database commits. Only those videos: dev's seeded media and site assets are never
+  touched. The rows stay for the upload limits.
 - **Orphans** (a video on Bunny that no story shows) happen when that delete fails (api-user
-  logs `Couldn’t delete replaced video …` or `… a deleted story’s video …`), when the database refused the grant after the video
+  logs `Couldn’t delete replaced video …` or `… a deleted story’s video …`), when the database refused the file row after the video
   was created and the delete after it failed (`… after a refused upload`), when api-user lost the
-  database's answer to the grant and couldn't tell whether it committed (`… has no known outcome;
+  database's answer to the file row and couldn't tell whether it committed (`… has no known outcome;
 video kept`: never deleted then, since it may be the draft's file; the person's retry with the
   same Idempotency-Key settles it), or when a person
   abandons a draft whose file never finished (Bunny keeps it at status 0, "created").
@@ -112,10 +117,10 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
   - it's a story video: its title is a story id, and it's in no collection. So site videos (the
     `site-assets` collection) and dev-seed's clips (titled `dev-seed/clip-NN`) are never touched;
   - Bunny made it more than 48 hours ago. An upload in progress, a draft that has just been given
-    it, and a grant with no known outcome (settled by the person's retry within the
+    it, and a file row with no known outcome (settled by the person's retry within the
     Idempotency-Key's 24 hours) are left alone;
-  - no story's media, no published story's media and no upload grant made or renewed (a resume
-    signed its link again) in the last 48 hours names it.
+  - no story points at it, and no file row made or renewed (a resume signed its link again) in
+    the last 48 hours names it.
 
   It deletes at most 50 videos a night (`max_deletions`), oldest first; the rest wait for the
   next night. In dev it starts in a dry run: it logs what it would delete and deletes nothing.
@@ -143,13 +148,13 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
 ## Replaced and orphaned images
 
 Pictures (M2 plan PR 10) work like videos, but api-user **never deletes a replaced or removed
-one**: a story sent back for changes still has its approved copy public, and that copy may show
-the old picture. Pictures go only with their story, a whole folder (`stories/<story id>/`) at a
-time, through the deletion queue (`pendingDeletion`, kind `image`). **Every story delete queues
-its folder**, whoever deletes it, in the same transaction (the database event
-`story_picture_folder`, one row per folder): it works from the story itself, never from its
-upload grants, which are pruned 7 days after a picture stops being the story's (Codex #140
-round 4: an erasure built from grants missed those files).
+one itself**: the nightly sweep does, once its PUT link can no longer be used (R12, the
+`detached-files` chore: the file `stories/<story id>/<32 hex>.webp`, then `removedAt` on its
+row). A deleted story's pictures go a whole folder (`stories/<story id>/`) at a time, through the
+deletion queue (`pendingDeletion`, kind `image`). **Every story delete queues its folder**,
+whoever deletes it, in the same transaction (the database event `story_picture_folder`, one row
+per folder): it works from the story itself, never from its file rows, which are pruned 7 days
+after they stop counting (Codex #140 round 4: an erasure built from those rows missed files).
 
 - **Erasure** (D39, D40): api-user deletes the erased person's stories' folders straight after
   the commit, and the nightly housekeeping retries what failed.
@@ -177,22 +182,25 @@ Deleting a folder deletes everything in it (Bunny's Edge Storage API,
 reads the zone password through the bunny root's `storage_password_readers`; without it, picture
 deletions wait in the queue and the run logs an error.
 
-Otherwise each of these leaves an orphan file in the images zone until the clean-up sweep (D40):
+A picture its story stopped pointing at is deleted by the nightly `detached-files` chore (R12):
 
-- **Replaced:** a new picture for the same story (its grant row stays 7 days for the hourly
-  limit; pictures never count towards the weekly one, Joel 2026-10-30).
+- **Replaced:** a new picture for the same story (its row stays 7 days for the hourly limit;
+  pictures never count towards the weekly one, Joel 2026-10-30).
 - **Removed:** the person removes the picture (`PATCH` `image: null`), or a video's thumbnail
   (the video goes back to Bunny's own).
-- **Never uploaded:** the grant committed and the picture is on the draft, but the browser's PUT
+
+Otherwise each of these leaves an orphan file in the images zone (D40):
+
+- **Never uploaded:** the file row committed and the picture is on the draft, but the browser's PUT
   never arrived (closed tab, expired 10-minute link). The story then points at a missing file;
   processing (M7) marks it `failed`, and approval waits for `ready` (A2). A picture whose PUT
   arrived after the person replaced it is an orphan too.
-- **Lost answers:** api-user lost the database's answer to the grant; the retry with the same
-  Idempotency-Key replays the same path, so nothing new is made. The browser keeps the grant's
+- **Lost answers:** api-user lost the database's answer to the file row; the retry with the same
+  Idempotency-Key replays the same path, so nothing new is made. The browser keeps the upload's
   request until its PUT succeeds (or answers 412: the file is there), so a PUT that failed or
-  whose answer was lost is retried at the same path with a freshly signed link, never a new grant.
+  whose answer was lost is retried at the same path with a freshly signed link, never a new row.
 
-Find orphans by listing a story's folder and comparing with `story.image.path`, then delete the file and, if it's empty, the folder (the Edge Storage API,
+Find orphans by listing a story's folder and comparing with the story's `record::id(image.file)`, then delete the file and, if it's empty, the folder (the Edge Storage API,
 `DELETE https://uk.storage.bunnycdn.com/<zone>/stories/<story id>/`; deleting a folder's last
 object by S3 leaves the folder behind).
 

@@ -265,7 +265,7 @@ paths:
       description: |
         Command `EraseAccount` ("Delete my account", D39, D82). On api-user's own login, in one
         transaction: the person's stories (with their `publicStory` rows, reviews and others' hearts),
-        their own hearts, limits, upload grants and idempotency keys go; the user record becomes a stub
+        their own hearts, limits, file rows and idempotency keys go; the user record becomes a stub
         without the Clerk id, and a fingerprint of the Clerk id is kept so no token can recreate the
         account (D82). This is also how a person withdraws all consent (plan 4e): the user row's
         agreements go with it, and nothing kept (the tombstone) records consent.
@@ -302,7 +302,7 @@ paths:
           and the testimony consent they agreed to and when (and, per story, the social media sharing
           consent), their hearts (only which story and when, and the story's public path
           while it's public; never another person's words), their submission limits, submission log,
-          upload grants and recent idempotency keys.
+          file rows and recent idempotency keys.
         - Their sign-in details (names, email addresses, phone numbers, connected accounts) come from
           Clerk's Backend API at the time of the request (D16, D81: the data download is one of the
           three server jobs that may use Clerk's secret key); nothing from Clerk is stored.
@@ -730,14 +730,14 @@ paths:
         Command `DeleteStory` (D71): the person deletes their own story while it's a `draft`,
         `changes_requested` (R8: sent back for changes, no need to withdraw it first), `withdrawn`
         or `rejected`, in their own session (D27). It goes everywhere in the same
-        transaction: the story, its `publicStory` and `hiddenStory` rows, its moderation reviews and
+        transaction: the story, its status history and
         other people's hearts on it. The database's story permission refuses any other status
         (`pending`, `in_review`, `approved`: `409 story_not_deletable`, withdraw it first) and anyone else's story (`404`, as if it didn't exist). Needs no agreement (Art 17).
 
         Its video or audio at Bunny is deleted straight after the database commits: only the videos
-        api-user made for this story (its upload grants, D80), never seeded or shared media. If Bunny
+        api-user made for this story (its file rows, D80), never seeded or shared media. If Bunny
         can't be reached the video is left as an orphan for the clean-up sweep (media-runbook.md);
-        the answer is still `204`. Its upload grants stay, so the upload limits still count them for
+        the answer is still `204`. Its file rows stay, so the upload limits still count them for
         7 days (D113). A retry after a lost answer gets `404`: it's gone.
       x-required-role: User
       x-milestone: M2
@@ -772,7 +772,7 @@ paths:
 
         api-user checks the story is the caller's, still editable (`409` `story_locked`) and at
         `If-Match` (`412`), and that it's a story of that format (`400`). Then, unless `resume`: it
-        creates a video at Bunny (titled with the story id only, D69), records an upload grant on
+        creates a video at Bunny (titled with the story id only, D69), records a file row on
         its own login and, in the same database write, makes it the draft's one video or audio
         file (the story's version steps once); the draft's previous file is deleted at Bunny at
         once. The browser never names a video, and the link binds only that one.
@@ -783,7 +783,7 @@ paths:
         submitter has only the hourly one, and the ceilings for size and length. The database
         enforces them too. `503` `uploads_unavailable` when uploads are off.
 
-        **Idempotency-Key (D29):** a new file's grant counts against those limits, so a retry
+        **Idempotency-Key (D29):** a new file's row counts against those limits, so a retry
         after a lost answer must send the same key (and the same `If-Match` and body): it replays
         the same video and version, counting nothing new, even once the story has moved on. The
         same key with another body is `422`. If api-user loses the database's answer itself, it
@@ -792,12 +792,12 @@ paths:
 
         **Images (M2 plan PR 10; D53, D65, D80):** `format: image` on any story: a written story's
         image, an audio story's picture or a video's own thumbnail (Joel, 2026-10-30). api-user picks
-        the path, `stories/<story id>/<random>.webp`, and records an upload grant whose event puts it
+        the path, `stories/<story id>/<random>.webp`, and records a file row whose event puts it
         on the draft with its size and description, in the same write (the story's version steps
         once); then it returns a presigned `PUT` (`provider: bunny_s3`) binding that path, the type
         and the exact size. The size, pixel bounds and shape are checked by api-user and again by the
         database (`400`); a description is never required. `expectedImage` must be the story's
-        picture now (`409` `image_changed` otherwise, checked again in the grant's write): a picture
+        picture now (`409` `image_changed` otherwise, checked again in the file row's write): a picture
         another tab put on or took off is never replaced by a request made for the one before. An
         image counts towards the hourly upload limit only, never the 7-day one (Joel, 2026-10-30).
         The previous image's file is not deleted: an approved story's public copy may still show

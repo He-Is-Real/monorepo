@@ -63,12 +63,20 @@ describe('story types and shapes (D53)', () => {
     const result = await outcome(
       writer,
       `BEGIN TRANSACTION;
-       ${files.media !== undefined ? `CREATE type::record('storyFile', $id + '-media') CONTENT {
+       ${
+         files.media !== undefined
+           ? `CREATE type::record('storyFile', $id + '-media') CONTENT {
          story: type::record('story', $id), person: user:pat, contentType: 'video/mp4',
-         sizeBytes: 1000, storyVersion: 1, ${files.media} } RETURN NONE;` : ''}
-       ${files.image !== undefined ? `CREATE type::record('storyFile', $pic) CONTENT {
+         sizeBytes: 1000, storyVersion: 1, ${files.media} } RETURN NONE;`
+           : ''
+       }
+       ${
+         files.image !== undefined
+           ? `CREATE type::record('storyFile', $pic) CONTENT {
          story: type::record('story', $id), person: user:pat, format: 'image',
-         contentType: 'image/webp', sizeBytes: 1000, storyVersion: 1, ${files.image} } RETURN NONE;` : ''}
+         contentType: 'image/webp', sizeBytes: 1000, storyVersion: 1, ${files.image} } RETURN NONE;`
+           : ''
+       }
        CREATE type::record('story', $id) CONTENT {
          themeRefs: [theme:common], submitter: $submitter ?? $auth, slug: $id, title: 'A story', description: 'How I came to faith',
          ${files.media !== undefined ? `mediaFile: type::record('storyFile', $id + '-media'),` : ''}
@@ -97,7 +105,11 @@ describe('story types and shapes (D53)', () => {
     expect(result).toMatchObject({ ok: true });
     return id;
   };
-  const refused = async (fields: string, message: string, files: Files = {}) => {
+  const refused = async (
+    fields: string,
+    message: string,
+    files: Files = {},
+  ) => {
     const { id, result } = await create(fields, files);
     expect(result).toEqual({
       ok: false,
@@ -157,7 +169,12 @@ describe('story types and shapes (D53)', () => {
     });
 
     it.each([
-      ['no text', `primaryFormat: 'written'`, 'a written story needs its text', {}],
+      [
+        'no text',
+        `primaryFormat: 'written'`,
+        'a written story needs its text',
+        {},
+      ],
       [
         'blank text',
         `primaryFormat: 'written', body: ' \n\t '`,
@@ -398,7 +415,11 @@ describe('story types and shapes (D53)', () => {
       ['beyond 3:1', `width: 1801, height: 600`, 'beyond 1:3 or 3:1'],
       ['a width without a height', `width: 600`, 'both width and height'],
       ['a negative height', `width: 600, height: -600`, 'height'],
-      ['an aspect-ratio label (D53: replaced)', `aspectRatio: '9:16'`, 'aspectRatio'],
+      [
+        'an aspect-ratio label (D53: replaced)',
+        `aspectRatio: '9:16'`,
+        'aspectRatio',
+      ],
       ['free text', `note: 'testimony text'`, 'note'],
     ])('refuses %s', async (_name, fields, message) => {
       await refused(`primaryFormat: 'video'`, message, {
@@ -421,11 +442,9 @@ describe('story types and shapes (D53)', () => {
       });
       const file = `${id}-media`;
       const set = (s: string) =>
-        outcome(
-          workflow,
-          `UPDATE type::record('storyFile', $file) SET ${s}`,
-          { file },
-        );
+        outcome(workflow, `UPDATE type::record('storyFile', $file) SET ${s}`, {
+          file,
+        });
       expect(await set(`width = 1920, height = 1080`)).toMatchObject({
         ok: true,
       });

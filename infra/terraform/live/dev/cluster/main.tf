@@ -116,7 +116,9 @@ module "cluster" {
   # once per name; a later wipe needs a new name. Dev only (refused anywhere else).
   # db-review-2-b1: one story table and its status log replace publicStory and
   # moderationReview (database review 2, part B1); no migration script, so dev is wiped again.
-  dev_database_reset = "db-review-2-b1"
+  # db-review-2-b2: storyFile replaces uploadGrant and hiddenStory, and the story points at its
+  # files (database review 2, part B2); wiped again, no migration.
+  dev_database_reset = "db-review-2-b2"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

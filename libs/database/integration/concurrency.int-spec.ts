@@ -145,7 +145,10 @@ describe('concurrent transactions are fenced per person', () => {
   it('a video failing while a moderator approves the story: one of them conflicts, and the retry sees the other', async () => {
     const vic = await t.person('user_vic');
     await agreeAll(vic);
-    await run(migrator, `CREATE submitterLimits:vic SET user = user:vic, trusted = true`);
+    await run(
+      migrator,
+      `CREATE submitterLimits:vic SET user = user:vic, trusted = true`,
+    );
     await draft(vic, 'vic_story', { primaryFormat: 'video', body: undefined });
     await run(
       migrator,
@@ -171,7 +174,10 @@ describe('concurrent transactions are fenced per person', () => {
         admin,
         `CREATE storyStatusLog CONTENT { story: story:vic_story, status: 'approved', by: user:moderator }`,
       ),
-    ).toMatchObject({ ok: false, error: expect.stringContaining('media_not_ready') });
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('media_not_ready'),
+    });
   });
 
   // Plan 4e: agreeing (the person's pointers) racing account deletion, which clears them.
