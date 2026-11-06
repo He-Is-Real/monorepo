@@ -256,31 +256,31 @@ export function buildVars(
           ? undefined
           : new Date(now.getTime() - s.publishedDaysAgo * DAY_MS);
       return {
-      id: s.id,
-      submitter: s.submitter,
-      draft: compact({
-        slug: s.slug,
-        title: s.title,
-        description: s.description,
-        body: s.body,
-        bylineName: s.bylineName,
-        primaryFormat: s.format,
-        themeRefs: s.themes.map(
-          (key) => data.themes.find((t) => t.key === key)?.id,
-        ),
-        media: s.media
-          ? [mediaItem(s.media.clip, media, s.media.processing)]
-          : [],
-        image: s.image
-          ? compact({
-              ...imageFields(s.image.file, media),
-              alt: s.image.alt,
-              processing: s.image.processing,
-            })
-          : undefined,
-      }),
-      steps: stepsFor(s, publishedAt ?? now),
-      publishedAt,
+        id: s.id,
+        submitter: s.submitter,
+        draft: compact({
+          slug: s.slug,
+          title: s.title,
+          description: s.description,
+          body: s.body,
+          bylineName: s.bylineName,
+          primaryFormat: s.format,
+          themeRefs: s.themes.map(
+            (key) => data.themes.find((t) => t.key === key)?.id,
+          ),
+          media: s.media
+            ? [mediaItem(s.media.clip, media, s.media.processing)]
+            : [],
+          image: s.image
+            ? compact({
+                ...imageFields(s.image.file, media),
+                alt: s.image.alt,
+                processing: s.image.processing,
+              })
+            : undefined,
+        }),
+        steps: stepsFor(s, publishedAt ?? now),
+        publishedAt,
       };
     }),
   };

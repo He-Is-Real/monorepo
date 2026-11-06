@@ -57,7 +57,9 @@ describe('erasure on api_user’s service login', () => {
       await truth('SELECT VALUE id FROM story WHERE submitter = user:ann'),
     ).toHaveLength(4);
     expect(
-      await truth('SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann'),
+      await truth(
+        'SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann',
+      ),
     ).toHaveLength(4); // ann_pending: 1; ann_live: 3
   });
   afterAll(() => t?.close());
@@ -72,7 +74,9 @@ describe('erasure on api_user’s service login', () => {
       ),
     ).toEqual([]);
     expect(
-      await truth('SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann'),
+      await truth(
+        'SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann',
+      ),
     ).toHaveLength(4);
   });
 
@@ -85,10 +89,17 @@ describe('erasure on api_user’s service login', () => {
       await truth('SELECT VALUE id FROM story WHERE submitter = user:ann'),
     ).toEqual([]);
     expect(
-      (await truth<string>('SELECT VALUE record::id(story) FROM storyStatusLog')).sort(),
+      (
+        await truth<string>(
+          'SELECT VALUE record::id(story) FROM storyStatusLog',
+        )
+      ).sort(),
     ).toEqual(['bob_live', 'bob_live', 'bob_live', 'bob_pending']);
     expect(
-      await rows(await t.service('api_public_read'), 'SELECT VALUE id FROM story'),
+      await rows(
+        await t.service('api_public_read'),
+        'SELECT VALUE id FROM story',
+      ),
     ).toEqual(['story:bob_live']);
     expect(
       await truth('SELECT VALUE record::id(id)[1] FROM idempotencyKey'),

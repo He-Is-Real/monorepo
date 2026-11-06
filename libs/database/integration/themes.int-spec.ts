@@ -101,7 +101,10 @@ describe('themes and their categories', () => {
         `[${ids.map((id) => `theme:${id}`).join(', ')}]`;
       expect(
         error(
-          await outcome(ann, `CREATE storyStatusLog CONTENT { story: story:ann_many, status: 'pending' }`),
+          await outcome(
+            ann,
+            `CREATE storyStatusLog CONTENT { story: story:ann_many, status: 'pending' }`,
+          ),
         ),
       ).toMatch(/story_theme_count:/);
       await run(
@@ -110,7 +113,10 @@ describe('themes and their categories', () => {
       );
       expect(
         error(
-          await outcome(ann, `CREATE storyStatusLog CONTENT { story: story:ann_many, status: 'pending' }`),
+          await outcome(
+            ann,
+            `CREATE storyStatusLog CONTENT { story: story:ann_many, status: 'pending' }`,
+          ),
         ),
       ).toMatch(/story_theme_count:/);
       await run(
@@ -140,7 +146,12 @@ describe('themes and their categories', () => {
   it('a story can’t be submitted with a theme that no longer exists', async () => {
     await draft(ann, 'ann_gone', { themeRefs: [theme('never_was')] });
     expect(
-      error(await outcome(ann, `CREATE storyStatusLog CONTENT { story: story:ann_gone, status: 'pending' }`)),
+      error(
+        await outcome(
+          ann,
+          `CREATE storyStatusLog CONTENT { story: story:ann_gone, status: 'pending' }`,
+        ),
+      ),
     ).toMatch(/story_themes_changed:/);
   });
 
@@ -166,7 +177,10 @@ describe('themes and their categories', () => {
     ).toEqual([{ themeIds: ['common'] }]);
     // Still published, still approved.
     expect(
-      await rows(migrator, 'SELECT VALUE fn::story::status_of($this) FROM story:bob_live'),
+      await rows(
+        migrator,
+        'SELECT VALUE fn::story::status_of($this) FROM story:bob_live',
+      ),
     ).toEqual(['approved']);
   });
 
@@ -227,7 +241,10 @@ describe('themes and their categories', () => {
       await run(admin, 'DELETE theme:race2');
       expect(await commit(submitting)).toMatch(CONFLICT);
       expect(
-        await rows(migrator, 'SELECT VALUE fn::story::status_of($this) FROM story:eve_race'),
+        await rows(
+          migrator,
+          'SELECT VALUE fn::story::status_of($this) FROM story:eve_race',
+        ),
       ).toEqual(['draft']);
 
       expect(
@@ -302,10 +319,7 @@ describe('themes and their categories', () => {
       admin,
       `CREATE theme:only SET name = 'Only', category = themeCategory:other`,
     );
-    await run(
-      migrator,
-      `UPDATE story:bob_live SET themeRefs = [theme:only]`,
-    );
+    await run(migrator, `UPDATE story:bob_live SET themeRefs = [theme:only]`);
     await run(admin, 'DELETE theme:only');
     expect(await themesOf('story', 'bob_live')).toEqual([]);
     expect(

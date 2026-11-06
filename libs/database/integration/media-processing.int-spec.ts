@@ -48,8 +48,9 @@ describe('approval waits for media processing (A2)', () => {
         `SELECT fn::story::status_of($this) AS status, media, image
            FROM ONLY type::record('story', $id)`,
         {
-        id,
-      })
+          id,
+        },
+      )
     )[0];
   const processing = async (id: string) => {
     const s = await story(id);
@@ -111,7 +112,8 @@ describe('approval waits for media processing (A2)', () => {
 
   /** The approval must be refused with this message, leaving nothing approved or published. */
   const refusedApproval = async (id: string, message: string) => {
-    if ((await story(id)).status === 'pending') await step(admin, id, 'in_review');
+    if ((await story(id)).status === 'pending')
+      await step(admin, id, 'in_review');
     expect(
       await outcome(
         admin,
@@ -119,7 +121,10 @@ describe('approval waits for media processing (A2)', () => {
            by: user:moderator }`,
         { id },
       ),
-    ).toEqual({ ok: false, error: expect.stringContaining(`media_not_ready: ${message}`) });
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining(`media_not_ready: ${message}`),
+    });
     expect((await story(id)).status).toBe('in_review');
     expect(await published(id)).toEqual([]);
   };
@@ -456,7 +461,10 @@ describe('approval waits for media processing (A2)', () => {
 
     it('is refused for system users too (the migrator)', async () => {
       const id = await pending(video);
-      const moderator = { actor: 'moderator', by: new RecordId('user', 'moderator') };
+      const moderator = {
+        actor: 'moderator',
+        by: new RecordId('user', 'moderator'),
+      };
       await step(migrator, id, 'in_review', moderator);
       expect(
         await outcome(
@@ -613,7 +621,11 @@ describe('approval waits for media processing (A2)', () => {
         ).then((r) => r.slice(-3).map(({ at: _a, id: _i, ...e }) => e)),
       ).toEqual([
         { status: 'approved', actor: 'moderator' },
-        { status: 'hidden', actor: 'system', hiddenReason: 'media_unavailable' },
+        {
+          status: 'hidden',
+          actor: 'system',
+          hiddenReason: 'media_unavailable',
+        },
         { status: 'approved', actor: 'system' },
       ]);
     });
@@ -967,7 +979,10 @@ describe('approval waits for media processing (A2)', () => {
           `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'approved', actor: 'system' }`,
           { id },
         ),
-      ).toMatchObject({ ok: false, error: expect.stringContaining('story_not_restorable') });
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('story_not_restorable'),
+      });
       await step(admin, id, 'approved');
       await expectLive(id);
       expect(

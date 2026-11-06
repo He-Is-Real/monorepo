@@ -154,7 +154,10 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         ann,
         'SELECT * FROM story:bob_live',
       );
-      expect(live).toMatchObject({ id: 'story:bob_live', title: 'Story bob_live' });
+      expect(live).toMatchObject({
+        id: 'story:bob_live',
+        title: 'Story bob_live',
+      });
       for (const field of [
         'submitter',
         'createdAt',
@@ -165,7 +168,10 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       }
       // Of Bob's log, only the story's current approved entry, and only its public fields.
       expect(
-        await rows(ann, 'SELECT * FROM storyStatusLog WHERE story = story:bob_live'),
+        await rows(
+          ann,
+          'SELECT * FROM storyStatusLog WHERE story = story:bob_live',
+        ),
       ).toEqual([
         {
           id: expect.stringMatching(/^storyStatusLog:/),
@@ -215,7 +221,10 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       ]);
       // Bob's pending story's entries aren't Ann's to see.
       expect(
-        await rows(ann, 'SELECT * FROM storyStatusLog WHERE story = story:bob_pending'),
+        await rows(
+          ann,
+          'SELECT * FROM storyStatusLog WHERE story = story:bob_pending',
+        ),
       ).toEqual([]);
     });
   });
@@ -297,21 +306,24 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       expect(await statusOf(migrator, 'ann_draft')).toBe('draft');
     });
 
-    it.each(['approved', 'in_review', 'rejected', 'changes_requested', 'hidden'])(
-      'cannot add a %s entry to their own story',
-      async (status) => {
-        const result = await outcome(
-          ann,
-          `CREATE storyStatusLog CONTENT { story: story:ann_draft, status: $status }`,
-          { status },
-        );
-        expect(result).toEqual({
-          ok: false,
-          error: expect.stringContaining('status_step'),
-        });
-        expect(await statusOf(migrator, 'ann_draft')).toBe('draft');
-      },
-    );
+    it.each([
+      'approved',
+      'in_review',
+      'rejected',
+      'changes_requested',
+      'hidden',
+    ])('cannot add a %s entry to their own story', async (status) => {
+      const result = await outcome(
+        ann,
+        `CREATE storyStatusLog CONTENT { story: story:ann_draft, status: $status }`,
+        { status },
+      );
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringContaining('status_step'),
+      });
+      expect(await statusOf(migrator, 'ann_draft')).toBe('draft');
+    });
 
     it('submits with a server-set time, version and actor (no backdating, no forging)', async () => {
       await draft(ann, 'ann_submit');
@@ -321,10 +333,18 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         storyVersion: 99,
         by: new RecordId('user', 'bob'),
       });
-      expect(entry).toMatchObject({ status: 'pending', actor: 'person', storyVersion: 1 });
-      expect(Date.parse(String(entry['at']))).toBeGreaterThan(Date.now() - 60_000);
+      expect(entry).toMatchObject({
+        status: 'pending',
+        actor: 'person',
+        storyVersion: 1,
+      });
+      expect(Date.parse(String(entry['at']))).toBeGreaterThan(
+        Date.now() - 60_000,
+      );
       expect(
-        await truth('SELECT VALUE by FROM storyStatusLog WHERE story = story:ann_submit'),
+        await truth(
+          'SELECT VALUE by FROM storyStatusLog WHERE story = story:ann_submit',
+        ),
       ).toEqual(['user:ann']);
       expect(await statusOf(migrator, 'ann_submit')).toBe('pending');
     });
@@ -336,7 +356,9 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       );
       await run(ann, `DELETE storyStatusLog WHERE story = story:ann_submit`);
       expect(
-        await truth('SELECT VALUE status FROM storyStatusLog WHERE story = story:ann_submit'),
+        await truth(
+          'SELECT VALUE status FROM storyStatusLog WHERE story = story:ann_submit',
+        ),
       ).toEqual(['pending']);
     });
 
@@ -369,7 +391,9 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       await run(ann, `UPDATE story:ann_submit SET title = 'Revised'`);
       expect(await submit(ann, 'ann_submit')).toHaveLength(1);
       expect(
-        await truth('SELECT title, fn::story::status_of($this) AS status FROM story:ann_submit'),
+        await truth(
+          'SELECT title, fn::story::status_of($this) AS status FROM story:ann_submit',
+        ),
       ).toEqual([{ title: 'Revised', status: 'pending' }]);
     });
 
@@ -387,14 +411,25 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       const path: Record<string, [Surreal | 'ann', string][]> = {
         draft: [],
         pending: [['ann', 'pending']],
-        in_review: [['ann', 'pending'], [admin, 'in_review']],
-        approved: [['ann', 'pending'], [admin, 'in_review'], [admin, 'approved']],
+        in_review: [
+          ['ann', 'pending'],
+          [admin, 'in_review'],
+        ],
+        approved: [
+          ['ann', 'pending'],
+          [admin, 'in_review'],
+          [admin, 'approved'],
+        ],
         changes_requested: [
           ['ann', 'pending'],
           [admin, 'in_review'],
           [admin, 'changes_requested'],
         ],
-        rejected: [['ann', 'pending'], [admin, 'in_review'], [admin, 'rejected']],
+        rejected: [
+          ['ann', 'pending'],
+          [admin, 'in_review'],
+          [admin, 'rejected'],
+        ],
         withdrawn: [['ann', 'withdrawn']],
       };
       for (const status of statuses) {
@@ -451,16 +486,26 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
 
     it('withdraws their own: one entry, and the story leaves the public’s view at once', async () => {
       const reader = await t.service('api_public_read');
-      expect(await rows(reader, 'SELECT id FROM story:ann_live')).toHaveLength(1);
+      expect(await rows(reader, 'SELECT id FROM story:ann_live')).toHaveLength(
+        1,
+      );
       expect(await withdraw(ann, 'ann_live')).toHaveLength(1);
       expect(await statusOf(migrator, 'ann_live')).toBe('withdrawn');
       expect(await rows(reader, 'SELECT id FROM story:ann_live')).toEqual([]);
       // Its old approved entry is no longer anyone else's to read.
       expect(
-        await rows(reader, 'SELECT * FROM storyStatusLog WHERE story = story:ann_live'),
+        await rows(
+          reader,
+          'SELECT * FROM storyStatusLog WHERE story = story:ann_live',
+        ),
       ).toEqual([]);
       // Withdrawn stays withdrawn (D61).
-      expect(await outcome(ann, `CREATE storyStatusLog CONTENT { story: story:ann_live, status: 'withdrawn' }`)).toMatchObject({ ok: false });
+      expect(
+        await outcome(
+          ann,
+          `CREATE storyStatusLog CONTENT { story: story:ann_live, status: 'withdrawn' }`,
+        ),
+      ).toMatchObject({ ok: false });
     });
   });
 

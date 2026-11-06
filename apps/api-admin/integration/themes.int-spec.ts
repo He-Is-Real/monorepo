@@ -293,10 +293,7 @@ describe('themes (api-admin)', () => {
       ),
     ).toEqual([0, 0]);
     expect(
-      await rows(
-        migrator,
-        'SELECT VALUE themeIds FROM ONLY story:bob_live',
-      ),
+      await rows(migrator, 'SELECT VALUE themeIds FROM ONLY story:bob_live'),
     ).toEqual([]);
     expect(
       await rows(migrator, 'SELECT VALUE name FROM themeCategory'),

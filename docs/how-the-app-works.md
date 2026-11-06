@@ -133,7 +133,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   as agreeing to version 0 of the terms of use and the testimony consent. The testimony consent
   and the privacy notice say who sees a story before it is public: while it's a draft, the person
   and a small number of super admins (for support and safety); while it's waiting for review, the
-  person and our moderators. (Joel, 2026-11-05; the super admins' view itself is still to come.)
+  person and our moderators. (Joel, 2026-11-05; the super admins' view is in api-admin, R15, with
+  no admin page yet.)
 - **Cookies:** the site uses only essential cookies and storage (sign-in, the light or dark
   choice, the video player's own settings), so there is no cookie banner, only a footer note
   linking to the privacy notice. Anything non-essential later (analytics, error replay) needs the
@@ -214,8 +215,11 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **My submissions** lists the person's stories, each with its status in plain words and any
   feedback from a moderator.
 - **Drafts:** continue or delete. Each draft says when it will be deleted if nobody touches it.
-- **Withdraw:** a story waiting for review, in review, sent back for changes or published can
-  be withdrawn; it leaves the public site at once.
+- **Withdraw:** a story waiting for review, in review, sent back for changes or published
+  (including one hidden while its media is fixed) can be withdrawn; it leaves the public site at
+  once.
+- A story hidden because its media broke shows to its owner as published, as before: they can't
+  act on it, and it comes back by itself.
 - **Delete:** a person can delete their own draft, a story sent back for changes, a withdrawn
   story or a rejected one. A story waiting for review, in review or published must be withdrawn
   first. Deleting a story also deletes its videos and pictures and everyone's hearts on it. (D71)
@@ -291,7 +295,15 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 Built today (in the database): (planned pages and queue are M3)
 
 - A story's statuses: draft, waiting for review, in review, approved, sent back for changes,
-  rejected, withdrawn.
+  rejected, withdrawn, and hidden (approved, but off the site while its media is fixed, or
+  hidden by a moderator).
+- **Each story has a status log (R6, Joel 2026-11-04/05):** every change of status is a new
+  entry, never edited or deleted while the story exists, saying who made it (the person, a
+  moderator or the system), when, and which edit of the story it was about. A moderator's entry
+  can carry a note to the person. The story's status is its newest entry; a story with none is a
+  draft. Who may add which status is fixed in the database: the person submits (from draft or
+  sent back) and withdraws; a moderator picks up, decides, hides and shows again; the system hides
+  and shows again when media breaks and works again.
 - **A story can't be approved until every upload is processed** and its size and length are
   known, so nothing unchecked reaches the public. (A2)
 - **An approved story whose media breaks is hidden, not un-approved**, and comes back on its own
@@ -299,7 +311,7 @@ Built today (in the database): (planned pages and queue are M3)
   change; any other new thumbnail, video or picture does, and the story stays hidden. (D60)
 - Moderators and admins can never change the words of someone's testimony. (D41)
 - A person can read moderators' decisions and feedback on their own stories, never who made them.
-- Every moderation action is kept in an audit trail.
+- The status log is the moderation history; there is no separate audit log (Joel, 2026-11-05).
 
 Planned (M3):
 
@@ -335,6 +347,10 @@ Planned (M3):
   (see "Consent, privacy and terms").
 - The database can list stories hidden because their media broke or changed; there is no admin
   page for it yet.
+- **All stories** (Super Admins only, R15, Joel 2026-11-05): a read-only list of every story in
+  every status, drafts included, and each story with its status log and files. Moderators and
+  admins see stories from "waiting for review" on, through moderation. Built in api-admin; there
+  is no admin page for it yet.
 - Theme and category names are tidied (trimmed, single spaces, capital first letter); a
   duplicate name is refused. Deleting a category moves its themes to "Other", not highlighted.
 - Planned (M5): the dashboard, the user list and role management.
@@ -393,7 +409,11 @@ For developers. Details are in the linked documents.
   (D31, D32; `apps/web/README.md`)
 - **Personal reads run as the person,** so the database itself keeps everyone else's rows out.
   (D27)
-- **One public read model:** the public reads only published stories (`publicStory`). (D25, D26)
+- **One story table (R11, Joel 2026-11-04/05; replaces D26's `publicStory` read model):** the
+  public reads `story` itself, and the database's rules show it only approved stories and only
+  their published fields. Each story's status lives in its status log (`storyStatusLog`, R6),
+  never edited; the story points at its newest entry. (D25, R6, R11;
+  [db-permissions.md](db-permissions.md))
 - **API conventions:** commands for state changes, CRUD for plain resources, `version` and
   `If-Match` on every changeable record, RFC 9457 errors, no totals. The OpenAPI specs in
   `libs/contracts` are the source of truth. (D23, D28–D30; [api-conventions.md](api-conventions.md))

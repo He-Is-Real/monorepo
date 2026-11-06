@@ -43,9 +43,13 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
       { id, body: `Text${STORY_TEXT_PADDING}` },
     );
   const pend = (s: Surreal, id: string) =>
-    outcome(s, `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'pending' }`, {
-      id,
-    });
+    outcome(
+      s,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'pending' }`,
+      {
+        id,
+      },
+    );
   const limits = (p: string, fields: Record<string, unknown>) =>
     run(
       admin,

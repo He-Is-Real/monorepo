@@ -68,7 +68,9 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       await approve(admin, id);
     }
     await withdraw(ann, 'ann_withdrawn');
-    await step(admin, 'ann_hidden', 'hidden', { comment: 'Hidden for a check' });
+    await step(admin, 'ann_hidden', 'hidden', {
+      comment: 'Hidden for a check',
+    });
     for (const id of HIDDEN_FROM_EVERYONE) {
       expect(await statusOf(migrator, id)).not.toBe('approved');
     }
@@ -80,122 +82,137 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
   });
   afterAll(() => t?.close());
 
-  it.each([0, 1, 2])('reader %#: sees approved stories only, by id or by scan', async (i) => {
-    const [, db] = readers[i];
-    expect(
-      await rows(db, 'SELECT VALUE id FROM type::table("story") ORDER BY id'),
-    ).toEqual(['story:ann_live', 'story:bob_live']);
-    for (const id of HIDDEN_FROM_EVERYONE) {
+  it.each([0, 1, 2])(
+    'reader %#: sees approved stories only, by id or by scan',
+    async (i) => {
+      const [, db] = readers[i];
       expect(
-        await rows(db, `SELECT * FROM type::record('story', $id)`, { id }),
-      ).toEqual([]);
+        await rows(db, 'SELECT VALUE id FROM type::table("story") ORDER BY id'),
+      ).toEqual(['story:ann_live', 'story:bob_live']);
+      for (const id of HIDDEN_FROM_EVERYONE) {
+        expect(
+          await rows(db, `SELECT * FROM type::record('story', $id)`, { id }),
+        ).toEqual([]);
+        expect(
+          await rows(db, `SELECT id FROM story WHERE slug = $id`, { id }),
+        ).toEqual([]);
+      }
       expect(
-        await rows(db, `SELECT id FROM story WHERE slug = $id`, { id }),
-      ).toEqual([]);
-    }
-    expect(
-      await rows(db, 'SELECT count() FROM story WHERE true GROUP ALL'),
-    ).toEqual([{ count: 2 }]);
-  });
+        await rows(db, 'SELECT count() FROM story WHERE true GROUP ALL'),
+      ).toEqual([{ count: 2 }]);
+    },
+  );
 
-  it.each([0, 1, 2])('reader %#: never reads a private field of an approved story', async (i) => {
-    const [, db] = readers[i];
-    const [live] = await rows<Record<string, unknown>>(
-      db,
-      'SELECT * FROM story:ann_live',
-    );
-    expect(live).toMatchObject({ title: 'Story ann_live', version: 4 });
-    for (const field of PRIVATE_STORY_FIELDS) {
-      expect(live).not.toHaveProperty(field);
-      expect(
-        await rows(db, `SELECT VALUE ${field} FROM story:ann_live`),
-      ).toEqual([undefined]);
-    }
-  });
+  it.each([0, 1, 2])(
+    'reader %#: never reads a private field of an approved story',
+    async (i) => {
+      const [, db] = readers[i];
+      const [live] = await rows<Record<string, unknown>>(
+        db,
+        'SELECT * FROM story:ann_live',
+      );
+      expect(live).toMatchObject({ title: 'Story ann_live', version: 4 });
+      for (const field of PRIVATE_STORY_FIELDS) {
+        expect(live).not.toHaveProperty(field);
+        expect(
+          await rows(db, `SELECT VALUE ${field} FROM story:ann_live`),
+        ).toEqual([undefined]);
+      }
+    },
+  );
 
-  it.each([0, 1, 2])('reader %#: of the status log, only each approved story’s current entry, and only its story, status and publishedAt', async (i) => {
-    const [, db] = readers[i];
-    const entries = await rows<Record<string, unknown>>(
-      db,
-      'SELECT * FROM storyStatusLog ORDER BY id',
-    );
-    expect(entries.map((e) => e['story']).sort()).toEqual([
-      'story:ann_live',
-      'story:bob_live',
-    ]);
-    for (const entry of entries) {
-      expect(Object.keys(entry).sort()).toEqual([
-        'id',
-        'publishedAt',
-        'status',
-        'story',
+  it.each([0, 1, 2])(
+    'reader %#: of the status log, only each approved story’s current entry, and only its story, status and publishedAt',
+    async (i) => {
+      const [, db] = readers[i];
+      const entries = await rows<Record<string, unknown>>(
+        db,
+        'SELECT * FROM storyStatusLog ORDER BY id',
+      );
+      expect(entries.map((e) => e['story']).sort()).toEqual([
+        'story:ann_live',
+        'story:bob_live',
       ]);
-      expect(entry['status']).toBe('approved');
-    }
-    // Withdrawn and hidden stories' earlier approved entries, and every other entry: nothing.
-    for (const id of HIDDEN_FROM_EVERYONE) {
+      for (const entry of entries) {
+        expect(Object.keys(entry).sort()).toEqual([
+          'id',
+          'publishedAt',
+          'status',
+          'story',
+        ]);
+        expect(entry['status']).toBe('approved');
+      }
+      // Withdrawn and hidden stories' earlier approved entries, and every other entry: nothing.
+      for (const id of HIDDEN_FROM_EVERYONE) {
+        expect(
+          await rows(
+            db,
+            `SELECT * FROM storyStatusLog WHERE story = type::record('story', $id)`,
+            { id },
+          ),
+        ).toEqual([]);
+      }
+    },
+  );
+
+  it.each([0, 1, 2])(
+    'reader %#: following links leaks nothing either way',
+    async (i) => {
+      const [, db] = readers[i];
+      // story -> its status entry: only the current approved one's public fields.
       expect(
         await rows(
           db,
-          `SELECT * FROM storyStatusLog WHERE story = type::record('story', $id)`,
-          { id },
-        ),
-      ).toEqual([]);
-    }
-  });
-
-  it.each([0, 1, 2])('reader %#: following links leaks nothing either way', async (i) => {
-    const [, db] = readers[i];
-    // story -> its status entry: only the current approved one's public fields.
-    expect(
-      await rows(
-        db,
-        `SELECT currentStatus.status AS s, currentStatus.comment AS c, currentStatus.by AS b,
+          `SELECT currentStatus.status AS s, currentStatus.comment AS c, currentStatus.by AS b,
            currentStatus.at AS at FROM story:ann_live`,
-      ),
-    ).toEqual([{ s: 'approved', c: undefined, b: undefined, at: undefined }]);
-    // entry -> its story: never a hidden story's words or anyone's private fields.
-    expect(
-      await rows(
-        db,
-        `SELECT story.title AS title, story.submitter AS submitter FROM storyStatusLog
-           ORDER BY title`,
-      ),
-    ).toEqual([
-      { title: 'Story ann_live', submitter: undefined },
-      { title: 'Story bob_live', submitter: undefined },
-    ]);
-    // A record path straight to a hidden story, or to a non-public entry of a public story.
-    for (const id of HIDDEN_FROM_EVERYONE) {
+        ),
+      ).toEqual([{ s: 'approved', c: undefined, b: undefined, at: undefined }]);
+      // entry -> its story: never a hidden story's words or anyone's private fields.
       expect(
         await rows(
           db,
-          `RETURN [type::record('story', $id).title, type::record('story', $id).currentStatus.status]`,
-          { id },
+          `SELECT story.title AS title, story.submitter AS submitter FROM storyStatusLog
+           ORDER BY title`,
         ),
-      ).toEqual([undefined, undefined]);
-    }
-    const older = await rows<string>(
-      migrator,
-      `SELECT VALUE id FROM storyStatusLog WHERE story = story:ann_live AND status != 'approved'`,
-    );
-    expect(older).toHaveLength(2);
-    for (const entry of older) {
-      expect(
-        await rows(db, 'SELECT * FROM type::record($e)', { e: entry }),
-      ).toEqual([]);
-    }
-  });
+      ).toEqual([
+        { title: 'Story ann_live', submitter: undefined },
+        { title: 'Story bob_live', submitter: undefined },
+      ]);
+      // A record path straight to a hidden story, or to a non-public entry of a public story.
+      for (const id of HIDDEN_FROM_EVERYONE) {
+        expect(
+          await rows(
+            db,
+            `RETURN [type::record('story', $id).title, type::record('story', $id).currentStatus.status]`,
+            { id },
+          ),
+        ).toEqual([undefined, undefined]);
+      }
+      const older = await rows<string>(
+        migrator,
+        `SELECT VALUE id FROM storyStatusLog WHERE story = story:ann_live AND status != 'approved'`,
+      );
+      expect(older).toHaveLength(2);
+      for (const entry of older) {
+        expect(
+          await rows(db, 'SELECT * FROM type::record($e)', { e: entry }),
+        ).toEqual([]);
+      }
+    },
+  );
 
-  it.each([0, 1, 2])('reader %#: search finds only approved stories’ words', async (i) => {
-    const [, db] = readers[i];
-    expect(
-      await rows(
-        db,
-        `SELECT VALUE id FROM story WHERE searchText @1@ 'story' ORDER BY id`,
-      ),
-    ).toEqual(['story:ann_live', 'story:bob_live']);
-  });
+  it.each([0, 1, 2])(
+    'reader %#: search finds only approved stories’ words',
+    async (i) => {
+      const [, db] = readers[i];
+      expect(
+        await rows(
+          db,
+          `SELECT VALUE id FROM story WHERE searchText @1@ 'story' ORDER BY id`,
+        ),
+      ).toEqual(['story:ann_live', 'story:bob_live']);
+    },
+  );
 
   it('the search index holds only approved stories’ words: its scores can’t reveal others', async () => {
     expect(
@@ -206,7 +223,10 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     ).toEqual(['story:ann_live', 'story:bob_live']);
     // A draft's own words find nothing, whoever searches (the system user included).
     expect(
-      await rows(migrator, `SELECT VALUE id FROM story WHERE searchText @1@ 'ann_draft'`),
+      await rows(
+        migrator,
+        `SELECT VALUE id FROM story WHERE searchText @1@ 'ann_draft'`,
+      ),
     ).toEqual([]);
   });
 
@@ -221,17 +241,27 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       ),
     ).toEqual(['Moderator note on ann_changes']);
     expect(
-      await rows(ann, 'SELECT VALUE by FROM storyStatusLog WHERE story = story:ann_changes'),
+      await rows(
+        ann,
+        'SELECT VALUE by FROM storyStatusLog WHERE story = story:ann_changes',
+      ),
     ).toEqual([undefined, undefined, undefined]);
   });
 
   it('each story’s publishedAt is its own first approval’s time', async () => {
-    const dates = await rows<{ story: string; at: string; publishedAt: string }>(
+    const dates = await rows<{
+      story: string;
+      at: string;
+      publishedAt: string;
+    }>(
       migrator,
       `SELECT story, at, publishedAt FROM storyStatusLog
          WHERE status = 'approved' AND story IN [story:ann_live, story:bob_live] ORDER BY story`,
     );
-    expect(dates.map((d) => d.story)).toEqual(['story:ann_live', 'story:bob_live']);
+    expect(dates.map((d) => d.story)).toEqual([
+      'story:ann_live',
+      'story:bob_live',
+    ]);
     for (const d of dates) expect(d.publishedAt).toEqual(d.at);
     expect(dates[0].publishedAt).not.toEqual(dates[1].publishedAt);
   });

@@ -124,7 +124,14 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   its id so it can't be backdated, the draft legal texts say super admins can see drafts, and the
   schema is split into one file per area. Dev's database is wiped once and rebuilt from scratch
   with its dummy data when this is applied ([#182](https://github.com/He-Is-Real/monorepo/pull/182)).
-  Part B (one story table and its history) follows.
+- **One story table and its history** (database review 2, part B1; Joel, 2026-11-04/05), in
+  progress: the public copy of each story goes; the public reads the one story table, and the
+  database shows it only published stories and their public fields. Every change of a story's
+  status (submitted, picked up, approved, sent back, rejected, withdrawn, hidden, shown again) is
+  a new line in the story's own history, never edited, saying who made it and when. Super admins
+  can read every story, drafts included, with its history (API only; no page yet). Nothing else
+  changes for people using the site. Dev's database is wiped and rebuilt once more when this is
+  applied. Part B2 (each story's files as their own records, and a scale test) follows.
 
 **Left in the M2 plan:**
 

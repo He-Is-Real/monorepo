@@ -525,10 +525,14 @@ export class StoryStore {
               IF $s = NONE { THROW 'story_cmd:not_found' };
               IF $s.version != $version { THROW 'story_cmd:stale_version' };
               ${share}
-              ${share ? `IF $sharing != {} {
+              ${
+                share
+                  ? `IF $sharing != {} {
                 LET $w = (UPDATE ONLY type::record('story', $id) MERGE $sharing RETURN id);
                 IF $w = NONE { THROW 'story_cmd:not_written' };
-              };` : ''}
+              };`
+                  : ''
+              }
               LET $e = (CREATE ONLY storyStatusLog CONTENT {
                 story: type::record('story', $id), status: 'pending' } RETURN id);
               IF $e = NONE { THROW 'story_cmd:not_written' };

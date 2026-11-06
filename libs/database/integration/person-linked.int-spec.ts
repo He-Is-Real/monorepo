@@ -11,7 +11,14 @@ import {
   shareStory,
   TestDatabase,
 } from './support/harness';
-import { approve, draft, ERASE, grantUpload, step, submit } from './support/world';
+import {
+  approve,
+  draft,
+  ERASE,
+  grantUpload,
+  step,
+  submit,
+} from './support/world';
 
 /**
  * Review round 3: every table that holds or links person data, directly or through `story`, is

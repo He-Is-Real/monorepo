@@ -125,7 +125,11 @@ describe('write scope on story fields (D41)', () => {
       await approve(admin, 'bob_pending');
       // What everyone reads is the story itself: no copy api-admin could write.
       expect(await published()).toEqual([
-        { title: 'Story bob_pending', durationSeconds: 93, media: [clip(93, 'thumbs/1.jpg', 1080, 1920)] },
+        {
+          title: 'Story bob_pending',
+          durationSeconds: 93,
+          media: [clip(93, 'thumbs/1.jpg', 1080, 1920)],
+        },
       ]);
     });
 

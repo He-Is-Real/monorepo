@@ -2113,7 +2113,18 @@ components:
     StoryAnyStatus:
       type: object
       description: R15. A story in the super admins' list, in any status. Never public.
-      required: [id, slug, title, status, primaryFormat, submitter, createdAt, updatedAt, version]
+      required:
+        [
+          id,
+          slug,
+          title,
+          status,
+          primaryFormat,
+          submitter,
+          createdAt,
+          updatedAt,
+          version,
+        ]
       properties:
         id:
           type: string
@@ -2143,7 +2154,18 @@ components:
         R6: one entry of a story's status log, never changed once written. `actor`: who added it
         (the person, a moderator, or the system when media stopped or started being ready);
         `by`: the user id of the person or moderator who added it; `null` for the system.
-      required: [id, status, actor, by, comment, storyVersion, at, publishedAt, hiddenReason]
+      required:
+        [
+          id,
+          status,
+          actor,
+          by,
+          comment,
+          storyVersion,
+          at,
+          publishedAt,
+          hiddenReason,
+        ]
       properties:
         id:
           type: string
@@ -2177,8 +2199,16 @@ components:
         - type: object
           description: R15. One story as stored, with its status log and files. Never public.
           required:
-            [description, body, bylineName, themes, media, image,
-             socialMediaSharingConsent, statusLog]
+            [
+              description,
+              body,
+              bylineName,
+              themes,
+              media,
+              image,
+              socialMediaSharingConsent,
+              statusLog,
+            ]
           properties:
             description:
               type: string
@@ -2195,7 +2225,16 @@ components:
               description: The story's video or audio file (one, D53) at Bunny Stream; never a playable link.
               items:
                 type: object
-                required: [format, bunnyVideoId, thumbnailPath, width, height, durationSeconds, processing]
+                required:
+                  [
+                    format,
+                    bunnyVideoId,
+                    thumbnailPath,
+                    width,
+                    height,
+                    durationSeconds,
+                    processing,
+                  ]
                 properties:
                   format:
                     type: string

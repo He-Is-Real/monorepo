@@ -7,7 +7,14 @@ import {
   run,
   TestDatabase,
 } from './support/harness';
-import { approve, buildWorld, draft, ERASE, submit, withdraw } from './support/world';
+import {
+  approve,
+  buildWorld,
+  draft,
+  ERASE,
+  submit,
+  withdraw,
+} from './support/world';
 
 /**
  * Favourites (M2, hearts): a person's private list of published stories. Hearts are private

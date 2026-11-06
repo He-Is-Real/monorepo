@@ -151,17 +151,12 @@ describe('service identities (D13 B)', () => {
       '_migrationRun',
       '_migrationPending',
       '_identity',
-    ])(
-      'sees nothing in %s',
-      async (table) => {
-        expect(await rows(svc.publicRead, `SELECT * FROM ${table}`)).toEqual(
-          [],
-        );
-        expect(
-          (await truth(`SELECT count() FROM ${table} GROUP ALL`)).length,
-        ).toBe(1);
-      },
-    );
+    ])('sees nothing in %s', async (table) => {
+      expect(await rows(svc.publicRead, `SELECT * FROM ${table}`)).toEqual([]);
+      expect(
+        (await truth(`SELECT count() FROM ${table} GROUP ALL`)).length,
+      ).toBe(1);
+    });
 
     it('cannot write anything: every write returns an empty result and changes nothing', async () => {
       const db = svc.publicRead;
@@ -270,7 +265,10 @@ describe('service identities (D13 B)', () => {
         ),
       ).toEqual([]);
       expect(
-        await rows(db, 'SELECT * FROM storyStatusLog WHERE status != "approved"'),
+        await rows(
+          db,
+          'SELECT * FROM storyStatusLog WHERE status != "approved"',
+        ),
       ).toEqual([]);
       expect(await statusOf(migrator, 'bob_pending')).toBe('pending');
     });
@@ -309,11 +307,7 @@ describe('service identities (D13 B)', () => {
         'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM storyStatusLog)]',
       );
       expect(before.map((ids) => ids.length > 0)).toEqual([true, true, true]);
-      for (const table of [
-        'uploadGrant',
-        'submissionLog',
-        'storyStatusLog',
-      ]) {
+      for (const table of ['uploadGrant', 'submissionLog', 'storyStatusLog']) {
         expect(await rows(svc.admin, `DELETE ${table} RETURN BEFORE`)).toEqual(
           [],
         );
@@ -334,14 +328,20 @@ describe('service identities (D13 B)', () => {
           svc.admin,
           `CREATE storyStatusLog CONTENT { story: story:ann_mod, status: 'approved', by: user:moderator }`,
         ),
-      ).toMatchObject({ ok: false, error: expect.stringContaining('status_step') });
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('status_step'),
+      });
       // Every moderator entry names the moderator.
       expect(
         await outcome(
           svc.admin,
           `CREATE storyStatusLog CONTENT { story: story:ann_mod, status: 'in_review' }`,
         ),
-      ).toMatchObject({ ok: false, error: expect.stringContaining('names the moderator') });
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('names the moderator'),
+      });
       expect(await step(svc.admin, 'ann_mod', 'in_review')).toHaveLength(1);
       const [entry] = await step(svc.admin, 'ann_mod', 'changes_requested', {
         comment: 'Please add more detail',
@@ -360,7 +360,9 @@ describe('service identities (D13 B)', () => {
         `UPDATE story:ann_mod SET title = 'moderator words', currentStatus = NONE`,
       );
       expect(
-        await truth('SELECT title, fn::story::status_of($this) AS status FROM story:ann_mod'),
+        await truth(
+          'SELECT title, fn::story::status_of($this) AS status FROM story:ann_mod',
+        ),
       ).toEqual([{ title: 'Story ann_mod', status: 'changes_requested' }]);
     });
 
@@ -383,7 +385,9 @@ describe('service identities (D13 B)', () => {
   describe('workflow', () => {
     it('reads and updates stories (M7 media), but cannot create, delete or publish them', async () => {
       const db = svc.workflow;
-      expect((await ids(db, 'SELECT id FROM story')).length).toBeGreaterThanOrEqual(5);
+      expect(
+        (await ids(db, 'SELECT id FROM story')).length,
+      ).toBeGreaterThanOrEqual(5);
       // A video story (D53: only video and audio stories have media), as its upload left it.
       await run(
         migrator,
@@ -423,7 +427,10 @@ describe('service identities (D13 B)', () => {
     it('sees only the status entries everyone sees', async () => {
       const db = svc.workflow;
       expect(
-        await rows(db, `SELECT * FROM storyStatusLog WHERE status != 'approved'`),
+        await rows(
+          db,
+          `SELECT * FROM storyStatusLog WHERE status != 'approved'`,
+        ),
       ).toEqual([]);
     });
   });
