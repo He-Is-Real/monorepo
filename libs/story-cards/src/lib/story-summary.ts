@@ -184,3 +184,24 @@ export function excerpt(text: string, max = EXCERPT_CHARS): string {
     .join('')
     .replace(/[\s,;:]+$/, '')}…`;
 }
+
+/**
+ * The hearts asked for, newest first, with their public cards (bind `$ids` or `$after`, `$take`
+ * and `$show`). api-user's favourites list (GET /v1/account/favourites), in the person's own session; also timed
+ * by api-public-read's local scale test.
+ */
+export const FAVOURITES_SQL = `LET $among = IF $ids != NONE { $ids.map(|$i| type::record('story', $i)) };
+   LET $afterId = IF $after != NONE { type::record('favourite', $after) };
+   LET $hearts = SELECT record::id(id) AS id, record::id(story) AS story
+     FROM favourite
+     WHERE person = $auth.id
+       AND ($among = NONE OR story IN $among)
+       AND ($afterId = NONE OR id < $afterId)
+       AND story.currentStatus.status = 'approved'
+     ORDER BY id DESC
+     LIMIT $take;
+   LET $refs = $hearts.slice(0, $show).map(|$h| type::record('story', $h.story));
+   RETURN {
+     hearts: $hearts,
+     cards: IF array::len($refs) > 0 { (SELECT ${SUMMARY_FIELDS} FROM $refs) } ELSE { [] },
+   };`;
