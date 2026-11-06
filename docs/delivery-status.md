@@ -138,10 +138,13 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   upload link has expired (pictures were left behind before). An approval records which files the
   moderator reviewed, and a story hidden because its media broke comes back on its own only while
   it still shows those files. Search now looks at published stories only, so drafts can never
-  shift its "best match" order (Joel's choice, option A), and it matches theme names too. A local scale test with 50,000 stories timed the public lists,
-  search, the story page and favourites: story pages and favourites are fast, but the browse
-  lists (2–5 s a page) and search for very common words (up to 22 s) are too slow at that size.
-  Options are with Joel. Nothing changes for people using the site. Dev's
+  shift its "best match" order (Joel's choice, option A), and it matches theme names too. A local
+  scale test with 50,000 stories (run on a developer's machine only) found the browse lists and
+  search too slow at that size; after reworking their queries, list pages take 15–90 ms (were
+  2–5 s) and searching for a word in nearly every story takes 1.4 s (was 22 s). Renaming a theme
+  carried by 15,000 stories takes about 43 s, accepted for now. The super admins' list of every
+  story takes about half a second a page; a possible index is with Joel. Nothing changes for
+  people using the site. Dev's
   database is wiped and rebuilt once more when this is applied.
 - **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
   ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
