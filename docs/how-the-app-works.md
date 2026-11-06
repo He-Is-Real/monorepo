@@ -425,6 +425,14 @@ For developers. Details are in the linked documents.
   (D31, D32; `apps/web/README.md`)
 - **Personal reads run as the person,** so the database itself keeps everyone else's rows out.
   (D27)
+- **A person's request isn't cut off when their sign-in pass runs out midway** (decision T,
+  option B, Joel 2026-10-31, re-approved 2026-11-06). Clerk's pass lasts 60 s and the database
+  library ends the person's session when it expires. So quick work uses the person's own pass
+  while it lasts 10 s more, and slow work (submit, an upload link, Download my data) always runs
+  on a fresh 6-minute pass api-user gets from Clerk for the same sign-in, and starts no new try
+  after 2 minutes. The work still runs as the person. Clerk saying the sign-in is over is `401`;
+  Clerk not answering is `503 sign_in_unavailable` (try again). api-admin has no Clerk key and
+  uses the person's own pass. ([db-permissions.md](db-permissions.md))
 - **One story table (R11, Joel 2026-11-04/05):** the public reads `story` itself, and the database's rules show it only approved stories and only
   their published fields. Each story's status lives in its status log (`storyStatusLog`, R6),
   never edited; the story points at its newest entry. (D25, R6, R11;

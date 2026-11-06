@@ -304,7 +304,7 @@ export class Uploads {
     id: string,
     ifMatch: number,
     input: UploadRequest,
-    idempotency: { key: string; requestHash: string },
+    idempotency: { key: string; requestHash: string; deadline?: number },
   ): Promise<UploadTarget> {
     if (input.format === 'image') {
       return this.requestImage(person, user, id, ifMatch, input, idempotency);
@@ -362,6 +362,7 @@ export class Uploads {
         scope,
         idempotency.requestHash,
         prepare,
+        { deadline: idempotency.deadline },
       );
     } catch (err) {
       if (definite(err)) {
@@ -415,7 +416,7 @@ export class Uploads {
     id: string,
     ifMatch: number,
     input: UploadRequest,
-    idempotency: { key: string; requestHash: string },
+    idempotency: { key: string; requestHash: string; deadline?: number },
   ): Promise<UploadTarget> {
     const images = this.imageStore();
     const scope: IdempotencyScope = {
@@ -464,6 +465,7 @@ export class Uploads {
         scope,
         idempotency.requestHash,
         prepare,
+        { deadline: idempotency.deadline },
       );
     } catch (err) {
       // Nothing was made at Bunny, so there's nothing to discard either way.

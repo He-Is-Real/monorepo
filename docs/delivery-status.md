@@ -140,24 +140,29 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   story takes about half a second a page; a possible index is with Joel. Nothing changes for
   people using the site. Dev's database is wiped and rebuilt once more for it.
 
-**In progress (open pull requests):**
-
-- A video's own picture becomes its thumbnail at Bunny when it is sent for review; Bunny keeps
-  the original files for "Download my data", whose links would then last 7 days instead of 1
-  hour ([#160](https://github.com/He-Is-Real/monorepo/pull/160)).
-- Browse and favourites cards barely move once the page has measured them
-  ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
-- A signed-in request isn't cut off when the person's short-lived sign-in pass expires midway
-  ([#165](https://github.com/He-Is-Real/monorepo/pull/165)).
 - **Tidy-up after the database rework** ([#189](https://github.com/He-Is-Real/monorepo/pull/189)): the code that reads a story's status says it in one
   place, and the developer notes on database permissions are cut to the rules in force. Nothing
   changes for people using the site.
+- A signed-in request isn't cut off when the person's short-lived sign-in pass runs out partway
+  through: slow work (submit, upload links, "Download my data") always runs on a fresh pass that
+  api-user gets from Clerk for the same sign-in (Joel's decision T, option B, re-approved
+  2026-11-06; [#165](https://github.com/He-Is-Real/monorepo/pull/165)).
+
+**In progress (open pull requests):**
+
+- Browse and favourites cards barely move once the page has measured them
+  ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
+- The video bundle ([#160](https://github.com/He-Is-Real/monorepo/pull/160)) is being redesigned on the new
+  file records: a video's own picture set at Bunny by the media-ready service, 7-day "Download
+  my data" links, and how people download their video
+  (`project/context/research/video-bundle-rethink.html`, waiting on Joel).
 
 **Left in the M2 plan:**
 
 - **Media ready:** when Bunny finishes processing a video, mark it ready with its real size and
   length, so moderators in M3 can approve video stories. Planned through the background worker
-  on Joel's machine (`project/context/research/m2-media-ready-plan.html`). Not started.
+  on Joel's machine (`project/context/research/m2-media-ready-plan.html`). In progress: the
+  first part (queue, Bunny's notice and the result writer) is being built.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.
 
 **Dropped or moved out of M2:** the personalised home and "New for you" (replaced by the NEW

@@ -226,7 +226,11 @@ consent decorators or guard.
 - A person's own commands run in a database session **as that person**, opened with their Clerk
   token, so the database enforces ownership. Admin commands run as `api-admin`'s login. In code:
   `PersonSessions.run(request, ({ session, user }) => …)` (`libs/auth`), built on
-  `withPersonSession` (`libs/database`). Who the caller is comes from a `PersonAuthenticator`
+  `withPersonSession` (`libs/database`). Work that waits on Bunny, or reads everything a person
+  has, passes `'slow'` as the third argument (`PERSON_WORK`): the session then always opens on a
+  fresh pass from Clerk (decision T), and its retries pass `PersonContext.deadline` to
+  `runIdempotent` so they stop well inside that session, since surrealdb.js ends a session when
+  its token expires (#164). Who the caller is comes from a `PersonAuthenticator`
   (`ClerkAuthenticator` in `libs/auth`).
 - `Idempotency-Key`: `runIdempotent` (`libs/database`) writes the key, the request hash and the
   stored `{ id, version }` **in the same transaction as the command**, in the session the command

@@ -468,6 +468,10 @@ try {
   new session can run nothing. (`request-sessions` checks the safe pattern: isolated, cleaned up.)
 - **2.0.8 renewal-timer leak:** a session closed without `invalidate()` keeps its renewal timer and
   later emits `error` on the connection (fixed in 2.1.0, surrealdb.js#688).
+- **2.0.8 ends a person's session at their token's `exp`, even mid-query (decision T):** quick
+  work uses the person's token while it lasts 10 s more; slow work (Bunny, the data download)
+  always opens on a fresh 6-minute pass api-user gets from Clerk for the same session
+  (`PersonSessions.run(…, 'slow')`, `libs/auth`) and stops retrying after 2 minutes.
 - **Service sign-in** uses record access (`access: 'svc'`, `serviceSignIn`) so the SDK signs in
   again after reconnects and the 15-minute token expiry; 2.0.8's types don't cover it.
 - One socket handles an instance's concurrency (requests are multiplexed). A session costs 4 extra

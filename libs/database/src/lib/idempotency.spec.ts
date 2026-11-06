@@ -71,6 +71,37 @@ describe('runIdempotent', () => {
     expect(calls).toEqual(['lookup', 'transaction', 'lookup']);
   });
 
+  it('starts no attempt after its deadline: the conflict is thrown instead (decision T)', async () => {
+    const { db, calls } = scriptedDb({
+      lookups: [[]],
+      transactions: ['conflict'],
+    });
+    await expect(
+      runIdempotent(db, scope, 'h', async () => command, { deadline: 0 }),
+    ).rejects.toThrow(/can be retried/);
+    expect(calls).toEqual(['lookup', 'transaction']);
+  });
+
+  it('starts no attempt when the backoff ends after the deadline (decision T, review round 2)', async () => {
+    const { db, calls } = scriptedDb({
+      lookups: [[], []],
+      transactions: ['conflict', { status: 201, id: 'story:s' }],
+    });
+    // Before the backoff there is time left; the timer then fires after the deadline.
+    const now = vi
+      .spyOn(Date, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValue(1200);
+    try {
+      await expect(
+        runIdempotent(db, scope, 'h', async () => command, { deadline: 1100 }),
+      ).rejects.toThrow(/can be retried/);
+    } finally {
+      now.mockRestore();
+    }
+    expect(calls).toEqual(['lookup', 'transaction']);
+  });
+
   it('after losing the key to a racing request, replays it', async () => {
     const { db } = scriptedDb({
       lookups: [
