@@ -23,7 +23,9 @@ info:
     **Media ready (M2 plan item 13; D78, D129).** Built now, ahead of the M7 jobs above. api-user's
     Bunny webhook publishes a `MediaJob` to Pub/Sub topic `media-jobs`; the media worker (Dapr's
     Pub/Sub building block only, off Google Cloud, outbound only) pulls it, asks Bunny itself and
-    publishes a `MediaResult` to `media-results`, with the video id as the ordering key. Pub/Sub pushes
+    publishes a `MediaResult` to `media-results`. Jobs and answers carry the story's id as their
+    Pub/Sub ordering key, so a story's messages are delivered in order (a job for a video no file row
+    names has none). Pub/Sub pushes
     each answer to the result writer (`workflow` on Cloud Run, private), `POST /v1/media-results`.
     Messages are JSON in the message's `data` (no CloudEvents envelope).
   contact:
@@ -166,7 +168,7 @@ components:
     MediaResult:
       type: object
       description: |
-        The media worker's answer on `media-results` (ordering key: the video id). JSON in the message
+        The media worker's answer on `media-results` (ordering key: the story's id). JSON in the message
         data. `ready` needs every fact below; the others carry only the ids.
       required: [videoId, outcome]
       properties:

@@ -145,11 +145,25 @@ const WRITE_FILE = `
  * the story itself, never a picture's row. Writes nothing when the row already says the same,
  * and drops answers about files no story shows now. The database's own rules then hide an
  * approved story whose file failed, and show it again when the same file is ready.
+ *
+ * Steps, in order: find the file the answer is about (or drop it), then record its facts. A later
+ * step (Joel, 2026-11-06, video-bundle-rethink part A: telling Bunny which picture a video with
+ * its own picture shows, `storyFile.thumbnailOf`) goes after `recordFacts`, with the same row.
  */
 export async function applyMediaResult(
   db: SurrealQueryable,
   result: MediaResult,
 ): Promise<MediaResultOutcome> {
+  const row = await shownFile(db, result);
+  if (!row) return 'ignored';
+  return recordFacts(db, row, result);
+}
+
+/** The file's row, if the answer is about a video or audio file its story shows now. */
+async function shownFile(
+  db: SurrealQueryable,
+  result: MediaResult,
+): Promise<FileRow | null> {
   const [row] = (await runQuery(db, READ_FILE, {
     video: result.videoId,
   })) as [FileRow | undefined];
@@ -160,12 +174,19 @@ export async function applyMediaResult(
     row.detachedAt !== undefined ||
     row.removedAt !== undefined
   ) {
-    return 'ignored';
+    return null;
   }
   // D69: every story video is titled with its story's id.
-  if (result.outcome === 'ready' && result.title !== row.storyId) {
-    return 'ignored';
-  }
+  if (result.outcome === 'ready' && result.title !== row.storyId) return null;
+  return row;
+}
+
+/** Writes what differs from the row; nothing if it already says the same. */
+async function recordFacts(
+  db: SurrealQueryable,
+  row: FileRow,
+  result: MediaResult,
+): Promise<MediaResultOutcome> {
   const changes = changesFor(row, result);
   if (Object.keys(changes).length === 0) return 'unchanged';
   const [written] = (await runQuery(db, WRITE_FILE, {
