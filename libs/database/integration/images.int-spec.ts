@@ -16,11 +16,11 @@ import {
 } from './support/world';
 
 /**
- * Images (M2 plan PR 10; D53, D65, D80): a written story's image or an audio story's picture is
- * server-assigned like a video. api-user names the file `stories/<story>/<random>.webp` and records
- * an upload grant on its own login; the grant's event puts the path, size and description on the
- * draft. Nothing else puts an image on a story: the person's session may only change the
- * description (never required) or remove it.
+ * Images (M2 plan PR 10; D53, D65, D80; R12): a written story's image or an audio story's picture
+ * is server-assigned like a video. api-user names the file `stories/<story>/<random>.webp` and
+ * records its storyFile row (path = id, size) on its own login; the row's event points the draft
+ * at it, with the description. Nothing else puts a picture on a story: the person's session may
+ * only change the description (never required) or take it off.
  */
 describe('images: server-assigned, in the story’s own folder, only through a grant (D65, D80)', () => {
   let t: TestDatabase;
@@ -38,7 +38,11 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     (
       await rows<{ version: number; image?: Record<string, unknown> }>(
         migrator,
-        `SELECT version, image FROM type::record('story', $id)`,
+        // The picture as the story shows it (R12: through its pointer).
+        `SELECT version, IF image != NONE { {
+             path: record::id(image.file), width: image.file.width, height: image.file.height,
+             alt: image.alt, processing: image.file.processing } } AS image
+         FROM type::record('story', $id)`,
         { id },
       )
     )[0];
@@ -94,14 +98,19 @@ describe('images: server-assigned, in the story’s own folder, only through a g
         height: 720,
       }),
     ).toMatchObject({ ok: true });
-    // Processing (workflow, as the media-ready step will run) can never overwrite it.
+    // Processing (workflow, as the media-ready step will run) can never overwrite it: not the
+    // story's pointer, nor the picture's size on its row.
     for (const set of [
-      `image = { path: 'x/thumbnail_1.jpg', width: 1080, height: 1920 }`,
-      `image.path = 'x/thumbnail_1.jpg'`,
+      `image = { file: storyFile:⟨x/thumbnail_1.jpg⟩ }`,
+      `image.file = storyFile:⟨x/thumbnail_1.jpg⟩`,
       `image = NONE`,
     ]) {
       await run(workflow, `UPDATE story:ann_v SET ${set}`);
     }
+    await run(
+      workflow,
+      `UPDATE storyFile:⟨stories/ann_v/${'a'.repeat(32)}.webp⟩ SET width = 1080, height = 1920`,
+    );
     expect((await image('ann_v')).image).toMatchObject({
       path: `stories/ann_v/${'a'.repeat(32)}.webp`,
       width: 1280,
@@ -137,56 +146,47 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     expect(
       await rows(
         migrator,
-        'SELECT id FROM uploadGrant WHERE person = user:bob',
+        'SELECT id FROM storyFile WHERE person = user:bob',
       ),
     ).toEqual([]);
   });
 
-  it('keeps a story’s picture path in its own folder whoever writes it, so nothing can be pointed at another story’s file', async () => {
+  it('keeps a picture’s path in its story’s own folder whoever writes it, and a story points only at its own files', async () => {
     const dee = await person('dee');
     await draft(dee, 'dee_w');
     await draft(dee, 'dee_x');
     expect(
       await grantImage(apiUser, { story: 'dee_x', person: 'dee', version: 1 }),
     ).toMatchObject({ ok: true });
-    const other = `stories/dee_x/${'a'.repeat(32)}.webp`; // dee_x's real, granted file
-    const outside = [
-      other,
+    const other = `stories/dee_x/${'a'.repeat(32)}.webp`; // dee_x's real file
+    const row = (who: Surreal, path: string) =>
+      run(
+        who,
+        `CREATE type::record('storyFile', $path) CONTENT { story: story:dee_w,
+           person: user:dee, format: 'image', contentType: 'image/webp', sizeBytes: 1000,
+           width: 900, height: 1200, storyVersion: 1 }`,
+        { path },
+      );
+    // A system user (dev-seed's, which may write anything else) is refused a picture's row
+    // outside its story's folder; dev-seed's own fixed files are the one exception.
+    for (const path of [
       `stories/dee_w/../dee_x/${hex(7)}.webp`,
       `stories/dee_w/sub/${hex(8)}.webp`,
       `site-assets/${hex(9)}.webp`,
-      `dev-seed/image-01.webp`,
-    ];
-    const set = (who: Surreal, path: string) =>
-      run(
+    ]) {
+      await expect(row(migrator, path)).rejects.toThrow(/own folder/);
+    }
+    expect(await row(migrator, 'dev-seed/image-01.webp')).toHaveLength(1);
+    // Nobody but a system user points a story at a file: not the person, not another service
+    // (their writes to the pointer are dropped), so dee_w can't show dee_x's picture.
+    for (const who of [dee, apiUser, workflow]) {
+      await run(
         who,
-        `UPDATE story:dee_w SET image = { path: $path, width: 900, height: 1200 }`,
-        { path },
-      );
-    // A system user (dev-seed's, which may write anything else) is refused by the field itself;
-    // api-user's login gets nothing on either.
-    for (const path of outside.slice(0, -1)) {
-      await expect(set(migrator, path)).rejects.toThrow(
-        /image\.path|own_image/,
-      );
+        `UPDATE story:dee_w SET image = { file: type::record('storyFile', $other) }`,
+        { other },
+      ).catch(() => undefined);
       expect((await image('dee_w')).image).toBeUndefined();
     }
-    for (const path of outside) {
-      await set(apiUser, path).catch(() => undefined);
-      expect((await image('dee_w')).image).toBeUndefined();
-    }
-    // The person's own session can't put any path on (the image's VALUE drops it).
-    await set(dee, other).catch(() => undefined);
-    expect((await image('dee_w')).image).toBeUndefined();
-    // What is taken: the story's own folder, and (system users only) dev-seed's fixed files.
-    await set(migrator, `stories/dee_w/${hex(10)}.webp`);
-    expect((await image('dee_w')).image).toMatchObject({
-      path: `stories/dee_w/${hex(10)}.webp`,
-    });
-    await set(migrator, 'dev-seed/image-01.webp');
-    expect((await image('dee_w')).image).toMatchObject({
-      path: 'dev-seed/image-01.webp',
-    });
   });
 
   it('refuses another type, too big, or the wrong shape or size; takes one with no description', async () => {
@@ -295,12 +295,16 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       version: 1,
       name: hex(10),
     });
-    await run(workflow, `UPDATE story:gus_w SET image.processing = 'ready'`);
+    await run(
+      workflow,
+      `UPDATE storyFile:⟨stories/gus_w/${hex(10)}.webp⟩ SET processing = 'ready'`,
+    );
     expect((await image('gus_w')).image).toMatchObject({ processing: 'ready' });
+    // Processing writes the file's row, never the story: still version 2.
     await grantImage(apiUser, {
       story: 'gus_w',
       person: 'gus',
-      version: 3,
+      version: 2,
       name: hex(11),
       expectedImage: `stories/gus_w/${hex(10)}.webp`,
     });
@@ -310,11 +314,11 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       height: 1200,
       alt: 'A sunrise over the hills',
     });
-    // Both grants stay (the old file may still be on a public copy).
+    // Both rows stay (the limits count them); the old one is detached, for the clean-up.
     expect(
       await rows(
         gus,
-        'SELECT VALUE format FROM uploadGrant WHERE person = $auth ORDER BY at',
+        'SELECT VALUE format FROM storyFile WHERE person = $auth ORDER BY at',
       ),
     ).toEqual(['image', 'image']);
     // The weekly limit is for video and audio files only: with one a week, gus's two pictures
@@ -388,7 +392,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       image: { path: first },
     });
     expect(
-      await rows(hal, 'SELECT VALUE id FROM uploadGrant WHERE person = $auth'),
+      await rows(hal, 'SELECT VALUE id FROM storyFile WHERE person = $auth'),
     ).toHaveLength(1);
     // The person chose to replace the picture they were shown.
     expect(
@@ -442,15 +446,12 @@ describe('a deleted story’s picture folder is queued from the story, never its
   afterAll(() => t?.close());
   afterEach(() => run(migrator, 'DELETE pendingDeletion'));
 
-  it('erasure queues the folder of a picture whose grant was pruned (Codex #140 round 4)', async () => {
+  it('erasure queues the folder of a picture whose row was pruned (Codex #140 round 4)', async () => {
     const ivy = await person('ivy');
     await draft(ivy, 'ivy_w');
     await draft(ivy, 'ivy_x');
-    // A picture uploaded eight days ago (only the database owner can date a grant), then removed.
-    await run(
-      migrator,
-      `DEFINE FIELD OVERWRITE at ON uploadGrant TYPE datetime DEFAULT time::now() - 8d`,
-    );
+    // A picture uploaded, then taken off, then cleaned up and pruned (housekeeping's job,
+    // housekeeping.int-spec.ts): its row is gone.
     expect(
       await grantImage(apiUser, {
         story: 'ivy_w',
@@ -459,12 +460,8 @@ describe('a deleted story’s picture folder is queued from the story, never its
         name: hex(1),
       }),
     ).toMatchObject({ ok: true });
-    await run(
-      migrator,
-      `DEFINE FIELD OVERWRITE at ON uploadGrant TYPE datetime VALUE $before OR time::now() READONLY`,
-    );
     await run(ivy, `UPDATE story:ivy_w SET image = NONE`);
-    // Another upload prunes the old grant: it is no longer any story's picture.
+    await run(migrator, `DELETE storyFile:⟨stories/ivy_w/${hex(1)}.webp⟩`);
     expect(
       await grantImage(apiUser, {
         story: 'ivy_x',
@@ -474,7 +471,7 @@ describe('a deleted story’s picture folder is queued from the story, never its
       }),
     ).toMatchObject({ ok: true });
     expect(
-      await rows(migrator, `SELECT VALUE record::id(id) FROM uploadGrant`),
+      await rows(migrator, `SELECT VALUE record::id(id) FROM storyFile`),
     ).toEqual([`stories/ivy_x/${hex(2)}.webp`]);
 
     const [, pending] = (

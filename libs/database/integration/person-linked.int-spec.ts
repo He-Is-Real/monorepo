@@ -35,12 +35,11 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   user: 'root',
   story: 'linked', // submitter
   storyStatusLog: 'linked', // story → submitter (R6)
-  hiddenStory: 'linked', // same id as the story → submitter
   idempotencyKey: 'linked', // id[1] = user record
   favourite: 'linked', // person (hearts, M2); deleted at erasure
   submitterLimits: 'linked', // user (D112: limits, trusted mark)
   submissionLog: 'linked', // person (D113: recent submissions)
-  uploadGrant: 'linked', // person, story (D80: the Bunny videos api-user made for them)
+  storyFile: 'linked', // person, story (D80, R12: the files api-user made for them)
   submissionSettings: 'none', // the limits an admin sets (W3, D112)
   // D82: the sha256 of an erased Clerk id, so it never gets a row again; no link, no date.
   erasedIdentity: 'kept',
@@ -114,23 +113,6 @@ const LINKED: Record<string, LinkedCase> = {
     landed: (c) =>
       `SELECT VALUE id FROM storyStatusLog WHERE story = story:${c.p}_s AND status = 'hidden'`,
   },
-  hiddenStory: {
-    // Written by story_media_availability when workflow finds a public story's image broken.
-    setup: async (c) => {
-      // A new image on the approved story hides it (unreviewed media); a moderator shows it
-      // again with that image.
-      await run(
-        c.migrator,
-        `UPDATE story:${c.p}_s SET image = {
-           path: 'dev-seed/x.webp', width: 10, height: 10, processing: 'ready' }`,
-      );
-      await step(c.admin, `${c.p}_s`, 'approved');
-    },
-    writer: (c) => c.workflow,
-    write: (c, db) =>
-      run(db(c), `UPDATE story:${c.p}_s SET image.processing = 'failed'`),
-    landed: (c) => `SELECT VALUE id FROM hiddenStory:${c.p}_s`,
-  },
   idempotencyKey: {
     writer: (c) => c.apiUser,
     write: (c, db) =>
@@ -152,8 +134,8 @@ const LINKED: Record<string, LinkedCase> = {
       ),
     landed: (c) => `SELECT VALUE id FROM submitterLimits:${c.p}`,
   },
-  uploadGrant: {
-    // RequestUpload's grant (D80), on api-user's login, for the person's video draft.
+  storyFile: {
+    // RequestUpload's row (D80, R12), on api-user's login, for the person's video draft.
     setup: (c) =>
       draft(c.person, `${c.p}_v`, { primaryFormat: 'video', body: undefined }),
     writer: (c) => c.apiUser,
@@ -167,7 +149,7 @@ const LINKED: Record<string, LinkedCase> = {
         if (!o.ok) throw new Error(o.error);
       }),
     landed: (c) =>
-      `SELECT VALUE id FROM uploadGrant WHERE person = user:${c.p}`,
+      `SELECT VALUE id FROM storyFile WHERE person = user:${c.p}`,
   },
   submissionLog: {
     // Written by story_limits when the person first submits a story. livePerson's own

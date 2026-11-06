@@ -124,7 +124,7 @@ describe('erasure on api_user’s service login', () => {
         ref: `stories/${s}/`,
       })),
     ]);
-    expect(await truth('SELECT * FROM uploadGrant')).toEqual([]);
+    expect(await truth('SELECT * FROM storyFile')).toEqual([]);
     // Only api-user's (and housekeeping's, for retries) login sees or changes the queue.
     for (const name of ['api_admin', 'workflow', 'api_public_read'] as const) {
       expect(

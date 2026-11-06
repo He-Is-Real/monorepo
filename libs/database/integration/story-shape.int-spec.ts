@@ -13,16 +13,17 @@ import { approve, processed, submit } from './support/world';
 /**
  * D53: a story is exactly one of three types, each with one main part and one optional part,
  * enforced by the database (event `story_shape`, one definition in `fn::story::shape_problem`):
- *   written → text (body, not blank), no video or audio; optional image
- *   video   → one video media item, optional text; no image
- *   audio   → one audio media item, optional text; an optional picture (M2 plan PR 10)
- * A draft is created before its upload (CreateDraftStory), so a video or audio story may have no
- * media while it's editable (draft, changes_requested); from submit on (pending, in_review,
- * approved) it needs exactly one. Shapes are real pixel sizes (positive ints), refused beyond
- * 1:3 or 3:1; audio has none. Media items and the image accept only the defined fields, so the
- * removed `aspectRatio` (or any free text) can't be stored. The image is the person's content
- * (D41): api-admin and workflow writes to it are dropped; its file comes only through an upload
- * grant (D80, images.int-spec.ts), and the person may change its description or remove it.
+ *   written → text (body, not blank), no video or audio; optional picture
+ *   video   → one video file, optional text; an optional picture (its own thumbnail)
+ *   audio   → one audio file, optional text; an optional picture (M2 plan PR 10)
+ * R12: the files are storyFile rows the story points at (mediaFile, image.file). A draft is
+ * created before its upload (CreateDraftStory), so a video or audio story may have no file while
+ * it's editable (draft, changes_requested); from submit on (pending, in_review, approved) it needs
+ * it. A file's shape is its real pixel size (positive ints, both or neither), refused beyond 1:3
+ * or 3:1, on its row (storyFile_shape); the rows accept only the defined fields, so the removed
+ * `aspectRatio` (or any free text) can't be stored. The picture is the person's content (D41):
+ * api-admin and workflow writes to it are dropped; its file comes only through an upload (D80,
+ * images.int-spec.ts), and the person may change its description or remove it.
  */
 describe('story types and shapes (D53)', () => {
   let t: TestDatabase;
@@ -37,36 +38,67 @@ describe('story types and shapes (D53)', () => {
     vars?: Record<string, unknown>,
   ) => rows<T>(migrator, sql, vars);
 
+  /** A file row's fields (SurrealQL object entries); `format` says which kind. */
+  type Files = { media?: string; image?: string; alt?: string };
+  const VIDEO = `format: 'video', width: 1080, height: 1920`;
+  const AUDIO = `format: 'audio', lengthSeconds: 60`;
+  const IMAGE = `width: 1200, height: 1600`;
+  /** A written story's text, long enough to submit (200 characters). */
+  const TEXT = `body: '${'Words of the story. '.repeat(11)}'`;
+
   /**
    * Pat creates a story with these extra fields (SurrealQL object entries); returns its id. With
-   * media or an image, a system user creates it for Pat: a person's session never writes media or
-   * an image's file (D80), and the shape rules are the same for every writer.
+   * files, a system user writes their rows and creates the story for Pat: a person's session
+   * never writes the file pointers (D80), and the shape rules are the same for every writer.
    */
-  const create = async (fields: string, person?: SurrealQueryable) => {
+  const create = async (
+    fields: string,
+    files: Files = {},
+    person?: SurrealQueryable,
+  ) => {
     seq += 1;
     const id = `shape_${seq}`;
-    const writer = person ?? (/\b(media|image):/.test(fields) ? migrator : pat);
+    const withFiles = files.media !== undefined || files.image !== undefined;
+    const writer = person ?? (withFiles ? migrator : pat);
     const result = await outcome(
       writer,
-      `CREATE type::record('story', $id) CONTENT {
+      `BEGIN TRANSACTION;
+       ${files.media !== undefined ? `CREATE type::record('storyFile', $id + '-media') CONTENT {
+         story: type::record('story', $id), person: user:pat, contentType: 'video/mp4',
+         sizeBytes: 1000, storyVersion: 1, ${files.media} } RETURN NONE;` : ''}
+       ${files.image !== undefined ? `CREATE type::record('storyFile', $pic) CONTENT {
+         story: type::record('story', $id), person: user:pat, format: 'image',
+         contentType: 'image/webp', sizeBytes: 1000, storyVersion: 1, ${files.image} } RETURN NONE;` : ''}
+       CREATE type::record('story', $id) CONTENT {
          themeRefs: [theme:common], submitter: $submitter ?? $auth, slug: $id, title: 'A story', description: 'How I came to faith',
+         ${files.media !== undefined ? `mediaFile: type::record('storyFile', $id + '-media'),` : ''}
+         ${files.image !== undefined ? `image: { file: type::record('storyFile', $pic), alt: $alt },` : ''}
          ${fields}
-       } RETURN VALUE id`,
+       } RETURN VALUE id;
+       COMMIT TRANSACTION;`,
       {
         id,
+        pic: `dev-seed/pic-${seq}.webp`,
+        alt: files.alt,
         submitter:
           writer === migrator ? new RecordId('user', 'pat') : undefined,
       },
     );
-    return { id, result };
+    return {
+      id,
+      result:
+        result.ok && Array.isArray(result.result)
+          ? { ok: true, result: result.result }
+          : result,
+    };
   };
-  const created = async (fields: string) => {
-    const { id, result } = await create(fields);
-    expect(result).toEqual({ ok: true, result: [`story:${id}`] });
+  const created = async (fields: string, files: Files = {}) => {
+    const { id, result } = await create(fields, files);
+    expect(result).toMatchObject({ ok: true });
     return id;
   };
-  const refused = async (fields: string, message: string) => {
-    const { id, result } = await create(fields);
+  const refused = async (fields: string, message: string, files: Files = {}) => {
+    const { id, result } = await create(fields, files);
     expect(result).toEqual({
       ok: false,
       error: expect.stringContaining(message),
@@ -85,12 +117,6 @@ describe('story types and shapes (D53)', () => {
   const update = (id: string, set: string, db: SurrealQueryable = pat) =>
     outcome(db, `UPDATE type::record('story', $id) SET ${set}`, { id });
 
-  const VIDEO = `{ format: 'video', bunnyVideoId: 'vid', width: 1080, height: 1920 }`;
-  const AUDIO = `{ format: 'audio', bunnyVideoId: 'aud', durationSeconds: 60 }`;
-  const IMAGE = `{ path: 'dev-seed/a.webp', width: 1200, height: 1600, alt: 'A sunrise' }`;
-  /** A written story's text, long enough to submit (200 characters). */
-  const TEXT = `body: '${'Words of the story. '.repeat(11)}'`;
-
   beforeAll(async () => {
     t = await TestDatabase.create();
     migrator = await t.migrator();
@@ -105,76 +131,102 @@ describe('story types and shapes (D53)', () => {
 
   describe('written', () => {
     it.each([
-      ['text only', `primaryFormat: 'written', body: 'My story'`],
+      ['text only', `primaryFormat: 'written', body: 'My story'`, {}],
       [
-        'text and an image',
-        `primaryFormat: 'written', body: 'My story', image: ${IMAGE}`,
+        'text and a picture',
+        `primaryFormat: 'written', body: 'My story'`,
+        { image: IMAGE, alt: 'A sunrise' },
       ],
       [
-        'an image without alt text (readers use a neutral default)',
-        `primaryFormat: 'written', body: 'My story', image: { path: 'dev-seed/b.webp', width: 800, height: 800 }`,
+        'a picture without alt text (readers use a neutral default)',
+        `primaryFormat: 'written', body: 'My story'`,
+        { image: `width: 800, height: 800` },
       ],
       [
-        'an image at exactly 1:3',
-        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500, height: 1500 }`,
+        'a picture at exactly 1:3',
+        `primaryFormat: 'written', body: 'x'`,
+        { image: `width: 500, height: 1500` },
       ],
       [
-        'an image at exactly 3:1',
-        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 1500, height: 500 }`,
+        'a picture at exactly 3:1',
+        `primaryFormat: 'written', body: 'x'`,
+        { image: `width: 1500, height: 500` },
       ],
-    ])('allows %s', async (_name, fields) => {
-      await created(fields);
+    ])('allows %s', async (_name, fields, files: Files) => {
+      await created(fields, files);
     });
 
     it.each([
-      ['no text', `primaryFormat: 'written'`, 'a written story needs its text'],
+      ['no text', `primaryFormat: 'written'`, 'a written story needs its text', {}],
       [
         'blank text',
         `primaryFormat: 'written', body: ' \n\t '`,
         'a written story needs its text',
+        {},
       ],
       [
         'a video',
-        `primaryFormat: 'written', body: 'x', media: [${VIDEO}]`,
+        `primaryFormat: 'written', body: 'x'`,
         'a written story has no video or audio',
+        { media: VIDEO },
       ],
       [
         'an audio file',
-        `primaryFormat: 'written', body: 'x', media: [${AUDIO}]`,
+        `primaryFormat: 'written', body: 'x'`,
         'a written story has no video or audio',
+        { media: AUDIO },
       ],
       [
-        'an image taller than 1:3',
-        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500, height: 1501 }`,
+        'a picture taller than 1:3',
+        `primaryFormat: 'written', body: 'x'`,
         'beyond 1:3 or 3:1',
+        { image: `width: 500, height: 1501` },
       ],
       [
-        'an image wider than 3:1',
-        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 1501, height: 500 }`,
+        'a picture wider than 3:1',
+        `primaryFormat: 'written', body: 'x'`,
         'beyond 1:3 or 3:1',
+        { image: `width: 1501, height: 500` },
       ],
       [
-        'an image of zero width',
-        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 0, height: 500 }`,
-        'image.width',
+        'a picture of zero width',
+        `primaryFormat: 'written', body: 'x'`,
+        'width',
+        { image: `width: 0, height: 500` },
       ],
       [
-        'an image without a height',
-        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 500 }`,
-        'image.height',
+        'a picture without a height',
+        `primaryFormat: 'written', body: 'x'`,
+        'both width and height',
+        { image: `width: 500` },
       ],
       [
-        'an image without a path',
-        `primaryFormat: 'written', body: 'x', image: { width: 500, height: 500 }`,
-        'image.path',
+        'a picture with an aspect-ratio label',
+        `primaryFormat: 'written', body: 'x'`,
+        'aspectRatio',
+        { image: `width: 5, height: 5, aspectRatio: '1:1'` },
       ],
       [
-        'an image with an aspect-ratio label',
-        `primaryFormat: 'written', body: 'x', image: { path: 'dev-seed/p.webp', width: 5, height: 5, aspectRatio: '1:1' }`,
-        'image.aspectRatio',
+        'a video file as its picture',
+        `primaryFormat: 'written', body: 'x', image: { file: storyFile:⟨vid-as-picture⟩ }`,
+        'picture must be an image file',
+        {},
       ],
-    ])('refuses %s', async (_name, fields, message) => {
-      await refused(fields, message);
+    ])('refuses %s', async (_name, fields, message, files: Files) => {
+      if (fields.includes('vid-as-picture')) {
+        await run(
+          migrator,
+          `UPSERT storyFile:⟨vid-as-picture⟩ CONTENT { story: story:nobody, person: user:pat,
+             format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 }`,
+        );
+        const { result } = await create(fields, files, migrator);
+        expect(result).toEqual({
+          ok: false,
+          error: expect.stringContaining(message),
+        });
+        return;
+      }
+      await refused(fields, message, files);
     });
   });
 
@@ -252,9 +304,9 @@ describe('story types and shapes (D53)', () => {
     });
 
     it('needs no minimum for a video or audio story’s text', async () => {
-      const id = await created(
-        `primaryFormat: 'audio', body: 'A few words', media: [${AUDIO}]`,
-      );
+      const id = await created(`primaryFormat: 'audio', body: 'A few words'`, {
+        media: AUDIO,
+      });
       expect(await submit(pat, id)).toHaveLength(1);
     });
 
@@ -276,9 +328,9 @@ describe('story types and shapes (D53)', () => {
     });
   });
 
-  it('every type may have an image: a written story’s, an audio story’s picture, a video’s own thumbnail (M2 plan PR 10)', async () => {
-    await created(`primaryFormat: 'video', media: [${VIDEO}], image: ${IMAGE}`);
-    await created(`primaryFormat: 'audio', media: [${AUDIO}], image: ${IMAGE}`);
+  it('every type may have a picture: a written story’s, an audio story’s picture, a video’s own thumbnail (M2 plan PR 10)', async () => {
+    await created(`primaryFormat: 'video'`, { media: VIDEO, image: IMAGE });
+    await created(`primaryFormat: 'audio'`, { media: AUDIO, image: IMAGE });
   });
 
   describe.each([
@@ -286,34 +338,38 @@ describe('story types and shapes (D53)', () => {
     ['audio', AUDIO, VIDEO],
   ])('%s', (format, own, other) => {
     it.each([
-      ['a draft before its upload', ``],
-      ['its one media item', `media: [${own}]`],
-      ['its one media item and text', `media: [${own}], body: 'What happened'`],
-    ])('allows %s', async (_name, fields) => {
-      await created(`primaryFormat: '${format}', ${fields}`);
+      ['a draft before its upload', ``, {}],
+      ['its file', ``, { media: own }],
+      ['its file and text', `body: 'What happened'`, { media: own }],
+    ])('allows %s', async (_name, fields, files: Files) => {
+      await created(`primaryFormat: '${format}', ${fields}`, files);
     });
 
-    it.each([
-      ['two media items', `media: [${own}, ${own}]`, 'exactly one'],
-      [
-        'the other format',
-        `media: [${other}]`,
+    it('refuses the other format', async () => {
+      await refused(
+        `primaryFormat: '${format}'`,
         `a ${format} story’s media must be ${format}`,
-      ],
-    ])('refuses %s', async (_name, fields, message) => {
-      await refused(`primaryFormat: '${format}', ${fields}`, message);
+        { media: other },
+      );
     });
 
-    it('can be submitted only with its media, and withdrawn without it', async () => {
+    it('can be submitted only with its file, and withdrawn without it', async () => {
       const id = await created(`primaryFormat: '${format}'`);
       expect(await toStatus(id, 'pending')).toEqual({
         ok: false,
         error: expect.stringContaining(`a ${format} story needs its ${format}`),
       });
       // The upload (D80: never the person's own write).
-      expect(await update(id, `media = [${own}]`, migrator)).toMatchObject({
-        ok: true,
-      });
+      expect(
+        await outcome(
+          migrator,
+          `CREATE type::record('storyFile', $id + '-later') CONTENT {
+             story: type::record('story', $id), person: user:pat, contentType: 'video/mp4',
+             sizeBytes: 1000, storyVersion: 1, ${own} };
+           UPDATE type::record('story', $id) SET mediaFile = type::record('storyFile', $id + '-later')`,
+          { id },
+        ),
+      ).toMatchObject({ ok: true });
       expect(await submit(pat, id)).toHaveLength(1);
 
       const empty = await created(`primaryFormat: '${format}'`);
@@ -323,7 +379,7 @@ describe('story types and shapes (D53)', () => {
     });
   });
 
-  describe('media shape', () => {
+  describe('a file’s shape (on its row)', () => {
     it.each([
       ['portrait 9:16', 1080, 1920],
       ['a tall phone clip 9:19.5', 1080, 2340],
@@ -332,71 +388,54 @@ describe('story types and shapes (D53)', () => {
       ['square', 1080, 1080],
       ['exactly 1:3', 600, 1800],
     ])('allows %s', async (_name, width, height) => {
-      await created(
-        `primaryFormat: 'video', media: [{ format: 'video', width: ${width}, height: ${height} }]`,
-      );
+      await created(`primaryFormat: 'video'`, {
+        media: `format: 'video', width: ${width}, height: ${height}`,
+      });
     });
 
     it.each([
       ['beyond 1:3', `width: 600, height: 1801`, 'beyond 1:3 or 3:1'],
       ['beyond 3:1', `width: 1801, height: 600`, 'beyond 1:3 or 3:1'],
       ['a width without a height', `width: 600`, 'both width and height'],
-      ['a negative height', `width: 600, height: -600`, 'media.*.height'],
-      [
-        'an aspect-ratio label (D53: replaced)',
-        `aspectRatio: '9:16'`,
-        'a field the schema doesn’t define',
-      ],
-      [
-        'free text',
-        `note: 'testimony text'`,
-        'a field the schema doesn’t define',
-      ],
+      ['a negative height', `width: 600, height: -600`, 'height'],
+      ['an aspect-ratio label (D53: replaced)', `aspectRatio: '9:16'`, 'aspectRatio'],
+      ['free text', `note: 'testimony text'`, 'note'],
     ])('refuses %s', async (_name, fields, message) => {
-      await refused(
-        `primaryFormat: 'video', media: [{ format: 'video', ${fields} }]`,
-        message,
-      );
+      await refused(`primaryFormat: 'video'`, message, {
+        media: `format: 'video', ${fields}`,
+      });
     });
 
     it('keeps an audio file’s thumbnail size, within 1:3 to 3:1 (Joel, 2026-10-24)', async () => {
-      expect(
-        await created(
-          `primaryFormat: 'audio', media: [{ format: 'audio', bunnyVideoId: 'a',
-             thumbnailPath: 'a/thumbnail_0a1b2c3d.jpg', width: 1280, height: 720 }]`,
-        ),
-      ).toBeTruthy();
-      await refused(
-        `primaryFormat: 'audio', media: [{ format: 'audio', width: 100, height: 400 }]`,
-        'shape is beyond 1:3 or 3:1',
-      );
+      await created(`primaryFormat: 'audio'`, {
+        media: `format: 'audio', width: 1280, height: 720`,
+      });
+      await refused(`primaryFormat: 'audio'`, 'shape is beyond 1:3 or 3:1', {
+        media: `format: 'audio', width: 100, height: 400`,
+      });
     });
 
     it('lets workflow store the encode result (width and height) on a video', async () => {
-      const id = await created(
-        `primaryFormat: 'video', media: [{ format: 'video', bunnyVideoId: 'v' }]`,
-      );
-      expect(
-        await update(
-          id,
-          `media[0].width = 1920, media[0].height = 1080`,
+      const id = await created(`primaryFormat: 'video'`, {
+        media: `format: 'video'`,
+      });
+      const file = `${id}-media`;
+      const set = (s: string) =>
+        outcome(
           workflow,
-        ),
-      ).toMatchObject({ ok: true });
+          `UPDATE type::record('storyFile', $file) SET ${s}`,
+          { file },
+        );
+      expect(await set(`width = 1920, height = 1080`)).toMatchObject({
+        ok: true,
+      });
       expect(
-        await truth(`SELECT VALUE media FROM ONLY type::record('story', $id)`, {
-          id,
-        }),
-      ).toEqual([
-        { format: 'video', bunnyVideoId: 'v', width: 1920, height: 1080 },
-      ]);
-      expect(
-        await update(
-          id,
-          `media[0].width = 4000, media[0].height = 1000`,
-          workflow,
+        await truth(
+          `SELECT width, height FROM ONLY type::record('storyFile', $file)`,
+          { file },
         ),
-      ).toEqual({
+      ).toEqual([{ width: 1920, height: 1080 }]);
+      expect(await set(`width = 4000, height = 1000`)).toEqual({
         ok: false,
         error: expect.stringContaining('beyond 1:3 or 3:1'),
       });
@@ -404,22 +443,23 @@ describe('story types and shapes (D53)', () => {
   });
 
   describe('changing type', () => {
-    it('allows written → video while a draft; the image stays, as its thumbnail', async () => {
-      const id = await created(
-        `primaryFormat: 'written', body: 'x', image: ${IMAGE}`,
-      );
+    it('allows written → video while a draft; the picture stays, as its thumbnail', async () => {
+      const id = await created(`primaryFormat: 'written', body: 'x'`, {
+        image: IMAGE,
+      });
       expect(await update(id, `primaryFormat = 'video'`)).toMatchObject({
         ok: true,
       });
     });
   });
 
-  describe('the image is the person’s own content (D41)', () => {
+  describe('the picture is the person’s own content (D41)', () => {
     let id: string;
     beforeAll(async () => {
-      id = await created(
-        `primaryFormat: 'written', body: 'x', image: ${IMAGE}`,
-      );
+      id = await created(`primaryFormat: 'written', body: 'x'`, {
+        image: IMAGE,
+        alt: 'A sunrise',
+      });
     });
     const image = async () =>
       (
@@ -435,26 +475,30 @@ describe('story types and shapes (D53)', () => {
       const before = await image();
       for (const set of [
         `image = NONE`,
-        `image = { path: 'dev-seed/other.webp', width: 10, height: 10 }`,
+        `image = { file: storyFile:⟨dev-seed/other.webp⟩ }`,
         `image.alt = 'Words the person never wrote'`,
-        `image.path = 'dev-seed/someone-elses.webp'`,
+        `image.file = storyFile:⟨dev-seed/someone-elses.webp⟩`,
       ]) {
         await update(id, set, db());
       }
       expect(await image()).toEqual(before);
     });
 
-    it('the person changes it on a draft', async () => {
+    it('the person changes its description on a draft, never its file', async () => {
       expect(
         await update(id, `image.alt = 'Sunrise over the hills'`),
       ).toMatchObject({ ok: true });
-      expect(await image()).toMatchObject({ alt: 'Sunrise over the hills' });
+      await update(id, `image.file = storyFile:⟨dev-seed/someone-elses.webp⟩`);
+      expect(await image()).toEqual({
+        file: `storyFile:⟨dev-seed/pic-${id.split('_')[1]}.webp⟩`,
+        alt: 'Sunrise over the hills',
+      });
     });
 
     it('is locked with the rest of the content after submit', async () => {
-      const s = await created(
-        `primaryFormat: 'written', ${TEXT}, image: ${IMAGE}`,
-      );
+      const s = await created(`primaryFormat: 'written', ${TEXT}`, {
+        image: IMAGE,
+      });
       expect(await submit(pat, s)).toHaveLength(1);
       expect(await update(s, `image.alt = 'Changed after submit'`)).toEqual({
         ok: false,
@@ -463,12 +507,13 @@ describe('story types and shapes (D53)', () => {
     });
   });
 
-  describe('everyone reads a published story’s image and media shapes (R11)', () => {
-    it('publishes a written story with its image, and a video with its size', async () => {
-      const w = await created(
-        `primaryFormat: 'written', ${TEXT}, image: ${IMAGE}`,
-      );
-      const v = await created(`primaryFormat: 'video', media: [${VIDEO}]`);
+  describe('everyone reads a published story’s picture and video through its pointers (R11, R12)', () => {
+    it('publishes a written story with its picture, and a video with its size', async () => {
+      const w = await created(`primaryFormat: 'written', ${TEXT}`, {
+        image: IMAGE,
+        alt: 'A sunrise',
+      });
+      const v = await created(`primaryFormat: 'video'`, { media: VIDEO });
       for (const id of [w, v]) {
         await submit(pat, id);
         await processed(workflow, id);
@@ -478,12 +523,14 @@ describe('story types and shapes (D53)', () => {
       expect(
         await rows(
           reader,
-          `SELECT VALUE image FROM ONLY type::record('story', $w)`,
+          `SELECT record::id(image.file) AS path, image.file.width AS width,
+             image.file.height AS height, image.alt AS alt
+           FROM ONLY type::record('story', $w)`,
           { w },
         ),
       ).toEqual([
         {
-          path: 'dev-seed/a.webp',
+          path: `dev-seed/pic-${w.split('_')[1]}.webp`,
           width: 1200,
           height: 1600,
           alt: 'A sunrise',
@@ -492,27 +539,27 @@ describe('story types and shapes (D53)', () => {
       expect(
         await rows(
           reader,
-          `SELECT VALUE media FROM ONLY type::record('story', $v)`,
+          `SELECT VALUE mediaFile.* FROM ONLY type::record('story', $v)`,
           { v },
         ),
       ).toEqual([
         {
+          id: `storyFile:⟨${v}-media⟩`,
           format: 'video',
-          bunnyVideoId: 'vid',
           width: 1080,
           height: 1920,
-          durationSeconds: 60,
+          lengthSeconds: 60,
         },
       ]);
     });
 
-    it('approval refuses a video submitted without its media (set by a system user)', async () => {
-      const id = await created(`primaryFormat: 'video', media: [${VIDEO}]`);
+    it('a system user can’t take a submitted video’s file away', async () => {
+      const id = await created(`primaryFormat: 'video'`, { media: VIDEO });
       await submit(pat, id);
       expect(
         await outcome(
           migrator,
-          `UPDATE type::record('story', $id) SET media = []`,
+          `UPDATE type::record('story', $id) SET mediaFile = NONE`,
           { id },
         ),
       ).toEqual({
@@ -523,16 +570,14 @@ describe('story types and shapes (D53)', () => {
   });
 
   it('applies the same rules to system users (the migrator) as to everyone', async () => {
-    expect(
-      await outcome(
-        migrator,
-        `CREATE story CONTENT { themeRefs: [theme:common], submitter: user:pat, slug: 'mig', title: 't', description: 'd',
-           primaryFormat: 'written', body: 'x', media: [${VIDEO}] }`,
-      ),
-    ).toEqual({
+    const { result } = await create(
+      `primaryFormat: 'written', body: 'x'`,
+      { media: VIDEO },
+      migrator,
+    );
+    expect(result).toEqual({
       ok: false,
       error: expect.stringContaining('a written story has no video or audio'),
     });
-    await run(migrator, 'RETURN true');
   });
 });

@@ -4,6 +4,8 @@ import {
   approve,
   buildWorld,
   draft,
+  grantImage,
+  processed,
   statusOf,
   step,
   submit,
@@ -12,9 +14,10 @@ import {
 
 /**
  * R11 (Joel, 2026-11-04/05): one story table. Everyone (the public login, any signed-in person,
- * api-user's own login) reads the published fields of approved stories, and of their current
- * approved status entry, and nothing else: no other status, no older entry, no private field,
- * whichever way the query asks (db review 2, section 6 items 3 and 4). These tests try to leak.
+ * api-user's own login) reads the published fields of approved stories, of their current
+ * approved status entry and of the files they point at now (R12), and nothing else: no other
+ * status, no older entry, no other file, no private field, whichever way the query asks (db
+ * review 2, section 6 items 3 and 4). These tests try to leak.
  */
 describe('what everyone sees of stories (R11 leak tests)', () => {
   let t: TestDatabase;
@@ -40,11 +43,43 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     'socialMediaSharingConsentAgreedAt',
   ];
 
+  /** The picture `n` of story `id` (R12: its storyFile row's key is its path). */
+  const pic = (id: string, n: number) =>
+    `stories/${id}/${String(n).padStart(32, '0')}.webp`;
+  const PRIVATE_FILE_FIELDS = [
+    'story',
+    'person',
+    'contentType',
+    'sizeBytes',
+    'durationSeconds',
+    'expectedImage',
+    'storyVersion',
+    'processing',
+    'at',
+    'renewedAt',
+    'detachedAt',
+    'removedAt',
+  ];
+
   beforeAll(async () => {
     t = await TestDatabase.create();
     ({ admin, ann } = await buildWorld(t));
     migrator = await t.migrator();
+    const apiUser = await t.service('api_user');
     await createPeople(t, { cara: 'user_cara' });
+    // Pictures (R12): ann_draft's, ann_withdrawn's and ann_hidden's, and ann_live's, whose first
+    // picture was replaced before it was submitted (detached).
+    const picture = async (id: string, n: number, version: number, expected?: string) => {
+      const o = await grantImage(apiUser, {
+        story: id,
+        person: 'ann',
+        version,
+        name: String(n).padStart(32, '0'),
+        expectedImage: expected,
+      });
+      if (!o.ok) throw new Error(o.error);
+    };
+    await picture('ann_draft', 1, 1);
     for (const id of [
       'ann_review',
       'ann_changes',
@@ -54,7 +89,12 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       'ann_live',
     ]) {
       await draft(ann, id);
+      if (['ann_withdrawn', 'ann_hidden', 'ann_live'].includes(id)) {
+        await picture(id, 1, 1);
+      }
+      if (id === 'ann_live') await picture(id, 2, 2, pic(id, 1));
       await submit(ann, id);
+      await processed(await t.service('workflow'), id);
     }
     await step(admin, 'ann_review', 'in_review');
     for (const [id, to] of [
@@ -111,7 +151,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
         db,
         'SELECT * FROM story:ann_live',
       );
-      expect(live).toMatchObject({ title: 'Story ann_live', version: 4 });
+      expect(live).toMatchObject({ title: 'Story ann_live', version: 6 });
       for (const field of PRIVATE_STORY_FIELDS) {
         expect(live).not.toHaveProperty(field);
         expect(
@@ -198,6 +238,70 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
           await rows(db, 'SELECT * FROM type::record($e)', { e: entry }),
         ).toEqual([]);
       }
+    },
+  );
+
+  // api-user's own login reads every file row, as it read the upload grants before (R12): erasure
+  // queues the person's files from them, and a resume renews one (fn::upload::renew).
+  it.each([0, 1])(
+    'reader %#: of the files, only those an approved story shows now, and only their published fields',
+    async (i) => {
+      const [, db] = readers[i];
+      const files = await rows<Record<string, unknown>>(
+        db,
+        'SELECT * FROM storyFile',
+      );
+      expect(files).toEqual([
+        {
+          id: `storyFile:⟨${pic('ann_live', 2)}⟩`,
+          format: 'image',
+          width: 900,
+          height: 1200,
+        },
+      ]);
+      expect(
+        await rows(db, 'SELECT count() FROM storyFile WHERE true GROUP ALL'),
+      ).toEqual([{ count: 1 }]);
+      // Through the story, as the public queries read it.
+      expect(
+        await rows(
+          db,
+          `SELECT record::id(image.file) AS path, image.file.width AS width,
+             image.file.processing AS processing, image.file.person AS person
+           FROM story:ann_live`,
+        ),
+      ).toEqual([
+        { path: pic('ann_live', 2), width: 900, processing: undefined, person: undefined },
+      ]);
+      for (const field of PRIVATE_FILE_FIELDS) {
+        expect(
+          await rows(
+            db,
+            `SELECT VALUE ${field} FROM type::record('storyFile', $key)`,
+            { key: pic('ann_live', 2) },
+          ),
+        ).toEqual([undefined]);
+      }
+      // The replaced picture of a public story, and every file of a story that isn't public.
+      for (const key of [
+        pic('ann_live', 1),
+        pic('ann_draft', 1),
+        pic('ann_withdrawn', 1),
+        pic('ann_hidden', 1),
+      ]) {
+        expect(
+          await rows(db, `SELECT * FROM type::record('storyFile', $key)`, {
+            key,
+          }),
+        ).toEqual([]);
+      }
+      // Nor the files an approval reviewed, through the status log.
+      expect(
+        await rows(
+          db,
+          `SELECT reviewedImageFile, reviewedMediaFile FROM storyStatusLog`,
+        ),
+      ).toEqual([{}, {}]);
     },
   );
 

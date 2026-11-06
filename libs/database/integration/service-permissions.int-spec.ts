@@ -145,7 +145,6 @@ describe('service identities (D13 B)', () => {
 
     it.each([
       'user',
-      'hiddenStory',
       'idempotencyKey',
       '_migration',
       '_migrationRun',
@@ -304,17 +303,17 @@ describe('service identities (D13 B)', () => {
         'CREATE submissionLog:r7 CONTENT { person: user:ann }',
       );
       const before = await truth<string[]>(
-        'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM storyStatusLog)]',
+        'RETURN [(SELECT VALUE id FROM storyFile), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM storyStatusLog)]',
       );
       expect(before.map((ids) => ids.length > 0)).toEqual([true, true, true]);
-      for (const table of ['uploadGrant', 'submissionLog', 'storyStatusLog']) {
+      for (const table of ['storyFile', 'submissionLog', 'storyStatusLog']) {
         expect(await rows(svc.admin, `DELETE ${table} RETURN BEFORE`)).toEqual(
           [],
         );
       }
       expect(
         await truth(
-          'RETURN [(SELECT VALUE id FROM uploadGrant), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM storyStatusLog)]',
+          'RETURN [(SELECT VALUE id FROM storyFile), (SELECT VALUE id FROM submissionLog), (SELECT VALUE id FROM storyStatusLog)]',
         ),
       ).toEqual(before);
     });
@@ -383,26 +382,28 @@ describe('service identities (D13 B)', () => {
   });
 
   describe('workflow', () => {
-    it('reads and updates stories (M7 media), but cannot create, delete or publish them', async () => {
+    it('reads stories and updates their files’ processing (M7), but cannot create, delete or publish them', async () => {
       const db = svc.workflow;
       expect(
         (await ids(db, 'SELECT id FROM story')).length,
       ).toBeGreaterThanOrEqual(5);
-      // A video story (D53: only video and audio stories have media), as its upload left it.
+      // A video story (D53: only video and audio stories have a file), as its upload left it.
       await run(
         migrator,
-        `UPDATE story:bob_pending SET primaryFormat = 'video',
-           media = [{ format: 'video', bunnyVideoId: 'vid-0' }]`,
+        `CREATE storyFile:vid0 CONTENT { story: story:bob_pending, person: user:bob,
+           format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 };
+         UPDATE story:bob_pending SET primaryFormat = 'video', mediaFile = storyFile:vid0`,
       );
       const [updated] = await rows(
         db,
-        `UPDATE story:bob_pending SET media[0].processing = 'processing' RETURN media`,
+        `UPDATE storyFile:vid0 SET processing = 'processing' RETURN processing`,
       );
-      expect(updated).toEqual({
-        media: [
-          { format: 'video', bunnyVideoId: 'vid-0', processing: 'processing' },
-        ],
-      });
+      expect(updated).toEqual({ processing: 'processing' });
+      // Never the story's pointer to it.
+      await run(db, `UPDATE story:bob_pending SET mediaFile = NONE`);
+      expect(
+        await truth('SELECT VALUE mediaFile FROM ONLY story:bob_pending'),
+      ).toEqual(['storyFile:vid0']);
       expect(
         await rows(
           db,
