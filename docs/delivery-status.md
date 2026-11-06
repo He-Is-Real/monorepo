@@ -139,7 +139,9 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   moderator reviewed, and a story hidden because its media broke comes back on its own only while
   it still shows those files. Search now looks at published stories only, so drafts can never
   shift its "best match" order (Joel's choice, option A), and it matches theme names too. A local scale test with 50,000 stories timed the public lists,
-  search, the story page and favourites. Nothing changes for people using the site. Dev's
+  search, the story page and favourites: story pages and favourites are fast, but the browse
+  lists (2–5 s a page) and search for very common words (up to 22 s) are too slow at that size.
+  Options are with Joel. Nothing changes for people using the site. Dev's
   database is wiped and rebuilt once more when this is applied.
 - **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
   ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
