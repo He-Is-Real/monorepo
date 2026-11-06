@@ -113,11 +113,13 @@ their fence (see "Transactions").
     `updatedAt` is the server's time except for system users.
   - **Shape (D53, `fn::story::shape_problem`, event `story_shape`):** `written` needs non-blank
     text and no video or audio, may have a picture; `video`/`audio` hold exactly one file of their
-    format from submit on, no picture. Pixel sizes positive, never beyond 1:3 or 3:1
+    format from submit on, and may also have a picture (an audio story's picture, a video's own
+    thumbnail). Pixel sizes positive, never beyond 1:3 or 3:1
     (`fn::shape::allowed`). Specs: `story-shape`.
-  - **Limits (D94, D112, D113; `story_limits`, `story_text_limits`), on the person's own writes:**
-    no new draft over the open-drafts limit (`limit_open_drafts:`); no first submission before
-    `fn::story::next_submission_at` (`limit_weekly_submission:`); text over `storyTextMax` refused
+  - **Limits (D94, D112, D113; `story_limits`, `story_text_limits`).** On the person's own writes
+    only: no new draft over the open-drafts limit (`limit_open_drafts:`); no first submission before
+    `fn::story::next_submission_at` (`limit_weekly_submission:`). Whoever writes (system users and
+    the migrator included): text over `storyTextMax` refused
     only when it gets longer (`story_text_too_long:`); at submit the text length and
     `themesMin`–`themesMax` themes, every one still existing (`story_text_too_short`,
     `story_theme_count:`, `story_themes_changed:`). No grandfathering (Joel, 2026-10-30): every
