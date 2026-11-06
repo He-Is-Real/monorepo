@@ -414,7 +414,7 @@ DEFINE EVENT OVERWRITE story_limits ON story
       IF $max != NONE AND array::len($open) >= $max {
         THROW 'limit_open_drafts: the person has as many open drafts as they may (D94)';
       };
-    } ELSE IF count(SELECT id FROM storyStatusLog
+    } ELSE IF count(SELECT id FROM storyStatusLog WITH INDEX storyStatusLog_story
         WHERE story = $after.id AND status = 'pending') = 1 {
       IF fn::story::next_submission_at($after.submitter) != NONE {
         THROW 'limit_weekly_submission: the person has submitted as many stories as they may in 7 days (D94)';
@@ -496,6 +496,7 @@ DEFINE FUNCTION OVERWRITE fn::story::reviewed_files($s: any) {
   -- Bound first: inside the SELECT, $this is the row being read.
   LET $story = $s.id;
   RETURN (SELECT reviewedMediaFile, reviewedImageFile, at FROM storyStatusLog
+    WITH INDEX storyStatusLog_story
     WHERE story = $story AND status = 'approved' ORDER BY at DESC LIMIT 1)[0];
 };
 DEFINE FUNCTION OVERWRITE fn::story::shows_reviewed_files($s: any) {
@@ -682,7 +683,9 @@ DEFINE FIELD OVERWRITE publishedAt  ON storyStatusLog TYPE option<datetime> READ
     ELSE {
       -- Bound first: inside the SELECT, $this is the row being read.
       LET $story = $this.story;
-      array::min(SELECT VALUE publishedAt FROM storyStatusLog
+      -- WITH INDEX: left to itself, 3.2.4 picks (status, publishedAt) and reads every approved
+      -- entry of every story (local scale test, B2: 18 ms at 5,000 stories, growing with each).
+      array::min(SELECT VALUE publishedAt FROM storyStatusLog WITH INDEX storyStatusLog_story
         WHERE story = $story AND status = 'approved' AND publishedAt != NONE)
         ?? (IF $auth = NONE AND $value != NONE { $value } ELSE { $this.at })
     };

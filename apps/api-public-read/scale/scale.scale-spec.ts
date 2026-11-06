@@ -345,6 +345,10 @@ describe(`scale: ${STORIES} stories`, () => {
         (_, k) => story(from + k),
       );
       await run(migrator, LOAD_SQL, { stories });
+      if ((from + BATCH) % 2_500 === 0)
+        report(
+          `  ${from + BATCH} stories: ${Math.round((performance.now() - loadStart) / 1000)} s`,
+        );
     }
     report(`Stories: ${Math.round((performance.now() - loadStart) / 1000)} s`);
     publicIds = await rows<string>(

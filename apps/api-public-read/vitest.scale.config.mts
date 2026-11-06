@@ -13,7 +13,8 @@ export default defineConfig({
     include: ['scale/**/*.scale-spec.ts'],
     globalSetup: '../../libs/database/integration/support/global-setup.ts',
     testTimeout: 3_600_000,
-    hookTimeout: 3_600_000,
+    // Loading 50,000 stories takes a while.
+    hookTimeout: 4 * 3_600_000,
     maxWorkers: 1,
   },
 });
