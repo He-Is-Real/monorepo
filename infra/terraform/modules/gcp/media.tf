@@ -245,6 +245,10 @@ resource "google_service_account_iam_member" "media_results_push_token" {
   service_account_id = google_service_account.media_results_push[0].name
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = local.pubsub_agent
+
+  # Google creates Pub/Sub's agent when the project first uses Pub/Sub; on a fresh project the
+  # topics are that first use, so grant to the agent only after they exist.
+  depends_on = [google_pubsub_topic.media]
 }
 
 resource "google_cloud_run_v2_service" "result_writer" {

@@ -101,8 +101,9 @@ A story's video stays "not processed yet" (no `processing`) or `processing`.
    `subscription/num_undelivered_messages` metric in Cloud Monitoring.
 4. Did the writer drop it? Its log says `"outcome":"ignored"` when the story no longer shows that
    video (replaced, removed) or the video's title isn't the story's id.
-5. To queue a job by hand (a developer; ids only):
-   `gcloud pubsub topics publish media-jobs --message='{"videoId":"<video id>"}'`.
+5. To queue a job by hand (a developer; ids only), keyed by the story so it stays in order with
+   that story's other jobs:
+   `gcloud pubsub topics publish media-jobs --ordering-key=<story id> --message='{"videoId":"<video id>"}'`.
 
 ### A message ended in dead letters
 
@@ -115,10 +116,14 @@ gcloud pubsub subscriptions pull media-dead-letters --limit 10 --format=json \
 ```
 
 The `CloudPubSubDeadLetterSourceSubscription` attribute says where it came from. Fix the cause
-(the writer's log names it: `Refused a media result` for a malformed answer), then send it again
-to its topic (`gcloud pubsub topics publish media-jobs|media-results --message='<data>'`; an
-message needs `--ordering-key=<story id>`) and acknowledge the dead letter
-(`gcloud pubsub subscriptions ack media-dead-letters --ack-ids=<ackId>`). A video whose size
+(the writer's log names it: `Refused a media result` for a malformed answer). Then **queue a
+fresh job for that video** (step 5 above), whichever topic the dead letter came from, and
+acknowledge the dead letter
+(`gcloud pubsub subscriptions ack media-dead-letters --ack-ids=<ackId>`). **Never publish a
+dead-lettered answer to `media-results` again:** an answer is what Bunny said at that moment,
+and a newer one may have been written since (the video failed, or was deleted), so replaying the
+old one would put the file back to a state that is no longer true. A fresh job makes the worker
+ask Bunny again, so the answer is always current. A video whose size
 is wider than 3:1 or taller than 1:3 is refused by the database (D53) and ends here: re-encode
 won't help; tell the person through moderation.
 
