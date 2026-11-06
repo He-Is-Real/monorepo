@@ -13,7 +13,8 @@ export const LINK_SECONDS = 60 * 60;
  * (D27): every table below shows a person their own rows and nobody else's, so the export can't
  * reach anyone else's data whatever this query asks. A status entry's moderator (`by`) reads as
  * absent to them (api-admin's alone). Status, feedback and dates come from each story's status
- * log (R6), as GetStory reads them (story-store.ts).
+ * log (R6), as GetStory reads them (story-store.ts), and the file has the whole log (R6: "Download
+ * my data includes the log").
  */
 const HELD_SQL = `
 LET $stories = SELECT id, slug,
@@ -49,12 +50,12 @@ RETURN {
     (SELECT record::id(id) AS id, currentStatus.publishedAt AS publishedAt FROM $mine
        WHERE currentStatus.status = 'approved')
   } ELSE { [] },
-  -- The moderators' decisions in the status log (R6), as the moderation list has always shown
-  -- them: approve, reject, request_changes.
-  reviews: IF array::len($mine) > 0 {
-    (SELECT record::id(story) AS story, status, comment, storyVersion, at
-       FROM storyStatusLog WHERE story IN $mine AND actor = 'moderator'
-         AND status IN ['approved', 'rejected', 'changes_requested'] ORDER BY at ASC)
+  -- Every entry of their stories' status logs (R6), oldest first: theirs, the moderators' (never
+  -- who) and the system's.
+  history: IF array::len($mine) > 0 {
+    (SELECT record::id(story) AS story, status, actor, comment, storyVersion, at, publishedAt,
+        hiddenReason, id
+       FROM storyStatusLog WHERE story IN $mine ORDER BY at ASC, id ASC)
   } ELSE { [] },
   hearts: $hearts.map(|$h| { story: $h.story, createdAt: $h.createdAt }),
   heartedPublic: IF array::len($hearted) > 0 {
@@ -120,12 +121,15 @@ interface Held {
     sharingAt?: Opt<string>;
   }[];
   published: { id: string; publishedAt: string }[];
-  reviews: {
+  history: {
     story: string;
-    status: 'approved' | 'rejected' | 'changes_requested';
+    status: string;
+    actor: 'person' | 'moderator' | 'system';
     comment?: Opt<string>;
     storyVersion: number;
     at: string;
+    publishedAt?: Opt<string>;
+    hiddenReason?: Opt<string>;
   }[];
   hearts: { story: string; createdAt: string }[];
   heartedPublic: { id: string; slug: string }[];
@@ -172,7 +176,7 @@ const SECTIONS = {
   signIn:
     'What Clerk, the company that runs our sign-in, holds about you: your names, email addresses, phone numbers, any accounts you sign in with (such as Google), your picture if you gave one, and when you made the account and last signed in. We read it from Clerk when you asked for this file; we don’t keep a copy. You can change it under Manage account.',
   stories:
-    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "moderation" lists each decision our moderators made on it, with any feedback to you, but not who made it. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "socialMediaSharingConsent" is the version of our social media sharing consent you ticked for that story at the end of its upload, and when (null if you didn’t tick it). We only ever share a story while it is on the site.',
+    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "statusHistory" is everything that happened to its status, oldest first: who did it ("person" is you, "moderator" one of our moderators, but never which one, and "system" the site itself, which hides a story while its video or audio can’t play and shows it again once it can), the status it moved to, any feedback a moderator gave you, which edit of the story it was about ("storyVersion"), and when. A video or audio story has its id at Bunny, the company that stores and plays our videos, and a link to watch or listen to it; a picture on a story that is on the site has a link to the picture (a picture not on the site has none, as we can only vouch for the file once a moderator has approved it). These links stop working at the time in "linksExpireAt", so ask for a new file to get new ones. "draftExpiresAt" is when an untouched draft will be deleted. "socialMediaSharingConsent" is the version of our social media sharing consent you ticked for that story at the end of its upload, and when (null if you didn’t tick it). We only ever share a story while it is on the site.',
   agreements:
     'The versions of our terms of use and our testimony consent you agreed to, and when (null if you haven’t). The words of every version are on our site. Deleting your account withdraws them, and we keep no record of them afterwards.',
   favourites:
@@ -206,13 +210,6 @@ const EFFECTIVE_LIMITS = [
 ] as const;
 
 /** The contract's `AccountExport`. */
-/** A moderator's status entry (R6) as the file names the decision. */
-const DECISION = {
-  approved: 'approve',
-  rejected: 'reject',
-  changes_requested: 'request_changes',
-} as const;
-
 export function toExport(
   held: Held,
   {
@@ -223,14 +220,17 @@ export function toExport(
   }: { role: string; signIn: ClerkProfile; urls: MediaUrls; generatedAt: Date },
 ) {
   const publishedAt = new Map(held.published.map((p) => [p.id, p.publishedAt]));
-  const reviewsOf = (story: string) =>
-    held.reviews
-      .filter((r) => r.story === story)
-      .map((r) => ({
-        decision: DECISION[r.status],
-        feedbackToSubmitter: or(r.comment),
-        storyVersion: r.storyVersion,
-        decidedAt: iso(r.at) as string,
+  const historyOf = (story: string) =>
+    held.history
+      .filter((e) => e.story === story)
+      .map((e) => ({
+        status: e.status,
+        actor: e.actor,
+        comment: or(e.comment),
+        storyVersion: e.storyVersion,
+        at: iso(e.at) as string,
+        publishedAt: iso(e.publishedAt),
+        hiddenReason: or(e.hiddenReason),
       }));
   const publicPath = new Map(
     held.heartedPublic.map((p) => [p.id, `/stories/${p.slug}`]),
@@ -239,7 +239,8 @@ export function toExport(
   return {
     about: {
       format: 'he-is-real-my-data',
-      formatVersion: 1,
+      // 2 (B1, R6): each story's whole status history replaced its list of moderation decisions.
+      formatVersion: 2,
       generatedAt: generatedAt.toISOString(),
       linksExpireAt: urls.linksExpireAt(),
       summary:
@@ -289,7 +290,7 @@ export function toExport(
             }
           : null,
         rejectionFeedback: or(s.rejectionFeedback),
-        moderation: reviewsOf(id),
+        statusHistory: historyOf(id),
         createdAt: iso(s.createdAt) as string,
         updatedAt: iso(s.updatedAt) as string,
         submittedAt: iso(s.submittedAt),

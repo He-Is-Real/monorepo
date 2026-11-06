@@ -930,7 +930,8 @@ shape much of the schema (moved here from its header in database review 2).
 - a write the PERMISSIONS deny returns an empty result, not an error; so does an ALLOWED write
   on a table the caller can't SELECT
 - for a `service` session, `$auth.id` is NONE in queries (the service table is PERMISSIONS NONE)
-  but resolves inside PERMISSIONS clauses; in queries use `$auth` itself
+  but resolves inside PERMISSIONS clauses, except in a count without a WHERE (below): use
+  `$auth` itself everywhere
 - EVENTS RUN WITH ELEVATED PRIVILEGES: an event fired by a person's write could write a
   PERMISSIONS NONE table. Events are trusted code; they must only write what they intend
 - transactions read a SNAPSHOT: a permission/consent/erasure check can pass while another
@@ -953,8 +954,9 @@ shape much of the schema (moved here from its header in database review 2).
   written (B1, 2026-11-06: every approval took the earliest `publishedAt` of all stories): bind
   it first (`LET $story = $this.story`); `public-view` checks each story keeps its own
 - `SELECT count() FROM t GROUP ALL` with no WHERE skips a row rule that reads `$auth.id` (an
-  admin counted only approved stories; B1, 2026-11-06); with `WHERE true` it applies: count with
-  a WHERE
+  admin counted only approved stories, and the public every status entry; B1, 2026-11-06). So
+  every rule compares `$auth` itself (`submitter = $auth`, `$auth IN [service:...]`), never
+  `$auth.id`; `public-view` counts every readable table without a WHERE
 - in a person's session, a projection aliased `id` (`<string> id AS id`) changed what `id` meant
   to the other fields of a query with subqueries and ORDER BY (B1): api-user's story reads
   alias it `storyRef`; and ORDER BY needs the ordered field selected under its own name
@@ -969,7 +971,8 @@ shape much of the schema (moved here from its header in database review 2).
   by `api_admin`/`workflow`, succeed without the change. Changing a `READONLY` field
   (`submitter`) is an **error**. Denied events (`THROW`) are errors.
 - **`$auth.id` is `NONE` in a service's queries**, because `service` is `PERMISSIONS NONE`.
-  Inside PERMISSIONS clauses it resolves, so the schema works. In queries use `$auth` itself.
+  Inside PERMISSIONS clauses it mostly resolves, but not in a count without a WHERE, so the
+  schema and the queries both use `$auth` itself.
 - **A function runs with the caller's permissions in queries and permission clauses**, so one
   that reads a table the caller can't read sees nothing there (fail closed). Inside **events**
   it runs elevated, so plan 4e's agreement checks (`fn::legal::require_terms`, item 45) read the

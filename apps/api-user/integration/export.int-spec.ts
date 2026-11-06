@@ -7,7 +7,6 @@ import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
 import {
   agreeAll,
-  approve,
   createPeople,
   draft,
   grantImage,
@@ -23,7 +22,7 @@ import {
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import { MediaUrls } from '@heisreal/story-cards';
-import type { Surreal } from 'surrealdb';
+import { RecordId, type Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import {
   CLERK_BACKEND,
@@ -165,17 +164,19 @@ describe('download my data', () => {
     decision: 'approve' | 'request_changes' | 'reject',
     feedback?: string,
   ) {
-    if (decision === 'approve') {
-      await approve(admin, id);
-    } else {
-      await step(admin, id, 'in_review');
-      await step(
-        admin,
-        id,
-        decision === 'reject' ? 'rejected' : 'changes_requested',
-        { comment: feedback },
-      );
-    }
+    // Moderator modq7, whom the file must never name.
+    const by = new RecordId('user', 'modq7');
+    await step(admin, id, 'in_review', { by });
+    await step(
+      admin,
+      id,
+      {
+        approve: 'approved',
+        reject: 'rejected',
+        request_changes: 'changes_requested',
+      }[decision],
+      feedback ? { by, comment: feedback } : { by },
+    );
   }
 
   /** Everything the database holds of a person, read as the migrator: the ground truth. */
@@ -185,10 +186,8 @@ describe('download my data', () => {
       `LET $u = type::record('user', $who);
        RETURN {
          stories: (SELECT VALUE record::id(id) FROM story WHERE submitter = $u),
-         reviews: (SELECT VALUE { approved: 'approve', rejected: 'reject',
-             changes_requested: 'request_changes' }[status]
-           FROM storyStatusLog WHERE story.submitter = $u AND actor = 'moderator'
-             AND status IN ['approved', 'rejected', 'changes_requested']),
+         history: (SELECT VALUE record::id(story) + ' ' + status + ' ' + actor
+           FROM storyStatusLog WHERE story.submitter = $u),
          agreements: (SELECT VALUE [record::id(termsOfUse), record::id(testimonyConsent)]
            FROM ONLY $u),
          hearts: (SELECT VALUE record::id(story) FROM favourite WHERE person = $u),
@@ -316,6 +315,13 @@ describe('download my data', () => {
     await submit(ann, annLive.id);
     await processed(await t.service('workflow'), annLive.id);
     await decide(annLive.id, 'approve');
+    // Its picture stops being ready, then is again: the system hides it and shows it again (R6).
+    await run(
+      await t.service('workflow'),
+      `UPDATE type::record('story', $id) SET image.processing = 'failed'`,
+      { id: annLive.id },
+    );
+    await processed(await t.service('workflow'), annLive.id);
     const annVideo = randomUUID();
     await draft(ann, 'ann_video', { primaryFormat: 'video', body: undefined });
     expect(
@@ -430,11 +436,13 @@ describe('download my data', () => {
       [...held['keys']].sort(),
     );
     expect(held['keys']).toHaveLength(5);
-    const reviews = file.stories.flatMap(
-      (s: { moderation: { decision: string }[] }) =>
-        s.moderation.map((m) => m.decision),
+    // R6: every entry of her stories' status logs, never who moderated.
+    const history = file.stories.flatMap(
+      (s: { id: string; statusHistory: Record<string, unknown>[] }) =>
+        s.statusHistory.map((e) => `${s.id} ${e['status']} ${e['actor']}`),
     );
-    expect(reviews.sort()).toEqual([...held['reviews']].sort());
+    expect(history.sort()).toEqual([...held['history']].sort());
+    expect(JSON.stringify(file)).not.toMatch(/"by"/);
 
     // Each part as the person sees it.
     const story = (id: string) =>
@@ -457,12 +465,17 @@ describe('download my data', () => {
     expect(story(annDraft.id).draftExpiresAt).not.toBeNull();
     expect(story(annBack.id)).toMatchObject({
       rejectionFeedback: 'Please say a little more.',
-      moderation: [
+      statusHistory: [
+        { status: 'pending', actor: 'person', comment: null },
+        { status: 'in_review', actor: 'moderator', comment: null },
         {
-          decision: 'request_changes',
-          feedbackToSubmitter: 'Please say a little more.',
+          status: 'changes_requested',
+          actor: 'moderator',
+          comment: 'Please say a little more.',
           storyVersion: expect.any(Number),
-          decidedAt: expect.any(String),
+          at: expect.any(String),
+          publishedAt: null,
+          hiddenReason: null,
         },
       ],
     });
@@ -475,7 +488,25 @@ describe('download my data', () => {
     expect(story(annLive.id)).toMatchObject({
       onSiteNow: true,
       publishedAt: expect.any(String),
-      moderation: [{ decision: 'approve', feedbackToSubmitter: null }],
+      statusHistory: [
+        { status: 'pending', actor: 'person' },
+        { status: 'in_review', actor: 'moderator' },
+        {
+          status: 'approved',
+          actor: 'moderator',
+          publishedAt: expect.any(String),
+        },
+        {
+          status: 'hidden',
+          actor: 'system',
+          hiddenReason: 'media_unavailable',
+        },
+        {
+          status: 'approved',
+          actor: 'system',
+          publishedAt: expect.any(String),
+        },
+      ],
       image: {
         width: 640,
         height: 480,

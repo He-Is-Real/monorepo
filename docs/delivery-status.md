@@ -129,8 +129,8 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   database shows it only published stories and their public fields. Every change of a story's
   status (submitted, picked up, approved, sent back, rejected, withdrawn, hidden, shown again) is
   a new line in the story's own history, never edited, saying who made it and when. Super admins
-  can read every story, drafts included, with its history (API only; no page yet). Nothing else
-  changes for people using the site. Dev's database is wiped and rebuilt once more when this is
+  can read every story, drafts included, with its history (API only; no page yet). "Download my
+  data" now includes each story's whole history. Nothing else changes for people using the site. Dev's database is wiped and rebuilt once more when this is
   applied. Part B2 (each story's files as their own records, and a scale test) follows.
 
 **Left in the M2 plan:**

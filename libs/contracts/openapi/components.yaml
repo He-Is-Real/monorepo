@@ -1660,7 +1660,10 @@ components:
               const: he-is-real-my-data
             formatVersion:
               type: integer
-              const: 1
+              const: 2
+              description: |
+                Goes up when the file's shape changes in a way a reader of the old one would misread.
+                2 (R6): each story's `statusHistory` replaced its `moderation` list.
             generatedAt:
               type: string
               format: date-time
@@ -1792,7 +1795,7 @@ components:
                 media,
                 image,
                 rejectionFeedback,
-                moderation,
+                statusHistory,
                 createdAt,
                 updatedAt,
                 submittedAt,
@@ -1886,25 +1889,60 @@ components:
                     type: [string, 'null']
               rejectionFeedback:
                 type: [string, 'null']
-              moderation:
+              statusHistory:
                 type: array
-                description: Each moderation decision on the story, oldest first; never who made it.
+                description: |
+                  R6 ("Download my data includes the log"): every entry of the story's status log, oldest
+                  first: the person's own (submit, withdraw), the moderators' (with their comment to the
+                  person, never who made it) and the system's (hidden while its media can't play, shown
+                  again once it can).
                 items:
                   type: object
                   additionalProperties: false
                   required:
-                    [decision, feedbackToSubmitter, storyVersion, decidedAt]
+                    [
+                      status,
+                      actor,
+                      comment,
+                      storyVersion,
+                      at,
+                      publishedAt,
+                      hiddenReason,
+                    ]
                   properties:
-                    decision:
+                    status:
                       type: string
-                      enum: [approve, reject, request_changes, escalate]
-                    feedbackToSubmitter:
+                      enum:
+                        [
+                          pending,
+                          in_review,
+                          approved,
+                          changes_requested,
+                          rejected,
+                          withdrawn,
+                          hidden,
+                        ]
+                    actor:
+                      type: string
+                      enum: [person, moderator, system]
+                      description: '`person` is the person themselves; a moderator is never named.'
+                    comment:
                       type: [string, 'null']
+                      description: A moderator's comment to the person.
                     storyVersion:
                       type: integer
-                    decidedAt:
+                      description: Which edit of the story the entry was about.
+                    at:
                       type: string
                       format: date-time
+                    publishedAt:
+                      type: [string, 'null']
+                      format: date-time
+                      description: On approved entries, when the story was first published.
+                    hiddenReason:
+                      type: [string, 'null']
+                      enum: [media_unavailable, media_changed, null]
+                      description: On the system's hidden entries, why.
               createdAt:
                 type: string
                 format: date-time

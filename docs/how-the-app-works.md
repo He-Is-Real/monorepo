@@ -231,7 +231,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   marked deleted, with no date and no reason. Deleting the person in Clerk's dashboard does the
   same. (D82, D88, O4)
 - **Download my data** gives one file of everything we hold about the person, explained in plain
-  words: their stories in every status, moderators' decisions on them (never who made them), what
+  words: their stories in every status, each story's whole status history (their own submits and
+  withdrawals, moderators' decisions with their comments, signed "moderator" and never who made
+  them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05), what
   they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
   audio and pictures come as links that last one hour today. Decided (Joel, 2026-10-31) and being
   built: Bunny keeps the original upload, and the file's links let the person watch and download
