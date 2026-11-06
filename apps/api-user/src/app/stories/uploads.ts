@@ -17,6 +17,7 @@ import {
   retryOnConflict,
   runIdempotent,
   runQuery,
+  STORY_STATUS,
   uploadLimitOf,
   WriteNotAppliedError,
 } from '@heisreal/database';
@@ -778,7 +779,7 @@ export class Uploads {
   ): Promise<DraftMedia> {
     const [rows] = (await runQuery(
       person,
-      `SELECT version, fn::story::status_of($this) AS status, primaryFormat,
+      `SELECT version, ${STORY_STATUS} AS status, primaryFormat,
          IF mediaFile != NONE { record::id(mediaFile) } AS videoId,
          IF image != NONE { record::id(image.file) } AS imagePath FROM type::record('story', $id)
          WHERE submitter = $auth`,

@@ -889,7 +889,7 @@ DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
 
 
 -- ---------------------------------------------------------------- storyFile (R12; D65, D80, D113)
--- One row per file uploaded for a story (R12, Joel 2026-11-05; was uploadGrant): a video or
+-- One row per file uploaded for a story (R12, Joel 2026-11-05): a video or
 -- audio file api-user created at Bunny Stream (RequestUpload, M2 plan PR 7; id =
 -- storyFile:<bunnyVideoId>), or a picture in the images storage zone (M2 plan PR 10; id =
 -- storyFile:`stories/<story id>/<random>.webp`, its path, which api-user picks, D80). So a file

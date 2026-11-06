@@ -1,3 +1,4 @@
+import { isPublished } from '@heisreal/database';
 import type { MediaUrls } from './media-urls';
 import type { ThemeRef } from './themes';
 
@@ -197,7 +198,7 @@ export const FAVOURITES_SQL = `LET $among = IF $ids != NONE { $ids.map(|$i| type
      WHERE person = $auth.id
        AND ($among = NONE OR story IN $among)
        AND ($afterId = NONE OR id < $afterId)
-       AND story.currentStatus.status = 'approved'
+       AND ${isPublished('story.')}
      ORDER BY id DESC
      LIMIT $take;
    LET $refs = $hearts.slice(0, $show).map(|$h| type::record('story', $h.story));

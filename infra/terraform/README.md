@@ -276,7 +276,7 @@ Scheduler starts it at 03:30 London time; both are in `europe-west2`, written ou
   only this account) and `bunny-storage-password` (the bunny root's `storage_password_readers`,
   the same: to delete the images-zone folders of stories that are gone; it gets the zone from
   `api_user_image_uploads`, and without that, picture deletions wait in the queue), and signs in as `service:housekeeping`, whose permissions are in
-  [docs/db-permissions.md](../../docs/db-permissions.md) item 40. `housekeeping-scheduler` is
+  [docs/db-permissions.md](../../docs/db-permissions.md) ("Rules by table"). `housekeeping-scheduler` is
   Scheduler's: `run.invoker` on this Job only, so it can start it (without overrides) and nothing
   else. Scheduler calls the Cloud Run Admin API's `jobs.run` with an OAuth token (a Google API
   takes OAuth, not an OIDC ID token).

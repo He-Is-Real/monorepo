@@ -16,13 +16,15 @@ commands vs CRUD, errors, versioning, concurrency, "agree first") in
 | Path                   | What                                           | Notes                                                                    |
 | ---------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
 | `apps/web`             | Next.js (App Router) site                      | Tailwind v4 + shadcn/ui; reads api-public-read only (D32)                |
-| `apps/api-public-read` | Anonymous public read API (NestJS/Express)     | DB user `api_read` (until the schema PR), **VIEWER** (read-only)         |
-| `apps/api-user`        | The signed-in person's reads and commands      | DB user `api_write` (until the schema PR), EDITOR                        |
-| `apps/api-admin`       | Moderation/admin API (restricted hostname)     | DB user `api_admin`, EDITOR                                              |
+| `apps/api-public-read` | Anonymous public read API (NestJS/Express)     | DB login `service:api_public_read`, read-only                            |
+| `apps/api-user`        | The signed-in person's reads and commands      | DB login `service:api_user`; personal work runs as the person (D27)      |
+| `apps/api-admin`       | Moderation/admin API (restricted hostname)     | DB login `service:api_admin`                                             |
+| `apps/housekeeping`    | Nightly Cloud Run Job: clean-ups (D71)         | DB login `service:housekeeping`                                          |
 | `apps/workflow`        | Dapr worker, off Google Cloud (D78)            | Pulls from Pub/Sub, outbound only; no DB access (see below)              |
 | `apps/dev-seed`        | Dev-only Job: resets dev to dummy data (D49)   | System user `dev_seed` (dev only); [README](apps/dev-seed/README.md)     |
 | `libs/secrets`         | Reads GCP Secret Manager via the SDK           | Fetched once at startup; missing secret = clear failure                  |
-| `libs/database`        | SurrealDB client (surrealdb.js)                | Own user per service; startup fails after 15 s if DB is down             |
+| `libs/database`        | SurrealDB client (surrealdb.js), schema        | Own login per service; startup fails after 15 s if DB is down            |
+| `libs/story-cards`     | Public story cards and media link signing      | Shared by api-public-read and api-user                                   |
 | `libs/health`          | `GET /health` → `{ status, service, db }`      | 503 when the DB is down; `/testing` boots an app in tests                |
 | `libs/auth`            | Clerk sign-in for api-user and api-admin       | Networkless JWT check, `user` row on first use, role guard; `/testing`   |
 | `libs/http`            | CORS allowlist and RFC 9457 problem responses  | `CORS_ALLOWED_ORIGINS` (D31); `ProblemFilter` (D30)                      |
@@ -75,7 +77,7 @@ pnpm nx run terraform:test                        # `tofu test` of every OpenTof
 
 **Google Cloud Secret Manager is the only place secrets live** — not git, `.env` files, CI
 settings or OpenTofu state. Config holds only a secret's _name_ (e.g.
-`SURREAL_PASSWORD_SECRET=surreal-api-read-password`). Authentication is keyless everywhere
+`SURREAL_PASSWORD_SECRET=surreal-api-public-read-password`). Authentication is keyless everywhere
 (Application Default Credentials: your gcloud login, the Cloud Run service account, Workload
 Identity on GKE and in GitHub Actions); never create key files. Programs we don't write (SurrealDB
 and its Jobs) get secrets from External Secrets Operator, or `local-secrets.mjs` on local developer machines.

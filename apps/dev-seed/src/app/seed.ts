@@ -1,3 +1,4 @@
+import { isPublished, STORY_STATUS } from '@heisreal/database';
 import type { SurrealQueryable } from 'surrealdb';
 import type { SeedVars } from './plan';
 
@@ -137,9 +138,9 @@ COMMIT TRANSACTION;
 /** What the database holds after a reset: counted, not assumed. */
 export const SUMMARY_SQL = /* surql */ `
 SELECT status, count() AS stories FROM
-  (SELECT fn::story::status_of($this) AS status FROM story) GROUP BY status;
+  (SELECT ${STORY_STATUS} AS status FROM story) GROUP BY status;
 RETURN {
-  publicStories: count(SELECT id FROM story WHERE currentStatus.status = 'approved'),
+  publicStories: count(SELECT id FROM story WHERE ${isPublished()}),
   files: count(SELECT id FROM storyFile WHERE string::starts_with(<string> record::id(story), 'seed_')),
   statusEntries: count(SELECT id FROM storyStatusLog),
   themes: count(SELECT id FROM theme),

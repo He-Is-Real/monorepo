@@ -104,6 +104,28 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 - **Direct uploads proven** on dev before building them ([upload test](https://github.com/He-Is-Real/monorepo/pull/123)).
 - **Process rule recorded:** Joel owns data structure, API and behaviour decisions
   ([AGENTS.md rule](https://github.com/He-Is-Real/monorepo/pull/169)).
+- The public API answers a repeated request from memory for up to 60 seconds, so busy pages ask
+  the database far less; a withdrawn or hidden story can show for up to a minute (database
+  review 2, Joel's decision R13; [#181](https://github.com/He-Is-Real/monorepo/pull/181)).
+- **Database tidy before production** (database review 2, part A; Joel, 2026-11-05): the audit
+  log goes (each legal text version records who published it instead), an erased account is just
+  marked "deleted", the three write-fence tables become one, expired request keys are deleted
+  nightly, admins can't delete upload, submission or review records, a heart's time comes from
+  its id so it can't be backdated, the draft legal texts say super admins can see drafts, and the
+  schema is split into one file per area. Dev's database was wiped once and rebuilt from scratch
+  with its dummy data ([#182](https://github.com/He-Is-Real/monorepo/pull/182)).
+- **One story table and its history** (database review 2, part B1; Joel, 2026-11-04/05;
+  [#187](https://github.com/He-Is-Real/monorepo/pull/187)): the public copy of each story goes; the public reads the one story table, and the
+  database shows it only published stories and their public fields. Every change of a story's
+  status (submitted, picked up, approved, sent back, rejected, withdrawn, hidden, shown again) is
+  a new line in the story's own history, never edited, saying who made it and when. Super admins
+  can read every story, drafts included, with its history (API only; no page yet). "Download my
+  data" now includes each story's whole history. Nothing else changes for people using the
+  site. Dev's database was wiped and rebuilt once more.
+- **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
+  ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
+  and whole browser flows run on one phone and one desktop while every page's "fits the screen"
+  checks still run on all 14 devices ([#186](https://github.com/He-Is-Real/monorepo/pull/186)).
 
 **In progress (open pull requests):**
 
@@ -114,24 +136,6 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   ([#163](https://github.com/He-Is-Real/monorepo/pull/163)).
 - A signed-in request isn't cut off when the person's short-lived sign-in pass expires midway
   ([#165](https://github.com/He-Is-Real/monorepo/pull/165)).
-- The public API answers a repeated request from memory for up to 60 seconds, so busy pages ask
-  the database far less; a withdrawn or hidden story can show for up to a minute (database
-  review 2, Joel's decision R13; [#181](https://github.com/He-Is-Real/monorepo/pull/181)).
-- **Database tidy before production** (database review 2, part A; Joel, 2026-11-05): the audit
-  log goes (each legal text version records who published it instead), an erased account is just
-  marked "deleted", the three write-fence tables become one, expired request keys are deleted
-  nightly, admins can't delete upload, submission or review records, a heart's time comes from
-  its id so it can't be backdated, the draft legal texts say super admins can see drafts, and the
-  schema is split into one file per area. Dev's database is wiped once and rebuilt from scratch
-  with its dummy data when this is applied ([#182](https://github.com/He-Is-Real/monorepo/pull/182)).
-- **One story table and its history** (database review 2, part B1; Joel, 2026-11-04/05), in
-  progress: the public copy of each story goes; the public reads the one story table, and the
-  database shows it only published stories and their public fields. Every change of a story's
-  status (submitted, picked up, approved, sent back, rejected, withdrawn, hidden, shown again) is
-  a new line in the story's own history, never edited, saying who made it and when. Super admins
-  can read every story, drafts included, with its history (API only; no page yet). "Download my
-  data" now includes each story's whole history. Nothing else changes for people using the
-  site. Dev's database is wiped and rebuilt once more when this is applied.
 - **Each story's files as their own records** (database review 2, part B2; Joel, 2026-11-05), in
   progress: every uploaded video, audio file and picture gets its own record, and the story points
   at the ones it shows. A replaced or removed file is now deleted by the nightly clean-up once its
@@ -146,10 +150,9 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   story takes about half a second a page; a possible index is with Joel. Nothing changes for
   people using the site. Dev's
   database is wiped and rebuilt once more when this is applied.
-- **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
-  ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
-  and whole browser flows run on one phone and one desktop while every page's "fits the screen"
-  checks still run on all 14 devices ([#186](https://github.com/He-Is-Real/monorepo/pull/186)).
+- **Tidy-up after the database rework:** the code that reads a story's status says it in one
+  place, and the developer notes on database permissions are cut to the rules in force. Nothing
+  changes for people using the site.
 
 **Left in the M2 plan:**
 

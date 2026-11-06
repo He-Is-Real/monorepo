@@ -27,10 +27,10 @@ Two cases don't come back on their own:
   A new thumbnail of the same file doesn't count (R12): re-encoding often picks another frame, and
   the story comes back with it. So re-encode a broken video. Don't upload it again (a new Bunny
   video id).
-- **The person withdrew consent.** Consent rules publishing (D17), so the story stays off the
-  public site. Withdrawing consent also ends the hide, so giving consent again later doesn't
-  publish it. A story that wasn't public when its media broke is never hidden or published by
-  a media fix.
+- **The story is no longer approved** (withdrawn, or a moderator's decision since). A media fix
+  only brings back a story the system hid, and only while the person still has a testimony
+  consent. A story that wasn't public when its media broke is never hidden or published by a
+  media fix.
 
 ## Find hidden stories
 
@@ -127,12 +127,12 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
   Its log is one JSON line per chore with counts and ids only:
   `gcloud logging read 'resource.labels.job_name="housekeeping"' --limit 20`.
 
-- **Abandoned drafts** (D71): the same Job first deletes drafts nobody has touched for as long as
-  the testimony forms promise (6 months, counted as 186 days), the way a person deletes their own
+- **Abandoned drafts** (D71): the same Job first deletes drafts nobody has touched for 186 days
+  (6 months of 31 days, `fn::story::draft_retention`), the way a person deletes their own
   draft. Resuming an upload counts as touching the draft: api-user signs the link only once that
   is recorded, and the two can't both win a race. Their videos are then orphans, and go in the same run once they're 48 hours old.
 - To look for orphans by hand: a story id with no story, or a video id that isn't the story's
-  `media[0].bunnyVideoId`:
+  `record::id(mediaFile)`:
 
   ```bash
   tools/scripts/tf.sh bunny-cli api GET '/library/<library id>/videos?itemsPerPage=100' | jq '.items[] | {guid, title, status, dateUploaded}'
@@ -154,7 +154,7 @@ row). A deleted story's pictures go a whole folder (`stories/<story id>/`) at a 
 deletion queue (`pendingDeletion`, kind `image`). **Every story delete queues its folder**,
 whoever deletes it, in the same transaction (the database event `story_picture_folder`, one row
 per folder): it works from the story itself, never from its file rows, which are pruned 7 days
-after they stop counting (Codex #140 round 4: an erasure built from those rows missed files).
+after they stop counting (a queue built from those rows missed files).
 
 - **Erasure** (D39, D40): api-user deletes the erased person's stories' folders straight after
   the commit, and the nightly housekeeping retries what failed.
@@ -167,7 +167,7 @@ after they stop counting (Codex #140 round 4: an erasure built from those rows m
   (`finalPassAt`); the database refuses to remove the row before then, and the first delete at
   or after it (housekeeping's next run, or api-user's after a later erasure) removes the row.
   A failed try still waits and counts as usual; dry runs and the per-run limit apply.
-- **Reused story ids** (Codex #140 round 6): while a folder's row is queued, the database refuses
+- **Reused story ids:** while a folder's row is queued, the database refuses
   to create a story with that id, except for a system user (dev-seed's reset reuses its ids). A
   second delete of the same id moves the final pass to 15 minutes after it and makes the row due
   again, so a recreated story's late upload is still caught.
