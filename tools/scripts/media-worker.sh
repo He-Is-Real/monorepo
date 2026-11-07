@@ -77,6 +77,10 @@ export GOOGLE_APPLICATION_CREDENTIALS="$runtime/credentials.json"
 # no other program, and no web page posting to 127.0.0.1, can hand the worker a job. New each run.
 APP_API_TOKEN="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
 export APP_API_TOKEN
+# And the sidecar's own API needs this (it also offers nothing but its health check,
+# apps/media-worker/dapr/config.yaml), so nobody can reach the worker through Dapr either.
+DAPR_API_TOKEN="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
+export DAPR_API_TOKEN
 
 # The worker first: Dapr asks it for its subscription when it starts.
 GCP_PROJECT="$project" MEDIA_WORKER_ACCOUNT="$account" RESULT_WRITER_URL="$writer" \

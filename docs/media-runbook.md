@@ -104,9 +104,7 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
 ### Running the media worker
 
 The worker runs on Joel's machine against dev, and only while he runs it. It reaches out to
-Google and Bunny; nothing can reach it (it and Dapr listen on 127.0.0.1 only, and the worker
-refuses any call without the secret Dapr's sidecar sends, `APP_API_TOKEN`, new each run, so
-neither another program nor a web page can hand it a job). It never touches
+Google and Bunny; nothing can reach it (it and Dapr listen on 127.0.0.1 only; the worker refuses any call without the secret Dapr's sidecar sends, `APP_API_TOKEN`, and the sidecar offers only its health check, behind its own `DAPR_API_TOKEN`; both new each run, so neither another program nor a web page can hand it a job). It never touches
 the database, holds only Bunny's read-only key (read from Secret Manager while it runs), and
 writes nothing to disk. Dapr is used for its Pub/Sub part only (D129): no state store, no
 actors, no control plane.
