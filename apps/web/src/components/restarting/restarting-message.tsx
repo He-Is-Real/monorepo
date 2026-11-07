@@ -73,6 +73,17 @@ export function reportRestarting(seconds: number): void {
   for (const listener of listeners) listener();
 }
 
+/**
+ * Called by api-user's client on any successful answer (from api-user or api-admin): the
+ * database is back, so the notice goes. It lives in the root layout, so it stays across client
+ * navigation until then.
+ */
+export function clearRestarting(): void {
+  if (!reported) return;
+  reported = null;
+  for (const listener of listeners) listener();
+}
+
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -81,7 +92,7 @@ const subscribe = (listener: () => void) => {
 /**
  * After an action (a save, a submit, an upload) was answered "restarting": the same message,
  * fixed at the bottom of the screen, so nothing on the page moves and nothing the person typed
- * is lost. They can try again when it says.
+ * is lost. They can try again when it says. It goes after the next successful answer.
  */
 export function RestartingNotice() {
   const restart = useSyncExternalStore(

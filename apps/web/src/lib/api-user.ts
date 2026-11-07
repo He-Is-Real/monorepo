@@ -16,7 +16,7 @@
  *   success whose body can't be read or parsed: either way the outcome is unknown.
  * - **`503 service_restarting` means the database is restarting** (SurrealDB on Spot): it's
  *   thrown like any problem, so the caller keeps what the person typed, and reported to
- *   `RestartingNotice`, which says when to try again.
+ *   `RestartingNotice`, which says when to try again. The next successful answer clears it.
  * - **412 means the resource changed since it was read** ({@link StaleVersion}): re-read it,
  *   re-apply the change if nothing it touched has changed, and ask the person only on a real
  *   clash (D70). **428 means we forgot `If-Match`**, a bug in our code, never the person's.
@@ -27,7 +27,10 @@
  *   api-admin's origin (`API_ADMIN_URL`): the same token, the same rules (D31).
  */
 
-import { reportRestarting } from '@/components/restarting/restarting-message';
+import {
+  clearRestarting,
+  reportRestarting,
+} from '@/components/restarting/restarting-message';
 import { restartingSeconds } from './restarting';
 
 /** Clerk's `getToken()`: the current session token, or null when signed out. */
@@ -177,6 +180,8 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
       );
     }
     if (!res.ok && res.status !== 304) throw await problemOf(res);
+    // Answered: if the database was restarting, it's back.
+    clearRestarting();
     // A success whose body is cut off or isn't JSON tells us nothing about what was done: the
     // command may well have applied. It's an unknown outcome, like no answer at all, so callers
     // keep their Idempotency-Key and try again (Codex #118).
