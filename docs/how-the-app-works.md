@@ -454,6 +454,11 @@ back at any time; it then restarts elsewhere within a few minutes, and no data i
   again in about N minutes") and the page keeps what the person typed.
 - The estimate: 2 minutes (a setting, `DATABASE_RESTART_ESTIMATE_SECONDS`) counted from when that
   copy of the service first saw the database go, never less than 1 minute.
+- The message at the bottom of the screen goes as soon as the next thing the browser asks
+  api-user or api-admin is answered, on the same page or after moving to another one.
+- A copy of a service that starts while the database is away starts anyway and gives the same
+  message (counted from when it first failed to connect) until it has connected; once
+  connected, nothing changes. (Joel, 2026-11-07: "gap a")
 
 ## Dev and test environment
 
@@ -508,7 +513,9 @@ For developers. Details are in the linked documents.
 - **The database runs on Spot in dev and production** (Joel, 2026-11-07), and so do the cluster's
   helpers (External Secrets, the backup Job). Every service notices a restart in the shared
   database client (`libs/database`, `DatabaseAvailability`): it keeps reconnecting for as long as
-  it takes, answers `503 service_restarting` with `Retry-After` at once instead of hanging
+  it takes (and starts without the database, connecting in the background: `connectInBackground`;
+  Cloud Run's start-up check only needs the port open), answers `503 service_restarting` with
+  `Retry-After` at once instead of hanging, sign-in's person lookup included
   (`ServiceRestarting` in `libs/contracts/openapi/components.yaml`), and logs one line when the
   database goes (`database_unavailable`) and one when it's back (`database_available`, with how
   long). Google's own record of each reclaim is counted by the log-based metric

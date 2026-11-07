@@ -428,6 +428,15 @@ What happens and where to look:
   `Retry-After` estimate (2 minutes from when it saw the database go, at least 1 minute;
   `DATABASE_RESTART_ESTIMATE_SECONDS`), and api-public-read serves its kept public answers instead
   (up to 30 minutes old). Web shows "Our compute is currently restarting" with a countdown.
+- **New copies start anyway:** a copy that starts (a cold start, a deploy) while the database is
+  away connects in the background and answers `503 service_restarting` until it has connected.
+  Cloud Run's start-up check is a TCP check on port 8080 (`modules/gcp/cloudrun.tf`,
+  `signed_in_apis.tf`, `media.tf`) and there is no liveness check, so neither waits for the
+  database; `GET /health` still says `db: down` (503) for a person or uptime check to read. The
+  log shows `Can't reach … yet; still trying` once, then `database_unavailable`, and
+  `Connected to …` when it gets there. **A wrong password or a broken database looks the same**
+  (the copy keeps answering "restarting" instead of failing to start): if it lasts, read those
+  log lines.
 - **How long it lasted:** Logs Explorer, `jsonPayload.event="database_available"` (one per running
   copy, with `unavailableSeconds`); `jsonPayload.event="database_unavailable"` marks the start.
 - **How often:** the log-based metric `heisreal-dev/database-spot-reclaims` (bootstrap root,

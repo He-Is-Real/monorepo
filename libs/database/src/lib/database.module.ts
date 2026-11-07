@@ -12,7 +12,7 @@ import { DatabaseHealthService } from './database-health.service';
 import { DatabaseConfig, databaseConfigFromEnv } from './database.config';
 import { SURREAL } from './database.constants';
 
-/** Startup fails with a clear error instead of hanging while the SDK retries an unreachable database. */
+/** {@link connectDatabase} (jobs) fails with a clear error instead of hanging while the SDK retries an unreachable database. */
 export const CONNECT_TIMEOUT_MS = 15_000;
 
 /**
@@ -72,9 +72,71 @@ export async function connectDatabase(
   return db;
 }
 
+/** Clients {@link connectInBackground} keeps connected: how to stop it, for shutdown. */
+const keepers = new WeakMap<Surreal, () => void>();
+
 /**
- * Global module providing a connected SurrealDB client (token {@link SURREAL}).
- * Requires `SecretsModule` to be imported by the application.
+ * For the services (Joel, 2026-11-07, "gap a"): starts connecting and returns at once, so a
+ * service starts, and passes Cloud Run's start-up check, while the database is away (it runs on
+ * Spot). Until it's connected, and during any later outage, `DatabaseAvailability` answers
+ * `503 service_restarting`. The SDK retries the socket on its own ({@link RECONNECT}); if it
+ * gives up instead (the sign-in after a reconnect failed, e.g. Secret Manager didn't answer), this
+ * connects again a few seconds later, for as long as it takes. {@link stopConnecting} ends it.
+ */
+export function connectInBackground(
+  db: Surreal,
+  config: DatabaseConfig,
+  secrets: SecretsService,
+): Surreal {
+  const logger = new Logger('DatabaseModule');
+  let stopped = false;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  const connect = () =>
+    db
+      .connect(config.url, {
+        namespace: config.namespace,
+        database: config.database,
+        reconnect: RECONNECT,
+        // A callback, so the SDK can sign in again after a reconnect or token expiry.
+        authentication: async () => serviceSignIn(config, secrets),
+      })
+      .then(() =>
+        logger.log(
+          `Connected to ${config.url} as service:${config.username} (${config.namespace}/${config.database})`,
+        ),
+      )
+      .catch((err: unknown) =>
+        logger.warn(
+          `Can't reach ${config.url} yet; still trying: ${String(err)}`,
+        ),
+      );
+  const offDisconnected = db.subscribe('disconnected', () => {
+    if (stopped || retry) return;
+    retry = setTimeout(() => {
+      retry = undefined;
+      if (!stopped && db.status === 'disconnected') void connect();
+    }, RECONNECT.retryDelayMax);
+    retry.unref();
+  });
+  keepers.set(db, () => {
+    stopped = true;
+    clearTimeout(retry);
+    offDisconnected();
+  });
+  void connect();
+  return db;
+}
+
+/** Stops {@link connectInBackground} reconnecting `db` (before closing it). */
+export function stopConnecting(db: Surreal): void {
+  keepers.get(db)?.();
+  keepers.delete(db);
+}
+
+/**
+ * Global module providing the service's SurrealDB client (token {@link SURREAL}), connecting in
+ * the background ({@link connectInBackground}). Requires `SecretsModule` to be imported by the
+ * application.
  */
 @Global()
 @Module({
@@ -82,8 +144,8 @@ export async function connectDatabase(
     {
       provide: SURREAL,
       inject: [SecretsService],
-      useFactory: (secrets: SecretsService): Promise<Surreal> =>
-        connectDatabase(new Surreal(), databaseConfigFromEnv(), secrets),
+      useFactory: (secrets: SecretsService): Surreal =>
+        connectInBackground(new Surreal(), databaseConfigFromEnv(), secrets),
     },
     DatabaseHealthService,
     DatabaseAvailability,
@@ -94,6 +156,7 @@ export class DatabaseModule implements OnApplicationShutdown {
   constructor(@Inject(SURREAL) private readonly db: Surreal) {}
 
   async onApplicationShutdown(): Promise<void> {
+    stopConnecting(this.db);
     await this.db.close();
   }
 }

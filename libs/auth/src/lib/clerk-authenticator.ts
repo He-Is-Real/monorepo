@@ -6,11 +6,7 @@ import {
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
-import {
-  DatabaseAvailability,
-  DatabaseUnavailableError,
-  SURREAL,
-} from '@heisreal/database';
+import { DatabaseAvailability, SURREAL } from '@heisreal/database';
 import type { Request } from 'express';
 import type { Surreal } from 'surrealdb';
 import { CLERK_CONFIG, type ClerkConfig } from './clerk-config';
@@ -88,11 +84,13 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
       throw new UnauthorizedException('The session token was refused');
     }
     if (!this.known.has(verified.clerkUserId)) {
-      // Guards run before DatabaseAvailabilityInterceptor: answer `503 service_restarting` at
-      // once rather than wait minutes for a restarting database.
-      if (this.database?.restartingSince())
-        throw new DatabaseUnavailableError();
-      await this.ensurePerson(verified.clerkUserId);
+      // Guards run before DatabaseAvailabilityInterceptor: a lookup during an outage, or one
+      // still waiting when it starts, answers `503 service_restarting` at once rather than wait
+      // minutes for a restarting database. Either way the request is refused, never let through.
+      const clerkUserId = verified.clerkUserId;
+      await (this.database
+        ? this.database.whileAvailable(() => this.ensurePerson(clerkUserId))
+        : this.ensurePerson(clerkUserId));
       this.known.add(verified.clerkUserId);
     }
     return {

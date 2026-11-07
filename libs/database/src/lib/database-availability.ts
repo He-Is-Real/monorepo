@@ -151,6 +151,37 @@ export class DatabaseAvailability implements OnModuleInit, OnModuleDestroy {
     return this.since;
   }
 
+  /**
+   * Whether a request that needs the database can't have it now: an outage, or not connected
+   * yet (a copy starts before it has reached the database, `connectInBackground`). Once
+   * connected, only an outage counts.
+   */
+  isUnavailable(): boolean {
+    return (
+      this.restartingSince() !== undefined || this.db.status !== 'connected'
+    );
+  }
+
+  /**
+   * `work()`, unless the database is away: then, or if an outage starts while it's waiting,
+   * {@link DatabaseUnavailableError} at once (the SDK would hold the query until the database
+   * is back). Abandoned work may still finish later; its result is dropped.
+   */
+  async whileAvailable<T>(work: () => Promise<T>): Promise<T> {
+    if (this.isUnavailable()) throw new DatabaseUnavailableError();
+    let off = () => undefined as unknown;
+    const outage = new Promise<never>((_, reject) => {
+      off = this.onUnavailable(() => reject(new DatabaseUnavailableError()));
+    });
+    const running = work();
+    running.catch(() => undefined);
+    try {
+      return await Promise.race([running, outage]);
+    } finally {
+      off();
+    }
+  }
+
   /** The problem fields for an outage that began at `since` (now, if not yet recorded). */
   restarting(now = new Date()): ServiceRestarting {
     const since = this.since ?? now;
@@ -222,7 +253,8 @@ export const AvailableWithoutDatabase = () =>
 /**
  * While the database is away a query waits until it's back (the SDK holds it through the
  * reconnect), so a request would hang for minutes. This answers at once instead: a request that
- * arrives during an outage, or is still waiting when one starts, fails with
+ * arrives during an outage or before this copy has first connected, or is still waiting when an
+ * outage starts, fails with
  * {@link DatabaseUnavailableError} (ProblemFilter's `503 service_restarting`). A write already
  * sent may still be applied once the database is back; clients retry with the same
  * `Idempotency-Key` or `If-Match`, as for any answer that never arrived.
@@ -243,7 +275,7 @@ export class DatabaseAvailabilityInterceptor implements NestInterceptor {
     ) {
       return next.handle();
     }
-    if (this.availability.restartingSince()) {
+    if (this.availability.isUnavailable()) {
       throw new DatabaseUnavailableError();
     }
     const outage = new Observable<never>((subscriber) =>

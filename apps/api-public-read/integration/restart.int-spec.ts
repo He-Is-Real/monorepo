@@ -1,7 +1,14 @@
-import { createServer, type Server, type Socket, connect } from 'node:net';
 import type { INestApplication } from '@nestjs/common';
-import { connectDatabase } from '@heisreal/database';
-import { TestDatabase } from '@heisreal/database/integration-testing';
+import {
+  connectDatabase,
+  connectInBackground,
+  stopConnecting,
+} from '@heisreal/database';
+import {
+  type DatabaseRelay,
+  databaseRelay,
+  TestDatabase,
+} from '@heisreal/database/integration-testing';
 import type { SecretsService } from '@heisreal/secrets';
 import { Surreal } from 'surrealdb';
 import { startPublicRead } from './app';
@@ -10,69 +17,23 @@ import { startPublicRead } from './app';
  * SurrealDB on Spot (Joel, 2026-11-07): when Google takes the database's machine back, every API
  * answers `503 service_restarting` with when to try again, at once rather than hanging, and
  * answers normally as soon as the database is back. api-public-read serves the copy it kept of
- * a public answer (up to 30 minutes old) instead, when it has one.
+ * a public answer (up to 30 minutes old) instead, when it has one. A copy that starts while the
+ * database is away starts anyway and answers the same until it has connected ("gap a").
  *
- * The database "stops" behind a TCP relay the test controls: it drops every connection and
- * refuses new ones, as a restarting pod does. The test SurrealDB container itself is shared with
- * the other suites running at the same time, so it isn't stopped.
+ * The database "stops" behind a TCP relay the test controls (`databaseRelay`).
  */
-function relay(target: string): Promise<{
-  url: string;
-  stop: () => void;
-  start: () => void;
-  close: () => Promise<void>;
-}> {
-  const { hostname, port } = new URL(target.replace(/^ws/, 'http'));
-  const sockets = new Set<Socket>();
-  let up = true;
-  const server: Server = createServer((client) => {
-    if (!up) {
-      client.destroy();
-      return;
-    }
-    const upstream = connect(Number(port), hostname);
-    for (const s of [client, upstream]) {
-      sockets.add(s);
-      s.on('close', () => sockets.delete(s));
-      s.on('error', () => undefined);
-    }
-    client.pipe(upstream).pipe(client);
-    client.on('close', () => upstream.destroy());
-    upstream.on('close', () => client.destroy());
-  });
-  return new Promise((resolve) =>
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address() as { port: number };
-      resolve({
-        url: `ws://127.0.0.1:${address.port}`,
-        stop: () => {
-          up = false;
-          for (const s of sockets) s.destroy();
-        },
-        start: () => {
-          up = true;
-        },
-        close: () =>
-          new Promise((done) => {
-            for (const s of sockets) s.destroy();
-            server.close(() => done());
-          }),
-      });
-    }),
-  );
-}
-
 describe('a database restart', () => {
   let t: TestDatabase;
   let app: INestApplication | undefined;
   let db: Surreal | undefined;
-  let database: Awaited<ReturnType<typeof relay>> | undefined;
+  let database: DatabaseRelay | undefined;
 
   const saved = process.env['PUBLIC_RESPONSE_CACHING'];
   afterEach(async () => {
     if (saved === undefined) delete process.env['PUBLIC_RESPONSE_CACHING'];
     else process.env['PUBLIC_RESPONSE_CACHING'] = saved;
     await app?.close();
+    if (db) stopConnecting(db);
     await db?.close();
     await database?.close();
     await t?.close();
@@ -80,7 +41,7 @@ describe('a database restart', () => {
 
   it('answers 503 service_restarting while the database is away, and recovers when it is back', async () => {
     t = await TestDatabase.create();
-    database = await relay(t.url);
+    database = await databaseRelay(t.url);
     // The services' own connect, with their reconnect settings, through the relay.
     const password = t.servicePasswords.get('api_public_read');
     db = await connectDatabase(
@@ -146,6 +107,54 @@ describe('a database restart', () => {
     database.start();
     await expect
       .poll(async () => (await get('/v1/stories?limit=4')).status, {
+        timeout: 20_000,
+      })
+      .toBe(200);
+    expect((await get('/health')).status).toBe(200);
+  });
+
+  it('starts while the database is away, answers 503 service_restarting, and serves once it has connected', async () => {
+    t = await TestDatabase.create();
+    database = await databaseRelay(t.url, { up: false });
+    const password = t.servicePasswords.get('api_public_read');
+    // The services' own start-up: connecting in the background, not waiting for it.
+    const before = Date.now();
+    db = connectInBackground(
+      new Surreal(),
+      {
+        url: database.url,
+        namespace: t.namespace,
+        database: t.database,
+        username: 'api_public_read',
+        passwordSecret: 'unused',
+      },
+      { get: async () => password } as unknown as SecretsService,
+    );
+    const started = await startPublicRead(t, undefined, db);
+    app = started.app;
+    const get = (path: string) => fetch(`${started.url}${path}`);
+
+    const res = await get('/v1/stories?limit=1');
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as {
+      code: string;
+      restartingSince: string;
+      retryAfterSeconds: number;
+    };
+    expect(body.code).toBe('service_restarting');
+    expect(body.retryAfterSeconds).toBeGreaterThanOrEqual(60);
+    expect(body.retryAfterSeconds).toBeLessThanOrEqual(120);
+    // Since this copy first failed to connect: after it started, not before.
+    expect(Date.parse(body.restartingSince)).toBeGreaterThanOrEqual(
+      before - 1000,
+    );
+    expect(res.headers.get('retry-after')).toBe(String(body.retryAfterSeconds));
+    // The health probe answers (Cloud Run's own checks only need the port open).
+    expect((await get('/health')).status).toBe(503);
+
+    database.start();
+    await expect
+      .poll(async () => (await get('/v1/stories?limit=2')).status, {
         timeout: 20_000,
       })
       .toBe(200);

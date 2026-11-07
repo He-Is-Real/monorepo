@@ -161,8 +161,9 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
         }
       }
 
-      # As for api-public-read: ready = the port is open, which happens only after the app has
-      # connected to the database and passed its start-up checks (roles, consent policy).
+      # As for api-public-read: ready = the port is open, once the app has passed its start-up
+      # checks (every route's role policy). It doesn't wait for the database (SurrealDB on Spot):
+      # until connected, routes answer 503 service_restarting.
       startup_probe {
         tcp_socket {
           port = 8080

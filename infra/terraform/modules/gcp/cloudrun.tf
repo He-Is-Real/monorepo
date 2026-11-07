@@ -110,8 +110,10 @@ resource "google_cloud_run_v2_service" "api_public_read" {
         }
       }
 
-      # Readiness to receive traffic = the port is open. /health reports the
-      # database state but must not make Cloud Run restart the container.
+      # Readiness to receive traffic = the port is open, which doesn't wait for the
+      # database (it connects in the background; until then routes answer
+      # 503 service_restarting). /health reports the database state but must not
+      # make Cloud Run restart the container, so there is no liveness probe.
       startup_probe {
         tcp_socket {
           port = 8080
