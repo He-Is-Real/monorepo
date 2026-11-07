@@ -166,7 +166,7 @@ describe('a phone’s video or audio file loses its location and device before u
     expect(Buffer.from(after).includes(Buffer.from(media))).toBe(true);
   });
 
-  it('reads no more than its budget in all: past it, the file uploads as it is (Codex #191 round 2)', async () => {
+  it('uses no more than its memory budget in all: past it, the file uploads as it is (Codex #191 rounds 2 and 3)', async () => {
     // Many metadata boxes, each small, together over the budget.
     const many = Array.from({ length: 40 }, () =>
       box('udta', box('\u00a9xyz', '+51.5074-000.1278/'), new Uint8Array(1000)),
@@ -176,7 +176,8 @@ describe('a phone’s video or audio file loses its location and device before u
       box('mdat', media),
       ...many,
     ];
-    const total = many.reduce((n, b) => n + b.length, 0);
+    // Each box costs twice its size: read, then copied into the new file.
+    const total = 2 * many.reduce((n, b) => n + b.length, 0);
     const over = new Blob(parts);
     expect(await stripMediaMetadata(over, total - 1)).toBe(over);
     // Within it, every one is blanked.
@@ -184,6 +185,19 @@ describe('a phone’s video or audio file loses its location and device before u
     expect(has(new Uint8Array(await within.arrayBuffer()), '51.5074')).toBe(
       false,
     );
+  });
+
+  it('edits at most 1000 boxes: a file of many tiny metadata boxes uploads as it is (Codex #191 round 3)', async () => {
+    const tiny = (n: number) =>
+      new Blob([
+        box('ftyp', 'isom\0\0\0\0isom'),
+        box('mdat', media),
+        ...Array.from({ length: n }, () => box('udta')),
+      ]);
+    const tooMany = tiny(1001);
+    expect(await stripMediaMetadata(tooMany)).toBe(tooMany);
+    const enough = tiny(1000);
+    expect(await stripMediaMetadata(enough)).not.toBe(enough);
   });
 
   it('a file with no metadata, or one that isn’t an MP4, MOV or M4A, uploads as it is', async () => {

@@ -24,11 +24,18 @@ const XMP_UUID = 'be7acfcb97a942e89c71999491e3afac';
 /** The first box of an MP4, MOV or M4A file (older QuickTime files may start without `ftyp`). */
 const FIRST = new Set(['ftyp', 'moov', 'mdat', 'free', 'skip', 'wide', 'pnot']);
 /**
- * The most this reads into memory in all (`moov` and the top-level metadata boxes together): a
- * phone's are a few MB at most. Past it, the file uploads as it is, so a file built to hold many
- * large boxes can't make the tab run out of memory (Codex #191 round 2).
+ * The most memory this uses in all: each box it edits is held twice, once as read and once in
+ * the new file's Blob, so a box costs twice its size (`moov` and the top-level metadata boxes
+ * together; a phone's are a few MB at most). Past it, the file uploads as it is, so a file built
+ * to hold many large boxes can't make the tab run out of memory (Codex #191 rounds 2 and 3).
  */
-const READ_BUDGET_BYTES = 64 * 1024 * 1024;
+const MEMORY_BUDGET_BYTES = 64 * 1024 * 1024;
+/**
+ * The most boxes it edits: a phone's file has a handful. Past it, the file uploads as it is, so
+ * a file of many tiny metadata boxes can't exhaust memory through the per-box bookkeeping
+ * (Codex #191 round 3).
+ */
+const MAX_EDITS = 1000;
 
 class NotIsoMedia extends Error {}
 
@@ -104,13 +111,15 @@ async function read(file: Blob, start: number, end: number) {
  */
 export async function stripMediaMetadata<T extends Blob>(
   file: T,
-  budget = READ_BUDGET_BYTES,
+  budget = MEMORY_BUDGET_BYTES,
 ): Promise<T | Blob> {
   try {
     const edits: { at: number; bytes: Uint8Array }[] = [];
-    // Checked before each read, so nothing over it is ever allocated.
+    // Checked before each read, so nothing over it is ever allocated: the read and its copy in
+    // the new Blob, and one more edit.
     let left = budget;
-    const within = (size: number) => (left -= size) >= 0;
+    const within = (size: number) =>
+      edits.length < MAX_EDITS && (left -= 2 * size) >= 0;
     for (let at = 0; at < file.size;) {
       // The header only, its size checked against what's left of the file.
       const head = await read(file, at, Math.min(at + 16, file.size));
