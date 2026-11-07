@@ -132,6 +132,20 @@ for (const scheme of ['light', 'dark'] as const) {
       await expectAllTargets(page);
       await shots(page, info.project.name, scheme, 'error');
     });
+
+    test('the database restarting: the story page’s message', async ({
+      page,
+    }, info) => {
+      await page.goto('/stories/restarting');
+      await expect(
+        page.getByRole('heading', {
+          name: 'Our compute is currently restarting',
+        }),
+      ).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAllTargets(page);
+      await shots(page, info.project.name, scheme, 'restarting');
+    });
   });
 }
 

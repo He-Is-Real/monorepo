@@ -167,7 +167,10 @@ export class DatabaseAvailability implements OnModuleInit, OnModuleDestroy {
    */
   noticeFailure(err: unknown): boolean {
     if (!isDatabaseUnavailable(err)) return false;
-    if (!(err instanceof DatabaseUnavailableError) && this.db.status === 'connected')
+    if (
+      !(err instanceof DatabaseUnavailableError) &&
+      this.db.status === 'connected'
+    )
       return false;
     this.markUnavailable();
     return true;

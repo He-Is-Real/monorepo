@@ -1,5 +1,9 @@
 import { apiPublicReadUrl, serverNow } from './config';
-import { type StoryImage, StoriesUnavailableError } from './public-stories';
+import {
+  type StoryImage,
+  StoriesUnavailableError,
+  unavailableFrom,
+} from './public-stories';
 
 // D32: web reads from api-public-read only, server-side, with nothing from the visitor's request
 // (no cookies, no headers). Anything that holds stories is fetched fresh (D51: `no-store`): Next's
@@ -212,7 +216,7 @@ async function get(
     );
   }
   if (res.ok || (opts.notFound && res.status === 404)) return res;
-  throw new StoriesUnavailableError(`status ${res.status}`);
+  throw await unavailableFrom(res);
 }
 
 const json = (res: Response): Promise<unknown> =>

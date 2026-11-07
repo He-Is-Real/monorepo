@@ -12,7 +12,7 @@ is for) is the delivery plan in the `project` repo (`context/future/delivery-pla
 - The long dated log and the per-step build notes that used to be here are in git history
   (this file before 2026-11-04).
 
-**Last updated:** 2026-11-05
+**Last updated:** 2026-11-07
 
 Everything below runs on the **dev** site only, with made-up test stories. Nothing reaches the
 public until the "Go live" milestone; the old prototype and the Squarespace site keep running
@@ -218,6 +218,12 @@ Aid (after the charity is registered).
 Not started.
 
 ## Known issues
+
+- **Database restarts (Spot), built 2026-11-07:** the services notice when the database is
+  restarting, public pages keep working from the last copy, and everything else shows a calm
+  "restarting, refresh in about 2 minutes" message. Not covered yet: a copy of an API that starts
+  while the database is away still fails to start (Google then shows its own error page), and the
+  legal text pages show their usual "can't be shown" message rather than the restarting one.
 
 - **The nightly clean-up only reports on dev.** It will start deleting once someone has read a
   night's report and it looks right.

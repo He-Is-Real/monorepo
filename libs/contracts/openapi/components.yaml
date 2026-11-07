@@ -222,23 +222,21 @@ components:
         `Retry-After` header) is when to try again: a 2-minute estimate (a setting) counted from
         `restartingSince`, never under 60 seconds. Clients say "Our compute is currently restarting"
         with a countdown and keep anything the person typed. api-public-read serves a copy of a
-        public answer it kept in the last 30 minutes instead, when it has one.
+        public answer it kept in the last 30 minutes instead, when it has one. A few operations
+        also answer `503` with their own code when another service (Clerk, Bunny, Pub/Sub) doesn't
+        answer; their own descriptions say so, and those have no `restartingSince`.
       headers:
         Retry-After:
-          description: Seconds to wait before trying again; the same as `retryAfterSeconds`.
+          description: |
+            `service_restarting` only: seconds to wait before trying again, the same as
+            `retryAfterSeconds`.
           schema:
             type: integer
             minimum: 60
       content:
         application/problem+json:
           schema:
-            allOf:
-              - $ref: '#/components/schemas/Problem'
-              - type: object
-                required: [code, restartingSince, retryAfterSeconds]
-                properties:
-                  code:
-                    const: service_restarting
+            $ref: '#/components/schemas/Problem'
     Health:
       description: Service and database are up.
       content:

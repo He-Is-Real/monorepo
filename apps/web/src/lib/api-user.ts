@@ -14,6 +14,9 @@
  *   or 304 throws an {@link ApiUserProblem} with the problem's `status`, `code`, `detail` and
  *   field `errors`. A network failure or timeout throws {@link ApiUserUnavailable}, and so does a
  *   success whose body can't be read or parsed: either way the outcome is unknown.
+ * - **`503 service_restarting` means the database is restarting** (SurrealDB on Spot): it's
+ *   thrown like any problem, so the caller keeps what the person typed, and reported to
+ *   `RestartingNotice`, which says when to try again.
  * - **412 means the resource changed since it was read** ({@link StaleVersion}): re-read it,
  *   re-apply the change if nothing it touched has changed, and ask the person only on a real
  *   clash (D70). **428 means we forgot `If-Match`**, a bug in our code, never the person's.
@@ -23,6 +26,9 @@
  * - **api-admin too:** staff pages (`/admin/consent`) call api-admin with this same client at
  *   api-admin's origin (`API_ADMIN_URL`): the same token, the same rules (D31).
  */
+
+import { reportRestarting } from '@/components/restarting/restarting-message';
+import { restartingSeconds } from './restarting';
 
 /** Clerk's `getToken()`: the current session token, or null when signed out. */
 export type GetToken = () => Promise<string | null>;
@@ -237,6 +243,14 @@ async function problemOf(res: Response): Promise<ApiUserProblem> {
     } catch {
       // Not JSON after all: keep the bare problem.
     }
+  }
+  if (problem.status === 503 && problem.code === 'service_restarting') {
+    reportRestarting(
+      restartingSeconds(
+        (problem as { retryAfterSeconds?: unknown }).retryAfterSeconds,
+        res.headers.get('Retry-After'),
+      ),
+    );
   }
   if (res.status === 428) {
     // Our bug: a command that modifies a resource went without If-Match.

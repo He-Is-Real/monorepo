@@ -72,7 +72,9 @@ describe('retryAfterSeconds', () => {
     expect(retryAfterSeconds(since, after(30), 300)).toBe(270);
     expect(restartEstimateSecondsFromEnv({})).toBe(120);
     expect(
-      restartEstimateSecondsFromEnv({ DATABASE_RESTART_ESTIMATE_SECONDS: '300' }),
+      restartEstimateSecondsFromEnv({
+        DATABASE_RESTART_ESTIMATE_SECONDS: '300',
+      }),
     ).toBe(300);
     expect(
       restartEstimateSecondsFromEnv({ DATABASE_RESTART_ESTIMATE_SECONDS: 'x' }),

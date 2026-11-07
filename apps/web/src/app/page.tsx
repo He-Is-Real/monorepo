@@ -12,7 +12,9 @@ import {
   type StorySummary,
   type ThemeCategory,
 } from '@/lib/browse';
-import { whenUnavailable } from '@/lib/log';
+import { logStoriesUnavailable, whenUnavailable } from '@/lib/log';
+import { StoriesUnavailableError } from '@/lib/public-stories';
+import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { pageMetadata } from '@/lib/seo';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -34,10 +36,17 @@ const NEWEST_COUNT = 3;
  * The newest published stories. Never a chosen or pinned one (Joel, 2026-10-23: featuring one
  * person's story above the others is unfair to everyone else).
  */
-async function newestStories(): Promise<StorySummary[] | null> {
+/** The newest stories, or why they can't be shown (logged). */
+async function newestStories(): Promise<
+  StorySummary[] | StoriesUnavailableError
+> {
   return browseStories({ limit: NEWEST_COUNT })
     .then((p) => p.data)
-    .catch(whenUnavailable('home', null));
+    .catch((err: unknown) => {
+      if (!(err instanceof StoriesUnavailableError)) throw err;
+      logStoriesUnavailable('home', err);
+      return err;
+    });
 }
 
 /** The mockups' section label, as the section's heading. */
@@ -165,7 +174,13 @@ export default async function Page() {
         className="mx-auto max-w-site px-4 py-16 sm:px-10 sm:py-24"
       >
         <Eyebrow id="newest">Recently shared</Eyebrow>
-        {stories === null ? (
+        {stories instanceof StoriesUnavailableError &&
+        stories.restartingSeconds !== undefined ? (
+          <RestartingMessage
+            seconds={stories.restartingSeconds}
+            variant="inline"
+          />
+        ) : stories instanceof StoriesUnavailableError ? (
           <p
             role="status"
             className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"

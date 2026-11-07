@@ -20,7 +20,7 @@ base/                     shared by every environment
   backup-cronjob.yaml     nightly `surreal export` → Cloud Storage
 overlays/local/           kind/k3d/minikube: 1 GiB disk, no backups
 overlays/gke/             External Secrets Operator, Workload Identity, SSD disk
-overlays/gke-dev/         dev values (settings.env, checked against OpenTofu), Spot Pods, small
+overlays/gke-dev/         dev values (settings.env, checked against OpenTofu), Spot Pods (prod too), small
                           requests, 5 GiB balanced disk, Cloud Run subnet allowed in, quota
 scripts/local-secrets.mjs creates a local cluster's Secrets from the dev project via gcloud
 scripts/local-migration.mjs creates a local cluster's migration bundle (ConfigMap)
@@ -413,6 +413,28 @@ without credentials, so a private image fails CI and would leave the database po
 ghcr.io/he-is-real/surrealdb:<tag>`.
 
 While we run it, **a SurrealDB security release means rebuilding this patch on top of it.**
+
+## Spot restarts
+
+SurrealDB runs on Spot Pods in dev, and production will too (Joel, 2026-11-07: "change surrealdb to
+spot in dev + prod"). **The production overlay (not built yet) must use Spot for SurrealDB and for
+External Secrets**, as `overlays/gke-dev` does (`cloud.google.com/gke-spot: "true"`). Google can
+reclaim a Spot node at any time (about 25 seconds' notice); the pod restarts on another node within
+a few minutes, with its disk, and loses no confirmed write (the WAL is synced, `base/statefulset.yaml`).
+
+What happens and where to look:
+
+- **The services:** each running copy keeps reconnecting, answers `503 service_restarting` with a
+  `Retry-After` estimate (2 minutes from when it saw the database go, at least 1 minute;
+  `DATABASE_RESTART_ESTIMATE_SECONDS`), and api-public-read serves its kept public answers instead
+  (up to 30 minutes old). Web shows "Our compute is currently restarting" with a countdown.
+- **How long it lasted:** Logs Explorer, `jsonPayload.event="database_available"` (one per running
+  copy, with `unavailableSeconds`); `jsonPayload.event="database_unavailable"` marks the start.
+- **How often:** the log-based metric `heisreal-dev/database-spot-reclaims` (bootstrap root,
+  `modules/bootstrap/logging.tf`) counts Google's own reclaim records for this cluster's nodes.
+  Dev saw three in the 30 days to 7 November 2026, all on 20 October.
+- **Nothing to do** unless the pod doesn't come back: then `kubectl -n database get pods,events`
+  (read-only) and check the node pool has Spot capacity in `europe-west2-c`.
 
 ## Not done yet
 

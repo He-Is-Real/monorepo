@@ -90,7 +90,8 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
     if (!this.known.has(verified.clerkUserId)) {
       // Guards run before DatabaseAvailabilityInterceptor: answer `503 service_restarting` at
       // once rather than wait minutes for a restarting database.
-      if (this.database?.restartingSince()) throw new DatabaseUnavailableError();
+      if (this.database?.restartingSince())
+        throw new DatabaseUnavailableError();
       await this.ensurePerson(verified.clerkUserId);
       this.known.add(verified.clerkUserId);
     }

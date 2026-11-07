@@ -110,7 +110,9 @@ describe('a database restart', () => {
     const before = Date.now();
     const res = await get('/v1/stories?limit=3');
     expect(res.status).toBe(503);
-    expect(res.headers.get('content-type')).toMatch(/^application\/problem\+json/);
+    expect(res.headers.get('content-type')).toMatch(
+      /^application\/problem\+json/,
+    );
     const body = (await res.json()) as {
       code: string;
       restartingSince: string;

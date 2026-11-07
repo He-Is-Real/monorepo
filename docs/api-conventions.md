@@ -157,17 +157,18 @@ short-lived upload credentials.
   `code` and `errors[]` (`pointer`, `message`) for field errors. **Never echo testimony text or other
   personal data in an error.**
 
-  | Status | When                                                                                                                      |
-  | ------ | ------------------------------------------------------------------------------------------------------------------------- |
-  | 400    | Malformed or invalid request; missing `Idempotency-Key`                                                                   |
-  | 401    | Missing or invalid Clerk token                                                                                            |
-  | 403    | Role or ownership check failed, or the person must agree first (`terms_agreement_required`, `testimony_consent_required`) |
-  | 404    | Not found, or not visible to the caller                                                                                   |
-  | 409    | The resource's state doesn't allow it (not a draft, locked, in use; `agreement_version_changed`, `document_changed`)      |
-  | 412    | `If-Match` doesn't match the current version                                                                              |
-  | 422    | `Idempotency-Key` reused with a different body                                                                            |
-  | 428    | `If-Match` missing                                                                                                        |
-  | 5XX    | The service couldn't answer (e.g. the database is down): a bare `title` and `status`, never the cause (`ServerError`)     |
+  | Status | When                                                                                                                                       |
+  | ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+  | 400    | Malformed or invalid request; missing `Idempotency-Key`                                                                                    |
+  | 401    | Missing or invalid Clerk token                                                                                                             |
+  | 403    | Role or ownership check failed, or the person must agree first (`terms_agreement_required`, `testimony_consent_required`)                  |
+  | 404    | Not found, or not visible to the caller                                                                                                    |
+  | 409    | The resource's state doesn't allow it (not a draft, locked, in use; `agreement_version_changed`, `document_changed`)                       |
+  | 412    | `If-Match` doesn't match the current version                                                                                               |
+  | 422    | `Idempotency-Key` reused with a different body                                                                                             |
+  | 428    | `If-Match` missing                                                                                                                         |
+  | 5XX    | The service couldn't answer (e.g. the database is down): a bare `title` and `status`, never the cause (`ServerError`)                      |
+  | 503    | `service_restarting`: the database is restarting (Spot). `Retry-After` and `retryAfterSeconds` say when to try again (`ServiceRestarting`) |
 
   Contracts list every status an operation can answer, `5XX` included: api-public-read's
   integration tests and web's e2e stub are checked against the contract (`@heisreal/contracts/testing`).
@@ -186,7 +187,9 @@ short-lived upload credentials.
   `public, max-age=N`, N being the seconds the answer has left of its 60 (counted from when the
   database was asked; `no-store` when none is left), with no
   `stale-while-revalidate`: a public answer is never more than 60 seconds old in total (a `304`
-  says the same). web fetches story data `no-store` too;
+  says the same). The one exception: while the database is restarting, api-public-read answers
+  with the copy it kept (up to 30 minutes old, cache B) instead of `503 service_restarting`, sent
+  `Cache-Control: no-store` so nothing else keeps it. web fetches story data `no-store` too;
   personal and admin queries send `Cache-Control: private, no-store`. **Every query** returns an
   `ETag` (weak for collections, see above), accepts `If-None-Match`, and answers `304` with the same
   validator the `200` would carry (RFC 9110 §15.4.5).
