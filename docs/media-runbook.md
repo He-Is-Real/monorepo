@@ -76,10 +76,12 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    Pub/Sub topic `media-jobs` (ordering key: the story's id), then records the send (`sentAt`,
    `sends`). It answers 200 once Pub/Sub has it, 503 otherwise (Bunny retries for about 4 hours;
    the job stays in the table either way), 401 for a bad signature.
-2. The media worker (Dapr, on Joel's machine; **not built yet**) pulls the job from the
-   `media-worker` subscription, asks Bunny itself for the video's status, size, length,
-   thumbnail and title, and calls the result writer directly, signed in as the `media-worker`
-   Google account: `POST /v1/media-jobs/<job id>/answer` (worker.yaml).
+2. The media worker (`apps/media-worker`, with Dapr beside it, on Joel's machine; below) pulls
+   the job from the `media-worker-media-jobs` subscription, asks Bunny itself for the video's
+   status, size, length, thumbnail and title with the library's read-only key, and calls the
+   result writer directly, signed in as the `media-worker` Google account:
+   `POST /v1/media-jobs/<job id>/answer` (worker.yaml). Bunny still encoding answers `encoding`,
+   Bunny's error or failed upload `failed`, and no such video at Bunny (404) `gone`.
 3. The result writer (`apps/workflow`, the Cloud Run service `workflow`; only `media-worker` may
    call it) writes the video's `storyFile` row as `service:workflow` and ends the job, in one
    transaction: `applied` (the answer is saved), `stale` (an answer that reached the writer later
@@ -87,11 +89,66 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    video's title isn't the story's id). The database then hides or shows the story again as
    above. Its log is one JSON line per call, ids only:
    `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.
-4. If the worker can't do a job (Bunny unreachable, say) it calls `.../failed` with a short code.
+4. If the worker can't do a job it calls `.../failed` with a short code: `bunny_unreachable`
+   (no answer, a timeout, Bunny's 5xx or 429), `bunny_refused` (Bunny refused the read-only key),
+   `bunny_error` or `bunny_bad_reply` (an answer it can't use), `bunny_facts_missing` (finished,
+   but without a size, length, thumbnail or title), `bunny_unknown_status`, `key_unavailable` (the
+   read-only key isn't readable), `answer_refused` (the writer refused the answer as malformed),
+   `bad_message` (the job's video id isn't a GUID) or `not_supported` (a `render` job: the audio
+   picture video isn't built yet).
    The writer counts it on the job (`failures`, `lastError`): under 5 it says "try again" and the
    queue redelivers the job later; at 5 the job ends as `gave_up` and the story's later jobs carry
    on. If the writer can't be reached at all, the worker leaves the job in the queue and it comes
    back later. There are no dead-letter queues (Joel, 2026-11-07): the table is the record.
+
+### Running the media worker
+
+The worker runs on Joel's machine against dev, and only while he runs it. It reaches out to
+Google and Bunny; nothing can reach it (it and Dapr listen on 127.0.0.1 only). It never touches
+the database, holds only Bunny's read-only key (read from Secret Manager while it runs), and
+writes nothing to disk. Dapr is used for its Pub/Sub part only (D129): no state store, no
+actors, no control plane.
+
+**What it needs (once):**
+
+- gcloud, signed in as Joel with application default credentials:
+  `gcloud auth login --update-adc`. OpenTofu lets Joel's login act as `media-worker`
+  (`media_ready.worker_impersonators`), so there is no key file (D126).
+- Dapr's runtime: `mise install` (the pinned `dapr` CLI), then
+  `dapr init --slim --runtime-version 1.19.1` (puts `daprd` in `~/.dapr/bin`; no Docker).
+- The repo's packages: `pnpm install`.
+
+**Start:** `tools/scripts/media-worker.sh` from the monorepo. It builds the worker, looks up the
+result writer's address, and starts the worker and Dapr's sidecar together. The worker first
+checks that Google signs it in as `media-worker` (never as Joel himself) and stops otherwise. Its
+log is one JSON line per job, ids and short codes only (`answered` with the answer and the
+writer's outcome, e.g. `ready:applied`; or `failed` with the code). **Stop:** Ctrl+C (either
+part stopping stops both).
+
+How it signs in: the script turns Joel's current login into Google's standard "act as
+media-worker" credentials (the same `impersonated_service_account` form
+`gcloud auth application-default login --impersonate-service-account` writes) in a file in
+`$XDG_RUNTIME_DIR` (memory, readable by Joel only) and removes it when it stops. Dapr's GCP
+component reads it as application default credentials; the worker uses it for Secret Manager and
+for the ID token it calls the writer with.
+
+How it marks jobs: the writer saved the answer, or `/failed` says "give up": taken (acked). The
+job doesn't exist any more (404): dropped (acked). The writer unreachable or failing, Google
+refusing to sign the worker in, or `/failed` saying "try again": left in the queue, which
+redelivers it 10 seconds to 10 minutes later (nacked). A message that isn't a job it can read is
+dropped and logged.
+
+**When Joel's login lapses** (Google's session control for the Workspace asks him to sign in
+again): the worker can't get a token, so it marks nothing taken and Dapr stops pulling after
+about a minute of retries. Jobs wait in the queue (31 days) and in the job table (for good). Sign
+in again (`gcloud auth login --update-adc`), then restart the worker (Ctrl+C, start again): the
+running one keeps the old login. The 18:00 resend sends anything older than 12 hours again.
+
+**When the PC is off:** the same: jobs wait, and the worker catches up when it starts. Approving
+a story waits for its open media jobs, so stories with video wait in the moderation queue.
+
+**Is it running?** The worker's last log line, and on Google's side the `media-worker-media-jobs`
+subscription's `subscription/num_undelivered_messages` metric in Cloud Monitoring.
 
 Everything is in London (`europe-west2`): the topic stores messages there only, and the writer
 runs there. Jobs carry ids only, never a person's name or words. A job is deleted with its file
@@ -121,14 +178,15 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      `gcloud logging read 'resource.labels.service_name="api-user" AND textPayload:"Bunny"' --limit 20`.
    - **Open, `sentAt` empty:** the send failed (`Couldn't queue a media job` in api-user's log).
      Bunny retries for about 4 hours; the 18:00 resend (below) sends it after that.
-   - **Open and sent:** it waits for the worker. The worker is off (Joel's machine), so jobs wait in
-     the queue up to 31 days, and in the table for good; start it and it catches up. How many
-     wait: the `subscription/num_undelivered_messages` metric of `media-worker` in Cloud Monitoring.
+   - **Open and sent:** it waits for the worker. The worker is off (Joel's machine) or its login
+     lapsed, so jobs wait in the queue up to 31 days, and in the table for good; start it
+     (above) and it catches up. How many wait: the `subscription/num_undelivered_messages` metric
+     of `media-worker-media-jobs` in Cloud Monitoring.
      Each evening at 18:00 London time (when Joel's machine is on) the housekeeping Job's media
      resend sends every job not ended whose last send (or, never sent, its writing) is over 12
      hours old again, adds the reason `resent` and counts the send. A redelivered duplicate is
      harmless. To resend now: `gcloud run jobs execute housekeeping --region europe-west2 --wait
---update-env-vars HOUSEKEEPING_CHORES=media-resend` (a dry run on dev until `dry_run` is off).
+--update-env-vars HOUSEKEEPING_CHORES=media-resend` ([apps/housekeeping/README.md](../apps/housekeeping/README.md)).
    - **Open with failures:** the worker keeps failing; `lastError` says why, and the worker's own
      log says more.
    - **`gave_up`:** it failed 5 times. Fix the cause, then re-encode the video at Bunny (above):
@@ -217,7 +275,8 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
     the last 48 hours names it.
 
   It deletes at most 50 videos a night (`max_deletions`), oldest first; the rest wait for the
-  next night. In dev it starts in a dry run: it logs what it would delete and deletes nothing.
+  next night. With `dry_run` on it only logs what it would delete; dev runs with it off
+  (Joel, 2026-11-07; [apps/housekeeping/README.md](../apps/housekeeping/README.md)).
   Its log is one JSON line per chore with counts and ids only:
   `gcloud logging read 'resource.labels.job_name="housekeeping"' --limit 20`.
 

@@ -1,0 +1,11 @@
+# The media worker's Dapr sidecar: no metrics endpoint and no tracing (nothing listens beyond
+# what the worker needs, and nothing leaves the machine except the calls to Google and Bunny).
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: media-worker
+spec:
+  metric:
+    enabled: false
+  tracing:
+    samplingRate: '0'

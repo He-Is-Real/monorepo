@@ -1,0 +1,28 @@
+# Dapr's Pub/Sub building block for the media worker (D129: the only part of Dapr it uses).
+# Google Cloud Pub/Sub, project heisreal-dev (dev only for now). Dapr pulls topic media-jobs
+# through the subscription named "<consumerID>-<topic>" = media-worker-media-jobs, which OpenTofu
+# made (infra/terraform/modules/gcp/media.tf). Dapr must not make or change topics and
+# subscriptions: disableEntityManagement.
+#
+# Credentials: Application Default Credentials, which tools/scripts/media-worker.sh points at
+# Joel's own gcloud login acting as media-worker (D126). No key in this file, ever.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: media-jobs
+spec:
+  type: pubsub.gcp.pubsub
+  version: v1
+  metadata:
+    - name: projectId
+      value: heisreal-dev
+    - name: consumerID
+      value: media-worker
+    - name: disableEntityManagement
+      value: 'true'
+    # In order per story (the ordering key); the subscription has ordering on.
+    - name: enableMessageOrdering
+      value: 'true'
+    # A few jobs at a time is plenty, and keeps a backlog from hammering Bunny.
+    - name: maxOutstandingMessages
+      value: '10'

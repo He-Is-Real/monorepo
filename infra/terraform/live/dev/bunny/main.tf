@@ -147,10 +147,13 @@ module "bunny" {
   storage_password_readers = ["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"]
 
   # Media ready (M2 plan item 13): api-user checks Bunny's webhook signatures with the library's
-  # read-only key, and Bunny posts each video's events to api-user. The media worker joins
-  # readonly_key_readers with the worker's own PR (piece 4): its account is made by the gcp root,
-  # which applies after this one in tofu-apply.yml, so a grant to it now would fail.
-  readonly_key_readers = ["serviceAccount:api-user@heisreal-dev.iam.gserviceaccount.com"]
+  # read-only key, and Bunny posts each video's events to api-user. The media worker reads a
+  # video's status, size, length, thumbnail and title with it (apps/media-worker). Its account is
+  # made by the gcp root (already applied; on a fresh project apply gcp first).
+  readonly_key_readers = [
+    "serviceAccount:api-user@heisreal-dev.iam.gserviceaccount.com",
+    "serviceAccount:media-worker@heisreal-dev.iam.gserviceaccount.com",
+  ]
   stream_webhook_url   = "https://api-user-jbxp6odnsa-nw.a.run.app/v1/webhooks/bunny"
 
   # Where the library's videos live (Bunny made it with library 789855).

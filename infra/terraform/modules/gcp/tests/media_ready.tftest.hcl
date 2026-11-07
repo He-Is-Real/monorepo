@@ -146,7 +146,7 @@ run "the_worker_reaches_the_queue_only" {
   assert {
     condition = (
       google_pubsub_subscription_iam_member.media_worker[0].role == "roles/pubsub.subscriber" &&
-      google_pubsub_subscription_iam_member.media_worker[0].subscription == "media-worker"
+      google_pubsub_subscription_iam_member.media_worker[0].subscription == "media-worker-media-jobs"
     )
     error_message = "The worker pulls its own subscription."
   }

@@ -9,3 +9,4 @@ gitleaks = "8.30.1"
 "npm:clerk" = "4.1.0"
 "npm:@bunny.net/cli" = "0.21.1"
 "npm:resend-cli" = "2.26.2"
+dapr = "1.19.1" # the media worker on Joel's machine (docs/media-runbook.md, "Media ready")
