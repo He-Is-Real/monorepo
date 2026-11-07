@@ -61,6 +61,19 @@ resource "google_container_cluster" "this" {
     }
   }
 
+  # Only the free system metrics (Joel, 2026-11-07): the extra metric packages Autopilot turns on
+  # (kube-state, cAdvisor, kubelet, DCGM) are billed per sample with no free tier and
+  # were about £15 of dev's £20 a month, for dashboards nobody uses. Switch a package back on here
+  # for a while if a problem needs it. Managed Prometheus stays on (Autopilot requires it); with
+  # no packages it collects nothing billable. Autopilot keeps its network (datapath) metrics on
+  # whatever we ask (an update to false is accepted but not applied), so they aren't set here.
+  monitoring_config {
+    enable_components = ["SYSTEM_COMPONENTS"]
+    managed_prometheus {
+      enabled = true
+    }
+  }
+
   resource_labels     = local.labels
   deletion_protection = var.deletion_protection
 
