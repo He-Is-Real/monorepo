@@ -23,8 +23,12 @@ const CONTAINERS = new Set(['moov', 'trak', 'mdia', 'minf']);
 const XMP_UUID = 'be7acfcb97a942e89c71999491e3afac';
 /** The first box of an MP4, MOV or M4A file (older QuickTime files may start without `ftyp`). */
 const FIRST = new Set(['ftyp', 'moov', 'mdat', 'free', 'skip', 'wide', 'pnot']);
-/** A `moov` larger than this isn't a phone's: upload the file as it is. */
-const MAX_MOOV_BYTES = 64 * 1024 * 1024;
+/**
+ * The most this reads into memory in all (`moov` and the top-level metadata boxes together): a
+ * phone's are a few MB at most. Past it, the file uploads as it is, so a file built to hold many
+ * large boxes can't make the tab run out of memory (Codex #191 round 2).
+ */
+const READ_BUDGET_BYTES = 64 * 1024 * 1024;
 
 class NotIsoMedia extends Error {}
 
@@ -100,23 +104,38 @@ async function read(file: Blob, start: number, end: number) {
  */
 export async function stripMediaMetadata<T extends Blob>(
   file: T,
+  budget = READ_BUDGET_BYTES,
 ): Promise<T | Blob> {
   try {
     const edits: { at: number; bytes: Uint8Array }[] = [];
+    // Checked before each read, so nothing over it is ever allocated.
+    let left = budget;
+    const within = (size: number) => (left -= size) >= 0;
     for (let at = 0; at < file.size;) {
       // The header only, its size checked against what's left of the file.
       const head = await read(file, at, Math.min(at + 16, file.size));
       const box = boxAt(new DataView(head.buffer), 0, file.size - at);
       if (at === 0 && !FIRST.has(box.type)) return file;
       if (box.type === 'moov') {
-        if (box.size > MAX_MOOV_BYTES) return file;
+        if (!within(box.size)) return file;
         const moov = await read(file, at, at + box.size);
         if (blankIn(moov, box.header, box.size))
           edits.push({ at, bytes: moov });
-      } else if (METADATA.has(box.type) || box.type === 'uuid') {
-        if (box.size > MAX_MOOV_BYTES) return file;
+      } else if (METADATA.has(box.type)) {
+        if (!within(box.size)) return file;
         const bytes = await read(file, at, at + box.size);
-        if (METADATA.has(box.type) || isXmp(bytes, 0, box)) {
+        blank(bytes, 0, box);
+        edits.push({ at, bytes });
+      } else if (box.type === 'uuid') {
+        // Only its id at first: most `uuid` boxes aren't XMP and are left alone.
+        const id = await read(
+          file,
+          at,
+          at + Math.min(box.size, box.header + 16),
+        );
+        if (isXmp(id, 0, box)) {
+          if (!within(box.size)) return file;
+          const bytes = await read(file, at, at + box.size);
           blank(bytes, 0, box);
           edits.push({ at, bytes });
         }

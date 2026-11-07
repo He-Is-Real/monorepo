@@ -166,6 +166,26 @@ describe('a phone’s video or audio file loses its location and device before u
     expect(Buffer.from(after).includes(Buffer.from(media))).toBe(true);
   });
 
+  it('reads no more than its budget in all: past it, the file uploads as it is (Codex #191 round 2)', async () => {
+    // Many metadata boxes, each small, together over the budget.
+    const many = Array.from({ length: 40 }, () =>
+      box('udta', box('\u00a9xyz', '+51.5074-000.1278/'), new Uint8Array(1000)),
+    );
+    const parts = [
+      box('ftyp', 'isom\0\0\0\0isom'),
+      box('mdat', media),
+      ...many,
+    ];
+    const total = many.reduce((n, b) => n + b.length, 0);
+    const over = new Blob(parts);
+    expect(await stripMediaMetadata(over, total - 1)).toBe(over);
+    // Within it, every one is blanked.
+    const within = await stripMediaMetadata(new Blob(parts), total);
+    expect(has(new Uint8Array(await within.arrayBuffer()), '51.5074')).toBe(
+      false,
+    );
+  });
+
   it('a file with no metadata, or one that isn’t an MP4, MOV or M4A, uploads as it is', async () => {
     const clean = new Blob([
       box('ftyp', 'isom\0\0\0\0isom'),
