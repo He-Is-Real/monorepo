@@ -128,7 +128,7 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      resend sends every job not ended whose last send (or, never sent, its writing) is over 12
      hours old again, adds the reason `resent` and counts the send. A redelivered duplicate is
      harmless. To resend now: `gcloud run jobs execute housekeeping --region europe-west2 --wait
-     --update-env-vars HOUSEKEEPING_CHORES=media-resend` (a dry run on dev until `dry_run` is off).
+--update-env-vars HOUSEKEEPING_CHORES=media-resend` (a dry run on dev until `dry_run` is off).
    - **Open with failures:** the worker keeps failing; `lastError` says why, and the worker's own
      log says more.
    - **`gave_up`:** it failed 5 times. Fix the cause, then re-encode the video at Bunny (above):
