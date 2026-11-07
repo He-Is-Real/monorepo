@@ -182,7 +182,8 @@ their fence (see "Transactions").
     Dev-seed gives each story its own rows; its stories that never go public use a placeholder row
     with a made-up Bunny-style id (`00000000-0000-0000-0000-…`) and nothing at Bunny.
   - **Update:** workflow the processing fields (`width`, `height`, `lengthSeconds`,
-    `thumbnailPath`, `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
+    `thumbnailPath`, `processing`) and `checkedAt` (the queue's time of the newest answer applied;
+    the result writer applies only newer ones, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
     which refuses unless the story still exists, is the person's, is editable and shows that file:
     `nothing_to_resume:`); events `detachedAt`; housekeeping `removedAt` (once, not before
     `fn::upload::links_expire_after()`, 2 h: `file_not_removable`). Housekeeping deletes the file

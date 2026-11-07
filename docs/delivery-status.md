@@ -166,7 +166,8 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   length, so moderators in M3 can approve video stories, through the background worker on Joel's
   machine (`project/context/research/m2-media-ready-plan.html`). **In progress.** First part
   built: the queue in London, Bunny's signed notice to api-user, and the private result writer
-  that records the worker's answer on the video's file. Still to come: the worker itself on
+  that records the worker's answer on the video's file (and ignores an answer older than the
+  last one it recorded, so a late repeat can't undo a newer one). Still to come: the worker itself on
   Joel's machine, the audio clip's default picture, the 40-byte picture check at submit, and the
   nightly catch-up of anything Bunny's notice missed.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.

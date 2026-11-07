@@ -100,7 +100,10 @@ A story's video stays "not processed yet" (no `processing`) or `processing`.
    `gcloud pubsub subscriptions describe media-worker --format='value(name)'` and the
    `subscription/num_undelivered_messages` metric in Cloud Monitoring.
 4. Did the writer drop it? Its log says `"outcome":"ignored"` when the story no longer shows that
-   video (replaced, removed) or the video's title isn't the story's id.
+   video (replaced, removed) or the video's title isn't the story's id, and
+   `"outcome":"ignored: stale"` when the answer is no newer than the last one it applied to that
+   file (`storyFile.checkedAt`, the queue's own time; a redelivery). A fresh job gives a fresh
+   answer, so queue one (next step) rather than sending an old answer again.
 5. To queue a job by hand (a developer; ids only), keyed by the story so it stays in order with
    that story's other jobs:
    `gcloud pubsub topics publish media-jobs --ordering-key=<story id> --message='{"videoId":"<video id>"}'`.

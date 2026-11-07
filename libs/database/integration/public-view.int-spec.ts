@@ -55,6 +55,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     'expectedImage',
     'storyVersion',
     'processing',
+    'checkedAt',
     'at',
     'renewedAt',
     'detachedAt',
