@@ -370,10 +370,14 @@ its videos live (`vz-…`, made by Bunny with the library), is declared too and 
 its API nor the provider lets us choose, so it's written down to make where the videos live
 visible and any change drift. No replication regions (they can't be removed again and cost extra),
 and `prevent_destroy`, since destroying it deletes every video. No custom hostnames (D7).
-Transcription, smart titles/descriptions, content tagging, MP4 fallback, kept originals, premium
+Transcription, smart titles/descriptions, content tagging, kept originals, premium
 encoding, Optimizer, Origin Shield, Perma-Cache and WebSockets are all set off explicitly, so
 turning one on in the dashboard shows up as drift. (Automatic chapters and moments aren't in the
 provider; both are off by default and would switch transcribing on, which shows as drift.)
+MP4 fallback is on (C1, Joel 2026-11-06): Bunny stores an MP4 per encoded resolution
+(`<video id>/play_<height>p.mp4`) for "Download my data", behind the same CDN token as every
+other Stream file. Requests without a `Referer` are allowed (`direct_url_file_access_blocked =
+false`), since links opened from the downloaded file send none; the token still guards each file.
 
 **Keys and state.** The provider stores the library keys, the zone passwords and the pull zone's
 token key in state, with no write-only alternative: the approved exception in `AGENTS.md` (D57 C).
@@ -485,7 +489,8 @@ auth key (read with `data.bunnynet_pullzone.stream`; it signs both embed and CDN
 images key is the `images` zone's. api-public-read signs links for published stories, valid 6–7
 hours (`apps/api-public-read/src/app/media`). Each switch is in `token_auth` (live root), so one
 can be turned off on its own if Bunny's player ever stops signing its HLS requests. In M2, api-user
-signs short-lived links for the person's own drafts with the same keys.
+signs the person's own links with the same keys: short-lived ones for their drafts, and 7-day ones
+in "Download my data" (watch, MP4 copy, pictures).
 
 Rollout, in order (a revision that can't read its keys doesn't start):
 

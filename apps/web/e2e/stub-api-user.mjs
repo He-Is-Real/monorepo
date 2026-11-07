@@ -19,7 +19,7 @@
 //   real service's checks and one video per draft) and a minimal TUS server at `/tusupload`
 //   standing in for Bunny Stream: creation (`POST`, the signed headers checked), `HEAD` and
 //   `PATCH`. A test can make the next PATCHes fail or hold them (`POST /__e2e/sessions/<id>/tus`)
-//   and read what arrived (`GET /__e2e/sessions/<id>/uploads`); submit needs the file to have
+//   and read what arrived, bytes included (`GET /__e2e/sessions/<id>/uploads`); submit needs the file to have
 //   arrived, as api-user asks Bunny. `POST /__e2e/sessions/<id>/settings` changes a session's
 //   settings after its page loaded.
 // - Pictures (M2 plan PR 10): `format: image` on the same route (a written story's image, an
@@ -792,7 +792,7 @@ function storyMine(s, id, st, uploaded = () => null) {
  */
 function myDataOf(s, token, mine) {
   const generatedAt = new Date().toISOString();
-  const linksExpireAt = new Date(Date.now() + 3600_000).toISOString();
+  const linksExpireAt = new Date(Date.now() + WEEK_MS).toISOString();
   const none = (keys) => Object.fromEntries(keys.map((k) => [k, null]));
   return {
     about: {
@@ -835,6 +835,7 @@ function myDataOf(s, token, mine) {
           ...m,
           bunnyVideoId: st.videoId,
           playbackUrl: `https://player.mediadelivery.net/embed/1/${st.videoId}?token=stub&expires=1`,
+          mp4Url: `https://vz-stub.b-cdn.net/${st.videoId}/play_720p.mp4?token=HS256-stub&expires=1`,
         })),
         // R6: the story's status history; a story sent back has its moderator's entry.
         statusHistory: st.rejectionFeedback
@@ -1672,9 +1673,12 @@ async function handleTus(req, res, path) {
       res.writeHead(409, tusHeaders);
       return res.end();
     }
-    upload.received += Buffer.concat(chunks).length;
+    const body = Buffer.concat(chunks);
+    upload.received += body.length;
     const video = s.videos.get(upload.videoId);
     video.received = upload.received;
+    // What left the browser, as it arrived (M2: no location or device in it).
+    video.bytes = Buffer.concat([video.bytes ?? Buffer.alloc(0), body]);
     if (upload.received >= upload.length) video.done = !video.deleted;
     res.writeHead(204, {
       ...tusHeaders,
@@ -1800,7 +1804,11 @@ createServer(async (req, res) => {
     const s = shareSession(uploadsOf[1]);
     return sendJson(res, 200, {
       requests: s.uploadRequests,
-      videos: [...s.videos].map(([id, v]) => ({ id, ...v })),
+      videos: [...s.videos].map(([id, { bytes, ...v }]) => ({
+        id,
+        ...v,
+        bytes: bytes ? bytes.toString('base64') : null,
+      })),
       images: [...s.images].map(([path, i]) => ({
         path,
         story: i.story,

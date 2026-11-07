@@ -21,7 +21,7 @@ import {
   TestDatabase,
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
-import { MediaUrls } from '@heisreal/story-cards';
+import { MediaUrls, signCdnUrl } from '@heisreal/story-cards';
 import { RecordId, type Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import {
@@ -29,33 +29,35 @@ import {
   type ClerkBackend,
   clerkProfile,
 } from '../src/app/erasure/clerk-backend';
-import {
-  BUNNY_STREAM,
-  type BunnyStream,
-  signUpload,
-} from '../src/app/stories/bunny-stream';
+import { BUNNY_STREAM, BunnyStreamApi } from '../src/app/stories/bunny-stream';
 
 /**
  * "Download my data" (M2 plan PR 12; Art 15, Art 20) through api-user's real AppModule and a real
  * SurrealDB. The database is the behaviour: Ann has data of every kind a person can have, and the
  * file must hold all of it (checked against what the database holds, read as the migrator) and
  * nothing of Bob's, though Bob's data touches hers (he hearts her story, she hearts his). Clerk's
- * Backend API is an in-memory stand-in answering as Clerk does; media links are signed with test
- * keys. Every answer is checked against api-user.yaml.
+ * Backend API is an in-memory stand-in answering as Clerk does; Bunny Stream's API is stubbed at
+ * its HTTP boundary (api-user's real client asks it which MP4 copies a video has); media links are
+ * signed with test keys. Every answer is checked against api-user.yaml.
  */
-class FakeStream implements BunnyStream {
-  async createVideo() {
-    return randomUUID();
-  }
-  async video() {
-    return null;
-  }
-  async deleteVideo() {
-    // nothing to delete here
-  }
-  sign(videoId: string, now?: number) {
-    return signUpload('42', 'library-key', videoId, now);
-  }
+class FakeBunnyApi {
+  /** Each video's `GET /library/42/videos/{id}` answer, as Bunny gives it. */
+  readonly videos = new Map<string, Record<string, unknown>>();
+  readonly asked: string[] = [];
+  failing = false;
+  readonly fetch: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    const id = /^\/library\/42\/videos\/([^/]+)$/.exec(url.pathname)?.[1];
+    if (url.origin !== 'https://video.bunnycdn.com' || !id) {
+      throw new Error(`not in these tests: ${url}`);
+    }
+    this.asked.push(id);
+    if (this.failing) return new Response('', { status: 503 });
+    const video = this.videos.get(id);
+    return video
+      ? Response.json({ guid: id, ...video })
+      : new Response('', { status: 404 });
+  };
 }
 
 /** Clerk's `GET /users/{id}` as Clerk answers it, for whoever is asked about. */
@@ -103,11 +105,12 @@ class FakeClerk implements ClerkBackend {
   }
 }
 
-const HOUR_MS = 60 * 60 * 1000;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 describe('download my data', () => {
   const contract = new Contract('api-user.yaml');
   const clerkApi = new FakeClerk();
+  const bunnyApi = new FakeBunnyApi();
   let t: TestDatabase;
   let clerk: TestClerk;
   let migrator: Surreal;
@@ -226,7 +229,7 @@ describe('download my data', () => {
       .overrideProvider(SECRETS_PROJECT)
       .useValue('test-project')
       .overrideProvider(BUNNY_STREAM)
-      .useValue(new FakeStream())
+      .useValue(new BunnyStreamApi('42', 'library-key', bunnyApi.fetch))
       .overrideProvider(CLERK_BACKEND)
       .useValue(clerkApi)
       // Signing on, with test keys (D52's signer).
@@ -336,6 +339,31 @@ describe('download my data', () => {
       }),
     ).toMatchObject({ ok: true });
     await processed(await t.service('workflow'), 'ann_video');
+    // Encoded since the library makes MP4 copies (C1): one per resolution.
+    bunnyApi.videos.set(annVideo, {
+      status: 4,
+      length: 30,
+      hasMP4Fallback: true,
+      availableResolutions: '360p,480p,720p',
+    });
+    // Encoded before then: no MP4 copy.
+    const annOldVideo = randomUUID();
+    await draft(ann, 'ann_old_video', {
+      primaryFormat: 'video',
+      body: undefined,
+    });
+    await grantUpload(apiUser, {
+      video: annOldVideo,
+      story: 'ann_old_video',
+      person: 'ann',
+      version: 1,
+    });
+    bunnyApi.videos.set(annOldVideo, {
+      status: 4,
+      length: 30,
+      hasMP4Fallback: false,
+      availableResolutions: '360p,480p,720p',
+    });
 
     // Zed's stories: a secret draft, a video and a published one, which Ann hearts; he hearts hers.
     const ZED_TEXT = 'ZQXSECRET words nobody else may read';
@@ -407,6 +435,7 @@ describe('download my data', () => {
       [annNo.id]: 'rejected',
       [annLive.id]: 'approved',
       ann_video: 'draft',
+      ann_old_video: 'draft',
     });
     // The versions she agreed to, and when (plan 4e).
     expect(held['agreements']).toEqual([0, 0]);
@@ -521,7 +550,7 @@ describe('download my data', () => {
         ),
       },
     });
-    // Media as links and ids, never bytes: the player link expires in an hour.
+    // Media as links and ids, never bytes: every link expires in 7 days (Joel, 2026-11-06, B).
     const [clip] = story('ann_video').media;
     expect(clip).toMatchObject({
       format: 'video',
@@ -534,10 +563,32 @@ describe('download my data', () => {
     const expires =
       Number(new URL(clip.playbackUrl).searchParams.get('expires')) * 1000;
     expect(expires).toBe(new Date(file.about.linksExpireAt).getTime());
-    expect(expires - before).toBeGreaterThan(HOUR_MS - 60_000);
-    expect(expires - before).toBeLessThanOrEqual(HOUR_MS + 60_000);
+    expect(expires - before).toBeGreaterThan(WEEK_MS - 60_000);
+    expect(expires - before).toBeLessThanOrEqual(WEEK_MS + 60_000);
+    // Her video as a file (C1): the largest MP4 copy Bunny made, signed with the Stream zone's
+    // key for that file alone, expiring with the rest.
+    expect(clip.mp4Url).toBe(
+      signCdnUrl(
+        'vz-test.b-cdn.net',
+        `${annVideo}/play_720p.mp4`,
+        'stream-token-key',
+        expires / 1000,
+      ),
+    );
+    expect(clip.mp4Url).toMatch(
+      new RegExp(
+        `^https://vz-test\\.b-cdn\\.net/${annVideo}/play_720p\\.mp4\\?token=HS256-[A-Za-z0-9_-]+&expires=${expires / 1000}$`,
+      ),
+    );
+    // None for a video encoded before the library made MP4 copies; the file says why.
+    expect(story('ann_old_video').media).toEqual([
+      expect.objectContaining({ bunnyVideoId: annOldVideo, mp4Url: null }),
+    ]);
+    expect(file.about.sections.stories).toContain('"mp4Url"');
+    // Bunny was asked about her videos only.
+    expect(bunnyApi.asked.sort()).toEqual([annVideo, annOldVideo].sort());
     expect(
-      file.uploads.find((u: { format: string }) => u.format === 'video'),
+      file.uploads.find((u: { storyId: string }) => u.storyId === 'ann_video'),
     ).toMatchObject({
       imagePath: null,
       storyId: 'ann_video',
@@ -594,10 +645,25 @@ describe('download my data', () => {
       [...zedHeld['stories']].sort(),
     );
     expect(theirs.limits.overrides.uploadRequestsPerHour).toBe(33);
+
+    // All or nothing: if Bunny can't say which MP4 copies her videos have, 503 and no file.
+    bunnyApi.failing = true;
+    try {
+      const down = await call('GET', '/v1/account/export', 'ann');
+      expect([down.status, down.body.code]).toEqual([
+        503,
+        'export_unavailable',
+      ]);
+      expect(down.headers.get('content-disposition')).toBeNull();
+    } finally {
+      bunnyApi.failing = false;
+    }
   });
 
   it('is all or nothing: when Clerk can’t answer, 503 and no file', async () => {
     await createPeople(t, { cy: 'user_cy' });
+    // Bunny is only asked about videos: with none, Bunny being down doesn't matter.
+    bunnyApi.failing = true;
     clerkApi.failing = true;
     try {
       const res = await call('GET', '/v1/account/export', 'cy');
@@ -619,5 +685,6 @@ describe('download my data', () => {
       requestKeys: [],
       limits: { trusted: false, overrides: null, overridesChangedAt: null },
     });
+    bunnyApi.failing = false;
   });
 });

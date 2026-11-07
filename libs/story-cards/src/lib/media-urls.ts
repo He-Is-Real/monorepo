@@ -39,6 +39,10 @@ const FORMATS: Record<keyof MediaConfig, RegExp> = {
 
 type Env = Record<string, string | undefined>;
 
+/** Bunny's video ids are GUIDs: only those name a video's folder. */
+const VIDEO_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** All five variables, or none (signing off). Anything in between fails startup. */
 export function mediaConfigFromEnv(env: Env = process.env): MediaConfig | null {
   const keys = Object.keys(VARIABLES) as (keyof MediaConfig)[];
@@ -77,7 +81,7 @@ export class MediaUrls {
 
   /**
    * The same signer, for links that all expire `seconds` from now, not rounded to the hour: for one
-   * person's own copy ("Download my data": 1 hour), never for cached public answers.
+   * person's own copy ("Download my data": 7 days), never for cached public answers.
    */
   expiringIn(seconds: number): MediaUrls {
     const at = Math.ceil(this.now() / 1000) + seconds;
@@ -119,6 +123,26 @@ export class MediaUrls {
     return signCdnUrl(
       s.config.streamCdnHost,
       path,
+      s.streamKey,
+      this.expiry(this.now()),
+    );
+  }
+
+  /**
+   * A video's or audio file's MP4 copy at Bunny Stream (`<videoId>/play_<height>p.mp4`), signed
+   * like its other files. For the person's own copy ("Download my data", C1); the caller says
+   * which height exists (Bunny's `availableResolutions`).
+   */
+  mp4Url(
+    videoId: string | null | undefined,
+    height: number | null,
+  ): string | null {
+    const s = this.signing;
+    if (!s || !videoId || !VIDEO_ID.test(videoId)) return null;
+    if (!height || !Number.isInteger(height) || height <= 0) return null;
+    return signCdnUrl(
+      s.config.streamCdnHost,
+      `${videoId}/play_${height}p.mp4`,
       s.streamKey,
       this.expiry(this.now()),
     );

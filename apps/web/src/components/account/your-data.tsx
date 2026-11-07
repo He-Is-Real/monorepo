@@ -138,7 +138,7 @@ function DownloadMyData() {
       say(owner, {
         alert: false,
         text: data.about.linksExpireAt
-          ? `Your file ${name} is saved to your downloads. Its links to your videos and pictures work for one hour.`
+          ? `Your file ${name} is saved to your downloads. Its links to your videos and pictures work for 7 days.`
           : `Your file ${name} is saved to your downloads.`,
       });
     } catch {
@@ -161,7 +161,8 @@ function DownloadMyData() {
         Get a copy of everything we hold about you, in one file (JSON) that
         explains each part: your account and sign-in details, every story you’ve
         started or shared, what you agreed to, favourites and limits. Your
-        videos, audio and pictures are in it as links that work for one hour.
+        videos, audio and pictures are in it as links that work for 7 days,
+        including a link to download each video or audio as an MP4 file.
       </p>
       <Button
         variant="outline"
