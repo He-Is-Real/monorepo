@@ -64,9 +64,10 @@ test('the notice after an action goes once an answer succeeds, on the page or af
   page,
 }, info) => {
   const project = info.project.name;
-  const session = `restarting-${project}-r${info.repeatEachIndex}-t${info.retry}`
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-');
+  const session =
+    `restarting-${project}-r${info.repeatEachIndex}-t${info.retry}`
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-');
   await page.addInitScript(
     (s) => window.localStorage.setItem('e2e-session', s),
     session,
