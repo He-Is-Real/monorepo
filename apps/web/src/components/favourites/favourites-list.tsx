@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { FAVOURITES_HREF } from '@/components/nav/site-nav';
 import { StoryMasonry } from '@/components/stories/story-masonry';
 import { useNearEnd } from '@/components/stories/use-near-end';
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,6 @@ import { signInHref } from '@/lib/return-path';
 
 /** Cards per page. */
 const PAGE_SIZE = 24;
-const PATH = '/account/favourites';
 
 type List =
   | { status: 'loading' }
@@ -423,7 +423,7 @@ function DeviceFavourites() {
 
   const signIn = (
     <a
-      href={signInHref(PATH)}
+      href={signInHref(FAVOURITES_HREF)}
       className="inline-flex min-h-11 items-center px-1 font-semibold"
     >
       Sign in
@@ -459,8 +459,8 @@ function DeviceFavourites() {
     return (
       <Notice>
         <p className="mb-5">
-          You haven’t hearted any stories on this device yet. Press the heart on
-          a story you want to find again, and it will be here. No account
+          You haven’t hearted any stories in this browser yet. Press the heart
+          on a story you want to find again, and it will be here. No account
           needed.
         </p>
         <Button asChild className="h-11 px-5">
@@ -475,7 +475,8 @@ function DeviceFavourites() {
         data-device-favourites=""
         className="mx-auto mb-8 max-w-measure text-center text-secondary-text"
       >
-        Saved on this device only. {signIn} to keep them in your account too.
+        Your hearts are kept in this browser only. {signIn} to keep them in your
+        account.
       </p>
       <Cards
         cards={list.cards}

@@ -62,7 +62,7 @@ export function SiteHeader() {
             <ThemeToggle />
             <div
               data-account-slot=""
-              className="flex w-20 max-w-full shrink-0 justify-end sm:w-44"
+              className="flex w-32 max-w-full shrink-0 justify-end sm:w-44 lg:w-60"
             >
               <Suspense fallback={ACCOUNT_PLACEHOLDER}>
                 <HeaderAccount />
@@ -82,9 +82,10 @@ export function SiteHeader() {
 
 /**
  * The account area has one width whatever it holds (this placeholder while it streams in or
- * Clerk loads, and all a visitor without JavaScript gets; "Sign in"; or the signed-in control,
- * whose name truncates to fit), so Share and the theme toggle never move when it resolves:
- * 80 px on phones (Sign in, or the avatar alone), 176 px from 640 px (avatar, first name, ▾).
+ * Clerk loads, and all a visitor without JavaScript gets; My favourites and "Sign in"; or the
+ * signed-in control, whose name truncates to fit), so Share and the theme toggle never move when
+ * it resolves: 128 px on phones (the heart and Sign in, or the avatar alone), 176 px from 640 px
+ * (avatar, first name, ▾), 240 px from 1024 px (the heart with its words, and Sign in).
  * Its width is in rem, so it grows with the text; on a screen narrower than that it takes the
  * screen's width instead.
  */

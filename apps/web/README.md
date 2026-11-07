@@ -77,7 +77,7 @@ belongs to the person signed in now: an answer that arrives after someone else s
 dropped. **Signed out, hearts are the device's own** (Joel, 2026-10-28;
 `src/lib/device-hearts.ts`): kept in this browser's local storage (`heisreal:device-hearts`,
 listed on /privacy) with no expiry, and nothing reaches our servers. "My favourites"
-(`/account/favourites`, in the account menu) then lists them, its cards read by web's server
+(`/favourites`; `/account/favourites` redirects there; in the header signed out, the account menu signed in) then lists them, its cards read by web's server
 from api-public-read by id (`deviceHeartCards`, anonymous: no login, D83). Signed in, a press
 refused because the latest terms aren't agreed keeps the heart on the device and goes to
 `/consent/terms` (only from a press, so it can't loop). Device hearts never go into an account by

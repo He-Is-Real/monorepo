@@ -85,7 +85,8 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 - **Download my data** as one file ([download](https://github.com/He-Is-Real/monorepo/pull/151)).
 - **Favourites:** private hearts on cards and story pages, and a My favourites page laid out like
   browse ([favourites](https://github.com/He-Is-Real/monorepo/pull/117),
-  [same layout as browse](https://github.com/He-Is-Real/monorepo/pull/153)).
+  [same layout as browse](https://github.com/He-Is-Real/monorepo/pull/153)). My favourites is at
+  /favourites, and signed-out visitors reach it from the header.
 - **NEW badge** on stories published in the last 7 days ([badge](https://github.com/He-Is-Real/monorepo/pull/110)).
 - **Browse and favourites load more on their own** as the reader nears the end, with no page cap
   ([no page cap](https://github.com/He-Is-Real/monorepo/pull/157)).
