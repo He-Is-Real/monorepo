@@ -45,7 +45,7 @@ class FakeStream implements BunnyStream {
   asked = 0;
   async createVideo() {
     const id = randomUUID();
-    this.videos.set(id, { status: 0, length: 0 });
+    this.videos.set(id, { status: 0, length: 0, mp4Height: null });
     return id;
   }
   async video(id: string) {

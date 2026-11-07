@@ -82,6 +82,26 @@ media-ready step can't change it: the story points at the picture's own file row
 R12), and workflow writes only that row's processing fields
 (`libs/database/schema/schema-04-stories.surql`).
 
+**MP4 copies (C1, Joel 2026-11-06):** the library also makes an MP4 file of each video and audio
+item per encoded resolution (`<video id>/play_<height>p.mp4`, up to 1080p; stored with the video in
+Frankfurt), so "Download my data" can give the person their video as a file: a 7-day signed link
+to the largest copy (`mp4Url`). api-user asks Bunny's API which copies each video has
+(`hasMP4Fallback`, `availableResolutions`), one call per video, because the database doesn't
+record it. Videos encoded before the switch have none (`mp4Url` is `null`). The upload itself is
+never kept (`original_files_keep = false`).
+
+Bunny's MP4 copies can carry the upload's location: on dev (2026-11-06) the 360p copy of a tagged
+MOV kept it as a `loci` box, while the 480p and 720p copies, the HLS playlists and segments, the
+thumbnail and the preview kept nothing. So the browser removes it before upload (M2, Joel
+2026-11-06; `apps/web/src/lib/strip-media-metadata.ts`): in an MP4, MOV or M4A file, every `udta`,
+`meta` and XMP `uuid` box (top level, `moov`, `trak`, `mdia`, `minf`) becomes a `free` box of the
+same size, zeroed. No offsets move and the media isn't re-encoded. MP3, WAV and WebM files, and
+files whose boxes don't add up, upload as they are.
+
+Opening a link from the file sends no `Referer`, so the library allows requests without
+one; the signed token still guards every file. Anyone allowed to watch a published video can also
+fetch its MP4 with the player's token: it is the same video they can already watch.
+
 No personal data goes into Bunny names: a video's title is the story id (D69) and an image's path
 is under the story's folder (D80). Deleting an image leaves its folder behind, so deletions remove
 the folder too. To check uploads still work against dev: `pnpm nx run dev-seed:upload-spike` (a

@@ -1845,6 +1845,7 @@ components:
                       bunnyVideoId,
                       playbackUrl,
                       thumbnailUrl,
+                      mp4Url,
                       width,
                       height,
                       durationSeconds,
@@ -1862,6 +1863,16 @@ components:
                     thumbnailUrl:
                       type: [string, 'null']
                       format: uri
+                    mp4Url:
+                      type: [string, 'null']
+                      format: uri
+                      description: |
+                        The item as an MP4 file to download (C1, Joel 2026-11-06): Bunny's MP4 copy at the
+                        largest size it made (up to 1080p), `https://{stream pull zone}/{bunnyVideoId}/play_{height}p.mp4`,
+                        signed like Bunny's other Stream files (`token=HS256-…&expires=…`), until
+                        `about.linksExpireAt`. A copy Bunny re-encoded, never the upload itself (which nobody
+                        keeps). `null` when Bunny has no MP4 copy (finished before the library made them, or
+                        not finished yet) or signing is off.
                     width:
                       type: [integer, 'null']
                     height:
@@ -1879,8 +1890,8 @@ components:
                     type: [string, 'null']
                     format: uri
                     description: |
-                      A one-hour link to the picture as published; `null` while the story isn't on the site
-                      (a draft's path is the person's own write, so it is never signed).
+                      A 7-day link to the person's own picture (the database keeps every story's picture in
+                      that story's own folder); `null` while signing is off.
                   width:
                     type: integer
                   height:
