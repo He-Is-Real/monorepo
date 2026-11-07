@@ -6,6 +6,7 @@ import { Popover } from 'radix-ui';
 import { cloneElement, type ReactElement, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
+import { FAVOURITES_HREF } from '@/components/nav/site-nav';
 import { usePublishPersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
 import { forgetShareStorageExcept } from '@/lib/share-storage';
@@ -31,7 +32,7 @@ export function AccountControl({ apiUserUrl }: { apiUserUrl?: string }) {
   // Same size while Clerk loads, so the header doesn't jump.
   if (!isLoaded) return <div className="h-11 w-20" aria-hidden="true" />;
 
-  if (!isSignedIn) return <SignInLink />;
+  if (!isSignedIn) return <SignedOutAccount />;
 
   const name =
     user.fullName ||
@@ -147,7 +148,7 @@ export function SignedInAccount({
             My profile
           </a>
           <a
-            href="/account/favourites"
+            href={FAVOURITES_HREF}
             className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <svg
@@ -169,6 +170,40 @@ export function SignedInAccount({
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+/**
+ * What a signed-out visitor sees in the header: My favourites, then Sign in. Their hearts are
+ * kept in this browser (device-hearts.ts), and this is the way to them (Joel, 2026-11-07); signed
+ * in, the account panel has the link instead. The heart alone (with its name for screen readers)
+ * until 1024 px, the heart and the words from there, so both fit the account slot.
+ */
+export function SignedOutAccount() {
+  const pathname = usePathname();
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2">
+      <a
+        href={FAVOURITES_HREF}
+        aria-label="My favourites"
+        aria-current={pathname === FAVOURITES_HREF ? 'page' : undefined}
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg text-sm font-medium text-secondary-text transition-colors hover:bg-accent hover:text-foreground aria-[current=page]:text-foreground lg:px-3"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          className="size-5 shrink-0 fill-none stroke-current lg:size-4"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        >
+          <path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.7 3.8 4.5 7.2 4.5c2 0 3.6 1.1 4.8 2.8 1.2-1.7 2.8-2.8 4.8-2.8 3.4 0 5.6 3.2 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4z" />
+        </svg>
+        <span aria-hidden="true" className="hidden whitespace-nowrap lg:inline">
+          My favourites
+        </span>
+      </a>
+      <SignInLink />
+    </div>
   );
 }
 
@@ -226,7 +261,7 @@ export function FixtureSignedInAccount({
   const userId = signedOut ? null : E2E_FIXTURE_USER_ID;
   useAccountBootstrap(userId, apiUserUrl, e2eFixtureToken);
   usePublishPersonalSession(userId, apiUserUrl, e2eFixtureToken);
-  if (signedOut) return <SignInLink />;
+  if (signedOut) return <SignedOutAccount />;
   return (
     <SignedInAccount
       name={name}
@@ -243,5 +278,5 @@ export function FixtureSignedInAccount({
 /** e2e fixture (E2E_FIXTURES): the signed-out control, without Clerk. */
 export function FixtureSignedOutAccount() {
   usePublishPersonalSession(null, undefined, e2eFixtureToken);
-  return <SignInLink />;
+  return <SignedOutAccount />;
 }

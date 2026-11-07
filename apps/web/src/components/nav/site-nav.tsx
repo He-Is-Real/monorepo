@@ -23,6 +23,8 @@ export const NAV_LINKS = [
   { href: '/donate', label: 'Donate' },
 ] as const;
 export const SHARE_HREF = '/share';
+/** My favourites: for everyone, signed in or out, as hearts are (Joel, 2026-11-07). */
+export const FAVOURITES_HREF = '/favourites';
 
 const isCurrent = (pathname: string, href: string) =>
   pathname === href || pathname.startsWith(`${href}/`);

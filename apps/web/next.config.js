@@ -14,8 +14,17 @@ const nextConfig = {
   agentRules: false,
   reactStrictMode: true,
   // The mockups call browse "browse.html"; the page lives at /stories (M1 step 6b-1).
+  // My favourites moved from /account/favourites to /favourites: signed-out visitors have
+  // favourites too, so it isn't an account page (Joel, 2026-11-07).
   async redirects() {
-    return [{ source: '/browse', destination: '/stories', permanent: true }];
+    return [
+      { source: '/browse', destination: '/stories', permanent: true },
+      {
+        source: '/account/favourites',
+        destination: '/favourites',
+        permanent: true,
+      },
+    ];
   },
   images: {
     // No runtime image optimiser (and no sharp) on Cloud Run: our own assets

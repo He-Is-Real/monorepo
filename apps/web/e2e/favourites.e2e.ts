@@ -271,10 +271,15 @@ test.describe('hearts', () => {
     });
     await expect(storyHeart).toHaveAttribute('aria-pressed', 'true');
 
-    // My favourites, from the account menu.
-    await page.getByRole('button', { name: /^Account: / }).click();
+    // My favourites, from the account menu (the header's own link is for signed-out visitors).
+    const account = page.getByRole('button', { name: /^Account: / });
+    await expect(account).toBeVisible();
+    await expect(
+      page.getByRole('banner').getByRole('link', { name: 'My favourites' }),
+    ).toHaveCount(0);
+    await account.click();
     await page.getByRole('link', { name: 'My favourites' }).click();
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/account/favourites`);
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/favourites`);
     await expect(
       page.getByRole('heading', { level: 2, name: title }),
     ).toBeVisible();
@@ -304,7 +309,7 @@ test.describe('hearts', () => {
       'browse_05',
       slug.replaceAll('-', '_'),
     ]);
-    await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+    await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
     const cards = page.locator('[data-favourites] article h2');
     await expect(cards).toHaveText([
       `Heart temp story ${slug}`,
@@ -348,10 +353,16 @@ test.describe('hearts', () => {
       page.getByRole('button', { name: 'Favourite', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true');
 
-    // My favourites, signed out: this device's list.
-    await page.goto('/account/favourites');
+    // My favourites, signed out: this device's list, reached from the header (Joel, 2026-11-07).
+    await page
+      .getByRole('banner')
+      .getByRole('link', { name: 'My favourites' })
+      .click();
+    await expect(page).toHaveURL('/favourites');
     await expect(
-      page.getByText('Saved on this device only.', { exact: false }),
+      page.getByText('Your hearts are kept in this browser only.', {
+        exact: false,
+      }),
     ).toBeVisible();
     const listed = cardHeart(page, title);
     await expect(
@@ -363,11 +374,22 @@ test.describe('hearts', () => {
     expect(await deviceHearts(page)).toEqual([]);
     await page.reload();
     await expect(
-      page.getByText('You haven’t hearted any stories on this device yet.', {
+      page.getByText('You haven’t hearted any stories in this browser yet.', {
         exact: false,
       }),
     ).toBeVisible();
     expect(sent, 'nothing reaches api-user').toEqual([]);
+  });
+
+  test('the old address, /account/favourites, lands on /favourites for good', async ({
+    request,
+  }) => {
+    const res = await request.get('/account/favourites', { maxRedirects: 0 });
+    expect(res.status()).toBe(308);
+    expect(res.headers()['location']).toBe('/favourites');
+    const followed = await request.get('/account/favourites');
+    expect(new URL(followed.url()).pathname).toBe('/favourites');
+    expect(followed.status()).toBe(200);
   });
 
   test('signed out, a heart from long ago is still kept (no expiry)', async ({
@@ -391,7 +413,7 @@ test.describe('hearts', () => {
       { id: slug.replaceAll('-', '_') },
       { id: 'browse_05' },
     ]);
-    await page.goto('/account/favourites');
+    await page.goto('/favourites');
     const cards = page.locator('[data-favourites] article h2');
     await expect(cards).toHaveText([
       `Heart temp story ${slug}`,
@@ -456,7 +478,7 @@ test.describe('hearts', () => {
       'browse_03',
       'no_such_story',
     ]);
-    await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+    await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
     await expect(page.locator('[data-favourites] article h2')).toHaveCount(3);
     await page.goto(`${WEB_SIGNED_IN_URL}/about`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -721,7 +743,7 @@ test('My favourites keeps each card at its media’s shape, in browse’s masonr
     session,
     shapes.map(([id]) => id),
   );
-  await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+  await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
   const list = page.locator('[data-favourites] ul.masonry');
   await expect(list.locator('> li')).toHaveCount(shapes.length);
   await expectNoHorizontalOverflow(page);
@@ -785,7 +807,7 @@ test('the next page of favourites adds cards under the columns, the others stayi
     await held;
     await route.continue();
   });
-  await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+  await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
   const list = page.locator('[data-favourites] ul.masonry');
   const width = page.viewportSize()?.width ?? 0;
   await expect(list.locator('> li')).toHaveCount(24);
@@ -838,7 +860,7 @@ test.describe('loading more favourites', () => {
       'audio_story',
       'image_story',
     ]);
-    await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+    await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
     const list = page.locator('[data-favourites] ul.masonry');
     const cards = list.locator('> li');
     await expect(cards).toHaveCount(24);
@@ -885,7 +907,7 @@ test.describe('loading more favourites', () => {
         ? route.abort('internetdisconnected')
         : route.continue();
     });
-    await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+    await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
     const list = page.locator('[data-favourites] ul.masonry');
     await expect(list.locator('> li')).toHaveCount(24);
     await scrollToEnd(list);
@@ -932,7 +954,7 @@ for (const scheme of ['light', 'dark'] as const) {
         'browse_02',
         'browse_03',
       ]);
-      await page.goto(`${WEB_SIGNED_IN_URL}/account/favourites`);
+      await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
       const hearts = page.locator('[data-favourites] [data-heart]');
       await expect(hearts).toHaveCount(3);
       await expect(hearts.first()).toHaveAttribute('aria-pressed', 'true');
@@ -972,7 +994,7 @@ for (const scheme of ['light', 'dark'] as const) {
         { id: 'browse_02' },
         { id: 'browse_03' },
       ]);
-      await page.goto('/account/favourites');
+      await page.goto('/favourites');
       const hearts = page.locator('[data-favourites] [data-heart]');
       await expect(hearts).toHaveCount(3);
       await expect(hearts.first()).toHaveAttribute('aria-pressed', 'true');

@@ -9,7 +9,7 @@ export function generateMetadata(): Metadata {
     ...pageMetadata({
       title: 'My favourites',
       description: 'The stories you’ve hearted. Only you can see them.',
-      path: '/account/favourites',
+      path: '/favourites',
     }),
     robots: { index: false, follow: true },
   };

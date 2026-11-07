@@ -260,6 +260,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - Seeing or removing your hearts never needs an agreement.
 - Planned: a story's owner sees how many hearts each of their stories has, never who gave them.
 - My favourites shows the newest heart first, laid out like browse, and loads more on its own.
+- My favourites lives at /favourites, for everyone: signed-out visitors reach it from the header
+  (a heart and "My favourites" next to Sign in), signed-in people from the account menu. Signed
+  out, it says the hearts are kept in this browser only and offers Sign in. The old address,
+  /account/favourites, redirects there permanently. (Joel, 2026-11-07)
 - A heart's time is the moment it was made, taken from its id; nobody can set it by hand.
   (Joel, 2026-11-05)
 - Deleting the account deletes the person's hearts; deleting a story deletes the hearts on it.
