@@ -340,7 +340,9 @@ Always export to a **file**: on stdout the CLI mixes its log lines into the dump
 ## Rotating passwords
 
 OpenTofu generates the passwords (`infra/terraform/modules/gcp/secrets.tf`, write-only).
-Rotating adds a new Secret Manager version and leaves the previous one in place.
+Rotating adds a new Secret Manager version and then deletes the previous one, except root's,
+which stays so you can sign in with it below (Secret Manager bills every version that isn't
+destroyed). Everything else reads `latest`.
 
 - **Services, migrator and backup:** bump `secret_rotation` in the gcp root and apply, then apply
   the cluster root. The cluster root reads the rotation number, so the identity hash changes:

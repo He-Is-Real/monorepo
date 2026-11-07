@@ -4,9 +4,12 @@
 # for root (separately: an existing database keeps its old root password until
 # told, see infra/k8s/surrealdb/README.md).
 #
-# A rotation replaces the version resource. ABANDON keeps the previous version
-# enabled in Secret Manager instead of destroying it first, so the old root
-# password can still be read to tell the database about the new one.
+# A rotation replaces the version resource: the new version is created first,
+# then the previous one is deleted (C2: Secret Manager bills every version that
+# isn't destroyed, disabled ones too). Everything reads `latest` (ESO, the
+# services at startup). Root alone keeps its previous version (ABANDON): a
+# person signs in with it to tell the database the new one (infra/k8s/surrealdb/
+# README.md, "Rotating passwords"), and nothing else signs in as root.
 
 resource "google_secret_manager_secret" "surreal" {
   for_each = toset(local.surreal_secret_names)
@@ -37,7 +40,11 @@ resource "google_secret_manager_secret_version" "surreal" {
   secret                 = google_secret_manager_secret.surreal[each.value].id
   secret_data_wo         = ephemeral.random_password.surreal[each.value].result
   secret_data_wo_version = each.value == "surreal-root-password" ? var.root_secret_rotation : var.secret_rotation
-  deletion_policy        = "ABANDON"
+  deletion_policy        = each.value == "surreal-root-password" ? "ABANDON" : "DELETE"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # External Secrets Operator (in-cluster) reads every SurrealDB secret.

@@ -10,8 +10,12 @@
 #
 # The version number is derived from the value, so a key rotated at Bunny
 # (refreshed into state by the next plan) becomes a new secret version on the
-# next apply. ABANDON keeps the previous version enabled until it's disabled
-# by hand, so running services aren't cut off mid-rotation.
+# next apply. The new version is created before the previous one is deleted
+# (C2: Secret Manager bills every version that isn't destroyed, disabled ones
+# too). Nothing pins a version number: the services read `latest` and keep the
+# value they read in memory, and a key reset at Bunny makes the old value
+# useless anyway. Every apply currently replaces the stream token key's version
+# with the same value; this way that leaves one version, not one more each time.
 
 locals {
   # Names are listed separately so for_each never depends on the values.
@@ -66,7 +70,11 @@ resource "google_secret_manager_secret_version" "app" {
   secret                 = google_secret_manager_secret.app[each.value].id
   secret_data_wo         = local.app_secrets[each.value]
   secret_data_wo_version = parseint(substr(sha256(local.app_secrets[each.value]), 0, 12), 16)
-  deletion_policy        = "ABANDON"
+  deletion_policy        = "DELETE"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # D52: the services that sign media links read the two token auth keys, and no
