@@ -16,7 +16,7 @@ Background and decisions (project docs, `context/research/`): `terraform-state-o
 modules/
   bootstrap/   project, APIs, state bucket, KMS keys, CI identities (keyless), budget, Bunny account key secret, log bucket (London)
   org/         organisation-wide UK settings; postponed, no root calls it (D119, its README)
-  gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run, dev-seed Job (dev)
+  gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run, dev-seed Job (dev), media ready's Pub/Sub
   cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations
   db-migration/ the D14 migration bundle and Job name (no providers; `tofu test` offline)
   db-identity/ SurrealDB's identity config: init Secret names, restart hash, marker (same)
@@ -293,6 +293,35 @@ Scheduler starts it at 03:30 London time; both are in `europe-west2`, written ou
   and a grant to an account that doesn't exist yet fails.
 - **Run it now:** `gcloud run jobs execute housekeeping --region europe-west2 --wait`; the logs are
   one JSON line per chore with counts and ids only.
+
+## Media ready
+
+`modules/gcp/media.tf` (`media_ready` in the gcp root; plan:
+`project/context/research/m2-media-ready-plan.html`; how to run it:
+[docs/media-runbook.md](../../docs/media-runbook.md), "Media ready"). Bunny posts video events to
+api-user, which queues a job; the media worker on Joel's machine (D78, D126) answers; a private Cloud
+Run service writes the answer.
+
+- **Topics** `media-jobs`, `media-results`, `media-dead-letters`: messages stored in London only
+  (`allowed_persistence_regions`, `enforce_in_transit`; the UK guard checks it) and kept 31 days.
+- **Subscriptions:** `media-worker` (pull, the worker's, in order per story; never expires, so a long holiday with the
+  machine off doesn't delete it), `media-results-writer` (push to the result writer, in order per
+  story, the ordering key), `media-dead-letters` (pull, for a developer). After 5 failed deliveries a job or answer
+  goes to `media-dead-letters`; retries back off from 10 seconds to 10 minutes.
+- **Identities:** `media-worker` pulls its subscription and publishes answers, and nothing else
+  (the bunny root's `readonly_key_readers` adds Bunny's read-only key, with the worker's PR);
+  `media_ready.worker_impersonators` (organisation people only, D126) may act as it with their own
+  gcloud login, so no key file exists. `workflow` runs the result writer and reads only its
+  database password. `media-results-push` is what Pub/Sub's push signs as; it alone may call the
+  result writer, which takes internal traffic only (no public address). api-user may publish to
+  `media-jobs`.
+- **Keys:** `bunny-stream-readonly-key` (bunny root) holds the library's read-only key, which Bunny
+  signs its webhooks with. Only api-user and media-worker may read it (`readonly_key_readers`).
+- **Turning it on, in order:** (1) bootstrap, locally: gives tf-deployer `roles/pubsub.admin`.
+  (2) Merge: wave 1 applies bunny (the key's secret, api-user's access, the library's
+  `webhook_url`) and then gcp (topics, identities, the result writer). api-user reads the key when
+  a webhook comes, so the order doesn't matter to it. (3) The worker's PR adds media-worker to
+  `readonly_key_readers` (its account must exist first).
 
 ## Encryption
 

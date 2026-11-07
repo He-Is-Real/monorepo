@@ -66,3 +66,8 @@ output "dev_seed_job" {
   description = "D49: the dev-seed Cloud Run Job (gcloud run jobs execute <name> --region <region> --wait), or null outside dev."
   value       = var.dev_seed ? google_cloud_run_v2_job.dev_seed[0].name : null
 }
+
+output "media_worker_email" {
+  description = "Media ready (D126): the worker's identity, which worker_impersonators may act as; null when media_ready is off."
+  value       = var.media_ready == null ? null : google_service_account.media_worker[0].email
+}

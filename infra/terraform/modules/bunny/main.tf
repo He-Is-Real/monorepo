@@ -86,6 +86,10 @@ resource "bunnynet_stream_library" "media" {
   # play button's icon colour: CSS in the player's <head> (Bunny's "Custom HTML" setting).
   # CSS only: no script, imports or external URLs.
   player_custom_head = trimspace(file("${path.module}/player-head.html"))
+
+  # Media ready (M2 plan item 13): Bunny posts each video's "finished" and "failed" (and other
+  # events, which api-user ignores) here, signed with the read-only key (secrets.tf).
+  webhook_url = var.stream_webhook_url
 }
 
 # Site assets: videos that are part of the site itself (the founder's introduction on About),

@@ -142,6 +142,7 @@
     ]
   },
   "dependencies": {
+    "@google-cloud/pubsub": "^6.3.2",
     "@heisreal/auth": "workspace:*",
     "@heisreal/database": "workspace:*",
     "@heisreal/health": "workspace:*",

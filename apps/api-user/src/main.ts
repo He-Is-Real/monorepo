@@ -9,7 +9,7 @@ import { AppModule } from './app/app.module';
 
 async function bootstrap() {
   // D31: the browser calls this service directly, from web's origin only (CORS_ALLOWED_ORIGINS).
-  // rawBody: Clerk's webhook is verified over the exact bytes Svix signed (D33).
+  // rawBody: Clerk's and Bunny's webhooks are verified over the exact bytes they signed (D33).
   const app = await NestFactory.create(AppModule, {
     cors: corsOptions(),
     rawBody: true,
