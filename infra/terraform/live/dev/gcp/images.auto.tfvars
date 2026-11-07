@@ -12,4 +12,5 @@ images = {
   "web"             = "main"
   "dev-seed"        = "main" # D49: the dev-seed Cloud Run Job (dev only)
   "housekeeping"    = "main" # the nightly housekeeping Cloud Run Job (#141)
+  "workflow"        = "main" # the media result writer (media ready, M2)
 }

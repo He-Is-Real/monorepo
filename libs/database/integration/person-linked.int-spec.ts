@@ -34,6 +34,7 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   submissionLog: 'linked', // person (D113: recent submissions)
   storyFile: 'linked', // person, story (D80, R12: the files api-user made for them)
   storySearch: 'linked', // story → submitter (search option A: a published story's words)
+  mediaJob: 'linked', // file → person (media ready, J1: a job about one of their files)
   submissionSettings: 'none', // the limits an admin sets (W3, D112)
   // D82: the sha256 of an erased Clerk id, so it never gets a row again; no link, no date.
   erasedIdentity: 'kept',
@@ -143,6 +144,33 @@ const LINKED: Record<string, LinkedCase> = {
         if (!o.ok) throw new Error(o.error);
       }),
     landed: (c) => `SELECT VALUE id FROM storyFile WHERE person = user:${c.p}`,
+  },
+  mediaJob: {
+    // api-user's write when Bunny's notice comes (fn::media::queue_job), for the person's video.
+    setup: async (c) => {
+      await draft(c.person, `${c.p}_mj`, {
+        primaryFormat: 'video',
+        body: undefined,
+      });
+      const o = await grantUpload(c.apiUser, {
+        video: randomUUID(),
+        story: `${c.p}_mj`,
+        person: c.p,
+        version: 1,
+      });
+      if (!o.ok) throw new Error(o.error);
+    },
+    writer: (c) => c.apiUser,
+    write: async (c, db) => {
+      const [queued] = (await run(
+        db(c),
+        `RETURN fn::media::queue_job((SELECT VALUE id FROM storyFile WHERE story = type::record('story', $s))[0], 'check', 'bunny_finished')`,
+        { s: `${c.p}_mj` },
+      )) as [unknown];
+      if (!queued) throw new Error('no job');
+    },
+    landed: (c) =>
+      `SELECT VALUE id FROM mediaJob WHERE file.person = user:${c.p}`,
   },
   storySearch: {
     // Written by story_search when a moderator approves the person's story (search option A).

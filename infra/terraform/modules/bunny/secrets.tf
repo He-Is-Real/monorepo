@@ -4,7 +4,9 @@
 # grants only for keys a deployed service uses: the two token auth keys, for
 # api-public-read (D52) and api-user (hearts' cards, M2), the two upload keys,
 # for api-user alone (M2's uploads, D80), and the Stream library key for the
-# nightly housekeeping Job (orphaned story videos, M2).
+# nightly housekeeping Job (orphaned story videos, M2), and the library's
+# read-only key for media ready (api-user checks Bunny's webhook signatures with
+# it; the media worker reads a video's facts with it).
 #
 # The version number is derived from the value, so a key rotated at Bunny
 # (refreshed into state by the next plan) becomes a new secret version on the
@@ -16,6 +18,7 @@ locals {
   app_secret_ids = [
     "bunny-stream-api-key", "bunny-storage-password",
     "bunny-stream-token-key", "bunny-images-token-key",
+    "bunny-stream-readonly-key",
   ]
   app_secrets = {
     # Create videos and sign TUS uploads (sha256(library + key + expiry + video)).
@@ -27,6 +30,10 @@ locals {
     "bunny-stream-token-key" = sensitive(data.bunnynet_pullzone.stream.token_auth_key)
     # D52: signs image links on the images pull zone.
     "bunny-images-token-key" = bunnynet_pullzone.images.token_auth_key
+    # Media ready (M2 plan item 13): reads a video's facts, and is what Bunny
+    # signs its webhooks with (HMAC-SHA256 of the body). It can't create,
+    # change or delete anything.
+    "bunny-stream-readonly-key" = bunnynet_stream_library.media.api_key_readonly
   }
   signing_key_ids = ["bunny-stream-token-key", "bunny-images-token-key"]
   upload_key_ids  = ["bunny-stream-api-key", "bunny-storage-password"]
@@ -117,6 +124,20 @@ resource "google_secret_manager_secret_iam_member" "storage_password_readers" {
 
   project   = var.project_id
   secret_id = google_secret_manager_secret.app["bunny-storage-password"].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value
+}
+
+# Media ready (M2 plan item 13; D78, D127): the library's read-only key, for
+# api-user (it checks Bunny's webhook signatures) and the media worker (it reads
+# a video's status, size, length and thumbnail at Bunny). Only those two
+# accounts, which the gcp root creates (apply it first); never the full library
+# key, which can delete every video.
+resource "google_secret_manager_secret_iam_member" "readonly_key_readers" {
+  for_each = toset(var.readonly_key_readers)
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.app["bunny-stream-readonly-key"].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = each.value
 }

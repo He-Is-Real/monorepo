@@ -19,13 +19,24 @@ info:
     - Handlers are idempotent (at-least-once delivery), keyed on `(storyId, jobType)`. A stored story is
       processed only after a fresh consent-ledger check (D21).
     - Paths are under `/v1` except `/health` (D30); errors are RFC 9457 `application/problem+json`.
+
+    **Media ready (M2 plan item 13; D78, D129; media-worker-final.html).** Built now, ahead of the M7
+    jobs above. Every media job is written to the `mediaJob` table first (J1), then sent as a
+    `MediaJob` on Pub/Sub topic `media-jobs` (ordering key: the story's id, so a story's jobs are
+    delivered in order). api-user does this for Bunny's webhook. The media worker (Dapr's Pub/Sub
+    building block only, off Google Cloud, outbound only) pulls it, asks Bunny itself and calls the
+    result writer (`workflow` on Cloud Run) directly, signed in as the media-worker Google account
+    (J5): `POST /v1/media-jobs/{jobId}/answer` with what it found, or `/failed` with a short reason
+    code. It marks the job taken (acks it) after a `2xx`, unless `/failed` answers `retry: true`; after
+    anything else the queue redelivers it later. Messages are JSON in the message's `data` (no
+    CloudEvents envelope).
   contact:
     name: He Is Real Today
     url: https://www.heisreal.today
 
 servers:
-  - url: https://workflow.internal
-    description: 'workflow (GKE, internal only)'
+  - url: https://workflow.run.app
+    description: 'workflow: the media result writer (Cloud Run; only the media-worker Google account may call it)'
   - url: https://inference-worker.internal
     description: 'inference-worker (on-prem and GKE, internal only)'
 
@@ -37,6 +48,8 @@ tags:
     description: 'Liveness and readiness.'
   - name: Jobs
     description: 'Async jobs (M7).'
+  - name: Media ready
+    description: "The media worker's answers and failures for its jobs (M2)."
 
 paths:
   /health:
@@ -51,6 +64,107 @@ paths:
           $ref: './components.yaml#/components/responses/Health'
         '503':
           $ref: './components.yaml#/components/responses/HealthDown'
+
+  /v1/media-jobs/{jobId}/answer:
+    post:
+      tags: [Media ready]
+      operationId: answerMediaJob
+      summary: Record the media worker's answer to a check job
+      description: |
+        The worker's answer about the job's Bunny video, made fresh at Bunny just before the call. In one
+        database transaction, signed in as `service:workflow` (Joel, 2026-11-07: F1, J5 and the round 3
+        fix), the writer applies it to the job's storyFile row and ends the job:
+        - `gone`: the file isn't one its story shows now (replaced, removed, the story deleted), or a
+          `ready` answer's `title` isn't the story's id. Nothing is written to the file.
+        - `stale`: an answer that reached the writer at or after this one is already in
+          (`storyFile.checkedAt`). Nothing is written to the file.
+        - `applied`: every fact is written with `checkedAt` = when this call arrived. `ready` sets
+          `processing` and, for a video, its width, height, length and Bunny's thumbnail; for an audio
+          file only its length (its picture comes from the default-picture step). `encoding` sets
+          `processing` to `processing`; `failed` and `gone` set `failed`. The database then hides an
+          approved story whose file isn't ready and shows it again when the same file is.
+        The job's `doneAt` and `outcome` are set if it is still open; a job already ended keeps its
+        outcome (the answer itself is still applied by the rules above). `404` if no such job exists
+        (it went with its file): the worker drops the message. `400` for a malformed answer or a job
+        that isn't a check.
+      security:
+        - mediaWorkerOidc: []
+      x-milestone: M2
+      parameters:
+        - $ref: '#/components/parameters/MediaJobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaAnswer'
+      responses:
+        '200':
+          description: Answered; the outcome of this answer.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [outcome]
+                properties:
+                  outcome:
+                    type: string
+                    enum: [applied, stale, gone]
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/media-jobs/{jobId}/failed:
+    post:
+      tags: [Media ready]
+      operationId: failMediaJob
+      summary: Record that the media worker couldn't do a job
+      description: |
+        Counts the failure on the job (`failures`, `lastError`; J4: the table replaces dead letters).
+        Under 5 failures: `retry: true`, and the worker leaves the job in the queue, which redelivers it
+        later. At the fifth: the job ends as `gave_up` and `retry: false`, and the worker marks it taken,
+        so the story's later jobs carry on. A job that has already ended counts nothing more:
+        `retry: false` with its outcome. `404` if no such job exists.
+      security:
+        - mediaWorkerOidc: []
+      x-milestone: M2
+      parameters:
+        - $ref: '#/components/parameters/MediaJobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaFailure'
+      responses:
+        '200':
+          description: Counted (or the job had already ended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [retry]
+                properties:
+                  retry:
+                    type: boolean
+                    description: true = leave the job in the queue; false = mark it taken.
+                  outcome:
+                    type: string
+                    enum: [applied, stale, gone, gave_up]
+                    description: The job's outcome once it has ended.
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/tasks/{job}:
     post:
@@ -105,7 +219,72 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Google-signed OIDC token (Cloud Tasks fallback), verified against the worker service account.
+    mediaWorkerOidc:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Google-signed ID token of the `media-worker` service account (audience = the writer's URL), checked by Cloud Run (run.invoker) before the request reaches the service.
+  parameters:
+    MediaJobId:
+      name: jobId
+      in: path
+      required: true
+      description: The job's id (mediaJob:<id>), a ULID.
+      schema:
+        type: string
+        pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
   schemas:
+    MediaJob:
+      type: object
+      description: 'A message on `media-jobs`: do this job. JSON in the message data.'
+      required: [jobId, kind, videoId]
+      properties:
+        jobId:
+          type: string
+          description: The job's id (mediaJob:<id>), which the worker answers on.
+        kind:
+          type: string
+          enum: [check]
+          description: '`check`: is the video or audio file ready at Bunny? (`render` comes later.)'
+        videoId:
+          type: string
+          description: The Bunny video id (a GUID).
+        eventId:
+          type: string
+          description: Bunny's webhook event id, for the logs.
+    MediaAnswer:
+      type: object
+      description: |
+        The worker's answer to a check job. `ready` needs every fact below; the others carry only the
+        outcome.
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [ready, failed, encoding, gone]
+        title:
+          type: string
+          description: The video's title at Bunny, which is its story's id (D69).
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        lengthSeconds:
+          type: integer
+          minimum: 1
+        thumbnailFileName:
+          type: string
+          description: Bunny's thumbnail file in the video's folder, e.g. `thumbnail.jpg`.
+    MediaFailure:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: A short reason code, e.g. `bunny_unreachable`. Never file contents or personal details.
     WorkflowJob:
       type: object
       description: Payload of a `workflow` job.

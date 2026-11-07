@@ -982,6 +982,15 @@ DEFINE FIELD OVERWRITE processing      ON storyFile TYPE option<string>
   PERMISSIONS FOR select WHERE person = $auth
       OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
     FOR create, update WHERE $auth = service:workflow;
+-- Media ready (Joel, 2026-11-07, F1 and media-worker-final section 3): the time the newest answer
+-- the result writer applied reached the writer (the writer's clock, taken when the worker's call
+-- arrives). The writer applies an answer only if it arrived later, in the same transaction that
+-- writes it, so an older answer can't undo a newer one. Like processing: only workflow writes it,
+-- and it isn't public.
+DEFINE FIELD OVERWRITE checkedAt       ON storyFile TYPE option<datetime>
+  PERMISSIONS FOR select WHERE person = $auth
+      OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
+    FOR create, update WHERE $auth = service:workflow;
 -- The server time. Only a system user ($auth = NONE: the migrator, dev-seed, the scale test) may
 -- supply another, for dummy data and tests.
 DEFINE FIELD OVERWRITE at              ON storyFile TYPE datetime READONLY
@@ -1187,4 +1196,99 @@ DEFINE EVENT OVERWRITE storyFile_update ON storyFile
 DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: record<user>, $video: string) {
   RETURN (UPDATE type::record('storyFile', $video) SET renewedAt = time::now()
     WHERE story = $story AND person = $person RETURN VALUE renewedAt)[0];
+};
+
+-- ---------------------------------------------------------------- mediaJob (media ready; J1-J6)
+-- Every media job, written down before it is sent to Google's queue (media-jobs), so none is ever
+-- lost (Joel, 2026-11-07: media-job-table.html J1, media-worker-final.html section 3). The queue is
+-- only the delivery route: the worker answers through the result writer (apps/workflow), which
+-- records the answer and the job's end in one transaction. One row per piece of work:
+-- - file: the story file the job is about (a Bunny video or audio file). Its row going (erasure,
+--   housekeeping's tidy-up) takes its jobs with it (storyFile_jobs), so a job never outlives the
+--   person's data.
+-- - kind: 'check' (is the media ready at Bunny?) or 'render' (an audio story's picture video,
+--   which madeFile records so a retry reuses it; built later).
+-- - reasons: why it exists. At most one open job per file and kind (J1 check a): a new reason for
+--   an open job is added to it (fn::media::queue_job), never a second row.
+-- - queuedAt: when it was first written; sentAt and sends: when it last went to the queue and how
+--   often (the first send and later resends).
+-- - failures and lastError: how often the worker reported it failed, and the last reason as a
+--   short code (never file contents or personal details). At 5 failures it ends as gave_up (J4:
+--   the table replaces dead letters).
+-- - doneAt and outcome: set once, when it ends: applied (the answer was saved), stale (a newer
+--   answer was already in), gone (the file or story was deleted) or gave_up.
+-- Services only (no person's session sees it): api-user and workflow create jobs; api-user records
+-- its sends and new reasons, housekeeping its resends; only workflow ends a job. Housekeeping
+-- deletes done jobs 30 days after they ended (J2). Person-linked through its file: every write
+-- needs the person to exist and not be erased, and bumps their fence, so it conflicts with an
+-- erasure that overlaps it (docs/db-permissions.md, "Person-linked tables").
+DEFINE TABLE OVERWRITE mediaJob SCHEMAFULL PERMISSIONS          -- id = mediaJob:<ulid>
+  FOR select WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
+  FOR create WHERE $auth IN [service:api_user, service:workflow],
+  FOR update WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
+  FOR delete WHERE $auth = service:housekeeping AND doneAt != NONE AND doneAt <= time::now() - 30d;
+DEFINE FIELD OVERWRITE file       ON mediaJob TYPE record<storyFile> READONLY;
+DEFINE FIELD OVERWRITE kind       ON mediaJob TYPE string READONLY
+  ASSERT $value IN ['check', 'render'];
+DEFINE FIELD OVERWRITE reasons    ON mediaJob TYPE array<string>
+  ASSERT array::len($value) > 0 AND $value.all(|$r| $r IN ['bunny_finished', 'bunny_failed',
+    'bunny_deleted', 'submitted', 'picture_changed', 'resent']);
+DEFINE FIELD OVERWRITE queuedAt   ON mediaJob TYPE datetime READONLY
+  VALUE $before OR time::now();
+DEFINE FIELD OVERWRITE sentAt     ON mediaJob TYPE option<datetime>;
+-- Both start at 0 whoever creates the job.
+DEFINE FIELD OVERWRITE sends      ON mediaJob TYPE int ASSERT $value >= 0
+  VALUE IF $before = NONE { 0 } ELSE { $value };
+DEFINE FIELD OVERWRITE failures   ON mediaJob TYPE int ASSERT $value >= 0
+  VALUE IF $before = NONE { 0 } ELSE { $value }
+  PERMISSIONS FOR update WHERE $auth = service:workflow;
+-- A short code, e.g. bunny_unreachable: nothing else fits.
+DEFINE FIELD OVERWRITE lastError  ON mediaJob TYPE option<string>
+  ASSERT $value = NONE OR string::matches($value, '^[a-z][a-z0-9_]{0,63}$')
+  PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+DEFINE FIELD OVERWRITE madeFile   ON mediaJob TYPE option<record<storyFile>>
+  PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+-- Set once, together (mediaJob_rules).
+DEFINE FIELD OVERWRITE doneAt     ON mediaJob TYPE option<datetime>
+  VALUE IF $before != NONE { $before } ELSE { $value }
+  PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+DEFINE FIELD OVERWRITE outcome    ON mediaJob TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['applied', 'stale', 'gone', 'gave_up']
+  VALUE IF $before != NONE { $before } ELSE { $value }
+  PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+DEFINE INDEX OVERWRITE mediaJob_file ON mediaJob FIELDS file, kind;
+-- The nightly resend and tidy-up's lists.
+DEFINE INDEX OVERWRITE mediaJob_done ON mediaJob FIELDS doneAt;
+-- Whoever writes: the job's person must be live (their fence then serialises every job write for
+-- them, so two overlapping writes can't both find no open job), at most one job per file and kind
+-- is open, and doneAt and outcome come together.
+DEFINE EVENT OVERWRITE mediaJob_rules ON mediaJob
+  WHEN $event IN ['CREATE', 'UPDATE'] THEN {
+    fn::person::live($after.file.person);
+    IF ($after.doneAt = NONE) != ($after.outcome = NONE) {
+      THROW 'a media job’s doneAt and outcome are set together';
+    };
+    IF $after.doneAt = NONE AND (SELECT VALUE id FROM mediaJob
+      WHERE file = $after.file AND kind = $after.kind AND doneAt = NONE AND id != $after.id) != [] {
+      THROW 'media_job_open: this file already has an open job of this kind';
+    };
+  };
+-- A file's row going takes its jobs with it (erasure, housekeeping's tidy-up).
+DEFINE EVENT OVERWRITE storyFile_jobs ON storyFile
+  WHEN $event = 'DELETE' THEN { DELETE mediaJob WHERE file = $before.id };
+-- Opens a job for `$file` (a check or render), or adds `$reason` to the open one (J1 check a), on
+-- the caller's login. Returns the job's id, the story's id (the queue's ordering key) and the
+-- Bunny video id, or NONE if there is no such file.
+DEFINE FUNCTION OVERWRITE fn::media::queue_job($file: record<storyFile>, $kind: string, $reason: string) {
+  LET $f = (SELECT id, story FROM ONLY $file);
+  IF $f = NONE { RETURN NONE };
+  LET $open = (SELECT VALUE id FROM mediaJob WHERE file = $file AND kind = $kind AND doneAt = NONE)[0];
+  LET $job = IF $open = NONE {
+    (CREATE ONLY type::record('mediaJob', rand::ulid())
+      CONTENT { file: $file, kind: $kind, reasons: [$reason] } RETURN VALUE id)
+  } ELSE {
+    (UPDATE ONLY $open SET reasons = array::union(reasons, [$reason]) RETURN VALUE id)
+  };
+  RETURN { job: <string> record::id($job), story: <string> record::id($f.story),
+    video: <string> record::id($file) };
 };

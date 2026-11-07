@@ -1,6 +1,8 @@
 /**
- * workflow: GKE Dapr Workflow orchestrator for the processing pipeline (M7). Connects as an EDITOR user; no public ingress.
- * See project docs: context/future/architecture/service-topology.md
+ * workflow: the media result writer (M2 plan item 13, D78; media-worker-final.html). A Cloud Run
+ * service the media worker calls directly with its answers (J5); it writes them to the storyFile
+ * rows and ends their mediaJob rows, signed in as service:workflow. Never on GKE; only the
+ * media-worker Google account may call it (Cloud Run IAM).
  */
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';

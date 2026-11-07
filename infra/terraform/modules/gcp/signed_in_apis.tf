@@ -141,6 +141,13 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
             BUNNY_STREAM_LIBRARY_ID     = var.api_public_read_media.stream_library_id
             BUNNY_STREAM_API_KEY_SECRET = "bunny-stream-api-key"
           } : {},
+          # Media ready (media.tf): Bunny's webhook is checked with the library's read-only key
+          # and queued on media-jobs.
+          var.media_ready == null ? {} : {
+            BUNNY_STREAM_LIBRARY_ID          = var.api_public_read_media.stream_library_id
+            BUNNY_STREAM_READONLY_KEY_SECRET = var.media_ready.readonly_key_secret
+            MEDIA_JOBS_TOPIC                 = "media-jobs"
+          },
           var.api_user_image_uploads == null ? {} : {
             BUNNY_STORAGE_ZONE            = var.api_user_image_uploads.storage_zone
             BUNNY_STORAGE_S3_HOST         = var.api_user_image_uploads.s3_host

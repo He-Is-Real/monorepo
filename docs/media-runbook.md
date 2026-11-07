@@ -5,8 +5,9 @@ loading again; we don't approve the story again.
 
 ## What happens
 
-- Processing (workflow, M7) records each video, audio file and image as `ready`, `processing` or
-  `failed`, with its size and duration.
+- Processing records each video, audio file and image as `ready`, `processing` or `failed`,
+  with its size and duration: for video and audio, the media-ready step below (the result
+  writer, signed in as `workflow`); for pictures, a later check (M2) and M7's scanning.
 - If an approved story's media stops being ready (it fails, it is checked again, or it loses its
   size or duration), the database hides the story in the same write: it adds a `hidden` entry
   (by the system) to the story's status log, so the public site and API no longer show it. Its
@@ -60,7 +61,70 @@ republishes (Joel, 2026-11-05: no audit log).
 Images live in the images storage zone (`heisreal-dev-image-store` in dev). If an image fails, check the file at its path there (`SELECT record::id(image.file) FROM story:<id>`).
 When processing records it `ready` again, the story comes back.
 
-Until M7 is built nothing marks media as not ready, so nothing is hidden.
+Until the media worker runs (below), nothing marks media as not ready, so nothing is hidden.
+
+## Media ready
+
+How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; design:
+`project/context/research/media-worker-final.html`; OpenTofu: `infra/terraform/modules/gcp/media.tf`):
+
+1. Bunny posts each video event to api-user's `POST /v1/webhooks/bunny` (the library's webhook
+   address, set in the bunny root). api-user checks Bunny's signature (the library's read-only
+   key, `bunny-stream-readonly-key`) and, for "finished", "failed" or "deleted", **writes a
+   check job to the `mediaJob` table first** (or adds the reason to the file's open check job:
+   one open job per file and kind), then sends `{ jobId, kind, videoId, eventId }` on the
+   Pub/Sub topic `media-jobs` (ordering key: the story's id), then records the send (`sentAt`,
+   `sends`). It answers 200 once Pub/Sub has it, 503 otherwise (Bunny retries for about 4 hours;
+   the job stays in the table either way), 401 for a bad signature.
+2. The media worker (Dapr, on Joel's machine; **not built yet**) pulls the job from the
+   `media-worker` subscription, asks Bunny itself for the video's status, size, length,
+   thumbnail and title, and calls the result writer directly, signed in as the `media-worker`
+   Google account: `POST /v1/media-jobs/<job id>/answer` (worker.yaml).
+3. The result writer (`apps/workflow`, the Cloud Run service `workflow`; only `media-worker` may
+   call it) writes the video's `storyFile` row as `service:workflow` and ends the job, in one
+   transaction: `applied` (the answer is saved), `stale` (an answer that reached the writer later
+   is already in: `storyFile.checkedAt`) or `gone` (the story no longer shows that file, or the
+   video's title isn't the story's id). The database then hides or shows the story again as
+   above. Its log is one JSON line per call, ids only:
+   `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.
+4. If the worker can't do a job (Bunny unreachable, say) it calls `.../failed` with a short code.
+   The writer counts it on the job (`failures`, `lastError`): under 5 it says "try again" and the
+   queue redelivers the job later; at 5 the job ends as `gave_up` and the story's later jobs carry
+   on. If the writer can't be reached at all, the worker leaves the job in the queue and it comes
+   back later. There are no dead-letter queues (Joel, 2026-11-07): the table is the record.
+
+Everything is in London (`europe-west2`): the topic stores messages there only, and the writer
+runs there. Jobs carry ids only, never a person's name or words. A job is deleted with its file
+(erasure, the 7-day tidy-up).
+
+### Processing is stalled
+
+A story's video stays "not processed yet" (no `processing`) or `processing`.
+
+1. Is Bunny done? `tools/scripts/tf.sh bunny-cli stream videos show <video id> --library <library id>`.
+   If it's still encoding, wait.
+2. Look at the file's jobs (a developer on dev, or api-user's database login):
+
+   ```sql
+   SELECT id, kind, reasons, queuedAt, sentAt, sends, failures, lastError, doneAt, outcome
+   FROM mediaJob WHERE file = storyFile:`<video id>` ORDER BY queuedAt;
+   ```
+
+   - **No job:** Bunny's notice didn't arrive or was refused. api-user logs `Refused a Bunny
+webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the library's current
+     read-only key, which the bunny root writes):
+     `gcloud logging read 'resource.labels.service_name="api-user" AND textPayload:"Bunny"' --limit 20`.
+   - **Open, `sentAt` empty:** the send failed (`Couldn't queue a media job` in api-user's log).
+     Bunny retries for about 4 hours; the nightly resend (next piece) sends it after that.
+   - **Open and sent:** it waits for the worker. The worker is off (Joel's machine), so jobs wait in
+     the queue up to 31 days, and in the table for good; start it and it catches up. How many
+     wait: the `subscription/num_undelivered_messages` metric of `media-worker` in Cloud Monitoring.
+   - **Open with failures:** the worker keeps failing; `lastError` says why, and the worker's own
+     log says more.
+   - **`gave_up`:** it failed 5 times. Fix the cause, then re-encode the video at Bunny (above):
+     Bunny's next "finished" notice opens a fresh job.
+   - **`gone` or `stale`:** the story no longer shows that video (replaced, removed), the video's
+     title isn't the story's id, or a newer answer was already in. Nothing to do.
 
 ## Where uploads land
 

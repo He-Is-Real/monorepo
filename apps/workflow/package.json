@@ -96,6 +96,27 @@
         "options": {
           "command": "cp tools/docker/nest-service.Dockerfile apps/workflow/dist/Dockerfile"
         }
+      },
+      "test-integration": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/libs/database/integration/support/**/*",
+          "{workspaceRoot}/libs/database/schema/**/*",
+          "{workspaceRoot}/infra/k8s/surrealdb/base/kustomization.yaml",
+          {
+            "externalDependencies": [
+              "surrealdb",
+              "vitest"
+            ]
+          }
+        ],
+        "outputs": [],
+        "options": {
+          "command": "vitest run --config vitest.integration.config.mts",
+          "cwd": "{projectRoot}"
+        }
       }
     },
     "tags": [
@@ -106,6 +127,7 @@
   "dependencies": {
     "@heisreal/database": "workspace:*",
     "@heisreal/health": "workspace:*",
+    "@heisreal/http": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@nestjs/common": "^12.3.2",
     "@nestjs/core": "^12.3.2",
@@ -115,6 +137,7 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@nestjs/testing": "^12.3.2"
+    "@nestjs/testing": "^12.3.2",
+    "surrealdb": "^2.0.8"
   }
 }
