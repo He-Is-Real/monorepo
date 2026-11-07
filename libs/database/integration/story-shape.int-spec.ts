@@ -67,14 +67,14 @@ describe('story types and shapes (D53)', () => {
          files.media !== undefined
            ? `CREATE type::record('storyFile', $id + '-media') CONTENT {
          story: type::record('story', $id), person: user:pat, contentType: 'video/mp4',
-         sizeBytes: 1000, storyVersion: 1, ${files.media} } RETURN NONE;`
+         sizeBytes: 1000, storyVersion: 1, at: time::now() - 1d, ${files.media} } RETURN NONE;`
            : ''
        }
        ${
          files.image !== undefined
            ? `CREATE type::record('storyFile', $pic) CONTENT {
          story: type::record('story', $id), person: user:pat, format: 'image',
-         contentType: 'image/webp', sizeBytes: 1000, storyVersion: 1, ${files.image} } RETURN NONE;`
+         contentType: 'image/webp', sizeBytes: 1000, storyVersion: 1, at: time::now() - 1d, ${files.image} } RETURN NONE;`
            : ''
        }
        CREATE type::record('story', $id) CONTENT {
@@ -383,7 +383,7 @@ describe('story types and shapes (D53)', () => {
           migrator,
           `CREATE type::record('storyFile', $id + '-later') CONTENT {
              story: type::record('story', $id), person: user:pat, contentType: 'video/mp4',
-             sizeBytes: 1000, storyVersion: 1, ${own} };
+             sizeBytes: 1000, storyVersion: 1, at: time::now() - 1d, ${own} };
            UPDATE type::record('story', $id) SET mediaFile = type::record('storyFile', $id + '-later')`,
           { id },
         ),

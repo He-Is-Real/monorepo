@@ -95,7 +95,12 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
 
 Everything is in London (`europe-west2`): the topic stores messages there only, and the writer
 runs there. Jobs carry ids only, never a person's name or words. A job is deleted with its file
-(erasure, the 7-day tidy-up).
+(erasure, the 7-day tidy-up), and an ended job 30 days after it ended (the nightly
+`old-media-jobs` chore).
+
+While a story's file could still be replaced through its upload link (an hour after the link was
+signed; 10 minutes for a picture), or one of its files' jobs is open, a moderator can't approve it
+(`media_recently_uploaded`, with the time it can be; `media_still_processing`). A SuperAdmin can.
 
 ### Processing is stalled
 
@@ -115,10 +120,15 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      read-only key, which the bunny root writes):
      `gcloud logging read 'resource.labels.service_name="api-user" AND textPayload:"Bunny"' --limit 20`.
    - **Open, `sentAt` empty:** the send failed (`Couldn't queue a media job` in api-user's log).
-     Bunny retries for about 4 hours; the nightly resend (next piece) sends it after that.
+     Bunny retries for about 4 hours; the 18:00 resend (below) sends it after that.
    - **Open and sent:** it waits for the worker. The worker is off (Joel's machine), so jobs wait in
      the queue up to 31 days, and in the table for good; start it and it catches up. How many
      wait: the `subscription/num_undelivered_messages` metric of `media-worker` in Cloud Monitoring.
+     Each evening at 18:00 London time (when Joel's machine is on) the housekeeping Job's media
+     resend sends every job not ended whose last send (or, never sent, its writing) is over 12
+     hours old again, adds the reason `resent` and counts the send. A redelivered duplicate is
+     harmless. To resend now: `gcloud run jobs execute housekeeping --region europe-west2 --wait
+     --update-env-vars HOUSEKEEPING_CHORES=media-resend` (a dry run on dev until `dry_run` is off).
    - **Open with failures:** the worker keeps failing; `lastError` says why, and the worker's own
      log says more.
    - **`gave_up`:** it failed 5 times. Fix the cause, then re-encode the video at Bunny (above):

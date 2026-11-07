@@ -22,6 +22,7 @@
 #   workflow       the result writer's runtime identity: reads its own database password and signs
 #                  in as service:workflow (docs/db-permissions.md). Nothing else.
 #   api-user       may publish to media-jobs (and to no other topic).
+#   housekeeping   may publish to media-jobs too: the 18:00 resend (housekeeping.tf).
 # The result writer takes traffic from the internet (the worker is off Google Cloud), but Cloud Run
 # refuses every request without a Google ID token of a run.invoker (media-worker only) before it
 # reaches our code.

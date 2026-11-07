@@ -23,7 +23,9 @@ info:
     **Media ready (M2 plan item 13; D78, D129; media-worker-final.html).** Built now, ahead of the M7
     jobs above. Every media job is written to the `mediaJob` table first (J1), then sent as a
     `MediaJob` on Pub/Sub topic `media-jobs` (ordering key: the story's id, so a story's jobs are
-    delivered in order). api-user does this for Bunny's webhook. The media worker (Dapr's Pub/Sub
+    delivered in order). api-user does this for Bunny's webhook, and housekeeping sends every job
+    not ended whose last send is over 12 hours old again each evening at 18:00 London time (the same
+    message, without `eventId`). The media worker (Dapr's Pub/Sub
     building block only, off Google Cloud, outbound only) pulls it, asks Bunny itself and calls the
     result writer (`workflow` on Cloud Run) directly, signed in as the media-worker Google account
     (J5): `POST /v1/media-jobs/{jobId}/answer` with what it found, or `/failed` with a short reason

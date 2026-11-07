@@ -268,7 +268,8 @@ components:
           description: |
             `weekly_submission_limit_reached` (D94): when the person may next submit a story for
             review, 7 days after their latest submission. `upload_limit_reached` (D113): when they
-            may next start an upload.
+            may next start an upload. `media_recently_uploaded` (api-admin, decision 5): when the
+            story's upload links have run out and a moderator may approve it.
         errors:
           type: array
           description: Field errors (validation failures only).

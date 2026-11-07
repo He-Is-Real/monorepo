@@ -1,6 +1,7 @@
 import type { SurrealQueryable } from 'surrealdb';
 import type { ClerkUsers } from './clerk';
 import type { ImageZone } from './images';
+import type { MediaJobs } from './media-jobs';
 import type { StreamLibrary } from './stream';
 
 /**
@@ -15,9 +16,11 @@ export interface TaskContext {
   clerk?: ClerkUsers | null;
   /** The images storage zone, for queued picture deletions; null or absent: they wait. */
   images?: ImageZone | null;
+  /** The media-jobs topic, for the media resend; null or absent: it can't run. */
+  mediaJobs?: MediaJobs | null;
   /** Only log what would be deleted. */
   dryRun: boolean;
-  /** At most this many deletions per chore per run. */
+  /** At most this many deletions (or, for the media resend, sends) per chore per run. */
   maxDeletions: number;
   /** The run's clock (Bunny's dates are compared with it). */
   now: Date;

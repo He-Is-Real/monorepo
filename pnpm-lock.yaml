@@ -365,6 +365,9 @@ importers:
 
   apps/housekeeping:
     dependencies:
+      '@google-cloud/pubsub':
+        specifier: ^6.3.2
+        version: 6.3.2
       '@google-cloud/secret-manager':
         specifier: ^7.2.0
         version: 7.2.0

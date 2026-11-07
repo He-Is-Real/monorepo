@@ -257,6 +257,36 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
   };
   RETURN NONE;
 };
+-- What keeps a moderator from approving the story yet, or NONE (Joel, 2026-11-07: decision 5
+-- and J6, media-worker-final.html section 3). Unlike approval_problem it is about the review, not
+-- about the files being fit to show, so only a moderator's approval checks it (storyStatusLog_step):
+-- a system restore and the hiding of an approved story never do.
+-- - The upload cooldown: a file's upload link may still be used to replace what the moderator
+--   watched, until the last link signed for it (storyFile at, or renewedAt for a resume) has run
+--   its length (fn::upload::link_lifetime). Refused while $now is before that; the message gives
+--   the time, rounded up to the second, from which it can be approved.
+-- - An open media job (J6): a check or render for the story's media file or picture that hasn't
+--   ended (mediaJob doneAt), e.g. the picture video of an audio story whose picture changed.
+-- A SuperAdmin may approve anyway, and the entry records it (storyStatusLog.skippedMediaWait).
+-- Messages start with a code for api-admin (409). $now: the time to judge at (the approval's).
+-- Runs elevated from the event (only the services read mediaJob).
+DEFINE FUNCTION OVERWRITE fn::story::approval_wait($s: any, $now: datetime) {
+  LET $files = [$s.mediaFile, $s.image.file].filter(|$f| $f != NONE);
+  LET $until = array::max($files.map(|$f| {
+    LET $r = (SELECT format, at, renewedAt FROM ONLY $f);
+    RETURN IF $r = NONE { NONE } ELSE {
+      array::max([$r.at, $r.renewedAt].filter(|$t| $t != NONE)) + fn::upload::link_lifetime($r.format)
+    };
+  }).filter(|$t| $t != NONE));
+  IF $until != NONE AND $now < $until {
+    RETURN 'media_recently_uploaded: the story’s file was uploaded recently; it can be approved after '
+      + <string> time::ceil($until, 1s);
+  };
+  IF $files != [] AND (SELECT VALUE id FROM mediaJob WHERE file IN $files AND doneAt = NONE LIMIT 1) != [] {
+    RETURN 'media_still_processing: the story’s media is still being processed';
+  };
+  RETURN NONE;
+};
 -- D65, D80, R12: a story points only at files uploaded for it. The pointers are the permission
 -- slip: a new pointer must name a storyFile row of this story, of the right kind, not detached
 -- (one story per file: its id is the Bunny video id or the picture's path), whoever writes,
@@ -778,6 +808,15 @@ DEFINE FIELD OVERWRITE reviewedMediaFile ON storyStatusLog TYPE option<record<st
 DEFINE FIELD OVERWRITE reviewedImageFile ON storyStatusLog TYPE option<record<storyFile>> READONLY
   VALUE IF $this.status = 'approved' { $this.story.image.file }
   PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
+-- On a moderator's approved entry: true when a SuperAdmin approved while the media wait (the
+-- upload cooldown or an open media job, fn::story::approval_wait) would have refused it (Joel,
+-- 2026-11-07: decision 5 and J6, "a SuperAdmin may skip both; the approval records that it did").
+-- Roles live in Clerk (D1), so api-admin sets it, only for a SuperAdmin (as it names the
+-- moderator in `by`); the database refuses it on any other entry, or when there was nothing to
+-- skip, so it is true exactly when the wait was skipped. api-admin's alone to read.
+DEFINE FIELD OVERWRITE skippedMediaWait ON storyStatusLog TYPE option<bool> READONLY
+  ASSERT $value = NONE OR $value = true
+  PERMISSIONS FOR select WHERE $auth = service:api_admin;
 -- Public lists, newest or oldest first (db review 2, section 6 items 5 and 6).
 DEFINE INDEX OVERWRITE storyStatusLog_published ON storyStatusLog FIELDS status, publishedAt;
 -- The moderators' queue (pending, oldest first; M3).
@@ -822,6 +861,16 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
     IF $after.hiddenReason != NONE AND $to != 'hidden' {
       THROW 'status_step: only a hidden entry has a reason';
     };
+    -- A moderator's approval waits for the media (decision 5, J6): refused while
+    -- fn::story::approval_wait says so, unless a SuperAdmin skips it (skippedMediaWait). System
+    -- users (the migrator, dev-seed) load approved stories as given.
+    LET $wait = IF $to = 'approved' AND $after.actor = 'moderator' AND $auth != NONE {
+      fn::story::approval_wait($s, time::now())
+    };
+    IF $after.skippedMediaWait = true AND $wait = NONE {
+      THROW 'status_step: skippedMediaWait is only for a moderator’s approval that the media wait would refuse';
+    };
+    IF $wait != NONE AND $after.skippedMediaWait != true { THROW $wait };
     -- Shown again: by the system only with the files that were reviewed, ready; a moderator's
     -- "show again" is their review of what the story shows now (its approval checks still run,
     -- on the moved pointer, and the entry records the files it shows), so a hidden story with
@@ -1025,6 +1074,14 @@ DEFINE INDEX OVERWRITE storyFile_detached ON storyFile FIELDS detachedAt;
 -- deletes a detached file only after this (removedAt).
 DEFINE FUNCTION OVERWRITE fn::upload::links_expire_after() {
   RETURN 2h;
+};
+-- How long one upload link for a file of `$format` lasts once signed (D68): a video or audio
+-- file's TUS link an hour, a picture's PUT 10 minutes. The one place these lengths live:
+-- api-user's UPLOAD_LINK_SECONDS and IMAGE_LINK_SECONDS must match (their comments point here).
+-- A file can be replaced through its link until then, so a moderator waits for it before
+-- approving (fn::story::approval_wait).
+DEFINE FUNCTION OVERWRITE fn::upload::link_lifetime($format: string) {
+  RETURN IF $format = 'image' { 10m } ELSE { 1h };
 };
 -- When the person may next start an upload of `$format` ('video', 'audio' or 'image'): NONE if
 -- now, else when the hourly count (every file) or, for a video or audio file, the weekly count

@@ -131,6 +131,15 @@ their fence (see "Transactions").
     file is `ready` with its sizes and length (`fn::story::approval_problem`; `media_not_ready:`,
     api-admin `409`) and the submitter has a testimony consent (any version). Specs:
     `media-processing`, `agreements`.
+  - **A moderator's approval waits for the media (decision 5 and J6, Joel 2026-11-07;
+    `storyStatusLog_step`, `fn::story::approval_wait`):** a moderator's approved entry (from in
+    review, or "show again" from hidden) is refused while an upload link for the story's video,
+    audio file or picture could still be used (its row's `at` or `renewedAt` plus the link's length,
+    `fn::upload::link_lifetime`: 1 hour, a picture 10 minutes; `media_recently_uploaded:`, with the
+    time it can be approved) or a media job for those files is open (`media_still_processing:`). A
+    SuperAdmin may approve anyway: api-admin sets `skippedMediaWait` (roles live in Clerk), which
+    the database accepts only on a moderator's approval that the wait would refuse. The system's
+    hide and show again, and system users, are never held. Specs: `approval-wait`.
   - **Delete:** erasure (api-user, api-admin); the owner, live, for `draft`, `changes_requested`,
     `withdrawn` or `rejected` (D71; never pending, in review, approved or hidden); housekeeping
     only for `fn::story::draft_expired(id)`: a draft untouched for 186 days
@@ -146,7 +155,8 @@ their fence (see "Transactions").
   moderator; api-admin alone reads it), `storyVersion`, `comment`, `at` (server time),
   `publishedAt` (approved entries: the first approval's time, kept on later ones), `hiddenReason`
   (`media_unavailable`, `media_changed`), `reviewedMediaFile`/`reviewedImageFile` (approved
-  entries: the files approved).
+  entries: the files approved), `skippedMediaWait` (a SuperAdmin's approval during the media wait;
+  api-admin alone reads it).
   - **Read:** the owner (never `by`) and api-admin; everyone else only an entry's `story`,
     `status` and `publishedAt`, while it is its story's current approved entry.
   - **Create:** the owner, live, or api-admin. `storyStatusLog_step` checks who may take which
@@ -215,12 +225,15 @@ their fence (see "Transactions").
   together). No person's session, api-admin or the public reads it. **Create:** api-user and
   workflow, through `fn::media::queue_job`, which adds a reason to the file's open job of that
   kind instead (the `mediaJob_rules` event refuses a second open one). **Update:** api-user (new
-  reasons, `sentAt`, `sends`), housekeeping (resends), workflow (all of it); only workflow writes
+  reasons, `sentAt`, `sends`), housekeeping (the 18:00 resend: `sentAt`, `sends`, the reason
+  `resent`), workflow (all of it); only workflow writes
   `failures`, `lastError`, `madeFile`, `doneAt` and `outcome`. **Delete:** housekeeping, a job 30
   days after it ended (J2); a file's row going deletes its jobs (`storyFile_jobs`). Every write
   needs the file's person live and bumps their fence, which also serialises two writes racing to
   open the same job. The result writer saves an answer and ends its job in one transaction.
-  Specs: `media-jobs` (here and workflow's), `person-linked`, api-user's `media-webhook`.
+  An open job holds a moderator's approval of its story (J6, above).
+  Specs: `media-jobs` (here, workflow's and housekeeping's), `person-linked`, api-user's
+  `media-webhook`, `approval-wait`.
 - **Public lists read the status log's `(status, publishedAt)` index** (scale test; query only).
   Browse newest/oldest, by theme or format: the current approved entries (`PUBLISHED_ENTRY`) in
   publish order, filtered by the story's format and theme, until a page is full (3.2.4 stops the

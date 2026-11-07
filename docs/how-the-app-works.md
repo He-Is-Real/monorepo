@@ -324,6 +324,15 @@ Built in the database (the pages and the queue are planned, M3):
   and shows again when media breaks and works again.
 - **A story can't be approved until every upload is processed** and its size and length are
   known, so nothing unchecked reaches the public. (A2)
+- **A moderator waits for the media before approving (decision 5 and J6, Joel 2026-11-07):** not
+  while the story's video, audio file or picture could still be replaced through its upload link
+  (an hour after the link was signed, or signed again for a resumed upload; 10 minutes for a
+  picture), so what they watched is what gets published; they are told the time from which they
+  can approve. And not while a media job for those files is still open (for example an audio
+  story's new picture video still being made), so they never approve the old picture: "media
+  still being processed". A SuperAdmin may approve anyway, and the approval records that they
+  skipped the wait. This holds for a moderator's "show again" too; the system hiding a story and
+  showing it again when its media breaks and works again never waits.
 - **Media ready (M2 plan item 13; D76, D78; Joel 2026-11-07, media-worker-final.html):** when
   Bunny says a video or audio file finished encoding, failed or was deleted, a check job for that
   file is written to the job table, then queued; the media worker asks Bunny itself and calls the
@@ -334,10 +343,13 @@ Built in the database (the pages and the queue are planned, M3):
   that reached the writer before the last answer recorded for that file (the job ends "stale"),
   so a late answer can't bring back a story whose video has since failed (F1). If the worker
   fails a job 5 times, the job ends "gave up" (no dead-letter queues, J4). Jobs hold ids only and
-  go with their file (erasure, tidy-up); done jobs are deleted after 30 days (J2). Built: the job
-  table, Bunny's notices, the queue and the writer; the worker on Joel's machine and the nightly
-  resend are next, so until the worker runs, files stay "not processed yet". An audio file's picture
-  is set by a later step (D127), so audio stories can't be approved until then.
+  go with their file (erasure, tidy-up); done jobs are deleted after 30 days (J2). Every evening
+  at 18:00 UK time, when Joel's machine is on to take them, every job not done whose last send
+  is over 12 hours old is sent again (Joel, 2026-11-07), so a job the queue lost (31 days, a
+  failed send) still gets done. Built: the job table, Bunny's notices, the queue, the writer, the
+  resend and the tidy-up; the worker on Joel's machine is next, so until it runs, files stay "not
+  processed yet". An audio file's picture is set by a later step (D127), so audio stories can't
+  be approved until then.
 - **An approved story whose media breaks is hidden, not un-approved**, and comes back on its own
   when the same files work again: the approval records which video or audio file and which
   picture the moderator reviewed, and the story shows again only while it still points at both.
@@ -408,6 +420,8 @@ Planned (M3):
   still count them.
 - **Request keys** (which stop a resent request being applied twice) are deleted by the nightly
   clean-up once they expire, 24 hours after the request. (Joel, 2026-11-05)
+- **Media jobs** (ids and times only) are deleted by the nightly clean-up 30 days after they
+  ended, and with their file before that. (J2, Joel 2026-11-07)
 - Backups are nightly, in the UK, and age out; they aren't edited after a deletion.
 - Our services' logs are stored in London for 30 days. (D101)
 - **Where data lives:** in the UK wherever possible (London), declared in our infrastructure

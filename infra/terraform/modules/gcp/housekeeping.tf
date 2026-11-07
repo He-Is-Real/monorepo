@@ -3,7 +3,10 @@
 # everything here. Chores: D71's abandoned drafts (untouched for 6 months) and orphaned Bunny
 # Stream videos; and after erasure (M2 plan PR 11), erasure requests api-user didn't finish and
 # the queued Bunny, picture and Clerk deletions it couldn't do (an abandoned draft's pictures are
-# queued too, M2 plan PR 10). Orphaned images join the list later.
+# queued too, M2 plan PR 10). Orphaned images join the list later. Media jobs (Joel, 2026-11-07,
+# media-worker-final.html): the nightly run deletes ended jobs 30 days old, and a second trigger
+# at 18:00 London time (when Joel's machine is on to take them) runs the same Job with only the
+# media resend: unfinished jobs last sent over 12 hours ago go to media-jobs again.
 #
 # Least privilege:
 #   housekeeping            the Job's runtime identity. Reads its own database password and,
@@ -16,9 +19,14 @@
 #                           ids, status, dates and media ids (never their words), deleting a
 #                           draft untouched for 6 months, and seeing, retrying and deleting
 #                           erasure requests and queued deletions, nothing else
-#                           (docs/db-permissions.md).
-#   housekeeping-scheduler  Cloud Scheduler's identity. May start this one Job (run.invoker on
-#                           the Job only), with no overrides; nothing else.
+#                           (docs/db-permissions.md). With media ready, it may also publish to
+#                           media-jobs (the resend), and its login reads, resends and deletes
+#                           ended media jobs.
+#   housekeeping-scheduler  Cloud Scheduler's identity for the nightly run. May start this one Job
+#                           (run.invoker on the Job only), with no overrides; nothing else.
+#   media-resend-scheduler  Cloud Scheduler's identity for the 18:00 media resend. May start this
+#                           one Job with overrides (the resend's HOUSEKEEPING_CHORES), on the Job
+#                           only; nothing else. Kept apart so the nightly trigger can't override.
 # Like dev-seed, it reaches SurrealDB over Direct VPC egress and the cluster's VPC-scope DNS name.
 
 resource "google_service_account" "housekeeping" {
@@ -150,6 +158,19 @@ resource "google_cloud_run_v2_job" "housekeeping" {
           name  = "HOUSEKEEPING_MAX_DELETIONS"
           value = tostring(var.housekeeping.max_deletions)
         }
+        # The nightly chores; the 18:00 trigger overrides this with media-resend (below).
+        env {
+          name  = "HOUSEKEEPING_CHORES"
+          value = "nightly"
+        }
+        # The topic the media resend sends to (a name; the Job's identity may publish to it).
+        dynamic "env" {
+          for_each = local.media_ready ? { MEDIA_JOBS_TOPIC = google_pubsub_topic.media["media-jobs"].name } : {}
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
       }
     }
   }
@@ -214,4 +235,78 @@ resource "google_cloud_scheduler_job" "housekeeping" {
   }
 
   depends_on = [google_cloud_run_v2_job_iam_member.housekeeping_scheduler]
+}
+
+# --- The 18:00 media resend (Joel, 2026-11-07) -------------------------------------------------
+# "do the resend at 18:00 UK local time, as that is when my pc is on and will have a worker
+# available". Only with media ready (there is no queue to resend to without it).
+locals {
+  media_resend = var.housekeeping != null && local.media_ready
+}
+
+# The resend publishes to media-jobs, and to no other topic.
+resource "google_pubsub_topic_iam_member" "housekeeping_media_jobs" {
+  count = local.media_resend ? 1 : 0
+
+  project = var.project_id
+  topic   = google_pubsub_topic.media["media-jobs"].name
+  role    = "roles/pubsub.publisher"
+  member  = google_service_account.housekeeping[0].member
+}
+
+resource "google_service_account" "media_resend_scheduler" {
+  count = local.media_resend ? 1 : 0
+
+  project      = var.project_id
+  account_id   = "media-resend-scheduler"
+  display_name = "Cloud Scheduler: starts the housekeeping Job's 18:00 media resend"
+}
+
+# run.jobs.runWithOverrides on this Job only: the resend run names its chores in an override.
+resource "google_cloud_run_v2_job_iam_member" "media_resend_scheduler" {
+  count = local.media_resend ? 1 : 0
+
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.housekeeping[0].name
+  role     = "roles/run.jobsExecutorWithOverrides"
+  member   = google_service_account.media_resend_scheduler[0].member
+}
+
+# The same Job, with HOUSEKEEPING_CHORES=media-resend: only the resend runs, never the nightly
+# chores (and the nightly run never resends).
+resource "google_cloud_scheduler_job" "media_resend" {
+  count = local.media_resend ? 1 : 0
+
+  project          = var.project_id
+  name             = "housekeeping-media-resend"
+  region           = var.region
+  description      = "Starts the housekeeping Cloud Run Job with only the media resend."
+  schedule         = var.housekeeping.media_resend_schedule
+  time_zone        = "Europe/London"
+  attempt_deadline = "60s" # the call only starts the Job; it doesn't wait for it
+
+  retry_config {
+    retry_count = 1
+  }
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/${google_cloud_run_v2_job.housekeeping[0].name}:run"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{
+          env = [{ name = "HOUSEKEEPING_CHORES", value = "media-resend" }]
+        }]
+      }
+    }))
+
+    oauth_token {
+      service_account_email = google_service_account.media_resend_scheduler[0].email
+      scope                 = "https://www.googleapis.com/auth/cloud-platform"
+    }
+  }
+
+  depends_on = [google_cloud_run_v2_job_iam_member.media_resend_scheduler]
 }

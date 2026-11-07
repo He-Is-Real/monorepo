@@ -391,11 +391,12 @@ variable "dev_seed" {
 }
 
 variable "housekeeping" {
-  description = "The nightly housekeeping Cloud Run Job and its Cloud Scheduler trigger (housekeeping.tf): cron schedule (Europe/London time), dry_run (only log what it would delete) and max_deletions (per chore per run). null: none. Needs api_public_read_media (the Stream library)."
+  description = "The nightly housekeeping Cloud Run Job and its Cloud Scheduler trigger (housekeeping.tf): cron schedule (Europe/London time), media_resend_schedule (the second trigger, only the media resend; needs media_ready), dry_run (only log what it would delete, or resend) and max_deletions (per chore per run). null: none. Needs api_public_read_media (the Stream library)."
   type = object({
-    schedule      = optional(string, "30 3 * * *")
-    dry_run       = optional(bool, true)
-    max_deletions = optional(number, 50)
+    schedule              = optional(string, "30 3 * * *")
+    media_resend_schedule = optional(string, "0 18 * * *")
+    dry_run               = optional(bool, true)
+    max_deletions         = optional(number, 50)
   })
   default = null
   validation {

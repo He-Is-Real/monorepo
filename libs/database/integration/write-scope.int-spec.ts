@@ -54,7 +54,8 @@ describe('write scope on story fields (D41)', () => {
     await run(
       migrator,
       `CREATE storyFile:vidorig CONTENT { story: story:bob_pending, person: user:bob,
-         format: 'video', contentType: 'video/mp4', sizeBytes: 1000, storyVersion: 1 };
+         format: 'video', contentType: 'video/mp4', sizeBytes: 1000, storyVersion: 1,
+         at: time::now() - 1d };
        UPDATE story:bob_pending SET primaryFormat = 'video', mediaFile = storyFile:vidorig;`,
     );
   });

@@ -176,9 +176,13 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   api-user, and the result writer the worker calls directly, which records the answer on the
   video's file and ends the job in one step (and ignores an answer older than the last one it
   recorded, so a late answer can't undo a newer one). A job that fails 5 times is marked "gave up"
-  instead of going to a dead-letter queue. Still to come: the nightly resend of unfinished jobs
-  and clean-up of old ones, approval waiting while a job is open, the worker itself on Joel's
-  machine, the audio clip's default picture, and the 40-byte picture check at submit.
+  instead of going to a dead-letter queue. Second part built: every evening at 18:00 UK time
+  (when Joel's machine is on) unfinished jobs not sent for 12 hours are sent again, and the
+  nightly clean-up deletes finished jobs after 30 days; a moderator can't approve a story while
+  its file could still be replaced through its upload link (an hour; a picture 10 minutes) or
+  while one of its media jobs is open, and a SuperAdmin can approve anyway, which is recorded.
+  Still to come: the worker itself on Joel's machine, the audio clip's default picture, and the
+  40-byte picture check at submit.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.
 
 **Dropped or moved out of M2:** the personalised home and "New for you" (replaced by the NEW
