@@ -23,20 +23,6 @@ const CONTAINERS = new Set(['moov', 'trak', 'mdia', 'minf']);
 const XMP_UUID = 'be7acfcb97a942e89c71999491e3afac';
 /** The first box of an MP4, MOV or M4A file (older QuickTime files may start without `ftyp`). */
 const FIRST = new Set(['ftyp', 'moov', 'mdat', 'free', 'skip', 'wide', 'pnot']);
-/**
- * The most memory this uses in all: each box it edits is held twice, once as read and once in
- * the new file's Blob, so a box costs twice its size (`moov` and the top-level metadata boxes
- * together; a phone's are a few MB at most). Past it, the file uploads as it is, so a file built
- * to hold many large boxes can't make the tab run out of memory (Codex #191 rounds 2 and 3).
- */
-const MEMORY_BUDGET_BYTES = 64 * 1024 * 1024;
-/**
- * The most boxes it edits: a phone's file has a handful. Past it, the file uploads as it is, so
- * a file of many tiny metadata boxes can't exhaust memory through the per-box bookkeeping
- * (Codex #191 round 3).
- */
-const MAX_EDITS = 1000;
-
 class NotIsoMedia extends Error {}
 
 interface Box {
@@ -111,27 +97,19 @@ async function read(file: Blob, start: number, end: number) {
  */
 export async function stripMediaMetadata<T extends Blob>(
   file: T,
-  budget = MEMORY_BUDGET_BYTES,
 ): Promise<T | Blob> {
   try {
     const edits: { at: number; bytes: Uint8Array }[] = [];
-    // Checked before each read, so nothing over it is ever allocated: the read and its copy in
-    // the new Blob, and one more edit.
-    let left = budget;
-    const within = (size: number) =>
-      edits.length < MAX_EDITS && (left -= 2 * size) >= 0;
     for (let at = 0; at < file.size;) {
       // The header only, its size checked against what's left of the file.
       const head = await read(file, at, Math.min(at + 16, file.size));
       const box = boxAt(new DataView(head.buffer), 0, file.size - at);
       if (at === 0 && !FIRST.has(box.type)) return file;
       if (box.type === 'moov') {
-        if (!within(box.size)) return file;
         const moov = await read(file, at, at + box.size);
         if (blankIn(moov, box.header, box.size))
           edits.push({ at, bytes: moov });
       } else if (METADATA.has(box.type)) {
-        if (!within(box.size)) return file;
         const bytes = await read(file, at, at + box.size);
         blank(bytes, 0, box);
         edits.push({ at, bytes });
@@ -143,7 +121,6 @@ export async function stripMediaMetadata<T extends Blob>(
           at + Math.min(box.size, box.header + 16),
         );
         if (isXmp(id, 0, box)) {
-          if (!within(box.size)) return file;
           const bytes = await read(file, at, at + box.size);
           blank(bytes, 0, box);
           edits.push({ at, bytes });
