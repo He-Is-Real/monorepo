@@ -80,7 +80,8 @@ describe('approval waits for media processing (A2, R12)', () => {
   /**
    * A system user uploads a file for story `id`, as storyFile_attach would (these tests are about
    * processing, not uploads: uploads.int-spec.ts, images.int-spec.ts): a new row, and the story
-   * points at it. Answers the row's key.
+   * points at it. Answers the row's key. Uploaded a day ago, so its upload link has run out and
+   * the moderator's wait for it is over (approval-wait.int-spec.ts).
    */
   const upload = async (
     id: string,
@@ -98,7 +99,7 @@ describe('approval waits for media processing (A2, R12)', () => {
       db,
       `CREATE type::record('storyFile', $key) CONTENT {
          story: type::record('story', $id), person: user:pat, format: $format,
-         contentType: 'x/y', sizeBytes: 1000, storyVersion: 1,
+         contentType: 'x/y', sizeBytes: 1000, storyVersion: 1, at: time::now() - 1d,
          width: IF $format = 'image' { 1200 }, height: IF $format = 'image' { 1600 } };
        UPDATE type::record('story', $id) SET ${format === 'image' ? `image = { file: type::record('storyFile', $key), alt: 'A sunrise' }` : `mediaFile = type::record('storyFile', $key)`};`,
       { id, key, format },
@@ -617,7 +618,7 @@ describe('approval waits for media processing (A2, R12)', () => {
       await run(
         migrator,
         `CREATE storyFile:hidvid CONTENT { story: story:hid_v, person: user:hid, format: 'video',
-           contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 };
+           contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1, at: time::now() - 1d };
          UPDATE story:hid_v SET mediaFile = storyFile:hidvid;`,
       );
       expect(await submit(hid, 'hid_v')).toHaveLength(1);

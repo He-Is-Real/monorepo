@@ -154,7 +154,8 @@ describe('concurrent transactions are fenced per person', () => {
       migrator,
       `CREATE storyFile:vidvic CONTENT { story: story:vic_story, person: user:vic,
          format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1,
-         processing: 'ready', width: 720, height: 1280, lengthSeconds: 20 };
+         processing: 'ready', width: 720, height: 1280, lengthSeconds: 20,
+         at: time::now() - 1d };
        UPDATE story:vic_story SET mediaFile = storyFile:vidvic;`,
     );
     await submit(vic, 'vic_story');

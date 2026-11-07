@@ -19,7 +19,11 @@ import {
  */
 export const BUNNY_STORAGE = Symbol('BUNNY_STORAGE');
 
-/** How long an image's PUT link lasts (D68: a few minutes; the browser has the file ready). */
+/**
+ * How long an image's PUT link lasts (D68: a few minutes; the browser has the file ready). The
+ * database's fn::upload::link_lifetime('image') must say the same: a moderator waits this long
+ * after the link before approving (decision 5).
+ */
 export const IMAGE_LINK_SECONDS = 600;
 
 /** What RequestUpload returns for an image: the contract's `UploadTarget` bits. */

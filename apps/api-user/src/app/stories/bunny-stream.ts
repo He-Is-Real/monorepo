@@ -15,7 +15,11 @@ export const BUNNY_STREAM = Symbol('BUNNY_STREAM');
 const API = 'https://video.bunnycdn.com';
 /** Where the browser sends the TUS upload (infra/terraform/README.md, "Uploads"). */
 export const TUS_ENDPOINT = `${API}/tusupload`;
-/** How long an upload link lasts (D68: about an hour). A resume after that gets a new one. */
+/**
+ * How long an upload link lasts (D68: about an hour). A resume after that gets a new one. The
+ * database's fn::upload::link_lifetime('video' | 'audio') must say the same: a moderator waits
+ * this long after the link before approving (decision 5).
+ */
 export const UPLOAD_LINK_SECONDS = 3600;
 const TIMEOUT_MS = 15_000;
 

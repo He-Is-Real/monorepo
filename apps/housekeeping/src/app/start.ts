@@ -1,10 +1,11 @@
 import { connectDatabase } from '@heisreal/database';
 import type { SecretsService } from '@heisreal/secrets';
 import { Surreal } from 'surrealdb';
-import { CHORES } from './chores';
+import { RUNS } from './chores';
 import { CLERK_SECRET_KEY, ClerkBackendUsers, type ClerkUsers } from './clerk';
 import type { HousekeepingConfig } from './config';
 import { BunnyImageZone, type ImageZone } from './images';
+import { type MediaJobs, pubsubMediaJobs } from './media-jobs';
 import { BunnyStreamLibrary, type StreamLibrary } from './stream';
 import { type Log, runTasks, type Task } from './tasks';
 
@@ -13,6 +14,7 @@ export interface Startup {
   config: HousekeepingConfig;
   secrets: SecretsService;
   log: Log;
+  /** The chores to run; by default the run config.run names (chores.ts RUNS). */
   chores?: readonly Task[];
   stream?: (libraryId: string, key: string) => StreamLibrary;
   clerk?: (key: string) => ClerkUsers;
@@ -21,6 +23,7 @@ export interface Startup {
     host: string;
     password: string;
   }) => ImageZone;
+  mediaJobs?: (project: string, topic: string) => MediaJobs;
 }
 
 /**
@@ -34,10 +37,11 @@ export async function startHousekeeping({
   config,
   secrets,
   log,
-  chores = CHORES,
+  chores = RUNS[config.run],
   stream = (libraryId, key) => new BunnyStreamLibrary(libraryId, key),
   clerk: clerkUsers = (key) => new ClerkBackendUsers(key),
   images: imageZone = (zone) => new BunnyImageZone(zone),
+  mediaJobs: mediaJobsTopic = pubsubMediaJobs,
 }: Startup): Promise<number> {
   let library: StreamLibrary | null = null;
   let keyFailed = false;
@@ -89,9 +93,14 @@ export async function startHousekeeping({
       });
     }
   }
+  // Pub/Sub needs no key: the Job's own identity may publish to media-jobs (housekeeping.tf).
+  const mediaJobs = config.mediaJobsTopic
+    ? mediaJobsTopic(config.project, config.mediaJobsTopic)
+    : null;
   const db = await connectDatabase(new Surreal(), config.database, secrets);
   try {
     log({
+      run: config.run,
       start: chores.map((c) => c.name),
       dryRun: config.dryRun,
       maxDeletions: config.maxDeletions,
@@ -106,6 +115,7 @@ export async function startHousekeeping({
         stream: library,
         clerk,
         images,
+        mediaJobs,
         dryRun: config.dryRun,
         maxDeletions: config.maxDeletions,
         now: new Date(),

@@ -187,17 +187,24 @@ export async function processed(
 /**
  * A moderator picks a pending story up and approves it (R6: in_review, then approved), as
  * api-admin will (M3). The approval publishes it: the public rules read its newest entry (R11).
+ * `superAdminSkip`: a SuperAdmin approves while the media wait (a file's upload link still
+ * usable, or an open media job) would refuse it, and the entry records that (skippedMediaWait).
  */
-export async function approve(admin: SurrealQueryable, id: string) {
+export async function approve(
+  admin: SurrealQueryable,
+  id: string,
+  { superAdminSkip = false }: { superAdminSkip?: boolean } = {},
+) {
   await run(
     admin,
     `BEGIN TRANSACTION;
      CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
        story: type::record('story', $id), status: 'in_review', by: user:moderator };
      CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
-       story: type::record('story', $id), status: 'approved', by: user:moderator };
+       story: type::record('story', $id), status: 'approved', by: user:moderator,
+       skippedMediaWait: $skip };
      COMMIT TRANSACTION;`,
-    { id },
+    { id, skip: superAdminSkip ? true : undefined },
   );
 }
 

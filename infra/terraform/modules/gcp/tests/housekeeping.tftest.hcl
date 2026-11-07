@@ -179,3 +179,98 @@ run "no_images_zone_without_image_uploads" {
     error_message = "Without image uploads, housekeeping gets no images zone; picture deletions wait."
   }
 }
+
+# The 18:00 media resend (Joel, 2026-11-07): with media ready, a second trigger at 18:00 London
+# time starts the same Job with only the resend (an override), as its own identity that may start
+# this Job only; the nightly trigger stays without overrides, and the Job's own chores are the
+# nightly ones. The Job may publish to media-jobs and names it.
+run "media_resend_at_18_london_with_only_the_resend" {
+  command = plan
+  variables {
+    media_ready = { worker_impersonators = ["user:joel@heisreal.today"] }
+  }
+
+  override_resource {
+    target = google_service_account.housekeeping
+    values = {
+      email  = "housekeeping@heisreal-dev.iam.gserviceaccount.com"
+      member = "serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"
+    }
+  }
+  override_resource {
+    target = google_service_account.housekeeping_scheduler
+    values = {
+      email  = "housekeeping-scheduler@heisreal-dev.iam.gserviceaccount.com"
+      member = "serviceAccount:housekeeping-scheduler@heisreal-dev.iam.gserviceaccount.com"
+    }
+  }
+  override_resource {
+    target = google_service_account.media_resend_scheduler
+    values = {
+      email  = "media-resend-scheduler@heisreal-dev.iam.gserviceaccount.com"
+      member = "serviceAccount:media-resend-scheduler@heisreal-dev.iam.gserviceaccount.com"
+    }
+  }
+
+  assert {
+    condition = (
+      google_cloud_scheduler_job.media_resend[0].schedule == "0 18 * * *" &&
+      google_cloud_scheduler_job.media_resend[0].time_zone == "Europe/London" &&
+      google_cloud_scheduler_job.media_resend[0].region == "europe-west2" &&
+      endswith(google_cloud_scheduler_job.media_resend[0].http_target[0].uri, "/locations/europe-west2/jobs/housekeeping:run") &&
+      jsondecode(base64decode(google_cloud_scheduler_job.media_resend[0].http_target[0].body)) == {
+        overrides = { containerOverrides = [{ env = [{ name = "HOUSEKEEPING_CHORES", value = "media-resend" }] }] }
+      }
+    )
+    error_message = "At 18:00 London time a second trigger starts the housekeeping Job with only the media resend."
+  }
+
+  assert {
+    condition = (
+      google_cloud_scheduler_job.housekeeping[0].schedule == "30 3 * * *" &&
+      google_cloud_scheduler_job.housekeeping[0].http_target[0].body == null &&
+      one([for e in google_cloud_run_v2_job.housekeeping[0].template[0].template[0].containers[0].env :
+      e.value if e.name == "HOUSEKEEPING_CHORES"]) == "nightly"
+    )
+    error_message = "The 03:30 run is the nightly chores, with no override: it never resends."
+  }
+
+  assert {
+    condition = (
+      google_service_account.media_resend_scheduler[0].account_id == "media-resend-scheduler" &&
+      google_cloud_scheduler_job.media_resend[0].http_target[0].oauth_token[0].service_account_email == "media-resend-scheduler@heisreal-dev.iam.gserviceaccount.com" &&
+      google_cloud_run_v2_job_iam_member.media_resend_scheduler[0].role == "roles/run.jobsExecutorWithOverrides" &&
+      google_cloud_run_v2_job_iam_member.media_resend_scheduler[0].name == "housekeeping" &&
+      google_cloud_run_v2_job_iam_member.media_resend_scheduler[0].member == "serviceAccount:media-resend-scheduler@heisreal-dev.iam.gserviceaccount.com" &&
+      google_cloud_run_v2_job_iam_member.housekeeping_scheduler[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_job_iam_member.housekeeping_scheduler[0].member == "serviceAccount:housekeeping-scheduler@heisreal-dev.iam.gserviceaccount.com"
+    )
+    error_message = "Only the resend trigger's own identity may start the Job with overrides, on that Job only; the nightly trigger's may not."
+  }
+
+  assert {
+    condition = (
+      google_pubsub_topic_iam_member.housekeeping_media_jobs[0].topic == "media-jobs" &&
+      google_pubsub_topic_iam_member.housekeeping_media_jobs[0].role == "roles/pubsub.publisher" &&
+      google_pubsub_topic_iam_member.housekeeping_media_jobs[0].member == "serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com" &&
+      one([for e in google_cloud_run_v2_job.housekeeping[0].template[0].template[0].containers[0].env :
+      e.value if e.name == "MEDIA_JOBS_TOPIC"]) == "media-jobs"
+    )
+    error_message = "The Job may publish to media-jobs (and names it) for the resend."
+  }
+}
+
+run "no_media_resend_without_media_ready" {
+  command = plan
+
+  assert {
+    condition = (
+      length(google_cloud_scheduler_job.media_resend) == 0 &&
+      length(google_service_account.media_resend_scheduler) == 0 &&
+      length(google_pubsub_topic_iam_member.housekeeping_media_jobs) == 0 &&
+      length([for e in google_cloud_run_v2_job.housekeeping[0].template[0].template[0].containers[0].env :
+      e if e.name == "MEDIA_JOBS_TOPIC"]) == 0
+    )
+    error_message = "Without media ready there is no queue: no resend trigger, identity or publish grant."
+  }
+}

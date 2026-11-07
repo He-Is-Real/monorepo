@@ -1130,6 +1130,8 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
         },
         dryRun: false,
         maxDeletions: 50,
+        run: 'nightly',
+        mediaJobsTopic: null,
       },
       secrets: new SecretsService(client, PROJECT),
       log: (entry) => logs.push(entry),

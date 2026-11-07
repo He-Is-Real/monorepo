@@ -169,6 +169,7 @@ describe('download my data', () => {
     id: string,
     decision: 'approve' | 'request_changes' | 'reject',
     feedback?: string,
+    { superAdminSkip = false }: { superAdminSkip?: boolean } = {},
   ) {
     // Moderator modq7, whom the file must never name.
     const by = new RecordId('user', 'modq7');
@@ -181,7 +182,12 @@ describe('download my data', () => {
         reject: 'rejected',
         request_changes: 'changes_requested',
       }[decision],
-      feedback ? { by, comment: feedback } : { by },
+      {
+        by,
+        ...(feedback ? { comment: feedback } : {}),
+        // A SuperAdmin approving during the media wait (decision 5), which the file never shows.
+        ...(superAdminSkip ? { skippedMediaWait: true } : {}),
+      },
     );
   }
 
@@ -320,7 +326,8 @@ describe('download my data', () => {
     expect(await shareStory(ann, `story:${annLive.id}`)).toHaveLength(1);
     await submit(ann, annLive.id);
     await processed(await t.service('workflow'), annLive.id);
-    await decide(annLive.id, 'approve');
+    // Its picture was uploaded moments ago: a SuperAdmin approves during the upload cooldown.
+    await decide(annLive.id, 'approve', undefined, { superAdminSkip: true });
     // Its picture stops being ready, then is again: the system hides it and shows it again (R6).
     await run(
       await t.service('workflow'),
@@ -475,6 +482,7 @@ describe('download my data', () => {
     );
     expect(history.sort()).toEqual([...held['history']].sort());
     expect(JSON.stringify(file)).not.toMatch(/"by"/);
+    expect(JSON.stringify(file)).not.toMatch(/skippedMediaWait/);
 
     // Each part as the person sees it.
     const story = (id: string) =>

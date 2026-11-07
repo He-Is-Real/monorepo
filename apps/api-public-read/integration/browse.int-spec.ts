@@ -624,8 +624,8 @@ describe('browse API over the dev dataset', () => {
     const NOW = Date.UTC(2026, 9, 23, 10, 15);
     let now = NOW;
     // The dummy clips' ids aren't Bunny GUIDs, so nothing would sign their player: give one
-    // story a GUID, as an upload does. New media hides a published story (media_changed) until
-    // a moderator shows it again.
+    // story a GUID, as an upload does (a day ago: its upload link has run out). New media hides a
+    // published story (media_changed) until a moderator shows it again.
     const GUID = '2c3a0a8e-7d39-4f8e-9a51-0d6c1b4a9e11';
     const v03 = approved.find((s) => s.id === 'seed_v03') as StoryFixture;
     let signed: { app: INestApplication; url: string };
@@ -636,7 +636,7 @@ describe('browse API over the dev dataset', () => {
          CREATE type::record('storyFile', $guid) CONTENT object::extend(
            $old.{ story, person, format, contentType, sizeBytes, storyVersion, width, height,
              lengthSeconds, processing },
-           { thumbnailPath: $guid + '/thumbnail.jpg' });
+           { thumbnailPath: $guid + '/thumbnail.jpg', at: time::now() - 1d });
          UPDATE story:seed_v03 SET mediaFile = type::record('storyFile', $guid);`,
         { guid: GUID },
       );

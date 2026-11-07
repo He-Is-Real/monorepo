@@ -184,13 +184,15 @@ module "gcp" {
     worker_impersonators = ["user:joel@heisreal.today"]
   }
 
-  # The nightly housekeeping Job (abandoned drafts, orphaned story videos), 03:30 London time.
+  # The nightly housekeeping Job (abandoned drafts, orphaned story videos), 03:30 London time,
+  # and its media resend at 18:00 London time, when Joel's machine is on (Joel, 2026-11-07).
   # Dry run first: it logs what it would delete; turn it off once a night's log looks right.
   # Needs bootstrap's Cloud Scheduler API and tf-deployer's scheduler role applied first.
   housekeeping = {
-    schedule      = "30 3 * * *"
-    dry_run       = true
-    max_deletions = 50
+    schedule              = "30 3 * * *"
+    media_resend_schedule = "0 18 * * *"
+    dry_run               = true
+    max_deletions         = 50
   }
 }
 

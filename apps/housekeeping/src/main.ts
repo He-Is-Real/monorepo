@@ -1,7 +1,9 @@
 /**
  * housekeeping: the nightly chores (src/app/chores.ts). A Cloud Run Job started by Cloud
- * Scheduler (modules/gcp/housekeeping.tf), or by a developer with
- * `gcloud run jobs execute housekeeping --region europe-west2 --wait`.
+ * Scheduler (modules/gcp/housekeeping.tf): at 03:30 London time the nightly chores, and at 18:00
+ * with HOUSEKEEPING_CHORES=media-resend only the media resend. Or by a developer with
+ * `gcloud run jobs execute housekeeping --region europe-west2 --wait` (add
+ * `--update-env-vars HOUSEKEEPING_CHORES=media-resend` for the resend).
  *
  * Exit status: 0 every chore done; 1 a chore or a deletion failed, or Clerk's key couldn't be read
  * (the next run tries again; every chore is safe to re-run); 2 refused (bad settings).

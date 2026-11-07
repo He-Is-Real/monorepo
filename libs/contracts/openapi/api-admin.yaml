@@ -203,6 +203,16 @@ paths:
         Approval waits for processing (A2): every video, audio file and image must be `ready`, and a
         video must have its width, height and duration, an audio file its duration. Otherwise `409`
         with `code: media_not_ready` (the database refuses it; nothing is written or published).
+
+        Approval also waits for the media (Joel, 2026-11-07: decision 5 and J6), and the database
+        refuses it, nothing written, with `409` and:
+        - `code: media_recently_uploaded`: the story's video, audio file or picture could still be
+          replaced through its upload link (an hour after the link was signed, 10 minutes for a
+          picture). `availableAt`: when it can be approved.
+        - `code: media_still_processing`: a media job for the story's files is still open (e.g. an
+          audio story's picture video is being made).
+        A SuperAdmin may approve despite both; the approval's status entry records that the wait
+        was skipped. The same holds for showing a hidden story again.
       x-required-role: Moderator
       x-milestone: M3
       parameters:
