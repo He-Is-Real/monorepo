@@ -11,6 +11,8 @@ import { httpWriter } from './writer';
 const JOB = '01JC00000000000000000000AB';
 const VIDEO = '0f8fad5b-d9cb-469f-a165-70867728950e';
 const STORY = '01JC0000000000000000000000';
+const TOKEN = 'dapr-app-api-token-for-tests-0123456789';
+const DAPR = { 'dapr-api-token': TOKEN };
 
 async function start(writerStatus: number, writerBody: unknown) {
   const writerCalls: { url: string; init: RequestInit }[] = [];
@@ -38,11 +40,14 @@ async function start(writerStatus: number, writerBody: unknown) {
     },
   );
   const logs: unknown[] = [];
-  const server = workerServer({
-    check: (video) => checkAnswer(bunny, video),
-    writer,
-    log: (entry) => logs.push(entry),
-  });
+  const server = workerServer(
+    {
+      check: (video) => checkAnswer(bunny, video),
+      writer,
+      log: (entry) => logs.push(entry),
+    },
+    TOKEN,
+  );
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return { base, server, writerCalls, logs };
@@ -67,7 +72,7 @@ describe('the worker under Dapr', () => {
   it('asks Dapr for media-jobs as raw messages', async () => {
     const s = await start(200, {});
     stop = () => new Promise((r) => s.server.close(() => r()));
-    const res = await fetch(`${s.base}/dapr/subscribe`);
+    const res = await fetch(`${s.base}/dapr/subscribe`, { headers: DAPR });
     expect(await res.json()).toEqual(SUBSCRIPTIONS);
     expect(SUBSCRIPTIONS).toEqual([
       expect.objectContaining({
@@ -83,7 +88,7 @@ describe('the worker under Dapr', () => {
     stop = () => new Promise((r) => s.server.close(() => r()));
     const res = await fetch(`${s.base}/media-jobs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/cloudevents+json' },
+      headers: { ...DAPR, 'Content-Type': 'application/cloudevents+json' },
       body: JSON.stringify(
         delivery({ jobId: JOB, kind: 'check', videoId: VIDEO, eventId: 'e1' }),
       ),
@@ -125,6 +130,7 @@ describe('the worker under Dapr', () => {
     stop = () => new Promise((r) => s.server.close(() => r()));
     const res = await fetch(`${s.base}/media-jobs`, {
       method: 'POST',
+      headers: DAPR,
       body: JSON.stringify(
         delivery({ jobId: JOB, kind: 'check', videoId: VIDEO }),
       ),
@@ -137,9 +143,30 @@ describe('the worker under Dapr', () => {
     stop = () => new Promise((r) => s.server.close(() => r()));
     const res = await fetch(`${s.base}/media-jobs`, {
       method: 'POST',
+      headers: DAPR,
       body: JSON.stringify({ data_base64: 'bm90IGpzb24=' }),
     });
     expect(await res.json()).toEqual({ status: 'DROP' });
     expect(s.writerCalls).toEqual([]);
   });
+
+  it.each([
+    ['no token', {}],
+    ['a wrong token', { 'dapr-api-token': 'x'.repeat(40) }],
+  ])(
+    'refuses a call with %s (another program, or a web page posting to 127.0.0.1)',
+    async (_, headers) => {
+      const s = await start(200, { outcome: 'applied' });
+      stop = () => new Promise((r) => s.server.close(() => r()));
+      const res = await fetch(`${s.base}/media-jobs`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(
+          delivery({ jobId: JOB, kind: 'check', videoId: VIDEO }),
+        ),
+      });
+      expect(res.status).toBe(401);
+      expect(s.writerCalls).toEqual([]);
+    },
+  );
 });

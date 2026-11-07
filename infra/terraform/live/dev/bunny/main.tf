@@ -154,7 +154,7 @@ module "bunny" {
     "serviceAccount:api-user@heisreal-dev.iam.gserviceaccount.com",
     "serviceAccount:media-worker@heisreal-dev.iam.gserviceaccount.com",
   ]
-  stream_webhook_url   = "https://api-user-jbxp6odnsa-nw.a.run.app/v1/webhooks/bunny"
+  stream_webhook_url = "https://api-user-jbxp6odnsa-nw.a.run.app/v1/webhooks/bunny"
 
   # Where the library's videos live (Bunny made it with library 789855).
   stream_storage_zone = { id = 2014507, name = "vz-bd66cea0-80b" }

@@ -53,6 +53,8 @@ async function main() {
   const library = env('BUNNY_STREAM_LIBRARY_ID', LIBRARY);
   const keySecret = env('BUNNY_STREAM_READONLY_KEY_SECRET', NAME);
   const port = Number(env('APP_PORT', /^[0-9]{2,5}$/));
+  // Dapr's sidecar sends it with every call; the server refuses anything without it.
+  const appApiToken = env('APP_API_TOKEN', /^[A-Za-z0-9_-]{32,}$/);
 
   // Application Default Credentials: the script points them at Joel's login acting as
   // media-worker (D126). Every Google call below is made as that account.
@@ -76,11 +78,14 @@ async function main() {
   const bunny = new BunnyStreamReader(library, () =>
     secrets.get(keySecret, 'latest', { maxAgeMs: KEY_MAX_AGE_MS }),
   );
-  const server = workerServer({
-    check: (video) => checkAnswer(bunny, video),
-    writer: httpWriter(writerUrl.toString(), idToken),
-    log,
-  });
+  const server = workerServer(
+    {
+      check: (video) => checkAnswer(bunny, video),
+      writer: httpWriter(writerUrl.toString(), idToken),
+      log,
+    },
+    appApiToken,
+  );
   server.listen(port, '127.0.0.1', () =>
     log({ step: 'started', account, port }),
   );

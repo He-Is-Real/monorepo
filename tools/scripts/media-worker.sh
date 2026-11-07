@@ -73,6 +73,10 @@ trap cleanup EXIT INT TERM
   ' >"$runtime/credentials.json"
 )
 export GOOGLE_APPLICATION_CREDENTIALS="$runtime/credentials.json"
+# Dapr's sidecar sends this with every call to the worker, which refuses anything without it:
+# no other program, and no web page posting to 127.0.0.1, can hand the worker a job. New each run.
+APP_API_TOKEN="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
+export APP_API_TOKEN
 
 # The worker first: Dapr asks it for its subscription when it starts.
 GCP_PROJECT="$project" MEDIA_WORKER_ACCOUNT="$account" RESULT_WRITER_URL="$writer" \

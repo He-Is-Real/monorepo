@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { type Delivery, handleJob, type JobDeps } from './worker';
 
@@ -47,12 +48,32 @@ export function jobFromDelivery(body: unknown): unknown {
   }
 }
 
-export function workerServer(deps: JobDeps): Server {
+/** Whether the request carries Dapr's app API token (header `dapr-api-token`). */
+function fromDapr(header: string | string[] | undefined, token: string) {
+  if (typeof header !== 'string') return false;
+  const given = createHash('sha256').update(header).digest();
+  const expected = createHash('sha256').update(token).digest();
+  return timingSafeEqual(given, expected);
+}
+
+/**
+ * `appApiToken`: the secret Dapr's sidecar sends with every call (its APP_API_TOKEN, made afresh
+ * by tools/scripts/media-worker.sh for each run). Anything without it is refused, so another
+ * program on the machine, or a web page in Joel's browser posting to 127.0.0.1, can't hand the
+ * worker a job.
+ */
+export function workerServer(deps: JobDeps, appApiToken: string): Server {
+  if (appApiToken.length < 32)
+    throw new Error('The app API token is too short');
   return createServer((req, res) => {
     const reply = (status: number, body: unknown) => {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
     };
+    if (!fromDapr(req.headers['dapr-api-token'], appApiToken)) {
+      req.resume();
+      return reply(401, {});
+    }
     if (req.method === 'GET' && req.url === '/dapr/subscribe') {
       return reply(200, SUBSCRIPTIONS);
     }
