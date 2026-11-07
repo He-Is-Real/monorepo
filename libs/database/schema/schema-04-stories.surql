@@ -982,6 +982,15 @@ DEFINE FIELD OVERWRITE processing      ON storyFile TYPE option<string>
   PERMISSIONS FOR select WHERE person = $auth
       OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
     FOR create, update WHERE $auth = service:workflow;
+-- Media ready (Joel, 2026-11-07, queues-and-workers-architecture section 7 question 3, F1): the
+-- time Google's queue stamped on the newest answer the result writer applied (the Pub/Sub
+-- message's publishTime, Google's clock). The writer applies an answer only if it is newer, in
+-- the same write, so a redelivered older answer can't undo a newer one. Like processing: only
+-- workflow writes it, and it isn't public.
+DEFINE FIELD OVERWRITE checkedAt       ON storyFile TYPE option<datetime>
+  PERMISSIONS FOR select WHERE person = $auth
+      OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
+    FOR create, update WHERE $auth = service:workflow;
 -- The server time. Only a system user ($auth = NONE: the migrator, dev-seed, the scale test) may
 -- supply another, for dummy data and tests.
 DEFINE FIELD OVERWRITE at              ON storyFile TYPE datetime READONLY

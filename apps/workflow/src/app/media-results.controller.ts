@@ -16,9 +16,13 @@ import {
   parseMediaResult,
 } from './media-results';
 
+/** Pub/Sub's publishTime: RFC 3339 in UTC, up to nanoseconds. */
+const PUBLISH_TIME =
+  /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$/;
+
 /** Pub/Sub's push body (https://cloud.google.com/pubsub/docs/push). */
 interface PushEnvelope {
-  message?: { data?: unknown; messageId?: unknown };
+  message?: { data?: unknown; messageId?: unknown; publishTime?: unknown };
   subscription?: unknown;
 }
 
@@ -41,9 +45,15 @@ export class MediaResultsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async push(@Body() envelope: PushEnvelope): Promise<void> {
     const data = envelope?.message?.data;
+    // When Google's queue took the answer (Google's clock, not the worker's): an answer no newer
+    // than the last one applied is dropped (Joel, 2026-11-07, F1).
+    const publishTime = envelope?.message?.publishTime;
     let result;
     try {
       if (typeof data !== 'string') throw new InvalidMediaResult('no data');
+      if (typeof publishTime !== 'string' || !PUBLISH_TIME.test(publishTime)) {
+        throw new InvalidMediaResult('no publishTime');
+      }
       result = parseMediaResult(
         JSON.parse(Buffer.from(data, 'base64').toString('utf8')),
       );
@@ -57,14 +67,19 @@ export class MediaResultsController {
     }
     // A database error (down, or a conflict with a moderator's step on the same story) is a
     // 500: Pub/Sub tries again, and the retry reads the row afresh.
-    const outcome = await applyMediaResult(this.db, result);
+    const outcome = await applyMediaResult(
+      this.db,
+      result,
+      publishTime as string,
+    );
     // Ids and outcomes only: no personal data is in an answer.
     this.logger.log(
       JSON.stringify({
         videoId: result.videoId,
         eventId: result.eventId,
         answer: result.outcome,
-        outcome,
+        publishTime,
+        outcome: outcome === 'stale' ? 'ignored: stale' : outcome,
       }),
     );
   }

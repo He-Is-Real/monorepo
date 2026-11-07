@@ -328,7 +328,9 @@ Built in the database (the pages and the queue are planned, M3):
   encoding or failed, the media worker asks Bunny itself and the result writer records the answer
   on that file only: ready with its real size, length and Bunny's thumbnail; still encoding;
   or failed (also when Bunny no longer has it). An answer about a file the story no longer
-  shows is dropped. Built: Bunny's notice, the queue and the writer; the worker on Joel's machine
+  shows is dropped, and so is one older than the last answer recorded for that file (by the time
+  Google's queue took it), so a late repeat can't bring back a story whose video has since
+  failed (Joel, 2026-11-07, F1). Built: Bunny's notice, the queue and the writer; the worker on Joel's machine
   is the next piece, so until it runs, files stay "not processed yet". An audio file's picture
   is set by a later step (D127), so audio stories can't be approved until then.
 - **An approved story whose media breaks is hidden, not un-approved**, and comes back on its own

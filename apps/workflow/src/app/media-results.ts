@@ -35,7 +35,12 @@ export type MediaResultOutcome =
   /** The row already says this (a duplicate, a retry, the nightly re-check): nothing written. */
   | 'unchanged'
   /** Not a file any story shows now (unknown, replaced, removed, another story's): dropped. */
-  | 'ignored';
+  | 'ignored'
+  /**
+   * Queued no later than the newest answer already applied to this file (a redelivery, or one
+   * overtaken; Joel 2026-11-07, F1): dropped, so it can't undo a newer answer.
+   */
+  | 'stale';
 
 export class InvalidMediaResult extends Error {
   override name = 'InvalidMediaResult';
@@ -111,6 +116,8 @@ export function parseMediaResult(input: unknown): MediaResult {
 
 /** The file's row as the writer reads it, and whether a story still shows it. */
 interface FileRow {
+  /** This answer is no newer than the last one applied (checkedAt). */
+  stale: boolean;
   format: 'video' | 'audio' | 'image';
   storyId: string | null;
   shown: boolean;
@@ -126,17 +133,21 @@ interface FileRow {
 const READ_FILE = `
   SELECT format, detachedAt, removedAt, processing, width, height, lengthSeconds, thumbnailPath,
     IF record::exists(story) { <string> record::id(story) } AS storyId,
-    record::exists(story) AND story.mediaFile = id AS shown
+    record::exists(story) AND story.mediaFile = id AS shown,
+    checkedAt != NONE AND <datetime> $at <= checkedAt AS stale
   FROM ONLY type::record('storyFile', $video)`;
 
 /**
- * Only while the story still shows this file, checked again in the write itself, so a replace
- * between the read and the write leaves the new file alone. Its events then hide or show the
- * story again (fn::story::check_files) and step its version.
+ * Only while the story still shows this file and only if this answer is newer than the last one
+ * applied (checkedAt, Joel 2026-11-07, F1), both checked in the write itself, so a replace or a
+ * newer answer between the read and the write wins. The same write records the answer's time.
+ * Its events then hide or show the story again (fn::story::check_files) and step its version.
  */
 const WRITE_FILE = `
-  UPDATE type::record('storyFile', $video) MERGE $changes
+  UPDATE type::record('storyFile', $video)
+    MERGE object::extend($changes, { checkedAt: <datetime> $at })
     WHERE detachedAt = NONE AND removedAt = NONE AND record::exists(story) AND story.mediaFile = id
+      AND (checkedAt = NONE OR checkedAt < <datetime> $at)
     RETURN VALUE id`;
 
 /**
@@ -146,6 +157,12 @@ const WRITE_FILE = `
  * and drops answers about files no story shows now. The database's own rules then hide an
  * approved story whose file failed, and show it again when the same file is ready.
  *
+ * `publishedAt` is when Google's queue took the answer (the Pub/Sub message's publishTime). Pub/Sub
+ * may deliver an answer again after a newer one (Codex #190 r2), so an answer no newer than the
+ * last one applied is dropped ('stale'); a newer one is applied and its time recorded, even when
+ * the facts are the same, so an older answer arriving later still loses. The exact same message
+ * again is therefore stale: it writes nothing twice.
+ *
  * Steps, in order: find the file the answer is about (or drop it), then record its facts. A later
  * step (Joel, 2026-11-06, video-bundle-rethink part A: telling Bunny which picture a video with
  * its own picture shows, `storyFile.thumbnailOf`) goes after `recordFacts`, with the same row.
@@ -153,19 +170,23 @@ const WRITE_FILE = `
 export async function applyMediaResult(
   db: SurrealQueryable,
   result: MediaResult,
+  publishedAt: string,
 ): Promise<MediaResultOutcome> {
-  const row = await shownFile(db, result);
+  const row = await shownFile(db, result, publishedAt);
   if (!row) return 'ignored';
-  return recordFacts(db, row, result);
+  if (row.stale) return 'stale';
+  return recordFacts(db, row, result, publishedAt);
 }
 
 /** The file's row, if the answer is about a video or audio file its story shows now. */
 async function shownFile(
   db: SurrealQueryable,
   result: MediaResult,
+  publishedAt: string,
 ): Promise<FileRow | null> {
   const [row] = (await runQuery(db, READ_FILE, {
     video: result.videoId,
+    at: publishedAt,
   })) as [FileRow | undefined];
   if (
     !row ||
@@ -181,19 +202,28 @@ async function shownFile(
   return row;
 }
 
-/** Writes what differs from the row; nothing if it already says the same. */
+/**
+ * Writes what differs from the row, with the answer's time. 'unchanged' when only the time moved
+ * on (the facts were already so); 'stale' or 'ignored' if the write's own checks refused it.
+ */
 async function recordFacts(
   db: SurrealQueryable,
   row: FileRow,
   result: MediaResult,
+  publishedAt: string,
 ): Promise<MediaResultOutcome> {
   const changes = changesFor(row, result);
-  if (Object.keys(changes).length === 0) return 'unchanged';
   const [written] = (await runQuery(db, WRITE_FILE, {
     video: result.videoId,
     changes,
+    at: publishedAt,
   })) as [unknown[]];
-  return written.length > 0 ? 'written' : 'ignored';
+  if (written.length === 0) {
+    // A newer answer, a replace or a removal got there first: read again to say which.
+    const again = await shownFile(db, result, publishedAt);
+    return again?.stale ? 'stale' : 'ignored';
+  }
+  return Object.keys(changes).length > 0 ? 'written' : 'unchanged';
 }
 
 /** Only the fields that differ from what the row says. */

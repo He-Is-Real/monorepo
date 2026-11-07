@@ -77,6 +77,10 @@ paths:
         for an audio file only its length (its picture comes from the default-picture step). `encoding`
         sets `processing` to `processing`; `failed` and `gone` set `failed`. The database then hides an
         approved story whose file isn't ready and shows it again when the same file is.
+        An answer is applied only if its `publishTime` (when Google's queue took it) is newer than the
+        last one applied to that file (`storyFile.checkedAt`, set in the same write; Joel, 2026-11-07,
+        F1), so a redelivered older answer can't undo a newer one; an older or equal one is
+        acknowledged and dropped. A message without `publishTime` is refused (`400`).
         Any `2xx` acknowledges; anything else is retried and after 5 tries dead-lettered.
       security:
         - pubsubPushOidc: []
@@ -202,7 +206,7 @@ components:
       properties:
         message:
           type: object
-          required: [data]
+          required: [data, publishTime]
           properties:
             data:
               type: string
@@ -212,6 +216,10 @@ components:
                 $ref: '#/components/schemas/MediaResult'
             messageId:
               type: string
+            publishTime:
+              type: string
+              format: date-time
+              description: When Google's queue took the message (Google's clock).
             orderingKey:
               type: string
         subscription:
