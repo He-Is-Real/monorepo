@@ -6,8 +6,9 @@ import {
   Injectable,
   type NestInterceptor,
 } from '@nestjs/common';
+import { DatabaseAvailability } from '@heisreal/database';
 import type { Request, Response } from 'express';
-import { map, type Observable, of } from 'rxjs';
+import { catchError, map, type Observable, of, throwError } from 'rxjs';
 import {
   ifNoneMatchHits,
   PUBLIC_MAX_AGE_SECONDS,
@@ -15,6 +16,13 @@ import {
 } from './caching';
 
 const ANSWER_LIFETIME_MS = PUBLIC_MAX_AGE_SECONDS * 1000;
+
+/**
+ * How long an answer is kept for when the database is restarting (SurrealDB on Spot; Joel,
+ * 2026-11-07, "cache B"): past its minute it's never served normally, only instead of a
+ * `503 service_restarting`.
+ */
+export const FALLBACK_LIFETIME_MS = 30 * 60 * 1000;
 
 /**
  * How many answers one running copy keeps. The largest is a 50-card page or a legal text, tens
@@ -30,7 +38,8 @@ interface Answer {
 }
 
 /**
- * Recent public answers, in memory, per running copy (R13). No timers: an answer's age is
+ * Recent public answers, in memory, per running copy (R13): served for a minute, and kept for
+ * 30 minutes as the fallback while the database restarts. No timers: an answer's age is
  * checked only when a request asks for it, so an idle copy costs nothing and its cache dies
  * with it (Cloud Run bills per request and scales to zero). A `Map` keeps insertion order, so
  * moving an answer to the end on use makes the first one the least recently used.
@@ -45,11 +54,26 @@ export class PublicAnswerCache {
 
   /** The answer for `key` while it is younger than a minute. */
   get(key: string): Answer | undefined {
-    const answer = this.answers.get(key);
-    if (!answer) return undefined;
+    const answer = this.kept(key);
+    if (!answer || this.now() - answer.storedAt >= ANSWER_LIFETIME_MS)
+      return undefined;
     this.answers.delete(key);
-    if (this.now() - answer.storedAt >= ANSWER_LIFETIME_MS) return undefined;
     this.answers.set(key, answer);
+    return answer;
+  }
+
+  /** The answer for `key` while it is younger than 30 minutes: only when the database is away. */
+  fallback(key: string): Answer | undefined {
+    return this.kept(key);
+  }
+
+  /** The kept answer for `key`, dropping it once it's 30 minutes old. */
+  private kept(key: string): Answer | undefined {
+    const answer = this.answers.get(key);
+    if (answer && this.now() - answer.storedAt >= FALLBACK_LIFETIME_MS) {
+      this.answers.delete(key);
+      return undefined;
+    }
     return answer;
   }
 
@@ -96,7 +120,9 @@ export function answerKey(req: Request): string {
 
 /**
  * R13: answers a GET from memory when it was answered in the last minute, otherwise asks the
- * handler. Only `200` answers whose handler set an `ETag` (`withETag`: every public query) are
+ * handler. If the handler can't reach the database (it's restarting), the newest copy kept in the
+ * last 30 minutes is served instead, with `Cache-Control: no-store` so no browser or CDN keeps
+ * it; with no copy, the error stands (`503 service_restarting`). Only `200` answers whose handler set an `ETag` (`withETag`: every public query) are
  * kept; errors, redirects and `/health` always reach the handler. This interceptor owns
  * `If-None-Match` (`304`) and `Cache-Control` for those answers, so both are right whether the
  * answer came from memory or not: with shared caching on, browsers and CDNs may keep it only for
@@ -106,6 +132,7 @@ export function answerKey(req: Request): string {
 export class PublicCacheInterceptor implements NestInterceptor {
   constructor(
     @Inject(PublicAnswerCache) private readonly cache: PublicAnswerCache,
+    private readonly database: DatabaseAvailability,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -127,6 +154,17 @@ export class PublicCacheInterceptor implements NestInterceptor {
         )
           return body;
         return this.send(req, res, this.cache.set(key, body, etag, startedAt));
+      }),
+      catchError((err: unknown) => {
+        const copy = this.database.noticeFailure(err)
+          ? this.cache.fallback(key)
+          : undefined;
+        if (!copy) return throwError(() => err);
+        res
+          .status(HttpStatus.OK)
+          .setHeader('ETag', copy.etag)
+          .setHeader('Cache-Control', 'no-store');
+        return of(copy.body);
       }),
     );
   }

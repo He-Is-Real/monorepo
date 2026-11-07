@@ -147,6 +147,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotModified'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
@@ -182,6 +184,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotModified'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
@@ -226,6 +230,8 @@ paths:
           $ref: './components.yaml#/components/responses/BadRequest'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
@@ -265,6 +271,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotModified'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
@@ -306,6 +314,8 @@ paths:
           $ref: './components.yaml#/components/responses/BadRequest'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
@@ -350,6 +360,8 @@ paths:
           $ref: './components.yaml#/components/responses/BadRequest'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
@@ -388,5 +400,7 @@ paths:
           $ref: './components.yaml#/components/responses/BadRequest'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'

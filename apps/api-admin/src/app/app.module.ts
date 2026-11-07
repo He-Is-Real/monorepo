@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ApiAdminAuthenticator, ClerkAuthModule } from '@heisreal/auth';
-import { DatabaseModule } from '@heisreal/database';
+import {
+  DatabaseAvailabilityInterceptor,
+  DatabaseModule,
+} from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
@@ -25,6 +28,10 @@ import { ThemesModule } from './themes/themes.controller';
     ThemesModule,
   ],
   // D30: every error as an RFC 9457 problem; unknown errors never say why.
-  providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
+  // The database restarting (Spot) is `503 service_restarting`, at once, not a hung request.
+  providers: [
+    { provide: APP_FILTER, useClass: ProblemFilter },
+    { provide: APP_INTERCEPTOR, useClass: DatabaseAvailabilityInterceptor },
+  ],
 })
 export class AppModule {}

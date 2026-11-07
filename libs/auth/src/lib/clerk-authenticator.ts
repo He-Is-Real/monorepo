@@ -3,9 +3,14 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
-import { SURREAL } from '@heisreal/database';
+import {
+  DatabaseAvailability,
+  DatabaseUnavailableError,
+  SURREAL,
+} from '@heisreal/database';
 import type { Request } from 'express';
 import type { Surreal } from 'surrealdb';
 import { CLERK_CONFIG, type ClerkConfig } from './clerk-config';
@@ -69,6 +74,7 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
   constructor(
     @Inject(CLERK_CONFIG) private readonly config: ClerkConfig,
     @Inject(SURREAL) protected readonly db: Surreal,
+    @Optional() private readonly database?: DatabaseAvailability,
   ) {}
 
   async authenticate(request: Request): Promise<AuthenticatedPerson> {
@@ -82,6 +88,9 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
       throw new UnauthorizedException('The session token was refused');
     }
     if (!this.known.has(verified.clerkUserId)) {
+      // Guards run before DatabaseAvailabilityInterceptor: answer `503 service_restarting` at
+      // once rather than wait minutes for a restarting database.
+      if (this.database?.restartingSince()) throw new DatabaseUnavailableError();
       await this.ensurePerson(verified.clerkUserId);
       this.known.add(verified.clerkUserId);
     }

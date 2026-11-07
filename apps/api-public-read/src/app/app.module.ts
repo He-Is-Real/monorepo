@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
-import { DatabaseModule } from '@heisreal/database';
+import {
+  DatabaseAvailabilityInterceptor,
+  DatabaseModule,
+} from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
@@ -28,6 +31,9 @@ import { PublicAnswerCache, PublicCacheInterceptor } from './public-cache';
     { provide: APP_FILTER, useClass: ProblemFilter },
     { provide: PublicAnswerCache, useFactory: () => new PublicAnswerCache() },
     { provide: APP_INTERCEPTOR, useClass: PublicCacheInterceptor },
+    // After the cache, so a remembered answer is still served while the database restarts;
+    // anything else is `503 service_restarting` at once.
+    { provide: APP_INTERCEPTOR, useClass: DatabaseAvailabilityInterceptor },
   ],
 })
 export class AppModule {}

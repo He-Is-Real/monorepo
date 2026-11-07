@@ -103,6 +103,8 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/moderation/stories/{id}:
     get:
@@ -134,6 +136,8 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/moderation/stories/{id}/lock:
     post:
@@ -163,6 +167,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/moderation/stories/{id}/release:
     post:
@@ -189,6 +195,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/moderation/stories/{id}/approve:
     post:
@@ -239,6 +247,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/moderation/stories/{id}/reject:
     post:
@@ -274,6 +284,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/moderation/stories/{id}/request-changes:
     post:
@@ -309,6 +321,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/moderation/stories/{id}/escalate:
     post:
@@ -346,6 +360,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/moderation/flags:
     get:
@@ -383,6 +399,8 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   # ------------------------------------------------------------------ admin
   /v1/admin/users:
@@ -431,6 +449,8 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/admin/users/{id}/assign-role:
     post:
@@ -471,6 +491,8 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   # ------------------------------------------------------------------ themes (plan v3)
   /v1/admin/stories:
@@ -511,6 +533,8 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/admin/stories/{id}:
     get:
@@ -541,6 +565,8 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   /v1/admin/themes:
     get:
@@ -565,6 +591,8 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
     put:
       tags: [Themes]
       operationId: saveThemes
@@ -598,6 +626,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
 
   # ------------------------------------------------------------------ legal texts (plan 4e)
   /v1/admin/legal-documents/{document}/versions:
@@ -639,6 +669,8 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
     post:
@@ -680,6 +712,8 @@ paths:
           $ref: './components.yaml#/components/responses/NotFound'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
@@ -715,6 +749,8 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
     put:
@@ -753,6 +789,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
           $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 

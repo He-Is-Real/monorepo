@@ -7,12 +7,26 @@ import {
 } from '@nestjs/common';
 import { SecretsService, withTimeout } from '@heisreal/secrets';
 import { type ProvidedAuth, Surreal } from 'surrealdb';
+import { DatabaseAvailability } from './database-availability';
 import { DatabaseHealthService } from './database-health.service';
 import { DatabaseConfig, databaseConfigFromEnv } from './database.config';
 import { SURREAL } from './database.constants';
 
 /** Startup fails with a clear error instead of hanging while the SDK retries an unreachable database. */
 export const CONNECT_TIMEOUT_MS = 15_000;
+
+/**
+ * Keep reconnecting for as long as the database is away (the SDK's default gives up after 5
+ * tries, about a minute, and the copy would never reach the database again). SurrealDB runs on
+ * Spot and a restart takes a few minutes; retries back off to one every 5 seconds.
+ */
+export const RECONNECT = {
+  attempts: -1,
+  retryDelay: 1000,
+  retryDelayMax: 5000,
+  retryDelayMultiplier: 1.5,
+  retryDelayJitter: 0.1,
+} as const;
 
 /**
  * Record-access sign-in as `service:<username>` (D13 B). surrealdb.js 2.0.8 types
@@ -42,6 +56,7 @@ export async function connectDatabase(
   const connecting = db.connect(config.url, {
     namespace: config.namespace,
     database: config.database,
+    reconnect: RECONNECT,
     // A callback, so the SDK can sign in again after a reconnect or token expiry.
     authentication: async () => serviceSignIn(config, secrets),
   });
@@ -71,8 +86,9 @@ export async function connectDatabase(
         connectDatabase(new Surreal(), databaseConfigFromEnv(), secrets),
     },
     DatabaseHealthService,
+    DatabaseAvailability,
   ],
-  exports: [SURREAL, DatabaseHealthService],
+  exports: [SURREAL, DatabaseHealthService, DatabaseAvailability],
 })
 export class DatabaseModule implements OnApplicationShutdown {
   constructor(@Inject(SURREAL) private readonly db: Surreal) {}

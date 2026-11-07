@@ -1,6 +1,10 @@
 import { Controller, Get, HttpStatus, Inject, Res } from '@nestjs/common';
 import { NoRoleRequired } from '@heisreal/roles';
-import { DatabaseHealthService, DatabaseStatus } from '@heisreal/database';
+import {
+  AvailableWithoutDatabase,
+  DatabaseHealthService,
+  DatabaseStatus,
+} from '@heisreal/database';
 import type { Response } from 'express';
 import { SERVICE_NAME } from './health.constants';
 
@@ -13,6 +17,8 @@ export interface HealthResponse {
 
 // api-admin requires a role decision on every route (D1), this probe included.
 @NoRoleRequired('health probe for Cloud Run and uptime checks')
+// It reports the database's state itself, so it answers during a restart too.
+@AvailableWithoutDatabase()
 @Controller('health')
 export class HealthController {
   constructor(
