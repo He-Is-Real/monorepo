@@ -297,29 +297,30 @@ Scheduler starts it at 03:30 London time; both are in `europe-west2`, written ou
 ## Media ready
 
 `modules/gcp/media.tf` (`media_ready` in the gcp root; plan:
-`project/context/research/m2-media-ready-plan.html`; how to run it:
+`project/context/research/m2-media-ready-plan.html` and `media-worker-final.html`; how to run it:
 [docs/media-runbook.md](../../docs/media-runbook.md), "Media ready"). Bunny posts video events to
-api-user, which queues a job; the media worker on Joel's machine (D78, D126) answers; a private Cloud
-Run service writes the answer.
+api-user, which writes a job to the `mediaJob` table and queues it; the media worker on Joel's
+machine (D78, D126) pulls it and calls the result writer on Cloud Run directly (J5), which writes
+the answer. No answers queue and no dead letters (Joel, 2026-11-07, J4): the job table records
+failures, and a job gives up after 5.
 
-- **Topics** `media-jobs`, `media-results`, `media-dead-letters`: messages stored in London only
-  (`allowed_persistence_regions`, `enforce_in_transit`; the UK guard checks it) and kept 31 days.
-- **Subscriptions:** `media-worker` (pull, the worker's, in order per story; never expires, so a long holiday with the
-  machine off doesn't delete it), `media-results-writer` (push to the result writer, in order per
-  story, the ordering key), `media-dead-letters` (pull, for a developer). After 5 failed deliveries a job or answer
-  goes to `media-dead-letters`; retries back off from 10 seconds to 10 minutes.
-- **Identities:** `media-worker` pulls its subscription and publishes answers, and nothing else
-  (the bunny root's `readonly_key_readers` adds Bunny's read-only key, with the worker's PR);
-  `media_ready.worker_impersonators` (organisation people only, D126) may act as it with their own
-  gcloud login, so no key file exists. `workflow` runs the result writer and reads only its
-  database password. `media-results-push` is what Pub/Sub's push signs as; it alone may call the
-  result writer, which takes internal traffic only (no public address). api-user may publish to
-  `media-jobs`.
+- **Topic** `media-jobs`: messages stored in London only (`allowed_persistence_regions`,
+  `enforce_in_transit`; the UK guard checks it) and kept 31 days.
+- **Subscription** `media-worker` (pull, the worker's, in order per story, the ordering key; never
+  expires, so a long holiday with the machine off doesn't delete it). A job the worker doesn't
+  mark taken is redelivered, backing off from 10 seconds to 10 minutes; no dead-letter policy.
+- **Identities:** `media-worker` pulls its subscription and may call the result writer
+  (`run.invoker` on it), and nothing else (the bunny root's `readonly_key_readers` adds Bunny's
+  read-only key, with the worker's PR); `media_ready.worker_impersonators` (organisation people
+  only, D126) may act as it with their own gcloud login, so no key file exists. `workflow` runs the
+  result writer and reads only its database password. The result writer takes traffic from the
+  internet (the worker is off Google Cloud), and Cloud Run refuses anyone without a Google ID token
+  of `media-worker` before our code runs. api-user may publish to `media-jobs`.
 - **Keys:** `bunny-stream-readonly-key` (bunny root) holds the library's read-only key, which Bunny
   signs its webhooks with. Only api-user and media-worker may read it (`readonly_key_readers`).
 - **Turning it on, in order:** (1) bootstrap, locally: gives tf-deployer `roles/pubsub.admin`.
   (2) Merge: wave 1 applies bunny (the key's secret, api-user's access, the library's
-  `webhook_url`) and then gcp (topics, identities, the result writer). api-user reads the key when
+  `webhook_url`) and then gcp (the topic, identities, the result writer). api-user reads the key when
   a webhook comes, so the order doesn't matter to it. (3) The worker's PR adds media-worker to
   `readonly_key_readers` (its account must exist first).
 

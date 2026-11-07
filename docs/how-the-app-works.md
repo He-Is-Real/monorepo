@@ -324,14 +324,19 @@ Built in the database (the pages and the queue are planned, M3):
   and shows again when media breaks and works again.
 - **A story can't be approved until every upload is processed** and its size and length are
   known, so nothing unchecked reaches the public. (A2)
-- **Media ready (M2 plan item 13; D76, D78):** when Bunny says a video or audio file finished
-  encoding or failed, the media worker asks Bunny itself and the result writer records the answer
-  on that file only: ready with its real size, length and Bunny's thumbnail; still encoding;
-  or failed (also when Bunny no longer has it). An answer about a file the story no longer
-  shows is dropped, and so is one older than the last answer recorded for that file (by the time
-  Google's queue took it), so a late repeat can't bring back a story whose video has since
-  failed (Joel, 2026-11-07, F1). Built: Bunny's notice, the queue and the writer; the worker on Joel's machine
-  is the next piece, so until it runs, files stay "not processed yet". An audio file's picture
+- **Media ready (M2 plan item 13; D76, D78; Joel 2026-11-07, media-worker-final.html):** when
+  Bunny says a video or audio file finished encoding, failed or was deleted, a check job for that
+  file is written to the job table, then queued; the media worker asks Bunny itself and calls the
+  result writer, which records the answer on that file only (ready with its real size, length and
+  Bunny's thumbnail; still encoding; or failed, also when Bunny no longer has it) and marks the job
+  done in the same step. At most one job per file and kind is open: a new reason joins it. An
+  answer about a file the story no longer shows is dropped (the job ends "gone"), and so is one
+  that reached the writer before the last answer recorded for that file (the job ends "stale"),
+  so a late answer can't bring back a story whose video has since failed (F1). If the worker
+  fails a job 5 times, the job ends "gave up" (no dead-letter queues, J4). Jobs hold ids only and
+  go with their file (erasure, tidy-up); done jobs are deleted after 30 days (J2). Built: the job
+  table, Bunny's notices, the queue and the writer; the worker on Joel's machine and the nightly
+  resend are next, so until the worker runs, files stay "not processed yet". An audio file's picture
   is set by a later step (D127), so audio stories can't be approved until then.
 - **An approved story whose media breaks is hidden, not un-approved**, and comes back on its own
   when the same files work again: the approval records which video or audio file and which
@@ -469,7 +474,8 @@ For developers. Details are in the linked documents.
 - **Nothing on GKE is reachable from the internet;** public entry points are Cloud Run only. No
   load balancer. (D3, D4; AGENTS.md)
 - **Background work (Dapr)** runs off Google Cloud, on Joel's machine and later church
-  hardware, pulling from Pub/Sub; a private Cloud Run service writes results. (D78) Work waits in
+  hardware, pulling from Pub/Sub; it calls a Cloud Run result writer directly, which only its
+  Google account may call, and that writes the results (D78; J5, Joel 2026-11-07). Work waits in
   Pub/Sub (in London, up to 31 days) while that machine is off; the worker signs in with Joel's
   own gcloud login acting as a narrow `media-worker` account, never a key file (D126), and uses
   only Dapr's Pub/Sub part, with nothing stored on the machine (D129). Media ready is the first

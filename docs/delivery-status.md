@@ -171,11 +171,14 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 - **Media ready:** when Bunny finishes processing a video, mark it ready with its real size and
   length, so moderators in M3 can approve video stories, through the background worker on Joel's
   machine (`project/context/research/m2-media-ready-plan.html`). **In progress.** First part
-  built: the queue in London, Bunny's signed notice to api-user, and the private result writer
-  that records the worker's answer on the video's file (and ignores an answer older than the
-  last one it recorded, so a late repeat can't undo a newer one). Still to come: the worker itself on
-  Joel's machine, the audio clip's default picture, the 40-byte picture check at submit, and the
-  nightly catch-up of anything Bunny's notice missed.
+  built: a job table so no media job is ever lost (each job is written down before it is
+  queued), the queue in London, Bunny's signed "finished", "failed" and "deleted" notices to
+  api-user, and the result writer the worker calls directly, which records the answer on the
+  video's file and ends the job in one step (and ignores an answer older than the last one it
+  recorded, so a late answer can't undo a newer one). A job that fails 5 times is marked "gave up"
+  instead of going to a dead-letter queue. Still to come: the nightly resend of unfinished jobs
+  and clean-up of old ones, approval waiting while a job is open, the worker itself on Joel's
+  machine, the audio clip's default picture, and the 40-byte picture check at submit.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.
 
 **Dropped or moved out of M2:** the personalised home and "New for you" (replaced by the NEW

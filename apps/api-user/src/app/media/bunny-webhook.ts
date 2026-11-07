@@ -13,7 +13,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { runQuery, SURREAL } from '@heisreal/database';
+import { retryOnConflict, runQuery, SURREAL } from '@heisreal/database';
 import { NoRoleRequired } from '@heisreal/roles';
 import { SecretsService, withTimeout } from '@heisreal/secrets';
 import type { Request } from 'express';
@@ -21,18 +21,21 @@ import type { Surreal } from 'surrealdb';
 import { VIDEO_ID } from '../stories/bunny-stream';
 
 /**
- * Bunny Stream's webhook (`POST /v1/webhooks/bunny`, M2 plan item 13, D78): Bunny tells us a video
- * finished encoding or failed; we check the message really is Bunny's, for our library, and queue a
- * job on `media-jobs` for the media worker, which then asks Bunny itself (the notice only says "go
- * and look"). The database is only read, for the story the video belongs to (the job's ordering
- * key); the answer comes back through the result writer (apps/workflow).
+ * Bunny Stream's webhook (`POST /v1/webhooks/bunny`, M2 plan item 13, D78; media-worker-final.html):
+ * Bunny tells us a video finished encoding, failed or was deleted; we check the message really is
+ * Bunny's, for our library, write a check job for its file to the mediaJob table first (a new
+ * reason for an open job is added to it, J1), then send the job on `media-jobs` for the media
+ * worker, which asks Bunny itself (the notice only says "go and look"), and then record the send
+ * (sentAt, sends). The answer comes back through the result writer (apps/workflow).
  *
  * Bunny signs each call (https://bunny.net/docs/stream-webhook): `X-BunnyStream-Signature` is the
  * lowercase hex HMAC-SHA256 of the exact body, keyed with the library's read-only API key, with
  * `X-BunnyStream-Signature-Version: v1` and `X-BunnyStream-Signature-Algorithm: hmac-sha256`. A bad
  * signature answers 401, which Bunny doesn't retry. We answer 200 only once Pub/Sub has the job;
  * if it can't take it, 503, and Bunny tries again (about 30 seconds up to 2 hours apart, for about
- * 4 hours). Redeliveries and duplicates are harmless: each job means "look at Bunny now".
+ * 4 hours); the job is in the table either way, so the nightly resend sends it too. Redeliveries
+ * and duplicates are harmless: each message means "look at Bunny now", and the writer applies an
+ * answer only if no newer one is in.
  */
 export class BunnyWebhookVerificationError extends Error {
   override name = 'BunnyWebhookVerificationError';
@@ -71,15 +74,35 @@ export function verifyBunnySignature(
   }
 }
 
-/** Bunny's video statuses the worker acts on (the plan: "finished" and "failed" only). */
-const ACTED_ON = new Set([3, 5]);
+/**
+ * Bunny's video statuses we act on, as the job's reason (https://bunny.net/docs/stream-webhook):
+ * 3 finished, 5 failed and 32 deleted (Joel, 2026-11-07: "bunny_deleted as a reason is ok too",
+ * so a video deleted at Bunny by mistake hides its story at once).
+ */
+const REASONS: ReadonlyMap<unknown, string> = new Map([
+  [3, 'bunny_finished'],
+  [5, 'bunny_failed'],
+  [32, 'bunny_deleted'],
+]);
 const EVENT_ID = /^[A-Za-z0-9_.:-]{1,100}$/;
 
-/** A job on `media-jobs`: just which video, and Bunny's event id (libs/contracts worker.yaml, `MediaJob`). */
+/**
+ * A message on `media-jobs` (libs/contracts worker.yaml, `MediaJob`): the job's id (mediaJob:<id>,
+ * which the worker answers on), its kind and Bunny video, and Bunny's event id.
+ */
 export interface MediaJob {
+  jobId: string;
+  kind: 'check';
   videoId: string;
   /** Bunny's event id, the same on every redelivery; for the logs. */
   eventId?: string;
+}
+
+/** fn::media::queue_job's answer: the job's id, and its story's (the ordering key). */
+interface QueuedJob {
+  job: string;
+  story: string;
+  video: string;
 }
 
 /**
@@ -88,7 +111,7 @@ export interface MediaJob {
  * key; Joel, 2026-11-06, video-bundle-rethink part A). A fake stands in for it in tests.
  */
 export interface MediaJobs {
-  publish(job: MediaJob, orderingKey?: string): Promise<void>;
+  publish(job: MediaJob, orderingKey: string): Promise<void>;
 }
 export const MEDIA_JOBS = Symbol('MEDIA_JOBS');
 
@@ -154,39 +177,57 @@ export class BunnyWebhookController {
     const event = req.body as Record<string, unknown> | null;
     // Signed by our library's key, so it is our library's; checked anyway, and anything we don't
     // act on (other statuses, live streams, a body we can't read) is acknowledged and dropped.
+    const reason = event ? REASONS.get(event['Status']) : undefined;
     if (
       !event ||
+      !reason ||
       event['IsLiveStreamWebhook'] === true ||
       event['VideoLibraryId'] !== this.config.libraryId ||
-      !ACTED_ON.has(event['Status'] as number) ||
       typeof event['VideoGuid'] !== 'string' ||
       !VIDEO_ID.test(event['VideoGuid'])
     ) {
       return;
     }
+    const videoId = event['VideoGuid'];
     const eventId = event['EventId'];
-    const job: MediaJob = {
-      videoId: event['VideoGuid'],
-      ...(typeof eventId === 'string' && EVENT_ID.test(eventId)
-        ? { eventId }
-        : {}),
-    };
     try {
-      // The story whose file this video is (R12: storyFile:<video id>), on api-user's own login.
-      // A video no file row names (another upload, or none) is queued without a key; the
-      // result writer drops its answer.
-      const [story] = (await runQuery(
-        this.db,
-        `SELECT VALUE <string> record::id(story) FROM ONLY type::record('storyFile', $video)`,
-        { video: job.videoId },
-      )) as [string | undefined];
-      await this.jobs.publish(
-        job,
-        typeof story === 'string' ? story : undefined,
+      // Written down first (J1), on api-user's own login: the check job for the file this video
+      // is (R12: storyFile:<video id>), or the reason added to its open one.
+      const queued = await retryOnConflict(
+        async () =>
+          (
+            (await runQuery(
+              this.db,
+              `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', $reason)`,
+              { video: videoId, reason },
+            )) as [QueuedJob | undefined]
+          )[0],
+      );
+      if (!queued) {
+        // No file row names this video (another upload, or one long gone): nothing to check.
+        this.logger.log(`Bunny video ${videoId} is no story's file: dropped`);
+        return;
+      }
+      const job: MediaJob = {
+        jobId: queued.job,
+        kind: 'check',
+        videoId,
+        ...(typeof eventId === 'string' && EVENT_ID.test(eventId)
+          ? { eventId }
+          : {}),
+      };
+      // In order per story: the story's id is the ordering key.
+      await this.jobs.publish(job, queued.story);
+      await retryOnConflict(() =>
+        runQuery(
+          this.db,
+          `UPDATE type::record('mediaJob', $job) SET sentAt = time::now(), sends += 1 RETURN NONE`,
+          { job: queued.job },
+        ),
       );
     } catch (err) {
       this.logger.error(
-        `Couldn't queue media job for video ${job.videoId} (${err instanceof Error ? err.message : 'error'}); Bunny retries`,
+        `Couldn't queue a media job for video ${videoId} (${err instanceof Error ? err.message : 'error'}); Bunny retries`,
       );
       throw new ServiceUnavailableException('The media queue is unavailable');
     }
@@ -241,7 +282,7 @@ export function mediaJobsFromEnv(env: Env = process.env): MediaJobs | null {
         );
       } catch (err) {
         // A failed publish pauses its key in the client; Bunny's retry publishes it again.
-        if (orderingKey) publisher.resumePublishing(orderingKey);
+        publisher.resumePublishing(orderingKey);
         throw err;
       }
     },

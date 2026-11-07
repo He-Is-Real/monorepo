@@ -1054,12 +1054,16 @@ paths:
         webhook address). Verified, not a Clerk JWT: `X-BunnyStream-Signature` must be the lowercase hex
         HMAC-SHA256 of the exact body, keyed with the library's read-only API key, with version `v1` and
         algorithm `hmac-sha256`; anything else answers `401` (Bunny doesn't retry it). Only our library's
-        `Status` 3 (finished) and 5 (failed) for a video are acted on: api-user puts a job
-        (`{ videoId, eventId }`, `MediaJob` in `worker.yaml`) on the `media-jobs` queue and answers `200`
-        once the queue has it. Every other event is acknowledged with `200` and ignored. Nothing is
-        stored here: the media worker asks Bunny itself and the result writer records the answer.
-        `503` while the read-only key isn't set or the queue can't take the job (Bunny retries for about
-        4 hours). Redeliveries are harmless (each job means "look at Bunny now").
+        `Status` 3 (finished), 5 (failed) and 32 (deleted) for a video are acted on (Joel, 2026-11-07,
+        media-worker-final.html): api-user first writes a check job for the video's file to the
+        `mediaJob` table (reason `bunny_finished`, `bunny_failed` or `bunny_deleted`; a new reason for
+        the file's open check job is added to it, never a second job), then sends it on the
+        `media-jobs` queue (`MediaJob` in `worker.yaml`, with the job's id; ordering key: the story's
+        id), then records the send, and answers `200`. A video no story file names is acknowledged and
+        dropped. Every other event is acknowledged with `200` and ignored. `503` while the read-only
+        key isn't set or the job can't be written or sent (Bunny retries for about 4 hours; a job
+        already written stays in the table either way). Redeliveries are harmless (each message means
+        "look at Bunny now").
       security: []
       x-milestone: M2
       parameters:
@@ -1095,7 +1099,7 @@ paths:
                   type: string
                 Status:
                   type: integer
-                  description: 3 finished and 5 failed are acted on; every other status is ignored.
+                  description: 3 finished, 5 failed and 32 deleted are acted on; every other status is ignored.
                 EventId:
                   type: string
                   description: The same on every redelivery.
@@ -1106,7 +1110,7 @@ paths:
                   type: boolean
       responses:
         '200':
-          description: Acknowledged; for a finished or failed video of our library, the job is queued.
+          description: Acknowledged; for a finished, failed or deleted video of a story file, the job is written and sent.
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '5XX':

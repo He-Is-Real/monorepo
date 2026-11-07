@@ -412,9 +412,9 @@ variable "ci_dev_seeder_email" {
 
 variable "media_ready" {
   description = <<-EOT
-    Media ready (M2 plan item 13; D78, D126): the media-jobs, media-results and media-dead-letters
-    topics (London only) and their subscriptions, the media-worker identity, the result writer on
-    Cloud Run (apps/workflow, private) and api-user's Bunny webhook (media.tf). worker_impersonators:
+    Media ready (M2 plan item 13; D78, D126; media-worker-final.html): the media-jobs topic (London
+    only) and the worker's subscription, the media-worker identity, the result writer on Cloud Run
+    (apps/workflow; only media-worker may call it) and api-user's Bunny webhook (media.tf). worker_impersonators:
     the people who may act as media-worker with their own gcloud login (D126), as user:<email>.
     readonly_key_secret: the Secret Manager secret holding Bunny's read-only library key (the bunny
     root makes it and lets api-user read it), which api-user checks Bunny's signatures with. Needs

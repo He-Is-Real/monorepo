@@ -1,8 +1,8 @@
-# Media ready (M2 plan item 13; D78, D126): the job, result and dead-letter topics keep messages in
-# London only; the worker's subscription never expires; nothing is public (the result writer takes
-# internal traffic only and only Pub/Sub's push identity may call it); the worker may pull jobs and
-# publish results but read no database password; only organisation people may act as it. Mock
-# providers.
+# Media ready (M2 plan item 13; D78, D126; media-worker-final.html): the job topic keeps messages in
+# London only and is the only media topic (no answers queue, no dead letters: Joel, 2026-11-07,
+# J4/J5); the worker's subscription never expires; only the worker may call the result writer;
+# the worker may pull jobs and call the writer but read no database password; only organisation
+# people may act as it. Mock providers.
 
 mock_provider "google" {
   mock_resource "google_service_account" {
@@ -24,14 +24,6 @@ override_resource {
     email  = "media-worker@heisreal-dev.iam.gserviceaccount.com"
     name   = "projects/heisreal-dev/serviceAccounts/media-worker@heisreal-dev.iam.gserviceaccount.com"
     member = "serviceAccount:media-worker@heisreal-dev.iam.gserviceaccount.com"
-  }
-}
-override_resource {
-  target = google_service_account.media_results_push
-  values = {
-    email  = "media-results-push@heisreal-dev.iam.gserviceaccount.com"
-    name   = "projects/heisreal-dev/serviceAccounts/media-results-push@heisreal-dev.iam.gserviceaccount.com"
-    member = "serviceAccount:media-results-push@heisreal-dev.iam.gserviceaccount.com"
   }
 }
 override_resource {
@@ -90,13 +82,13 @@ run "messages_stay_in_london" {
 
   assert {
     condition = (
-      toset(keys(google_pubsub_topic.media)) == toset(["media-jobs", "media-results", "media-dead-letters"]) &&
+      toset(keys(google_pubsub_topic.media)) == toset(["media-jobs"]) &&
       alltrue([for t in google_pubsub_topic.media :
         t.message_storage_policy[0].allowed_persistence_regions == toset(["europe-west2"]) &&
         t.message_storage_policy[0].enforce_in_transit == true
       ])
     )
-    error_message = "Every media topic stores its messages in London only, enforced in transit too."
+    error_message = "The job topic is the only media topic, and stores its messages in London only, enforced in transit too."
   }
   assert {
     condition     = google_cloud_run_v2_service.result_writer[0].location == "europe-west2"
@@ -112,45 +104,37 @@ run "jobs_wait_while_the_worker_is_off" {
       google_pubsub_subscription.media_worker[0].expiration_policy[0].ttl == "" &&
       google_pubsub_subscription.media_worker[0].message_retention_duration == "2678400s" &&
       length(google_pubsub_subscription.media_worker[0].push_config) == 0 &&
-      google_pubsub_subscription.media_worker[0].dead_letter_policy[0].max_delivery_attempts == 5 &&
-      google_pubsub_subscription.media_results[0].expiration_policy[0].ttl == "" &&
-      google_pubsub_subscription.media_dead_letters[0].expiration_policy[0].ttl == ""
+      length(google_pubsub_subscription.media_worker[0].dead_letter_policy) == 0 &&
+      google_pubsub_subscription.media_worker[0].enable_message_ordering == true
     )
-    error_message = "The worker's pull subscription never expires and keeps jobs 31 days; 5 failed tries go to dead letters; no subscription expires."
-  }
-  assert {
-    condition = (
-      google_pubsub_subscription.media_worker[0].enable_message_ordering == true &&
-      google_pubsub_subscription.media_results[0].enable_message_ordering == true
-    )
-    error_message = "Jobs and answers are delivered in order per ordering key (the story's id)."
+    error_message = "The worker's pull subscription never expires, keeps jobs 31 days, delivers in order per story and has no dead letters (J4)."
   }
 }
 
-run "nothing_is_public" {
+run "only_the_worker_calls_the_writer" {
   command = plan
 
   assert {
     condition = (
-      google_cloud_run_v2_service.result_writer[0].ingress == "INGRESS_TRAFFIC_INTERNAL_ONLY" &&
+      google_cloud_run_v2_service.result_writer[0].ingress == "INGRESS_TRAFFIC_ALL" &&
       google_cloud_run_v2_service.result_writer[0].invoker_iam_disabled == false
     )
-    error_message = "The result writer takes internal traffic only and Cloud Run checks every caller."
+    error_message = "The worker reaches the result writer from Joel's machine, and Cloud Run checks every caller."
   }
   assert {
     condition = (
-      google_cloud_run_v2_service_iam_member.result_writer_push[0].role == "roles/run.invoker" &&
-      google_cloud_run_v2_service_iam_member.result_writer_push[0].member == "serviceAccount:media-results-push@heisreal-dev.iam.gserviceaccount.com" &&
-      google_pubsub_subscription.media_results[0].push_config[0].oidc_token[0].service_account_email == "media-results-push@heisreal-dev.iam.gserviceaccount.com"
+      length(google_cloud_run_v2_service_iam_member.result_writer_worker) == 1 &&
+      google_cloud_run_v2_service_iam_member.result_writer_worker[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_service_iam_member.result_writer_worker[0].member == "serviceAccount:media-worker@heisreal-dev.iam.gserviceaccount.com"
     )
-    error_message = "Only Pub/Sub's push identity may call the result writer."
+    error_message = "Only the media-worker account may call the result writer."
   }
   assert {
     condition = alltrue(flatten([
       [for g in google_pubsub_topic_iam_member.api_user_media_jobs : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
-      [for g in google_pubsub_topic_iam_member.media_worker : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
       [for g in google_pubsub_subscription_iam_member.media_worker : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
       [for g in google_service_account_iam_member.media_worker_impersonators : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
+      [for g in google_cloud_run_v2_service_iam_member.result_writer_worker : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
     ]))
     error_message = "No media grant is public."
   }
@@ -162,11 +146,9 @@ run "the_worker_reaches_the_queue_only" {
   assert {
     condition = (
       google_pubsub_subscription_iam_member.media_worker[0].role == "roles/pubsub.subscriber" &&
-      google_pubsub_subscription_iam_member.media_worker[0].subscription == "media-worker" &&
-      google_pubsub_topic_iam_member.media_worker[0].role == "roles/pubsub.publisher" &&
-      google_pubsub_topic_iam_member.media_worker[0].topic == "media-results"
+      google_pubsub_subscription_iam_member.media_worker[0].subscription == "media-worker"
     )
-    error_message = "The worker pulls its own subscription and publishes answers, nothing more."
+    error_message = "The worker pulls its own subscription."
   }
   assert {
     condition = alltrue(flatten([

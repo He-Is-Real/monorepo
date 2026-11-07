@@ -13,8 +13,8 @@
 #     web_site_url is an https origin, and api-user/api-admin get their own identity, database
 #     login, Clerk settings and web's origins; the housekeeping Job and its Scheduler trigger are
 #     in London, each with its own identity, the trigger allowed to start that Job only; media
-#     ready's topics keep messages in London, the worker's subscription never expires, nothing is
-#     public and the worker reads no database password.
+#     ready's job topic keeps messages in London and has no dead letters, the worker's subscription
+#     never expires, only the worker may call the result writer and it reads no database password.
 #   bootstrap: the _Default sink writes to the London log bucket with Google's filter (D101).
 #   org: only London locations are allowed, and new projects' logs start in London (D102, D104;
 #     no root calls it until the organisation admin's setup, D119).

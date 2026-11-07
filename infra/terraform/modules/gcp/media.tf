@@ -1,46 +1,38 @@
-# Media ready (M2 plan item 13, pieces 1–3; D78, D126, D129): how an uploaded video or audio file
-# becomes "ready". Plan: project/context/research/m2-media-ready-plan.html.
+# Media ready (M2 plan item 13; D78, D126, D129; media-worker-final.html): how an uploaded video or
+# audio file becomes "ready". Plan: project/context/research/m2-media-ready-plan.html.
 #
-#   Bunny ──"finished"/"failed"──▶ api-user POST /v1/webhooks/bunny ──▶ media-jobs (topic)
-#   media-jobs ──pull──▶ the media worker (Dapr, Joel's machine, outbound only; piece 4)
-#   media worker ──▶ media-results (topic, in order per story) ──push──▶ result writer (Cloud Run)
-# Both subscriptions deliver in order per ordering key, which is the story's id (Joel, 2026-11-06,
-# video-bundle-rethink part A: a story's jobs, including the later "publish" jobs, run in order).
-#   result writer ──workflow login──▶ SurrealDB: the storyFile row of that Bunny video
+#   Bunny ──"finished"/"failed"/"deleted"──▶ api-user POST /v1/webhooks/bunny
+#   api-user ──▶ mediaJob table (written first), then media-jobs (topic), in order per story
+#   media-jobs ──pull──▶ the media worker (Dapr, Joel's machine, outbound only; built later)
+#   media worker ──direct call, as media-worker──▶ result writer (Cloud Run, apps/workflow)
+#   result writer ──workflow login──▶ SurrealDB: the storyFile row and the job's end, one transaction
+# The subscription delivers in order per ordering key, which is the story's id (Joel, 2026-11-06,
+# video-bundle-rethink part A). No answers queue and no dead letters (Joel, 2026-11-07, J4/J5): the
+# job table records failures, and a job that fails 5 times gives up there.
 #
-# Everything stays in London: each topic stores messages in europe-west2 only, enforced in transit
-# too (the UK guard, tools/scripts/tf-location-check.sh, checks the storage policy). Jobs and
-# results carry ids and facts (size, length), never a person's name or story text.
+# Everything stays in London: the topic stores messages in europe-west2 only, enforced in transit
+# too (the UK guard, tools/scripts/tf-location-check.sh, checks the storage policy), and the
+# result writer runs there. Jobs carry ids only, never a person's name or story text.
 #
 # Least privilege:
-#   media-worker         the worker's identity (D126: Joel's gcloud login acting as it; no key
-#                        file). Pulls media-jobs through its subscription, publishes media-results,
-#                        and (the bunny root's readonly_key_readers) reads Bunny's read-only library
-#                        key. No database password, no other Bunny key, nothing else.
-#   workflow             the result writer's runtime identity: reads its own database password and
-#                        signs in as service:workflow (docs/db-permissions.md). Nothing else.
-#   media-results-push   the identity Pub/Sub's push signs its OIDC token as: run.invoker on the
-#                        result writer only. The result writer takes internal traffic only (Pub/Sub
-#                        push from this project) and Cloud Run checks the token, so it has no public
-#                        address and nobody else can call it.
-#   api-user             may publish to media-jobs (and to no other topic).
-#   Pub/Sub's own agent  moves a message that failed 5 times to media-dead-letters.
+#   media-worker   the worker's identity (D126: Joel's gcloud login acting as it; no key file).
+#                  Pulls media-jobs through its subscription, calls the result writer (run.invoker
+#                  on it only) and (the bunny root's readonly_key_readers) reads Bunny's read-only
+#                  library key. No database password, no other Bunny key, nothing else.
+#   workflow       the result writer's runtime identity: reads its own database password and signs
+#                  in as service:workflow (docs/db-permissions.md). Nothing else.
+#   api-user       may publish to media-jobs (and to no other topic).
+# The result writer takes traffic from the internet (the worker is off Google Cloud), but Cloud Run
+# refuses every request without a Google ID token of a run.invoker (media-worker only) before it
+# reaches our code.
 
 locals {
   media_ready = var.media_ready != null
   # Pub/Sub's own maximum (31 days): how long jobs wait while Joel's machine is off (the plan's
-  # "Your PC is off for days"). Unacknowledged messages and dead letters alike.
+  # "Your PC is off for days"). A job older than that is still in the job table, and the nightly
+  # resend sends it again.
   media_retention = "2678400s"
-  media_topics    = local.media_ready ? toset(["media-jobs", "media-results", "media-dead-letters"]) : toset([])
-}
-
-data "google_project" "media" {
-  count      = local.media_ready ? 1 : 0
-  project_id = var.project_id
-}
-
-locals {
-  pubsub_agent = local.media_ready ? "serviceAccount:service-${data.google_project.media[0].number}@gcp-sa-pubsub.iam.gserviceaccount.com" : null
+  media_topics    = local.media_ready ? toset(["media-jobs"]) : toset([])
 }
 
 resource "google_pubsub_topic" "media" {
@@ -50,8 +42,6 @@ resource "google_pubsub_topic" "media" {
   name    = each.value
   labels  = merge(local.labels, { component = "media-ready" })
 
-  # A copy of every message for the retention period, so a subscription that lost one can seek
-  # back (the runbook's "send it again").
   message_retention_duration = local.media_retention
 
   message_storage_policy {
@@ -71,7 +61,7 @@ resource "google_pubsub_subscription" "media_worker" {
   topic   = google_pubsub_topic.media["media-jobs"].id
   labels  = merge(local.labels, { component = "media-ready" })
 
-  ack_deadline_seconds       = 60 # one look at Bunny, then the answer
+  ack_deadline_seconds       = 60 # one look at Bunny, then the call to the writer
   message_retention_duration = local.media_retention
   retain_acked_messages      = false
   enable_message_ordering    = true # per story (the ordering key)
@@ -79,90 +69,12 @@ resource "google_pubsub_subscription" "media_worker" {
   expiration_policy {
     ttl = ""
   }
-  # Bunny down: the worker says "try later" and Pub/Sub backs off, 10 seconds up to 10 minutes.
+  # The worker doesn't mark a job taken (Bunny or the writer unreachable, or under 5 failures):
+  # Pub/Sub redelivers it, backing off 10 seconds up to 10 minutes. No dead-letter policy (J4).
   retry_policy {
     minimum_backoff = "10s"
     maximum_backoff = "600s"
   }
-  dead_letter_policy {
-    dead_letter_topic     = google_pubsub_topic.media["media-dead-letters"].id
-    max_delivery_attempts = 5
-  }
-}
-
-# --- The answers: pushed to the result writer, in order per story ------------------------------
-# The worker publishes each answer with the story's id as its ordering key, so an older "failed"
-# can't land after a newer "ready".
-resource "google_pubsub_subscription" "media_results" {
-  count = local.media_ready ? 1 : 0
-
-  project = var.project_id
-  name    = "media-results-writer"
-  topic   = google_pubsub_topic.media["media-results"].id
-  labels  = merge(local.labels, { component = "media-ready" })
-
-  ack_deadline_seconds       = 60
-  message_retention_duration = local.media_retention
-  enable_message_ordering    = true
-
-  push_config {
-    push_endpoint = "${google_cloud_run_v2_service.result_writer[0].uri}/v1/media-results"
-    oidc_token {
-      service_account_email = google_service_account.media_results_push[0].email
-      audience              = google_cloud_run_v2_service.result_writer[0].uri
-    }
-  }
-  expiration_policy {
-    ttl = ""
-  }
-  retry_policy {
-    minimum_backoff = "10s"
-    maximum_backoff = "600s"
-  }
-  dead_letter_policy {
-    dead_letter_topic     = google_pubsub_topic.media["media-dead-letters"].id
-    max_delivery_attempts = 5
-  }
-}
-
-# --- Dead letters: kept 31 days for a developer to read and send again (docs/media-runbook.md) --
-resource "google_pubsub_subscription" "media_dead_letters" {
-  count = local.media_ready ? 1 : 0
-
-  project = var.project_id
-  name    = "media-dead-letters"
-  topic   = google_pubsub_topic.media["media-dead-letters"].id
-  labels  = merge(local.labels, { component = "media-ready" })
-
-  ack_deadline_seconds       = 60
-  message_retention_duration = local.media_retention
-
-  expiration_policy {
-    ttl = ""
-  }
-}
-
-# Pub/Sub's own agent forwards a message that failed 5 times: it must publish to the dead-letter
-# topic and acknowledge on the subscriptions it came from.
-resource "google_pubsub_topic_iam_member" "dead_letter_publisher" {
-  count = local.media_ready ? 1 : 0
-
-  project = var.project_id
-  topic   = google_pubsub_topic.media["media-dead-letters"].name
-  role    = "roles/pubsub.publisher"
-  member  = local.pubsub_agent
-}
-
-resource "google_pubsub_subscription_iam_member" "dead_letter_subscriber" {
-  for_each = local.media_ready ? {
-    media-worker         = google_pubsub_subscription.media_worker[0].name
-    media-results-writer = google_pubsub_subscription.media_results[0].name
-  } : {}
-
-  project      = var.project_id
-  subscription = each.value
-  role         = "roles/pubsub.subscriber"
-  member       = local.pubsub_agent
 }
 
 # --- The worker's identity (D126) -----------------------------------------------------------------
@@ -171,7 +83,7 @@ resource "google_service_account" "media_worker" {
 
   project      = var.project_id
   account_id   = "media-worker"
-  display_name = "Media worker (Dapr, off Google Cloud): pulls media-jobs, publishes media-results"
+  display_name = "Media worker (Dapr, off Google Cloud): pulls media-jobs, calls the result writer"
 }
 
 resource "google_pubsub_subscription_iam_member" "media_worker" {
@@ -181,15 +93,6 @@ resource "google_pubsub_subscription_iam_member" "media_worker" {
   subscription = google_pubsub_subscription.media_worker[0].name
   role         = "roles/pubsub.subscriber"
   member       = google_service_account.media_worker[0].member
-}
-
-resource "google_pubsub_topic_iam_member" "media_worker" {
-  count = local.media_ready ? 1 : 0
-
-  project = var.project_id
-  topic   = google_pubsub_topic.media["media-results"].name
-  role    = "roles/pubsub.publisher"
-  member  = google_service_account.media_worker[0].member
 }
 
 # D126: the named people (Joel) may act as the worker with their own gcloud login, so no key file
@@ -230,27 +133,6 @@ resource "google_secret_manager_secret_iam_member" "result_writer" {
   member    = google_service_account.result_writer[0].member
 }
 
-resource "google_service_account" "media_results_push" {
-  count = local.media_ready ? 1 : 0
-
-  project      = var.project_id
-  account_id   = "media-results-push"
-  display_name = "Pub/Sub push: delivers media-results to the result writer"
-}
-
-# Pub/Sub's agent signs the push's OIDC token as media-results-push.
-resource "google_service_account_iam_member" "media_results_push_token" {
-  count = local.media_ready ? 1 : 0
-
-  service_account_id = google_service_account.media_results_push[0].name
-  role               = "roles/iam.serviceAccountTokenCreator"
-  member             = local.pubsub_agent
-
-  # Google creates Pub/Sub's agent when the project first uses Pub/Sub; on a fresh project the
-  # topics are that first use, so grant to the agent only after they exist.
-  depends_on = [google_pubsub_topic.media]
-}
-
 resource "google_cloud_run_v2_service" "result_writer" {
   count = local.media_ready ? 1 : 0
 
@@ -260,9 +142,10 @@ resource "google_cloud_run_v2_service" "result_writer" {
   deletion_protection = var.run_deletion_protection
   labels              = local.labels
 
-  # No public address: internal traffic only (Pub/Sub's push from this project counts as internal),
-  # and Cloud Run checks every request's token against run.invoker (media-results-push only).
-  ingress              = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  # The worker calls it from Joel's machine (J5), so it takes traffic from the internet; Cloud Run
+  # refuses any request without a Google ID token of a run.invoker (media-worker only) before it
+  # reaches our code.
+  ingress              = "INGRESS_TRAFFIC_ALL"
   invoker_iam_disabled = false
 
   template {
@@ -331,12 +214,13 @@ resource "google_cloud_run_v2_service" "result_writer" {
   depends_on = [google_secret_manager_secret_iam_member.result_writer]
 }
 
-resource "google_cloud_run_v2_service_iam_member" "result_writer_push" {
+# Only the worker may call the result writer (J5).
+resource "google_cloud_run_v2_service_iam_member" "result_writer_worker" {
   count = local.media_ready ? 1 : 0
 
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_service.result_writer[0].name
   role     = "roles/run.invoker"
-  member   = google_service_account.media_results_push[0].member
+  member   = google_service_account.media_worker[0].member
 }

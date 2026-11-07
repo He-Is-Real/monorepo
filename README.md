@@ -20,7 +20,7 @@ commands vs CRUD, errors, versioning, concurrency, "agree first") in
 | `apps/api-user`        | The signed-in person's reads and commands      | DB login `service:api_user`; personal work runs as the person (D27)      |
 | `apps/api-admin`       | Moderation/admin API (restricted hostname)     | DB login `service:api_admin`                                             |
 | `apps/housekeeping`    | Nightly Cloud Run Job: clean-ups (D71)         | DB login `service:housekeeping`                                          |
-| `apps/workflow`        | Media result writer, private Cloud Run (D78)   | Pub/Sub pushes answers to it; DB login `service:workflow`                |
+| `apps/workflow`        | Media result writer, Cloud Run (D78)           | Only the media worker may call it; DB login `service:workflow`           |
 | `apps/dev-seed`        | Dev-only Job: resets dev to dummy data (D49)   | System user `dev_seed` (dev only); [README](apps/dev-seed/README.md)     |
 | `libs/secrets`         | Reads GCP Secret Manager via the SDK           | Fetched once at startup; missing secret = clear failure                  |
 | `libs/database`        | SurrealDB client (surrealdb.js), schema        | Own login per service; startup fails after 15 s if DB is down            |
@@ -39,8 +39,9 @@ Services never call each other; each API only talks to SurrealDB (and, later, qu
 
 **Background work (D78: Dapr off Google Cloud).** The Dapr workers run off Google Cloud, on
 Joel's machine and later on church hardware, never on GKE. They pull work from Pub/Sub and connect
-outbound only, so they can't reach the database. Their results go back through a results topic to
-the private Cloud Run result writer, `apps/workflow`, which writes them to SurrealDB. The first
+outbound only, so they can't reach the database. They call the Cloud Run result writer,
+`apps/workflow`, directly with their answers (only the worker's Google account may), and it writes
+them to SurrealDB; every job is written to the `mediaJob` table before it is queued. The first
 worker, the media worker (its own app, `apps/media-worker`), comes with the next media-ready PR
 ([docs/media-runbook.md](docs/media-runbook.md), "Media ready").
 

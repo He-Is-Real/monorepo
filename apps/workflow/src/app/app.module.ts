@@ -4,12 +4,12 @@ import { DatabaseModule } from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
-import { MediaResultsController } from './media-results.controller';
+import { MediaJobsController } from './media-jobs.controller';
 
 @Module({
   imports: [SecretsModule, DatabaseModule, HealthModule.forService('workflow')],
-  controllers: [MediaResultsController],
-  // D30: every error as an RFC 9457 problem; unknown errors never say why (a 500: Pub/Sub retries).
+  controllers: [MediaJobsController],
+  // D30: every error as an RFC 9457 problem; unknown errors never say why (a 500: the worker leaves the job in the queue).
   providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
 })
 export class AppModule {}

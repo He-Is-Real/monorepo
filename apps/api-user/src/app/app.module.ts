@@ -28,8 +28,8 @@ import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
     // M2 plan PR 11: erasure for "Delete my account" and Clerk's user.deleted webhook (D39, D40,
     // D82).
     ErasureModule,
-    // Media ready (M2 plan item 13, D78): Bunny's "finished"/"failed" notices, checked and queued
-    // on media-jobs for the media worker.
+    // Media ready (M2 plan item 13, D78): Bunny's "finished", "failed" and "deleted" notices,
+    // checked, written to the mediaJob table and sent on media-jobs for the media worker.
     BunnyWebhookModule,
     // The account bootstrap, agreeing (plan 4e) and "Delete my account".
     AccountModule,

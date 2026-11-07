@@ -182,8 +182,8 @@ their fence (see "Transactions").
     Dev-seed gives each story its own rows; its stories that never go public use a placeholder row
     with a made-up Bunny-style id (`00000000-0000-0000-0000-…`) and nothing at Bunny.
   - **Update:** workflow the processing fields (`width`, `height`, `lengthSeconds`,
-    `thumbnailPath`, `processing`) and `checkedAt` (the queue's time of the newest answer applied;
-    the result writer applies only newer ones, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
+    `thumbnailPath`, `processing`) and `checkedAt` (when the newest answer applied reached the result
+    writer; it applies only later ones, in the same transaction, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
     which refuses unless the story still exists, is the person's, is editable and shows that file:
     `nothing_to_resume:`); events `detachedAt`; housekeeping `removedAt` (once, not before
     `fn::upload::links_expire_after()`, 2 h: `file_not_removable`). Housekeeping deletes the file
@@ -208,6 +208,19 @@ their fence (see "Transactions").
   themes, as a theme rename or delete does, so a row built from a snapshot can't commit alongside
   a rename or delete of one of its themes. Its own table because BM25 counts every indexed row:
   drafts in the index moved published stories' scores. Specs: `story-search`.
+- **`mediaJob`** (media ready; Joel 2026-11-07, `media-worker-final.html` section 3, J1-J6): every
+  media job, written before it is queued: `file` (the storyFile), `kind` (`check`, `render`),
+  `reasons`, `queuedAt`, `sentAt`, `sends`, `failures`, `lastError` (a short code), `madeFile`
+  (render jobs, later), `doneAt` and `outcome` (`applied`, `stale`, `gone`, `gave_up`; set once,
+  together). No person's session, api-admin or the public reads it. **Create:** api-user and
+  workflow, through `fn::media::queue_job`, which adds a reason to the file's open job of that
+  kind instead (the `mediaJob_rules` event refuses a second open one). **Update:** api-user (new
+  reasons, `sentAt`, `sends`), housekeeping (resends), workflow (all of it); only workflow writes
+  `failures`, `lastError`, `madeFile`, `doneAt` and `outcome`. **Delete:** housekeeping, a job 30
+  days after it ended (J2); a file's row going deletes its jobs (`storyFile_jobs`). Every write
+  needs the file's person live and bumps their fence, which also serialises two writes racing to
+  open the same job. The result writer saves an answer and ends its job in one transaction.
+  Specs: `media-jobs` (here and workflow's), `person-linked`, api-user's `media-webhook`.
 - **Public lists read the status log's `(status, publishedAt)` index** (scale test; query only).
   Browse newest/oldest, by theme or format: the current approved entries (`PUBLISHED_ENTRY`) in
   publish order, filtered by the story's format and theme, until a page is full (3.2.4 stops the
@@ -288,6 +301,7 @@ and here.
 | `storyStatusLog`  | a story's status history; `story`, `by`                                                                                                 | linked | step rules; submitter live (the pointer move)                                | deleted (cascade)                                     |
 | `storySearch`     | a published story's words; `story`                                                                                                      | linked | events only, with the write that publishes or unpublishes the story          | deleted with the story                                |
 | `storyFile`       | one uploaded file; `person`, `story`                                                                                                    | linked | created by api-user, processed by workflow, cleaned by housekeeping; live    | deleted                                               |
+| `mediaJob`        | a media job about one file; `file`                                                                                                      | linked | api-user and workflow create; file's person live; one open per file and kind | deleted with the file                                 |
 | `favourite`       | a heart; `person`, `story`                                                                                                              | linked | person and story owner live; latest terms; story public                      | deleted                                               |
 | `idempotencyKey`  | `[service, user record, key]`; `{id, version}`                                                                                          | linked | user live (webhook keys exempt); people: own keys only                       | deleted; any key deleted by housekeeping once expired |
 | `submitterLimits` | per-person limits and trusted mark; `user`, `changedBy`                                                                                 | linked | user live; `changedBy` required from api-admin; `devSeed` dev only           | deleted                                               |
@@ -316,7 +330,8 @@ signature, deduplicated on `svix-id`). Both answer `202`. In order:
    their hearts. This comes first because api-user may read a story's `submitter` only once its
    owner is erased.
 4. Their stories (the cascade takes status logs, search rows and others' hearts; each delete queues
-   its picture folder), idempotency keys, `submitterLimits`, `submissionLog` and `storyFile` rows.
+   its picture folder), idempotency keys, `submitterLimits`, `submissionLog` and `storyFile` rows
+   (each takes its `mediaJob` rows).
 
 After the commit api-user drains the queue (Bunny, picture folders, Clerk last, which ends their
 sessions); a failure waits with backoff for the nightly housekeeping, and the answer is still `202`.
