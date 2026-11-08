@@ -463,17 +463,20 @@ What happens and where to look:
   (read-only) and check the node pool has Spot capacity in `europe-west2-c`.
 
 **Full rebuild after storage loss.** A Spot restart keeps the disk. If the disk itself is lost
-(the PVC or the volume is deleted) the database comes back empty: no `heisreal` namespace and no
-service logins until the migrations run. The database then _answers_ and refuses every
-service's sign-in, so a new Cloud Run revision fails to start (`database_refused`, see above)
+(the PVC or the volume is deleted) the database comes back empty. The startup init (it runs at
+every SurrealDB start) recreates the namespace, the database and the service logins, but not the
+schema or the access definitions: only the migrations make those. The database then _answers_
+and refuses the services' sign-in, so a new Cloud Run revision fails to start (`database_refused`, see above)
 while the old revisions keep answering `503 service_restarting`. The apply pipeline applies
 `gcp` (new revisions) before `cluster` (the migrations), so its `gcp` apply can fail before the
 migrations ever run. Rebuild in the other order, by hand:
 
-1. Apply the `cluster` root first: `tools/scripts/tf.sh cluster plan -out=cluster.plan`, read
-   the plan (the migration Job runs on the empty database and creates the namespace, schema and
-   service logins), then `tools/scripts/tf.sh cluster apply cluster.plan`, and check the Job as in
-   "Order: migrate, then deploy".
+1. Apply the `cluster` root first, forcing the migration Job to run again. The completed Job
+   survives the disk loss, and with unchanged migrations a plain plan would not replace it:
+   `tools/scripts/tf.sh cluster plan -replace='module.cluster.kustomization_resource.migrate' -out=cluster.plan`.
+   Read the plan (it replaces the migration Job, which recreates the schema and access
+   definitions on the empty database), then `tools/scripts/tf.sh cluster apply cluster.plan`, and
+   check that the new Job completes, as in "Order: migrate, then deploy".
 2. Then apply `gcp` (or re-run the pipeline): the new revisions sign in and start.
 3. Restore data from a backup if the environment held any ("Backups and restore"); dev re-seeds
    instead (the "Dev behavioural tests" workflow).
