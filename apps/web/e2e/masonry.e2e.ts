@@ -279,8 +279,7 @@ for (const text of [16, 20, 32])
     const width = info.project.use.viewport?.width ?? 0;
     const columns = await cards(page).evaluateAll(
       (lis) =>
-        new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x)))
-          .size,
+        new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x))).size,
     );
     expect(columns).toBe(width >= 1024 ? 3 : width >= 640 ? 2 : 1);
     await expectNoHorizontalOverflow(page);
