@@ -367,7 +367,7 @@ describe('approval waits for media processing (A2, R12)', () => {
           `a${seq}`.padEnd(c.videoId.length, '0'),
         );
         expect(await submit(pat, id)).toHaveLength(1);
-      await answered(workflow, id);
+        await answered(workflow, id);
         const key = await fileOf(id);
         // The cases are written for their own video id; ours is the row's key.
         const path = c.path.split(c.videoId).join(key);

@@ -1,12 +1,6 @@
 import type { Surreal } from 'surrealdb';
 import { rows, run, TestDatabase } from './support/harness';
-import {
-  answered,
-  approve,
-  buildWorld,
-  statusOf,
-  step,
-} from './support/world';
+import { answered, approve, buildWorld, statusOf, step } from './support/world';
 
 /**
  * D41 (review round 1, finding 3): field-level write scope on `story`.

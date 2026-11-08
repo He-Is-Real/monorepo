@@ -1,5 +1,6 @@
 import { retryOnConflict, runQuery } from '@heisreal/database';
 import type { SurrealQueryable } from 'surrealdb';
+import type { QueuedJob } from './media-queue';
 
 /**
  * The media worker's answer to one check job (media-worker-final.html, sections 1 and 3;
@@ -157,75 +158,152 @@ export function parseFailure(input: unknown): string {
  * - applied: every fact written, with checkedAt = `$at`, even when they were already so, so an
  *   older answer arriving later still loses. The file's events then hide or show the story
  *   again (fn::story::check_files) and step its version only if something it shows changed.
+ * What a ready answer writes (the render decision, audio-picture-video.html decision 1B):
+ * - a video: its facts, and (`$thumbSet`) the picture Bunny now shows for it (thumbnailOf), which
+ *   the writer has just set at Bunny (video-bundle-rethink part A);
+ * - a person's own audio upload (no renderOf): its length only, still `processing`: it is ready
+ *   only once its picture video is (approval needs that), so a render job of it opens;
+ * - a picture video (renderOf): its facts as a video's; if the story's picture is no longer the
+ *   one it was made with (thumbnailOf), a render job of it opens (reason picture_changed).
  * The job ends with that outcome if it is still open. A job already ended (the queue delivered
  * it twice, or a new reason was sent after an answer) keeps its outcome; the answer itself, made
- * fresh at Bunny, is still applied by the same rules.
+ * fresh at Bunny, is still applied by the same rules. Answers the outcome and the render job
+ * opened, if any (the writer sends it after the commit).
  */
 export const ANSWER_SQL = `
-  LET $j = (SELECT kind, file, doneAt FROM ONLY type::record('mediaJob', $job));
+  LET $j = (SELECT kind, file, doneAt, reasons FROM ONLY type::record('mediaJob', $job));
   IF $j = NONE { THROW 'media_job_not_found' };
   IF <string> record::id($j.file) != $videoId { THROW 'media_job_wrong_video' };
   IF $j.kind != 'check' { THROW 'media_job_not_a_check' };
-  LET $f = (SELECT id, format, story, checkedAt, detachedAt, removedAt FROM ONLY $j.file);
+  LET $f = (SELECT id, format, story, checkedAt, detachedAt, removedAt, renderOf, thumbnailOf
+    FROM ONLY $j.file);
   LET $shown = $f != NONE AND $f.format IN ['video', 'audio'] AND $f.detachedAt = NONE
     AND $f.removedAt = NONE AND record::exists($f.story) AND $f.story.mediaFile = $f.id
     AND ($title = NONE OR $title = <string> record::id($f.story));
   LET $outcome = IF !$shown { 'gone' }
     ELSE IF $f.checkedAt != NONE AND $f.checkedAt >= <datetime> $at { 'stale' }
     ELSE { 'applied' };
+  LET $source = $f.format = 'audio' AND $f.renderOf = NONE;
+  -- Read from the story itself: f.story.image.file (a link through an empty image) fails on
+  -- 3.2.4 with "Specify a database to use".
+  LET $picture = IF $shown { (SELECT VALUE image.file FROM ONLY $f.story) };
+  LET $render = IF $outcome = 'applied' AND $ready AND $f.format = 'audio'
+    AND ($source OR $f.thumbnailOf != $picture) {
+    LET $reasons = IF $source { $j.reasons } ELSE { ['picture_changed'] };
+    LET $queued = $reasons.map(|$r| fn::media::queue_job($f.id, 'render', $r));
+    $queued[array::len($queued) - 1]
+  };
   IF $outcome = 'applied' {
-    LET $facts = IF $f.format = 'audio' { $audio }
-      ELSE IF $thumb = NONE { $video }
+    LET $facts = IF !$ready { $notReady }
+      ELSE IF $source { { processing: 'processing', lengthSeconds: $video.lengthSeconds } }
       ELSE { object::extend($video, { thumbnailPath: <string> record::id($f.id) + '/' + $thumb }) };
     UPDATE $f.id MERGE object::extend($facts, { checkedAt: <datetime> $at }) RETURN NONE;
+    IF $thumbSet {
+      UPDATE $f.id SET thumbnailOf = IF $thumbOf = NONE { NONE }
+        ELSE { type::record('storyFile', $thumbOf) } RETURN NONE;
+    };
   };
   IF $j.doneAt = NONE {
     UPDATE type::record('mediaJob', $job) SET doneAt = time::now(), outcome = $outcome RETURN NONE;
   };
-  $outcome;`;
+  { outcome: $outcome, render: $render };`;
 
 /**
- * The query's variables: the facts for a video file and for an audio file (the write picks by the
- * file's format), and for a ready video its thumbnail's file name, which the write puts under the
- * video's own folder at Bunny (its file's id, R12).
+ * Bunny's picture for a video (video-bundle-rethink part A), what the writer set at Bunny just
+ * before the answer's write: the picture's path (null: Bunny's own frame again) and Bunny's
+ * thumbnail file afterwards.
+ */
+export interface ThumbnailSet {
+  picture: string | null;
+  thumbnailFileName: string;
+}
+
+/**
+ * The query's variables: whether the answer is ready, the facts for a file that isn't
+ * (`notReady`) and for a ready one (`video`; an audio upload keeps only its length), its
+ * thumbnail's file name, which the write puts under the video's own folder at Bunny (its file's
+ * id, R12), and the picture the writer just had Bunny show, if it did.
  */
 export function answerVars(
   job: string,
   video: string,
   answer: MediaAnswer,
   arrivedAt: string,
+  thumbnail?: ThumbnailSet,
 ): Record<string, unknown> {
-  const vars = { job, videoId: video, at: arrivedAt };
+  const vars = {
+    job,
+    videoId: video,
+    at: arrivedAt,
+    thumbSet: thumbnail !== undefined,
+    thumbOf: thumbnail?.picture ?? undefined,
+  };
   if (answer.outcome !== 'ready') {
     // A video deleted at Bunny while its story still shows it counts as failed (the plan's
     // "When things go wrong").
     const processing = answer.outcome === 'encoding' ? 'processing' : 'failed';
-    return { ...vars, video: { processing }, audio: { processing } };
+    return { ...vars, ready: false, notReady: { processing } };
   }
   return {
     ...vars,
+    ready: true,
     title: answer.title,
-    thumb: answer.thumbnailFileName,
+    thumb: thumbnail?.thumbnailFileName ?? answer.thumbnailFileName,
     video: {
       processing: 'ready',
       width: answer.width,
       height: answer.height,
       lengthSeconds: answer.lengthSeconds,
     },
-    // Audio: only its length. Bunny makes no picture from sound (its 1280 × 720 placeholder
-    // only), so the audio clip's picture and its size come from the default-picture step (D127),
-    // and approval waits for them (A2).
-    audio: { processing: 'ready', lengthSeconds: answer.lengthSeconds },
   };
+}
+
+/** What the writer knows of the job's file before the answer's write, for Bunny's picture. */
+const PICTURE_SQL = `
+  LET $j = (SELECT kind, file FROM ONLY type::record('mediaJob', $job));
+  LET $f = IF $j != NONE AND $j.kind = 'check' AND <string> record::id($j.file) = $videoId {
+    (SELECT format, story, detachedAt, thumbnailOf FROM ONLY $j.file) };
+  IF $f = NONE OR $f.format != 'video' OR $f.detachedAt != NONE
+    OR !record::exists($f.story) OR $f.story.mediaFile != $j.file { NONE } ELSE {
+    LET $picture = (SELECT VALUE image.file FROM ONLY $f.story);
+    { thumbnailOf: IF $f.thumbnailOf != NONE { <string> record::id($f.thumbnailOf) },
+      picture: IF $picture != NONE { <string> record::id($picture) } }
+  };`;
+
+/**
+ * The picture a ready video's story wants Bunny to show, when Bunny doesn't show it yet: the
+ * story's own picture's path, or null for Bunny's own frame (the picture was taken off).
+ * undefined when nothing needs doing (not a video its story shows, or Bunny already shows it).
+ */
+export async function wantedThumbnail(
+  db: SurrealQueryable,
+  job: string,
+  video: string,
+): Promise<string | null | undefined> {
+  const results = await runQuery(db, PICTURE_SQL, { job, videoId: video });
+  const found = results[results.length - 1] as {
+    thumbnailOf?: string | null;
+    picture?: string | null;
+  } | null;
+  if (!found) return undefined;
+  const wanted = found.picture ?? null;
+  return (found.thumbnailOf ?? null) === wanted ? undefined : wanted;
+}
+
+/** What an answer did: its outcome, and the render job it opened (to send after the commit). */
+export interface AnswerResult {
+  outcome: AnswerOutcome;
+  render: QueuedJob | null;
 }
 
 /**
  * Applies the worker's answer about `video` to the job's file (refused with
- * {@link MediaJobWrongVideo} if that isn't the job's video), signed in as service:workflow (the only login
- * that may set a file's processing, A2), and ends the job, in one transaction. `arrivedAt` is
- * when the worker's call reached the writer (F1): an answer applies only if no answer that
- * arrived at or after it is in. A transaction conflict (another answer, a moderator's step or an
- * erasure on the same person) re-runs it from scratch.
+ * {@link MediaJobWrongVideo} if that isn't the job's video), signed in as service:workflow (the
+ * only login that may set a file's processing, A2), and ends the job, in one transaction.
+ * `arrivedAt` is when the worker's call reached the writer (F1): an answer applies only if no
+ * answer that arrived at or after it is in. A transaction conflict (another answer, a moderator's
+ * step or an erasure on the same person) re-runs it from scratch. `thumbnail`: the picture the
+ * writer has just had Bunny show for the video, recorded with the answer.
  */
 export async function answerJob(
   db: SurrealQueryable,
@@ -233,15 +311,23 @@ export async function answerJob(
   video: string,
   answer: MediaAnswer,
   arrivedAt: string,
-): Promise<AnswerOutcome> {
-  const vars = answerVars(job, video, answer, arrivedAt);
+  thumbnail?: ThumbnailSet,
+): Promise<AnswerResult> {
+  const vars = answerVars(job, video, answer, arrivedAt, thumbnail);
   return retryOnConflict(async () => {
     const results = await runQuery(
       db,
       `BEGIN TRANSACTION;${ANSWER_SQL}\nCOMMIT TRANSACTION;`,
       vars,
     ).catch(notFound);
-    return results[results.length - 2] as AnswerOutcome;
+    const r = results[results.length - 2] as {
+      outcome: AnswerOutcome;
+      render?: Omit<QueuedJob, 'kind'> | null;
+    };
+    return {
+      outcome: r.outcome,
+      render: r.render ? { ...r.render, kind: 'render' } : null,
+    };
   });
 }
 

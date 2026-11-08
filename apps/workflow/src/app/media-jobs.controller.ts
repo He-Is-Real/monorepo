@@ -9,9 +9,11 @@ import {
   NotFoundException,
   Param,
   Post,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { SURREAL } from '@heisreal/database';
 import type { Surreal } from 'surrealdb';
+import { BunnyCallFailed, WRITER_BUNNY, type WriterBunny } from './bunny';
 import {
   answerJob,
   type AnswerOutcome,
@@ -24,11 +26,21 @@ import {
   parseJobId,
   parseMediaAnswer,
   parseVideoId,
+  type ThumbnailSet,
+  wantedThumbnail,
 } from './media-jobs';
+import { MEDIA_QUEUE, type MediaQueue, sendJobs } from './media-queue';
+import {
+  type PassReply,
+  parseRendered,
+  renderedJob,
+  uploadPassFor,
+} from './render';
 
 /**
- * The result writer's two routes (media-worker-final.html, sections 1 and 2; J5): the media worker
- * on Joel's machine calls them directly, once per job it pulled from `media-jobs`. Cloud Run is
+ * The result writer's routes (media-worker-final.html, sections 1 and 2; J5; audio-picture-video
+ * decision 2 = K1 for the render's two): the media worker on Joel's machine calls them directly,
+ * for each job it pulled from `media-jobs`. Cloud Run is
  * the gate: only the media-worker Google account holds run.invoker
  * (infra/terraform/modules/gcp/media.tf), so anyone else is refused before this code runs.
  *
@@ -40,29 +52,136 @@ import {
 export class MediaJobsController {
   private readonly logger = new Logger(MediaJobsController.name);
 
-  constructor(@Inject(SURREAL) private readonly db: Surreal) {}
+  constructor(
+    @Inject(SURREAL) private readonly db: Surreal,
+    @Inject(WRITER_BUNNY) private readonly bunny: WriterBunny | null,
+    @Inject(MEDIA_QUEUE) private readonly queue: MediaQueue | null,
+  ) {}
 
-  /** The answer to a check job: the file's facts and the job's end, in one transaction. */
+  /**
+   * The answer to a check job: the file's facts and the job's end, in one transaction. For a
+   * ready video whose story wants Bunny to show another picture (its own, or Bunny's frame again
+   * once it was taken off; video-bundle-rethink part A), the writer first sets it at Bunny and
+   * records it with the answer. If Bunny won't, that counts as the job's failure and the reply is
+   * the failed route's ("try again later", or "give up" at the fifth).
+   */
   @Post(':job/answer')
   @HttpCode(HttpStatus.OK)
   async answer(
     @Param('job') jobParam: string,
     @Body() body: unknown,
-  ): Promise<{ outcome: AnswerOutcome }> {
+  ): Promise<{ outcome: AnswerOutcome } | FailureReply> {
     // When the answer reached the writer (F1): taken first, before anything can wait.
     const arrivedAt = new Date().toISOString();
     const [job, video, answer] = this.parse(jobParam, body, parseMediaAnswer);
-    const outcome = await answerJob(
+    let thumbnail: ThumbnailSet | undefined;
+    if (answer.outcome === 'ready' && this.bunny) {
+      const wanted = await wantedThumbnail(this.db, job, video);
+      if (wanted !== undefined) {
+        try {
+          thumbnail = {
+            picture: wanted,
+            thumbnailFileName: await this.bunny.setThumbnail(video, wanted),
+          };
+        } catch (err) {
+          if (!(err instanceof BunnyCallFailed)) throw err;
+          const reply = await failJob(this.db, job, video, err.code).catch(
+            (e: unknown) => this.refuse(job, e),
+          );
+          this.logger.warn(JSON.stringify({ job, failed: err.code, ...reply }));
+          return reply;
+        }
+      }
+    }
+    const { outcome, render } = await answerJob(
       this.db,
       job,
       video,
       answer,
       arrivedAt,
+      thumbnail,
     ).catch((err: unknown) => this.refuse(job, err));
     // Ids and outcomes only: no personal data is in an answer.
     this.logger.log(
-      JSON.stringify({ job, answer: answer.outcome, arrivedAt, outcome }),
+      JSON.stringify({
+        job,
+        answer: answer.outcome,
+        arrivedAt,
+        outcome,
+        ...(thumbnail
+          ? { thumbnail: thumbnail.picture ? 'picture' : 'frame' }
+          : {}),
+        ...(render ? { render: render.job } : {}),
+      }),
     );
+    if (render) await sendJobs(this.db, this.queue, [render]);
+    return { outcome };
+  }
+
+  /**
+   * A render job's pass (K1): whether a picture video is still needed and, if so, a one-hour
+   * upload pass for its new Bunny video only and a 10-minute link to the story's picture. 503 with
+   * Bunny off; Bunny refusing counts as the job's failure (reply as the failed route's).
+   */
+  @Post(':job/upload-pass')
+  @HttpCode(HttpStatus.OK)
+  async uploadPass(
+    @Param('job') jobParam: string,
+    @Body() body: unknown,
+  ): Promise<PassReply | FailureReply> {
+    const [job, video] = this.parse(jobParam, body, () => undefined);
+    const bunny = this.bunny;
+    if (!bunny) throw new ServiceUnavailableException('Bunny is off');
+    try {
+      const reply = await uploadPassFor(this.db, bunny, job, video);
+      // Never the pass or the link themselves: they are keys for an hour.
+      this.logger.log(
+        JSON.stringify({
+          job,
+          pass: reply.outcome,
+          ...(reply.outcome === 'render'
+            ? { render: reply.renderVideoId, picture: reply.picture !== null }
+            : {}),
+        }),
+      );
+      return reply;
+    } catch (err) {
+      if (!(err instanceof BunnyCallFailed)) return this.refuse(job, err);
+      const reply = await failJob(this.db, job, video, err.code).catch(
+        (e: unknown) => this.refuse(job, e),
+      );
+      this.logger.warn(JSON.stringify({ job, failed: err.code, ...reply }));
+      return reply;
+    }
+  }
+
+  /**
+   * A render job is done: the worker uploaded the picture video. The new file's row, the story's
+   * move to it (only while it still points at the audio file) and the job's end, in one
+   * transaction; then the new video's check is sent.
+   */
+  @Post(':job/rendered')
+  @HttpCode(HttpStatus.OK)
+  async rendered(
+    @Param('job') jobParam: string,
+    @Body() body: unknown,
+  ): Promise<{ outcome: AnswerOutcome | 'gave_up' }> {
+    const [job, video, done] = this.parse(jobParam, body, parseRendered);
+    const { outcome, check } = await renderedJob(
+      this.db,
+      job,
+      video,
+      done,
+    ).catch((err: unknown) => this.refuse(job, err));
+    this.logger.log(
+      JSON.stringify({
+        job,
+        rendered: done.renderVideoId,
+        outcome,
+        ...(check ? { check: check.job } : {}),
+      }),
+    );
+    if (check) await sendJobs(this.db, this.queue, [check]);
     return { outcome };
   }
 

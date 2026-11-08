@@ -27,16 +27,19 @@
   ],
   "references": [
     {
-      "path": "../../libs/secrets/tsconfig.lib.json"
+      "path": "../../libs/story-cards/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/http/tsconfig.lib.json"
     },
     {
       "path": "../../libs/health/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/database/tsconfig.lib.json"
+      "path": "../../libs/secrets/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/http/tsconfig.lib.json"
+      "path": "../../libs/database/tsconfig.lib.json"
     }
   ]
 }

@@ -183,7 +183,9 @@ describe('picture videos and the picture Bunny shows (1B, part A)', () => {
       const other = await audioDraft();
       expect(await makeRender(id, other.audio)).toMatchObject({
         ok: false,
-        error: expect.stringContaining('a picture video is made of an audio file'),
+        error: expect.stringContaining(
+          'a picture video is made of an audio file',
+        ),
       });
       // Without renderOf, workflow can't make a file row at all.
       expect(
