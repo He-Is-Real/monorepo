@@ -12,6 +12,11 @@ export type WriterCall =
   | { route: 'failed'; jobId: string; body: { videoId: string; code: string } }
   | { route: 'upload-pass'; jobId: string; body: { videoId: string } }
   | {
+      route: 'sound-link';
+      jobId: string;
+      body: { videoId: string; height: number };
+    }
+  | {
       route: 'rendered';
       jobId: string;
       body: {

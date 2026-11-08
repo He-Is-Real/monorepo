@@ -34,6 +34,11 @@ output "images_cdn_hostname" {
   value = "${bunnynet_pullzone.images.name}.${bunnynet_pullzone.images.cdn_domain}"
 }
 
+output "sound_cdn_hostname" {
+  description = "The sound zone's hostname (R3): the result writer's BUNNY_SOUND_CDN_HOST. null before the library's storage zone is adopted."
+  value       = var.stream_storage_zone == null ? null : "${bunnynet_pullzone.sound[0].name}.${bunnynet_pullzone.sound[0].cdn_domain}"
+}
+
 output "token_auth" {
   description = "Which deliveries refuse unsigned links (D52)."
   value       = var.token_auth

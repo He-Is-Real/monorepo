@@ -149,6 +149,61 @@ resource "bunnynet_storage_zone" "stream" {
   }
 }
 
+# --- Sound links for the media worker (R3) -------------------------------------
+# Audio picture videos (Joel, 2026-11-08, R3: "per file links", "single file links on a need to use
+# basis"): the worker on Joel's machine reads an audio file's sound through a link the result
+# writer signs for that one MP4 copy, for 2 minutes, when the worker is about to download it. This
+# pull zone serves the library's own storage zone (Frankfurt, D89) with token authentication and
+# NO cache: every request reads the stored file, so a recording replaced through its upload link
+# (same video id) is never served as the old copy, which Bunny's Stream CDN keeps for up to 30 days
+# (audio-picture-video.html section 2). EU edges only, so the bytes stay in Europe. Its token key
+# goes to Secret Manager for the result writer only (secrets.tf); nobody else signs these links.
+resource "bunnynet_pullzone" "sound" {
+  count = var.stream_storage_zone == null ? 0 : 1
+
+  name = "${local.name}-sound" # served at https://<name>.b-cdn.net
+
+  origin {
+    type        = "StorageZone"
+    storagezone = bunnynet_storage_zone.stream[0].id
+  }
+
+  routing {
+    tier  = "Standard"
+    zones = ["EU"]
+  }
+
+  # No copies anywhere between the worker and the stored file.
+  cache_enabled                 = false
+  cache_expiration_time         = 0
+  cache_expiration_time_browser = 0
+  cache_errors                  = false
+  cache_chunked                 = false
+  originshield_enabled          = false
+  permacache_storagezone        = 0
+
+  # Nothing that costs extra.
+  optimizer_enabled   = false
+  websockets_enabled  = false
+  log_forward_enabled = false
+  log_storage_enabled = false
+
+  # Logs (Bunny's dashboard statistics) without visitor IPs.
+  log_enabled          = true
+  log_anonymized       = true
+  log_anonymized_style = "Drop"
+
+  block_root_path     = true # no directory-style requests
+  block_post_requests = true
+  block_no_referer    = false # the worker sends no referrer
+  tls_support         = []    # TLS 1.2+ only
+
+  # Every request needs a link the result writer signed. No IP binding: the writer can't know
+  # the address Joel's machine (later the church's) reaches Bunny from.
+  token_auth_enabled       = true
+  token_auth_ip_validation = false
+}
+
 # --- Storage + CDN: images ----------------------------------------------------
 # Standard (HDD) tier: the cheapest, and the only tier that can be primaried in
 # London (Edge/SSD zones are always primaried in Frankfurt). S3-compatible, so

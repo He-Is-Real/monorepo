@@ -34,7 +34,9 @@ function deps(
   const d: JobDeps = {
     check: typeof check === 'function' ? check : async () => check,
     renderer: {
-      render: async (source, pass) => {
+      // As the real one: the sound's link is asked for just before its download, then the render.
+      render: async (source, pass, soundLinks) => {
+        if ((await soundLinks(720)) === null) return { stopped: true };
         renders.push([source, pass]);
         return typeof rendered === 'function' ? rendered() : rendered;
       },
@@ -55,6 +57,11 @@ const check = { jobId: JOB, kind: 'check', videoId: VIDEO };
 describe('a check job', () => {
   it.each([
     ['the writer saved it', ok({ outcome: 'applied' }), 'SUCCESS'],
+    [
+      'the writer says Bunny’s picture isn’t settled yet (the job stays open)',
+      ok({ retry: true }),
+      'RETRY',
+    ],
     [
       'the writer says a newer answer was in',
       ok({ outcome: 'stale' }),
@@ -180,9 +187,16 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
       'https://images.example.b-cdn.net/stories/x.webp?token=t&expires=1',
   };
 
-  it('gets the pass, makes and uploads the picture video, then tells the writer: taken', async () => {
+  const SOUND = {
+    outcome: 'sound',
+    url: `https://sound.example.b-cdn.net/${VIDEO}/play_720p.mp4?token=t&expires=1`,
+    expiresAt: '2025-11-08T10:08:40.000Z',
+  };
+
+  it('gets the pass, then the sound’s link just before downloading it, makes and uploads the picture video, then tells the writer: taken', async () => {
     const { d, calls, renders } = deps(READY, {
       'upload-pass': ok(PASS),
+      'sound-link': ok(SOUND),
       rendered: ok({ outcome: 'applied' }),
     });
     await expect(handleJob(render, d)).resolves.toBe('SUCCESS');
@@ -191,6 +205,11 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
     ]);
     expect(calls).toEqual([
       { route: 'upload-pass', jobId: JOB, body: { videoId: VIDEO } },
+      {
+        route: 'sound-link',
+        jobId: JOB,
+        body: { videoId: VIDEO, height: 720 },
+      },
       {
         route: 'rendered',
         jobId: JOB,
@@ -256,15 +275,57 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
     },
   );
 
+  it.each([
+    ['the job has ended', ok({ outcome: 'gone' }), 'SUCCESS', []],
+    ['the job is gone (404)', { status: 404, body: {} }, 'DROP', []],
+    ['the writer is off (503)', { status: 503, body: {} }, 'RETRY', []],
+    [
+      'a link to another file (sound_malformed)',
+      ok({ ...SOUND, url: SOUND.url.replace('720p', '1080p') }),
+      'RETRY',
+      ['failed'],
+    ],
+    [
+      'a link that isn’t https (sound_malformed)',
+      ok({ ...SOUND, url: SOUND.url.replace('https:', 'http:') }),
+      'RETRY',
+      ['failed'],
+    ],
+  ])(
+    'when the sound’s link answers that %s: %s, and nothing is made',
+    async (_, reply, delivery, after) => {
+      const { d, calls, renders } = deps(READY, {
+        'upload-pass': ok(PASS),
+        'sound-link': reply,
+        failed: ok({ retry: true }),
+      });
+      await expect(handleJob(render, d)).resolves.toBe(delivery);
+      expect(renders).toEqual([]);
+      expect(calls.map((c) => c.route)).toEqual([
+        'upload-pass',
+        'sound-link',
+        ...after,
+      ]);
+    },
+  );
+
   it('reports a failed render with its code, and never says done', async () => {
     const { d, calls } = deps(
       READY,
-      { 'upload-pass': ok(PASS), failed: ok({ retry: true }) },
+      {
+        'upload-pass': ok(PASS),
+        'sound-link': ok(SOUND),
+        failed: ok({ retry: true }),
+      },
       { failure: 'source_not_ready' },
     );
     await expect(handleJob(render, d)).resolves.toBe('RETRY');
-    expect(calls.map((c) => c.route)).toEqual(['upload-pass', 'failed']);
-    expect(calls[1].body).toEqual({ videoId: VIDEO, code: 'source_not_ready' });
+    expect(calls.map((c) => c.route)).toEqual([
+      'upload-pass',
+      'sound-link',
+      'failed',
+    ]);
+    expect(calls[2].body).toEqual({ videoId: VIDEO, code: 'source_not_ready' });
   });
 
   it('one render at a time: another render job goes back to the queue before asking for its pass; check jobs carry on', async () => {
@@ -273,6 +334,7 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
       READY,
       {
         'upload-pass': ok(PASS),
+        'sound-link': ok(SOUND),
         rendered: ok({ outcome: 'applied' }),
         answer: ok({ outcome: 'applied' }),
       },
@@ -287,7 +349,7 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
 
     // While it renders: no pass is asked for the second (it would age while it waited).
     await expect(handleJob(render, d)).resolves.toBe('RETRY');
-    expect(calls.map((c) => c.route)).toEqual(['upload-pass']);
+    expect(calls.map((c) => c.route)).toEqual(['upload-pass', 'sound-link']);
     await expect(handleJob(check, d)).resolves.toBe('SUCCESS');
 
     finish?.({ sizeBytes: 207_000 });
@@ -296,9 +358,11 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
     await expect(handleJob(render, d)).resolves.toBe('SUCCESS');
     expect(calls.map((c) => c.route)).toEqual([
       'upload-pass',
+      'sound-link',
       'answer',
       'rendered',
       'upload-pass',
+      'sound-link',
       'rendered',
     ]);
   });
@@ -306,6 +370,7 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
   it('leaves the job in the queue if "done" can’t be saved; the retry gets the same video', async () => {
     const { d } = deps(READY, {
       'upload-pass': ok(PASS),
+      'sound-link': ok(SOUND),
       rendered: { status: 500, body: {} },
     });
     await expect(handleJob(render, d)).resolves.toBe('RETRY');

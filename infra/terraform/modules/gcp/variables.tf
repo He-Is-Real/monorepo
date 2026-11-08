@@ -419,11 +419,17 @@ variable "media_ready" {
     the people who may act as media-worker with their own gcloud login (D126), as user:<email>.
     readonly_key_secret: the Secret Manager secret holding Bunny's read-only library key (the bunny
     root makes it and lets api-user read it), which api-user checks Bunny's signatures with. Needs
-    api_public_read_media (the Stream library id). null: none of it; the webhook answers 503.
+    api_public_read_media (the Stream library id). sound_cdn_hostname: the bunny root's sound zone
+    (default heisreal-<environment>-sound.b-cdn.net, as the bunny module names it). null: none of
+    it; the webhook answers 503.
   EOT
   type = object({
     worker_impersonators = list(string)
     readonly_key_secret  = optional(string, "bunny-stream-readonly-key")
+    # R3 (Joel, 2026-11-08): the bunny root's sound zone (its sound_cdn_hostname output) and its
+    # token key's secret, with which the result writer signs the worker's 2-minute sound links.
+    sound_cdn_hostname     = optional(string)
+    sound_token_key_secret = optional(string, "bunny-sound-token-key")
   })
   default = null
   validation {
@@ -435,6 +441,13 @@ variable "media_ready" {
   validation {
     condition     = var.media_ready == null || can(regex("^bunny-[a-z0-9-]+$", var.media_ready.readonly_key_secret))
     error_message = "media_ready.readonly_key_secret is a bunny-* secret name."
+  }
+  validation {
+    condition = var.media_ready == null || (
+      can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", coalesce(var.media_ready.sound_cdn_hostname, "unset.example"))) &&
+      can(regex("^bunny-[a-z0-9-]+$", var.media_ready.sound_token_key_secret))
+    )
+    error_message = "media_ready.sound_cdn_hostname is a hostname and sound_token_key_secret a bunny-* secret name."
   }
   validation {
     condition     = var.media_ready == null || var.api_public_read_media != null

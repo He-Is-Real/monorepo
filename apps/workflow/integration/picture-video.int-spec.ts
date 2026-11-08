@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import {
   agreeAll,
   createPeople,
@@ -16,7 +16,12 @@ import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import { BunnyLibrary, WRITER_BUNNY } from '../src/app/bunny';
-import { answerJob, type MediaAnswer } from '../src/app/media-jobs';
+import {
+  answerJob,
+  applyThumbnail,
+  type MediaAnswer,
+  type WantedThumbnail,
+} from '../src/app/media-jobs';
 import {
   MEDIA_QUEUE,
   type MediaJobMessage,
@@ -28,6 +33,16 @@ const LIBRARY = '424242';
 const LIBRARY_KEY = 'library-key-for-tests';
 const IMAGES_KEY = 'images-key-for-tests';
 const IMAGES_HOST = 'images.example.b-cdn.net';
+const SOUND_KEY = 'sound-key-for-tests';
+const SOUND_HOST = 'sound.example.b-cdn.net';
+const bunnyConfig = {
+  libraryId: LIBRARY,
+  imagesCdnHost: IMAGES_HOST,
+  soundCdnHost: SOUND_HOST,
+  libraryKey: async () => LIBRARY_KEY,
+  imagesTokenKey: async () => IMAGES_KEY,
+  soundTokenKey: async () => SOUND_KEY,
+};
 
 /**
  * Bunny's Stream API as the writer calls it, in memory: videos made, read and given a thumbnail.
@@ -39,6 +54,8 @@ class FakeStream {
   refuse = false;
   /** Holds a thumbnail call before Bunny takes it, while the promise it answers is pending. */
   hold?: (source: string) => Promise<void> | undefined;
+  /** Holds a read of a video (after a thumbnail call Bunny took) the same way. */
+  holdRead?: () => Promise<void> | undefined;
 
   fetch: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -65,6 +82,7 @@ class FakeStream {
           : 'thumbnail_9f8e7d6c.jpg';
       return json(200, {});
     }
+    await this.holdRead?.();
     return json(200, { guid: id, ...video });
   };
 }
@@ -150,6 +168,29 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         { id },
       )
     )[0];
+  const failures = async (id: string) =>
+    (
+      await rows<number>(
+        migrator,
+        `SELECT VALUE failures FROM ONLY type::record('mediaJob', $id)`,
+        { id },
+      )
+    )[0];
+  /**
+   * Whether a moderator's approval would be refused for the story's media: an open job or a
+   * file not fit to show (fn::story::approval_wait, judged after the upload cooldown, and
+   * fn::story::approval_problem).
+   */
+  const approvalBlocked = async (story: string) => {
+    const [r] = await rows<{ wait: string | null; problem: string | null }>(
+      migrator,
+      `LET $s = (SELECT * FROM ONLY type::record('story', $story));
+       RETURN { wait: fn::story::approval_wait($s, time::now() + 2h) ?? null,
+         problem: fn::story::approval_problem($s) ?? null };`,
+      { story },
+    );
+    return r.wait !== null || r.problem !== null;
+  };
   /** api-user's check job for a Bunny notice (fn::media::queue_job): its id. */
   const check = async (key: string, reason = 'bunny_finished') =>
     (
@@ -231,15 +272,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
   });
   beforeEach(() => {
     stream = new FakeStream();
-    bunny = new BunnyLibrary(
-      {
-        libraryId: LIBRARY,
-        imagesCdnHost: IMAGES_HOST,
-        libraryKey: async () => LIBRARY_KEY,
-        imagesTokenKey: async () => IMAGES_KEY,
-      },
-      stream.fetch,
-    );
+    bunny = new BunnyLibrary(bunnyConfig, stream.fetch);
   });
   afterAll(() => t?.close());
 
@@ -282,11 +315,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         ready(story),
         next(),
       );
-      expect(r).toEqual({
-        outcome: 'applied',
-        render: null,
-        thumbnailSettled: true,
-      });
+      expect(r).toEqual({ outcome: 'applied', render: null, thumbnail: null });
       expect(await file(made)).toMatchObject({
         processing: 'ready',
         width: 1024,
@@ -447,6 +476,66 @@ describe('result writer: picture videos and Bunny’s picture', () => {
     });
   });
 
+  describe('the writer’s order for a video’s picture (T1 option C)', () => {
+    it('an older answer that commits after a newer one is stale: it never calls Bunny, and leaves the job to the newer one', async () => {
+      const story = await newStory('video');
+      const video = await upload(story, 'video');
+      const path = await picture(story);
+      stream.videos.set(video, {
+        title: story,
+        thumbnailFileName: 'thumbnail.jpg',
+      });
+      const job = await check(video);
+      const olderAt = new Date().toISOString();
+      const newerAt = new Date(Date.parse(olderAt) + 1000).toISOString();
+
+      const newer = await answerJob(
+        workflow,
+        job,
+        video,
+        ready(story),
+        newerAt,
+        true,
+      );
+      expect(newer).toMatchObject({
+        outcome: 'applied',
+        thumbnail: { picture: path, contested: false },
+      });
+      expect(await openJob(video, 'check')).toMatchObject({ id: job });
+
+      const older = await answerJob(
+        workflow,
+        job,
+        video,
+        ready(story),
+        olderAt,
+        true,
+      );
+      expect(older).toEqual({
+        outcome: 'stale',
+        render: null,
+        thumbnail: null,
+      });
+      expect(await openJob(video, 'check')).toMatchObject({ id: job });
+      expect(stream.thumbnailUrls).toEqual([]);
+
+      expect(
+        await applyThumbnail(
+          workflow,
+          (v, p) => bunny.setThumbnail(v, p),
+          job,
+          video,
+          newer.thumbnail as WantedThumbnail,
+        ),
+      ).toBe('closed');
+      expect(await openJob(video, 'check')).toBeUndefined();
+      expect(await file(video)).toMatchObject({
+        thumbnailOf: path,
+        thumbnailPath: `${video}/thumbnail_9f8e7d6c.jpg`,
+      });
+    });
+  });
+
   describe('the routes the worker calls', () => {
     let app: INestApplication;
     let url: string;
@@ -477,14 +566,8 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         .overrideProvider(WRITER_BUNNY)
         .useFactory({
           factory: () =>
-            new BunnyLibrary(
-              {
-                libraryId: LIBRARY,
-                imagesCdnHost: IMAGES_HOST,
-                libraryKey: async () => LIBRARY_KEY,
-                imagesTokenKey: async () => IMAGES_KEY,
-              },
-              (input, init) => stream.fetch(input, init),
+            new BunnyLibrary(bunnyConfig, (input, init) =>
+              stream.fetch(input, init),
             ),
         })
         .overrideProvider(MEDIA_QUEUE)
@@ -625,7 +708,19 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       });
     });
 
-    it('two checks overlap and the older one reaches Bunny last: Bunny ends on the picture the database records', async () => {
+    /** A gate a fake Bunny call waits at: `reached` once the call is there, until `open()`. */
+    const gate = () => {
+      let reached!: () => void;
+      let open!: () => void;
+      const at = new Promise<void>((r) => (reached = r));
+      const opened = new Promise<void>((r) => (open = r));
+      return { at, open, wait: () => (reached(), opened) };
+    };
+    const picturesSent = () =>
+      stream.thumbnailUrls.map((u) =>
+        u === 'thumbnail_1.jpg' ? 'frame' : new URL(u).pathname.slice(1),
+      );
+    const videoStory = async () => {
       const story = await newStory('video');
       const video = await upload(story, 'video');
       const path = await picture(story);
@@ -633,43 +728,56 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         title: story,
         thumbnailFileName: 'thumbnail.jpg',
       });
-      // Check A reads the story's picture; its call to Bunny waits until check B is done.
-      let reached!: () => void;
-      const atBunny = new Promise<void>((r) => (reached = r));
-      let release!: () => void;
-      const released = new Promise<void>((r) => (release = r));
-      stream.hold = (source) => {
-        if (source === 'thumbnail_1.jpg') return undefined;
-        reached();
-        return released;
-      };
-      const a = post(`/v1/media-jobs/${await check(video)}/answer`, {
+      return { story, video, path };
+    };
+    const takePictureOff = (story: string) =>
+      rows(pat, `UPDATE type::record('story', $story) SET image = NONE`, {
+        story,
+      });
+
+    it('Codex round 2 and round 3 (2): an older check sets the removed picture at Bunny after a newer one; approval waits until Bunny is put right', async () => {
+      const { story, video, path } = await videoStory();
+      // Check A records picture P (job left open), then its call to Bunny waits.
+      const atBunny = gate();
+      stream.hold = (source) =>
+        source === 'thumbnail_1.jpg' ? undefined : atBunny.wait();
+      const job = await check(video);
+      const a = post(`/v1/media-jobs/${job}/answer`, {
         videoId: video,
         ...ready(story),
       });
-      await atBunny;
+      await atBunny.at;
       stream.hold = undefined;
+      expect(await file(video)).toMatchObject({ thumbnailOf: path });
+      expect(await approvalBlocked(story)).toBe(true);
 
-      // The picture is taken off, and check B (newer) puts Bunny's frame back and records it.
-      await rows(pat, `UPDATE type::record('story', $story) SET image = NONE`, {
-        story,
-      });
+      // The picture is taken off, and check B (a second delivery of the same job) sets Bunny's
+      // frame. A may still set P, so B doesn't close the job: "try again later".
+      await takePictureOff(story);
+      expect(await check(video)).toBe(job);
       expect(
-        await post(`/v1/media-jobs/${await check(video)}/answer`, {
+        await post(`/v1/media-jobs/${job}/answer`, {
           videoId: video,
           ...ready(story),
         }),
-      ).toEqual({ status: 200, body: { outcome: 'applied' } });
+      ).toEqual({ status: 200, body: { retry: true } });
+      expect(await openJob(video, 'check')).toMatchObject({ id: job });
       expect(await file(video)).toMatchObject({ thumbnailOf: null });
+      expect(await approvalBlocked(story)).toBe(true);
 
-      // A's picture reaches Bunny after B's frame; its answer is stale, and the writer sets the
-      // story's picture now (none: the frame) again before it replies.
-      release();
-      expect(await a).toEqual({ status: 200, body: { outcome: 'stale' } });
-      const picturesSent = stream.thumbnailUrls.map((u) =>
-        u === 'thumbnail_1.jpg' ? 'frame' : new URL(u).pathname.slice(1),
-      );
-      expect(picturesSent).toEqual(['frame', path, 'frame']);
+      // A's P reaches Bunny after B's frame; A hasn't checked the database yet (round 3, 2).
+      const afterBunny = gate();
+      stream.holdRead = () => afterBunny.wait();
+      atBunny.open();
+      await afterBunny.at;
+      stream.holdRead = undefined;
+      expect(picturesSent()).toEqual(['frame', path]);
+      expect(await approvalBlocked(story)).toBe(true);
+
+      // A finds the picture gone, puts Bunny's frame back, records it and closes the job.
+      afterBunny.open();
+      expect(await a).toEqual({ status: 200, body: { outcome: 'applied' } });
+      expect(picturesSent()).toEqual(['frame', path, 'frame']);
       expect(stream.videos.get(video)?.thumbnailFileName).toBe(
         'thumbnail_1.jpg',
       );
@@ -677,24 +785,169 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         thumbnailOf: null,
         thumbnailPath: `${video}/thumbnail_1.jpg`,
       });
+      expect(await openJob(video, 'check')).toBeUndefined();
+      expect(await approvalBlocked(story)).toBe(false);
     });
 
-    it('Bunny refusing the picture counts as the job’s failure: "try again later"', async () => {
-      const story = await newStory('video');
-      const video = await upload(story, 'video');
-      await picture(story);
+    it('Codex round 3 (1): Bunny refuses the put-right; the job stays open, and its redelivery puts Bunny right before it is acknowledged', async () => {
+      const { story, video, path } = await videoStory();
+      const atBunny = gate();
+      stream.hold = (source) =>
+        source === 'thumbnail_1.jpg' ? undefined : atBunny.wait();
+      const job = await check(video);
+      const a = post(`/v1/media-jobs/${job}/answer`, {
+        videoId: video,
+        ...ready(story),
+      });
+      await atBunny.at;
+      stream.hold = undefined;
+      await takePictureOff(story);
+      await check(video);
+      expect(
+        await post(`/v1/media-jobs/${job}/answer`, {
+          videoId: video,
+          ...ready(story),
+        }),
+      ).toEqual({ status: 200, body: { retry: true } });
+
+      // A's P lands; then Bunny refuses A's frame: "try again later", nothing counted.
+      const afterBunny = gate();
+      stream.holdRead = () => afterBunny.wait();
+      atBunny.open();
+      await afterBunny.at;
+      stream.holdRead = undefined;
+      stream.refuse = true;
+      try {
+        afterBunny.open();
+        expect(await a).toEqual({ status: 200, body: { retry: true } });
+      } finally {
+        stream.refuse = false;
+      }
+      expect(stream.videos.get(video)?.thumbnailFileName).toBe(
+        'thumbnail_9f8e7d6c.jpg',
+      );
+      expect(await openJob(video, 'check')).toMatchObject({ id: job });
+      expect(await failures(job)).toBe(0);
+      expect(await approvalBlocked(story)).toBe(true);
+
+      // The redelivery sets Bunny's frame, then closes the job.
+      expect(
+        await post(`/v1/media-jobs/${job}/answer`, {
+          videoId: video,
+          ...ready(story),
+        }),
+      ).toEqual({ status: 200, body: { outcome: 'applied' } });
+      expect(stream.videos.get(video)?.thumbnailFileName).toBe(
+        'thumbnail_1.jpg',
+      );
+      expect(picturesSent()).toEqual(['frame', path, 'frame']);
+      expect(await openJob(video, 'check')).toBeUndefined();
+      expect(await approvalBlocked(story)).toBe(false);
+    });
+
+    it('a redelivery of an ended job sets Bunny’s picture again before it is acknowledged', async () => {
+      const { story, video, path } = await videoStory();
+      const job = await check(video);
+      const answer = () =>
+        post(`/v1/media-jobs/${job}/answer`, {
+          videoId: video,
+          ...ready(story),
+        });
+      expect(await answer()).toEqual({
+        status: 200,
+        body: { outcome: 'applied' },
+      });
+      // Bunny lost the picture somehow (a failed write after Bunny took another, say).
+      await bunny.setThumbnail(video, null);
+      expect(await answer()).toEqual({
+        status: 200,
+        body: { outcome: 'applied' },
+      });
+      expect(picturesSent().at(-1)).toBe(path);
+      expect(stream.videos.get(video)?.thumbnailFileName).toBe(
+        'thumbnail_9f8e7d6c.jpg',
+      );
+    });
+
+    it('Bunny refusing the picture keeps the job open and counts no failure: "try again later"', async () => {
+      const { story, video, path } = await videoStory();
+      const job = await check(video);
       stream.refuse = true;
       try {
         expect(
-          await post(`/v1/media-jobs/${await check(video)}/answer`, {
+          await post(`/v1/media-jobs/${job}/answer`, {
             videoId: video,
             ...ready(story),
           }),
         ).toEqual({ status: 200, body: { retry: true } });
-        expect(await file(video)).toMatchObject({ thumbnailOf: null });
       } finally {
         stream.refuse = false;
       }
+      // Recorded before Bunny was asked, with the job open: approval waits.
+      expect(await file(video)).toMatchObject({ thumbnailOf: path });
+      expect(await openJob(video, 'check')).toMatchObject({ id: job });
+      expect(await failures(job)).toBe(0);
+      expect(await approvalBlocked(story)).toBe(true);
+    });
+
+    it('sound-link: a 2-minute link to the one MP4 copy asked for, only after the pass, and nothing once the job has ended', async () => {
+      const story = await newStory('audio');
+      const audio = await upload(story, 'audio');
+      const job = await check(audio);
+      await post(`/v1/media-jobs/${job}/answer`, {
+        videoId: audio,
+        ...ready(story),
+      });
+      const renderJob = (await openJob(audio, 'render')).id;
+      const link = (height: unknown) =>
+        post(`/v1/media-jobs/${renderJob}/sound-link`, {
+          videoId: audio,
+          height,
+        });
+      // Not before the pass: the worker asks for the sound only once it is making the video.
+      expect(await link(720)).toMatchObject({ status: 400 });
+
+      const pass = await post(`/v1/media-jobs/${renderJob}/upload-pass`, {
+        videoId: audio,
+      });
+      const before = Math.floor(Date.now() / 1000);
+      const reply = await link(720);
+      const after = Math.floor(Date.now() / 1000);
+      expect(reply).toMatchObject({ status: 200, body: { outcome: 'sound' } });
+      const url = new URL(reply.body.url as string);
+      expect(`${url.host}${url.pathname}`).toBe(
+        `${SOUND_HOST}/${audio}/play_720p.mp4`,
+      );
+      const expires = Number(url.searchParams.get('expires'));
+      expect(expires).toBeGreaterThanOrEqual(before + 120);
+      expect(expires).toBeLessThanOrEqual(after + 120);
+      expect(url.searchParams.get('token')).toBe(
+        `HS256-${createHmac('sha256', SOUND_KEY)
+          .update(`/${audio}/play_720p.mp4${expires}`)
+          .digest('base64url')}`,
+      );
+      // A height Bunny doesn't make, or another video than the job's: refused.
+      expect(await link(721)).toMatchObject({ status: 400 });
+      expect(
+        await post(`/v1/media-jobs/${renderJob}/sound-link`, {
+          videoId: guid(),
+          height: 720,
+        }),
+      ).toMatchObject({
+        status: 400,
+        body: expect.objectContaining({ code: 'video_mismatch' }),
+      });
+
+      await post(`/v1/media-jobs/${renderJob}/rendered`, {
+        videoId: audio,
+        renderVideoId: pass.body.renderVideoId,
+        picture: null,
+        sizeBytes: 1234,
+      });
+      expect(await link(720)).toEqual({
+        status: 200,
+        body: { outcome: 'applied' },
+      });
     });
 
     it('400 for a "done" naming another video than the pass’s', async () => {

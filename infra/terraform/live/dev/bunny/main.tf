@@ -155,12 +155,11 @@ module "bunny" {
     "serviceAccount:media-worker@heisreal-dev.iam.gserviceaccount.com",
   ]
   stream_webhook_url = "https://api-user-jbxp6odnsa-nw.a.run.app/v1/webhooks/bunny"
-  # Audio picture videos (Joel, 2026-11-07, K1): the result writer makes them and signs the
-  # worker's one-hour pass with the library key, and signs picture links with the images token
-  # key; the worker reads a picture video's sound with the library storage's read-only password.
-  # Both accounts are made by the gcp root (already applied).
-  result_writer_readers  = ["serviceAccount:workflow@heisreal-dev.iam.gserviceaccount.com"]
-  stream_storage_readers = ["serviceAccount:media-worker@heisreal-dev.iam.gserviceaccount.com"]
+  # Audio picture videos (Joel, 2026-11-07, K1; 2026-11-08, R3): the result writer makes them and
+  # signs the worker's one-hour pass with the library key, picture links with the images token
+  # key, and 2-minute links to one copy of an audio file's sound with the sound zone's token key.
+  # The worker holds no key to Bunny's storage. The account is made by the gcp root (applied).
+  result_writer_readers = ["serviceAccount:workflow@heisreal-dev.iam.gserviceaccount.com"]
 
   # Where the library's videos live (Bunny made it with library 789855).
   stream_storage_zone = { id = 2014507, name = "vz-bd66cea0-80b" }

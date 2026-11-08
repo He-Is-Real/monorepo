@@ -10,8 +10,9 @@ import { BunnyFailure, type BunnyLibrary } from './bunny';
 /**
  * An audio story's picture video (Joel, 2026-11-07: audio-picture-video.html decisions 1B, 2 = K1
  * and 4 = own shape). The worker takes the sound from Bunny's largest MP4 copy of the story's
- * file, read from the library's storage with its read-only password (never through Bunny's CDN,
- * which would keep the old copy), puts it under the story's picture (or the site's default
+ * file, through a 2-minute link to that one file the writer signs when the worker is about to
+ * download it (Joel, 2026-11-08, R3: single-file links on a need-to-use basis), read straight from
+ * the library's storage (never a cached copy, which could be the old one), puts it under the story's picture (or the site's default
  * background) with ffmpeg, the sound copied unchanged and every tag dropped, and uploads the file
  * to the one new Bunny video its pass is for. Files live in a folder of their own in memory
  * ($XDG_RUNTIME_DIR, tools/scripts/media-worker.sh) only while the job runs.
@@ -30,18 +31,34 @@ export interface RenderPass {
   pictureUrl: string | null;
 }
 
-/** The finished upload's size, or a short failure code for the job (mediaJob.lastError). */
-export type RenderResult = { sizeBytes: number } | { failure: string };
+/**
+ * Asks the writer for a link to one MP4 copy (`height`p) of the job's sound, right before
+ * downloading it; null: the writer said to stop (the job ended, or it failed), and the caller
+ * has already recorded what to do with the job.
+ */
+export type SoundLinks = (height: number) => Promise<string | null>;
+
+/**
+ * The finished upload's size, a short failure code for the job (mediaJob.lastError), or
+ * `stopped`: the writer said to stop when asked for the sound.
+ */
+export type RenderResult =
+  { sizeBytes: number } | { failure: string } | { stopped: true };
 
 export interface Renderer {
-  /** Makes the picture video of `sourceVideoId`'s sound and uploads it with `pass`. */
-  render(sourceVideoId: string, pass: RenderPass): Promise<RenderResult>;
+  /**
+   * Makes the picture video of `sourceVideoId`'s sound, read through `soundLinks`, and uploads
+   * it with `pass`.
+   */
+  render(
+    sourceVideoId: string,
+    pass: RenderPass,
+    soundLinks: SoundLinks,
+  ): Promise<RenderResult>;
 }
 
-const STORAGE = 'https://storage.bunnycdn.com';
-const ZONE = /^[A-Za-z0-9-]{1,64}$/;
-/** Bunny makes MP4 copies up to 1080p (Bunny's docs, "MP4 downloads"). */
-const MP4_MAX_HEIGHT = 1080;
+/** The MP4 copies Bunny makes (its docs, "MP4 downloads"): the only ones the writer signs. */
+const MP4_HEIGHTS = [240, 360, 480, 720, 1080];
 /** Our longest story's sound is far smaller; anything bigger isn't one of ours. */
 const MAX_SOURCE_BYTES = 2 * 1024 ** 3;
 /** Pictures are WebP at most 5 MB, 4096 px on either side (fn::upload::image_limits). */
@@ -156,7 +173,7 @@ export function mp4Heights(resolutions: unknown): number[] {
           .map((r) => /^([0-9]{3,4})p$/.exec(r.trim())?.[1])
           .filter((h): h is string => h !== undefined)
           .map(Number)
-          .filter((h) => h <= MP4_MAX_HEIGHT)
+          .filter((h) => MP4_HEIGHTS.includes(h))
       : [];
   return [...new Set([...listed.sort((a, b) => b - a), 720, 480, 360])];
 }
@@ -245,12 +262,14 @@ class RenderFailure extends Error {
   }
 }
 
+/** The writer said to stop when asked for the sound. */
+class RenderStopped extends Error {
+  override name = 'RenderStopped';
+}
+
 export interface FfmpegRendererConfig {
   /** Reads the source video's status and sizes with the library's read-only key. */
   bunny: BunnyLibrary;
-  /** The library's storage zone (its name) and that zone's read-only password. */
-  storageZone: string;
-  storagePassword: () => Promise<string>;
   /** Where the job's files go (in memory), and the site's default background (a JPEG). */
   workDir: string;
   defaultPicture: string;
@@ -263,16 +282,18 @@ export class FfmpegRenderer implements Renderer {
   private readonly fetcher: typeof fetch;
 
   constructor(private readonly config: FfmpegRendererConfig) {
-    if (!ZONE.test(config.storageZone))
-      throw new Error('Malformed storage zone');
     this.fetcher = config.fetcher ?? fetch;
   }
 
-  async render(sourceVideoId: string, pass: RenderPass): Promise<RenderResult> {
+  async render(
+    sourceVideoId: string,
+    pass: RenderPass,
+    soundLinks: SoundLinks,
+  ): Promise<RenderResult> {
     const dir = await mkdtemp(join(this.config.workDir, 'render-'));
     try {
       const sound = join(dir, 'sound.mp4');
-      await this.fetchSound(sourceVideoId, sound);
+      await this.fetchSound(sourceVideoId, soundLinks, sound);
       let picture = this.config.defaultPicture;
       let format: PictureFormat = 'jpeg';
       if (pass.pictureUrl) {
@@ -300,6 +321,7 @@ export class FfmpegRenderer implements Renderer {
       await this.upload(out, size, pass);
       return { sizeBytes: size };
     } catch (err) {
+      if (err instanceof RenderStopped) return { stopped: true };
       if (err instanceof RenderFailure) return { failure: err.code };
       if (err instanceof BunnyFailure) return { failure: err.code };
       throw err;
@@ -309,24 +331,25 @@ export class FfmpegRenderer implements Renderer {
     }
   }
 
-  /** Bunny's largest MP4 copy of the story's file, from storage (never the CDN). */
-  private async fetchSound(videoId: string, to: string): Promise<void> {
+  /**
+   * Bunny's largest MP4 copy of the story's file, each try through a fresh link to that one copy,
+   * asked for just before its download and used once (R3).
+   */
+  private async fetchSound(
+    videoId: string,
+    soundLinks: SoundLinks,
+    to: string,
+  ): Promise<void> {
     const video = await this.config.bunny.video(videoId);
     if (video === null) throw new RenderFailure('source_gone');
     if (video.status !== 4) throw new RenderFailure('source_not_ready');
-    let password: string;
-    try {
-      password = (await this.config.storagePassword()).trim();
-    } catch {
-      throw new RenderFailure('key_unavailable');
-    }
-    if (!password) throw new RenderFailure('key_unavailable');
     for (const height of mp4Heights(video.availableResolutions)) {
-      const url = `${STORAGE}/${this.config.storageZone}/${videoId}/play_${height}p.mp4`;
+      const url = await soundLinks(height);
+      if (url === null) throw new RenderStopped();
       if (
         await this.download(
           url,
-          { AccessKey: password },
+          {},
           to,
           MAX_SOURCE_BYTES,
           'source_unreachable',

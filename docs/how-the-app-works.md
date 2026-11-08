@@ -151,7 +151,12 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   uploaded. A video's own picture is sent to Bunny as its thumbnail once its check finds the
   video ready, and again whenever the picture changes or is taken off (then Bunny shows its own
   frame again); the story can't be approved until Bunny shows the picture it has now
-  (video-bundle-rethink part A, Joel 2026-11-06).
+  (video-bundle-rethink part A, Joel 2026-11-06). The result writer updates our database first
+  and leaves the video's check open, which already keeps approval waiting; only then does it tell
+  Bunny, and it closes the check once the story's picture is still the one Bunny shows (putting
+  Bunny right first if it changed). If Bunny refuses, the check stays open and is tried again
+  later, so a picture the person removed can't go public through a moderator approving in
+  between (Joel, 2026-11-08, T1 option C: no new field).
 - **An audio story becomes a picture video (Joel, 2026-11-07, audio-picture-video.html):** once
   its audio file is ready at Bunny, the media worker makes a video of the story's picture (or,
   without one, the site's default waveform picture) in the picture's own shape, at most 1280 px
@@ -377,8 +382,10 @@ Built in the database (the pages and the queue are planned, M3):
   that finds an audio file ready writes a "render" job (an audio story's picture change writes
   one too). The worker asks the result writer for a pass; the writer makes the new Bunny video
   and gives the worker a pass to upload to that one video for one hour (the full Bunny key never
-  leaves Google Cloud), with a 10-minute link to the picture. The worker reads the audio's sound
-  from Bunny's storage with a read-only password, runs ffmpeg on Joel's machine (files only in
+  leaves Google Cloud), with a 10-minute link to the picture. Just before downloading the audio's
+  sound, the worker asks the writer for a link to that one file, valid two minutes and read
+  straight from Bunny's storage, never an old cached copy (Joel, 2026-11-08, R3: single-file links
+  on a need-to-use basis; the worker holds no storage key). It runs ffmpeg on Joel's machine (files only in
   memory, removed when the job ends) and uploads. The writer then records the new video as the
   story's file, but only if the story still shows that audio file (a new recording wins), and
   checks the new video like any other. A render no longer needed (a new recording, the story

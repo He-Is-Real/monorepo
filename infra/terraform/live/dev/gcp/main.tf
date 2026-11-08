@@ -180,8 +180,12 @@ module "gcp" {
   # Media ready (M2 plan item 13; D78): the job and result topics in London, the media-worker
   # identity Joel's own gcloud login may act as (D126; no key file), the private result writer
   # (apps/workflow) and api-user's Bunny webhook. The bunny root makes the read-only key's secret.
+  # R3 (Joel, 2026-11-08): the bunny root's sound zone (`tf.sh bunny output bunny`,
+  # sound_cdn_hostname). Apply the bunny root first: it makes the zone and lets the writer read its
+  # token key, or the writer's new revision won't start.
   media_ready = {
     worker_impersonators = ["user:joel@heisreal.today"]
+    sound_cdn_hostname   = "heisreal-dev-sound.b-cdn.net"
   }
 
   # The nightly housekeeping Job (abandoned drafts, orphaned story videos), 03:30 London time,

@@ -1,6 +1,11 @@
 import { retryOnConflict, runQuery } from '@heisreal/database';
 import type { SurrealQueryable } from 'surrealdb';
-import { BunnyCallFailed, type UploadPass, type WriterBunny } from './bunny';
+import {
+  BunnyCallFailed,
+  SOUND_HEIGHTS,
+  type UploadPass,
+  type WriterBunny,
+} from './bunny';
 import {
   type AnswerOutcome,
   InvalidMediaJobCall,
@@ -20,6 +25,10 @@ import type { QueuedJob } from './media-queue';
  *    made (mediaJob.madeFile), and answers a one-hour TUS pass for that one video only, the
  *    picture's path and a 10-minute link to it (none: the site's default background). The full
  *    library key never leaves Google Cloud.
+ * 1a. `sound-link`: holding its render slot and about to download, the worker asks for a 2-minute
+ *    link to one MP4 copy of the audio file's sound (Joel, 2026-11-08, R3: single-file links on
+ *    a need-to-use basis), read straight from the library's storage, never a cached copy. One
+ *    link per file and per download, never issued up front, cached or reused.
  * 2. `rendered`: in one transaction, the writer adds the new video's storyFile row (renderOf: the
  *    audio file; thumbnailOf: the picture it was made with), moves the story to it only while
  *    the story still points at the audio file (no new version; the audio file is detached and the
@@ -171,6 +180,72 @@ export async function uploadPassFor(
     picture,
     pictureUrl,
   };
+}
+
+/** The MP4 copy the worker asks a sound link for, as `{ height }`. */
+export function parseSoundHeight(input: unknown): number {
+  const height =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)['height']
+      : undefined;
+  if (
+    typeof height !== 'number' ||
+    !(SOUND_HEIGHTS as readonly number[]).includes(height)
+  ) {
+    throw new InvalidMediaJobCall('a sound link needs an MP4 copy’s height');
+  }
+  return height;
+}
+
+/**
+ * Whether the job still needs its sound: open, its pass issued (madeFile) and its audio file the
+ * one its story shows. A job that ended answers its outcome; one whose file its story no longer
+ * shows ends as gone, as the pass would.
+ */
+const SOUND_SQL = `BEGIN TRANSACTION;${READ_JOB}
+  LET $decision = IF $j.doneAt != NONE { $j.outcome }
+    ELSE IF !$shown { 'gone' }
+    ELSE IF $j.madeFile = NONE { 'no_pass' }
+    ELSE { 'sound' };
+  IF $j.doneAt = NONE AND $decision = 'gone' {
+    UPDATE type::record('mediaJob', $job) SET doneAt = time::now(), outcome = 'gone' RETURN NONE;
+  };
+  { decision: $decision };
+  COMMIT TRANSACTION;`;
+
+/** What the worker downloads next (the contract's `SoundLinkReply`), or the job's outcome. */
+export type SoundLinkReply =
+  | { outcome: AnswerOutcome | 'gave_up' }
+  | { outcome: 'sound'; url: string; expiresAt: string };
+
+/**
+ * A render job's link to one MP4 copy of its audio file's sound (step 1a above). Refused with
+ * {@link InvalidMediaJobCall} before the job's pass. Bunny's key unavailable throws
+ * {@link BunnyCallFailed}: the worker counts it as the job's failure.
+ */
+export async function soundLinkFor(
+  db: SurrealQueryable,
+  bunny: WriterBunny,
+  job: string,
+  video: string,
+  height: number,
+): Promise<SoundLinkReply> {
+  const { decision } = await retryOnConflict(async () => {
+    const results = await runQuery(db, SOUND_SQL, {
+      job,
+      videoId: video,
+    }).catch(renderError);
+    return results[results.length - 2] as {
+      decision: AnswerOutcome | 'gave_up' | 'no_pass' | 'sound';
+    };
+  });
+  if (decision === 'no_pass') {
+    throw new InvalidMediaJobCall('a sound link comes after the job’s pass');
+  }
+  if (decision !== 'sound') return { outcome: decision };
+  const link = await bunny.soundUrl(video, height);
+  if (!link) throw new InvalidMediaJobCall('not a sound file');
+  return { outcome: 'sound', ...link };
 }
 
 const RENDERED_SQL = `BEGIN TRANSACTION;${READ_JOB}

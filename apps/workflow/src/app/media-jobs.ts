@@ -159,21 +159,29 @@ export function parseFailure(input: unknown): string {
  *   older answer arriving later still loses. The file's events then hide or show the story
  *   again (fn::story::check_files) and step its version only if something it shows changed.
  * What a ready answer writes (the render decision, audio-picture-video.html decision 1B):
- * - a video: its facts, and (`$thumbSet`) the picture Bunny now shows for it (thumbnailOf), which
- *   the writer has just set at Bunny (video-bundle-rethink part A), if it is still the story's
- *   picture at the commit (else `thumbnailSettled` is false and the writer sets Bunny again);
+ * - a video, with Bunny on (`$bunny`): its facts, and the story's picture now as thumbnailOf, the
+ *   picture the writer is about to give Bunny (video-bundle-rethink part A). The job stays OPEN:
+ *   it is the "not ready" flag that keeps approval waiting (fn::story::approval_wait) until the
+ *   writer has set Bunny and closed it (CLOSE_SQL; Joel, 2026-11-08, T1 option C). `contested`:
+ *   the job is open, thumbnailOf is another picture, and an answer reached the writer after the
+ *   job was queued (checkedAt, the writer's clock, against queuedAt, the database's; both keep
+ *   Google's time), so an earlier delivery of the job (or a late one of an ended job) may still be
+ *   setting that picture at Bunny. This delivery then never closes the job: the earlier one does
+ *   when it finds the picture changed, or a redelivery once nobody else is mid-way;
  * - a person's own audio upload (no renderOf): its length only, still `processing`: it is ready
  *   only once its picture video is (approval needs that), so a render job of it opens;
  * - a picture video (renderOf): its facts as a video's; if the story's picture is no longer the
  *   one it was made with (thumbnailOf), a render job of it opens (reason picture_changed).
- * The job ends with that outcome if it is still open. A job already ended (the queue delivered
- * it twice, or a new reason was sent after an answer) keeps its outcome; the answer itself, made
- * fresh at Bunny, is still applied by the same rules. Answers the outcome, the render job
- * opened, if any (the writer sends it after the commit), and whether Bunny's picture is the
- * story's at the commit.
+ * Any other outcome ends the job if it is still open, except a stale answer about a video with
+ * Bunny on: the newer answer that made it stale owns the open job and closes it once Bunny is
+ * set. A job already ended (the queue delivered it twice, or a new reason was sent after an
+ * answer) keeps its outcome; the answer itself, made fresh at Bunny, is still applied by the same
+ * rules, so a redelivery of an ended job still sets Bunny's picture before it is acknowledged.
+ * Answers the outcome, the render job opened, if any (the writer sends it after the commit), and
+ * the picture to give Bunny, if any.
  */
 export const ANSWER_SQL = `
-  LET $j = (SELECT kind, file, doneAt, reasons FROM ONLY type::record('mediaJob', $job));
+  LET $j = (SELECT kind, file, doneAt, reasons, queuedAt FROM ONLY type::record('mediaJob', $job));
   IF $j = NONE { THROW 'media_job_not_found' };
   IF <string> record::id($j.file) != $videoId { THROW 'media_job_wrong_video' };
   IF $j.kind != 'check' { THROW 'media_job_not_a_check' };
@@ -195,55 +203,42 @@ export const ANSWER_SQL = `
     LET $queued = $reasons.map(|$r| fn::media::queue_job($f.id, 'render', $r));
     $queued[array::len($queued) - 1]
   };
+  -- T1 option C: a ready video's picture is recorded before Bunny is told, with the job left open.
+  LET $thumbnail = $bunny AND $outcome = 'applied' AND $ready AND $f.format = 'video';
   IF $outcome = 'applied' {
     LET $facts = IF !$ready { $notReady }
       ELSE IF $source { { processing: 'processing', lengthSeconds: $video.lengthSeconds } }
       ELSE { object::extend($video, { thumbnailPath: <string> record::id($f.id) + '/' + $thumb }) };
     UPDATE $f.id MERGE object::extend($facts, { checkedAt: <datetime> $at }) RETURN NONE;
   };
-  -- The picture the writer just had Bunny show is recorded only if it is still the story's picture
-  -- now, whatever the answer's outcome (it is a fact about Bunny, not about this answer). If it
-  -- isn't, the writer puts Bunny right after the commit (settleThumbnail).
-  LET $thumbRec = IF $thumbOf = NONE { NONE } ELSE { type::record('storyFile', $thumbOf) };
-  LET $thumbKept = $thumbSet AND $shown AND $f.format = 'video' AND $thumbRec = $picture;
-  IF $thumbKept {
-    UPDATE $f.id SET thumbnailOf = $thumbRec RETURN NONE;
+  IF $thumbnail {
+    UPDATE $f.id SET thumbnailOf = $picture RETURN NONE;
   };
-  IF $j.doneAt = NONE {
+  LET $keepOpen = $thumbnail OR ($bunny AND $outcome = 'stale' AND $f.format = 'video');
+  IF $j.doneAt = NONE AND !$keepOpen {
     UPDATE type::record('mediaJob', $job) SET doneAt = time::now(), outcome = $outcome RETURN NONE;
   };
-  { outcome: $outcome, render: $render, thumbnailSettled: !$thumbSet OR !$shown OR $thumbKept };`;
-
-/**
- * Bunny's picture for a video (video-bundle-rethink part A), what the writer set at Bunny just
- * before the answer's write: the picture's path (null: Bunny's own frame again) and Bunny's
- * thumbnail file afterwards.
- */
-export interface ThumbnailSet {
-  picture: string | null;
-  thumbnailFileName: string;
-}
+  { outcome: $outcome, render: $render,
+    thumbnail: IF $thumbnail { {
+      picture: IF $picture != NONE { <string> record::id($picture) },
+      contested: $j.doneAt = NONE AND $f.thumbnailOf != $picture AND $f.checkedAt != NONE
+        AND $f.checkedAt > $j.queuedAt
+    } } };`;
 
 /**
  * The query's variables: whether the answer is ready, the facts for a file that isn't
  * (`notReady`) and for a ready one (`video`; an audio upload keeps only its length), its
  * thumbnail's file name, which the write puts under the video's own folder at Bunny (its file's
- * id, R12), and the picture the writer just had Bunny show, if it did.
+ * id, R12), and whether the writer sets a ready video's picture at Bunny (`bunny`).
  */
 export function answerVars(
   job: string,
   video: string,
   answer: MediaAnswer,
   arrivedAt: string,
-  thumbnail?: ThumbnailSet,
+  bunny = false,
 ): Record<string, unknown> {
-  const vars = {
-    job,
-    videoId: video,
-    at: arrivedAt,
-    thumbSet: thumbnail !== undefined,
-    thumbOf: thumbnail?.picture ?? undefined,
-  };
+  const vars = { job, videoId: video, at: arrivedAt, bunny };
   if (answer.outcome !== 'ready') {
     // A video deleted at Bunny while its story still shows it counts as failed (the plan's
     // "When things go wrong").
@@ -254,7 +249,7 @@ export function answerVars(
     ...vars,
     ready: true,
     title: answer.title,
-    thumb: thumbnail?.thumbnailFileName ?? answer.thumbnailFileName,
+    thumb: answer.thumbnailFileName,
     video: {
       processing: 'ready',
       width: answer.width,
@@ -264,57 +259,33 @@ export function answerVars(
   };
 }
 
-/** The picture a ready video's story wants Bunny to show, read before the answer's write. */
-const PICTURE_SQL = `
-  LET $j = (SELECT kind, file FROM ONLY type::record('mediaJob', $job));
-  LET $f = IF $j != NONE AND $j.kind = 'check' AND <string> record::id($j.file) = $videoId {
-    (SELECT format, story, detachedAt FROM ONLY $j.file) };
-  IF $f = NONE OR $f.format != 'video' OR $f.detachedAt != NONE
-    OR !record::exists($f.story) OR $f.story.mediaFile != $j.file { NONE } ELSE {
-    LET $picture = (SELECT VALUE image.file FROM ONLY $f.story);
-    { picture: IF $picture != NONE { <string> record::id($picture) } }
-  };`;
-
 /**
- * The picture a ready video's story wants Bunny to show: the story's own picture's path, or null
- * for Bunny's own frame (no picture). undefined when it isn't a video its story shows. The writer
- * sets it at Bunny on every ready check rather than trusting storyFile.thumbnailOf: if an earlier
- * answer set Bunny's picture but its database write then failed, the stored pointer is behind
- * Bunny, and only setting it again puts Bunny right (Codex review of PR 201, round 1).
+ * The picture to give Bunny for a ready video (T1 option C): a story picture's path, or null for
+ * Bunny's own frame, already recorded as the file's thumbnailOf with the job left open.
  */
-export async function wantedThumbnail(
-  db: SurrealQueryable,
-  job: string,
-  video: string,
-): Promise<string | null | undefined> {
-  const results = await runQuery(db, PICTURE_SQL, { job, videoId: video });
-  const found = results[results.length - 1] as {
-    picture?: string | null;
-  } | null;
-  if (!found) return undefined;
-  return found.picture ?? null;
+export interface WantedThumbnail {
+  picture: string | null;
+  /** An earlier delivery of the job may still be setting another picture: never close the job. */
+  contested: boolean;
 }
 
 /** What an answer did: its outcome, and the render job it opened (to send after the commit). */
 export interface AnswerResult {
   outcome: AnswerOutcome;
   render: QueuedJob | null;
-  /**
-   * false: the picture the writer set at Bunny before the write is no longer the story's (it
-   * changed meanwhile, or a newer check set another after it); {@link settleThumbnail} puts
-   * Bunny right.
-   */
-  thumbnailSettled: boolean;
+  /** Set for a ready video with Bunny on: the writer now sets this at Bunny, then closes the job. */
+  thumbnail: WantedThumbnail | null;
 }
 
 /**
  * Applies the worker's answer about `video` to the job's file (refused with
  * {@link MediaJobWrongVideo} if that isn't the job's video), signed in as service:workflow (the
- * only login that may set a file's processing, A2), and ends the job, in one transaction.
- * `arrivedAt` is when the worker's call reached the writer (F1): an answer applies only if no
- * answer that arrived at or after it is in. A transaction conflict (another answer, a moderator's
- * step or an erasure on the same person) re-runs it from scratch. `thumbnail`: the picture the
- * writer has just had Bunny show for the video, recorded with the answer.
+ * only login that may set a file's processing, A2), and ends the job, in one transaction; for a
+ * ready video with `bunny`, it records the picture and leaves the job open instead
+ * ({@link applyThumbnail} finishes). `arrivedAt` is when the worker's call reached the writer
+ * (F1): an answer applies only if no answer that arrived at or after it is in. A transaction
+ * conflict (another answer, a moderator's step or an erasure on the same person) re-runs it from
+ * scratch.
  */
 export async function answerJob(
   db: SurrealQueryable,
@@ -322,9 +293,9 @@ export async function answerJob(
   video: string,
   answer: MediaAnswer,
   arrivedAt: string,
-  thumbnail?: ThumbnailSet,
+  bunny = false,
 ): Promise<AnswerResult> {
-  const vars = answerVars(job, video, answer, arrivedAt, thumbnail);
+  const vars = answerVars(job, video, answer, arrivedAt, bunny);
   return retryOnConflict(async () => {
     const results = await runQuery(
       db,
@@ -334,74 +305,102 @@ export async function answerJob(
     const r = results[results.length - 2] as {
       outcome: AnswerOutcome;
       render?: Omit<QueuedJob, 'kind'> | null;
-      thumbnailSettled: boolean;
+      thumbnail?: { picture?: string | null; contested: boolean } | null;
     };
     return {
       outcome: r.outcome,
       render: r.render ? { ...r.render, kind: 'render' } : null,
-      thumbnailSettled: r.thumbnailSettled,
+      thumbnail: r.thumbnail
+        ? {
+            picture: r.thumbnail.picture ?? null,
+            contested: r.thumbnail.contested,
+          }
+        : null,
     };
   });
 }
 
 /**
- * Records the picture the writer has just had Bunny show for a video (`$thumbOf`, null for
- * Bunny's frame; `$thumb`, Bunny's thumbnail file afterwards), only if it is the story's picture
- * now; otherwise nothing is written. Answers whether it was (or the file is no longer a video its
- * story shows, so nothing needs setting).
+ * After Bunny took a video's picture (`$mine`, NONE for its own frame; `$thumb`, Bunny's thumbnail
+ * file afterwards), in one transaction: if the story's picture is still that one, record it and
+ * close the job as applied (unless `$contested`, or it already ended; `open` says whether it is
+ * still open); if it changed meanwhile,
+ * record the story's picture now and answer it, for the writer to set at Bunny before trying
+ * again. A file its story no longer shows needs no picture: its open job ends as gone.
  */
-const SETTLE_SQL = `BEGIN TRANSACTION;
-  LET $j = (SELECT kind, file FROM ONLY type::record('mediaJob', $job));
-  LET $f = IF $j != NONE AND $j.kind = 'check' AND <string> record::id($j.file) = $videoId {
-    (SELECT id, format, story, detachedAt, processing FROM ONLY $j.file) };
+const CLOSE_SQL = `BEGIN TRANSACTION;
+  LET $j = (SELECT kind, file, doneAt FROM ONLY type::record('mediaJob', $job));
+  IF $j = NONE { THROW 'media_job_not_found' };
+  IF <string> record::id($j.file) != $videoId { THROW 'media_job_wrong_video' };
+  LET $f = (SELECT id, format, story, detachedAt, removedAt, processing FROM ONLY $j.file);
   LET $shown = $f != NONE AND $f.format = 'video' AND $f.detachedAt = NONE
-    AND record::exists($f.story) AND $f.story.mediaFile = $f.id;
+    AND $f.removedAt = NONE AND record::exists($f.story) AND $f.story.mediaFile = $f.id;
   LET $picture = IF $shown { (SELECT VALUE image.file FROM ONLY $f.story) };
-  LET $set = IF $thumbOf = NONE { NONE } ELSE { type::record('storyFile', $thumbOf) };
-  LET $kept = $shown AND $set = $picture;
+  LET $mineRec = IF $mine = NONE { NONE } ELSE { type::record('storyFile', $mine) };
+  LET $kept = $shown AND $picture = $mineRec;
   IF $kept {
-    UPDATE $f.id SET thumbnailOf = $set RETURN NONE;
+    UPDATE $f.id SET thumbnailOf = $mineRec RETURN NONE;
     IF $f.processing = 'ready' {
       UPDATE $f.id SET thumbnailPath = <string> record::id($f.id) + '/' + $thumb RETURN NONE;
     };
   };
-  { settled: !$shown OR $kept };
+  IF $shown AND !$kept {
+    UPDATE $f.id SET thumbnailOf = $picture RETURN NONE;
+  };
+  LET $close = $j.doneAt = NONE AND (!$shown OR ($kept AND !$contested));
+  IF $close {
+    UPDATE type::record('mediaJob', $job) SET doneAt = time::now(),
+      outcome = IF $shown { 'applied' } ELSE { 'gone' } RETURN NONE;
+  };
+  IF !$shown OR $kept { { settled: true, open: $j.doneAt = NONE AND !$close } }
+    ELSE { { settled: false, picture: IF $picture != NONE { <string> record::id($picture) } } };
   COMMIT TRANSACTION;`;
 
-/** How often {@link settleThumbnail} sets Bunny's picture before leaving it to a redelivery. */
-const SETTLE_TRIES = 3;
+/** How often {@link applyThumbnail} sets Bunny's picture before leaving it to a redelivery. */
+const THUMBNAIL_TRIES = 3;
 
 /**
- * Puts Bunny's picture for a video right after an answer whose picture is no longer the story's
- * (Codex review of PR 201, round 2): two checks of the same video can overlap, and the one that
- * read the older picture may reach Bunny last. Each try reads the picture the story wants now,
- * sets it at Bunny, and records it only if it is still the story's picture; whoever sets Bunny
- * last checks the database after it, so Bunny ends on the picture the database records. Answers
- * false if the picture kept changing for {@link SETTLE_TRIES} tries; a Bunny error from
- * `setThumbnail` is thrown as it comes.
+ * How {@link applyThumbnail} ended: `closed` (Bunny shows the story's picture, and the job is
+ * closed, or had ended already), or `pending` (the job stays open, approval keeps waiting, and the
+ * worker leaves it in the queue: the picture kept changing, or another delivery may be mid-way).
  */
-export async function settleThumbnail(
+export type ThumbnailOutcome = 'closed' | 'pending';
+
+/**
+ * Sets a ready video's picture at Bunny after {@link answerJob} recorded it (T1 option C, steps b
+ * and c), then closes the job only if the story's picture is still the one Bunny now shows; if
+ * it changed meanwhile, the story's picture now is recorded, set at Bunny and checked again. A
+ * Bunny error from `setThumbnail` is thrown as it comes, with the job still open: it never counts
+ * as the worker's failure, and a redelivery, the 18:00 resend or the next check finishes it.
+ */
+export async function applyThumbnail(
   db: SurrealQueryable,
   setThumbnail: (video: string, picture: string | null) => Promise<string>,
   job: string,
   video: string,
-): Promise<boolean> {
-  for (let i = 0; i < SETTLE_TRIES; i++) {
-    const wanted = await wantedThumbnail(db, job, video);
-    if (wanted === undefined) return true;
-    const thumb = await setThumbnail(video, wanted);
-    const settled = await retryOnConflict(async () => {
-      const results = await runQuery(db, SETTLE_SQL, {
+  wanted: WantedThumbnail,
+): Promise<ThumbnailOutcome> {
+  let picture = wanted.picture;
+  for (let i = 0; i < THUMBNAIL_TRIES; i++) {
+    const thumb = await setThumbnail(video, picture);
+    const r = await retryOnConflict(async () => {
+      const results = await runQuery(db, CLOSE_SQL, {
         job,
         videoId: video,
-        thumbOf: wanted ?? undefined,
+        mine: picture ?? undefined,
         thumb,
-      });
-      return (results[results.length - 2] as { settled: boolean }).settled;
+        contested: wanted.contested,
+      }).catch(notFound);
+      return results[results.length - 2] as {
+        settled: boolean;
+        open?: boolean;
+        picture?: string | null;
+      };
     });
-    if (settled) return true;
+    if (r.settled) return r.open ? 'pending' : 'closed';
+    picture = r.picture ?? null;
   }
-  return false;
+  return 'pending';
 }
 
 const FAILURE_SQL = `BEGIN TRANSACTION;

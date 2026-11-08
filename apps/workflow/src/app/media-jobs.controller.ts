@@ -5,7 +5,6 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
-  InternalServerErrorException,
   Logger,
   NotFoundException,
   Param,
@@ -18,6 +17,7 @@ import { BunnyCallFailed, WRITER_BUNNY, type WriterBunny } from './bunny';
 import {
   answerJob,
   type AnswerOutcome,
+  applyThumbnail,
   failJob,
   type FailureReply,
   InvalidMediaJobCall,
@@ -27,15 +27,16 @@ import {
   parseJobId,
   parseMediaAnswer,
   parseVideoId,
-  settleThumbnail,
-  type ThumbnailSet,
-  wantedThumbnail,
+  type ThumbnailOutcome,
 } from './media-jobs';
 import { MEDIA_QUEUE, type MediaQueue, sendJobs } from './media-queue';
 import {
   type PassReply,
   parseRendered,
+  parseSoundHeight,
   renderedJob,
+  type SoundLinkReply,
+  soundLinkFor,
   uploadPassFor,
 } from './render';
 
@@ -61,11 +62,13 @@ export class MediaJobsController {
   ) {}
 
   /**
-   * The answer to a check job: the file's facts and the job's end, in one transaction. For a
-   * ready video, the writer first sets the picture its story wants at Bunny (its own, or Bunny's
-   * frame when it has none; video-bundle-rethink part A), every time, and records it with the
-   * answer. If Bunny won't, that counts as the job's failure and the reply is
-   * the failed route's ("try again later", or "give up" at the fifth).
+   * The answer to a check job: the file's facts and the job's end, in one transaction. A ready
+   * video's picture (video-bundle-rethink part A; Joel, 2026-11-08, T1 option C) goes database
+   * first: the answer records the story's picture now and leaves the job open, so approval waits;
+   * then the writer sets it at Bunny (its own picture, or Bunny's frame when it has none), every
+   * time; then it closes the job only if the story's picture is still that one. If Bunny won't,
+   * or the job can't be closed yet, the reply is "try again later" (`retry: true`), with the job
+   * still open and nothing counted as the worker's failure.
    */
   @Post(':job/answer')
   @HttpCode(HttpStatus.OK)
@@ -76,84 +79,50 @@ export class MediaJobsController {
     // When the answer reached the writer (F1): taken first, before anything can wait.
     const arrivedAt = new Date().toISOString();
     const [job, video, answer] = this.parse(jobParam, body, parseMediaAnswer);
-    let thumbnail: ThumbnailSet | undefined;
-    if (answer.outcome === 'ready' && this.bunny) {
-      const wanted = await wantedThumbnail(this.db, job, video);
-      if (wanted !== undefined) {
-        try {
-          thumbnail = {
-            picture: wanted,
-            thumbnailFileName: await this.bunny.setThumbnail(video, wanted),
-          };
-        } catch (err) {
-          if (!(err instanceof BunnyCallFailed)) throw err;
-          const reply = await failJob(this.db, job, video, err.code).catch(
-            (e: unknown) => this.refuse(job, e),
-          );
-          this.logger.warn(JSON.stringify({ job, failed: err.code, ...reply }));
-          return reply;
-        }
-      }
-    }
-    const { outcome, render, thumbnailSettled } = await answerJob(
+    const bunny = this.bunny;
+    const { outcome, render, thumbnail } = await answerJob(
       this.db,
       job,
       video,
       answer,
       arrivedAt,
-      thumbnail,
+      bunny !== null,
     ).catch((err: unknown) => this.refuse(job, err));
-    if (!thumbnailSettled && this.bunny) {
-      await this.settleThumbnail(job, video, this.bunny);
-    }
     // Ids and outcomes only: no personal data is in an answer.
-    this.logger.log(
-      JSON.stringify({
-        job,
-        answer: answer.outcome,
-        arrivedAt,
-        outcome,
-        ...(thumbnail
-          ? { thumbnail: thumbnail.picture ? 'picture' : 'frame' }
-          : {}),
-        ...(render ? { render: render.job } : {}),
-      }),
-    );
+    const entry = {
+      job,
+      answer: answer.outcome,
+      arrivedAt,
+      outcome,
+      ...(render ? { render: render.job } : {}),
+    };
     if (render) await sendJobs(this.db, this.queue, [render]);
-    return { outcome };
-  }
-
-  /**
-   * The picture this answer set at Bunny is no longer the story's at the commit: the picture
-   * changed meanwhile, or a newer check of the same video set another one before this one's
-   * reached Bunny (Codex review of PR 201, round 2). Bunny is set again to the story's picture
-   * now, so it ends on what the database records and approval relies on. If Bunny won't, or the
-   * picture keeps changing, a 500: the worker leaves the job in the queue, and the redelivered
-   * check sets Bunny again (the job may already have ended, so failing it would drop it).
-   */
-  private async settleThumbnail(
-    job: string,
-    video: string,
-    bunny: WriterBunny,
-  ): Promise<void> {
-    let settled: boolean;
+    if (!thumbnail || !bunny) {
+      this.logger.log(JSON.stringify(entry));
+      return { outcome };
+    }
+    let done: ThumbnailOutcome;
     try {
-      settled = await settleThumbnail(
+      done = await applyThumbnail(
         this.db,
         (v, picture) => bunny.setThumbnail(v, picture),
         job,
         video,
+        thumbnail,
       );
     } catch (err) {
-      if (!(err instanceof BunnyCallFailed)) throw err;
-      this.logger.warn(JSON.stringify({ job, thumbnail: err.code }));
-      throw new InternalServerErrorException();
+      if (!(err instanceof BunnyCallFailed)) return this.refuse(job, err);
+      this.logger.warn(JSON.stringify({ ...entry, thumbnail: err.code }));
+      return { retry: true };
     }
-    if (!settled) {
-      this.logger.warn(JSON.stringify({ job, thumbnail: 'unsettled' }));
-      throw new InternalServerErrorException();
-    }
-    this.logger.log(JSON.stringify({ job, thumbnail: 'settled' }));
+    this.logger.log(
+      JSON.stringify({
+        ...entry,
+        thumbnail: thumbnail.picture ? 'picture' : 'frame',
+        jobAfter: done,
+      }),
+    );
+    return done === 'closed' ? { outcome } : { retry: true };
   }
 
   /**
@@ -182,6 +151,35 @@ export class MediaJobsController {
             : {}),
         }),
       );
+      return reply;
+    } catch (err) {
+      if (!(err instanceof BunnyCallFailed)) return this.refuse(job, err);
+      const reply = await failJob(this.db, job, video, err.code).catch(
+        (e: unknown) => this.refuse(job, e),
+      );
+      this.logger.warn(JSON.stringify({ job, failed: err.code, ...reply }));
+      return reply;
+    }
+  }
+
+  /**
+   * A render job's link to one MP4 copy of its audio file's sound (R3), asked for when the worker
+   * is about to download it: valid 2 minutes, for that one file. 503 with Bunny off; 400 before
+   * the job's pass or for a height Bunny doesn't make.
+   */
+  @Post(':job/sound-link')
+  @HttpCode(HttpStatus.OK)
+  async soundLink(
+    @Param('job') jobParam: string,
+    @Body() body: unknown,
+  ): Promise<SoundLinkReply | FailureReply> {
+    const [job, video, height] = this.parse(jobParam, body, parseSoundHeight);
+    const bunny = this.bunny;
+    if (!bunny) throw new ServiceUnavailableException('Bunny is off');
+    try {
+      const reply = await soundLinkFor(this.db, bunny, job, video, height);
+      // Never the link itself.
+      this.logger.log(JSON.stringify({ job, sound: reply.outcome, height }));
       return reply;
     } catch (err) {
       if (!(err instanceof BunnyCallFailed)) return this.refuse(job, err);

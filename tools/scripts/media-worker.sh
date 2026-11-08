@@ -17,9 +17,6 @@ project=heisreal-dev
 region=europe-west2
 account="media-worker@$project.iam.gserviceaccount.com"
 library=789855 # the dev Stream library (infra/terraform/live/dev/gcp/main.tf)
-# The library's own storage (Frankfurt, D89), where the worker reads a picture video's sound
-# (infra/terraform/live/dev/bunny/main.tf, stream_storage_zone).
-storage_zone=vz-bd66cea0-80b
 app_port="${MEDIA_WORKER_APP_PORT:-7341}"
 daprd="${DAPRD:-$HOME/.dapr/bin/daprd}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -104,8 +101,6 @@ export DAPR_API_TOKEN
 # The worker first: Dapr asks it for its subscription when it starts.
 GCP_PROJECT="$project" MEDIA_WORKER_ACCOUNT="$account" RESULT_WRITER_URL="$writer" \
   BUNNY_STREAM_LIBRARY_ID="$library" BUNNY_STREAM_READONLY_KEY_SECRET=bunny-stream-readonly-key \
-  BUNNY_STREAM_STORAGE_ZONE="$storage_zone" \
-  BUNNY_STREAM_STORAGE_PASSWORD_SECRET=bunny-stream-storage-readonly-password \
   MEDIA_WORKER_WORK_DIR="$runtime/work" \
   MEDIA_WORKER_DEFAULT_PICTURE="$app/assets/default-audio-background.jpg" \
   APP_PORT="$app_port" node "$app/dist/main.js" &

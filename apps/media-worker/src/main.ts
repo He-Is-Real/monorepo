@@ -3,7 +3,9 @@
  * machine beside Dapr's sidecar, which pulls `media-jobs` for it. For each check job it asks
  * Bunny (read-only key) about the video and calls the result writer on Cloud Run with what it
  * found. For each render job it makes an audio story's picture video (render.ts) with a one-hour
- * upload pass from the writer (audio-picture-video.html, K1). It never touches the database,
+ * upload pass from the writer (audio-picture-video.html, K1) and, asked for just before each
+ * download, a 2-minute link to one copy of the story's sound (R3). It holds no Bunny key but the
+ * library's read-only one. It never touches the database,
  * keeps a job's files only in memory ($XDG_RUNTIME_DIR) while the job runs and listens on
  * 127.0.0.1 only.
  *
@@ -58,9 +60,6 @@ async function main() {
   const audience = writerUrl.origin;
   const library = env('BUNNY_STREAM_LIBRARY_ID', LIBRARY);
   const keySecret = env('BUNNY_STREAM_READONLY_KEY_SECRET', NAME);
-  // The library's storage, read with its read-only password (a picture video's sound).
-  const storageZone = env('BUNNY_STREAM_STORAGE_ZONE', /^[A-Za-z0-9-]{1,64}$/);
-  const storageSecret = env('BUNNY_STREAM_STORAGE_PASSWORD_SECRET', NAME);
   const workDir = env('MEDIA_WORKER_WORK_DIR');
   const defaultPicture = env('MEDIA_WORKER_DEFAULT_PICTURE');
   if (!isAbsolute(workDir) || !existsSync(workDir)) {
@@ -103,9 +102,6 @@ async function main() {
   );
   const renderer = new FfmpegRenderer({
     bunny,
-    storageZone,
-    storagePassword: () =>
-      secrets.get(storageSecret, 'latest', { maxAgeMs: KEY_MAX_AGE_MS }),
     workDir,
     defaultPicture,
   });

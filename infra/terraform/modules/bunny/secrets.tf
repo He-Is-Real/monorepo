@@ -147,7 +147,8 @@ resource "google_secret_manager_secret_iam_member" "readonly_key_readers" {
 # the worker a one-hour upload pass for that one video with the library key, and signs 10-minute
 # links to a story's picture with the images token key (for the worker, and for Bunny when it
 # shows a video's own picture: video-bundle-rethink part A). Only this project's workflow account,
-# and only these two keys: the full library key never leaves Google Cloud.
+# and only these two keys (and the sound zone's token key, below): the full library key never
+# leaves Google Cloud.
 locals {
   result_writer_key_ids = ["bunny-stream-api-key", "bunny-images-token-key"]
 }
@@ -164,15 +165,15 @@ resource "google_secret_manager_secret_iam_member" "result_writer_readers" {
   member    = each.value.member
 }
 
-# The worker reads a picture video's sound from the library's own storage (Frankfurt, D89), not
-# through Bunny's CDN, which would keep the old copy for up to 30 days (audio-picture-video.html
-# section 1). The storage zone's read-only password reads files and can't change anything. Only
-# once the zone is adopted (stream_storage_zone), and only the media-worker account reads it.
-resource "google_secret_manager_secret" "stream_storage_readonly" {
+# The sound zone's token key (R3; main.tf, bunnynet_pullzone.sound): the result writer signs the
+# worker a 2-minute link to one MP4 copy of an audio file with it, when the worker is about to
+# download it. Only once the library's storage zone is adopted (stream_storage_zone), kept in
+# London, and only the result writer reads it: the media worker holds no key to Bunny's storage.
+resource "google_secret_manager_secret" "sound_token" {
   count = var.stream_storage_zone == null ? 0 : 1
 
   project   = var.project_id
-  secret_id = "bunny-stream-storage-readonly-password"
+  secret_id = "bunny-sound-token-key"
   labels = {
     app         = "heisreal"
     environment = var.environment
@@ -189,21 +190,20 @@ resource "google_secret_manager_secret" "stream_storage_readonly" {
   }
 }
 
-resource "google_secret_manager_secret_version" "stream_storage_readonly" {
+resource "google_secret_manager_secret_version" "sound_token" {
   count = var.stream_storage_zone == null ? 0 : 1
 
-  secret                 = google_secret_manager_secret.stream_storage_readonly[0].id
-  secret_data_wo         = bunnynet_storage_zone.stream[0].password_readonly
-  secret_data_wo_version = parseint(substr(sha256(bunnynet_storage_zone.stream[0].password_readonly), 0, 12), 16)
+  secret                 = google_secret_manager_secret.sound_token[0].id
+  secret_data_wo         = bunnynet_pullzone.sound[0].token_auth_key
+  secret_data_wo_version = parseint(substr(sha256(bunnynet_pullzone.sound[0].token_auth_key), 0, 12), 16)
   deletion_policy        = "ABANDON"
 }
 
-resource "google_secret_manager_secret_iam_member" "stream_storage_readers" {
-  for_each = var.stream_storage_zone == null ? toset([]) : toset(var.stream_storage_readers)
+resource "google_secret_manager_secret_iam_member" "result_writer_sound_readers" {
+  for_each = var.stream_storage_zone == null ? toset([]) : toset(var.result_writer_readers)
 
   project   = var.project_id
-  secret_id = google_secret_manager_secret.stream_storage_readonly[0].secret_id
+  secret_id = google_secret_manager_secret.sound_token[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = each.value
 }
-

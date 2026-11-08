@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BunnyLibrary } from './bunny';
-import { FfmpegRenderer, type RenderPass } from './render';
+import { FfmpegRenderer, type RenderPass, type SoundLinks } from './render';
 
 // A person uploads the picture, so only a real WebP reaches ffmpeg: anything else (a playlist
 // naming other files, say) is refused before ffmpeg runs, and nothing stays on the machine.
@@ -25,9 +25,12 @@ describe('a picture video’s picture', () => {
     pictureUrl: 'https://images.example/stories/s1/x.webp?token=t',
   };
 
+  const soundLinks: SoundLinks = async (height) =>
+    `https://sound.example/v/play_${height}p.mp4?token=t`;
+
   function renderer(picture: string | Uint8Array<ArrayBuffer>) {
     const fetcher = vi.fn(async (url: string | URL | Request) =>
-      String(url).startsWith('https://storage.bunnycdn.com/')
+      String(url).startsWith('https://sound.example/')
         ? new Response('sound')
         : new Response(picture),
     );
@@ -35,8 +38,6 @@ describe('a picture video’s picture', () => {
       bunny: {
         video: async () => ({ status: 4, availableResolutions: '720p' }),
       } as unknown as BunnyLibrary,
-      storageZone: 'vz-test',
-      storagePassword: async () => 'read-only',
       workDir,
       defaultPicture: '/nonexistent/default.jpg',
       // Never runs: a missing ffmpeg would answer 'ffmpeg_missing'.
@@ -48,7 +49,7 @@ describe('a picture video’s picture', () => {
   it('refuses a file that isn’t a WebP before ffmpeg sees it', async () => {
     const result = await renderer(
       '#EXTM3U\n#EXTINF:1,\nfile:///etc/passwd\n',
-    ).render('22222222-2222-4222-8222-222222222222', pass);
+    ).render('22222222-2222-4222-8222-222222222222', pass, soundLinks);
     expect(result).toEqual({ failure: 'picture_not_webp' });
     expect(await readdir(workDir)).toEqual([]);
   });
@@ -69,6 +70,7 @@ describe('a picture video’s picture', () => {
     const result = await renderer(webpHead(16_000, 900)).render(
       '22222222-2222-4222-8222-222222222222',
       pass,
+      soundLinks,
     );
     expect(result).toEqual({ failure: 'picture_too_big' });
     expect(await readdir(workDir)).toEqual([]);
@@ -79,6 +81,7 @@ describe('a picture video’s picture', () => {
     const result = await renderer(webp).render(
       '22222222-2222-4222-8222-222222222222',
       pass,
+      soundLinks,
     );
     expect(result).toEqual({ failure: 'ffmpeg_missing' });
   });

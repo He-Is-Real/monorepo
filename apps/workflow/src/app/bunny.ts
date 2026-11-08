@@ -7,8 +7,10 @@ import { signCdnUrl, tusSignature } from '@heisreal/story-cards';
  * Google Cloud: with it the writer makes an audio story's picture video at Bunny and signs the
  * worker a one-hour upload pass for that one video, and tells Bunny which picture to show for a
  * video. With the images zone's token key it signs a 10-minute link to the story's picture, for
- * the worker (its picture video) or for Bunny (a video's thumbnail). Both keys come from Secret
- * Manager and are never logged.
+ * the worker (its picture video) or for Bunny (a video's thumbnail). With the sound zone's token
+ * key it signs the worker a 2-minute link to one MP4 copy of an audio file, when the worker is
+ * about to download it (Joel, 2026-11-08, R3: single-file links on a need-to-use basis). The keys
+ * come from Secret Manager and are never logged.
  */
 export const WRITER_BUNNY = Symbol('WRITER_BUNNY');
 
@@ -23,6 +25,13 @@ export const TUS_ENDPOINT = `${API}/tusupload`;
 export const UPLOAD_PASS_SECONDS = 3600;
 /** How long a link to a story's picture lasts: as long as a picture's upload link (D68). */
 export const PICTURE_LINK_SECONDS = 600;
+/**
+ * How long a link to an audio file's sound lasts (R3): only long enough to start its download,
+ * which the worker does at once. Bunny checks a link when the download starts, not while it runs.
+ */
+export const SOUND_LINK_SECONDS = 120;
+/** The MP4 copies Bunny makes (its docs, "MP4 downloads"): the only files a sound link may name. */
+export const SOUND_HEIGHTS = [240, 360, 480, 720, 1080] as const;
 const TIMEOUT_MS = 15_000;
 
 /** Bunny's video ids are GUIDs; anything else never reaches a URL. */
@@ -67,37 +76,58 @@ export interface WriterBunny {
   uploadPass(videoId: string, now?: number): Promise<UploadPass>;
   /** A 10-minute link to a story's picture, or null if the path isn't one. */
   pictureUrl(path: string, now?: number): Promise<string | null>;
+  /**
+   * A 2-minute link to one MP4 copy (`height`p) of a video's sound, read straight from the
+   * library's storage through the sound zone, which keeps no copies (R3); null if the video id or
+   * height isn't one.
+   */
+  soundUrl(
+    videoId: string,
+    height: number,
+    now?: number,
+  ): Promise<{ url: string; expiresAt: string } | null>;
 }
 
 export interface WriterBunnyConfig {
   libraryId: string;
   imagesCdnHost: string;
+  /** The sound zone's host (a pull zone over the library's storage, with no cache; R3). */
+  soundCdnHost: string;
   /** Read once a few minutes old, so a rotated key arrives without a redeploy. */
   libraryKey: () => Promise<string>;
   imagesTokenKey: () => Promise<string>;
+  soundTokenKey: () => Promise<string>;
 }
 
 export class BunnyLibrary implements WriterBunny {
   // The signing keys, read when a call needs them (both rotate at Bunny).
-  private signingKeys: { library: string; images: string } | null = null;
+  private signingKeys: {
+    library: string;
+    images: string;
+    sound: string;
+  } | null = null;
 
   constructor(
     private readonly config: WriterBunnyConfig,
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
-  /** Reads both keys (Secret Manager's cache reads them again once a few minutes old). */
+  /** Reads the keys (Secret Manager's cache reads them again once a few minutes old). */
   private async refreshKeys(): Promise<void> {
     let library: string;
     let images: string;
+    let sound: string;
     try {
       library = (await this.config.libraryKey()).trim();
       images = (await this.config.imagesTokenKey()).trim();
+      sound = (await this.config.soundTokenKey()).trim();
     } catch {
       throw new BunnyCallFailed('key_unavailable');
     }
-    if (!library || !images) throw new BunnyCallFailed('key_unavailable');
-    this.signingKeys = { library, images };
+    if (!library || !images || !sound) {
+      throw new BunnyCallFailed('key_unavailable');
+    }
+    this.signingKeys = { library, images, sound };
   }
 
   private keys() {
@@ -217,6 +247,30 @@ export class BunnyLibrary implements WriterBunny {
     return this.signPicture(path, now);
   }
 
+  async soundUrl(
+    videoId: string,
+    height: number,
+    now = Date.now(),
+  ): Promise<{ url: string; expiresAt: string } | null> {
+    if (
+      !VIDEO_ID.test(videoId) ||
+      !(SOUND_HEIGHTS as readonly number[]).includes(height)
+    ) {
+      return null;
+    }
+    await this.refreshKeys();
+    const expires = Math.floor(now / 1000) + SOUND_LINK_SECONDS;
+    const url = signCdnUrl(
+      this.config.soundCdnHost,
+      `${videoId}/play_${height}p.mp4`,
+      this.keys().sound,
+      expires,
+    );
+    return url
+      ? { url, expiresAt: new Date(expires * 1000).toISOString() }
+      : null;
+  }
+
   private signPicture(path: string, now: number): string | null {
     if (!PICTURE.test(path)) return null;
     return signCdnUrl(
@@ -234,13 +288,18 @@ const VARIABLES = [
   'BUNNY_STREAM_API_KEY_SECRET',
   'BUNNY_IMAGES_CDN_HOST',
   'BUNNY_IMAGES_TOKEN_KEY_SECRET',
+  'BUNNY_SOUND_CDN_HOST',
+  'BUNNY_SOUND_TOKEN_KEY_SECRET',
 ] as const;
+const HOST =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
 const FORMATS: Record<(typeof VARIABLES)[number], RegExp> = {
   BUNNY_STREAM_LIBRARY_ID: /^[0-9]{1,12}$/,
   BUNNY_STREAM_API_KEY_SECRET: /^[A-Za-z0-9_-]{1,255}$/,
-  BUNNY_IMAGES_CDN_HOST:
-    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/,
+  BUNNY_IMAGES_CDN_HOST: HOST,
   BUNNY_IMAGES_TOKEN_KEY_SECRET: /^[A-Za-z0-9_-]{1,255}$/,
+  BUNNY_SOUND_CDN_HOST: HOST,
+  BUNNY_SOUND_TOKEN_KEY_SECRET: /^[A-Za-z0-9_-]{1,255}$/,
 };
 /** How long a key read from Secret Manager is used before it is read again. */
 const KEY_MAX_AGE_MS = 5 * 60_000;
@@ -268,12 +327,17 @@ export function writerBunnyFromEnv(
   return new BunnyLibrary({
     libraryId: value('BUNNY_STREAM_LIBRARY_ID'),
     imagesCdnHost: value('BUNNY_IMAGES_CDN_HOST'),
+    soundCdnHost: value('BUNNY_SOUND_CDN_HOST'),
     libraryKey: () =>
       secrets.get(value('BUNNY_STREAM_API_KEY_SECRET'), 'latest', {
         maxAgeMs: KEY_MAX_AGE_MS,
       }),
     imagesTokenKey: () =>
       secrets.get(value('BUNNY_IMAGES_TOKEN_KEY_SECRET'), 'latest', {
+        maxAgeMs: KEY_MAX_AGE_MS,
+      }),
+    soundTokenKey: () =>
+      secrets.get(value('BUNNY_SOUND_TOKEN_KEY_SECRET'), 'latest', {
         maxAgeMs: KEY_MAX_AGE_MS,
       }),
   });

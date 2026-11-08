@@ -19,14 +19,16 @@
 # Least privilege:
 #   media-worker   the worker's identity (D126: Joel's gcloud login acting as it; no key file).
 #                  Pulls media-jobs through its subscription, calls the result writer (run.invoker
-#                  on it only) and (the bunny root) reads Bunny's read-only library key and the
-#                  library storage's read-only password (a picture video's sound). No database
-#                  password, no key that can change anything at Bunny (K1), nothing else.
+#                  on it only) and (the bunny root) reads Bunny's read-only library key. It reads
+#                  a picture video's sound through 2-minute links to one file the result writer
+#                  signs (R3). No database password, no key that can change anything at Bunny
+#                  (K1), no key to Bunny's storage, nothing else.
 #   workflow       the result writer's runtime identity: reads its own database password and signs
 #                  in as service:workflow (docs/db-permissions.md); publishes to media-jobs (the
 #                  jobs it opens); and (the bunny root's result_writer_readers) reads Bunny's
-#                  library key and the images token key: it makes picture videos and signs the
-#                  worker's one-hour pass, and sets a video's picture (Joel, 2026-11-07, K1).
+#                  library key, the images token key and the sound zone's token key: it makes
+#                  picture videos, signs the worker's one-hour pass and its sound links, and sets
+#                  a video's picture (Joel, 2026-11-07, K1; 2026-11-08, R3).
 #   api-user       may publish to media-jobs (and to no other topic).
 #   housekeeping   may publish to media-jobs too: the 18:00 resend (housekeeping.tf).
 # The result writer takes traffic from the internet (the worker is off Google Cloud), but Cloud Run
@@ -244,6 +246,16 @@ resource "google_cloud_run_v2_service" "result_writer" {
       env {
         name  = "BUNNY_IMAGES_TOKEN_KEY_SECRET"
         value = var.api_public_read_media.images_token_key_secret
+      }
+      # R3 (Joel, 2026-11-08): the sound zone and its token key's secret (the bunny root's
+      # result_writer_readers grant), for the worker's 2-minute link to one copy of a sound.
+      env {
+        name  = "BUNNY_SOUND_CDN_HOST"
+        value = coalesce(var.media_ready.sound_cdn_hostname, "heisreal-${var.environment}-sound.b-cdn.net")
+      }
+      env {
+        name  = "BUNNY_SOUND_TOKEN_KEY_SECRET"
+        value = var.media_ready.sound_token_key_secret
       }
 
       startup_probe {

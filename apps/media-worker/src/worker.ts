@@ -116,11 +116,12 @@ export async function handleJob(
   });
   if (isStatus(reply, 200)) {
     const body = reply.body as { outcome?: unknown; retry?: unknown } | null;
-    // Bunny wouldn't take a video's picture: the writer counted it as the job's failure.
+    // A video's picture isn't settled at Bunny yet (Bunny wouldn't take it, or another delivery
+    // may be mid-way): the job is still open, and nothing was counted as a failure.
     if (typeof body?.retry === 'boolean') {
       return done({
         step: 'answered',
-        code: 'failed',
+        code: 'not_yet',
         delivery: body.retry ? 'RETRY' : 'SUCCESS',
       });
     }
@@ -187,7 +188,8 @@ function readPass(body: unknown): RenderPass | null {
 
 /**
  * A render job (audio-picture-video.html decisions 1B and 2 = K1): take the render slot, ask the
- * writer for the pass, make and upload the picture video, tell the writer it's done. With the slot
+ * writer for the pass, ask it for a link to the sound just before downloading it (R3), make and
+ * upload the picture video, tell the writer it's done. With the slot
  * taken by another render, the job goes back to the queue before anything is asked (its pass and
  * picture link are fresh when its render starts). The writer may answer that no picture video is
  * needed (the job's outcome): the job is then taken. A step that fails counts as the job's
@@ -249,11 +251,64 @@ async function renderInSlot(
   const pass = readPass(passReply.body);
   if (!pass) return fail('pass_malformed');
 
+  // R3: each MP4 copy's link is asked for just before its download, and used once.
+  let stopped: Delivery | undefined;
+  const soundLinks = async (height: number): Promise<string | null> => {
+    const stop = (d: Delivery) => {
+      stopped = d;
+      return null;
+    };
+    const reply = await deps.writer({
+      route: 'sound-link',
+      jobId: job.jobId,
+      body: { videoId: job.videoId, height },
+    });
+    if (isStatus(reply, 404)) {
+      return stop(done({ step: 'sound', status: 404, delivery: 'DROP' }));
+    }
+    if (isStatus(reply, 400)) return stop(await fail('sound_rejected'));
+    if (!isStatus(reply, 200)) {
+      return stop(
+        done({ step: 'sound', status: statusOf(reply), delivery: 'RETRY' }),
+      );
+    }
+    const b = reply.body as {
+      outcome?: unknown;
+      retry?: unknown;
+      url?: unknown;
+    } | null;
+    if (typeof b?.retry === 'boolean') {
+      return stop(
+        done({
+          step: 'sound',
+          code: 'failed',
+          delivery: b.retry ? 'RETRY' : 'SUCCESS',
+        }),
+      );
+    }
+    if (b?.outcome !== 'sound') {
+      return stop(
+        done({
+          step: 'sound',
+          code: typeof b?.outcome === 'string' ? b.outcome : '?',
+          delivery: 'SUCCESS',
+        }),
+      );
+    }
+    if (!isSoundLink(b.url, job.videoId, height)) {
+      return stop(await fail('sound_malformed'));
+    }
+    return b.url;
+  };
+
   let result;
   try {
-    result = await deps.renderer.render(job.videoId, pass);
+    result = await deps.renderer.render(job.videoId, pass, soundLinks);
   } catch {
     return fail('worker_error');
+  }
+  if ('stopped' in result) {
+    return stopped ?? done({ step: 'sound', delivery: 'RETRY' });
   }
   if ('failure' in result) return fail(result.failure);
 
@@ -319,6 +374,24 @@ async function failed(
     status: statusOf(reply),
     delivery: 'RETRY',
   });
+}
+
+/** A link the writer signed for exactly this video's `height`p MP4 copy, over https. */
+function isSoundLink(
+  url: unknown,
+  videoId: string,
+  height: number,
+): url is string {
+  if (typeof url !== 'string') return false;
+  try {
+    const u = new URL(url);
+    return (
+      u.protocol === 'https:' &&
+      u.pathname === `/${videoId}/play_${height}p.mp4`
+    );
+  } catch {
+    return false;
+  }
 }
 
 function isStatus(

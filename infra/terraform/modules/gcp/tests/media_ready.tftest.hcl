@@ -222,9 +222,11 @@ run "the_writer_sends_jobs_and_reaches_bunny" {
       "BUNNY_STREAM_API_KEY_SECRET=bunny-stream-api-key",
       "BUNNY_IMAGES_CDN_HOST=example-images.b-cdn.net",
       "BUNNY_IMAGES_TOKEN_KEY_SECRET=bunny-images-token-key",
+      "BUNNY_SOUND_CDN_HOST=heisreal-dev-sound.b-cdn.net",
+      "BUNNY_SOUND_TOKEN_KEY_SECRET=bunny-sound-token-key",
       ] : contains([for e in google_cloud_run_v2_service.result_writer[0].template[0].containers[0].env : "${e.name}=${e.value}"], want)
     ])
-    error_message = "The result writer gets the jobs topic, the library, the images CDN and the two key secrets' names."
+    error_message = "The result writer gets the jobs topic, the library, the images CDN, the sound zone and the three key secrets' names."
   }
 }
 
