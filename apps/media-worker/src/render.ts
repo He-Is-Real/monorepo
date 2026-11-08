@@ -86,10 +86,17 @@ export function ffmpegArgs(
     '-y',
     '-filter_threads',
     FFMPEG_THREADS,
+    // Stop at the first decoding error: with a looped picture, ffmpeg would otherwise retry a
+    // picture it can't decode until its timeout.
+    '-xerror',
     '-protocol_whitelist',
     'file',
     '-f',
     pictureFormat === 'webp' ? 'webp_pipe' : 'jpeg_pipe',
+    // The decoder enforces the picture limit itself too: a WebP's header (pictureFits) names
+    // its canvas, and the frame inside might claim more.
+    '-max_pixels',
+    String(MAX_PICTURE_SIDE * MAX_PICTURE_SIDE),
     '-loop',
     '1',
     '-framerate',

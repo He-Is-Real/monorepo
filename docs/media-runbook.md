@@ -160,6 +160,9 @@ when the job gave up; an open job's video is kept).
 
 The worker renders one picture video at a time (other render jobs wait their turn; check jobs
 don't wait), and ffmpeg uses at most two threads, so a render never takes over Joel's machine.
+ffmpeg's picture decoder also refuses anything over 4096 × 4096 pixels (`-max_pixels`, in case a
+WebP's frame claims more than its header), and `-xerror` makes it stop at the first decoding error
+(`render_failed`) instead of retrying a looped picture until its 15-minute timeout.
 
 ### Running the media worker
 
