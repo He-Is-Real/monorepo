@@ -64,6 +64,12 @@ import {
   type SubmissionLimits,
 } from './story-store';
 import { parseUploadRequest, type UploadTarget, Uploads } from './uploads';
+import {
+  BunnyWebhookModule,
+  MEDIA_JOBS,
+  type MediaJobs,
+  sendStoryJobs,
+} from '../media/bunny-webhook';
 
 const STATUSES = [
   'draft',
@@ -151,6 +157,7 @@ function reused(err: unknown): unknown {
 @Controller()
 export class StoriesController {
   private readonly uploads: Uploads;
+  private readonly service: Surreal;
 
   constructor(
     private readonly people: PersonSessions,
@@ -159,7 +166,10 @@ export class StoriesController {
     @Inject(BUNNY_STORAGE) images: ImageStore | null,
     /** The draft's own image, signed for its owner (D52). */
     private readonly urls: MediaUrls,
+    /** The media checks and picture videos a submit or a picture change writes down. */
+    @Inject(MEDIA_JOBS) private readonly jobs: MediaJobs | null,
   ) {
+    this.service = service;
     this.uploads = new Uploads(service, bunny, images);
   }
 
@@ -286,6 +296,10 @@ export class StoriesController {
     const result = await this.people.run(req, ({ session }) =>
       new StoryStore(session).edit(sid, version, patch),
     );
+    // A removed picture: an audio story's new picture video.
+    if (patch.image === null) {
+      await sendStoryJobs(this.service, this.jobs, sid);
+    }
     res.setHeader('ETag', `"${result.version}"`);
     return result;
   }
@@ -331,6 +345,8 @@ export class StoriesController {
       .catch((err: unknown) => {
         throw reused(err);
       });
+    // A video or audio story's check before it can be approved.
+    await sendStoryJobs(this.service, this.jobs, sid);
     res.status(HttpStatus.OK);
     res.setHeader('ETag', `"${result.version}"`);
     return result;
@@ -404,6 +420,10 @@ export class StoriesController {
       .catch((err: unknown) => {
         throw reused(err);
       });
+    // A new picture: an audio story's new picture video.
+    if (input.format === 'image') {
+      await sendStoryJobs(this.service, this.jobs, sid);
+    }
     res.status(HttpStatus.OK);
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('ETag', `"${target.version}"`);
@@ -449,7 +469,7 @@ export class StoriesController {
 })
 export class BunnyStreamModule {}
 
-@Module({ controllers: [StoriesController] })
+@Module({ imports: [BunnyWebhookModule], controllers: [StoriesController] })
 export class StoriesModule implements NestModule {
   // EditStory takes JSON Merge Patch (D28), which Nest's JSON parser leaves alone.
   configure(consumer: MiddlewareConsumer) {
