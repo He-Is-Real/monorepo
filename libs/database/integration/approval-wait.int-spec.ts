@@ -73,8 +73,9 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
         { id, ago: files.picture },
       );
     }
-    await processed(workflow, id);
     expect(await submit(pat, id)).toHaveLength(1);
+    // The writer answers the check written at Submit.
+    await processed(workflow, id);
     await step(admin, id, 'in_review');
     return id;
   };

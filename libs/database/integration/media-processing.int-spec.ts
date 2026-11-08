@@ -10,6 +10,7 @@ import {
   TestDatabase,
 } from './support/harness';
 import {
+  answered,
   approve,
   ERASE,
   processed,
@@ -229,6 +230,7 @@ describe('approval waits for media processing (A2, R12)', () => {
       expect(await fileOf(id)).toBe(replacement);
       expect((await fileRow(id))?.['processing']).toBeUndefined();
       expect(await submit(pat, id)).toHaveLength(1);
+      await answered(workflow, id);
       await refusedApproval(
         id,
         'the story’s video or audio hasn’t finished processing',
@@ -240,6 +242,7 @@ describe('approval waits for media processing (A2, R12)', () => {
     const pending = async (make: () => Promise<string>, set?: string) => {
       const id = await make();
       expect(await submit(pat, id)).toHaveLength(1);
+      await answered(workflow, id);
       if (set) {
         const which = make === written ? 'image' : 'media';
         expect(await setFile(id, set, workflow, which)).toMatchObject({
@@ -335,6 +338,7 @@ describe('approval waits for media processing (A2, R12)', () => {
     ])('publishes %s, recording the files it reviewed', async (_name, make) => {
       const id = await make();
       expect(await submit(pat, id)).toHaveLength(1);
+      await answered(workflow, id);
       await processed(workflow, id);
       await approve(admin, id);
       expect(await published(id)).toEqual([`story:${id}`]);
@@ -363,6 +367,7 @@ describe('approval waits for media processing (A2, R12)', () => {
           `a${seq}`.padEnd(c.videoId.length, '0'),
         );
         expect(await submit(pat, id)).toHaveLength(1);
+      await answered(workflow, id);
         const key = await fileOf(id);
         // The cases are written for their own video id; ours is the row's key.
         const path = c.path.split(c.videoId).join(key);
@@ -388,6 +393,7 @@ describe('approval waits for media processing (A2, R12)', () => {
     it('is refused for system users too (the migrator)', async () => {
       const id = await video();
       expect(await submit(pat, id)).toHaveLength(1);
+      await answered(workflow, id);
       await step(admin, id, 'in_review');
       expect(
         await outcome(
@@ -407,6 +413,7 @@ describe('approval waits for media processing (A2, R12)', () => {
     const live = async (make: () => Promise<string>) => {
       const id = await make();
       expect(await submit(pat, id)).toHaveLength(1);
+      await answered(workflow, id);
       await processed(workflow, id);
       await approve(admin, id);
       expect(await published(id)).toEqual([`story:${id}`]);
@@ -622,6 +629,7 @@ describe('approval waits for media processing (A2, R12)', () => {
          UPDATE story:hid_v SET mediaFile = storyFile:hidvid;`,
       );
       expect(await submit(hid, 'hid_v')).toHaveLength(1);
+      await answered(workflow, 'hid_v');
       await processed(workflow, 'hid_v');
       await approve(admin, 'hid_v');
       await run(workflow, `UPDATE storyFile:hidvid SET processing = 'failed'`);

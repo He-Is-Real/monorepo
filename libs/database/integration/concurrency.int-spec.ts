@@ -9,7 +9,7 @@ import {
   shareStory,
   TestDatabase,
 } from './support/harness';
-import { draft, ERASE, step, submit } from './support/world';
+import { answered, draft, ERASE, step, submit } from './support/world';
 
 /**
  * Review round 2, P1-A. A transaction reads a snapshot, so its permission and agreement checks can
@@ -159,6 +159,7 @@ describe('concurrent transactions are fenced per person', () => {
        UPDATE story:vic_story SET mediaFile = storyFile:vidvic;`,
     );
     await submit(vic, 'vic_story');
+    await answered(workflow, 'vic_story');
     await step(admin, 'vic_story', 'in_review');
     const approving = await begin(admin);
     await approving
