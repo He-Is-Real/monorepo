@@ -8,8 +8,8 @@ import type { Writer, WriterReply } from './writer';
  * - SUCCESS: mark it taken (Pub/Sub acks it): the writer saved the answer or ended the job.
  * - RETRY: leave it in the queue (Pub/Sub nacks it and redelivers it later, 10 seconds up to 10
  *   minutes apart): the writer couldn't be reached, or it says "try again later".
- * - DROP: mark it taken without doing anything: the job is gone (404, it went with its file), or
- *   the message isn't a job we can read.
+ * - DROP: mark it taken without doing anything: the job is gone (404, it went with its file), the
+ *   writer refused to count a failure (400), or the message isn't a job we can read.
  */
 export type Delivery = 'SUCCESS' | 'RETRY' | 'DROP';
 
@@ -61,23 +61,31 @@ export async function handleJob(
     return entry.delivery;
   };
 
-  // Not a job we can answer on: acknowledged and logged (the table still has any real job, and
-  // the 18:00 resend sends it again).
-  if (!ids.job || !ids.kind) {
+  // Not a job we can answer on (every call to the writer names the job's video, Joel,
+  // 2026-11-08): acknowledged and logged (the table still has any real job, and the 18:00 resend
+  // sends it again).
+  if (!ids.job || !ids.kind || !ids.video) {
     return done({ step: 'unreadable', delivery: 'DROP' });
   }
-  const fail = (code: string) => failed(jobId, code, deps, done);
+  const job = { jobId, videoId: ids.video };
+  const fail = (code: string) => failed(job, code, deps, done);
   // Audio picture videos come with the next pull request.
   if (ids.kind === 'render') return fail('not_supported');
-  if (!ids.video) return fail('bad_message');
 
-  const result = await deps.check(ids.video);
+  let result: CheckResult;
+  try {
+    result = await deps.check(ids.video);
+  } catch {
+    // Our own bug: counted like any other failure, so the job gives up after 5 instead of coming
+    // back for good (Joel, 2026-11-08).
+    return fail('worker_error');
+  }
   if ('failure' in result) return fail(result.failure);
 
   const reply = await deps.writer({
     route: 'answer',
     jobId,
-    body: result.answer,
+    body: { videoId: ids.video, ...result.answer },
   });
   if (isStatus(reply, 200)) {
     const outcome = (reply.body as { outcome?: unknown } | null)?.outcome;
@@ -90,20 +98,27 @@ export async function handleJob(
   if (isStatus(reply, 404)) {
     return done({ step: 'answered', status: 404, delivery: 'DROP' });
   }
-  // The writer refused the answer itself: counted as a failure, so the job gives up after 5
-  // instead of holding up the story's later jobs for good.
-  if (isStatus(reply, 400)) return fail('answer_refused');
+  // The writer refused the answer itself (malformed, or not the job's video): counted as a
+  // failure, so the job gives up after 5 instead of looping (Joel, 2026-11-08).
+  if (isStatus(reply, 400)) return fail('answer_rejected');
   return done({ step: 'answered', status: statusOf(reply), delivery: 'RETRY' });
 }
 
-/** Tells the writer the job failed; its reply decides: give up (ack) or try again (nack). */
+/**
+ * Tells the writer the job failed; its reply decides: give up (ack) or try again (nack). A refusal
+ * (400) can't be counted, so the job is marked taken and logged rather than sent round for good.
+ */
 async function failed(
-  jobId: string,
+  job: { jobId: string; videoId: string },
   code: string,
   deps: JobDeps,
   done: (entry: LogEntry) => Delivery,
 ): Promise<Delivery> {
-  const reply = await deps.writer({ route: 'failed', jobId, body: { code } });
+  const reply = await deps.writer({
+    route: 'failed',
+    jobId: job.jobId,
+    body: { videoId: job.videoId, code },
+  });
   if (isStatus(reply, 200)) {
     const retry = (reply.body as { retry?: unknown } | null)?.retry;
     return done({
@@ -112,8 +127,13 @@ async function failed(
       delivery: retry === false ? 'SUCCESS' : 'RETRY',
     });
   }
-  if (isStatus(reply, 404)) {
-    return done({ step: 'failed', code, status: 404, delivery: 'DROP' });
+  if (isStatus(reply, 404) || isStatus(reply, 400)) {
+    return done({
+      step: 'failed',
+      code,
+      status: statusOf(reply),
+      delivery: 'DROP',
+    });
   }
   return done({
     step: 'failed',

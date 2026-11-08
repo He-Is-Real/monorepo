@@ -39,6 +39,13 @@ export interface FailureReply {
 export class InvalidMediaJobCall extends Error {
   override name = 'InvalidMediaJobCall';
 }
+/**
+ * The call names another video than the job's (Joel, 2026-11-08, B): nothing is written, and the
+ * worker counts it as a failure, so a mixed-up job gives up after 5 instead of looping.
+ */
+export class MediaJobWrongVideo extends Error {
+  override name = 'MediaJobWrongVideo';
+}
 /** No such job: never made, or gone with its file (erasure, tidy-up). The worker drops it. */
 export class MediaJobNotFound extends Error {
   override name = 'MediaJobNotFound';
@@ -49,6 +56,9 @@ export const MAX_FAILURES = 5;
 
 /** mediaJob:<ulid> (fn::media::queue_job). */
 export const JOB_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+/** A Bunny video id (a GUID): the job's file is storyFile:<video id>. */
+const VIDEO_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** A failure's short code (mediaJob.lastError), e.g. bunny_unreachable. */
 const ERROR_CODE = /^[a-z][a-z0-9_]{0,63}$/;
 /** One path segment at Bunny (fn::media::safe_segment), e.g. `thumbnail_1a2b3c4d.jpg`. */
@@ -63,6 +73,22 @@ export function parseJobId(input: unknown): string {
     throw new InvalidMediaJobCall('not a media job id');
   }
   return input;
+}
+
+/**
+ * The Bunny video id every answer and failure carries (`videoId`; Joel, 2026-11-08, B): the
+ * writer refuses a call whose video isn't the job's. Throws {@link InvalidMediaJobCall} if
+ * malformed.
+ */
+export function parseVideoId(input: unknown): string {
+  const video =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)['videoId']
+      : undefined;
+  if (typeof video !== 'string' || !VIDEO_ID.test(video)) {
+    throw new InvalidMediaJobCall('a call needs the job’s video id');
+  }
+  return video;
 }
 
 /** The answer, checked field by field; throws {@link InvalidMediaJobCall} otherwise. */
@@ -138,6 +164,7 @@ export function parseFailure(input: unknown): string {
 export const ANSWER_SQL = `
   LET $j = (SELECT kind, file, doneAt FROM ONLY type::record('mediaJob', $job));
   IF $j = NONE { THROW 'media_job_not_found' };
+  IF <string> record::id($j.file) != $videoId { THROW 'media_job_wrong_video' };
   IF $j.kind != 'check' { THROW 'media_job_not_a_check' };
   LET $f = (SELECT id, format, story, checkedAt, detachedAt, removedAt FROM ONLY $j.file);
   LET $shown = $f != NONE AND $f.format IN ['video', 'audio'] AND $f.detachedAt = NONE
@@ -164,10 +191,11 @@ export const ANSWER_SQL = `
  */
 export function answerVars(
   job: string,
+  video: string,
   answer: MediaAnswer,
   arrivedAt: string,
 ): Record<string, unknown> {
-  const vars = { job, at: arrivedAt };
+  const vars = { job, videoId: video, at: arrivedAt };
   if (answer.outcome !== 'ready') {
     // A video deleted at Bunny while its story still shows it counts as failed (the plan's
     // "When things go wrong").
@@ -192,7 +220,8 @@ export function answerVars(
 }
 
 /**
- * Applies the worker's answer to the job's file, signed in as service:workflow (the only login
+ * Applies the worker's answer about `video` to the job's file (refused with
+ * {@link MediaJobWrongVideo} if that isn't the job's video), signed in as service:workflow (the only login
  * that may set a file's processing, A2), and ends the job, in one transaction. `arrivedAt` is
  * when the worker's call reached the writer (F1): an answer applies only if no answer that
  * arrived at or after it is in. A transaction conflict (another answer, a moderator's step or an
@@ -201,10 +230,11 @@ export function answerVars(
 export async function answerJob(
   db: SurrealQueryable,
   job: string,
+  video: string,
   answer: MediaAnswer,
   arrivedAt: string,
 ): Promise<AnswerOutcome> {
-  const vars = answerVars(job, answer, arrivedAt);
+  const vars = answerVars(job, video, answer, arrivedAt);
   return retryOnConflict(async () => {
     const results = await runQuery(
       db,
@@ -216,8 +246,9 @@ export async function answerJob(
 }
 
 const FAILURE_SQL = `BEGIN TRANSACTION;
-  LET $j = (SELECT failures, doneAt, outcome FROM ONLY type::record('mediaJob', $job));
+  LET $j = (SELECT file, failures, doneAt, outcome FROM ONLY type::record('mediaJob', $job));
   IF $j = NONE { THROW 'media_job_not_found' };
+  IF <string> record::id($j.file) != $videoId { THROW 'media_job_wrong_video' };
   LET $n = $j.failures + 1;
   LET $end = $n >= $max;
   IF $j.doneAt = NONE {
@@ -234,16 +265,19 @@ const FAILURE_SQL = `BEGIN TRANSACTION;
  * Counts the worker's failure on the job, with its short code (J4). Under {@link MAX_FAILURES}:
  * try again later (the worker doesn't mark it taken, and the queue redelivers it). At the fifth:
  * the job ends as gave_up, and the worker marks it taken so the story's later jobs carry on. A
- * job that has already ended counts nothing more and is dropped.
+ * job that has already ended counts nothing more and is dropped. Refused with
+ * {@link MediaJobWrongVideo} if `video` isn't the job's.
  */
 export async function failJob(
   db: SurrealQueryable,
   job: string,
+  video: string,
   code: string,
 ): Promise<FailureReply> {
   return retryOnConflict(async () => {
     const results = await runQuery(db, FAILURE_SQL, {
       job,
+      videoId: video,
       code,
       max: MAX_FAILURES,
     }).catch(notFound);
@@ -255,6 +289,9 @@ export async function failJob(
 function notFound(err: unknown): never {
   if (err instanceof Error && err.message.includes('media_job_not_found')) {
     throw new MediaJobNotFound();
+  }
+  if (err instanceof Error && err.message.includes('media_job_wrong_video')) {
+    throw new MediaJobWrongVideo();
   }
   if (err instanceof Error && err.message.includes('media_job_not_a_check')) {
     throw new InvalidMediaJobCall('not a check job');

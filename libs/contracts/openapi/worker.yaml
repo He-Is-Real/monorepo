@@ -29,8 +29,11 @@ info:
     building block only, off Google Cloud, outbound only) pulls it, asks Bunny itself and calls the
     result writer (`workflow` on Cloud Run) directly, signed in as the media-worker Google account
     (J5): `POST /v1/media-jobs/{jobId}/answer` with what it found, or `/failed` with a short reason
-    code. It marks the job taken (acks it) after a `2xx`, unless `/failed` answers `retry: true`; after
-    anything else the queue redelivers it later. Messages are JSON in the message's `data` (no
+    code. Both carry the job's `videoId`. It marks the job taken (acks it) after a `2xx`, unless
+    `/failed` answers `retry: true`, and after a `404` (the job is gone); a `400` on an answer is
+    reported to `/failed` as `answer_rejected`, and a `400` on `/failed` is logged and the job
+    marked taken. After anything else (the writer unreachable, a `5xx`) the queue redelivers it
+    later. Messages are JSON in the message's `data` (no
     CloudEvents envelope).
   contact:
     name: He Is Real Today
@@ -88,7 +91,9 @@ paths:
         The job's `doneAt` and `outcome` are set if it is still open; a job already ended keeps its
         outcome (the answer itself is still applied by the rules above). `404` if no such job exists
         (it went with its file): the worker drops the message. `400` for a malformed answer or a job
-        that isn't a check.
+        that isn't a check (`validation_failed`), or an answer whose `videoId` isn't the job's video
+        (`video_mismatch`; Joel, 2026-11-08); nothing is written, and the worker reports it as a
+        failure (`answer_rejected`), so the job gives up after 5 like any other.
       security:
         - mediaWorkerOidc: []
       x-milestone: M2
@@ -131,7 +136,10 @@ paths:
         Under 5 failures: `retry: true`, and the worker leaves the job in the queue, which redelivers it
         later. At the fifth: the job ends as `gave_up` and `retry: false`, and the worker marks it taken,
         so the story's later jobs carry on. A job that has already ended counts nothing more:
-        `retry: false` with its outcome. `404` if no such job exists.
+        `retry: false` with its outcome. `404` if no such job exists. `400` for a malformed failure
+        (`validation_failed`) or a `videoId` that isn't the job's video (`video_mismatch`): nothing
+        is counted, and the worker marks the job taken and logs it (the 18:00 resend sends it again
+        if it is still open).
       security:
         - mediaWorkerOidc: []
       x-milestone: M2
@@ -258,9 +266,11 @@ components:
       type: object
       description: |
         The worker's answer to a check job. `ready` needs every fact below; the others carry only the
-        outcome.
-      required: [outcome]
+        outcome and the video id.
+      required: [videoId, outcome]
       properties:
+        videoId:
+          $ref: '#/components/schemas/MediaVideoId'
         outcome:
           type: string
           enum: [ready, failed, encoding, gone]
@@ -279,10 +289,19 @@ components:
         thumbnailFileName:
           type: string
           description: Bunny's thumbnail file in the video's folder, e.g. `thumbnail.jpg`.
+    MediaVideoId:
+      type: string
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      description: |
+        The job's Bunny video id, from its `MediaJob` message (Joel, 2026-11-08). The writer refuses
+        the call (`400`, `video_mismatch`) if it isn't the job's video, so a mixed-up message can
+        never write one video's facts onto another's file.
     MediaFailure:
       type: object
-      required: [code]
+      required: [videoId, code]
       properties:
+        videoId:
+          $ref: '#/components/schemas/MediaVideoId'
         code:
           type: string
           pattern: '^[a-z][a-z0-9_]{0,63}$'

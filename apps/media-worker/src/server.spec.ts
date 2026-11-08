@@ -104,6 +104,7 @@ describe('the worker under Dapr', () => {
       'Bearer id-token-for-tests',
     );
     expect(JSON.parse(String(call.init.body))).toEqual({
+      videoId: VIDEO,
       outcome: 'ready',
       title: STORY,
       width: 720,

@@ -93,9 +93,11 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    (no answer, a timeout, Bunny's 5xx or 429), `bunny_refused` (Bunny refused the read-only key),
    `bunny_error` or `bunny_bad_reply` (an answer it can't use), `bunny_facts_missing` (finished,
    but without a size, length, thumbnail or title), `bunny_unknown_status`, `key_unavailable` (the
-   read-only key isn't readable), `answer_refused` (the writer refused the answer as malformed),
-   `bad_message` (the job's video id isn't a GUID) or `not_supported` (a `render` job: the audio
-   picture video isn't built yet).
+   read-only key isn't readable), `answer_rejected` (the writer refused the answer: malformed, or
+   its video isn't the job's), `worker_error` (the worker's own unexpected error) or
+   `not_supported` (a `render` job: the audio picture video isn't built yet). Every answer and
+   failure carries the job's video id, and the writer refuses one that isn't the job's video
+   (400 `video_mismatch`; Joel, 2026-11-08).
    The writer counts it on the job (`failures`, `lastError`): under 5 it says "try again" and the
    queue redelivers the job later; at 5 the job ends as `gave_up` and the story's later jobs carry
    on. If the writer can't be reached at all, the worker leaves the job in the queue and it comes
@@ -117,6 +119,8 @@ actors, no control plane.
 - Dapr's runtime: `mise install` (the pinned `dapr` CLI), then
   `dapr init --slim --runtime-version 1.19.1` (puts `daprd` in `~/.dapr/bin`; no Docker).
 - The repo's packages: `pnpm install`.
+- A desktop session's `XDG_RUNTIME_DIR` (`/run/user/<uid>`, in memory): the script refuses to
+  start without it rather than put the sign-in file on disk.
 
 **Start:** `tools/scripts/media-worker.sh` from the monorepo. It builds the worker, looks up the
 result writer's address, and starts the worker and Dapr's sidecar together. The worker first
@@ -133,16 +137,16 @@ component reads it as application default credentials; the worker uses it for Se
 for the ID token it calls the writer with.
 
 How it marks jobs: the writer saved the answer, or `/failed` says "give up": taken (acked). The
-job doesn't exist any more (404): dropped (acked). The writer unreachable or failing, Google
+job doesn't exist any more (404), or the writer refused to count a failure (400): dropped (acked)
+and logged. The writer refusing an answer (400) is reported to `/failed` as `answer_rejected`, so
+it gives up after 5 like any other failure. The writer unreachable or failing, Google
 refusing to sign the worker in, or `/failed` saying "try again": left in the queue, which
 redelivers it 10 seconds to 10 minutes later (nacked). A message that isn't a job it can read is
-dropped and logged.
+dropped and logged (that includes one without a video id: every call to the writer names the
+job's video).
 
-**When Joel's login lapses** (Google's session control for the Workspace asks him to sign in
-again): the worker can't get a token, so it marks nothing taken and Dapr stops pulling after
-about a minute of retries. Jobs wait in the queue (31 days) and in the job table (for good). Sign
-in again (`gcloud auth login --update-adc`), then restart the worker (Ctrl+C, start again): the
-running one keeps the old login. The 18:00 resend sends anything older than 12 hours again.
+**When Joel's login lapses:** jobs wait in the queue and the table. Sign in again
+(`gcloud auth login --update-adc`) and restart the worker.
 
 **When the PC is off:** the same: jobs wait, and the worker catches up when it starts. Approving
 a story waits for its open media jobs, so stories with video wait in the moderation queue.

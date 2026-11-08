@@ -100,7 +100,9 @@ export function workerServer(deps: JobDeps, appApiToken: string): Server {
       handleJob(jobFromDelivery(body), deps).then(
         (status: Delivery) => reply(200, { status }),
         (err: unknown) => {
-          // Our own bug: leave the job in the queue rather than lose it.
+          // handleJob reports its own errors to the writer's /failed route; reaching here means
+          // that report couldn't be made either, so the job stays in the queue, like any other
+          // time the writer can't be reached.
           deps.log({
             step: 'crashed',
             code: err instanceof Error ? err.name : 'error',

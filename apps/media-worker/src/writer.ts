@@ -6,13 +6,14 @@
 
 const TIMEOUT_MS = 30_000; // a cold start of the writer, then one database transaction
 
+/** Both carry the job's video id; the writer refuses a call naming another video (400). */
 export type WriterCall =
-  | { route: 'answer'; jobId: string; body: unknown }
-  | { route: 'failed'; jobId: string; body: { code: string } };
+  | { route: 'answer'; jobId: string; body: { videoId: string } }
+  | { route: 'failed'; jobId: string; body: { videoId: string; code: string } };
 
 /**
  * The writer's HTTP reply, or why there is none: `unreachable` (network, timeout) or `no_token`
- * (Google wouldn't give us an ID token: Joel's login has lapsed, say).
+ * (Google wouldn't give us an ID token).
  */
 export type WriterReply =
   { status: number; body: unknown } | 'unreachable' | 'no_token';

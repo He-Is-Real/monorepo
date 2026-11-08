@@ -22,12 +22,12 @@ const READY: CheckResult = {
 const ok = (body: unknown): WriterReply => ({ status: 200, body });
 
 function deps(
-  check: CheckResult,
+  check: CheckResult | (() => Promise<CheckResult>),
   replies: { answer?: WriterReply; failed?: WriterReply },
 ) {
   const calls: WriterCall[] = [];
   const d: JobDeps = {
-    check: async () => check,
+    check: typeof check === 'function' ? check : async () => check,
     writer: async (call) => {
       calls.push(call);
       const reply = call.route === 'answer' ? replies.answer : replies.failed;
@@ -60,22 +60,39 @@ describe('a check job', () => {
       {
         route: 'answer',
         jobId: JOB,
-        body: (READY as { answer: unknown }).answer,
+        body: { videoId: VIDEO, ...(READY as { answer: object }).answer },
       },
     ]);
   });
 
-  it('reports a refused answer (400) as a failure, and follows the writer', async () => {
+  it('reports a refused answer (400) as answer_rejected, and follows the writer', async () => {
     const { d, calls } = deps(READY, {
-      answer: { status: 400, body: {} },
+      answer: { status: 400, body: { code: 'video_mismatch' } },
       failed: ok({ retry: true }),
     });
     await expect(handleJob(check, d)).resolves.toBe('RETRY');
     expect(calls[1]).toEqual({
       route: 'failed',
       jobId: JOB,
-      body: { code: 'answer_refused' },
+      body: { videoId: VIDEO, code: 'answer_rejected' },
     });
+  });
+
+  it('reports its own unexpected error as worker_error, and follows the writer', async () => {
+    const { d, calls } = deps(
+      async () => {
+        throw new TypeError('a bug');
+      },
+      { failed: ok({ retry: false, outcome: 'gave_up' }) },
+    );
+    await expect(handleJob(check, d)).resolves.toBe('SUCCESS');
+    expect(calls).toEqual([
+      {
+        route: 'failed',
+        jobId: JOB,
+        body: { videoId: VIDEO, code: 'worker_error' },
+      },
+    ]);
   });
 
   it.each([
@@ -91,6 +108,7 @@ describe('a check job', () => {
       'SUCCESS',
     ],
     ['the job is gone (404)', { status: 404, body: {} }, 'DROP'],
+    ['the writer refused the failure (400)', { status: 400, body: {} }, 'DROP'],
     ['the writer failed (5xx)', { status: 500, body: {} }, 'RETRY'],
     ['the writer could not be reached', 'unreachable' as const, 'RETRY'],
   ])(
@@ -102,20 +120,14 @@ describe('a check job', () => {
       );
       await expect(handleJob(check, d)).resolves.toBe(delivery);
       expect(calls).toEqual([
-        { route: 'failed', jobId: JOB, body: { code: 'bunny_unreachable' } },
+        {
+          route: 'failed',
+          jobId: JOB,
+          body: { videoId: VIDEO, code: 'bunny_unreachable' },
+        },
       ]);
     },
   );
-
-  it('reports a malformed video id as bad_message', async () => {
-    const { d, calls } = deps(READY, { failed: ok({ retry: true }) });
-    await expect(handleJob({ ...check, videoId: '../../x' }, d)).resolves.toBe(
-      'RETRY',
-    );
-    expect(calls).toEqual([
-      { route: 'failed', jobId: JOB, body: { code: 'bad_message' } },
-    ]);
-  });
 });
 
 describe('other messages', () => {
@@ -127,7 +139,11 @@ describe('other messages', () => {
       handleJob({ jobId: JOB, kind: 'render', videoId: VIDEO }, d),
     ).resolves.toBe('SUCCESS');
     expect(calls).toEqual([
-      { route: 'failed', jobId: JOB, body: { code: 'not_supported' } },
+      {
+        route: 'failed',
+        jobId: JOB,
+        body: { videoId: VIDEO, code: 'not_supported' },
+      },
     ]);
   });
 
@@ -136,6 +152,8 @@ describe('other messages', () => {
     ['no job id', { kind: 'check', videoId: VIDEO }],
     ['a job id that is not a ULID', { ...check, jobId: 'mediaJob:1' }],
     ['an unknown kind', { ...check, kind: 'transcribe' }],
+    ['no video id', { jobId: JOB, kind: 'check' }],
+    ['a video id that is not a GUID', { ...check, videoId: '../../x' }],
   ])('drops a message with %s, calling nobody', async (_, message) => {
     const { d, calls } = deps(READY, {});
     await expect(handleJob(message, d)).resolves.toBe('DROP');

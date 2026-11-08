@@ -9,7 +9,7 @@
 # Dapr's runtime (`mise install`, then `dapr init --slim --runtime-version 1.19.1`), and the repo's
 # packages (`pnpm install`). Stop it with Ctrl+C. The sign-in it hands the worker and Dapr is a
 # file in $XDG_RUNTIME_DIR (memory, readable by you only), removed when it stops; nothing else is
-# written. If your Google sign-in lapses, jobs wait in the queue: sign in again, then restart this.
+# written.
 set -euo pipefail
 
 project=heisreal-dev
@@ -29,6 +29,9 @@ die() {
 command -v gcloud >/dev/null || die "gcloud isn't installed (docs/tooling-and-accounts.md)"
 command -v node >/dev/null || die "node isn't installed (mise install)"
 [ -x "$daprd" ] || die "Dapr's runtime isn't installed: run 'mise install', then 'dapr init --slim --runtime-version 1.19.1'"
+# The sign-in file goes in memory, never on disk: no fallback to /tmp.
+[ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ -O "$XDG_RUNTIME_DIR" ] ||
+  die "XDG_RUNTIME_DIR isn't set to a directory you own (your desktop session sets it, e.g. /run/user/$(id -u))"
 adc="${CLOUDSDK_CONFIG:-$HOME/.config/gcloud}/application_default_credentials.json"
 [ -r "$adc" ] || die "no gcloud application default login: run 'gcloud auth login --update-adc'"
 
@@ -44,7 +47,7 @@ echo "media-worker: building" >&2
 # Your login, acting as media-worker (D126): the standard "impersonated_service_account"
 # credentials that `gcloud auth application-default login --impersonate-service-account` writes,
 # made from your current login, kept in memory ($XDG_RUNTIME_DIR) and readable by you only.
-runtime="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/heisreal-media-worker.XXXXXX")"
+runtime="$(mktemp -d "$XDG_RUNTIME_DIR/heisreal-media-worker.XXXXXX")"
 chmod 700 "$runtime"
 pids=()
 cleanup() {
