@@ -19,7 +19,7 @@ import { isAbsolute } from 'node:path';
 import { BunnyStreamReader, checkAnswer } from './bunny';
 import { FfmpegRenderer, isPicture } from './render';
 import { workerServer } from './server';
-import type { LogEntry } from './worker';
+import { type LogEntry, RenderSlot } from './worker';
 import { httpWriter } from './writer';
 
 /** How long the read-only key is used before it is read again (a rotated key arrives). */
@@ -113,6 +113,7 @@ async function main() {
     {
       check: (video) => checkAnswer(bunny, video),
       renderer,
+      renderSlot: new RenderSlot(),
       writer: httpWriter(writerUrl.toString(), idToken),
       log,
     },

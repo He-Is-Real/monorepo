@@ -1,6 +1,6 @@
 import type { CheckResult } from './bunny';
 import type { RenderPass, RenderResult } from './render';
-import { handleJob, type JobDeps } from './worker';
+import { handleJob, type JobDeps, RenderSlot } from './worker';
 import type { WriterCall, WriterReply } from './writer';
 
 /**
@@ -39,6 +39,7 @@ function deps(
         return typeof rendered === 'function' ? rendered() : rendered;
       },
     },
+    renderSlot: new RenderSlot(),
     writer: async (call) => {
       calls.push(call);
       const reply = replies[call.route];
@@ -264,6 +265,42 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
     await expect(handleJob(render, d)).resolves.toBe('RETRY');
     expect(calls.map((c) => c.route)).toEqual(['upload-pass', 'failed']);
     expect(calls[1].body).toEqual({ videoId: VIDEO, code: 'source_not_ready' });
+  });
+
+  it('one render at a time: another render job goes back to the queue before asking for its pass; check jobs carry on', async () => {
+    let finish: ((r: RenderResult) => void) | undefined;
+    const { d, calls } = deps(
+      READY,
+      {
+        'upload-pass': ok(PASS),
+        rendered: ok({ outcome: 'applied' }),
+        answer: ok({ outcome: 'applied' }),
+      },
+      // The first render runs until the test finishes it; later ones end at once.
+      () =>
+        finish
+          ? Promise.resolve({ sizeBytes: 207_000 })
+          : new Promise<RenderResult>((r) => (finish = r)),
+    );
+    const first = handleJob(render, d);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+
+    // While it renders: no pass is asked for the second (it would age while it waited).
+    await expect(handleJob(render, d)).resolves.toBe('RETRY');
+    expect(calls.map((c) => c.route)).toEqual(['upload-pass']);
+    await expect(handleJob(check, d)).resolves.toBe('SUCCESS');
+
+    finish?.({ sizeBytes: 207_000 });
+    await expect(first).resolves.toBe('SUCCESS');
+    // Redelivered once the first is done: its pass is asked for now.
+    await expect(handleJob(render, d)).resolves.toBe('SUCCESS');
+    expect(calls.map((c) => c.route)).toEqual([
+      'upload-pass',
+      'answer',
+      'rendered',
+      'upload-pass',
+      'rendered',
+    ]);
   });
 
   it('leaves the job in the queue if "done" can’t be saved; the retry gets the same video', async () => {

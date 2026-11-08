@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   Param,
@@ -26,6 +27,7 @@ import {
   parseJobId,
   parseMediaAnswer,
   parseVideoId,
+  settleThumbnail,
   type ThumbnailSet,
   wantedThumbnail,
 } from './media-jobs';
@@ -93,7 +95,7 @@ export class MediaJobsController {
         }
       }
     }
-    const { outcome, render } = await answerJob(
+    const { outcome, render, thumbnailSettled } = await answerJob(
       this.db,
       job,
       video,
@@ -101,6 +103,9 @@ export class MediaJobsController {
       arrivedAt,
       thumbnail,
     ).catch((err: unknown) => this.refuse(job, err));
+    if (!thumbnailSettled && this.bunny) {
+      await this.settleThumbnail(job, video, this.bunny);
+    }
     // Ids and outcomes only: no personal data is in an answer.
     this.logger.log(
       JSON.stringify({
@@ -116,6 +121,39 @@ export class MediaJobsController {
     );
     if (render) await sendJobs(this.db, this.queue, [render]);
     return { outcome };
+  }
+
+  /**
+   * The picture this answer set at Bunny is no longer the story's at the commit: the picture
+   * changed meanwhile, or a newer check of the same video set another one before this one's
+   * reached Bunny (Codex review of PR 201, round 2). Bunny is set again to the story's picture
+   * now, so it ends on what the database records and approval relies on. If Bunny won't, or the
+   * picture keeps changing, a 500: the worker leaves the job in the queue, and the redelivered
+   * check sets Bunny again (the job may already have ended, so failing it would drop it).
+   */
+  private async settleThumbnail(
+    job: string,
+    video: string,
+    bunny: WriterBunny,
+  ): Promise<void> {
+    let settled: boolean;
+    try {
+      settled = await settleThumbnail(
+        this.db,
+        (v, picture) => bunny.setThumbnail(v, picture),
+        job,
+        video,
+      );
+    } catch (err) {
+      if (!(err instanceof BunnyCallFailed)) throw err;
+      this.logger.warn(JSON.stringify({ job, thumbnail: err.code }));
+      throw new InternalServerErrorException();
+    }
+    if (!settled) {
+      this.logger.warn(JSON.stringify({ job, thumbnail: 'unsettled' }));
+      throw new InternalServerErrorException();
+    }
+    this.logger.log(JSON.stringify({ job, thumbnail: 'settled' }));
   }
 
   /**

@@ -37,6 +37,8 @@ class FakeStream {
   videos = new Map<string, { title: string; thumbnailFileName: string }>();
   thumbnailUrls: string[] = [];
   refuse = false;
+  /** Holds a thumbnail call before Bunny takes it, while the promise it answers is pending. */
+  hold?: (source: string) => Promise<void> | undefined;
 
   fetch: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -55,6 +57,7 @@ class FakeStream {
     if (!video) return json(404, {});
     if (init?.method === 'POST' && action === 'thumbnail') {
       const source = url.searchParams.get('thumbnailUrl') ?? '';
+      await this.hold?.(source);
       this.thumbnailUrls.push(source);
       video.thumbnailFileName =
         source === 'thumbnail_1.jpg'
@@ -279,7 +282,11 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         ready(story),
         next(),
       );
-      expect(r).toEqual({ outcome: 'applied', render: null });
+      expect(r).toEqual({
+        outcome: 'applied',
+        render: null,
+        thumbnailSettled: true,
+      });
       expect(await file(made)).toMatchObject({
         processing: 'ready',
         width: 1024,
@@ -609,6 +616,60 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         }),
       ).toEqual({ status: 200, body: { outcome: 'applied' } });
       expect(stream.thumbnailUrls.at(-1)).toBe('thumbnail_1.jpg');
+      expect(stream.videos.get(video)?.thumbnailFileName).toBe(
+        'thumbnail_1.jpg',
+      );
+      expect(await file(video)).toMatchObject({
+        thumbnailOf: null,
+        thumbnailPath: `${video}/thumbnail_1.jpg`,
+      });
+    });
+
+    it('two checks overlap and the older one reaches Bunny last: Bunny ends on the picture the database records', async () => {
+      const story = await newStory('video');
+      const video = await upload(story, 'video');
+      const path = await picture(story);
+      stream.videos.set(video, {
+        title: story,
+        thumbnailFileName: 'thumbnail.jpg',
+      });
+      // Check A reads the story's picture; its call to Bunny waits until check B is done.
+      let reached!: () => void;
+      const atBunny = new Promise<void>((r) => (reached = r));
+      let release!: () => void;
+      const released = new Promise<void>((r) => (release = r));
+      stream.hold = (source) => {
+        if (source === 'thumbnail_1.jpg') return undefined;
+        reached();
+        return released;
+      };
+      const a = post(`/v1/media-jobs/${await check(video)}/answer`, {
+        videoId: video,
+        ...ready(story),
+      });
+      await atBunny;
+      stream.hold = undefined;
+
+      // The picture is taken off, and check B (newer) puts Bunny's frame back and records it.
+      await rows(pat, `UPDATE type::record('story', $story) SET image = NONE`, {
+        story,
+      });
+      expect(
+        await post(`/v1/media-jobs/${await check(video)}/answer`, {
+          videoId: video,
+          ...ready(story),
+        }),
+      ).toEqual({ status: 200, body: { outcome: 'applied' } });
+      expect(await file(video)).toMatchObject({ thumbnailOf: null });
+
+      // A's picture reaches Bunny after B's frame; its answer is stale, and the writer sets the
+      // story's picture now (none: the frame) again before it replies.
+      release();
+      expect(await a).toEqual({ status: 200, body: { outcome: 'stale' } });
+      const picturesSent = stream.thumbnailUrls.map((u) =>
+        u === 'thumbnail_1.jpg' ? 'frame' : new URL(u).pathname.slice(1),
+      );
+      expect(picturesSent).toEqual(['frame', path, 'frame']);
       expect(stream.videos.get(video)?.thumbnailFileName).toBe(
         'thumbnail_1.jpg',
       );

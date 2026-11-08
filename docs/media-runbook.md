@@ -141,8 +141,14 @@ video) ready, the writer sets the picture its story wants with Bunny's "set thum
 Bunny's own first frame, `thumbnail_1.jpg`, when the story has no picture) and records it as
 `storyFile.thumbnailOf` in the answer's transaction. It does so on every ready check, not only
 when `thumbnailOf` differs: if Bunny took a picture but the database write after it failed, the
-next check puts Bunny right again. A moderator can't approve until it matches
-the story's picture (`media_not_ready`).
+next check puts Bunny right again. Two checks of the same video can overlap (the queue
+delivered it twice, or a new reason came in), and the one that read the older picture can reach
+Bunny last. So the answer's transaction records the picture only if it is still the story's
+picture at the commit; if it isn't, the writer sets Bunny again to the picture the story has now
+and records that (up to three tries) before it replies. Whoever reaches Bunny last checks the
+database after it, so Bunny ends on the picture the database records. If Bunny won't take it then,
+the writer answers 500 and the queue redelivers the check (the log says `thumbnail: <code>` or
+`unsettled`). A moderator can't approve until it matches the story's picture (`media_not_ready`).
 
 A render job's failure codes: `source_gone` / `source_not_ready` (Bunny no longer has the audio
 file, or hasn't finished it), `source_missing` (no MP4 copy in storage: is the library's MP4
@@ -158,8 +164,11 @@ video or sign the link). A video made for a job that then gave up is deleted by 
 clean-up once it is 48 hours old at Bunny (counted from the Bunny video's creation, not from
 when the job gave up; an open job's video is kept).
 
-The worker renders one picture video at a time (other render jobs wait their turn; check jobs
-don't wait), and ffmpeg uses at most two threads, so a render never takes over Joel's machine.
+The worker renders one picture video at a time. A render job that arrives while another renders
+isn't kept waiting on the machine: it goes straight back to the queue (log step `busy`, RETRY),
+which redelivers it 10 seconds to 10 minutes later, and only the job that has the render slot asks
+the writer for its upload pass and picture link, so both are fresh when its render starts. Check
+jobs never wait behind renders. ffmpeg uses at most two threads, so a render never takes over Joel's machine.
 ffmpeg's picture decoder also refuses anything over 4096 × 4096 pixels (`-max_pixels`, in case a
 WebP's frame claims more than its header), and `-xerror` makes it stop at the first decoding error
 (`render_failed`) instead of retrying a looped picture until its 15-minute timeout.

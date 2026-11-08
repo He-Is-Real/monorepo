@@ -160,15 +160,17 @@ export function parseFailure(input: unknown): string {
  *   again (fn::story::check_files) and step its version only if something it shows changed.
  * What a ready answer writes (the render decision, audio-picture-video.html decision 1B):
  * - a video: its facts, and (`$thumbSet`) the picture Bunny now shows for it (thumbnailOf), which
- *   the writer has just set at Bunny (video-bundle-rethink part A);
+ *   the writer has just set at Bunny (video-bundle-rethink part A), if it is still the story's
+ *   picture at the commit (else `thumbnailSettled` is false and the writer sets Bunny again);
  * - a person's own audio upload (no renderOf): its length only, still `processing`: it is ready
  *   only once its picture video is (approval needs that), so a render job of it opens;
  * - a picture video (renderOf): its facts as a video's; if the story's picture is no longer the
  *   one it was made with (thumbnailOf), a render job of it opens (reason picture_changed).
  * The job ends with that outcome if it is still open. A job already ended (the queue delivered
  * it twice, or a new reason was sent after an answer) keeps its outcome; the answer itself, made
- * fresh at Bunny, is still applied by the same rules. Answers the outcome and the render job
- * opened, if any (the writer sends it after the commit).
+ * fresh at Bunny, is still applied by the same rules. Answers the outcome, the render job
+ * opened, if any (the writer sends it after the commit), and whether Bunny's picture is the
+ * story's at the commit.
  */
 export const ANSWER_SQL = `
   LET $j = (SELECT kind, file, doneAt, reasons FROM ONLY type::record('mediaJob', $job));
@@ -198,15 +200,19 @@ export const ANSWER_SQL = `
       ELSE IF $source { { processing: 'processing', lengthSeconds: $video.lengthSeconds } }
       ELSE { object::extend($video, { thumbnailPath: <string> record::id($f.id) + '/' + $thumb }) };
     UPDATE $f.id MERGE object::extend($facts, { checkedAt: <datetime> $at }) RETURN NONE;
-    IF $thumbSet {
-      UPDATE $f.id SET thumbnailOf = IF $thumbOf = NONE { NONE }
-        ELSE { type::record('storyFile', $thumbOf) } RETURN NONE;
-    };
+  };
+  -- The picture the writer just had Bunny show is recorded only if it is still the story's picture
+  -- now, whatever the answer's outcome (it is a fact about Bunny, not about this answer). If it
+  -- isn't, the writer puts Bunny right after the commit (settleThumbnail).
+  LET $thumbRec = IF $thumbOf = NONE { NONE } ELSE { type::record('storyFile', $thumbOf) };
+  LET $thumbKept = $thumbSet AND $shown AND $f.format = 'video' AND $thumbRec = $picture;
+  IF $thumbKept {
+    UPDATE $f.id SET thumbnailOf = $thumbRec RETURN NONE;
   };
   IF $j.doneAt = NONE {
     UPDATE type::record('mediaJob', $job) SET doneAt = time::now(), outcome = $outcome RETURN NONE;
   };
-  { outcome: $outcome, render: $render };`;
+  { outcome: $outcome, render: $render, thumbnailSettled: !$thumbSet OR !$shown OR $thumbKept };`;
 
 /**
  * Bunny's picture for a video (video-bundle-rethink part A), what the writer set at Bunny just
@@ -293,6 +299,12 @@ export async function wantedThumbnail(
 export interface AnswerResult {
   outcome: AnswerOutcome;
   render: QueuedJob | null;
+  /**
+   * false: the picture the writer set at Bunny before the write is no longer the story's (it
+   * changed meanwhile, or a newer check set another after it); {@link settleThumbnail} puts
+   * Bunny right.
+   */
+  thumbnailSettled: boolean;
 }
 
 /**
@@ -322,12 +334,74 @@ export async function answerJob(
     const r = results[results.length - 2] as {
       outcome: AnswerOutcome;
       render?: Omit<QueuedJob, 'kind'> | null;
+      thumbnailSettled: boolean;
     };
     return {
       outcome: r.outcome,
       render: r.render ? { ...r.render, kind: 'render' } : null,
+      thumbnailSettled: r.thumbnailSettled,
     };
   });
+}
+
+/**
+ * Records the picture the writer has just had Bunny show for a video (`$thumbOf`, null for
+ * Bunny's frame; `$thumb`, Bunny's thumbnail file afterwards), only if it is the story's picture
+ * now; otherwise nothing is written. Answers whether it was (or the file is no longer a video its
+ * story shows, so nothing needs setting).
+ */
+const SETTLE_SQL = `BEGIN TRANSACTION;
+  LET $j = (SELECT kind, file FROM ONLY type::record('mediaJob', $job));
+  LET $f = IF $j != NONE AND $j.kind = 'check' AND <string> record::id($j.file) = $videoId {
+    (SELECT id, format, story, detachedAt, processing FROM ONLY $j.file) };
+  LET $shown = $f != NONE AND $f.format = 'video' AND $f.detachedAt = NONE
+    AND record::exists($f.story) AND $f.story.mediaFile = $f.id;
+  LET $picture = IF $shown { (SELECT VALUE image.file FROM ONLY $f.story) };
+  LET $set = IF $thumbOf = NONE { NONE } ELSE { type::record('storyFile', $thumbOf) };
+  LET $kept = $shown AND $set = $picture;
+  IF $kept {
+    UPDATE $f.id SET thumbnailOf = $set RETURN NONE;
+    IF $f.processing = 'ready' {
+      UPDATE $f.id SET thumbnailPath = <string> record::id($f.id) + '/' + $thumb RETURN NONE;
+    };
+  };
+  { settled: !$shown OR $kept };
+  COMMIT TRANSACTION;`;
+
+/** How often {@link settleThumbnail} sets Bunny's picture before leaving it to a redelivery. */
+const SETTLE_TRIES = 3;
+
+/**
+ * Puts Bunny's picture for a video right after an answer whose picture is no longer the story's
+ * (Codex review of PR 201, round 2): two checks of the same video can overlap, and the one that
+ * read the older picture may reach Bunny last. Each try reads the picture the story wants now,
+ * sets it at Bunny, and records it only if it is still the story's picture; whoever sets Bunny
+ * last checks the database after it, so Bunny ends on the picture the database records. Answers
+ * false if the picture kept changing for {@link SETTLE_TRIES} tries; a Bunny error from
+ * `setThumbnail` is thrown as it comes.
+ */
+export async function settleThumbnail(
+  db: SurrealQueryable,
+  setThumbnail: (video: string, picture: string | null) => Promise<string>,
+  job: string,
+  video: string,
+): Promise<boolean> {
+  for (let i = 0; i < SETTLE_TRIES; i++) {
+    const wanted = await wantedThumbnail(db, job, video);
+    if (wanted === undefined) return true;
+    const thumb = await setThumbnail(video, wanted);
+    const settled = await retryOnConflict(async () => {
+      const results = await runQuery(db, SETTLE_SQL, {
+        job,
+        videoId: video,
+        thumbOf: wanted ?? undefined,
+        thumb,
+      });
+      return (results[results.length - 2] as { settled: boolean }).settled;
+    });
+    if (settled) return true;
+  }
+  return false;
 }
 
 const FAILURE_SQL = `BEGIN TRANSACTION;

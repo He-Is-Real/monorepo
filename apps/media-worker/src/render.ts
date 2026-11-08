@@ -54,7 +54,7 @@ const MAX_PICTURE_SIDE = 4096;
 export const MAX_OUTPUT_BYTES = MAX_SOURCE_BYTES;
 /**
  * ffmpeg's threads: Joel's machine runs other things, and a still picture needs few. With one
- * render at a time (the renderer's queue), a render never takes more than two cores.
+ * render at a time (the worker's render slot), a render never takes more than two cores.
  */
 const FFMPEG_THREADS = '2';
 const FETCH_TIMEOUT_MS = 10 * 60_000;
@@ -259,12 +259,8 @@ export interface FfmpegRendererConfig {
 }
 
 export class FfmpegRenderer implements Renderer {
+  // One render at a time: the worker's render slot (worker.ts RenderSlot) sees to it.
   private readonly fetcher: typeof fetch;
-  /**
-   * Renders run one at a time (the rest wait their turn here): each holds a story's sound and
-   * picture and an ffmpeg, and Joel's machine is shared. Check jobs don't wait for them.
-   */
-  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly config: FfmpegRendererConfig) {
     if (!ZONE.test(config.storageZone))
@@ -272,16 +268,7 @@ export class FfmpegRenderer implements Renderer {
     this.fetcher = config.fetcher ?? fetch;
   }
 
-  render(sourceVideoId: string, pass: RenderPass): Promise<RenderResult> {
-    const turn = this.queue.then(() => this.renderNow(sourceVideoId, pass));
-    this.queue = turn.catch(() => undefined);
-    return turn;
-  }
-
-  private async renderNow(
-    sourceVideoId: string,
-    pass: RenderPass,
-  ): Promise<RenderResult> {
+  async render(sourceVideoId: string, pass: RenderPass): Promise<RenderResult> {
     const dir = await mkdtemp(join(this.config.workDir, 'render-'));
     try {
       const sound = join(dir, 'sound.mp4');

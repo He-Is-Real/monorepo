@@ -30,11 +30,36 @@ export interface LogEntry {
   delivery: Delivery;
 }
 
+/**
+ * The worker's one render at a time (Codex review of PR 201, round 2): each render holds a story's
+ * sound and picture and an ffmpeg, and Joel's machine is shared. A render job that finds it taken
+ * isn't queued here: it goes back to Pub/Sub (RETRY), which redelivers it 10 seconds to 10
+ * minutes later. So no render waits on the machine holding a pass that is getting older, and no
+ * waiting render holds one of the delivery slots check jobs need.
+ */
+export class RenderSlot {
+  private taken = false;
+
+  /** The slot and how to give it back, or null if a render is running. */
+  take(): (() => void) | null {
+    if (this.taken) return null;
+    this.taken = true;
+    let given = false;
+    return () => {
+      if (given) return;
+      given = true;
+      this.taken = false;
+    };
+  }
+}
+
 export interface JobDeps {
   /** Asks Bunny about the video now (bunny.ts checkAnswer). */
   check(videoId: string): Promise<CheckResult>;
   /** Makes and uploads a picture video (render.ts). */
   renderer: Renderer;
+  /** Taken before a render asks for its pass, given back when it ends. */
+  renderSlot: RenderSlot;
   writer: Writer;
   log(entry: LogEntry): void;
 }
@@ -161,12 +186,29 @@ function readPass(body: unknown): RenderPass | null {
 }
 
 /**
- * A render job (audio-picture-video.html decisions 1B and 2 = K1): ask the writer for the pass,
- * make and upload the picture video, tell the writer it's done. The writer may answer that no
- * picture video is needed (the job's outcome): the job is then taken. A step that fails counts as
- * the job's failure, and a retry gets a pass for the same new video (the writer's madeFile).
+ * A render job (audio-picture-video.html decisions 1B and 2 = K1): take the render slot, ask the
+ * writer for the pass, make and upload the picture video, tell the writer it's done. With the slot
+ * taken by another render, the job goes back to the queue before anything is asked (its pass and
+ * picture link are fresh when its render starts). The writer may answer that no picture video is
+ * needed (the job's outcome): the job is then taken. A step that fails counts as the job's
+ * failure, and a retry gets a pass for the same new video (the writer's madeFile).
  */
 async function render(
+  job: { jobId: string; videoId: string },
+  deps: JobDeps,
+  done: (entry: LogEntry) => Delivery,
+  fail: (code: string) => Promise<Delivery>,
+): Promise<Delivery> {
+  const giveBack = deps.renderSlot.take();
+  if (!giveBack) return done({ step: 'busy', delivery: 'RETRY' });
+  try {
+    return await renderInSlot(job, deps, done, fail);
+  } finally {
+    giveBack();
+  }
+}
+
+async function renderInSlot(
   job: { jobId: string; videoId: string },
   deps: JobDeps,
   done: (entry: LogEntry) => Delivery,

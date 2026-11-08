@@ -91,9 +91,12 @@ paths:
         frames are already its picture), the writer first sets the picture its story wants at
         Bunny (the story's own, or Bunny's own frame when it has none; Joel, 2026-11-06,
         video-bundle-rethink.html part A) on every ready check, not only when the stored one
-        differs, and records it with the answer. If Bunny refuses or can't be
-        reached, that counts as the job's failure and the reply is `/failed`'s (`retry`, and the
-        outcome at the fifth).
+        differs, and records it with the answer if it is still the story's picture at the commit
+        (whatever the answer's outcome). If it isn't (the picture changed, or an overlapping check
+        set another), the writer sets the story's picture now at Bunny again and records it before
+        replying; if Bunny won't then, a `5XX` and the queue redelivers the check. If Bunny refuses
+        the first setting or can't be reached, that counts as the job's failure and the reply is
+        `/failed`'s (`retry`, and the outcome at the fifth).
 
         The worker's answer about the job's Bunny video, made fresh at Bunny just before the call. In one
         database transaction, signed in as `service:workflow` (Joel, 2026-11-07: F1, J5 and the round 3
@@ -101,7 +104,8 @@ paths:
         - `gone`: the file isn't one its story shows now (replaced, removed, the story deleted), or a
           `ready` answer's `title` isn't the story's id. Nothing is written to the file.
         - `stale`: an answer that reached the writer at or after this one is already in
-          (`storyFile.checkedAt`). Nothing is written to the file.
+          (`storyFile.checkedAt`). Nothing is written to the file but the picture Bunny shows
+          (`thumbnailOf`, above).
         - `applied`: every fact is written with `checkedAt` = when this call arrived. `ready` sets
           `processing` and, for a video, its width, height, length and Bunny's thumbnail; for an audio
           file only its length (its picture comes from the default-picture step). `encoding` sets
