@@ -462,6 +462,25 @@ What happens and where to look:
 - **Nothing to do** unless the pod doesn't come back: then `kubectl -n database get pods,events`
   (read-only) and check the node pool has Spot capacity in `europe-west2-c`.
 
+**Full rebuild after storage loss.** A Spot restart keeps the disk. If the disk itself is lost
+(the PVC or the volume is deleted) the database comes back empty: no `heisreal` namespace and no
+service logins until the migrations run. The database then _answers_ and refuses every
+service's sign-in, so a new Cloud Run revision fails to start (`database_refused`, see above)
+while the old revisions keep answering `503 service_restarting`. The apply pipeline applies
+`gcp` (new revisions) before `cluster` (the migrations), so its `gcp` apply can fail before the
+migrations ever run. Rebuild in the other order, by hand:
+
+1. Apply the `cluster` root first: `tools/scripts/tf.sh cluster plan -out=cluster.plan`, read
+   the plan (the migration Job runs on the empty database and creates the namespace, schema and
+   service logins), then `tools/scripts/tf.sh cluster apply cluster.plan`, and check the Job as in
+   "Order: migrate, then deploy".
+2. Then apply `gcp` (or re-run the pipeline): the new revisions sign in and start.
+3. Restore data from a backup if the environment held any ("Backups and restore"); dev re-seeds
+   instead (the "Dev behavioural tests" workflow).
+
+The normal dev wipe (`dev_database_reset`, above) keeps the namespace and the service logins,
+so it doesn't need this. The pipeline's order is unchanged.
+
 ## Not done yet
 
 - PVC snapshots (a GKE VolumeSnapshot schedule) as a second backup layer.

@@ -166,15 +166,65 @@ function describeRefusal(err: ServerError): string {
   return err.details ? `${err.kind}/${err.details.kind}` : err.kind;
 }
 
-/** A service doesn't start: the database refused its sign-in ({@link startConnecting}). */
+/**
+ * A service doesn't start: the database refused its sign-in ({@link startConnecting}). Keeps only
+ * the refusal's kind and detail, never the server's text or its cause chain (they may name the
+ * service or echo what was sent); {@link failedToStart} logs it.
+ */
 export class DatabaseRefusedError extends Error {
   readonly code = DATABASE_REFUSED;
-  constructor(readonly refusal: ServerError) {
+  /** The refusal's kind and detail kind, e.g. `NotAllowed` and `Auth`. */
+  readonly kind: string;
+  readonly detail: string | undefined;
+  constructor(
+    refusal: ServerError,
+    readonly url: string,
+    readonly username: string,
+  ) {
     super(
       `The database refused this service's sign-in (${DATABASE_REFUSED}, ${describeRefusal(refusal)})`,
     );
     this.name = 'DatabaseRefusedError';
+    this.kind = refusal.kind;
+    this.detail = refusal.details?.kind;
   }
+}
+
+/**
+ * The services' `NestFactory.create` options for start-up: a failure rejects (rather than Nest's
+ * default `process.abort()`), and Nest's own logs wait in a buffer until `app.flushLogs()`, so
+ * {@link failedToStart} decides what a failed start prints.
+ */
+export const START_UP_OPTIONS = {
+  abortOnError: false,
+  bufferLogs: true,
+  autoFlushLogs: false,
+} as const;
+
+/**
+ * A service's `NestFactory.create(...)` failed: exits with code 1, so Cloud Run keeps the
+ * previous revision. The database refused the sign-in ({@link DatabaseRefusedError}): prints one
+ * structured CRITICAL line with the code `database_refused` and drops Nest's buffered logs (they
+ * would repeat it). Anything else: prints Nest's buffered logs, which end with the error.
+ */
+export function failedToStart(err: unknown): never {
+  if (err instanceof DatabaseRefusedError) {
+    process.stdout.write(
+      `${JSON.stringify({
+        severity: 'CRITICAL',
+        message: `${err.message}; not starting`,
+        event: DATABASE_REFUSED,
+        code: DATABASE_REFUSED,
+        kind: err.kind,
+        detail: err.detail,
+        url: err.url,
+        username: err.username,
+      })}\n`,
+    );
+  } else {
+    Logger.flush();
+  }
+  process.exit(1);
 }
 
 /** How long start-up waits to learn whether the database answers ({@link startConnecting}). */
@@ -187,9 +237,9 @@ export const START_UP_WAIT_MS = 10_000;
  * No answer (connection refused, DNS, a timeout, the socket closed; `waitMs` passing without
  * either counts too): carry on as well; the database is restarting, and routes answer
  * `503 service_restarting` until it's back. The database answered and refused the sign-in
- * ({@link databaseRefusal}): logs one line with the code `database_refused` and fails with
- * {@link DatabaseRefusedError}, so the service exits before it opens its port and Cloud Run
- * keeps the previous revision. After start-up every failure counts as a restart.
+ * ({@link databaseRefusal}): fails with {@link DatabaseRefusedError}, and the service's
+ * {@link failedToStart} logs it and exits before the port opens, so Cloud Run keeps the previous
+ * revision. After start-up every failure counts as a restart.
  */
 export async function startConnecting(
   db: Surreal,
@@ -225,20 +275,7 @@ export async function startConnecting(
   // Still marked as starting, so the background connect's own failure log stays quiet.
   stopConnecting(db);
   await db.close().catch(() => undefined);
-  const error = new DatabaseRefusedError(refusal);
-  process.stdout.write(
-    `${JSON.stringify({
-      severity: 'CRITICAL',
-      message: `${error.message}; not starting`,
-      event: DATABASE_REFUSED,
-      code: DATABASE_REFUSED,
-      kind: refusal.kind,
-      detail: refusal.details?.kind,
-      url: config.url,
-      username: config.username,
-    })}\n`,
-  );
-  throw error;
+  throw new DatabaseRefusedError(refusal, config.url, config.username);
 }
 
 /**

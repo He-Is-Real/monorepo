@@ -4,6 +4,7 @@
  */
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { failedToStart, START_UP_OPTIONS } from '@heisreal/database';
 import { corsOptions } from '@heisreal/http';
 import { AppModule } from './app/app.module';
 
@@ -11,10 +12,11 @@ async function bootstrap() {
   // D31: the browser calls this service directly, from web's origin only (CORS_ALLOWED_ORIGINS).
   const app = await NestFactory.create(AppModule, {
     cors: corsOptions(),
-    // A start-up failure (e.g. the database refused the sign-in, `database_refused`) exits with
-    // code 1 rather than Nest's default process.abort(); Cloud Run keeps the previous revision.
-    abortOnError: false,
-  });
+    // A start-up failure exits with code 1 (failedToStart; a refused database sign-in logs one
+    // `database_refused` line), and Cloud Run keeps the previous revision.
+    ...START_UP_OPTIONS,
+  }).catch(failedToStart);
+  app.flushLogs();
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3001;
   await app.listen(port);

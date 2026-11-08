@@ -6,14 +6,16 @@
  */
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { failedToStart, START_UP_OPTIONS } from '@heisreal/database';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    // A start-up failure (e.g. the database refused the sign-in, `database_refused`) exits with
-    // code 1 rather than Nest's default process.abort(); Cloud Run keeps the previous revision.
-    abortOnError: false,
-  });
+    // A start-up failure exits with code 1 (failedToStart; a refused database sign-in logs one
+    // `database_refused` line), and Cloud Run keeps the previous revision.
+    ...START_UP_OPTIONS,
+  }).catch(failedToStart);
+  app.flushLogs();
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3004;
   await app.listen(port);
