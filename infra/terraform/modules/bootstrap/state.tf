@@ -67,11 +67,16 @@ resource "google_storage_bucket" "tfstate" {
 # it; it's also encrypted with tofu-bunny, which only they can use (kms.tf).
 # Object names stay listable, contents don't. live/dev/bunny refuses to plan if
 # anything Bunny is public.
+#
+# The org root's state (live/org, prefix org/) is closed to every CI identity, tf-bunny included:
+# only an organisation admin applies it, locally, so no CI run may read, replace or lock it.
 locals {
   # Prefixes no CI identity but tf-bunny may read or write (keep in step with live/dev/bunny).
   private_state_prefixes = ["${var.environment}/bunny/"]
+  # Prefixes no CI identity may read or write (keep in step with live/org's backend).
+  local_only_state_prefixes = ["org/"]
   ci_state_condition = join(" && ", [
-    for p in local.private_state_prefixes :
+    for p in concat(local.private_state_prefixes, local.local_only_state_prefixes) :
     "!resource.name.startsWith('projects/_/buckets/${google_storage_bucket.tfstate.name}/objects/${p}')"
   ])
 }
@@ -82,7 +87,7 @@ data "google_iam_policy" "tfstate" {
     members = [google_service_account.tf_deployer.member]
     condition {
       title       = "not-private-state"
-      description = "No access to state that holds secrets (the bunny root)."
+      description = "No access to state that holds secrets (the bunny root) or the org root's."
       expression  = local.ci_state_condition
     }
   }
@@ -94,7 +99,7 @@ data "google_iam_policy" "tfstate" {
     ]
     condition {
       title       = "not-private-state"
-      description = "No access to state that holds secrets (the bunny root)."
+      description = "No access to state that holds secrets (the bunny root) or the org root's."
       expression  = local.ci_state_condition
     }
   }

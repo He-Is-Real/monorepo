@@ -261,8 +261,9 @@ Before the site goes public ("Go live"):
 
 - The organisation-wide "UK only" settings: Google refuses to create anything outside the UK,
   and new projects (prod) keep their logs in London. Joel brought them forward (2026-11-08, O1):
-  the code is built (`infra/terraform/live/org`); Joel applies it from his own machine, in
-  three steps (infra/terraform/README.md, "Organisation settings"). It must be on before the
+  the code is built (`infra/terraform/live/org`); Joel applies it from his own machine: first
+  bootstrap (so automated jobs can't touch its saved state), then three steps
+  (infra/terraform/README.md, "Organisation settings"). It must be on before the
   prod project is created. Nothing running in dev conflicts with it.
 - A front door for the heisreal.today domain, Clerk's production instance, and moving from
   Squarespace.

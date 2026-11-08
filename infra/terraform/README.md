@@ -225,16 +225,16 @@ kubectl -n database get secrets --as "$P"                                       
 
 ## Who can do what
 
-| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys; organisation policies and log settings (granted by hand)                                      |
-| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/`), `tofu-state`, bucket metadata; reads the organisation's policies and log settings. No secret values or backups                        |
-| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/`), `tofu-state`                                                                                               |
-| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster, images and stripe roots manage; state (not `dev/bunny/`), `tofu-state`, saved plans in `plans/`; reads `stripe-api-key`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes |
-| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                                                               |
-| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                                                               |
-| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                                                       |
-| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                                                     |
+| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys; organisation policies and log settings (granted by hand)                                                |
+| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/` or `org/`), `tofu-state`, bucket metadata; reads the organisation's policies and log settings. No secret values or backups                        |
+| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/` or `org/`), `tofu-state`                                                                                               |
+| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster, images and stripe roots manage; state (not `dev/bunny/` or `org/`), `tofu-state`, saved plans in `plans/`; reads `stripe-api-key`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes |
+| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                                                                         |
+| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                                                                         |
+| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                                                                 |
+| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                                                               |
 
 The gates are CEL expressions over GitHub's OIDC claims (`modules/bootstrap/*.cel.tftpl`, tested
 with claim fixtures in `modules/bootstrap/tests/`): ref, workflow file and event. Environments
@@ -798,7 +798,9 @@ Any new Google resource must name `europe-west2`: a resource that defaults to a 
 **Who applies it.** Only an organisation admin listed in `admins` in `live/org/main.tf` (today
 Joel), locally with their own credentials: `tf.sh org` refuses any other identity, and CI only
 validates it (no plan, no apply, no drift job: CI identities hold nothing at organisation level).
-Its state is in dev's state bucket under `org/`, encrypted with `tofu-state`. An organisation admin
+Its state is in dev's state bucket under `org/`, encrypted with `tofu-state`; the bucket's policy
+(`modules/bootstrap/state.tf`) gives no CI identity any object under `org/`, so no CI run can read,
+replace or lock it (developers keep `storage.admin`). An organisation admin
 (`roles/resourcemanager.organizationAdmin`) can grant roles but can't read or set the log settings
 or create custom roles, so `modules/org/access.tf` grants the admins, through OpenTofu:
 
@@ -808,10 +810,15 @@ or create custom roles, so `modules/org/access.tf` grants the admins, through Op
 | `logSettingsAdmin` (custom: `logging.settings.get/update`) | read and set the default log location; no log entries or sinks |
 | `roles/orgpolicy.policyAdmin` (granted by hand, imported)  | set the location policy (custom roles can't hold that)         |
 
-**First apply: three steps**, each after the previous one's grants have spread (give it a minute;
-a 403 on the next plan means wait and plan again). Read every plan before applying it:
+**First apply: step 0, then three steps**, each after the previous one's grants have spread (give
+it a minute; a 403 on the next plan means wait and plan again). Read every plan before applying it.
+Step 0 applies bootstrap (locally, as always) so the state bucket closes `org/` to CI before any
+org state exists; its plan updates only the bucket's IAM policy:
 
 ```bash
+# 0. Close org/ in the state bucket to CI (skip if bootstrap plans no changes).
+tools/scripts/tf.sh bootstrap plan -out=bootstrap.tfplan
+tools/scripts/tf.sh bootstrap apply bootstrap.tfplan
 tools/scripts/tf.sh org init
 # 1. You may create organisation custom roles.
 tools/scripts/tf.sh org plan -target=module.org.google_organization_iam_member.role_admin -out=org1.tfplan
@@ -825,8 +832,8 @@ tools/scripts/tf.sh org plan -out=org3.tfplan
 tools/scripts/tf.sh org apply org3.tfplan
 ```
 
-(Plan files are written in `live/org` and git-ignored; delete them afterwards.) Step 3's plan
-fails with `logging.settings.get` denied until step 2 is applied: that's expected. After the
+(Plan files are written in `live/dev/bootstrap` and `live/org` and git-ignored; delete them
+afterwards.) Step 3's plan fails with `logging.settings.get` denied until step 2 is applied: that's expected. After the
 first apply, `tf.sh org plan` works in one go. Undoing it: setting `allowed_locations` can only
 narrow to UK values (the variable refuses others); removing the policy needs a change to this
 module and Joel's decision.
