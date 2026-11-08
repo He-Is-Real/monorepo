@@ -19,11 +19,12 @@ locals {
   spot_reclaims_metric = "logging.googleapis.com/user/${local.name}/database-spot-reclaims"
 
   # Mosaic layout: 48 columns; each service gets one row of two charts below the reclaims chart.
+  # Leave out xPos/yPos when they are 0: Google drops zero values, so writing them makes every
+  # plan show the dashboard as changed.
   dashboard_row_height = 16
 
   dashboard_service_tiles = flatten([for i, service in local.dashboard_services : [
     {
-      xPos   = 0
       yPos   = 12 + i * local.dashboard_row_height
       width  = 24
       height = local.dashboard_row_height
@@ -94,8 +95,6 @@ resource "google_monitoring_dashboard" "database_restarts" {
     mosaicLayout = {
       columns = 48
       tiles = concat([{
-        xPos   = 0
-        yPos   = 0
         width  = 48
         height = 12
         widget = {
