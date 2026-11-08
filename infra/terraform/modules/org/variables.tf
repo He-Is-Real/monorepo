@@ -33,3 +33,20 @@ variable "log_storage_location" {
     error_message = "Logs stay in the UK: log_storage_location must be europe-west2 (London)."
   }
 }
+
+variable "admins" {
+  description = <<-EOT
+    Who applies the org root ("user:<email>"): granted the organisation roles it needs
+    (access.tf). Only heisreal.today people.
+  EOT
+  type        = list(string)
+
+  validation {
+    condition     = length(var.admins) > 0
+    error_message = "Someone must be able to apply the org root."
+  }
+  validation {
+    condition     = alltrue([for m in var.admins : can(regex("^user:[a-z0-9._%+-]+@heisreal\\.today$", m))])
+    error_message = "admins are heisreal.today users: user:<name>@heisreal.today."
+  }
+}

@@ -1,8 +1,7 @@
 # Organisation-wide settings (heisreal.today): they apply to every project in the organisation,
-# dev and prod alike, so exactly one root may call this module. No root calls it today: postponed
-# until the organisation admin's one-time setup (D119; README.md here). Applied locally by a
-# developer who holds roles/orgpolicy.policyAdmin and the custom role logSettingsAdmin on the
-# organisation (infra/terraform/README.md, "Where data lives").
+# dev and prod alike, so exactly one root calls this module: live/org, applied locally by an
+# organisation admin listed in `admins` (README.md here; infra/terraform/README.md, "Where data
+# lives"). access.tf grants them what the two settings below need.
 
 # D104: new projects' log buckets, Google's 400-day audit logs (`_Required`) included, are
 # created in London. Existing buckets keep their location: Google fixes it at creation.
@@ -14,6 +13,8 @@ resource "google_logging_organization_settings" "this" {
   storage_location     = var.log_storage_location
   disable_default_sink = false # new projects keep their _Default sink
   kms_key_name         = ""    # no CMEK on new projects' log buckets
+
+  depends_on = [google_organization_iam_member.log_settings_admin]
 }
 
 # D102: Google Cloud refuses to create a location-bound resource outside these locations, so a
@@ -46,5 +47,8 @@ resource "google_org_policy_policy" "resource_locations" {
   }
 
   # Set after the default log location, which the policy must allow.
-  depends_on = [google_logging_organization_settings.this]
+  depends_on = [
+    google_logging_organization_settings.this,
+    google_organization_iam_member.policy_admin,
+  ]
 }

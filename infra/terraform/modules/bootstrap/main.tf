@@ -22,7 +22,7 @@ locals {
     "iamcredentials.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
-    "orgpolicy.googleapis.com",            # the organisation's policies (modules/org, postponed: D119)
+    "orgpolicy.googleapis.com",            # the organisation's policies (modules/org, live/org)
     "policytroubleshooter.googleapis.com", # IAM checks (README, Bunny.net)
     "pubsub.googleapis.com",
     "run.googleapis.com",

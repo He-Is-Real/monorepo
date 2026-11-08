@@ -1,7 +1,7 @@
 # Bootstrap for the dev environment: project, APIs, Terraform state bucket,
 # CI identities, the budget and log storage. Applied by a developer (needs billing-account
-# permissions for the budget); never by CI. The organisation-wide settings (modules/org) are
-# postponed (D119), so this root needs no organisation roles.
+# permissions for the budget); never by CI. The organisation-wide settings (modules/org) have
+# their own root, live/org, so this one needs no organisation roles.
 #
 # First run ever: see infra/terraform/README.md "Bootstrapping a new environment"
 # (state starts local, then moves into the bucket this root creates).
@@ -58,10 +58,9 @@ module "bootstrap" {
   ]
 }
 
-# D119 (Joel, 2026-10-30): the organisation-wide UK settings (D102, D104) are postponed until
-# the organisation admin's one-time setup, a gate before Go live (infra/terraform/README.md,
-# "Where data lives"). If anything of module.org reached this state, OpenTofu forgets it and
-# Google keeps it; if nothing did, this block does nothing. Don't delete it before checking
+# The organisation-wide UK settings (D102, D104) moved out of this root (D119, 2026-10-30) and now
+# live in live/org. If anything of module.org reached this state, OpenTofu forgets it and Google
+# keeps it; if nothing did, this block does nothing. Don't delete it before checking
 # `tf.sh bootstrap state list` shows no module.org.
 removed {
   from = module.org

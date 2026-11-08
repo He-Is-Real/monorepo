@@ -10,6 +10,7 @@
       "inputs": [
         "{projectRoot}/modules/**/*",
         "{projectRoot}/live/dev/*/.terraform.lock.hcl",
+        "{projectRoot}/live/org/.terraform.lock.hcl",
         "{projectRoot}/test-modules.sh",
         {
           "runtime": "tofu version -json 2>/dev/null || echo missing"

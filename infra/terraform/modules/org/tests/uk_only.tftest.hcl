@@ -7,6 +7,7 @@ variables {
   org_id               = "463617123121"
   allowed_locations    = ["in:gb-locations"]
   log_storage_location = "europe-west2"
+  admins               = ["user:joel@heisreal.today"]
 }
 
 run "uk_only" {
@@ -61,4 +62,25 @@ run "logs_only_in_london" {
     log_storage_location = "europe-west1"
   }
   expect_failures = [var.log_storage_location]
+}
+
+# The org root's admins get the two log settings permissions, not log entries or org-wide sinks.
+run "admins_get_only_log_settings" {
+  command = plan
+
+  assert {
+    condition = (
+      toset(google_organization_iam_custom_role.log_settings_admin.permissions) ==
+      toset(["logging.settings.get", "logging.settings.update"])
+    )
+    error_message = "logSettingsAdmin holds only the two log settings permissions."
+  }
+}
+
+run "admins_only_from_heisreal_today" {
+  command = plan
+  variables {
+    admins = ["user:someone@gmail.com"]
+  }
+  expect_failures = [var.admins]
 }

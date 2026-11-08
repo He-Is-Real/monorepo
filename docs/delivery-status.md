@@ -12,7 +12,7 @@ is for) is the delivery plan in the `project` repo (`context/future/delivery-pla
 - The long dated log and the per-step build notes that used to be here are in git history
   (this file before 2026-11-04).
 
-**Last updated:** 2026-11-07
+**Last updated:** 2026-11-08
 
 Everything below runs on the **dev** site only, with made-up test stories. Nothing reaches the
 public until the "Go live" milestone; the old prototype and the Squarespace site keep running
@@ -259,8 +259,11 @@ Before the 24 real testimonies come in ("Real stories"):
 
 Before the site goes public ("Go live"):
 
-- The organisation admin's one-time Google set-up, then switch on the organisation-wide "UK
-  only" settings (they are postponed for dev).
+- The organisation-wide "UK only" settings: Google refuses to create anything outside the UK,
+  and new projects (prod) keep their logs in London. Joel brought them forward (2026-11-08, O1):
+  the code is built (`infra/terraform/live/org`); Joel applies it from his own machine, in
+  three steps (infra/terraform/README.md, "Organisation settings"). It must be on before the
+  prod project is created. Nothing running in dev conflicts with it.
 - A front door for the heisreal.today domain, Clerk's production instance, and moving from
   Squarespace.
 - Stripe's portal fix (above), then the switch from test mode to live payments.

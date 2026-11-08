@@ -4,8 +4,8 @@
 #
 #   tools/scripts/tf-roots.sh changed <base> <head>
 #
-# Prints one root per line in plan order (gcp images cluster bunny stripe), then bootstrap (a
-# notice only: it is planned and applied locally). bunny and stripe are notices too: PRs never
+# Prints one root per line in plan order (gcp images cluster bunny stripe), then bootstrap and
+# org (notices only: they are planned and applied locally). bunny and stripe are notices too: PRs never
 # plan them (tofu-plan.yml). Runs `git diff <base>...<head>` in the current
 # repository, so both commits must be fetched.
 # Exit codes: 64 usage, otherwise git's.
@@ -33,7 +33,8 @@ while IFS= read -r file; do
   "$tf"/live/dev/bunny/* | "$tf"/modules/bunny/* | "$tf"/modules/bunny-state-guard/*) selected[bunny]=1 ;;
   "$tf"/live/dev/stripe/* | "$tf"/modules/stripe/*) selected[stripe]=1 ;;
   "$tf"/live/dev/images/* | tools/scripts/image-tag.sh) selected[images]=1 ;;
-  "$tf"/live/dev/bootstrap/* | "$tf"/modules/bootstrap/* | "$tf"/modules/org/*) selected[bootstrap]=1 ;;
+  "$tf"/live/dev/bootstrap/* | "$tf"/modules/bootstrap/*) selected[bootstrap]=1 ;;
+  "$tf"/live/org/* | "$tf"/modules/org/*) selected[org]=1 ;;
   tools/scripts/tf*.sh | .github/actions/tofu/* | .github/workflows/tofu-*.yml | mise.toml)
     selected[gcp]=1 selected[cluster]=1 selected[bunny]=1 selected[stripe]=1
     ;;
@@ -43,6 +44,6 @@ done <<< "$files"
 # cluster reads gcp's outputs, so a gcp change can change the cluster plan.
 [ -z "${selected[gcp]:-}" ] || selected[cluster]=1
 
-for root in gcp images cluster bunny stripe bootstrap; do
+for root in gcp images cluster bunny stripe bootstrap org; do
   [ -z "${selected[$root]:-}" ] || echo "$root"
 done

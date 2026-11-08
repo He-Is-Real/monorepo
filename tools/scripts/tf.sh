@@ -2,24 +2,25 @@
 # One OpenTofu entry point for CI and laptops (D54).
 #
 #   tools/scripts/tf.sh <root> <tofu args...>       tofu -chdir=infra/terraform/live/dev/<root> ...
+#                                                    (org: infra/terraform/live/org)
 #   tools/scripts/tf.sh <root> plan-summary <plan>  changed addresses, actions and a count only
 #   tools/scripts/tf.sh <root> location-check <plan> reports anything outside the UK (blocks outside dev)
 #   tools/scripts/tf.sh bunny-cli <args...>         the bunny CLI with the account key, one process
 #   tools/scripts/tf.sh bunny-mask secrets|state    CI only: ::add-mask:: every Bunny key
 #   tools/scripts/tf.sh stripe-mask                 CI only: ::add-mask:: the Stripe API key
 #
-# Roots: bootstrap|gcp|images|cluster|bunny|stripe.
+# Roots: bootstrap|gcp|images|cluster|bunny|stripe|org.
 #
 # Identity (TF_SH_IDENTITY: unset, `self`, or a service-account email):
-#   - an explicit TF_SH_IDENTITY wins (bootstrap accepts only `self`);
+#   - an explicit TF_SH_IDENTITY wins (bootstrap and org accept only `self`);
 #   - otherwise, in GitHub Actions, the job's ambient credentials;
 #   - otherwise the root's CI identity: gcp, images, cluster, stripe as tf-deployer; bunny as
-#     tf-bunny; bootstrap always with your own credentials.
+#     tf-bunny; bootstrap and org always with your own credentials.
 # Impersonation needs `gcloud auth login --update-adc` and Token Creator on the account.
 #
 # Every `plan` (bunny's too) is checked by tf-location-check.sh, D119's interim UK guard, for the
-# root's environment (live/<environment>/<root>): in dev a finding is a warning and the exit code
-# stays tofu's; in any other environment it exits 1. Findings also go to the GitHub step summary.
+# root's environment (live/<environment>/<root>; org's is `org`): in dev a finding is a warning
+# and the exit code stays tofu's; in any other environment it exits 1. Findings also go to the GitHub step summary.
 # Without -out it plans to a scratch file.
 #
 # Refuses debug logs (TF_LOG*, RUNNER_DEBUG=1): they can print secrets into public CI logs.
@@ -31,12 +32,12 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 project=heisreal-dev
-roots='bootstrap|gcp|images|cluster|bunny|stripe'
+roots='bootstrap|gcp|images|cluster|bunny|stripe|org'
 deployer="tf-deployer@${project}.iam.gserviceaccount.com"
 tf_bunny="tf-bunny@${project}.iam.gserviceaccount.com"
 
 usage() {
-  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 die() {
@@ -54,7 +55,7 @@ case "$1" in -h | --help) usage ;; esac
 target="$1"
 shift
 case "$target" in
-bootstrap | gcp | images | cluster | bunny | stripe) root="$target" ;;
+bootstrap | gcp | images | cluster | bunny | stripe | org) root="$target" ;;
 bunny-cli | bunny-mask) root=bunny ;;
 stripe-mask) root=stripe ;;
 *) usage_error "unknown root '$target' (expected $roots, bunny-cli, bunny-mask or stripe-mask)" ;;
@@ -79,14 +80,14 @@ if [ -n "$identity" ]; then
     identity=''
   elif ! [[ "$identity" =~ ^[a-z][a-z0-9-]*@[a-z][a-z0-9-]*\.iam\.gserviceaccount\.com$ ]]; then
     usage_error "TF_SH_IDENTITY must be 'self' or a service-account email, not '$identity'"
-  elif [ "$root" = bootstrap ]; then
-    die "bootstrap runs with your own credentials (TF_SH_IDENTITY=self or unset)"
+  elif [ "$root" = bootstrap ] || [ "$root" = org ]; then
+    die "$root runs with your own credentials (TF_SH_IDENTITY=self or unset)"
   fi
 elif [ "${GITHUB_ACTIONS:-}" = true ]; then
   identity=''
 else
   case "$root" in
-  bootstrap) identity='' ;;
+  bootstrap | org) identity='' ;;
   bunny) identity="$tf_bunny" ;;
   *) identity="$deployer" ;;
   esac
@@ -138,9 +139,15 @@ if [ "$target" = stripe-mask ]; then
   exit 0
 fi
 
-dir="$repo/infra/terraform/live/dev/$root"
-# The root's environment, from its path: the location check blocks everywhere but dev.
-environment="$(basename "$(dirname "$dir")")"
+# The organisation's settings belong to no environment (live/org); its location check blocks.
+if [ "$root" = org ]; then
+  dir="$repo/infra/terraform/live/org"
+  environment=org
+else
+  dir="$repo/infra/terraform/live/dev/$root"
+  # The root's environment, from its path: the location check blocks everywhere but dev.
+  environment="$(basename "$(dirname "$dir")")"
+fi
 
 # Same OpenTofu everywhere: mise.toml is the pin.
 expected="$(sed -n 's/^opentofu = "\(.*\)"/\1/p' "$repo/mise.toml")"
