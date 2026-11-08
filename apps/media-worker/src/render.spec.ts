@@ -25,7 +25,7 @@ describe('a picture video’s picture', () => {
     pictureUrl: 'https://images.example/stories/s1/x.webp?token=t',
   };
 
-  function renderer(picture: string) {
+  function renderer(picture: string | Uint8Array<ArrayBuffer>) {
     const fetcher = vi.fn(async (url: string | URL | Request) =>
       String(url).startsWith('https://storage.bunnycdn.com/')
         ? new Response('sound')
@@ -53,8 +53,29 @@ describe('a picture video’s picture', () => {
     expect(await readdir(workDir)).toEqual([]);
   });
 
-  it('hands a WebP to ffmpeg', async () => {
-    const webp = 'RIFF\u0004\u0000\u0000\u0000WEBPVP8 ';
+  /** A WebP's first 30 bytes, an extended one (VP8X) with this canvas. */
+  const webpHead = (width: number, height: number) => {
+    const head = Buffer.alloc(30) as Buffer<ArrayBuffer>;
+    head.write('RIFF', 0, 'latin1');
+    head.writeUInt32LE(22, 4);
+    head.write('WEBPVP8X', 8, 'latin1');
+    head.writeUInt32LE(10, 16);
+    head.writeUIntLE(width - 1, 24, 3);
+    head.writeUIntLE(height - 1, 27, 3);
+    return head;
+  };
+
+  it('refuses a WebP whose header is over the picture limits before ffmpeg decodes it', async () => {
+    const result = await renderer(webpHead(16_000, 900)).render(
+      '22222222-2222-4222-8222-222222222222',
+      pass,
+    );
+    expect(result).toEqual({ failure: 'picture_too_big' });
+    expect(await readdir(workDir)).toEqual([]);
+  });
+
+  it('hands a WebP within the limits to ffmpeg', async () => {
+    const webp = webpHead(1024, 1280);
     const result = await renderer(webp).render(
       '22222222-2222-4222-8222-222222222222',
       pass,

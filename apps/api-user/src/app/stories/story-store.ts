@@ -659,7 +659,8 @@ export class StoryStore {
        RETURN fn::upload::next_allowed_at($auth, 'video');
        RETURN count(SELECT id FROM submissionLog WHERE person = $auth AND at > time::now() - 7d);
        RETURN count(SELECT id FROM storyFile
-         WHERE person = $auth AND format != 'image' AND at > time::now() - 7d);`,
+         WHERE person = $auth AND format != 'image' AND renderOf = NONE
+           AND at > time::now() - 7d);`,
     )) as [
       SubmissionSettings,
       {

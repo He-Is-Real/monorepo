@@ -44,8 +44,19 @@ const ZONE = /^[A-Za-z0-9-]{1,64}$/;
 const MP4_MAX_HEIGHT = 1080;
 /** Our longest story's sound is far smaller; anything bigger isn't one of ours. */
 const MAX_SOURCE_BYTES = 2 * 1024 ** 3;
-/** Pictures are WebP at most 5 MB (fn::upload::image_limits). */
+/** Pictures are WebP at most 5 MB, 4096 px on either side (fn::upload::image_limits). */
 const MAX_PICTURE_BYTES = 5 * 1024 ** 2;
+const MAX_PICTURE_SIDE = 4096;
+/**
+ * The picture video's file: the sound copied plus a picture a second, so never far over the sound
+ * itself. ffmpeg stops writing there (`-fs`), and a file that reaches it is refused, not uploaded.
+ */
+export const MAX_OUTPUT_BYTES = MAX_SOURCE_BYTES;
+/**
+ * ffmpeg's threads: Joel's machine runs other things, and a still picture needs few. With one
+ * render at a time (the renderer's queue), a render never takes more than two cores.
+ */
+const FFMPEG_THREADS = '2';
 const FETCH_TIMEOUT_MS = 10 * 60_000;
 const FFMPEG_TIMEOUT_MS = 15 * 60_000;
 /** TUS chunks: small enough to retry cheaply, large enough to be quick. */
@@ -73,6 +84,8 @@ export function ffmpegArgs(
     'error',
     '-nostdin',
     '-y',
+    '-filter_threads',
+    FFMPEG_THREADS,
     '-protocol_whitelist',
     'file',
     '-f',
@@ -114,6 +127,10 @@ export function ffmpegArgs(
     '-c:a',
     'copy',
     '-shortest',
+    '-threads',
+    FFMPEG_THREADS,
+    '-fs',
+    String(MAX_OUTPUT_BYTES),
     '-movflags',
     '+faststart',
     out,
@@ -143,14 +160,71 @@ export function isPicture(head: Buffer, format: PictureFormat): boolean {
     ? head.length >= 12 &&
         head.toString('latin1', 0, 4) === 'RIFF' &&
         head.toString('latin1', 8, 12) === 'WEBP'
-    : head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+    : head.length >= 3 &&
+        head[0] === 0xff &&
+        head[1] === 0xd8 &&
+        head[2] === 0xff;
 }
+
+/**
+ * A WebP's real size, from its header (Google's WebP container spec): the canvas of an extended
+ * file (VP8X), or the frame of a simple lossy (VP8) or lossless (VP8L) one. null if the header is
+ * none of those, so the picture is refused.
+ */
+export function webpSize(
+  head: Buffer,
+): { width: number; height: number } | null {
+  if (head.length < 30 || !isPicture(head, 'webp')) return null;
+  switch (head.toString('latin1', 12, 16)) {
+    case 'VP8X':
+      return {
+        width: head.readUIntLE(24, 3) + 1,
+        height: head.readUIntLE(27, 3) + 1,
+      };
+    case 'VP8L': {
+      if (head[20] !== 0x2f) return null;
+      const bits = head.readUInt32LE(21);
+      return {
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >>> 14) & 0x3fff) + 1,
+      };
+    }
+    case 'VP8 ':
+      if (head[23] !== 0x9d || head[24] !== 0x01 || head[25] !== 0x2a) {
+        return null;
+      }
+      return {
+        width: head.readUInt16LE(26) & 0x3fff,
+        height: head.readUInt16LE(28) & 0x3fff,
+      };
+    default:
+      return null;
+  }
+}
+
+/** Whether a picture's header says it is within the site's limits, before anything decodes it. */
+export function pictureFits(head: Buffer, format: PictureFormat): boolean {
+  if (!isPicture(head, format)) return false;
+  // The default background is ours; only a person's WebP is measured.
+  if (format === 'jpeg') return true;
+  const size = webpSize(head);
+  return (
+    size !== null &&
+    size.width > 0 &&
+    size.height > 0 &&
+    size.width <= MAX_PICTURE_SIDE &&
+    size.height <= MAX_PICTURE_SIDE
+  );
+}
+
+/** Enough of a picture's start for its type and (a WebP's) size. */
+const HEAD_BYTES = 30;
 
 async function readHead(file: string): Promise<Buffer> {
   const handle = await open(file, 'r');
   try {
-    const head = Buffer.alloc(12);
-    const { bytesRead } = await handle.read(head, 0, 12, 0);
+    const head = Buffer.alloc(HEAD_BYTES);
+    const { bytesRead } = await handle.read(head, 0, HEAD_BYTES, 0);
     return head.subarray(0, bytesRead);
   } finally {
     await handle.close();
@@ -179,6 +253,11 @@ export interface FfmpegRendererConfig {
 
 export class FfmpegRenderer implements Renderer {
   private readonly fetcher: typeof fetch;
+  /**
+   * Renders run one at a time (the rest wait their turn here): each holds a story's sound and
+   * picture and an ffmpeg, and Joel's machine is shared. Check jobs don't wait for them.
+   */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly config: FfmpegRendererConfig) {
     if (!ZONE.test(config.storageZone))
@@ -186,7 +265,16 @@ export class FfmpegRenderer implements Renderer {
     this.fetcher = config.fetcher ?? fetch;
   }
 
-  async render(sourceVideoId: string, pass: RenderPass): Promise<RenderResult> {
+  render(sourceVideoId: string, pass: RenderPass): Promise<RenderResult> {
+    const turn = this.queue.then(() => this.renderNow(sourceVideoId, pass));
+    this.queue = turn.catch(() => undefined);
+    return turn;
+  }
+
+  private async renderNow(
+    sourceVideoId: string,
+    pass: RenderPass,
+  ): Promise<RenderResult> {
     const dir = await mkdtemp(join(this.config.workDir, 'render-'));
     try {
       const sound = join(dir, 'sound.mp4');
@@ -204,13 +292,17 @@ export class FfmpegRenderer implements Renderer {
         );
         format = 'webp';
       }
-      // Only a WebP (or the default JPEG) goes to ffmpeg as its picture.
-      if (!isPicture(await readHead(picture), format)) {
-        throw new RenderFailure('picture_not_webp');
-      }
+      // Only a WebP (or the default JPEG) goes to ffmpeg as its picture, and only one whose
+      // header says it is within the site's picture limits.
+      const head = await readHead(picture);
+      if (!isPicture(head, format)) throw new RenderFailure('picture_not_webp');
+      if (!pictureFits(head, format))
+        throw new RenderFailure('picture_too_big');
       const out = join(dir, 'out.mp4');
       await this.ffmpeg(ffmpegArgs(picture, format, sound, out));
       const { size } = await stat(out);
+      // ffmpeg stopped at its -fs limit: a cut-off file never goes to Bunny.
+      if (size >= MAX_OUTPUT_BYTES) throw new RenderFailure('too_large');
       await this.upload(out, size, pass);
       return { sizeBytes: size };
     } catch (err) {

@@ -258,22 +258,23 @@ export function answerVars(
   };
 }
 
-/** What the writer knows of the job's file before the answer's write, for Bunny's picture. */
+/** The picture a ready video's story wants Bunny to show, read before the answer's write. */
 const PICTURE_SQL = `
   LET $j = (SELECT kind, file FROM ONLY type::record('mediaJob', $job));
   LET $f = IF $j != NONE AND $j.kind = 'check' AND <string> record::id($j.file) = $videoId {
-    (SELECT format, story, detachedAt, thumbnailOf FROM ONLY $j.file) };
+    (SELECT format, story, detachedAt FROM ONLY $j.file) };
   IF $f = NONE OR $f.format != 'video' OR $f.detachedAt != NONE
     OR !record::exists($f.story) OR $f.story.mediaFile != $j.file { NONE } ELSE {
     LET $picture = (SELECT VALUE image.file FROM ONLY $f.story);
-    { thumbnailOf: IF $f.thumbnailOf != NONE { <string> record::id($f.thumbnailOf) },
-      picture: IF $picture != NONE { <string> record::id($picture) } }
+    { picture: IF $picture != NONE { <string> record::id($picture) } }
   };`;
 
 /**
- * The picture a ready video's story wants Bunny to show, when Bunny doesn't show it yet: the
- * story's own picture's path, or null for Bunny's own frame (the picture was taken off).
- * undefined when nothing needs doing (not a video its story shows, or Bunny already shows it).
+ * The picture a ready video's story wants Bunny to show: the story's own picture's path, or null
+ * for Bunny's own frame (no picture). undefined when it isn't a video its story shows. The writer
+ * sets it at Bunny on every ready check rather than trusting storyFile.thumbnailOf: if an earlier
+ * answer set Bunny's picture but its database write then failed, the stored pointer is behind
+ * Bunny, and only setting it again puts Bunny right (Codex review of PR 201, round 1).
  */
 export async function wantedThumbnail(
   db: SurrealQueryable,
@@ -282,12 +283,10 @@ export async function wantedThumbnail(
 ): Promise<string | null | undefined> {
   const results = await runQuery(db, PICTURE_SQL, { job, videoId: video });
   const found = results[results.length - 1] as {
-    thumbnailOf?: string | null;
     picture?: string | null;
   } | null;
   if (!found) return undefined;
-  const wanted = found.picture ?? null;
-  return (found.thumbnailOf ?? null) === wanted ? undefined : wanted;
+  return found.picture ?? null;
 }
 
 /** What an answer did: its outcome, and the render job it opened (to send after the commit). */

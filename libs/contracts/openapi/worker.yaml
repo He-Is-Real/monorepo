@@ -87,10 +87,11 @@ paths:
       description: |
         For a `ready` audio file whose story still shows it, the writer also opens a `render` job
         (its picture video) and sends it after the transaction; the file stays `processing`
-        until its picture video is ready. For a `ready` video, or picture video, that should show
-        another picture than Bunny shows now (the story's own, or Bunny's own frame once the
-        picture was taken off; Joel, 2026-11-06, video-bundle-rethink.html part A), the writer
-        first sets it at Bunny and records it with the answer. If Bunny refuses or can't be
+        until its picture video is ready. For a `ready` video (a person's own; a picture video's
+        frames are already its picture), the writer first sets the picture its story wants at
+        Bunny (the story's own, or Bunny's own frame when it has none; Joel, 2026-11-06,
+        video-bundle-rethink.html part A) on every ready check, not only when the stored one
+        differs, and records it with the answer. If Bunny refuses or can't be
         reached, that counts as the job's failure and the reply is `/failed`'s (`retry`, and the
         outcome at the fifth).
 
@@ -460,7 +461,13 @@ components:
               const: https://video.bunnycdn.com/tusupload
             headers:
               type: object
-              required: [AuthorizationSignature, AuthorizationExpire, VideoId, LibraryId]
+              required:
+                [
+                  AuthorizationSignature,
+                  AuthorizationExpire,
+                  VideoId,
+                  LibraryId,
+                ]
               properties:
                 AuthorizationSignature:
                   type: string

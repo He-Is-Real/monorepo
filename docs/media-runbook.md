@@ -137,21 +137,29 @@ An audio story is shown as a video of its picture (or the site's default wavefor
    ready.
 
 A video's own picture (video-bundle-rethink part A): when a check finds a video (or picture
-video) ready and Bunny should show another picture than it does now, the writer sets it with
-Bunny's "set thumbnail" call (or Bunny's own first frame, `thumbnail_1.jpg`, once the picture is
-taken off) and records it as `storyFile.thumbnailOf`. A moderator can't approve until it matches
+video) ready, the writer sets the picture its story wants with Bunny's "set thumbnail" call (or
+Bunny's own first frame, `thumbnail_1.jpg`, when the story has no picture) and records it as
+`storyFile.thumbnailOf` in the answer's transaction. It does so on every ready check, not only
+when `thumbnailOf` differs: if Bunny took a picture but the database write after it failed, the
+next check puts Bunny right again. A moderator can't approve until it matches
 the story's picture (`media_not_ready`).
 
 A render job's failure codes: `source_gone` / `source_not_ready` (Bunny no longer has the audio
 file, or hasn't finished it), `source_missing` (no MP4 copy in storage: is the library's MP4
 fallback on?), `source_unreachable`, `key_unavailable` (the storage password isn't readable),
-`picture_unreachable`, `picture_not_webp`, `too_large`, `ffmpeg_missing` (install ffmpeg),
+`picture_unreachable`, `picture_not_webp`, `picture_too_big` (its WebP header says it is over
+4096 px on a side; refused before ffmpeg decodes it), `too_large` (a download, or ffmpeg's output
+reaching its 2 GB `-fs` limit), `ffmpeg_missing` (install ffmpeg),
 `render_failed` (ffmpeg's exit code; its output is kept out of the log, as it can name files),
 `upload_refused` / `upload_unreachable` (Bunny's upload), `pass_rejected` / `pass_malformed` (the
 writer refused, or answered a pass the worker can't use), and the writer's own `bunny_refused`,
 `bunny_unreachable`, `bunny_error`, `bunny_bad_reply` and `picture_unsafe` (it couldn't make the
 video or sign the link). A video made for a job that then gave up is deleted by the nightly
-clean-up 48 hours later (an open job's video is kept).
+clean-up once it is 48 hours old at Bunny (counted from the Bunny video's creation, not from
+when the job gave up; an open job's video is kept).
+
+The worker renders one picture video at a time (other render jobs wait their turn; check jobs
+don't wait), and ffmpeg uses at most two threads, so a render never takes over Joel's machine.
 
 ### Running the media worker
 

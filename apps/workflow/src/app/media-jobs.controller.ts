@@ -60,9 +60,9 @@ export class MediaJobsController {
 
   /**
    * The answer to a check job: the file's facts and the job's end, in one transaction. For a
-   * ready video whose story wants Bunny to show another picture (its own, or Bunny's frame again
-   * once it was taken off; video-bundle-rethink part A), the writer first sets it at Bunny and
-   * records it with the answer. If Bunny won't, that counts as the job's failure and the reply is
+   * ready video, the writer first sets the picture its story wants at Bunny (its own, or Bunny's
+   * frame when it has none; video-bundle-rethink part A), every time, and records it with the
+   * answer. If Bunny won't, that counts as the job's failure and the reply is
    * the failed route's ("try again later", or "give up" at the fifth).
    */
   @Post(':job/answer')

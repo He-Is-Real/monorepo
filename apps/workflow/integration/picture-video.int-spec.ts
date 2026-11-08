@@ -294,8 +294,9 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       const story = await newStory('audio');
       const audio = await upload(story, 'audio');
       const job = await audioReady(story, audio);
-      const before = Date.now();
+      const before = Math.floor(Date.now() / 1000);
       const pass = await uploadPassFor(workflow, bunny, job, audio);
+      const after = Math.floor(Date.now() / 1000);
       if (pass.outcome !== 'render') throw new Error(pass.outcome);
 
       expect([...stream.videos]).toEqual([
@@ -306,8 +307,8 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         madeFile: pass.renderVideoId,
       });
       const expires = Number(pass.upload.headers.AuthorizationExpire);
-      expect(expires * 1000).toBeGreaterThanOrEqual(before + 3600_000 - 1000);
-      expect(expires * 1000).toBeLessThanOrEqual(Date.now() + 3600_000);
+      expect(expires).toBeGreaterThanOrEqual(before + 3600);
+      expect(expires).toBeLessThanOrEqual(after + 3600);
       expect(pass.upload).toEqual({
         uploadUrl: 'https://video.bunnycdn.com/tusupload',
         headers: {
@@ -333,14 +334,17 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       const audio = await upload(story, 'audio');
       const path = await picture(story);
       const job = await audioReady(story, audio);
+      // Seconds, as the link's expiry is: it was signed between these two.
+      const before = Math.floor(Date.now() / 1000);
       const pass = await uploadPassFor(workflow, bunny, job, audio);
+      const after = Math.floor(Date.now() / 1000);
       if (pass.outcome !== 'render') throw new Error(pass.outcome);
       expect(pass.picture).toBe(path);
       const link = new URL(pass.pictureUrl as string);
       expect(`${link.host}${link.pathname}`).toBe(`${IMAGES_HOST}/${path}`);
       const expires = Number(link.searchParams.get('expires'));
-      expect(expires * 1000).toBeLessThanOrEqual(Date.now() + 600_000);
-      expect(expires * 1000).toBeGreaterThan(Date.now() + 590_000);
+      expect(expires).toBeGreaterThanOrEqual(before + 600);
+      expect(expires).toBeLessThanOrEqual(after + 600);
     });
 
     it('done: the new row, the story moved to it without a new version, the audio file detached, its check opened', async () => {
@@ -533,7 +537,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       ).toEqual({ status: 200, body: { outcome: 'applied' } });
     });
 
-    it('a video’s own picture goes to Bunny with its answer, once; taken off, Bunny’s frame comes back', async () => {
+    it('a video’s own picture goes to Bunny with every ready answer; taken off, Bunny’s frame comes back', async () => {
       const story = await newStory('video');
       const video = await upload(story, 'video');
       const path = await picture(story);
@@ -556,12 +560,14 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         thumbnailPath: `${video}/thumbnail_9f8e7d6c.jpg`,
       });
 
+      // Set again, even though the database says Bunny already shows it.
       const calls = stream.thumbnailUrls.length;
       await post(`/v1/media-jobs/${await check(video)}/answer`, {
         videoId: video,
         ...ready(story, { thumbnailFileName: 'thumbnail_9f8e7d6c.jpg' }),
       });
-      expect(stream.thumbnailUrls).toHaveLength(calls);
+      expect(stream.thumbnailUrls).toHaveLength(calls + 1);
+      expect(await file(video)).toMatchObject({ thumbnailOf: path });
 
       await rows(pat, `UPDATE type::record('story', $story) SET image = NONE`, {
         story,
@@ -571,6 +577,41 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         ...ready(story),
       });
       expect(stream.thumbnailUrls.at(-1)).toBe('thumbnail_1.jpg');
+      expect(await file(video)).toMatchObject({
+        thumbnailOf: null,
+        thumbnailPath: `${video}/thumbnail_1.jpg`,
+      });
+    });
+
+    it('Bunny took a picture whose database write then failed, and the picture was taken off: the next check puts Bunny’s frame back', async () => {
+      const story = await newStory('video');
+      const video = await upload(story, 'video');
+      const path = await picture(story);
+      stream.videos.set(video, {
+        title: story,
+        thumbnailFileName: 'thumbnail.jpg',
+      });
+      // An earlier answer's Bunny call went through, then its transaction failed: Bunny shows
+      // the picture, the database still says it doesn't (thumbnailOf NONE).
+      await bunny.setThumbnail(video, path);
+      expect(stream.videos.get(video)?.thumbnailFileName).toBe(
+        'thumbnail_9f8e7d6c.jpg',
+      );
+      expect(await file(video)).toMatchObject({ thumbnailOf: null });
+
+      await rows(pat, `UPDATE type::record('story', $story) SET image = NONE`, {
+        story,
+      });
+      expect(
+        await post(`/v1/media-jobs/${await check(video)}/answer`, {
+          videoId: video,
+          ...ready(story),
+        }),
+      ).toEqual({ status: 200, body: { outcome: 'applied' } });
+      expect(stream.thumbnailUrls.at(-1)).toBe('thumbnail_1.jpg');
+      expect(stream.videos.get(video)?.thumbnailFileName).toBe(
+        'thumbnail_1.jpg',
+      );
       expect(await file(video)).toMatchObject({
         thumbnailOf: null,
         thumbnailPath: `${video}/thumbnail_1.jpg`,
