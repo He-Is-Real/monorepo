@@ -154,7 +154,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
     video: string,
     result: MediaAnswer,
     arrivedAt = next(),
-  ) => answerJob(workflow, await queue(video), result, arrivedAt);
+  ) => answerJob(workflow, await queue(video), video, result, arrivedAt);
   const job = async (id: string) =>
     (
       await rows(
@@ -197,9 +197,9 @@ describe('result writer: the worker’s answers → the job’s file row and the
     const other = await videoStory();
     const id = await queue(mine.video);
 
-    expect(await answerJob(workflow, id, ready(mine.story), next())).toBe(
-      'applied',
-    );
+    expect(
+      await answerJob(workflow, id, mine.video, ready(mine.story), next()),
+    ).toBe('applied');
 
     expect(await file(mine.video)).toEqual({
       processing: 'ready',
@@ -222,15 +222,19 @@ describe('result writer: the worker’s answers → the job’s file row and the
     const { story, video } = await videoStory();
     const id = await queue(video);
     const at = next();
-    await answerJob(workflow, id, ready(story), at);
+    await answerJob(workflow, id, video, ready(story), at);
     const before = await storyRow(story);
 
     // The queue delivered the job twice, and the second answer reached the writer at the same time.
-    expect(await answerJob(workflow, id, ready(story), at)).toBe('stale');
+    expect(await answerJob(workflow, id, video, ready(story), at)).toBe(
+      'stale',
+    );
     expect(await storyRow(story)).toEqual(before);
     // A later answer with the same facts records only its time; the story doesn't change.
     const later = next();
-    expect(await answerJob(workflow, id, ready(story), later)).toBe('applied');
+    expect(await answerJob(workflow, id, video, ready(story), later)).toBe(
+      'applied',
+    );
     expect(await storyRow(story)).toEqual(before);
     expect(await checkedAt(video)).toBe(later);
     expect(await job(id)).toMatchObject({ outcome: 'applied', done: true });
@@ -249,9 +253,9 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(await isPublic(story)).toBe(false);
 
       const late = await queue(video);
-      expect(await answerJob(workflow, late, ready(story), readyAt)).toBe(
-        'stale',
-      );
+      expect(
+        await answerJob(workflow, late, video, ready(story), readyAt),
+      ).toBe('stale');
       expect(await job(late)).toMatchObject({ outcome: 'stale', done: true });
       expect((await file(video))['processing']).toBe('failed');
       expect(await checkedAt(video)).toBe(goneAt);
@@ -269,26 +273,32 @@ describe('result writer: the worker’s answers → the job’s file row and the
       // The newer answer ("ready") reads and writes inside its transaction...
       const tx = await workflow.beginTransaction();
       await tx
-        .query(ANSWER_SQL, answerVars(first, ready(story), newerAt))
+        .query(ANSWER_SQL, answerVars(first, video, ready(story), newerAt))
         .collect();
       // ...while an older one ("encoding", from an earlier job's check) commits in between.
       const second = await queue(video, 'bunny_failed');
       expect(second).toBe(first); // the same open job: one per file and kind
       await expect(
-        answerJob(workflow, first, { outcome: 'encoding' }, olderAt),
+        answerJob(workflow, first, video, { outcome: 'encoding' }, olderAt),
       ).resolves.toBe('applied');
       // The newer answer's commit conflicts; the writer re-runs it, which then applies it.
       await expect(tx.commit()).rejects.toThrow(/conflict/i);
-      expect(await answerJob(workflow, first, ready(story), newerAt)).toBe(
-        'applied',
-      );
+      expect(
+        await answerJob(workflow, first, video, ready(story), newerAt),
+      ).toBe('applied');
       expect((await file(video))['processing']).toBe('ready');
       expect(await checkedAt(video)).toBe(newerAt);
 
       // The other order: the newer one commits first, then the older one is stale.
       const third = await queue(video);
       expect(
-        await answerJob(workflow, third, { outcome: 'encoding' }, olderAt),
+        await answerJob(
+          workflow,
+          third,
+          video,
+          { outcome: 'encoding' },
+          olderAt,
+        ),
       ).toBe('stale');
       expect((await file(video))['processing']).toBe('ready');
       expect(await job(third)).toMatchObject({ outcome: 'stale' });
@@ -314,7 +324,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
     const oldJob = await queue(old);
     const current = await replace(story);
 
-    expect(await answerJob(workflow, oldJob, ready(story), next())).toBe(
+    expect(await answerJob(workflow, oldJob, old, ready(story), next())).toBe(
       'gone',
     );
     expect(await job(oldJob)).toMatchObject({ outcome: 'gone', done: true });
@@ -381,16 +391,18 @@ describe('result writer: the worker’s answers → the job’s file row and the
       const id = await queue(video);
 
       for (let n = 1; n < MAX_FAILURES; n++) {
-        expect(await failJob(workflow, id, 'bunny_unreachable')).toEqual({
-          retry: true,
-        });
+        expect(await failJob(workflow, id, video, 'bunny_unreachable')).toEqual(
+          {
+            retry: true,
+          },
+        );
       }
       expect(await job(id)).toMatchObject({
         failures: 4,
         lastError: 'bunny_unreachable',
         done: false,
       });
-      expect(await failJob(workflow, id, 'bunny_timeout')).toEqual({
+      expect(await failJob(workflow, id, video, 'bunny_timeout')).toEqual({
         retry: false,
         outcome: 'gave_up',
       });
@@ -401,7 +413,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
         done: true,
       });
       // Delivered again: nothing more is counted.
-      expect(await failJob(workflow, id, 'bunny_timeout')).toEqual({
+      expect(await failJob(workflow, id, video, 'bunny_timeout')).toEqual({
         retry: false,
         outcome: 'gave_up',
       });
@@ -414,9 +426,9 @@ describe('result writer: the worker’s answers → the job’s file row and the
     it('a job an answer already ended counts no failure', async () => {
       const { story, video } = await videoStory();
       const id = await queue(video);
-      await answerJob(workflow, id, ready(story), next());
+      await answerJob(workflow, id, video, ready(story), next());
 
-      expect(await failJob(workflow, id, 'bunny_unreachable')).toEqual({
+      expect(await failJob(workflow, id, video, 'bunny_unreachable')).toEqual({
         retry: false,
         outcome: 'applied',
       });
@@ -434,7 +446,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(await job(id)).toMatchObject({
         reasons: ['bunny_finished', 'bunny_deleted'],
       });
-      await answerJob(workflow, id, ready(story), next());
+      await answerJob(workflow, id, video, ready(story), next());
 
       const again = await queue(video, 'bunny_failed');
       expect(again).not.toBe(id);
@@ -472,12 +484,18 @@ describe('result writer: the worker’s answers → the job’s file row and the
       answerJob(
         workflow,
         '01JC0000000000000000000000',
+        guid(),
         { outcome: 'gone' },
         next(),
       ),
     ).rejects.toThrow(MediaJobNotFound);
     await expect(
-      failJob(workflow, '01JC0000000000000000000000', 'bunny_unreachable'),
+      failJob(
+        workflow,
+        '01JC0000000000000000000000',
+        guid(),
+        'bunny_unreachable',
+      ),
     ).rejects.toThrow(MediaJobNotFound);
   });
 
@@ -536,7 +554,12 @@ describe('result writer: the worker’s answers → the job’s file row and the
       const { story, video } = await videoStory();
       const id = await queue(video);
 
-      expect(await post(`/v1/media-jobs/${id}/answer`, ready(story))).toEqual({
+      expect(
+        await post(`/v1/media-jobs/${id}/answer`, {
+          videoId: video,
+          ...ready(story),
+        }),
+      ).toEqual({
         status: 200,
         body: { outcome: 'applied' },
       });
@@ -549,7 +572,10 @@ describe('result writer: the worker’s answers → the job’s file row and the
       const { video } = await videoStory();
       const id = await queue(video);
       const fail = () =>
-        post(`/v1/media-jobs/${id}/failed`, { code: 'bunny_unreachable' });
+        post(`/v1/media-jobs/${id}/failed`, {
+          videoId: video,
+          code: 'bunny_unreachable',
+        });
 
       for (let i = 1; i < MAX_FAILURES; i++) {
         expect(await fail()).toEqual({ status: 200, body: { retry: true } });
@@ -560,27 +586,57 @@ describe('result writer: the worker’s answers → the job’s file row and the
       });
     });
 
+    it('refuses an answer or failure naming another video than the job’s (400 video_mismatch), writing nothing', async () => {
+      const { story, video } = await videoStory();
+      const other = await videoStory();
+      const id = await queue(video);
+      const refused = {
+        status: 400,
+        body: expect.objectContaining({ code: 'video_mismatch' }),
+      };
+
+      expect(
+        await post(`/v1/media-jobs/${id}/answer`, {
+          videoId: other.video,
+          ...ready(story),
+        }),
+      ).toEqual(refused);
+      expect(
+        await post(`/v1/media-jobs/${id}/failed`, {
+          videoId: other.video,
+          code: 'bunny_unreachable',
+        }),
+      ).toEqual(refused);
+      expect(await file(video)).toEqual({});
+      expect(await file(other.video)).toEqual({});
+      expect(await job(id)).toMatchObject({ failures: 0, done: false });
+    });
+
     it('404 for a job that doesn’t exist; 400 for a malformed call', async () => {
       const missing = '01JC0000000000000000000000';
+      const videoId = guid();
+      const status = async (path: string, body: unknown) =>
+        (await post(`/v1/media-jobs/${path}`, body)).status;
+
       expect(
-        (await post(`/v1/media-jobs/${missing}/answer`, { outcome: 'gone' }))
-          .status,
+        await status(`${missing}/answer`, { videoId, outcome: 'gone' }),
       ).toBe(404);
+      expect(await status(`${missing}/failed`, { videoId, code: 'x_y' })).toBe(
+        404,
+      );
       expect(
-        (await post(`/v1/media-jobs/${missing}/failed`, { code: 'x_y' }))
-          .status,
-      ).toBe(404);
-      expect(
-        (await post(`/v1/media-jobs/not-a-job/answer`, { outcome: 'gone' }))
-          .status,
+        await status(`not-a-job/answer`, { videoId, outcome: 'gone' }),
       ).toBe(400);
       expect(
-        (await post(`/v1/media-jobs/${missing}/answer`, { outcome: 'maybe' }))
-          .status,
+        await status(`${missing}/answer`, { videoId, outcome: 'maybe' }),
       ).toBe(400);
       expect(
-        (await post(`/v1/media-jobs/${missing}/failed`, { code: 'Not Short!' }))
-          .status,
+        await status(`${missing}/failed`, { videoId, code: 'Not Short!' }),
+      ).toBe(400);
+      // Every call names the job's video.
+      expect(await status(`${missing}/answer`, { outcome: 'gone' })).toBe(400);
+      expect(
+        await status(`${missing}/failed`, { videoId: '../x', code: 'x_y' }),
       ).toBe(400);
     });
   });

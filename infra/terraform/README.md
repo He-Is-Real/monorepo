@@ -281,7 +281,7 @@ Scheduler starts it at 03:30 London time; both are in `europe-west2`, written ou
   else. Scheduler calls the Cloud Run Admin API's `jobs.run` with an OAuth token (a Google API
   takes OAuth, not an OIDC ID token).
 - **Settings** (`housekeeping` in the gcp module): `schedule`, `dry_run` (only logs what it would
-  delete; on in dev until a night's log looks right) and `max_deletions` (per chore per run,
+  delete; off in dev since Joel's 2026-11-07 decision, [apps/housekeeping/README.md](../../apps/housekeeping/README.md)) and `max_deletions` (per chore per run,
   1–500; default 50).
 - **Turning it on, in order:** (1) bootstrap, locally: enables `cloudscheduler.googleapis.com`
   and gives tf-deployer `roles/cloudscheduler.admin`. (2) This module's gcp and cluster applies:
@@ -306,12 +306,13 @@ failures, and a job gives up after 5.
 
 - **Topic** `media-jobs`: messages stored in London only (`allowed_persistence_regions`,
   `enforce_in_transit`; the UK guard checks it) and kept 31 days.
-- **Subscription** `media-worker` (pull, the worker's, in order per story, the ordering key; never
-  expires, so a long holiday with the machine off doesn't delete it). A job the worker doesn't
+- **Subscription** `media-worker-media-jobs` (pull, the worker's, in order per story, the ordering
+  key; never expires, so a long holiday with the machine off doesn't delete it). Named as Dapr's
+  GCP Pub/Sub component names it, `<consumerID>-<topic>`; Dapr may not create it itself. A job the worker doesn't
   mark taken is redelivered, backing off from 10 seconds to 10 minutes; no dead-letter policy.
 - **Identities:** `media-worker` pulls its subscription and may call the result writer
   (`run.invoker` on it), and nothing else (the bunny root's `readonly_key_readers` adds Bunny's
-  read-only key, with the worker's PR); `media_ready.worker_impersonators` (organisation people
+  read-only key); `media_ready.worker_impersonators` (organisation people
   only, D126) may act as it with their own gcloud login, so no key file exists. `workflow` runs the
   result writer and reads only its database password. The result writer takes traffic from the
   internet (the worker is off Google Cloud), and Cloud Run refuses anyone without a Google ID token
@@ -321,8 +322,8 @@ failures, and a job gives up after 5.
 - **Turning it on, in order:** (1) bootstrap, locally: gives tf-deployer `roles/pubsub.admin`.
   (2) Merge: wave 1 applies bunny (the key's secret, api-user's access, the library's
   `webhook_url`) and then gcp (the topic, identities, the result writer). api-user reads the key when
-  a webhook comes, so the order doesn't matter to it. (3) The worker's PR adds media-worker to
-  `readonly_key_readers` (its account must exist first).
+  a webhook comes, so the order doesn't matter to it. (3) Only then add media-worker to
+  `readonly_key_readers` (its account must exist first; done on dev).
 
 ## Encryption
 

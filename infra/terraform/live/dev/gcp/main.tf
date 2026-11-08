@@ -186,12 +186,13 @@ module "gcp" {
 
   # The nightly housekeeping Job (abandoned drafts, orphaned story videos), 03:30 London time,
   # and its media resend at 18:00 London time, when Joel's machine is on (Joel, 2026-11-07).
-  # Dry run first: it logs what it would delete; turn it off once a night's log looks right.
+  # Acting for real (Joel, 2026-11-07: "switch dev housekeeping out of dry run once the worker is
+  # merged"): dev holds test data only. At most max_deletions per chore per run.
   # Needs bootstrap's Cloud Scheduler API and tf-deployer's scheduler role applied first.
   housekeeping = {
     schedule              = "30 3 * * *"
     media_resend_schedule = "0 18 * * *"
-    dry_run               = true
+    dry_run               = false
     max_deletions         = 50
   }
 }

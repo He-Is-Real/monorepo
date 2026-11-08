@@ -182,8 +182,13 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   nightly clean-up deletes finished jobs after 30 days; a moderator can't approve a story while
   its file could still be replaced through its upload link (an hour; a picture 10 minutes) or
   while one of its media jobs is open, and a SuperAdmin can approve anyway, which is recorded.
-  Still to come: the worker itself on Joel's machine, the audio clip's default picture, and the
-  40-byte picture check at submit.
+  Third part built: the media worker on Joel's machine (`apps/media-worker` with Dapr beside it,
+  started with `tools/scripts/media-worker.sh`), signed in through Joel's own Google login acting
+  as the narrow media-worker account. It checks each video at Bunny and gives the result writer
+  the answer. Media ready works end to end once Joel runs it; while his PC is off or his Google
+  sign-in has lapsed, jobs wait and it catches up. The nightly clean-ups and the 18:00 resend
+  now really act on dev instead of only logging (Joel, 2026-11-07). Still to come: the audio
+  clip's picture video, and the 40-byte picture check at submit.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.
 
 **Dropped or moved out of M2:** the personalised home and "New for you" (replaced by the NEW

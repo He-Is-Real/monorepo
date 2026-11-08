@@ -13,27 +13,28 @@ commands vs CRUD, errors, versioning, concurrency, "agree first") in
 
 ## Layout
 
-| Path                   | What                                           | Notes                                                                    |
-| ---------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
-| `apps/web`             | Next.js (App Router) site                      | Tailwind v4 + shadcn/ui; reads api-public-read only (D32)                |
-| `apps/api-public-read` | Anonymous public read API (NestJS/Express)     | DB login `service:api_public_read`, read-only                            |
-| `apps/api-user`        | The signed-in person's reads and commands      | DB login `service:api_user`; personal work runs as the person (D27)      |
-| `apps/api-admin`       | Moderation/admin API (restricted hostname)     | DB login `service:api_admin`                                             |
-| `apps/housekeeping`    | Nightly Cloud Run Job: clean-ups (D71)         | DB login `service:housekeeping`                                          |
-| `apps/workflow`        | Media result writer, Cloud Run (D78)           | Only the media worker may call it; DB login `service:workflow`           |
-| `apps/dev-seed`        | Dev-only Job: resets dev to dummy data (D49)   | System user `dev_seed` (dev only); [README](apps/dev-seed/README.md)     |
-| `libs/secrets`         | Reads GCP Secret Manager via the SDK           | Fetched once at startup; missing secret = clear failure                  |
-| `libs/database`        | SurrealDB client (surrealdb.js), schema        | Own login per service; startup fails after 15 s if DB is down            |
-| `libs/story-cards`     | Public story cards and media link signing      | Shared by api-public-read and api-user                                   |
-| `libs/health`          | `GET /health` → `{ status, service, db }`      | 503 when the DB is down; `/testing` boots an app in tests                |
-| `libs/auth`            | Clerk sign-in for api-user and api-admin       | Networkless JWT check, `user` row on first use, role guard; `/testing`   |
-| `libs/http`            | CORS allowlist and RFC 9457 problem responses  | `CORS_ALLOWED_ORIGINS` (D31); `ProblemFilter` (D30)                      |
-| `libs/roles`           | The role set and role decorators (D1)          | `@RequiresRole` / `@NoRoleRequired` on every api-user/api-admin route    |
-| `libs/contracts`       | OpenAPI 3.1 specs, the API source of truth     | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
-| `infra/k8s/surrealdb`  | SurrealDB on Kubernetes (Kustomize)            | [README](infra/k8s/surrealdb/README.md)                                  |
-| `infra/terraform`      | All cloud infrastructure (GCP, GKE, Cloud Run) | [README](infra/terraform/README.md)                                      |
-| `infra/clerk`          | Clerk instance settings as code (Clerk CLI)    | [README](infra/clerk/README.md); the non-OpenTofu cloud config           |
-| `tools/docker`         | Dockerfiles: NestJS services, Next.js site     | `pnpm nx run <service>:container` (also `web`)                           |
+| Path                   | What                                            | Notes                                                                    |
+| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------ |
+| `apps/web`             | Next.js (App Router) site                       | Tailwind v4 + shadcn/ui; reads api-public-read only (D32)                |
+| `apps/api-public-read` | Anonymous public read API (NestJS/Express)      | DB login `service:api_public_read`, read-only                            |
+| `apps/api-user`        | The signed-in person's reads and commands       | DB login `service:api_user`; personal work runs as the person (D27)      |
+| `apps/api-admin`       | Moderation/admin API (restricted hostname)      | DB login `service:api_admin`                                             |
+| `apps/housekeeping`    | Cloud Run Job: clean-ups, media resend (D71)    | DB login `service:housekeeping`; [README](apps/housekeeping/README.md)   |
+| `apps/workflow`        | Media result writer, Cloud Run (D78)            | Only the media worker may call it; DB login `service:workflow`           |
+| `apps/media-worker`    | Media worker with Dapr, on Joel's machine (D78) | No database; acts as `media-worker` ([runbook](docs/media-runbook.md))   |
+| `apps/dev-seed`        | Dev-only Job: resets dev to dummy data (D49)    | System user `dev_seed` (dev only); [README](apps/dev-seed/README.md)     |
+| `libs/secrets`         | Reads GCP Secret Manager via the SDK            | Fetched once at startup; missing secret = clear failure                  |
+| `libs/database`        | SurrealDB client (surrealdb.js), schema         | Own login per service; startup fails after 15 s if DB is down            |
+| `libs/story-cards`     | Public story cards and media link signing       | Shared by api-public-read and api-user                                   |
+| `libs/health`          | `GET /health` → `{ status, service, db }`       | 503 when the DB is down; `/testing` boots an app in tests                |
+| `libs/auth`            | Clerk sign-in for api-user and api-admin        | Networkless JWT check, `user` row on first use, role guard; `/testing`   |
+| `libs/http`            | CORS allowlist and RFC 9457 problem responses   | `CORS_ALLOWED_ORIGINS` (D31); `ProblemFilter` (D30)                      |
+| `libs/roles`           | The role set and role decorators (D1)           | `@RequiresRole` / `@NoRoleRequired` on every api-user/api-admin route    |
+| `libs/contracts`       | OpenAPI 3.1 specs, the API source of truth      | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
+| `infra/k8s/surrealdb`  | SurrealDB on Kubernetes (Kustomize)             | [README](infra/k8s/surrealdb/README.md)                                  |
+| `infra/terraform`      | All cloud infrastructure (GCP, GKE, Cloud Run)  | [README](infra/terraform/README.md)                                      |
+| `infra/clerk`          | Clerk instance settings as code (Clerk CLI)     | [README](infra/clerk/README.md); the non-OpenTofu cloud config           |
+| `tools/docker`         | Dockerfiles: NestJS services, Next.js site      | `pnpm nx run <service>:container` (also `web`)                           |
 
 Services never call each other; each API only talks to SurrealDB (and, later, queues).
 

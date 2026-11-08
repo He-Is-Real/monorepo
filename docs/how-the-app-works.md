@@ -497,7 +497,10 @@ For developers. Details are in the linked documents.
   Pub/Sub (in London, up to 31 days) while that machine is off; the worker signs in with Joel's
   own gcloud login acting as a narrow `media-worker` account, never a key file (D126), and uses
   only Dapr's Pub/Sub part, with nothing stored on the machine (D129). Media ready is the first
-  such work (`docs/media-runbook.md`, "Media ready").
+  such work (`docs/media-runbook.md`, "Media ready"). Every answer names the job's video, and the
+  writer refuses one that names another; anything the worker can't do, the writer refusing its
+  answer and the worker's own errors included, counts as a failure, and a job gives up after 5,
+  so none loops for ever (Joel, 2026-11-08).
 - **No CDN in front of the site or APIs in dev;** browsers and CDNs are told not to keep API
   responses in dev. (D51) api-public-read keeps public answers in its own memory for at most 60
   seconds, per running copy, with no timers, so Cloud Run still bills only per request and scales

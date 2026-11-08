@@ -1,0 +1,19 @@
+{
+  "name": "@heisreal/media-worker",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "media-worker",
+    "tags": [
+      "type:app",
+      "scope:ops"
+    ]
+  },
+  "dependencies": {
+    "@google-cloud/secret-manager": "^7.2.0",
+    "@heisreal/secrets": "workspace:*",
+    "@nestjs/common": "^12.3.2",
+    "google-auth-library": "^11.1.0",
+    "tslib": "^2.3.0"
+  }
+}

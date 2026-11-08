@@ -1,0 +1,20 @@
+# The media worker's Dapr sidecar: no metrics endpoint and no tracing (nothing listens beyond
+# what the worker needs, and nothing leaves the machine except the calls to Google and Bunny).
+# The worker never calls Dapr's API, so the sidecar offers none of it except its health check:
+# no service invocation, state, publishing or anything else another program or a web page could
+# use to reach the worker through it. Callers also need DAPR_API_TOKEN (new each run,
+# tools/scripts/media-worker.sh).
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: media-worker
+spec:
+  metric:
+    enabled: false
+  tracing:
+    samplingRate: '0'
+  api:
+    allowed:
+      - name: healthz
+        version: v1.0
+        protocol: http

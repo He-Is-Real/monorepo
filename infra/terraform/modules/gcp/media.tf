@@ -3,7 +3,7 @@
 #
 #   Bunny ──"finished"/"failed"/"deleted"──▶ api-user POST /v1/webhooks/bunny
 #   api-user ──▶ mediaJob table (written first), then media-jobs (topic), in order per story
-#   media-jobs ──pull──▶ the media worker (Dapr, Joel's machine, outbound only; built later)
+#   media-jobs ──pull──▶ the media worker (Dapr, Joel's machine, outbound only; apps/media-worker)
 #   media worker ──direct call, as media-worker──▶ result writer (Cloud Run, apps/workflow)
 #   result writer ──workflow login──▶ SurrealDB: the storyFile row and the job's end, one transaction
 # The subscription delivers in order per ordering key, which is the story's id (Joel, 2026-11-06,
@@ -54,11 +54,14 @@ resource "google_pubsub_topic" "media" {
 # --- The worker's jobs: a pull subscription that never expires ---------------------------------
 # Google deletes a subscription nobody pulled from for 31 days by default: exactly a long holiday
 # with Joel's machine off. ttl = "" means never.
+# Named as Dapr's GCP Pub/Sub component names it, "<consumerID>-<topic>" (consumerID media-worker,
+# apps/media-worker/dapr/components/media-jobs.yaml): the component can't take any other name, and
+# it may not create one itself (disableEntityManagement).
 resource "google_pubsub_subscription" "media_worker" {
   count = local.media_ready ? 1 : 0
 
   project = var.project_id
-  name    = "media-worker"
+  name    = "media-worker-media-jobs"
   topic   = google_pubsub_topic.media["media-jobs"].id
   labels  = merge(local.labels, { component = "media-ready" })
 
