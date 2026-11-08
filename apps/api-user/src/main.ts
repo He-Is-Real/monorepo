@@ -13,6 +13,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     cors: corsOptions(),
     rawBody: true,
+    // A start-up failure (e.g. the database refused the sign-in, `database_refused`) exits with
+    // code 1 rather than Nest's default process.abort(); Cloud Run keeps the previous revision.
+    abortOnError: false,
   });
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3002;

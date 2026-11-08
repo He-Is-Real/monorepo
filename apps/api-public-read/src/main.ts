@@ -9,7 +9,12 @@ import { AppModule } from './app/app.module';
 
 async function bootstrap() {
   // D31: the browser calls this service directly, from web's origin only (CORS_ALLOWED_ORIGINS).
-  const app = await NestFactory.create(AppModule, { cors: corsOptions() });
+  const app = await NestFactory.create(AppModule, {
+    cors: corsOptions(),
+    // A start-up failure (e.g. the database refused the sign-in, `database_refused`) exits with
+    // code 1 rather than Nest's default process.abort(); Cloud Run keeps the previous revision.
+    abortOnError: false,
+  });
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3001;
   await app.listen(port);

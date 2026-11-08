@@ -9,7 +9,11 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    // A start-up failure (e.g. the database refused the sign-in, `database_refused`) exits with
+    // code 1 rather than Nest's default process.abort(); Cloud Run keeps the previous revision.
+    abortOnError: false,
+  });
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3004;
   await app.listen(port);

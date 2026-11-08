@@ -434,14 +434,31 @@ What happens and where to look:
   `signed_in_apis.tf`, `media.tf`) and there is no liveness check, so neither waits for the
   database; `GET /health` still says `db: down` (503) for a person or uptime check to read. The
   log shows `Can't reach … yet; still trying` once, then `database_unavailable`, and
-  `Connected to …` when it gets there. **A wrong password or a broken database looks the same**
-  (the copy keeps answering "restarting" instead of failing to start): if it lasts, read those
-  log lines.
+  `Connected to …` when it gets there.
+- **A refused sign-in stops a new copy from starting** (Joel, 2026-11-08): at start-up the copy
+  waits up to 10 seconds for the database's first answer. If the database answers and refuses
+  (wrong password, unknown namespace or database, a permission error: any `ServerError` from the
+  SDK), it logs one `CRITICAL` line, `jsonPayload.code="database_refused"` with the error's `kind`
+  and `detail` (e.g. `NotFound`, `NotFound/Namespace`; never the password), and exits with code 1
+  before opening its port, so Cloud Run keeps serving the previous revision. No answer (refused
+  or reset connection, DNS, a timeout) starts it anyway, as above.
+- **A password rotated while copies run:** a running copy keeps its connection and session, and
+  reads its password once per process (`libs/secrets` caches it). When it next has to sign in
+  (after a reconnect, e.g. a Spot restart, which rotation itself causes), the database refuses
+  the old password: the copy answers `503 service_restarting` and retries every few seconds,
+  logging `refused service:<name>'s sign-in (database_refused, …); still trying`. Restarting the
+  services (a new revision) fixes it, as "Rotating passwords" says; a new revision that still has
+  the wrong password fails to start instead of replacing the old one.
 - **How long it lasted:** Logs Explorer, `jsonPayload.event="database_available"` (one per running
   copy, with `unavailableSeconds`); `jsonPayload.event="database_unavailable"` marks the start.
 - **How often:** the log-based metric `heisreal-dev/database-spot-reclaims` (bootstrap root,
   `modules/bootstrap/logging.tf`) counts Google's own reclaim records for this cluster's nodes.
   Dev saw three in the 30 days to 7 November 2026, all on 20 October.
+- **The dashboard:** Cloud Monitoring → Dashboards → "heisreal-dev: database restarts"
+  (`infra/terraform/modules/gcp/monitoring.tf`, gcp root): the reclaims above, and per Cloud Run
+  service its requests per second by response code (a restart shows as 503s) and its instances.
+  **Dashboards are defined in OpenTofu only** (Joel, 2026-11-08): a change made in the Console is
+  overwritten by the next apply. No alert policies or notification channels yet (not decided).
 - **Nothing to do** unless the pod doesn't come back: then `kubectl -n database get pods,events`
   (read-only) and check the node pool has Spot capacity in `europe-west2-c`.
 

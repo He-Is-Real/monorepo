@@ -459,6 +459,11 @@ back at any time; it then restarts elsewhere within a few minutes, and no data i
 - A copy of a service that starts while the database is away starts anyway and gives the same
   message (counted from when it first failed to connect) until it has connected; once
   connected, nothing changes. (Joel, 2026-11-07: "gap a")
+- But a copy whose sign-in the database answers and refuses (a wrong password, an unknown
+  namespace or database, a permission error) doesn't start at all, so a broken deploy never
+  replaces the working version. Only "no answer" counts as a restart. Once a copy has connected,
+  every later failure counts as a restart. (Joel, 2026-11-08: "differentiate between restarts
+  with no response and problems caused by an error like a password error")
 
 ## Dev and test environment
 
@@ -513,13 +518,18 @@ For developers. Details are in the linked documents.
 - **The database runs on Spot in dev and production** (Joel, 2026-11-07), and so do the cluster's
   helpers (External Secrets, the backup Job). Every service notices a restart in the shared
   database client (`libs/database`, `DatabaseAvailability`): it keeps reconnecting for as long as
-  it takes (and starts without the database, connecting in the background: `connectInBackground`;
-  Cloud Run's start-up check only needs the port open), answers `503 service_restarting` with
+  it takes (and starts without the database, connecting in the background: `startConnecting`;
+  Cloud Run's start-up check only needs the port open; but if the database answers the first
+  sign-in with a refusal, a `ServerError` from the SDK, the service exits with code 1 and logs
+  `database_refused`), answers `503 service_restarting` with
   `Retry-After` at once instead of hanging, sign-in's person lookup included
   (`ServiceRestarting` in `libs/contracts/openapi/components.yaml`), and logs one line when the
   database goes (`database_unavailable`) and one when it's back (`database_available`, with how
   long). Google's own record of each reclaim is counted by the log-based metric
-  `heisreal-<env>/database-spot-reclaims` (bootstrap root).
+  `heisreal-<env>/database-spot-reclaims` (bootstrap root). The Cloud Monitoring dashboard
+  "heisreal-<env>: database restarts" (`infra/terraform/modules/gcp/monitoring.tf`) shows them
+  with each service's requests by response code and instance count. Dashboards are made in
+  OpenTofu only (Joel, 2026-11-08).
 - **Temporary patched SurrealDB:** v3.2.4 built with the upstream fix so it accepts Clerk's
   tokens, until an official release has it. (D111; `infra/k8s/surrealdb/README.md`)
 - **Infrastructure:** OpenTofu for every cloud change, encrypted state, one approval per apply;

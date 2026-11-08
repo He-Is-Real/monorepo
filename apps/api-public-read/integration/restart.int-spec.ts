@@ -1,7 +1,8 @@
 import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import {
   connectDatabase,
-  connectInBackground,
+  DatabaseRefusedError,
   stopConnecting,
 } from '@heisreal/database';
 import {
@@ -9,8 +10,13 @@ import {
   databaseRelay,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
-import type { SecretsService } from '@heisreal/secrets';
+import {
+  SECRET_MANAGER_CLIENT,
+  SECRETS_PROJECT,
+  SecretsService,
+} from '@heisreal/secrets';
 import { Surreal } from 'surrealdb';
+import { AppModule } from '../src/app/app.module';
 import { startPublicRead } from './app';
 
 /**
@@ -18,7 +24,8 @@ import { startPublicRead } from './app';
  * answers `503 service_restarting` with when to try again, at once rather than hanging, and
  * answers normally as soon as the database is back. api-public-read serves the copy it kept of
  * a public answer (up to 30 minutes old) instead, when it has one. A copy that starts while the
- * database is away starts anyway and answers the same until it has connected ("gap a").
+ * database is away starts anyway and answers the same until it has connected ("gap a"); one
+ * whose sign-in the database refuses doesn't start at all (Joel, 2026-11-08).
  *
  * The database "stops" behind a TCP relay the test controls (`databaseRelay`).
  */
@@ -28,13 +35,17 @@ describe('a database restart', () => {
   let db: Surreal | undefined;
   let database: DatabaseRelay | undefined;
 
-  const saved = process.env['PUBLIC_RESPONSE_CACHING'];
+  const saved = { ...process.env };
   afterEach(async () => {
-    if (saved === undefined) delete process.env['PUBLIC_RESPONSE_CACHING'];
-    else process.env['PUBLIC_RESPONSE_CACHING'] = saved;
+    for (const key of Object.keys(process.env)) {
+      if (!(key in saved)) delete process.env[key];
+    }
+    Object.assign(process.env, saved);
     await app?.close();
+    app = undefined;
     if (db) stopConnecting(db);
     await db?.close();
+    db = undefined;
     await database?.close();
     await t?.close();
   });
@@ -113,26 +124,46 @@ describe('a database restart', () => {
     expect((await get('/health')).status).toBe(200);
   });
 
+  /**
+   * The service's own start-up: the real DatabaseModule (connecting as service:api_public_read
+   * from the environment, as on Cloud Run), only Secret Manager swapped for the given password.
+   */
+  async function startService(
+    url: string,
+    password: string,
+    { namespace = t.namespace }: { namespace?: string } = {},
+  ) {
+    Object.assign(process.env, {
+      SURREAL_URL: url,
+      SURREAL_NAMESPACE: namespace,
+      SURREAL_DATABASE: t.database,
+      SURREAL_USER: 'api_public_read',
+      SURREAL_PASSWORD_SECRET: 'surreal-api-public-read-password',
+    });
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(SecretsService)
+      .useValue({ get: async () => password })
+      .overrideProvider(SECRET_MANAGER_CLIENT)
+      .useValue({})
+      .overrideProvider(SECRETS_PROJECT)
+      .useValue('test-project')
+      .compile();
+    app = moduleRef.createNestApplication({ logger: false });
+    await app.listen(0, '127.0.0.1');
+    const base = await app.getUrl();
+    return (path: string) => fetch(`${base}${path}`);
+  }
+
   it('starts while the database is away, answers 503 service_restarting, and serves once it has connected', async () => {
     t = await TestDatabase.create();
     database = await databaseRelay(t.url, { up: false });
-    const password = t.servicePasswords.get('api_public_read');
-    // The services' own start-up: connecting in the background, not waiting for it.
     const before = Date.now();
-    db = connectInBackground(
-      new Surreal(),
-      {
-        url: database.url,
-        namespace: t.namespace,
-        database: t.database,
-        username: 'api_public_read',
-        passwordSecret: 'unused',
-      },
-      { get: async () => password } as unknown as SecretsService,
+    const get = await startService(
+      database.url,
+      t.servicePasswords.get('api_public_read') ?? '',
     );
-    const started = await startPublicRead(t, undefined, db);
-    app = started.app;
-    const get = (path: string) => fetch(`${started.url}${path}`);
+    // No answer isn't a reason to stop: it started without waiting the start-up's 10 seconds.
+    expect(Date.now() - before).toBeLessThan(5_000);
 
     const res = await get('/v1/stories?limit=1');
     expect(res.status).toBe(503);
@@ -159,5 +190,20 @@ describe('a database restart', () => {
       })
       .toBe(200);
     expect((await get('/health')).status).toBe(200);
+  });
+
+  it("doesn't start when the database answers but refuses its sign-in (Joel, 2026-11-08)", async () => {
+    t = await TestDatabase.create();
+    // A wrong password: Cloud Run keeps the previous revision, because this one never opens its port.
+    await expect(startService(t.url, 'not-the-password')).rejects.toThrow(
+      DatabaseRefusedError,
+    );
+    // An unknown namespace is refused the same way.
+    await expect(
+      startService(t.url, t.servicePasswords.get('api_public_read') ?? '', {
+        namespace: 'no_such_namespace',
+      }),
+    ).rejects.toThrow(DatabaseRefusedError);
+    expect(app).toBeUndefined();
   });
 });

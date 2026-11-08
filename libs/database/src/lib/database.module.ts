@@ -6,7 +6,7 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 import { SecretsService, withTimeout } from '@heisreal/secrets';
-import { type ProvidedAuth, Surreal } from 'surrealdb';
+import { type ProvidedAuth, ServerError, Surreal } from 'surrealdb';
 import { DatabaseAvailability } from './database-availability';
 import { DatabaseHealthService } from './database-health.service';
 import { DatabaseConfig, databaseConfigFromEnv } from './database.config';
@@ -74,6 +74,8 @@ export async function connectDatabase(
 
 /** Clients {@link connectInBackground} keeps connected: how to stop it, for shutdown. */
 const keepers = new WeakMap<Surreal, () => void>();
+/** Clients {@link startConnecting} is still waiting on. */
+const starting = new WeakSet<Surreal>();
 
 /**
  * For the services (Joel, 2026-11-07, "gap a"): starts connecting and returns at once, so a
@@ -105,11 +107,20 @@ export function connectInBackground(
           `Connected to ${config.url} as service:${config.username} (${config.namespace}/${config.database})`,
         ),
       )
-      .catch((err: unknown) =>
-        logger.warn(
-          `Can't reach ${config.url} yet; still trying: ${String(err)}`,
-        ),
-      );
+      .catch((err: unknown) => {
+        const refusal = databaseRefusal(err);
+        if (refusal && starting.has(db)) return; // startConnecting logs it and stops
+        if (refusal) {
+          // After start-up, e.g. the password was rotated: a restart until it signs in again.
+          logger.error(
+            `${config.url} refused service:${config.username}'s sign-in (${DATABASE_REFUSED}, ${describeRefusal(refusal)}); still trying`,
+          );
+        } else {
+          logger.warn(
+            `Can't reach ${config.url} yet; still trying: ${String(err)}`,
+          );
+        }
+      });
   const offDisconnected = db.subscribe('disconnected', () => {
     if (stopped || retry) return;
     retry = setTimeout(() => {
@@ -133,10 +144,107 @@ export function stopConnecting(db: Surreal): void {
   keepers.delete(db);
 }
 
+/** The short code a refused sign-in is logged with (Cloud Logging: `jsonPayload.code`). */
+export const DATABASE_REFUSED = 'database_refused';
+
 /**
- * Global module providing the service's SurrealDB client (token {@link SURREAL}), connecting in
- * the background ({@link connectInBackground}). Requires `SecretsModule` to be imported by the
- * application.
+ * The database answered and refused this service: a wrong password or other sign-in error,
+ * an unknown namespace or database, a permission error. The SDK reports every answer the server
+ * gives as a `ServerError` (`kind` NotAllowed, NotFound, …); anything else (no socket, DNS, a
+ * timeout, the socket closing, Secret Manager not answering) means it didn't answer.
+ */
+export function databaseRefusal(err: unknown): ServerError | undefined {
+  for (let e = err, depth = 0; e && depth < 5; depth++) {
+    if (e instanceof ServerError) return e;
+    e = (e as { cause?: unknown }).cause; // e.g. the SDK's AuthenticationError
+  }
+  return undefined;
+}
+
+/** `NotAllowed/Auth`: the error's kind and detail, never its text (it may name the service). */
+function describeRefusal(err: ServerError): string {
+  return err.details ? `${err.kind}/${err.details.kind}` : err.kind;
+}
+
+/** A service doesn't start: the database refused its sign-in ({@link startConnecting}). */
+export class DatabaseRefusedError extends Error {
+  readonly code = DATABASE_REFUSED;
+  constructor(readonly refusal: ServerError) {
+    super(
+      `The database refused this service's sign-in (${DATABASE_REFUSED}, ${describeRefusal(refusal)})`,
+    );
+    this.name = 'DatabaseRefusedError';
+  }
+}
+
+/** How long start-up waits to learn whether the database answers ({@link startConnecting}). */
+export const START_UP_WAIT_MS = 10_000;
+
+/**
+ * A service's start-up (Joel, 2026-11-08, "differentiate between restarts with no response and
+ * problems caused by an error like a password error"): connects in the background
+ * ({@link connectInBackground}) and waits for the first attempt's outcome. Signed in: carry on.
+ * No answer (connection refused, DNS, a timeout, the socket closed; `waitMs` passing without
+ * either counts too): carry on as well; the database is restarting, and routes answer
+ * `503 service_restarting` until it's back. The database answered and refused the sign-in
+ * ({@link databaseRefusal}): logs one line with the code `database_refused` and fails with
+ * {@link DatabaseRefusedError}, so the service exits before it opens its port and Cloud Run
+ * keeps the previous revision. After start-up every failure counts as a restart.
+ */
+export async function startConnecting(
+  db: Surreal,
+  config: DatabaseConfig,
+  secrets: SecretsService,
+  waitMs = START_UP_WAIT_MS,
+): Promise<Surreal> {
+  let offs: (() => void)[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const outcome = new Promise<ServerError | undefined>((settle) => {
+    offs = [
+      db.subscribe('connected', () => settle(undefined)),
+      db.subscribe('reconnecting', () => settle(undefined)),
+      // The SDK publishes a refused sign-in as an error before it closes the connection.
+      db.subscribe('error', (err) => {
+        const refusal = databaseRefusal(err);
+        if (refusal) settle(refusal);
+      }),
+      db.subscribe('disconnected', () => settle(undefined)),
+    ];
+    timer = setTimeout(() => settle(undefined), waitMs);
+  });
+  starting.add(db);
+  connectInBackground(db, config, secrets);
+  const refusal = await outcome.finally(() => {
+    clearTimeout(timer);
+    for (const off of offs) off();
+  });
+  if (!refusal) {
+    starting.delete(db);
+    return db;
+  }
+  // Still marked as starting, so the background connect's own failure log stays quiet.
+  stopConnecting(db);
+  await db.close().catch(() => undefined);
+  const error = new DatabaseRefusedError(refusal);
+  process.stdout.write(
+    `${JSON.stringify({
+      severity: 'CRITICAL',
+      message: `${error.message}; not starting`,
+      event: DATABASE_REFUSED,
+      code: DATABASE_REFUSED,
+      kind: refusal.kind,
+      detail: refusal.details?.kind,
+      url: config.url,
+      username: config.username,
+    })}\n`,
+  );
+  throw error;
+}
+
+/**
+ * Global module providing the service's SurrealDB client (token {@link SURREAL}): starts once it
+ * knows whether the database answers, then keeps connecting in the background
+ * ({@link startConnecting}). Requires `SecretsModule` to be imported by the application.
  */
 @Global()
 @Module({
@@ -144,8 +252,8 @@ export function stopConnecting(db: Surreal): void {
     {
       provide: SURREAL,
       inject: [SecretsService],
-      useFactory: (secrets: SecretsService): Surreal =>
-        connectInBackground(new Surreal(), databaseConfigFromEnv(), secrets),
+      useFactory: (secrets: SecretsService): Promise<Surreal> =>
+        startConnecting(new Surreal(), databaseConfigFromEnv(), secrets),
     },
     DatabaseHealthService,
     DatabaseAvailability,

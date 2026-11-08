@@ -222,8 +222,10 @@ Not started.
 - **Database restarts (Spot), built 2026-11-07:** the services notice when the database is
   restarting, public pages keep working from the last copy, and everything else shows a calm
   "restarting, refresh in about 2 minutes" message. A copy of an API that starts while the
-  database is away now starts anyway and gives the same message until it has connected. Not
-  covered yet: the legal text pages show their usual "can't be shown" message rather than the
+  database is away now starts anyway and gives the same message until it has connected; one
+  whose sign-in the database refuses (a wrong password, a missing namespace) doesn't start at
+  all, so Cloud Run keeps the previous version (2026-11-08). A Cloud Monitoring dashboard
+  (OpenTofu) shows 503s, instances and Google's reclaims per service. Not covered yet: the legal text pages show their usual "can't be shown" message rather than the
   restarting one.
 
 - **The nightly clean-up only reports on dev.** It will start deleting once someone has read a
