@@ -126,6 +126,6 @@ test('the notice after an action goes once an answer succeeds, on the page or af
   await page.getByRole('button', { name: /^Account: / }).click();
   await page.getByRole('link', { name: 'My favourites' }).click();
   expect((await loaded).status()).toBe(200);
-  await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/account/favourites`);
+  await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/favourites`);
   await expect(notice).toHaveCount(0);
 });
