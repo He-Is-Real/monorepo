@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { type BrowserContext, expect, type Page, test } from '@playwright/test';
 import { GLYPH_SOURCE } from '../src/lib/card-glyphs';
+import { expectNoHorizontalOverflow } from './helpers';
 
 // Browse's masonry (D55, lib/masonry.ts): the first paint is the server's prediction, each card
 // clipped to its predicted rows, and once the page's JavaScript runs, measured heights replace
@@ -127,10 +128,10 @@ function allMeasured(page: Page) {
  * The ways a first paint can differ from the one the bands predict: as served; in a browser
  * without container queries (Codex review of #163: such a browser kept the narrowest band and
  * overlapped by 86 px at 768 px), done here by deleting the stylesheet's `@container` rules; and
- * with larger text, as a reader's text-size setting makes it (rem and the breakpoints' em grow:
- * at 125% the masonry keeps two columns, scaled, and at 200% (WCAG 1.4.4) the list is one column)
- * and as e2e/helpers.ts's enlargeText does (only rem grows; that helper needs JavaScript, so the
- * same style is added here).
+ * with larger text, as a reader's text-size setting makes it (rem grows; the column count stays
+ * the screen's, so the cards are narrower, up to 200% (WCAG 1.4.4)) and as e2e/helpers.ts's
+ * enlargeText does (only rem grows; that helper needs JavaScript, so the same style is added
+ * here).
  */
 async function textSetting(page: Page, px: number) {
   const cdp = await page.context().newCDPSession(page);
@@ -257,6 +258,33 @@ test.describe('first paint, before any script runs', () => {
       }
     });
 });
+
+// Joel, 2026-11-07/08: story grids show 3 columns from 1024 px wide, 2 from 640 px, 1 below,
+// whatever the text size. #163's breakpoints in em and bands at the default text size had dropped
+// desktops to 2 columns with a reader's text set to 20 px (Chrome's "Large"). Every device, at
+// the default text, at 20 px and at 200% (WCAG 1.4.4), with no sideways scroll.
+for (const text of [16, 20, 32])
+  test(`the column count follows the screen's width (${text} px text)`, async ({
+    page,
+  }, info) => {
+    if (text !== 16) await textSetting(page, text);
+    await page.goto('/stories');
+    await expect(cards(page)).toHaveCount(15);
+    await page.evaluate(() => document.fonts.ready);
+    expect(
+      await page.evaluate(() =>
+        parseFloat(getComputedStyle(document.documentElement).fontSize),
+      ),
+    ).toBe(text);
+    const width = info.project.use.viewport?.width ?? 0;
+    const columns = await cards(page).evaluateAll(
+      (lis) =>
+        new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x)))
+          .size,
+    );
+    expect(columns).toBe(width >= 1024 ? 3 : width >= 640 ? 2 : 1);
+    await expectNoHorizontalOverflow(page);
+  });
 
 // Without JavaScript nothing is ever measured, so nothing may stay clipped: one column in normal
 // flow, the whole of every card shown.

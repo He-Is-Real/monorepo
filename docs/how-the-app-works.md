@@ -281,6 +281,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
   More stories load on their own as the reader nears the end, to the end of the list, with an end
   message. Without JavaScript there is a link to the next page. (D55)
+- **Story grids** (browse and My favourites): 3 columns from 1024 px wide, 2 from 640 px, 1
+  below, whatever the text size (Joel, 2026-11-07/08). The column count follows the screen's width
+  only; larger text makes the cards narrower, never fewer columns.
 - **Search looks at published stories only.** Its "best match" order compares each story only
   with the other published stories, so drafts and unpublished stories can never change a score,
   the order or where "load more" carries on. The database keeps the published stories' words in

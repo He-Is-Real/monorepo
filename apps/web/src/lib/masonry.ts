@@ -32,11 +32,13 @@ import { audioSize, cardAspect } from './shape';
 // installed, and the browser measures the real cards anyway. Text with a character the table
 // doesn't have (emoji, other alphabets) is predicted at its most lines.
 //
-// Sizes here are px at the browser's default 16 px text, and the stylesheet sets them all in rem
-// and em: with larger text the whole masonry scales with it, so the same predictions hold (Codex
-// review of #163). Where the list is narrower than the bands for its text size (very large text,
-// or a browser without container queries), it stays one column in normal flow, as on a phone:
-// nothing is predicted, so nothing can overlap.
+// Sizes here are px at the browser's default 16 px text, and the stylesheet sets them in rem: with
+// larger text the cards scale with it, so the same predictions hold (Codex review of #163). The
+// column count follows the screen's width only, whatever the text size (Joel, 2026-11-07/08: three
+// columns from 1024 px, two from 640 px, one below), so with larger text the list holds fewer of
+// these px: the bands reach down to the narrowest list at 200% text (LARGEST_TEXT). A browser
+// without container queries keeps one column in normal flow, as on a phone: nothing is predicted,
+// so nothing can overlap.
 //
 // The card's sizes come from card-metrics.ts, which story-card.tsx draws it with.
 
@@ -54,6 +56,11 @@ export const GAP = 24;
  * these: the bands themselves follow the list's real width.
  */
 const PAGE = { pad: 40, maxWidth: 1200, scrollbar: 20 } as const;
+/**
+ * The largest text size the bands are made for, as a share of the default 16 px (WCAG 1.4.4's
+ * 200%): with larger text still, the list is narrower than the narrowest band and takes its spans.
+ */
+const LARGEST_TEXT = 2;
 /** Each band is this many px of card width wide: a 9:16 video is predicted at most 15 px tall. */
 const BAND_STEP = 8;
 /** Predictions err tall: a span a little too long leaves a gap; too short would overlap. */
@@ -262,26 +269,36 @@ const cardWidth = (list: number, columns: number) =>
   (list - (columns - 1) * GAP) / columns;
 
 /**
- * The bands for each column count, from the narrowest list to the widest: the viewport at the
- * breakpoint less the page's padding (a tablet at exactly 640 or 1024 px starts a band), or up to
- * a scrollbar narrower, to the next breakpoint's list or the site's width. A list narrower than
- * a column count's first band has one column fewer (MASONRY_CSS); the last band covers anything
- * wider, though the list is never wider than the site (PAGE.maxWidth, `max-w-site`) at the
- * default text size or larger.
+ * The list's width at a column count's breakpoint less the page's padding, at the default text
+ * size and without a scrollbar: a tablet at exactly 640 or 1024 px starts a band here.
+ */
+const listAt = (columns: ColumnCount) => BREAKPOINTS[columns] - 2 * PAGE.pad;
+/** Its widest list at the default text size or larger: the next breakpoint's, or the site's. */
+const widestList = (columns: ColumnCount) =>
+  columns === 2 ? listAt(3) : PAGE.maxWidth;
+
+/**
+ * The bands for each column count, from the narrowest list to the widest: from the list at the
+ * breakpoint with a scrollbar and the largest text (LARGEST_TEXT; the padding and the screen
+ * scale with it), in steps from the list at the breakpoint (listAt), to the widest list. The
+ * first band also covers any narrower list, and the last any wider, though the list is never wider
+ * than the site (PAGE.maxWidth, `max-w-site`) at the default text size or larger.
  */
 export const BANDS: Band[] = COLUMN_COUNTS.flatMap((columns) => {
-  const from = BREAKPOINTS[columns] - 2 * PAGE.pad;
-  const to = columns === 2 ? BREAKPOINTS[3] - 2 * PAGE.pad : PAGE.maxWidth;
+  const least =
+    (BREAKPOINTS[columns] - PAGE.scrollbar) / LARGEST_TEXT - 2 * PAGE.pad;
+  const to = widestList(columns);
   const step = BAND_STEP * columns;
-  const band = (min: number, max: number): Band => ({
-    columns,
-    minWidth: min,
-    narrowest: cardWidth(min, columns),
-    widest: cardWidth(max, columns),
-  });
-  const bands = [band(from - PAGE.scrollbar, from)];
-  for (let min = from; min < to; min += step)
-    bands.push(band(min, Math.min(min + step, to)));
+  let first = listAt(columns);
+  while (first > least) first -= step;
+  const bands: Band[] = [];
+  for (let min = first; min < to; min += step)
+    bands.push({
+      columns,
+      minWidth: min,
+      narrowest: cardWidth(min, columns),
+      widest: cardWidth(Math.min(min + step, to), columns),
+    });
   return bands;
 });
 
@@ -315,8 +332,8 @@ export type ColumnHeights = Record<ColumnCount, number[]>;
 
 /**
  * Columns and spans for these cards, continuing from `start`. Columns are chosen from the
- * predictions in the middle band of each column count: they balance the columns, and a card
- * keeps its column at any width within that column count.
+ * predictions in the band in the middle of each column count's widths at the default text size:
+ * they balance the columns, and a card keeps its column at any width within that column count.
  */
 export function layoutFor(
   cards: StorySummary[],
@@ -332,8 +349,9 @@ export function layoutFor(
   }));
   const heights = {} as ColumnHeights;
   for (const n of COLUMN_COUNTS) {
-    const own = BANDS.flatMap((band, i) => (band.columns === n ? [i] : []));
-    const middle = spans[own[Math.floor(own.length / 2)]];
+    const mid = (listAt(n) + widestList(n)) / 2;
+    const middle =
+      spans[BANDS.findLastIndex((b) => b.columns === n && b.minWidth <= mid)];
     const placed = place(
       middle.map((span) => span * ROW_UNIT - GAP),
       n,
@@ -360,14 +378,15 @@ export function layoutStyle(layout: CardLayout): Record<string, number> {
 const rem = (px: number) => `${px / 16}rem`;
 
 /**
- * The masonry's stylesheet (story-masonry.tsx renders it once per page), all in em and rem so it
- * scales with the reader's text size. One column in normal flow, as on a phone, until the
- * viewport reaches a breakpoint and the list (`.masonry-box`, a size container) is wide enough
- * for one of that column count's bands. Then columns with 4 px rows: each card in its column
- * (`--c2`, `--c3`), spanning its measured rows (`--m`, story-masonry.tsx) or, before that, its
- * band's predicted span (`--s0`…). `dense` stacks each column's cards with no gaps. A list too
- * narrow for three columns' bands keeps two; one too narrow for two (very large text), or a
- * browser without container queries, keeps one column.
+ * The masonry's stylesheet (story-masonry.tsx renders it once per page), in rem so it scales with
+ * the reader's text size. One column in normal flow, as on a phone, until the viewport reaches a
+ * breakpoint, in px so the column count follows the screen's width whatever the text size (Joel,
+ * 2026-11-07/08). Then, in the list (`.masonry-box`, a size container), columns with 4 px rows:
+ * each card in its column (`--c2`, `--c3`), spanning its measured rows (`--m`,
+ * story-masonry.tsx) or, before that, its predicted span in the band the list's width is in
+ * (`--s0`…; the first band from 0). `dense` stacks each column's cards with no gaps. A browser
+ * without container queries, or a list that isn't a size container (no JavaScript), keeps one
+ * column.
  *
  * In columns, each list item fills its rows and clips below them (`overflow-y: clip`), so a card
  * guessed short can't draw over the next one; the card keeps its own height (`height: auto`,
@@ -389,9 +408,9 @@ export const MASONRY_CSS = [
         : '';
       const column = first ? `grid-column:var(--c${n});` : '';
       return [
-        `@container (min-width:${rem(band.minWidth)}){${grid}.masonry>li{${column}grid-row-end:span var(--m,var(--s${i}))}}`,
+        `@container (min-width:${first ? 0 : rem(band.minWidth)}){${grid}.masonry>li{${column}grid-row-end:span var(--m,var(--s${i}))}}`,
       ];
     });
-    return `@media (min-width:${BREAKPOINTS[n] / 16}em){${rules.join('')}}`;
+    return `@media (min-width:${BREAKPOINTS[n]}px){${rules.join('')}}`;
   }),
 ].join('\n');

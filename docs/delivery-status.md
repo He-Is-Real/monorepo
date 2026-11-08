@@ -153,6 +153,9 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   real letter widths, and a wrong guess can only hide a card's last line for a moment, never
   overlap the next card. Without JavaScript the cards show in one column (Joel's option B,
   re-approved 2026-11-06; [#163](https://github.com/He-Is-Real/monorepo/pull/163)).
+- Browse and favourites show three columns on desktop again (from 1024 px wide; two from 640 px,
+  one below) whatever the reader's text size: a larger browser text setting had dropped desktops
+  to two columns (Joel, 2026-11-07/08).
 
 **In progress (open pull requests):**
 
