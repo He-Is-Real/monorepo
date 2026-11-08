@@ -1,6 +1,7 @@
 import type { StorySummary } from './browse';
 import {
   BANDS,
+  BREAKPOINTS,
   cardShape,
   COLUMN_COUNTS,
   layoutFor,
@@ -87,10 +88,13 @@ describe('spanFor and layoutFor', () => {
         expect(c.col[n]).toBeLessThan(n);
       }
     }
-    // A 9:16 video's span grows with its band's card width.
+    // A 9:16 video's span grows with its band's card width at the default text size (from the
+    // list at 640 px less the page's padding; with larger text, narrower cards wrap more lines).
     expect(layout[0].span).toHaveLength(BANDS.length);
     const two = BANDS.flatMap((b, i) =>
-      b.columns === 2 ? [layout[0].span[i]] : [],
+      b.columns === 2 && b.minWidth >= BREAKPOINTS[2] - 80
+        ? [layout[0].span[i]]
+        : [],
     );
     expect(two).toEqual([...two].sort((a, b) => a - b));
     expect(layout.map((c) => c.col[3])).toEqual([0, 1, 2]);

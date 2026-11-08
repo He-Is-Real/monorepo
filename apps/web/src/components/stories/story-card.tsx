@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
 import { cardLabel } from '@/lib/card-label';
 import { CARD_CSS } from '@/lib/card-metrics';
+import { CARD_TOP_CSS } from '@/lib/masonry';
 import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
 import { CardHeart } from './heart-button';
@@ -60,7 +61,7 @@ export function NewBadge() {
 /** The card's sizes (CARD_CSS): React puts them in the page's head, once. */
 const CardMetrics = () => (
   <style href="story-card" precedence="default">
-    {CARD_CSS}
+    {CARD_CSS + CARD_TOP_CSS}
   </style>
 );
 
@@ -174,6 +175,23 @@ export function StoryCard({
     </>
   );
 
+  const top = (
+    <p
+      className={`mb-(--card-meta-after) flex flex-wrap items-center justify-between gap-x-(--card-meta-gap) gap-y-(--card-meta-row-gap) text-(length:--card-meta-font) leading-(--card-meta-line) text-muted-foreground ${media ? '' : 'pr-(--card-meta-heart)'}`}
+    >
+      <span
+        data-card-label=""
+        className="flex max-w-full flex-wrap items-center gap-x-(--card-badge-after) gap-y-(--card-meta-row-gap)"
+      >
+        {story.isNew && <NewBadge />}
+        {cardLabel(story)}
+      </span>
+      <span className="min-w-0 flex-1 basis-(--card-meta-name) truncate text-right">
+        {story.bylineName ?? 'Anonymous'}
+      </span>
+    </p>
+  );
+
   return (
     <article className="story-card group relative flex h-full flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-border transition-[box-shadow,background-color] [overflow-wrap:anywhere] [text-rendering:geometricPrecision] hover:ring-border-hover has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring">
       <CardMetrics />
@@ -201,21 +219,9 @@ export function StoryCard({
       >
         {/* One line at normal text sizes: the name shortens with "…" first. It moves to its own line
             only when under 2.5rem would be left, and with large text the label wraps too, so
-            nothing is ever clipped by the card. */}
-        <p
-          className={`mb-(--card-meta-after) flex flex-wrap items-center justify-between gap-x-(--card-meta-gap) gap-y-(--card-meta-row-gap) text-(length:--card-meta-font) leading-(--card-meta-line) text-muted-foreground ${media ? '' : 'pr-(--card-meta-heart)'}`}
-        >
-          <span
-            data-card-label=""
-            className="flex max-w-full flex-wrap items-center gap-x-(--card-badge-after) gap-y-(--card-meta-row-gap)"
-          >
-            {story.isNew && <NewBadge />}
-            {cardLabel(story)}
-          </span>
-          <span className="min-w-0 flex-1 basis-(--card-meta-name) truncate text-right">
-            {story.bylineName ?? 'Anonymous'}
-          </span>
-        </p>
+            nothing is ever clipped by the card. A NEW card without a picture too narrow for the badge
+            beside the heart moves the line below the heart (lib/masonry.ts's CARD_TOP_CSS). */}
+        {quote && story.isNew ? <div className="card-top">{top}</div> : top}
         <Heading className="mb-(--card-title-after) line-clamp-(--card-title-lines) text-(length:--card-title-font) leading-(--card-title-line) font-semibold">
           <Link
             href={`/stories/${story.slug}`}
