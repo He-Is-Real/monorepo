@@ -18,6 +18,11 @@ export const CARD = {
     name: 40,
     /** On a card without a picture the heart sits in the top line's corner. */
     heart: 40,
+    /**
+     * A card without a picture too narrow for the NEW badge beside the heart: its top line moves
+     * down this far, below the heart (heart-button.tsx: `top-2`, `size-11`, less the card's pad).
+     */
+    belowHeart: 32,
   },
   /** D72's NEW badge before the label: semibold, tracked, in a pill. */
   badge: {

@@ -9,6 +9,12 @@ import { expectNoHorizontalOverflow } from './helpers';
 // serves 54 published stories (e2e/stub-api.mjs).
 
 const cards = (page: Page) => page.locator('main ul.masonry > li');
+/** How many columns the cards are in: their distinct left edges. */
+const columnCount = (page: Page) =>
+  cards(page).evaluateAll(
+    (lis) =>
+      new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x))).size,
+  );
 
 /** Each card's top and bottom in the page, once the fonts have loaded. */
 async function boxes(page: Page) {
@@ -277,13 +283,41 @@ for (const text of [16, 20, 32])
       ),
     ).toBe(text);
     const width = info.project.use.viewport?.width ?? 0;
-    const columns = await cards(page).evaluateAll(
-      (lis) =>
-        new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x))).size,
+    expect(await columnCount(page)).toBe(
+      width >= 1024 ? 3 : width >= 640 ? 2 : 1,
     );
-    expect(columns).toBe(width >= 1024 ? 3 : width >= 640 ? 2 : 1);
     await expectNoHorizontalOverflow(page);
   });
+
+// Joel, 2026-11-08: "when zoomed it should drop to two and then one". Browser zoom shrinks the
+// page's viewport in CSS px (and raises the pixel ratio), so a 1280 px desktop at 150% is an 853 px
+// page (two columns) and at about 213% a 600 px page (one column).
+test('a zoomed desktop drops to two columns, then one', async ({
+  browser,
+}, info) => {
+  test.skip(info.project.name !== 'desktop-1280', 'one device');
+  for (const [zoom, columns] of [
+    [1.5, 2],
+    [1280 / 600, 1],
+  ] as const) {
+    const context = await browser.newContext({
+      ...info.project.use,
+      viewport: {
+        width: Math.floor(1280 / zoom),
+        height: Math.floor(800 / zoom),
+      },
+      deviceScaleFactor: zoom,
+    });
+    const page = await context.newPage();
+    await page.goto('/stories');
+    await expect(cards(page)).toHaveCount(15);
+    expect(await columnCount(page), `${Math.round(zoom * 100)}% zoom`).toBe(
+      columns,
+    );
+    await expectNoHorizontalOverflow(page);
+    await context.close();
+  }
+});
 
 // Without JavaScript nothing is ever measured, so nothing may stay clipped: one column in normal
 // flow, the whole of every card shown.

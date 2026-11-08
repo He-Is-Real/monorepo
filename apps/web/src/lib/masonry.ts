@@ -66,6 +66,8 @@ const BAND_STEP = 8;
 /** Predictions err tall: a span a little too long leaves a gap; too short would overlap. */
 const SLACK = 2;
 
+const rem = (px: number) => `${px / 16}rem`;
+
 /**
  * Each character's place in the table. Format characters (the soft hyphen U+00AD) are left
  * out, so text with one counts at its most lines: they change where a line may break (Codex
@@ -207,6 +209,19 @@ const BADGE_WIDTH = (() => {
   return textWidth('NEW', 'badge') + 3 * b.tracking * b.font + 2 * b.padX;
 })();
 
+/**
+ * On a card without a picture, a text width (px) under which the NEW badge doesn't fit beside the
+ * heart: the top line then moves below the heart and takes the whole width (CARD_TOP_CSS). A
+ * pixel to spare, so a browser's rounding can't leave the badge a fraction too wide.
+ */
+const BADGE_BESIDE_HEART = CARD.meta.heart + Math.ceil(BADGE_WIDTH) + 1;
+
+/**
+ * story-card.tsx's NEW written card without a picture: its top line in a size container
+ * (`.card-top`), moved below the heart when the badge doesn't fit beside it. In rem, as the card.
+ */
+export const CARD_TOP_CSS = `.card-top{container-type:inline-size}@container (width < ${rem(BADGE_BESIDE_HEART)}){.card-top>p{padding-right:0;margin-top:${rem(CARD.meta.belowHeart)}}}`;
+
 /** Lines of a block of text, at most its line clamp. */
 const clamped = (
   text: string,
@@ -215,8 +230,37 @@ const clamped = (
 ) => Math.min(CARD[style].maxLines, lineCount(text, width, style));
 
 /**
+ * The card's top line's height in px at this text width, with the space under it. The label, the
+ * gap and the name's 2.5rem minimum on one line, beside the heart's room on a card without a
+ * picture (`pr-10`), or below the heart if the badge doesn't fit beside it; otherwise the name
+ * drops to a line of its own. A label wider than the line wraps: the badge, then its words.
+ */
+function metaHeight(shape: CardShape, text: number): number {
+  const m = CARD.meta;
+  const quote = shape.aspect === null;
+  const below = quote && shape.isNew && text < BADGE_BESIDE_HEART;
+  const badge = shape.isNew ? BADGE_WIDTH + CARD.badge.after : 0;
+  const label = badge + textWidth(shape.label, 'meta');
+  const line = text - (quote && !below ? m.heart : 0);
+  const lines =
+    label + m.gap + m.name <= line
+      ? 1
+      : label <= line
+        ? 2
+        : (shape.isNew ? 1 : 0) + lineCount(shape.label, line, 'meta') + 1;
+  return (
+    lines * m.line +
+    (lines - 1) * m.rowGap +
+    m.after +
+    (below ? m.belowHeart : 0)
+  );
+}
+
+/**
  * The card's predicted height in px: its media at `cardWidth`, its text wrapped at `textWidth`
- * (a band's widest and narrowest card, so it errs tall).
+ * (a band's widest and narrowest card, so it errs tall). The top line is the one part that can
+ * be shorter on a narrower card (below the heart, with the whole width), so where the band holds
+ * both, it takes the taller.
  */
 export function predictHeight(
   shape: CardShape,
@@ -239,20 +283,12 @@ export function predictHeight(
       : CARD.themes.before +
         rows * CARD.themes.row +
         (rows - 1) * CARD.themes.gap;
-  // The label, the gap and the name's 2.5rem minimum on one line, beside the heart's room on a
-  // card without a picture (`pr-10`); otherwise the name drops to a line of its own. A label
-  // wider than the line wraps: the badge, then its words.
-  const m = CARD.meta;
-  const badge = shape.isNew ? BADGE_WIDTH + CARD.badge.after : 0;
-  const label = badge + textWidth(shape.label, 'meta');
-  const line = text - (shape.aspect === null ? m.heart : 0);
-  const metaLines =
-    label + m.gap + m.name <= line
-      ? 1
-      : label <= line
-        ? 2
-        : (shape.isNew ? 1 : 0) + lineCount(shape.label, line, 'meta') + 1;
-  const meta = metaLines * m.line + (metaLines - 1) * m.rowGap + m.after;
+  const beside =
+    text < BADGE_BESIDE_HEART && BADGE_BESIDE_HEART <= cardWidth - 2 * CARD.pad;
+  const meta = Math.max(
+    metaHeight(shape, text),
+    beside ? metaHeight(shape, BADGE_BESIDE_HEART) : 0,
+  );
   return media + 2 * CARD.pad + meta + title + excerpt + themes + SLACK;
 }
 
@@ -374,8 +410,6 @@ export function layoutStyle(layout: CardLayout): Record<string, number> {
   });
   return style;
 }
-
-const rem = (px: number) => `${px / 16}rem`;
 
 /**
  * The masonry's stylesheet (story-masonry.tsx renders it once per page), in rem so it scales with
