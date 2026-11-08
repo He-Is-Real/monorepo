@@ -96,18 +96,23 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
     },
   );
 
-  it('answers a bare 500 problem and a failing health check when the database is down', async () => {
+  it('answers 503 service_restarting and a failing health check when the database is down', async () => {
     const closed = await t.service('api_public_read');
     await closed.close();
     const down = await startPublicRead(t, undefined, closed);
     try {
       const res = await fetch(`${down.url}/v1/stories/${SLUG}`);
-      expect(res.status).toBe(500);
-      // Nothing about the failure reaches the visitor.
+      expect(res.status).toBe(503);
+      // Nothing about the failure reaches the visitor beyond "restarting, try again then".
       expect(await res.json()).toEqual({
         type: 'about:blank',
-        title: 'Internal server error',
-        status: 500,
+        title: 'Service restarting',
+        status: 503,
+        code: 'service_restarting',
+        detail:
+          'Our compute is currently restarting. Please try again in a few minutes.',
+        restartingSince: expect.any(String),
+        retryAfterSeconds: 120,
       });
       const health = await fetch(`${down.url}/health`);
       expect(health.status).toBe(503);

@@ -20,6 +20,7 @@
     ]
   },
   "dependencies": {
+    "@heisreal/database": "workspace:*",
     "@nestjs/common": "^12.3.2",
     "@nestjs/core": "^12.3.2"
   },

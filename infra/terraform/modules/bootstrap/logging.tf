@@ -46,3 +46,37 @@ resource "google_logging_project_sink" "default" {
 
   deletion_policy = "PREVENT"
 }
+
+# How often Google takes the database's machine back (SurrealDB on Spot; Joel, 2026-11-07). A
+# log-based counter, here with the project's other logging settings (the gcp root's deployer
+# can't write logging config). Free: user-defined log metrics cost nothing below Cloud
+# Monitoring's free allotment, and this one ticks a few times a month at most.
+#
+# The filter: Compute Engine's own audit record of a reclaim, `compute.instances.preempted` in the
+# `system_event` audit log, which Google writes for Autopilot's nodes too. Autopilot names this
+# cluster's nodes `gk3-<cluster>-…`, and only its Spot nodes are ever preempted; every Spot Pod we
+# run (SurrealDB's surrealdb-0 and External Secrets) is pinned to the same one Spot node
+# (infra/k8s/surrealdb/overlays/gke-dev), so each count is a restart of the database. Seen on dev:
+# three in the 30 days to 7 November 2026, all on 20 October. The services' own lines
+# (`database_unavailable` / `database_available`, libs/database) say how long each one lasted.
+locals {
+  # The GKE cluster's name (modules/gcp, `local.name`).
+  cluster_name = "heisreal-${var.environment}"
+}
+
+resource "google_logging_metric" "database_spot_reclaims" {
+  project     = google_project.this.project_id
+  name        = "${local.cluster_name}/database-spot-reclaims"
+  description = "Spot nodes of ${local.cluster_name} reclaimed by Google (each one restarts SurrealDB)."
+  filter      = <<-EOT
+    logName="projects/${google_project.this.project_id}/logs/cloudaudit.googleapis.com%2Fsystem_event"
+    protoPayload.methodName="compute.instances.preempted"
+    protoPayload.resourceName:"/instances/gk3-${local.cluster_name}-"
+  EOT
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
+import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { StoryView } from '@/components/stories/story-view';
 import { getRelatedStories, type StorySummary } from '@/lib/browse';
 import {
@@ -89,6 +90,10 @@ export default async function StoryPage({ params }: Props) {
   } catch (err) {
     if (!(err instanceof StoriesUnavailableError)) throw err;
     logStoriesUnavailable('story', err);
+    if (err.restartingSeconds !== undefined)
+      return (
+        <RestartingMessage seconds={err.restartingSeconds} variant="page" />
+      );
     return <StoryUnavailable slug={slug} />;
   }
   if (result.kind === 'not_found') notFound();

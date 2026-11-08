@@ -215,6 +215,28 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    ServiceRestarting:
+      description: |
+        `service_restarting`: the database is restarting (it runs on Google's Spot capacity, which
+        Google can take back), so the service can't answer just now. `retryAfterSeconds` (also the
+        `Retry-After` header) is when to try again: a 2-minute estimate (a setting) counted from
+        `restartingSince`, never under 60 seconds. Clients say "Our compute is currently restarting"
+        with a countdown and keep anything the person typed. api-public-read serves a copy of a
+        public answer it kept in the last 30 minutes instead, when it has one. A few operations
+        also answer `503` with their own code when another service (Clerk, Bunny, Pub/Sub) doesn't
+        answer; their own descriptions say so, and those have no `restartingSince`.
+      headers:
+        Retry-After:
+          description: |
+            `service_restarting` only: seconds to wait before trying again, the same as
+            `retryAfterSeconds`.
+          schema:
+            type: integer
+            minimum: 60
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     Health:
       description: Service and database are up.
       content:
@@ -270,6 +292,17 @@ components:
             review, 7 days after their latest submission. `upload_limit_reached` (D113): when they
             may next start an upload. `media_recently_uploaded` (api-admin, decision 5): when the
             story's upload links have run out and a moderator may approve it.
+        restartingSince:
+          type: string
+          format: date-time
+          description: |
+            `service_restarting` only: when this running copy of the service first saw the database
+            unavailable.
+        retryAfterSeconds:
+          type: integer
+          minimum: 60
+          description: |
+            `service_restarting` only: seconds until it's worth trying again (also `Retry-After`).
         errors:
           type: array
           description: Field errors (validation failures only).

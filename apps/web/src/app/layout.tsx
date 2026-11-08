@@ -4,6 +4,7 @@ import { connection } from 'next/server';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { DeviceHeartsPrompt } from '@/components/favourites/device-hearts-prompt';
 import { JsonLd } from '@/components/page/json-ld';
+import { RestartingNotice } from '@/components/restarting/restarting-message';
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
 import {
@@ -87,6 +88,8 @@ export default async function RootLayout({
       <SiteFooter />
       {/* Signed in: offers to add this device's hearts to the account (M2). */}
       <DeviceHeartsPrompt />
+      {/* An action answered "restarting" (SurrealDB on Spot): when to try again. */}
+      <RestartingNotice />
     </>
   );
   return (

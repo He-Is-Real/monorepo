@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { apiPublicReadUrl } from './config';
+import { restartingSecondsOf } from './restarting';
 
 // D32: web reads stories from api-public-read only, server-side, with nothing from the
 // visitor's request (no cookies, no headers): every visitor gets the same page.
@@ -42,12 +43,30 @@ export interface PublicStory {
 export type StoryResult =
   { kind: 'story'; story: PublicStory } | { kind: 'not_found' };
 
-/** api-public-read couldn't be reached or answered unexpectedly: show a friendly error. */
+/**
+ * api-public-read couldn't be reached or answered unexpectedly: show a friendly error. With
+ * `restartingSeconds`, it answered `503 service_restarting` (the database is restarting): show
+ * the restarting message with that estimate instead.
+ */
 export class StoriesUnavailableError extends Error {
-  constructor(reason: string) {
+  constructor(
+    reason: string,
+    readonly restartingSeconds?: number,
+  ) {
     super(`api-public-read is unavailable: ${reason}`);
     this.name = 'StoriesUnavailableError';
   }
+}
+
+/** A failed answer as a StoriesUnavailableError, noting a restart's estimate if it says so. */
+export async function unavailableFrom(
+  res: Response,
+): Promise<StoriesUnavailableError> {
+  const seconds = await restartingSecondsOf(res);
+  return new StoriesUnavailableError(
+    seconds === undefined ? `status ${res.status}` : 'restarting',
+    seconds,
+  );
 }
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -100,7 +119,7 @@ async function readPublicStory(slug: string): Promise<StoryResult> {
     );
   }
   if (res.status === 404) return { kind: 'not_found' };
-  if (!res.ok) throw new StoriesUnavailableError(`status ${res.status}`);
+  if (!res.ok) throw await unavailableFrom(res);
   const body: unknown = await res.json().catch(() => undefined);
   if (!isPublicStory(body))
     throw new StoriesUnavailableError('unexpected response');

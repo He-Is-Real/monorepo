@@ -263,6 +263,16 @@ Starting the Job is an operation, not an infrastructure change: no apply. `ci-de
 start it from "Reset dev data" and "Dev behavioural tests" on `main`, nothing else. Media were
 uploaded once by a developer (`apps/dev-seed/README.md`); the Job never talks to Bunny.
 
+## Database on Spot
+
+SurrealDB runs on Spot in dev and production (Joel, 2026-11-07); see
+[infra/k8s/surrealdb/README.md](../k8s/surrealdb/README.md), "Spot restarts". OpenTofu adds one
+thing: the log-based metric `heisreal-<env>/database-spot-reclaims`, counting Google's
+`compute.instances.preempted` records for the cluster's nodes. It lives in the **bootstrap** root
+(`modules/bootstrap/logging.tf`) with the project's other logging settings, because tf-deployer
+can't write logging config; apply bootstrap locally to create it. When production is set up, its
+SurrealDB and External Secrets go on Spot like dev's (no prod resources exist yet).
+
 ## Housekeeping
 
 The `housekeeping` Cloud Run Job (`modules/gcp/housekeeping.tf`, app `apps/housekeeping`) runs

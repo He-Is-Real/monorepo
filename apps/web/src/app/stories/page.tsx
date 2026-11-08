@@ -18,6 +18,7 @@ import {
 } from '@/lib/browse-query';
 import { logStoriesUnavailable, whenUnavailable } from '@/lib/log';
 import { StoriesUnavailableError } from '@/lib/public-stories';
+import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { pageMetadata } from '@/lib/seo';
 
 type Props = {
@@ -73,7 +74,7 @@ async function loadPages(filters: Filters, pages: number) {
     } catch (err) {
       if (!(err instanceof StoriesUnavailableError)) throw err;
       logStoriesUnavailable('browse', err);
-      if (loaded === 0) return null;
+      if (loaded === 0) return err;
       break;
     }
     if (!cursor) {
@@ -126,7 +127,13 @@ export default async function BrowsePage({ searchParams }: Props) {
       )}
 
       <div className="mt-8">
-        {result === null ? (
+        {result instanceof StoriesUnavailableError &&
+        result.restartingSeconds !== undefined ? (
+          <RestartingMessage
+            seconds={result.restartingSeconds}
+            variant="inline"
+          />
+        ) : result instanceof StoriesUnavailableError ? (
           <p
             role="status"
             className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"

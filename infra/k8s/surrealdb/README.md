@@ -20,7 +20,7 @@ base/                     shared by every environment
   backup-cronjob.yaml     nightly `surreal export` → Cloud Storage
 overlays/local/           kind/k3d/minikube: 1 GiB disk, no backups
 overlays/gke/             External Secrets Operator, Workload Identity, SSD disk
-overlays/gke-dev/         dev values (settings.env, checked against OpenTofu), Spot Pods, small
+overlays/gke-dev/         dev values (settings.env, checked against OpenTofu), Spot Pods (prod too), small
                           requests, 5 GiB balanced disk, Cloud Run subnet allowed in, quota
 scripts/local-secrets.mjs creates a local cluster's Secrets from the dev project via gcloud
 scripts/local-migration.mjs creates a local cluster's migration bundle (ConfigMap)
@@ -413,6 +413,76 @@ without credentials, so a private image fails CI and would leave the database po
 ghcr.io/he-is-real/surrealdb:<tag>`.
 
 While we run it, **a SurrealDB security release means rebuilding this patch on top of it.**
+
+## Spot restarts
+
+SurrealDB runs on Spot Pods in dev, and production will too (Joel, 2026-11-07: "change surrealdb to
+spot in dev + prod"). **The production overlay (not built yet) must use Spot for SurrealDB and for
+External Secrets**, as `overlays/gke-dev` does (`cloud.google.com/gke-spot: "true"`). Google can
+reclaim a Spot node at any time (about 25 seconds' notice); the pod restarts on another node within
+a few minutes, with its disk, and loses no confirmed write (the WAL is synced, `base/statefulset.yaml`).
+
+What happens and where to look:
+
+- **The services:** each running copy keeps reconnecting, answers `503 service_restarting` with a
+  `Retry-After` estimate (2 minutes from when it saw the database go, at least 1 minute;
+  `DATABASE_RESTART_ESTIMATE_SECONDS`), and api-public-read serves its kept public answers instead
+  (up to 30 minutes old). Web shows "Our compute is currently restarting" with a countdown.
+- **New copies start anyway:** a copy that starts (a cold start, a deploy) while the database is
+  away connects in the background and answers `503 service_restarting` until it has connected.
+  Cloud Run's start-up check is a TCP check on port 8080 (`modules/gcp/cloudrun.tf`,
+  `signed_in_apis.tf`, `media.tf`) and there is no liveness check, so neither waits for the
+  database; `GET /health` still says `db: down` (503) for a person or uptime check to read. The
+  log shows `Can't reach … yet; still trying` once, then `database_unavailable`, and
+  `Connected to …` when it gets there.
+- **A refused sign-in stops a new copy from starting** (Joel, 2026-11-08): at start-up the copy
+  waits up to 10 seconds for the database's first answer. If the database answers and refuses
+  (wrong password, unknown namespace or database, a permission error: any `ServerError` from the
+  SDK), it logs one `CRITICAL` line, `jsonPayload.code="database_refused"` with the error's `kind`
+  and `detail` (e.g. `NotFound`, `NotFound/Namespace`; never the password), and exits with code 1
+  before opening its port, so Cloud Run keeps serving the previous revision. No answer (refused
+  or reset connection, DNS, a timeout) starts it anyway, as above.
+- **A password rotated while copies run:** a running copy keeps its connection and session, and
+  reads its password once per process (`libs/secrets` caches it). When it next has to sign in
+  (after a reconnect, e.g. a Spot restart, which rotation itself causes), the database refuses
+  the old password: the copy answers `503 service_restarting` and retries every few seconds,
+  logging `refused service:<name>'s sign-in (database_refused, …); still trying`. Restarting the
+  services (a new revision) fixes it, as "Rotating passwords" says; a new revision that still has
+  the wrong password fails to start instead of replacing the old one.
+- **How long it lasted:** Logs Explorer, `jsonPayload.event="database_available"` (one per running
+  copy, with `unavailableSeconds`); `jsonPayload.event="database_unavailable"` marks the start.
+- **How often:** the log-based metric `heisreal-dev/database-spot-reclaims` (bootstrap root,
+  `modules/bootstrap/logging.tf`) counts Google's own reclaim records for this cluster's nodes.
+  Dev saw three in the 30 days to 7 November 2026, all on 20 October.
+- **The dashboard:** Cloud Monitoring → Dashboards → "heisreal-dev: database restarts"
+  (`infra/terraform/modules/gcp/monitoring.tf`, gcp root): the reclaims above, and per Cloud Run
+  service its requests per second by response code (a restart shows as 503s) and its instances.
+  **Dashboards are defined in OpenTofu only** (Joel, 2026-11-08): a change made in the Console is
+  overwritten by the next apply. No alert policies or notification channels yet (not decided).
+- **Nothing to do** unless the pod doesn't come back: then `kubectl -n database get pods,events`
+  (read-only) and check the node pool has Spot capacity in `europe-west2-c`.
+
+**Full rebuild after storage loss.** A Spot restart keeps the disk. If the disk itself is lost
+(the PVC or the volume is deleted) the database comes back empty. The startup init (it runs at
+every SurrealDB start) recreates the namespace, the database and the service logins, but not the
+schema or the access definitions: only the migrations make those. The database then _answers_
+and refuses the services' sign-in, so a new Cloud Run revision fails to start (`database_refused`, see above)
+while the old revisions keep answering `503 service_restarting`. The apply pipeline applies
+`gcp` (new revisions) before `cluster` (the migrations), so its `gcp` apply can fail before the
+migrations ever run. Rebuild in the other order, by hand:
+
+1. Apply the `cluster` root first, forcing the migration Job to run again. The completed Job
+   survives the disk loss, and with unchanged migrations a plain plan would not replace it:
+   `tools/scripts/tf.sh cluster plan -replace='module.cluster.kustomization_resource.migrate' -out=cluster.plan`.
+   Read the plan (it replaces the migration Job, which recreates the schema and access
+   definitions on the empty database), then `tools/scripts/tf.sh cluster apply cluster.plan`, and
+   check that the new Job completes, as in "Order: migrate, then deploy".
+2. Then apply `gcp` (or re-run the pipeline): the new revisions sign in and start.
+3. Restore data from a backup if the environment held any ("Backups and restore"); dev re-seeds
+   instead (the "Dev behavioural tests" workflow).
+
+The normal dev wipe (`dev_database_reset`, above) keeps the namespace and the service logins,
+so it doesn't need this. The pipeline's order is unchanged.
 
 ## Not done yet
 

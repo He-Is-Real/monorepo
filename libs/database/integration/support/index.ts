@@ -4,3 +4,4 @@ export * from './harness';
 export * from './login';
 export * from './world';
 export { pinnedSurrealImage } from './global-setup';
+export * from './relay';

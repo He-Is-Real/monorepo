@@ -860,6 +860,29 @@ const handler = (mode) => (req, res) => {
       JSON.stringify({ status: 'ok', service: 'api-public-read', db: 'up' }),
     );
   }
+  // The database restarting (SurrealDB on Spot): the API's own `503 service_restarting`, with
+  // 61 seconds to wait, so the page's countdown shows "about 2 minutes" and then "about 1 minute"
+  // (restarting.e2e.ts).
+  if (match?.[1] === 'restarting') {
+    res.writeHead(503, {
+      'content-type': 'application/problem+json',
+      'retry-after': '61',
+      'cache-control': 'no-store',
+    });
+    return res.end(
+      JSON.stringify({
+        type: 'about:blank',
+        title: 'Service restarting',
+        status: 503,
+        code: 'service_restarting',
+        detail:
+          'Our compute is currently restarting. Please try again in a few minutes.',
+        restartingSince: '2026-11-07T12:00:00.000Z',
+        retryAfterSeconds: 61,
+      }),
+    );
+  }
+  // Not the API's answer but a stand-in for it being unreachable (Cloud Run's own 503).
   if (match?.[1] === 'down') {
     res.writeHead(503, { 'content-type': 'application/problem+json' });
     return res.end(

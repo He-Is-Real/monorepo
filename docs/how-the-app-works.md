@@ -304,9 +304,15 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   (D52, D64)
 - **Public pages may show a change up to 60 seconds late.** The public API keeps recent answers
   in memory for a minute, so a story that is withdrawn, deleted or hidden, or a new or edited one,
-  can take up to 60 seconds to disappear or appear. Never longer: browsers and any future CDN
-  may keep an answer only for the part of the minute it has left. Nothing personal is kept this
-  way. (R13, Joel 2026-11-05)
+  can take up to 60 seconds to disappear or appear. Browsers and any future CDN may keep an
+  answer only for the part of the minute it has left. Nothing personal is kept this way. (R13,
+  Joel 2026-11-05)
+- **While the database restarts, public pages keep working from the last copy.** Each running
+  copy of the public API keeps its answers for 30 minutes; past their minute they are used only
+  when the database can't be reached, instead of the restarting message, and browsers and CDNs
+  are told not to keep them. So during a restart a story deleted in the last 30 minutes may still
+  show: a rare case, accepted. A copy of the public API that has just started has nothing kept,
+  so its visitors see the restarting message. (Cache B, Joel 2026-11-07)
 - Every page works from 320-pixel phones to large desktops, in light or dark (following the
   device, with a switch), with text enlarged to 200%. Body text sits in a reading column of at
   most about 80 characters a line.
@@ -432,6 +438,33 @@ Planned (M3):
   code. Exceptions: video and audio files at Bunny in Frankfurt (D89); Clerk in the US (D6);
   Bunny's delivery network serves files worldwide.
 
+## When the database restarts
+
+The database runs on Google's cheap "Spot" capacity in dev and production, which Google can take
+back at any time; it then restarts elsewhere within a few minutes, and no data is lost. (Joel,
+2026-11-07: "we can handle occasional forced restarts")
+
+- Public browsing keeps working from the public API's kept copies (Browse and themes, above).
+- Anything else (signed-in pages, saving, sharing, uploads, admin pages)
+  shows a calm message: "Our compute is currently restarting. Please refresh the page in about 2
+  minutes." The minutes count down in the browser from the server's estimate; when the countdown
+  reaches zero and it's still restarting, it stays at "about 1 minute", never 0. Without
+  JavaScript the page shows the server's estimate as it was.
+- After a save, a submit or an upload, the message shows at the bottom of the screen ("Please try
+  again in about N minutes") and the page keeps what the person typed.
+- The estimate: 2 minutes (a setting, `DATABASE_RESTART_ESTIMATE_SECONDS`) counted from when that
+  copy of the service first saw the database go, never less than 1 minute.
+- The message at the bottom of the screen goes as soon as the next thing the browser asks
+  api-user or api-admin is answered, on the same page or after moving to another one.
+- A copy of a service that starts while the database is away starts anyway and gives the same
+  message (counted from when it first failed to connect) until it has connected; once
+  connected, nothing changes. (Joel, 2026-11-07: "gap a")
+- But a copy whose sign-in the database answers and refuses (a wrong password, an unknown
+  namespace or database, a permission error) doesn't start at all, so a broken deploy never
+  replaces the working version. Only "no answer" counts as a restart. Once a copy has connected,
+  every later failure counts as a restart. (Joel, 2026-11-08: "differentiate between restarts
+  with no response and problems caused by an error like a password error")
+
 ## Dev and test environment
 
 - Milestones M1 to M8 are built and tested on the dev site only, with made-up stories. Then
@@ -482,6 +515,21 @@ For developers. Details are in the linked documents.
   production, dev's database may be wiped and rebuilt from scratch through that Job instead of
   migrating its test data (a one-off switch in OpenTofu's dev settings that nothing else can
   use). (D9, D14; Joel, 2026-11-05; `infra/k8s/surrealdb/README.md`)
+- **The database runs on Spot in dev and production** (Joel, 2026-11-07), and so do the cluster's
+  helpers (External Secrets, the backup Job). Every service notices a restart in the shared
+  database client (`libs/database`, `DatabaseAvailability`): it keeps reconnecting for as long as
+  it takes (and starts without the database, connecting in the background: `startConnecting`;
+  Cloud Run's start-up check only needs the port open; but if the database answers the first
+  sign-in with a refusal, a `ServerError` from the SDK, the service exits with code 1 and logs
+  `database_refused`), answers `503 service_restarting` with
+  `Retry-After` at once instead of hanging, sign-in's person lookup included
+  (`ServiceRestarting` in `libs/contracts/openapi/components.yaml`), and logs one line when the
+  database goes (`database_unavailable`) and one when it's back (`database_available`, with how
+  long). Google's own record of each reclaim is counted by the log-based metric
+  `heisreal-<env>/database-spot-reclaims` (bootstrap root). The Cloud Monitoring dashboard
+  "heisreal-<env>: database restarts" (`infra/terraform/modules/gcp/monitoring.tf`) shows them
+  with each service's requests by response code and instance count. Dashboards are made in
+  OpenTofu only (Joel, 2026-11-08).
 - **Temporary patched SurrealDB:** v3.2.4 built with the upstream fix so it accepts Clerk's
   tokens, until an official release has it. (D111; `infra/k8s/surrealdb/README.md`)
 - **Infrastructure:** OpenTofu for every cloud change, encrypted state, one approval per apply;
@@ -502,9 +550,10 @@ For developers. Details are in the linked documents.
   answer and the worker's own errors included, counts as a failure, and a job gives up after 5,
   so none loops for ever (Joel, 2026-11-08).
 - **No CDN in front of the site or APIs in dev;** browsers and CDNs are told not to keep API
-  responses in dev. (D51) api-public-read keeps public answers in its own memory for at most 60
-  seconds, per running copy, with no timers, so Cloud Run still bills only per request and scales
-  to zero. (R13)
+  responses in dev. (D51) api-public-read keeps public answers in its own memory, per running
+  copy, with no timers, so Cloud Run still bills only per request and scales to zero: served for
+  60 seconds (R13), and kept up to 30 minutes for when the database is restarting (cache B, Joel
+  2026-11-07), within the same 500-answer limit.
 - **Budget:** £15 a month with alerts at £3, £7.50 and £15. (decision 10)
 - **Tests measure behaviour** (AGENTS.md; test clean-up T1–T10, 2026-10-24).
 - **Dependencies** update through Renovate. (D106)

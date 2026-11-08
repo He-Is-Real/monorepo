@@ -141,7 +141,7 @@ test('the stub’s errors fit the contract', async ({ request }) => {
   expect(
     (await check(request, '/v1/stories/no-such-story/related')).status,
   ).toBe(404);
-  expect((await check(request, '/v1/stories/down')).status).toBe(503);
+  expect((await check(request, '/v1/stories/restarting')).status).toBe(503);
 });
 
 // T3: the stub api-user (stub-api-user.mjs) answers as api-user.yaml says, like the real

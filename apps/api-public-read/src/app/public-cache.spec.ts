@@ -1,4 +1,5 @@
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
+import type { DatabaseAvailability } from '@heisreal/database';
 import { firstValueFrom, Subject } from 'rxjs';
 import { PublicAnswerCache, PublicCacheInterceptor } from './public-cache';
 
@@ -21,6 +22,7 @@ describe('PublicCacheInterceptor (R13) with slow and overlapping reads', () => {
     clock = 0;
     interceptor = new PublicCacheInterceptor(
       new PublicAnswerCache(() => clock),
+      { noticeFailure: () => false } as unknown as DatabaseAvailability,
     );
   });
 
