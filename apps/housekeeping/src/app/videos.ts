@@ -11,8 +11,9 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * - Bunny made it more than 48 hours ago, so an upload in progress, a draft that's just been
  *   given it, and an upload whose outcome api-user couldn't tell (settled by the person's retry
  *   within the idempotency key's 24 hours) are left alone;
- * - no story points at it (story.mediaFile, R12), and no file row made or renewed (a resume
- *   signed its link again) in the last 48 hours names it.
+ * - no story points at it (story.mediaFile, R12), no file row made or renewed (a resume
+ *   signed its link again) in the last 48 hours names it, and no open render job made it (an
+ *   audio story's picture video, made before its row).
  *
  * The database's answer is read in one transaction (a snapshot), after Bunny's list: a video
  * Bunny listed can only be given to a story later through a new upload, which makes a new video.
@@ -31,7 +32,11 @@ export async function referencedVideoIds(
      LET $granted = SELECT VALUE record::id(id) FROM storyFile
        WHERE format != 'image' AND (at > time::now() - ${MIN_AGE_HOURS}h
          OR (renewedAt != NONE AND renewedAt > time::now() - ${MIN_AGE_HOURS}h));
-     RETURN array::distinct(array::concat($stories, $granted));
+     -- An audio story's picture video while its render job is open: made at Bunny before its
+     -- row (audio-picture-video.html, K1), and reused by the job's next try.
+     LET $rendering = SELECT VALUE record::id(madeFile) FROM mediaJob
+       WHERE doneAt = NONE AND madeFile != NONE;
+     RETURN array::distinct(array::concat(array::concat($stories, $granted), $rendering));
      COMMIT TRANSACTION;`,
   );
   const ids = results[results.length - 2] as unknown[];
