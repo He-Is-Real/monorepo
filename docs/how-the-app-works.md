@@ -148,8 +148,18 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - A story is one of three types: **written** (text, with an optional picture), **video** (one
   video, with optional text) or **audio** (one audio file, with optional text). (D53)
 - A written story's picture, an audio story's picture and a video's own thumbnail can all be
-  uploaded. Decided and being built: a video's own picture is sent to Bunny as its thumbnail
-  when the person sends the story for review, and the story can't be approved until it is set. An audio story without its own picture shows the site's default waveform picture.
+  uploaded. A video's own picture is sent to Bunny as its thumbnail once its check finds the
+  video ready, and again whenever the picture changes or is taken off (then Bunny shows its own
+  frame again); the story can't be approved until Bunny shows the picture it has now
+  (video-bundle-rethink part A, Joel 2026-11-06).
+- **An audio story becomes a picture video (Joel, 2026-11-07, audio-picture-video.html):** once
+  its audio file is ready at Bunny, the media worker makes a video of the story's picture (or,
+  without one, the site's default waveform picture) in the picture's own shape, at most 1280 px
+  on its longer side, with the sound unchanged, and uploads it to a new Bunny video. The story
+  then shows that video instead of the audio file, keeping its edit number; the audio file is
+  deleted by the nightly clean-up. A new picture, or the picture taken off, makes a new picture
+  video. The audio story counts as ready only once its picture video is, so it can't be approved
+  before.
 - The person chooses the name shown on the story (an optional first name). Without one, the
   story shows "Anonymous".
 
@@ -361,10 +371,18 @@ Built in the database (the pages and the queue are planned, M3):
   go with their file (erasure, tidy-up); done jobs are deleted after 30 days (J2). Every evening
   at 18:00 UK time, when Joel's machine is on to take them, every job not done whose last send
   is over 12 hours old is sent again (Joel, 2026-11-07), so a job the queue lost (31 days, a
-  failed send) still gets done. Built: the job table, Bunny's notices, the queue, the writer, the
-  resend and the tidy-up; the worker on Joel's machine is next, so until it runs, files stay "not
-  processed yet". An audio file's picture is set by a later step (D127), so audio stories can't
-  be approved until then.
+  failed send) still gets done. Sending a video or audio story for review writes a check of its
+  file too, so a moderator never approves before the worker has looked (J6).
+- **Picture videos, step by step (Joel, 2026-11-07: audio-picture-video.html 1B, K1):** a check
+  that finds an audio file ready writes a "render" job (an audio story's picture change writes
+  one too). The worker asks the result writer for a pass; the writer makes the new Bunny video
+  and gives the worker a pass to upload to that one video for one hour (the full Bunny key never
+  leaves Google Cloud), with a 10-minute link to the picture. The worker reads the audio's sound
+  from Bunny's storage with a read-only password, runs ffmpeg on Joel's machine (files only in
+  memory, removed when the job ends) and uploads. The writer then records the new video as the
+  story's file, but only if the story still shows that audio file (a new recording wins), and
+  checks the new video like any other. A render no longer needed (a new recording, the story
+  deleted, or already made with the story's picture) ends without making anything.
 - **An approved story whose media breaks is hidden, not un-approved**, and comes back on its own
   when the same files work again: the approval records which video or audio file and which
   picture the moderator reviewed, and the story shows again only while it still points at both.

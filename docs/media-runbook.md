@@ -94,8 +94,8 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    `bunny_error` or `bunny_bad_reply` (an answer it can't use), `bunny_facts_missing` (finished,
    but without a size, length, thumbnail or title), `bunny_unknown_status`, `key_unavailable` (the
    read-only key isn't readable), `answer_rejected` (the writer refused the answer: malformed, or
-   its video isn't the job's), `worker_error` (the worker's own unexpected error) or
-   `not_supported` (a `render` job: the audio picture video isn't built yet). Every answer and
+   its video isn't the job's) or `worker_error` (the worker's own unexpected error); a `render`
+   job's codes are below. Every answer and
    failure carries the job's video id, and the writer refuses one that isn't the job's video
    (400 `video_mismatch`; Joel, 2026-11-08).
    The writer counts it on the job (`failures`, `lastError`): under 5 it says "try again" and the
@@ -103,12 +103,63 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    on. If the writer can't be reached at all, the worker leaves the job in the queue and it comes
    back later. There are no dead-letter queues (Joel, 2026-11-07): the table is the record.
 
+### Audio picture videos
+
+An audio story is shown as a video of its picture (or the site's default waveform picture,
+`apps/media-worker/assets/default-audio-background.jpg`) with its sound (Joel, 2026-11-07:
+`project/context/research/audio-picture-video.html`, decisions 1B, 2 = K1 and 4):
+
+1. Jobs: a check that finds an audio file ready leaves it `processing` and opens a `render` job;
+   so does an audio story's picture being changed or taken off while it can be edited (the
+   database writes that job, and api-user sends it). Sending a video or audio story for review
+   writes a check of its file (reason `submitted`), so a moderator never approves before the
+   worker has looked.
+2. The worker calls `POST /v1/media-jobs/<job id>/upload-pass`. The writer decides in one
+   transaction: `gone` (the story no longer shows that audio file), `stale` (its sound isn't ready
+   yet, it failed, or it is already a picture video made with the story's picture now) or
+   `render`. For `render` it makes one new Bunny video titled with the story's id (or reuses the
+   one an earlier try made: `mediaJob.madeFile`) with the full library key, which never leaves
+   Google Cloud, and answers a TUS pass for that one video, valid an hour, and a 10-minute link
+   to the picture.
+3. The worker reads Bunny's largest MP4 copy of the audio file from the library's storage zone
+   (`bunny-stream-storage-readonly-password`, read-only; not through the CDN, which could serve
+   an old copy), downloads the picture, checks it really is a WebP (the default is a JPEG), and
+   runs ffmpeg with each input's format named and local files only (so no uploaded file can
+   make ffmpeg read anything else): one frame a second, the picture's own shape at most 1280 px
+   on its longer side, the sound copied unchanged, every tag dropped. Files live in a folder of
+   their own under `$XDG_RUNTIME_DIR` (memory) and are removed when the job ends. It uploads the
+   result with the pass and calls `.../rendered`.
+4. The writer, in one transaction: adds the new video's `storyFile` row (`renderOf`: the audio
+   file; `thumbnailOf`: the picture it was made with), moves `story.mediaFile` to it only while
+   the story still shows the audio file (no new edit number; the audio file is detached and the
+   nightly clean-up deletes it at Bunny), opens a check of the new video (reason `rendered`) and
+   ends the job. The check then works like any other, and the story is approvable once it is
+   ready.
+
+A video's own picture (video-bundle-rethink part A): when a check finds a video (or picture
+video) ready and Bunny should show another picture than it does now, the writer sets it with
+Bunny's "set thumbnail" call (or Bunny's own first frame, `thumbnail_1.jpg`, once the picture is
+taken off) and records it as `storyFile.thumbnailOf`. A moderator can't approve until it matches
+the story's picture (`media_not_ready`).
+
+A render job's failure codes: `source_gone` / `source_not_ready` (Bunny no longer has the audio
+file, or hasn't finished it), `source_missing` (no MP4 copy in storage: is the library's MP4
+fallback on?), `source_unreachable`, `key_unavailable` (the storage password isn't readable),
+`picture_unreachable`, `picture_not_webp`, `too_large`, `ffmpeg_missing` (install ffmpeg),
+`render_failed` (ffmpeg's exit code; its output is kept out of the log, as it can name files),
+`upload_refused` / `upload_unreachable` (Bunny's upload), `pass_rejected` / `pass_malformed` (the
+writer refused, or answered a pass the worker can't use), and the writer's own `bunny_refused`,
+`bunny_unreachable`, `bunny_error`, `bunny_bad_reply` and `picture_unsafe` (it couldn't make the
+video or sign the link). A video made for a job that then gave up is deleted by the nightly
+clean-up 48 hours later (an open job's video is kept).
+
 ### Running the media worker
 
 The worker runs on Joel's machine against dev, and only while he runs it. It reaches out to
 Google and Bunny; nothing can reach it (it and Dapr listen on 127.0.0.1 only; the worker refuses any call without the secret Dapr's sidecar sends, `APP_API_TOKEN`, and the sidecar offers only its health check, behind its own `DAPR_API_TOKEN`; both new each run, so neither another program nor a web page can hand it a job). It never touches
-the database, holds only Bunny's read-only key (read from Secret Manager while it runs), and
-writes nothing to disk. Dapr is used for its Pub/Sub part only (D129): no state store, no
+the database, holds only Bunny's read-only key and the library storage's read-only password (read
+from Secret Manager while it runs), and writes nothing to disk. Uploads use a one-hour pass for
+one video that the writer signs. Dapr is used for its Pub/Sub part only (D129): no state store, no
 actors, no control plane.
 
 **What it needs (once):**
@@ -118,6 +169,8 @@ actors, no control plane.
   (`media_ready.worker_impersonators`), so there is no key file (D126).
 - Dapr's runtime: `mise install` (the pinned `dapr` CLI), then
   `dapr init --slim --runtime-version 1.19.1` (puts `daprd` in `~/.dapr/bin`; no Docker).
+- ffmpeg 6 or later with libx264, from the system's packages (for audio picture videos); the
+  script checks the version and the encoder and refuses to start without them.
 - The repo's packages: `pnpm install`.
 - A desktop session's `XDG_RUNTIME_DIR` (`/run/user/<uid>`, in memory): the script refuses to
   start without it rather than put the sign-in file on disk.
