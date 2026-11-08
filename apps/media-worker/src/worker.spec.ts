@@ -1,4 +1,5 @@
 import type { CheckResult } from './bunny';
+import type { RenderPass, RenderResult } from './render';
 import { handleJob, type JobDeps } from './worker';
 import type { WriterCall, WriterReply } from './writer';
 
@@ -23,20 +24,30 @@ const ok = (body: unknown): WriterReply => ({ status: 200, body });
 
 function deps(
   check: CheckResult | (() => Promise<CheckResult>),
-  replies: { answer?: WriterReply; failed?: WriterReply },
+  replies: Partial<Record<WriterCall['route'], WriterReply>>,
+  rendered: RenderResult | (() => Promise<RenderResult>) = {
+    sizeBytes: 207_000,
+  },
 ) {
   const calls: WriterCall[] = [];
+  const renders: [string, RenderPass][] = [];
   const d: JobDeps = {
     check: typeof check === 'function' ? check : async () => check,
+    renderer: {
+      render: async (source, pass) => {
+        renders.push([source, pass]);
+        return typeof rendered === 'function' ? rendered() : rendered;
+      },
+    },
     writer: async (call) => {
       calls.push(call);
-      const reply = call.route === 'answer' ? replies.answer : replies.failed;
+      const reply = replies[call.route];
       if (!reply) throw new Error(`unexpected ${call.route} call`);
       return reply;
     },
     log: () => undefined,
   };
-  return { d, calls };
+  return { d, calls, renders };
 }
 const check = { jobId: JOB, kind: 'check', videoId: VIDEO };
 
@@ -131,22 +142,6 @@ describe('a check job', () => {
 });
 
 describe('other messages', () => {
-  it('reports a render job as not_supported (not built yet), and follows the writer', async () => {
-    const { d, calls } = deps(READY, {
-      failed: ok({ retry: false, outcome: 'gave_up' }),
-    });
-    await expect(
-      handleJob({ jobId: JOB, kind: 'render', videoId: VIDEO }, d),
-    ).resolves.toBe('SUCCESS');
-    expect(calls).toEqual([
-      {
-        route: 'failed',
-        jobId: JOB,
-        body: { videoId: VIDEO, code: 'not_supported' },
-      },
-    ]);
-  });
-
   it.each([
     ['not an object', 'hello'],
     ['no job id', { kind: 'check', videoId: VIDEO }],
@@ -158,5 +153,124 @@ describe('other messages', () => {
     const { d, calls } = deps(READY, {});
     await expect(handleJob(message, d)).resolves.toBe('DROP');
     expect(calls).toEqual([]);
+  });
+});
+
+describe('a render job (audio-picture-video 1B, K1)', () => {
+  const RENDER = '6c84fb90-12c4-41f5-9e4c-1b2a3c4d5e6f';
+  const render = { jobId: JOB, kind: 'render', videoId: VIDEO };
+  const PASS = {
+    outcome: 'render',
+    renderVideoId: RENDER,
+    title: '01JC0000000000000000000000',
+    upload: {
+      uploadUrl: 'https://video.bunnycdn.com/tusupload',
+      headers: {
+        AuthorizationSignature: 'abc',
+        AuthorizationExpire: '1762600000',
+        VideoId: RENDER,
+        LibraryId: '424242',
+      },
+      expiresAt: '2025-11-08T11:06:40.000Z',
+    },
+    picture:
+      'stories/01JC0000000000000000000000/0123456789abcdef0123456789abcdef.webp',
+    pictureUrl:
+      'https://images.example.b-cdn.net/stories/x.webp?token=t&expires=1',
+  };
+
+  it('gets the pass, makes and uploads the picture video, then tells the writer: taken', async () => {
+    const { d, calls, renders } = deps(READY, {
+      'upload-pass': ok(PASS),
+      rendered: ok({ outcome: 'applied' }),
+    });
+    await expect(handleJob(render, d)).resolves.toBe('SUCCESS');
+    expect(renders).toEqual([
+      [VIDEO, expect.objectContaining({ renderVideoId: RENDER })],
+    ]);
+    expect(calls).toEqual([
+      { route: 'upload-pass', jobId: JOB, body: { videoId: VIDEO } },
+      {
+        route: 'rendered',
+        jobId: JOB,
+        body: {
+          videoId: VIDEO,
+          renderVideoId: RENDER,
+          picture: PASS.picture,
+          sizeBytes: 207_000,
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    ['no picture video is needed (stale)', ok({ outcome: 'stale' }), 'SUCCESS'],
+    ['the story moved on (gone)', ok({ outcome: 'gone' }), 'SUCCESS'],
+    [
+      'Bunny refused the new video; the writer counted it',
+      ok({ retry: true }),
+      'RETRY',
+    ],
+    ['the job is gone (404)', { status: 404, body: {} }, 'DROP'],
+    ['the writer is off (503)', { status: 503, body: {} }, 'RETRY'],
+    ['the writer could not be reached', 'unreachable' as const, 'RETRY'],
+  ])(
+    'when the pass answers that %s: %s, and nothing is made',
+    async (_, reply, delivery) => {
+      const { d, renders } = deps(READY, { 'upload-pass': reply });
+      await expect(handleJob(render, d)).resolves.toBe(delivery);
+      expect(renders).toEqual([]);
+    },
+  );
+
+  it.each([
+    [
+      'for another upload address',
+      { upload: { ...PASS.upload, uploadUrl: 'https://evil.example/tus' } },
+    ],
+    [
+      'for another video than its own',
+      {
+        upload: {
+          ...PASS.upload,
+          headers: { ...PASS.upload.headers, VideoId: VIDEO },
+        },
+      },
+    ],
+    ['with a picture link but no picture', { picture: null }],
+  ])(
+    'refuses a pass %s as pass_malformed, making nothing',
+    async (_, change) => {
+      const { d, calls, renders } = deps(READY, {
+        'upload-pass': ok({ ...PASS, ...change }),
+        failed: ok({ retry: true }),
+      });
+      await expect(handleJob(render, d)).resolves.toBe('RETRY');
+      expect(renders).toEqual([]);
+      expect(calls.at(-1)).toEqual({
+        route: 'failed',
+        jobId: JOB,
+        body: { videoId: VIDEO, code: 'pass_malformed' },
+      });
+    },
+  );
+
+  it('reports a failed render with its code, and never says done', async () => {
+    const { d, calls } = deps(
+      READY,
+      { 'upload-pass': ok(PASS), failed: ok({ retry: true }) },
+      { failure: 'source_not_ready' },
+    );
+    await expect(handleJob(render, d)).resolves.toBe('RETRY');
+    expect(calls.map((c) => c.route)).toEqual(['upload-pass', 'failed']);
+    expect(calls[1].body).toEqual({ videoId: VIDEO, code: 'source_not_ready' });
+  });
+
+  it('leaves the job in the queue if "done" can’t be saved; the retry gets the same video', async () => {
+    const { d } = deps(READY, {
+      'upload-pass': ok(PASS),
+      rendered: { status: 500, body: {} },
+    });
+    await expect(handleJob(render, d)).resolves.toBe('RETRY');
   });
 });

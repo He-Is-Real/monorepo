@@ -43,6 +43,11 @@ async function start(writerStatus: number, writerBody: unknown) {
   const server = workerServer(
     {
       check: (video) => checkAnswer(bunny, video),
+      renderer: {
+        render: async () => {
+          throw new Error('no render here');
+        },
+      },
       writer,
       log: (entry) => logs.push(entry),
     },

@@ -48,6 +48,8 @@ export type PassReply =
   | {
       outcome: 'render';
       renderVideoId: string;
+      /** The new video's title at Bunny, its story's id (D69): the upload's metadata says it too. */
+      title: string;
       upload: UploadPass;
       /** The picture's path in the images zone, or null: the site's default background. */
       picture: string | null;
@@ -164,6 +166,7 @@ export async function uploadPassFor(
   return {
     outcome: 'render',
     renderVideoId: made,
+    title: read.story,
     upload: await bunny.uploadPass(made),
     picture,
     pictureUrl,
