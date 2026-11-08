@@ -6,6 +6,8 @@
 #   media-jobs ──pull──▶ the media worker (Dapr, Joel's machine, outbound only; apps/media-worker)
 #   media worker ──direct call, as media-worker──▶ result writer (Cloud Run, apps/workflow)
 #   result writer ──workflow login──▶ SurrealDB: the storyFile row and the job's end, one transaction
+#   result writer ──▶ media-jobs: the render and check jobs it opens itself (J1 check e)
+#   result writer ──library key──▶ Bunny: an audio story's picture video, a video's picture (K1, A)
 # The subscription delivers in order per ordering key, which is the story's id (Joel, 2026-11-06,
 # video-bundle-rethink part A). No answers queue and no dead letters (Joel, 2026-11-07, J4/J5): the
 # job table records failures, and a job that fails 5 times gives up there.
@@ -17,10 +19,14 @@
 # Least privilege:
 #   media-worker   the worker's identity (D126: Joel's gcloud login acting as it; no key file).
 #                  Pulls media-jobs through its subscription, calls the result writer (run.invoker
-#                  on it only) and (the bunny root's readonly_key_readers) reads Bunny's read-only
-#                  library key. No database password, no other Bunny key, nothing else.
+#                  on it only) and (the bunny root) reads Bunny's read-only library key and the
+#                  library storage's read-only password (a picture video's sound). No database
+#                  password, no key that can change anything at Bunny (K1), nothing else.
 #   workflow       the result writer's runtime identity: reads its own database password and signs
-#                  in as service:workflow (docs/db-permissions.md). Nothing else.
+#                  in as service:workflow (docs/db-permissions.md); publishes to media-jobs (the
+#                  jobs it opens); and (the bunny root's result_writer_readers) reads Bunny's
+#                  library key and the images token key: it makes picture videos and signs the
+#                  worker's one-hour pass, and sets a video's picture (Joel, 2026-11-07, K1).
 #   api-user       may publish to media-jobs (and to no other topic).
 #   housekeeping   may publish to media-jobs too: the 18:00 resend (housekeeping.tf).
 # The result writer takes traffic from the internet (the worker is off Google Cloud), but Cloud Run
@@ -120,6 +126,17 @@ resource "google_pubsub_topic_iam_member" "api_user_media_jobs" {
 }
 
 # --- The result writer (apps/workflow) ------------------------------------------------------------
+# It opens render and check jobs itself and sends them (Joel, 2026-11-07: media-job-table.html J1
+# check e, "the writer gets permission to send to the job queue").
+resource "google_pubsub_topic_iam_member" "result_writer_media_jobs" {
+  count = local.media_ready ? 1 : 0
+
+  project = var.project_id
+  topic   = google_pubsub_topic.media["media-jobs"].name
+  role    = "roles/pubsub.publisher"
+  member  = google_service_account.result_writer[0].member
+}
+
 resource "google_service_account" "result_writer" {
   count = local.media_ready ? 1 : 0
 
@@ -203,6 +220,30 @@ resource "google_cloud_run_v2_service" "result_writer" {
       env {
         name  = "SURREAL_PASSWORD_SECRET"
         value = "surreal-workflow-password"
+      }
+      # The jobs it opens go here (a name; its identity may publish to it).
+      env {
+        name  = "MEDIA_JOBS_TOPIC"
+        value = google_pubsub_topic.media["media-jobs"].name
+      }
+      # Bunny (K1, part A): the Stream library, the images CDN, and the secrets of the library key
+      # and the images token key (names, never values; the bunny root's result_writer_readers
+      # grant lets it read them, when it first needs them).
+      env {
+        name  = "BUNNY_STREAM_LIBRARY_ID"
+        value = var.api_public_read_media.stream_library_id
+      }
+      env {
+        name  = "BUNNY_STREAM_API_KEY_SECRET"
+        value = "bunny-stream-api-key"
+      }
+      env {
+        name  = "BUNNY_IMAGES_CDN_HOST"
+        value = var.api_public_read_media.images_cdn_hostname
+      }
+      env {
+        name  = "BUNNY_IMAGES_TOKEN_KEY_SECRET"
+        value = var.api_public_read_media.images_token_key_secret
       }
 
       startup_probe {

@@ -132,6 +132,7 @@ run "only_the_worker_calls_the_writer" {
   assert {
     condition = alltrue(flatten([
       [for g in google_pubsub_topic_iam_member.api_user_media_jobs : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
+      [for g in google_pubsub_topic_iam_member.result_writer_media_jobs : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
       [for g in google_pubsub_subscription_iam_member.media_worker : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
       [for g in google_service_account_iam_member.media_worker_impersonators : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
       [for g in google_cloud_run_v2_service_iam_member.result_writer_worker : !contains(["allUsers", "allAuthenticatedUsers"], g.member)],
@@ -197,6 +198,33 @@ run "api_user_queues_jobs" {
     condition = alltrue([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
     !contains(["BUNNY_STREAM_READONLY_KEY_SECRET", "MEDIA_JOBS_TOPIC"], e.name)])
     error_message = "api-admin gets none of it."
+  }
+}
+
+# Audio picture videos and a video's picture (Joel, 2026-11-07: K1; 2026-11-06: part A): the
+# writer opens and sends jobs itself, and knows the Bunny library, the images CDN and the names of
+# the two key secrets (the bunny root grants it those two only). The worker gets none of them.
+run "the_writer_sends_jobs_and_reaches_bunny" {
+  command = plan
+
+  assert {
+    condition = (
+      google_pubsub_topic_iam_member.result_writer_media_jobs[0].topic == "media-jobs" &&
+      google_pubsub_topic_iam_member.result_writer_media_jobs[0].role == "roles/pubsub.publisher" &&
+      google_pubsub_topic_iam_member.result_writer_media_jobs[0].member == "serviceAccount:workflow@heisreal-dev.iam.gserviceaccount.com"
+    )
+    error_message = "The result writer may publish to media-jobs."
+  }
+  assert {
+    condition = alltrue([for want in [
+      "MEDIA_JOBS_TOPIC=media-jobs",
+      "BUNNY_STREAM_LIBRARY_ID=789855",
+      "BUNNY_STREAM_API_KEY_SECRET=bunny-stream-api-key",
+      "BUNNY_IMAGES_CDN_HOST=example-images.b-cdn.net",
+      "BUNNY_IMAGES_TOKEN_KEY_SECRET=bunny-images-token-key",
+      ] : contains([for e in google_cloud_run_v2_service.result_writer[0].template[0].containers[0].env : "${e.name}=${e.value}"], want)
+    ])
+    error_message = "The result writer gets the jobs topic, the library, the images CDN and the two key secrets' names."
   }
 }
 

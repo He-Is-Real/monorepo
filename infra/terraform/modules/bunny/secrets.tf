@@ -141,3 +141,69 @@ resource "google_secret_manager_secret_iam_member" "readonly_key_readers" {
   role      = "roles/secretmanager.secretAccessor"
   member    = each.value
 }
+
+# Audio picture videos (Joel, 2026-11-07: audio-picture-video.html decision 2 = K1). The result
+# writer (apps/workflow on Cloud Run) makes each audio story's picture video at Bunny and signs
+# the worker a one-hour upload pass for that one video with the library key, and signs 10-minute
+# links to a story's picture with the images token key (for the worker, and for Bunny when it
+# shows a video's own picture: video-bundle-rethink part A). Only this project's workflow account,
+# and only these two keys: the full library key never leaves Google Cloud.
+locals {
+  result_writer_key_ids = ["bunny-stream-api-key", "bunny-images-token-key"]
+}
+
+resource "google_secret_manager_secret_iam_member" "result_writer_readers" {
+  for_each = {
+    for pair in setproduct(local.result_writer_key_ids, var.result_writer_readers) :
+    "${pair[0]} ${pair[1]}" => { secret = pair[0], member = pair[1] }
+  }
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.app[each.value.secret].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value.member
+}
+
+# The worker reads a picture video's sound from the library's own storage (Frankfurt, D89), not
+# through Bunny's CDN, which would keep the old copy for up to 30 days (audio-picture-video.html
+# section 1). The storage zone's read-only password reads files and can't change anything. Only
+# once the zone is adopted (stream_storage_zone), and only the media-worker account reads it.
+resource "google_secret_manager_secret" "stream_storage_readonly" {
+  count = var.stream_storage_zone == null ? 0 : 1
+
+  project   = var.project_id
+  secret_id = "bunny-stream-storage-readonly-password"
+  labels = {
+    app         = "heisreal"
+    environment = var.environment
+    managed-by  = "terraform"
+    component   = "bunny"
+  }
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region # GDPR: stays in the UK
+      }
+    }
+  }
+}
+
+resource "google_secret_manager_secret_version" "stream_storage_readonly" {
+  count = var.stream_storage_zone == null ? 0 : 1
+
+  secret                 = google_secret_manager_secret.stream_storage_readonly[0].id
+  secret_data_wo         = bunnynet_storage_zone.stream[0].password_readonly
+  secret_data_wo_version = parseint(substr(sha256(bunnynet_storage_zone.stream[0].password_readonly), 0, 12), 16)
+  deletion_policy        = "ABANDON"
+}
+
+resource "google_secret_manager_secret_iam_member" "stream_storage_readers" {
+  for_each = var.stream_storage_zone == null ? toset([]) : toset(var.stream_storage_readers)
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.stream_storage_readonly[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value
+}
+

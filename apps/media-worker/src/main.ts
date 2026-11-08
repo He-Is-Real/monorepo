@@ -14,10 +14,10 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { SecretsService } from '@heisreal/secrets';
 import { GoogleAuth } from 'google-auth-library';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { BunnyStreamReader, checkAnswer } from './bunny';
-import { FfmpegRenderer } from './render';
+import { FfmpegRenderer, isPicture } from './render';
 import { workerServer } from './server';
 import type { LogEntry } from './worker';
 import { httpWriter } from './writer';
@@ -66,9 +66,13 @@ async function main() {
   if (!isAbsolute(workDir) || !existsSync(workDir)) {
     throw new Error('MEDIA_WORKER_WORK_DIR must be an existing absolute path');
   }
-  if (!isAbsolute(defaultPicture) || !existsSync(defaultPicture)) {
+  if (
+    !isAbsolute(defaultPicture) ||
+    !existsSync(defaultPicture) ||
+    !isPicture(readFileSync(defaultPicture).subarray(0, 12), 'jpeg')
+  ) {
     throw new Error(
-      'MEDIA_WORKER_DEFAULT_PICTURE must be an existing absolute path',
+      'MEDIA_WORKER_DEFAULT_PICTURE must be an existing absolute path to a JPEG',
     );
   }
   const port = Number(env('APP_PORT', /^[0-9]{2,5}$/));

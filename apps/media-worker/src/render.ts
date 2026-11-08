@@ -51,13 +51,19 @@ const FFMPEG_TIMEOUT_MS = 15 * 60_000;
 /** TUS chunks: small enough to retry cheaply, large enough to be quick. */
 const CHUNK_BYTES = 8 * 1024 ** 2;
 
+/** A picture ffmpeg reads: a story's WebP, or the site's default background (a JPEG). */
+export type PictureFormat = 'webp' | 'jpeg';
+
 /**
  * The render (audio-picture-video.html section 3): one picture frame a second, at most 1280 px on
  * its longer side in the picture's own shape (decision 4), the sound copied as it is, and no tags,
- * chapters or other metadata from either file.
+ * chapters or other metadata from either file. A person uploaded the picture, so ffmpeg never
+ * guesses what a file is: each input names its format (a WebP or JPEG image, Bunny's MP4) and may
+ * read only local files, so no file can make ffmpeg open another file or a URL.
  */
 export function ffmpegArgs(
   picture: string,
+  pictureFormat: PictureFormat,
   sound: string,
   out: string,
 ): string[] {
@@ -67,12 +73,20 @@ export function ffmpegArgs(
     'error',
     '-nostdin',
     '-y',
+    '-protocol_whitelist',
+    'file',
+    '-f',
+    pictureFormat === 'webp' ? 'webp_pipe' : 'jpeg_pipe',
     '-loop',
     '1',
     '-framerate',
     '1',
     '-i',
     picture,
+    '-protocol_whitelist',
+    'file',
+    '-f',
+    'mov',
     '-i',
     sound,
     '-map',
@@ -123,6 +137,26 @@ export function mp4Heights(resolutions: unknown): number[] {
   return [...new Set([...listed.sort((a, b) => b - a), 720, 480, 360])];
 }
 
+/** Whether a file starts as a WebP image ("RIFF", its size, "WEBP") or a JPEG does. */
+export function isPicture(head: Buffer, format: PictureFormat): boolean {
+  return format === 'webp'
+    ? head.length >= 12 &&
+        head.toString('latin1', 0, 4) === 'RIFF' &&
+        head.toString('latin1', 8, 12) === 'WEBP'
+    : head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+}
+
+async function readHead(file: string): Promise<Buffer> {
+  const handle = await open(file, 'r');
+  try {
+    const head = Buffer.alloc(12);
+    const { bytesRead } = await handle.read(head, 0, 12, 0);
+    return head.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
 class RenderFailure extends Error {
   override name = 'RenderFailure';
   constructor(readonly code: string) {
@@ -136,7 +170,7 @@ export interface FfmpegRendererConfig {
   /** The library's storage zone (its name) and that zone's read-only password. */
   storageZone: string;
   storagePassword: () => Promise<string>;
-  /** Where the job's files go (in memory), and the site's default background. */
+  /** Where the job's files go (in memory), and the site's default background (a JPEG). */
   workDir: string;
   defaultPicture: string;
   ffmpeg?: string;
@@ -158,6 +192,7 @@ export class FfmpegRenderer implements Renderer {
       const sound = join(dir, 'sound.mp4');
       await this.fetchSound(sourceVideoId, sound);
       let picture = this.config.defaultPicture;
+      let format: PictureFormat = 'jpeg';
       if (pass.pictureUrl) {
         picture = join(dir, 'picture.webp');
         await this.download(
@@ -167,9 +202,14 @@ export class FfmpegRenderer implements Renderer {
           MAX_PICTURE_BYTES,
           'picture_unreachable',
         );
+        format = 'webp';
+      }
+      // Only a WebP (or the default JPEG) goes to ffmpeg as its picture.
+      if (!isPicture(await readHead(picture), format)) {
+        throw new RenderFailure('picture_not_webp');
       }
       const out = join(dir, 'out.mp4');
-      await this.ffmpeg(ffmpegArgs(picture, sound, out));
+      await this.ffmpeg(ffmpegArgs(picture, format, sound, out));
       const { size } = await stat(out);
       await this.upload(out, size, pass);
       return { sizeBytes: size };
