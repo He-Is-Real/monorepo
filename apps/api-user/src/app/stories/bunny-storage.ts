@@ -111,10 +111,11 @@ export class BunnyImageStore implements ImageStore {
       );
     }
     const want = Math.min(PICTURE_START_BYTES, size);
-    const bytes = await firstBytes(res, want);
-    if (bytes.length !== want) {
+    // A 206 is exactly the range it names; a 200 is the whole file, read only as far as needed.
+    const bytes = await firstBytes(res, want, res.status === 206);
+    if (bytes === null || bytes.length !== want) {
       throw new Error(
-        `The images zone sent ${bytes.length} of a picture's first ${want} bytes`,
+        `The images zone sent ${bytes === null ? 'more than' : bytes.length} of a picture's first ${want} bytes`,
       );
     }
     return { size, bytes };
@@ -148,8 +149,15 @@ function answeredSize(res: Response): number | null {
   return size;
 }
 
-/** Up to `want` bytes of the answer's body; the rest is never downloaded. */
-async function firstBytes(res: Response, want: number): Promise<Uint8Array> {
+/**
+ * Up to `want` bytes of the answer's body; the rest is never downloaded. With `exact`, the body must
+ * end there: null once a byte past `want` arrives (Codex, #208 review).
+ */
+async function firstBytes(
+  res: Response,
+  want: number,
+  exact: boolean,
+): Promise<Uint8Array | null> {
   const out = new Uint8Array(want);
   let got = 0;
   const reader = res.body?.getReader();
@@ -161,6 +169,14 @@ async function firstBytes(res: Response, want: number): Promise<Uint8Array> {
       const take = value.subarray(0, want - got);
       out.set(take, got);
       got += take.length;
+      if (exact && value.length > take.length) return null;
+    }
+    if (exact && got === want) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value.length > 0) return null;
+      }
     }
   } finally {
     await reader.cancel().catch(() => undefined);

@@ -919,6 +919,27 @@ describe('video and audio uploads', () => {
             'content-range': 'bytes 0-39/40000',
           }),
       ],
+      [
+        'more bytes than the range says',
+        (f) =>
+          answer(206, f.slice(0, 41), {
+            'content-range': 'bytes 0-39/40000',
+          }),
+      ],
+      [
+        'more bytes than the range says, in a later chunk',
+        (f) =>
+          new Response(
+            new ReadableStream({
+              start(c) {
+                c.enqueue(f.slice(0, 40));
+                c.enqueue(f.slice(40, 100));
+                c.close();
+              },
+            }),
+            { status: 206, headers: { 'content-range': 'bytes 0-39/40000' } },
+          ),
+      ],
       ['a 200 without a size', (f) => answer(200, f, {})],
       [
         'a 200 that stops short of its Content-Length',
