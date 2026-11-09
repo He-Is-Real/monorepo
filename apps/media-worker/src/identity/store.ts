@@ -137,6 +137,11 @@ export class IdentityStore {
     await writePrivate(this.pendingPath, keyPem);
   }
 
+  /** Makes an existing pending key's name durable (its content was synced when it was saved). */
+  async syncPending(): Promise<void> {
+    await syncDir(this.keysDir);
+  }
+
   /** Makes the directory (0700), refusing one anybody else can read. */
   async prepare(): Promise<void> {
     await mkdir(this.keysDir, { recursive: true, mode: 0o700 });

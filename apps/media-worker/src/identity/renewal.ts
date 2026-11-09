@@ -42,16 +42,23 @@ async function nextKey(
   currentCert: X509Certificate,
 ): Promise<{ privateKey: KeyObject; publicKey: KeyObject }> {
   const saved = await store.pending();
+  let reuse: { privateKey: KeyObject; publicKey: KeyObject } | null = null;
   if (saved !== null) {
     try {
       const privateKey = createPrivateKey(saved);
       const publicKey = createPublicKey(privateKey);
       if (!spki(publicKey).equals(spki(currentCert.publicKey))) {
-        return { privateKey, publicKey };
+        reuse = { privateKey, publicKey };
       }
     } catch {
       // Unreadable: a new one below.
     }
+  }
+  if (reuse) {
+    // An earlier try may have stopped before its save was durable: make sure, every time, before
+    // the key is sent (a failure here stops this try, as it would for a new key).
+    await store.syncPending();
+    return reuse;
   }
   const next = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
   await store.savePending(
