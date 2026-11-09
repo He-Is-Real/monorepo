@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Reports, and outside dev refuses, a plan that would put something outside the UK (D119's
-# interim guard until the organisation's location policy, D102, is set up at launch).
+# interim guard; kept beside the organisation's location policy, D102, live/org, because it
+# fails at plan time and also sees Bunny).
 # Tests: tests/tf-location-check.test.mjs.
 #
 #   tofu show -json <plan> | tools/scripts/tf-location-check.sh <environment> [<schema>]

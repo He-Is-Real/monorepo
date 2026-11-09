@@ -9,8 +9,8 @@ name: OpenTofu plan
 # database integration suite.
 # Then the roots the PR touches (tools/scripts/tf-roots.sh) are planned without a refresh or
 # lock as tf-planner (gcp, images). bunny and stripe are never planned here: tf-bunny is only
-# available on main, and tf-planner can't read the Stripe key. bootstrap is planned and applied
-# locally.
+# available on main, and tf-planner can't read the Stripe key. bootstrap and org (the
+# organisation's settings, live/org) are planned and applied locally.
 #
 # Every plan also gets the UK location check (D119's interim guard): `tf.sh <root> plan` runs
 # tools/scripts/tf-location-check.sh on it. In dev a finding is a warning in the step summary and
@@ -70,7 +70,7 @@ jobs:
       - run: tofu fmt -check -recursive infra/terraform
       - name: Validate every root
         run: |
-          for dir in infra/terraform/live/dev/*/; do
+          for dir in infra/terraform/live/dev/*/ infra/terraform/live/org/; do
             root="$(basename "$dir")"
             echo "::group::$root"
             tools/scripts/tf.sh "$root" init -backend=false -input=false
@@ -84,13 +84,14 @@ jobs:
         run: |
           key_only() { # key_only <root> <key> <other key>
             local file="infra/terraform/live/dev/$1/encryption.tf"
+            [ "$1" != org ] || file=infra/terraform/live/org/encryption.tf
             grep -q "cryptoKeys/$2\"" "$file" || { echo "::error file=$file::must use $2"; exit 1; }
             if grep -q "$3" "$file"; then echo "::error file=$file::must not use $3"; exit 1; fi
             [ "$(grep -c 'enforced *= *true' "$file")" -eq 2 ] ||
               { echo "::error file=$file::state and plan must both be enforced"; exit 1; }
           }
           key_only bunny tofu-bunny tofu-state
-          for root in bootstrap gcp images cluster stripe; do key_only "$root" tofu-state tofu-bunny; done
+          for root in bootstrap gcp images cluster stripe org; do key_only "$root" tofu-state tofu-bunny; done
           if git grep -n -E 'method +"unencrypted"|fallback +\{' -- 'infra/terraform/*.tf'; then
             echo "::error::no plaintext method or fallback: every state is encrypted (D54)"
             exit 1
@@ -159,7 +160,7 @@ jobs:
             echo '```'
             echo "${roots:-none}"
             echo '```'
-            echo "bunny, stripe: planned after merge on main (tofu-apply.yml); bootstrap: plan and apply locally."
+            echo "bunny, stripe: planned after merge on main (tofu-apply.yml); bootstrap, org: plan and apply locally."
           } >> "$GITHUB_STEP_SUMMARY"
 
   plan-gcp:

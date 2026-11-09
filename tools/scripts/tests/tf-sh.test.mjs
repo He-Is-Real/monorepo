@@ -203,12 +203,20 @@ test('bootstrap never impersonates', () => {
   assert.deepEqual(call.env, {});
 });
 
+test('org never impersonates and lives outside live/dev', () => {
+  const call = tofuCall(run(['org', 'plan'], callerImpersonation));
+  assert.equal(call.argv[0], `-chdir=${repo}/infra/terraform/live/org`);
+  assert.deepEqual(call.env, {});
+});
+
 // Identity overrides
 
-test('bootstrap refuses another identity', () => {
-  const result = run(['bootstrap', 'plan'], { TF_SH_IDENTITY: deployer });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /runs with your own credentials/);
+test('bootstrap and org refuse another identity', () => {
+  for (const root of ['bootstrap', 'org']) {
+    const result = run([root, 'plan'], { TF_SH_IDENTITY: deployer });
+    assert.equal(result.status, 1, root);
+    assert.match(result.stderr, /runs with your own credentials/);
+  }
 });
 
 test('TF_SH_IDENTITY=self uses own credentials', () => {
@@ -450,7 +458,7 @@ test("plan keeps tofu's exit code and the caller's plan file when the check pass
   }
 });
 
-// Every root tf.sh plans today is under live/dev, so plans warn; blocking outside dev is
+// Every root but org is under live/dev, so their plans warn; the check's own rules are
 // tf-location-check.test.mjs's (tf.sh passes it the root's environment from its path).
 test("in dev, a plan outside the UK warns in the log and step summary and keeps tofu's exit code", () => {
   for (const root of ['gcp', 'bunny', 'bootstrap']) {
@@ -471,6 +479,16 @@ test("in dev, a plan outside the UK warns in the log and step summary and keeps 
     assert.match(written, /images: region=NY/);
     assert.doesNotMatch(result.all + written, /SECRET/);
   }
+});
+
+test('org is no dev root: a plan outside the UK fails', () => {
+  const result = run(['org', 'plan', '-detailed-exitcode', '-out=x'], {
+    STUB_PLAN_EXIT: '2',
+    STUB_SHOW_JSON: outside,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /images: region=NY/);
+  assert.doesNotMatch(result.stderr, /WARNING/);
 });
 
 test('a plan inside the UK writes nothing to the step summary', () => {

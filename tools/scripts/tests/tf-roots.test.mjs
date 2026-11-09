@@ -98,9 +98,10 @@ test('the bunny guard selects bunny', () => {
   assert.equal(changed(`${tf}/live/dev/bunny/main.tf`), 'bunny');
 });
 
-test('bootstrap is listed last', () => {
+test('bootstrap and org are listed last', () => {
   assert.equal(changed(`${tf}/modules/bootstrap/kms.tf`), 'bootstrap');
-  assert.equal(changed(`${tf}/modules/org/main.tf`), 'bootstrap');
+  assert.equal(changed(`${tf}/modules/org/main.tf`), 'org');
+  assert.equal(changed(`${tf}/live/org/main.tf`), 'org');
   assert.equal(
     changed(`${tf}/live/dev/bootstrap/main.tf`, `${tf}/modules/gcp/x.tf`),
     'gcp\ncluster\nbootstrap',
@@ -149,8 +150,9 @@ test('every root, in order', () => {
       `${tf}/live/dev/images/a.tf`,
       `${tf}/modules/gcp/a.tf`,
       `${tf}/modules/stripe/a.tf`,
+      `${tf}/modules/org/a.tf`,
     ),
-    'gcp\nimages\ncluster\nbunny\nstripe\nbootstrap',
+    'gcp\nimages\ncluster\nbunny\nstripe\nbootstrap\norg',
   );
 });
 

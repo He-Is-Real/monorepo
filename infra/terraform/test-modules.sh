@@ -16,8 +16,8 @@
 #     ready's job topic keeps messages in London and has no dead letters, the worker's subscription
 #     never expires, only the worker may call the result writer and it reads no database password.
 #   bootstrap: the _Default sink writes to the London log bucket with Google's filter (D101).
-#   org: only London locations are allowed, and new projects' logs start in London (D102, D104;
-#     no root calls it until the organisation admin's setup, D119).
+#   org: only London locations are allowed, new projects' logs start in London (D102, D104),
+#     and its admins get only the log settings permissions they need.
 #   stripe: what donors can give (D116) and that dev refuses a live key; then, with the real
 #     provider planning offline against a written state (stripe/tests/link-lifecycle.sh), that
 #     a new price replaces its Payment Link, that anything deactivated in the Dashboard is drift,
@@ -31,6 +31,7 @@ for tests in */tests; do
   # The providers dev runs: a module named like a root (bunny, cluster, gcp) is tested with that
   # root's lock file (providers it lacks are added at their newest), not the registry's newest.
   root_lock="../live/dev/$module/.terraform.lock.hcl"
+  [ "$module" != org ] || root_lock=../live/org/.terraform.lock.hcl
   if [ -f "$root_lock" ]; then cp "$root_lock" "$module/.terraform.lock.hcl"; fi
   tofu -chdir="$module" init -backend=false -input=false > /dev/null
   tofu -chdir="$module" test
