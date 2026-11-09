@@ -275,6 +275,54 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
       });
     });
 
+    it('a video’s picture being changed at Bunny counts until its lock runs out (T3)', async () => {
+      const id = await inReview({ video: '1d' });
+      const key = `${id}-media`;
+      const lock = (until: string) =>
+        run(
+          workflow,
+          `UPDATE type::record('storyFile', $key) SET thumbnailLockedUntil = ${until}`,
+          { key },
+        );
+      await lock('time::now() + 2m');
+      expect(await approve(id)).toEqual({
+        ok: false,
+        error: expect.stringContaining(
+          'media_still_processing: the story’s media is still being processed',
+        ),
+      });
+      // Run out (a writer that crashed): ignored, nothing to clean up.
+      await lock('time::now() - 1s');
+      expect(await approve(id)).toMatchObject({ ok: true });
+    });
+
+    it('the lock is workflow’s alone: no other login sees or writes it', async () => {
+      const id = await inReview({ video: '1d' });
+      const key = `${id}-media`;
+      const read = (db: Surreal) =>
+        rows(
+          db,
+          `SELECT VALUE thumbnailLockedUntil FROM ONLY type::record('storyFile', $key)`,
+          { key },
+        );
+      await run(
+        workflow,
+        `UPDATE type::record('storyFile', $key) SET thumbnailLockedUntil = time::now() + 2m`,
+        { key },
+      );
+      for (const db of [apiUser, admin, pat]) {
+        // Hidden: no value, whether or not the login sees the row itself.
+        expect((await read(db)).filter((v) => v != null)).toEqual([]);
+        await outcome(
+          db,
+          `UPDATE type::record('storyFile', $key) SET thumbnailLockedUntil = NONE`,
+          { key },
+        );
+      }
+      // Still workflow's lock: nobody else's write took.
+      expect((await read(workflow)).filter((v) => v != null)).toHaveLength(1);
+    });
+
     it('doesn’t stop the system hiding the story and showing it again', async () => {
       const id = await inReview({ video: '1d' });
       expect(await approve(id)).toMatchObject({ ok: true });

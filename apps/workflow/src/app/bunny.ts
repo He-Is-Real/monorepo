@@ -50,6 +50,31 @@ export class BunnyCallFailed extends Error {
   }
 }
 
+/**
+ * Runs `call` with a signal that aborts after `ms`, and throws {@link BunnyCallFailed}
+ * (`bunny_timeout`) then, whether or not `call` heeds it (T3: a hard limit on Bunny calls under a
+ * video's lock). With no time left, `call` never starts.
+ */
+export async function callWithin<T>(
+  ms: number,
+  call: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  if (!(ms > 0)) throw new BunnyCallFailed('bunny_timeout');
+  const abort = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cutOff = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      abort.abort();
+      reject(new BunnyCallFailed('bunny_timeout'));
+    }, ms);
+  });
+  try {
+    return await Promise.race([call(abort.signal), cutOff]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The worker's one-hour pass to upload to one video (the contract's `UploadPass`). */
 export interface UploadPass {
   uploadUrl: string;
@@ -69,9 +94,14 @@ export interface WriterBunny {
   exists(videoId: string): Promise<boolean>;
   /**
    * Shows `picture` (a story picture's path in the images zone) as the video's thumbnail, or, with
-   * null, Bunny's own first frame again; answers the video's thumbnail file name afterwards.
+   * null, Bunny's own first frame again; answers the video's thumbnail file name afterwards. Once
+   * `signal` aborts, no further request is sent and the one under way is cut off.
    */
-  setThumbnail(videoId: string, picture: string | null): Promise<string>;
+  setThumbnail(
+    videoId: string,
+    picture: string | null,
+    signal?: AbortSignal,
+  ): Promise<string>;
   /** The worker's upload pass for that one video, for an hour from now. */
   uploadPass(videoId: string, now?: number): Promise<UploadPass>;
   /** A 10-minute link to a story's picture, or null if the path isn't one. */
@@ -139,8 +169,10 @@ export class BunnyLibrary implements WriterBunny {
     method: string,
     path: string,
     body?: unknown,
+    signal?: AbortSignal,
   ): Promise<Response> {
     await this.refreshKeys();
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
     try {
       return await this.fetcher(
         `${API}/library/${this.config.libraryId}/videos${path}`,
@@ -154,7 +186,7 @@ export class BunnyLibrary implements WriterBunny {
           body: body ? JSON.stringify(body) : undefined,
           // The library key goes to Bunny's API only, never on to wherever a redirect points.
           redirect: 'error',
-          signal: AbortSignal.timeout(TIMEOUT_MS),
+          signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
         },
       );
     } catch {
@@ -190,7 +222,11 @@ export class BunnyLibrary implements WriterBunny {
     return true;
   }
 
-  async setThumbnail(videoId: string, picture: string | null): Promise<string> {
+  async setThumbnail(
+    videoId: string,
+    picture: string | null,
+    signal?: AbortSignal,
+  ): Promise<string> {
     if (!VIDEO_ID.test(videoId)) throw new BunnyCallFailed('bunny_error');
     await this.refreshKeys();
     // Bunny fetches the picture itself through a 10-minute link; null puts back its own first
@@ -203,9 +239,11 @@ export class BunnyLibrary implements WriterBunny {
     const set = await this.call(
       'POST',
       `/${videoId}/thumbnail?thumbnailUrl=${encodeURIComponent(source)}`,
+      undefined,
+      signal,
     );
     if (!set.ok) BunnyLibrary.fail(set);
-    const res = await this.call('GET', `/${videoId}`);
+    const res = await this.call('GET', `/${videoId}`, undefined, signal);
     if (!res.ok) BunnyLibrary.fail(res);
     const { thumbnailFileName } = (await res.json().catch(() => ({}))) as {
       thumbnailFileName?: unknown;

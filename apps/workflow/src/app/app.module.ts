@@ -9,6 +9,7 @@ import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule, SecretsService } from '@heisreal/secrets';
 import { WRITER_BUNNY, writerBunnyFromEnv } from './bunny';
 import { MediaJobsController } from './media-jobs.controller';
+import { THUMBNAIL_LOCK, thumbnailLockFromEnv } from './media-jobs';
 import { MEDIA_QUEUE, mediaQueueFromEnv } from './media-queue';
 
 @Module({
@@ -26,6 +27,8 @@ import { MEDIA_QUEUE, mediaQueueFromEnv } from './media-queue';
       useFactory: (secrets: SecretsService) => writerBunnyFromEnv(secrets),
     },
     { provide: MEDIA_QUEUE, useFactory: () => mediaQueueFromEnv() },
+    // T3: a video's picture lock at Bunny (2 minutes) and its calls' limit (20 seconds).
+    { provide: THUMBNAIL_LOCK, useFactory: () => thumbnailLockFromEnv() },
   ],
 })
 export class AppModule {}

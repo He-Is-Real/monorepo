@@ -284,6 +284,11 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
 --   the time, rounded up to the second, from which it can be approved.
 -- - An open media job (J6): a check or render for the story's media file or picture that hasn't
 --   ended (mediaJob doneAt), e.g. the picture video of an audio story whose picture changed.
+-- - A video's picture being changed at Bunny (Joel, 2026-11-08, T3): its storyFile
+--   thumbnailLockedUntil is set and after $now. Here, not in approval_problem: like an open job it
+--   is a moment of the review, not the files being unfit to show, so it must never hide an
+--   approved story or stop one coming back (check_files, restorable), and it is judged at the
+--   approval's own time.
 -- A SuperAdmin may approve anyway, and the entry records it (storyStatusLog.skippedMediaWait).
 -- Messages start with a code for api-admin (409). $now: the time to judge at (the approval's).
 -- Runs elevated from the event (only the services read mediaJob).
@@ -298,6 +303,12 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_wait($s: any, $now: datetime) {
   IF $until != NONE AND $now < $until {
     RETURN 'media_recently_uploaded: the story’s file was uploaded recently; it can be approved after '
       + <string> time::ceil($until, 1s);
+  };
+  -- T3 (Joel, 2026-11-08): a writer is changing the video's picture at Bunny (its lock, set and
+  -- not yet run out; one that has run out is ignored).
+  LET $lock = IF $s.mediaFile != NONE { (SELECT VALUE thumbnailLockedUntil FROM ONLY $s.mediaFile) };
+  IF $lock != NONE AND $now < $lock {
+    RETURN 'media_still_processing: the story’s media is still being processed';
   };
   IF $files != [] AND (SELECT VALUE id FROM mediaJob WHERE file IN $files AND doneAt = NONE LIMIT 1) != [] {
     RETURN 'media_still_processing: the story’s media is still being processed';
@@ -1093,6 +1104,15 @@ DEFINE FIELD OVERWRITE thumbnailOf     ON storyFile TYPE option<record<storyFile
   PERMISSIONS FOR select WHERE person = $auth
       OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
     FOR create, update WHERE $auth = service:workflow;
+-- T3 (Joel, 2026-11-08, org-setup-and-picture-video.html): the lock a result writer holds on a
+-- video's row while it changes the video's picture at Bunny, so only one writer at a time does:
+-- until when it is held (the writer's clock, now + 2 minutes). The writer takes it only if it is
+-- empty or already past, and clears it with thumbnailOf, only if it still holds this exact value
+-- (the holder's mark). A moderator's approval waits while it is set and in the future
+-- (fn::story::approval_wait); one in the past is ignored, so a crashed writer needs no clean-up.
+-- Only workflow reads or writes it.
+DEFINE FIELD OVERWRITE thumbnailLockedUntil ON storyFile TYPE option<datetime>
+  PERMISSIONS FOR select, create, update WHERE $auth = service:workflow;
 -- When its story stopped pointing at it: set by story_files only (events run elevated).
 DEFINE FIELD OVERWRITE detachedAt      ON storyFile TYPE option<datetime>
   PERMISSIONS FOR select WHERE person = $auth

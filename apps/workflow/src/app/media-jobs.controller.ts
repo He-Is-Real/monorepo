@@ -27,6 +27,8 @@ import {
   parseJobId,
   parseMediaAnswer,
   parseVideoId,
+  THUMBNAIL_LOCK,
+  type ThumbnailLock,
   type ThumbnailOutcome,
 } from './media-jobs';
 import { MEDIA_QUEUE, type MediaQueue, sendJobs } from './media-queue';
@@ -59,16 +61,16 @@ export class MediaJobsController {
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(WRITER_BUNNY) private readonly bunny: WriterBunny | null,
     @Inject(MEDIA_QUEUE) private readonly queue: MediaQueue | null,
+    @Inject(THUMBNAIL_LOCK) private readonly lock: ThumbnailLock,
   ) {}
 
   /**
    * The answer to a check job: the file's facts and the job's end, in one transaction. A ready
-   * video's picture (video-bundle-rethink part A; Joel, 2026-11-08, T1 option C) goes database
-   * first: the answer records the story's picture now and leaves the job open, so approval waits;
-   * then the writer sets it at Bunny (its own picture, or Bunny's frame when it has none), every
-   * time; then it closes the job only if the story's picture is still that one. If Bunny won't,
-   * or the job can't be closed yet, the reply is "try again later" (`retry: true`), with the job
-   * still open and nothing counted as the worker's failure.
+   * video's picture (video-bundle-rethink part A; Joel, 2026-11-08, T3) then goes to Bunny under
+   * the video's lock, with a check job left open until Bunny shows it and it is recorded. If
+   * another writer holds the lock, Bunny won't, or this writer's lock ran out first, the reply is
+   * "try again later" (`retry: true`), with the job still open and nothing counted as the
+   * worker's failure.
    */
   @Post(':job/answer')
   @HttpCode(HttpStatus.OK)
@@ -105,10 +107,10 @@ export class MediaJobsController {
     try {
       done = await applyThumbnail(
         this.db,
-        (v, picture) => bunny.setThumbnail(v, picture),
-        job,
+        (v, picture, signal) => bunny.setThumbnail(v, picture, signal),
+        thumbnail.job,
         video,
-        thumbnail,
+        this.lock,
       );
     } catch (err) {
       if (!(err instanceof BunnyCallFailed)) return this.refuse(job, err);
@@ -118,8 +120,8 @@ export class MediaJobsController {
     this.logger.log(
       JSON.stringify({
         ...entry,
-        thumbnail: thumbnail.picture ? 'picture' : 'frame',
-        jobAfter: done,
+        thumbnailJob: thumbnail.job,
+        thumbnail: done,
       }),
     );
     return done === 'closed' ? { outcome } : { retry: true };

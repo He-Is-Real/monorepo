@@ -208,7 +208,10 @@ their fence (see "Transactions").
     this video, or that this picture video was made with; only ever a picture of the same story,
     `storyFile_render`). Only workflow writes either; both are private (not in the public read).
     `fn::story::approval_problem` refuses a story whose file's `thumbnailOf` isn't its picture now
-    (`media_not_ready`).
+    (`media_not_ready`). `thumbnailLockedUntil` (Joel 2026-11-08, T3): the lock a result writer
+    holds on a video's row while it changes the video's picture at Bunny; only workflow reads or
+    writes it (no other login sees it). `fn::story::approval_wait` refuses a moderator's approval
+    while it is set and in the future (`media_still_processing`); one in the past is ignored.
   - **Update:** workflow the processing fields (`width`, `height`, `lengthSeconds`,
     `thumbnailPath`, `processing`) and `checkedAt` (when the newest answer applied reached the result
     writer; it applies only later ones, in the same transaction, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,

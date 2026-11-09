@@ -91,17 +91,16 @@ paths:
         until its picture video is ready. For a `ready` video (a person's own; a picture video's
         frames are already its picture), the writer sets the picture its story wants at Bunny (the
         story's own, or Bunny's own frame when it has none; Joel, 2026-11-06, video-bundle-rethink.html
-        part A) on every ready check, database first (Joel, 2026-11-08, T1 option C): the answer's
-        transaction records the story's picture now as `thumbnailOf` and leaves the job open, so
-        approval waits (a stale answer stops there and never calls Bunny); then the writer sets it at
-        Bunny; then it closes the job (`applied`) only if the story's picture is still that one, in
-        one transaction, setting Bunny again first if it changed. The reply is `retry: true` (the job
-        stays open, nothing is counted as a failure, the worker leaves it in the queue) when Bunny
-        refuses or can't be reached, when the picture kept changing, or when an earlier delivery of
-        the same job may still be setting another picture at Bunny (the job was open, an answer
-        arrived after it was queued, and the recorded picture differs): that delivery, or a
-        redelivery, closes it. A delivery of a job that has already ended still sets Bunny's picture
-        before it answers.
+        part A) on every ready check, under the video's lock (Joel, 2026-11-08, T3): the answer's
+        transaction leaves a check job open (if the job had already ended, it opens a check of the
+        file first), so approval waits; the writer takes the lock (`thumbnailLockedUntil`, 2 minutes,
+        only if empty or run out), reads the story's picture, sets it at Bunny (every call cut off 20
+        seconds after taking the lock), then, only if the lock is still its own, records it, clears
+        the lock and closes the job (`applied`), sending the new picture first if it changed. The
+        reply is `retry: true` (the job stays open, nothing is counted as a failure, the worker leaves
+        it in the queue) when another writer holds the lock, when Bunny refuses, can't be reached or
+        is cut off (the lock is then left to run out), or when the lock ran out before it could
+        record.
 
         The worker's answer about the job's Bunny video, made fresh at Bunny just before the call. In one
         database transaction, signed in as `service:workflow` (Joel, 2026-11-07: F1, J5 and the round 3
@@ -109,8 +108,8 @@ paths:
         - `gone`: the file isn't one its story shows now (replaced, removed, the story deleted), or a
           `ready` answer's `title` isn't the story's id. Nothing is written to the file.
         - `stale`: an answer that reached the writer at or after this one is already in
-          (`storyFile.checkedAt`). Nothing is written to the file but the picture Bunny shows
-          (`thumbnailOf`, above).
+          (`storyFile.checkedAt`). Nothing is written to the file but, for a ready video, the
+          picture Bunny shows (`thumbnailOf`, above).
         - `applied`: every fact is written with `checkedAt` = when this call arrived. `ready` sets
           `processing` and, for a video, its width, height, length and Bunny's thumbnail; for an audio
           file only its length (its picture comes from the default-picture step). `encoding` sets
@@ -137,7 +136,7 @@ paths:
         '200':
           description: |
             Answered; the outcome of this answer. Or `retry: true` when a ready video's picture isn't
-            settled at Bunny yet (above): the job stays open and no failure is counted.
+            set at Bunny and recorded yet (above): the job stays open and no failure is counted.
           content:
             application/json:
               schema:

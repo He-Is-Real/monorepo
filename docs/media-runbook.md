@@ -142,30 +142,36 @@ An audio story is shown as a video of its picture (or the site's default wavefor
    ends the job. The check then works like any other, and the story is approvable once it is
    ready.
 
-A video's own picture (video-bundle-rethink part A; Joel, 2026-11-08, T1 option C: database
-first). When a check finds a video ready, the writer:
+A video's own picture (video-bundle-rethink part A; Joel, 2026-11-08, T3: one lock per video).
+When a check finds a video its story shows ready, the writer records the answer in one
+transaction and leaves a check job open (an open job keeps a moderator from approving,
+`media_still_processing`). If the delivered job had already ended (the queue delivered it again),
+it opens a check of the file first, with the job's reasons. Then:
 
-1. Records the answer and the story's picture now as `storyFile.thumbnailOf` in the answer's
-   transaction, but leaves the job open. An open job keeps a moderator from approving
-   (`media_still_processing`). A stale answer (a newer one is in) stops here and never calls Bunny.
-2. Sets that picture with Bunny's "set thumbnail" call (or Bunny's own first frame,
-   `thumbnail_1.jpg`, when the story has no picture). It does so on every ready check, so if
-   Bunny was left showing something else, the next check puts it right.
-3. Closes the job (`applied`) only if the story's picture is still the one Bunny now shows, in
-   one transaction. If it changed meanwhile, it records the new one, sets Bunny again and checks
-   again (up to three tries).
+1. It takes the video's lock: `storyFile.thumbnailLockedUntil` = now + 2 minutes, only if it is
+   empty or already past. If another writer holds it, the answer is `{ retry: true }` (log
+   `thumbnail: retry`): nothing is counted as a failure, and the redelivery tries again. Approval
+   also waits while the lock is held.
+2. It reads the story's picture while holding the lock.
+3. It sets that picture with Bunny's "set thumbnail" call (or Bunny's own first frame,
+   `thumbnail_1.jpg`, when the story has no picture). Every call under one lock must finish within
+   20 seconds of taking it, or it is cut off. It does so on every ready check, so if Bunny was left
+   showing something else, the next check puts it right.
+4. In one transaction, only if the lock is still its own (the exact time it set, and not yet run
+   out): if the story's picture is still the one it sent, it records it (`thumbnailOf`, and Bunny's
+   new `thumbnailPath`), clears the lock and closes the job (`applied`); if the picture changed
+   meanwhile, it sends the new one first, still under the lock. If the lock ran out first, it
+   records nothing and answers `{ retry: true }`; the job stays open for a later delivery.
 
-If Bunny won't take the picture, the writer answers `{ retry: true }`: the job stays open, nothing
-is counted as a failure, and the redelivery (or the 18:00 resend) finishes it (log
-`thumbnail: <code>`). A redelivery of a job that has already ended still sets Bunny's picture
-before it is acknowledged. Two deliveries of the same job can overlap (the queue delivered it
-twice, or a new reason came in): if the job is open, an answer arrived after it was queued, and
-the recorded picture differs from the story's, an earlier delivery may still be setting the old
-one at Bunny. The later delivery then sets Bunny but doesn't close the job (`{ retry: true }`,
-log `jobAfter: pending`); the earlier one finds the picture changed, puts Bunny right and closes
-it, or a redelivery does. Left open: a delivery stalled for longer than Pub/Sub's redelivery
-(10 seconds or more) can still reach Bunny after a later delivery closed the job; it then puts
-Bunny right as soon as it continues.
+If Bunny won't take the picture or is cut off, the writer answers `{ retry: true }` (log
+`thumbnail: <code>`): the job stays open and the lock is left to run out rather than cleared,
+because a call that failed or was cut off might still be applied at Bunny; the rest of the 2
+minutes is that margin. The redelivery, the 18:00 resend or the nightly sweep finishes it. The
+nightly housekeeping does nothing about locks: one in the past is ignored. The timings can be
+changed with `THUMBNAIL_LOCK_SECONDS` (default 120) and `THUMBNAIL_CALL_SECONDS` (default 20) on
+the workflow service; it refuses to start unless the calls' time is at most a third of the lock's.
+The one thing assumed: Bunny never applies a "set thumbnail" request more than 100 seconds after
+we gave up on it.
 
 A render job's failure codes: `source_gone` / `source_not_ready` (Bunny no longer has the audio
 file, or hasn't finished it), `source_missing` (no MP4 copy in storage: is the library's MP4

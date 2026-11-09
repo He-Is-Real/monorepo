@@ -198,8 +198,9 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   it, and a new picture makes a new one. Sending a video or audio story for review now writes its
   check, so no story is approved before the worker has looked. Needs ffmpeg 6 or later on Joel's
   machine. The worker reads each audio file through a short link to that one file, asked for just
-  before the download (Joel, 2026-11-08), and a video's picture is recorded in our database before
-  Bunny is told, so a removed picture can't slip through an approval (Joel, 2026-11-08). Before
+  before the download (Joel, 2026-11-08), and only one writer at a time may change a video's
+  picture at Bunny, under a short lock that approval waits for, so a removed picture can't slip
+  through an approval (Joel, 2026-11-08, T3). Before
   it runs on dev: apply the bunny root (the new sound zone and its key), then the gcp root. Still
   to come: the 40-byte picture check at submit.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.
