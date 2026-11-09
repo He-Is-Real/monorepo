@@ -6,8 +6,9 @@
 #   tools/scripts/media-worker.sh
 #
 # Needs: gcloud signed in with application default credentials (`gcloud auth login --update-adc`),
-# Dapr's runtime (`mise install`, then `dapr init --slim --runtime-version 1.19.1`), and the repo's
-# packages (`pnpm install`). Stop it with Ctrl+C. The sign-in it hands the worker and Dapr is a
+# Dapr's runtime (`mise install`, then `dapr init --slim --runtime-version 1.19.1`), ffmpeg 6 or
+# later with libx264 (your system's package: it makes audio stories' picture videos), and the
+# repo's packages (`pnpm install`). Stop it with Ctrl+C. The sign-in it hands the worker and Dapr is a
 # file in $XDG_RUNTIME_DIR (memory, readable by you only), removed when it stops; nothing else is
 # written.
 set -euo pipefail
@@ -28,6 +29,16 @@ die() {
 
 command -v gcloud >/dev/null || die "gcloud isn't installed (docs/tooling-and-accounts.md)"
 command -v node >/dev/null || die "node isn't installed (mise install)"
+command -v ffmpeg >/dev/null || die "ffmpeg isn't installed: install your system's ffmpeg (6 or later, with libx264)"
+ffmpeg_major="$(ffmpeg -hide_banner -version | sed -n '1s/^ffmpeg version n\{0,1\}\([0-9]\{1,\}\).*/\1/p')"
+[[ "$ffmpeg_major" =~ ^[0-9]+$ ]] && [ "$ffmpeg_major" -ge 6 ] ||
+  die "ffmpeg 6 or later is needed (found: $(ffmpeg -hide_banner -version | head -n 1))"
+ffmpeg -hide_banner -encoders 2>/dev/null | grep -q ' libx264 ' ||
+  die "your ffmpeg has no libx264 encoder"
+for decoder in webp mjpeg; do
+  ffmpeg -hide_banner -decoders 2>/dev/null | grep -q " $decoder " ||
+    die "your ffmpeg can't read $decoder pictures"
+done
 [ -x "$daprd" ] || die "Dapr's runtime isn't installed: run 'mise install', then 'dapr init --slim --runtime-version 1.19.1'"
 # The sign-in file goes in memory, never on disk: no fallback to /tmp.
 [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ -O "$XDG_RUNTIME_DIR" ] ||
@@ -76,6 +87,8 @@ trap cleanup EXIT INT TERM
   ' >"$runtime/credentials.json"
 )
 export GOOGLE_APPLICATION_CREDENTIALS="$runtime/credentials.json"
+# A picture video's files, in memory too, each job in a folder of its own removed when it ends.
+mkdir -m 700 "$runtime/work"
 # Dapr's sidecar sends this with every call to the worker, which refuses anything without it:
 # no other program, and no web page posting to 127.0.0.1, can hand the worker a job. New each run.
 APP_API_TOKEN="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
@@ -88,6 +101,8 @@ export DAPR_API_TOKEN
 # The worker first: Dapr asks it for its subscription when it starts.
 GCP_PROJECT="$project" MEDIA_WORKER_ACCOUNT="$account" RESULT_WRITER_URL="$writer" \
   BUNNY_STREAM_LIBRARY_ID="$library" BUNNY_STREAM_READONLY_KEY_SECRET=bunny-stream-readonly-key \
+  MEDIA_WORKER_WORK_DIR="$runtime/work" \
+  MEDIA_WORKER_DEFAULT_PICTURE="$app/assets/default-audio-background.jpg" \
   APP_PORT="$app_port" node "$app/dist/main.js" &
 pids+=("$!")
 for _ in $(seq 1 60); do

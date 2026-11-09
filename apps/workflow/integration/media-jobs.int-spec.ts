@@ -16,7 +16,7 @@ import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import {
-  answerJob,
+  answerJob as writeAnswer,
   InvalidMediaJobCall,
   MAX_FAILURES,
   type MediaAnswer,
@@ -27,6 +27,10 @@ import {
   parseFailure,
   parseMediaAnswer,
 } from '../src/app/media-jobs';
+
+/** The writer's answer, as its outcome (the render jobs it opens: picture-video.int-spec.ts). */
+const answerJob = async (...args: Parameters<typeof writeAnswer>) =>
+  (await writeAnswer(...args)).outcome;
 
 /**
  * The result writer (media-worker-final.html) against a real SurrealDB, signed in as
@@ -374,13 +378,13 @@ describe('result writer: the worker’s answers → the job’s file row and the
     expect(await isPublic(story)).toBe(true);
   });
 
-  it('an audio file gets its length; its picture is left for the default-picture step', async () => {
+  it('a person’s audio file gets its length but isn’t ready: its picture video is made next (1B)', async () => {
     const { story, video } = await videoStory('audio');
 
     await answer(video, ready(story, { width: 1280, height: 720 }));
 
     expect(await file(video)).toEqual({
-      processing: 'ready',
+      processing: 'processing',
       lengthSeconds: 95,
     });
   });

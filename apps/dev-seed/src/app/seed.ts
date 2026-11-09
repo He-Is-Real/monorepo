@@ -114,12 +114,20 @@ FOR $s IN $stories {
       }) RETURN NONE;
     };
   };
-  IF $s.media != NONE {
-    UPDATE $story SET mediaFile = type::record('storyFile', $s.media.key) RETURN NONE;
-  };
+  -- The picture first: one set on an audio story that already has its file asks for a new
+  -- picture video, and dev-seed's files are never re-rendered.
   IF $s.image != NONE {
     UPDATE $story SET image = { file: type::record('storyFile', $s.image.key), alt: $s.image.alt }
       RETURN NONE;
+  };
+  IF $s.media != NONE {
+    UPDATE $story SET mediaFile = type::record('storyFile', $s.media.key) RETURN NONE;
+    -- Bunny shows the story's picture for its file (video-bundle-rethink part A): recorded as
+    -- the result writer would, so the story can be approved.
+    IF $s.image != NONE {
+      UPDATE type::record('storyFile', $s.media.key)
+        SET thumbnailOf = type::record('storyFile', $s.image.key) RETURN NONE;
+    };
   };
   -- R6: each step is a status entry; the database checks it and moves story.currentStatus.
   FOR $step IN $s.steps {
@@ -129,6 +137,13 @@ FOR $s IN $stories {
       comment: $step.comment,
       publishedAt: IF $step.status = 'approved' { $s.publishedAt }
     } RETURN NONE;
+  };
+  -- A submit writes the file's check; dev-seed's rows already hold what it would find, so the
+  -- check is answered here and the 18:00 resend never sends it (an audio clip would otherwise
+  -- become a picture video at Bunny).
+  IF $s.media != NONE {
+    UPDATE mediaJob SET doneAt = time::now(), outcome = 'applied'
+      WHERE file = type::record('storyFile', $s.media.key) AND doneAt = NONE RETURN NONE;
   };
 };
 

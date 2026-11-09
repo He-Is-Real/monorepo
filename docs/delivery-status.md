@@ -166,8 +166,9 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   root is applied; older videos have none. The browser removes a video's or audio file's location
   and device details before upload (Joel's M2, 2026-11-06), as an MP4 copy can keep the
   location.
-- A video's own picture shown by Bunny's player (Joel's A, 2026-11-06) is built after the
-  media-ready result writer, which it joins. The old video bundle
+- A video's own picture shown by Bunny's player (Joel's A, 2026-11-06) is built: once a video
+  is ready, the result writer tells Bunny to show the story's picture (or its own frame again once
+  the picture is taken off). The old video bundle
   ([#160](https://github.com/He-Is-Real/monorepo/pull/160)) is closed.
 
 **Left in the M2 plan:**
@@ -190,8 +191,20 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   as the narrow media-worker account. It checks each video at Bunny and gives the result writer
   the answer. Media ready works end to end once Joel runs it; while his PC is off or his Google
   sign-in has lapsed, jobs wait and it catches up. The nightly clean-ups and the 18:00 resend
-  now really act on dev instead of only logging (Joel, 2026-11-07). Still to come: the audio
-  clip's picture video, and the 40-byte picture check at submit.
+  now really act on dev instead of only logging (Joel, 2026-11-07). Fourth part built (Joel,
+  2026-11-07, `project/context/research/audio-picture-video.html`): an audio story becomes a video
+  of its picture (or the default waveform picture) with its sound, made by ffmpeg on Joel's
+  machine and uploaded to Bunny through a one-hour pass for that one video; the story then shows
+  it, and a new picture makes a new one. Sending a video or audio story for review now writes its
+  check, so no story is approved before the worker has looked. Needs ffmpeg 6 or later on Joel's
+  machine. The worker reads each audio file through a short link to that one file, asked for just
+  before the download (Joel, 2026-11-08), and only one writer at a time may change a video's
+  picture at Bunny, under a short lock that approval waits for, so a removed picture can't slip
+  through an approval (Joel, 2026-11-08, T3). The database's clock judges the lock, and a lock
+  that ran out unfinished keeps approval waiting until a later try confirms the picture; the
+  nightly housekeeping re-checks any such video (Joel, 2026-11-09, T4). Before
+  it runs on dev: apply the bunny root (the new sound zone and its key), then the gcp root. Still
+  to come: the 40-byte picture check at submit.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.
 
 **Dropped or moved out of M2:** the personalised home and "New for you" (replaced by the NEW
@@ -239,8 +252,6 @@ Not started.
 - **Stripe's monthly-gift portal:** a bug in the Stripe tool we use means the portal's
   "change the amount" setting can't be managed in code. Dev keeps the setting it already has; it
   must be fixed before donations go live.
-- **While audio plays, Bunny shows its own placeholder picture** instead of the story's picture.
-  Kept for now.
 - **Old encrypted-state copies** expire around 2026-11-28; check once then that they're gone.
 - **Spot servers are pinned to one London zone** until the Google billing account is upgraded.
 

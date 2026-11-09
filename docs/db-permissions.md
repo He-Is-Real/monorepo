@@ -108,7 +108,16 @@ their fence (see "Transactions").
   - **Write scope (D41), dropped silently outside it:** content fields only by the person, and
     only while `draft` or `changes_requested` (`story_owner_content_lock`); never api-admin or
     workflow. File pointers only through a new `storyFile` row (`storyFile_attach`, api-user's
-    login), except that the person may take their picture off or change its description.
+    login), except that the person may take their picture off or change its description, and
+    that workflow may move `mediaFile` from an audio file to that file's own picture video
+    (`mediaFile` permissions: only to a row whose `renderOf` is the current file, never off;
+    `story_files` refuses anything else as `media_not_granted`). That move keeps the story's
+    `version` (`$renderMove`, set by the result writer only; Joel 2026-11-07,
+    audio-picture-video.html 1B).
+  - **Media jobs from the story (event `story_media_jobs`, elevated):** a video or audio story
+    entering `pending` from `draft` or `changes_requested` writes a check of its file (reason
+    `submitted`); an editable audio story whose picture changes, with the same file, writes a
+    `render` job (reason `picture_changed`). api-user sends them after the person's write.
     `currentStatus` only through the status log's event. `submitter` is `READONLY` (an error).
     `updatedAt` is the server's time except for system users.
   - **Shape (D53, `fn::story::shape_problem`, event `story_shape`):** `written` needs non-blank
@@ -181,7 +190,10 @@ their fence (see "Transactions").
   - **Read:** the person their own; api-user, api-admin, workflow, housekeeping all; everyone else
     the id, `format`, `width`, `height`, `lengthSeconds` and `thumbnailPath`, of a file an approved
     story points at now.
-  - **Create:** only api-user's login. `storyFile_attach` (elevated) checks the story is the
+  - **Create:** api-user's login; and workflow, only a picture video (`renderOf` set; event
+    `storyFile_render`: of an audio file of the same story and person, itself `audio`), which
+    `storyFile_attach` doesn't handle and which doesn't count towards any upload limit. For
+    api-user's rows, `storyFile_attach` (elevated) checks the story is the
     person's, editable, at `storyVersion` (`story_cmd:stale_version`), of that format
     (`upload_refused:`), the upload limits (`limit_upload_size|duration|hourly|weekly:`; a picture
     doesn't count towards the weekly limit) and, for a picture, that the story still shows
@@ -191,6 +203,18 @@ their fence (see "Transactions").
     deleted through one while the other still shows it), and marks the replaced row `detachedAt`.
     Dev-seed gives each story its own rows; its stories that never go public use a placeholder row
     with a made-up Bunny-style id (`00000000-0000-0000-0000-…`) and nothing at Bunny.
+  - **Picture videos and pictures shown by Bunny (Joel 2026-11-06/07):** `renderOf` (read-only:
+    the audio file a picture video was made from) and `thumbnailOf` (the picture Bunny shows for
+    this video, or that this picture video was made with; only ever a picture of the same story,
+    `storyFile_render`). Only workflow writes either; both are private (not in the public read).
+    `fn::story::approval_problem` refuses a story whose file's `thumbnailOf` isn't its picture now
+    (`media_not_ready`). `thumbnailLockedUntil` (Joel 2026-11-08, T3): the lock a result writer
+    holds on a video's row while it changes the video's picture at Bunny, judged by the database's
+    clock; only workflow writes it, and housekeeping also reads it for the nightly re-check (T4);
+    no other login sees it. `fn::story::approval_wait` refuses a moderator's approval while it is
+    set at all (`media_still_processing`): in the future a writer is at work, in the past the
+    write is unfinished (Joel 2026-11-09, T4 = A). Only the writer's Bunny-confirmed write empties
+    it.
   - **Update:** workflow the processing fields (`width`, `height`, `lengthSeconds`,
     `thumbnailPath`, `processing`) and `checkedAt` (when the newest answer applied reached the result
     writer; it applies only later ones, in the same transaction, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
@@ -220,10 +244,13 @@ their fence (see "Transactions").
   drafts in the index moved published stories' scores. Specs: `story-search`.
 - **`mediaJob`** (media ready; Joel 2026-11-07, `media-worker-final.html` section 3, J1-J6): every
   media job, written before it is queued: `file` (the storyFile), `kind` (`check`, `render`),
-  `reasons`, `queuedAt`, `sentAt`, `sends`, `failures`, `lastError` (a short code), `madeFile`
-  (render jobs, later), `doneAt` and `outcome` (`applied`, `stale`, `gone`, `gave_up`; set once,
+  `reasons` (`bunny_finished`, `bunny_failed`, `bunny_deleted`, `submitted`, `picture_changed`,
+  `resent`, `rendered`), `queuedAt`, `sentAt`, `sends`, `failures`, `lastError` (a short code),
+  `madeFile` (a render job's new Bunny video, made before its row; housekeeping never deletes it
+  while the job is open), `doneAt` and `outcome` (`applied`, `stale`, `gone`, `gave_up`; set once,
   together). No person's session, api-admin or the public reads it. **Create:** api-user and
-  workflow, through `fn::media::queue_job`, which adds a reason to the file's open job of that
+  workflow, and housekeeping only a `check` with the reason `resent` (the nightly re-check of a
+  video whose picture at Bunny is unfinished; Joel 2026-11-09, T4), through `fn::media::queue_job`, which adds a reason to the file's open job of that
   kind instead (the `mediaJob_rules` event refuses a second open one). **Update:** api-user (new
   reasons, `sentAt`, `sends`), housekeeping (the 18:00 resend: `sentAt`, `sends`, the reason
   `resent`), workflow (all of it); only workflow writes

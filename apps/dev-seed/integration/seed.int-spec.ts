@@ -88,6 +88,10 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
         "SELECT VALUE id FROM story WHERE currentStatus.status = 'approved' AND fn::story::approval_problem($this) != NONE",
       ),
     ).toEqual([]);
+    // Nothing for the media worker: no seeded clip is checked again or made a picture video.
+    expect(
+      await rows(migrator, 'SELECT VALUE id FROM mediaJob WHERE doneAt = NONE'),
+    ).toEqual([]);
   });
 
   it('gives every story its own file rows; the stories never public share no upload, through placeholders (R12; Codex, #188 review)', async () => {

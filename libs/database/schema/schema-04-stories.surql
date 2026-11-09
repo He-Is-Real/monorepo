@@ -47,7 +47,12 @@ DEFINE FIELD OVERWRITE submitter     ON story TYPE record<user> READONLY   -- ow
   PERMISSIONS FOR select WHERE submitter = $auth
     OR $auth IN [service:api_admin, service:workflow, service:housekeeping]
     OR ($auth = service:api_user AND submitter.status = 'deleted');
-DEFINE FIELD OVERWRITE version       ON story TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29: +1 on every write; ETag
+-- D29: +1 on every write; the owner's ETag. One exception (Joel, 2026-11-07, audio-picture-video
+-- decision 1B): the result writer moving an audio story to its picture video isn't the person's
+-- edit, so that write (workflow's login, with the query parameter $renderMove) keeps the version.
+DEFINE FIELD OVERWRITE version       ON story TYPE int
+  VALUE IF $before = NONE { 1 } ELSE IF $auth = service:workflow AND $renderMove = true { $before }
+    ELSE { $before + 1 };
 -- Content: what the person wrote. Never api-admin or workflow (D41); moderators request changes.
 -- housekeeping never reads the words (select below): it needs only ids, the status, dates and files.
 DEFINE FIELD OVERWRITE slug          ON story TYPE string           -- generated at create, unique
@@ -104,10 +109,14 @@ DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
     FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 -- R12: the story's one video or audio file, a storyFile row (its id is the Bunny video id; its
 -- thumbnail, size, real length and processing state live there). D80 (Joel, 2026-10-25): never
--- the person's session, never api-admin or workflow: only a new upload's row moves it
--- (storyFile_attach, elevated), and system users load it as given.
+-- the person's session or api-admin: a new upload's row moves it (storyFile_attach, elevated),
+-- and system users load it as given. One more (Joel, 2026-11-07, audio-picture-video decision
+-- 1B): workflow's login moves an audio story from its file to that file's own picture video
+-- (storyFile.renderOf), only while it still points at that file (story_files checks it).
 DEFINE FIELD OVERWRITE mediaFile     ON story TYPE option<record<storyFile>>
-  PERMISSIONS FOR create, update NONE;
+  -- Anything else workflow writes here is dropped, like any write outside its scope.
+  PERMISSIONS FOR create NONE, FOR update WHERE $auth = service:workflow AND $value != NONE
+    AND $before != NONE AND (SELECT VALUE renderOf FROM ONLY $value) = $before;
 -- Plan 4e: the optional social media sharing consent, per story: NONE until the person ticks
 -- the box at the end of the upload (one box naming every platform; it gives the charity copyright
 -- permission to share and can't be withdrawn: deleting or withdrawing the story stops future
@@ -255,6 +264,14 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
   IF $s.image != NONE AND $i.processing != 'ready' {
     RETURN 'media_not_ready: the story’s image hasn’t finished processing';
   };
+  -- The picture Bunny shows (Joel: video-bundle-rethink part A, 2026-11-06, for a video's own
+  -- picture; audio-picture-video decision 1B, 2026-11-07, for an audio story's picture video):
+  -- the video or audio file's thumbnailOf is the story's picture now, or both are empty (a video
+  -- shows Bunny's own frame; an audio story's picture video has the site's default background).
+  -- The result writer sets it once Bunny has that picture, so the public never sees another.
+  IF $s.mediaFile != NONE AND $m.thumbnailOf != $s.image.file {
+    RETURN 'media_not_ready: Bunny doesn’t show the story’s picture yet';
+  };
   RETURN NONE;
 };
 -- What keeps a moderator from approving the story yet, or NONE (Joel, 2026-11-07: decision 5
@@ -267,6 +284,12 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
 --   the time, rounded up to the second, from which it can be approved.
 -- - An open media job (J6): a check or render for the story's media file or picture that hasn't
 --   ended (mediaJob doneAt), e.g. the picture video of an audio story whose picture changed.
+-- - A video's picture at Bunny not confirmed (Joel, 2026-11-08, T3; 2026-11-09, T4 = A): its
+--   storyFile thumbnailLockedUntil is set, whether in the future (a writer is at work) or past (an
+--   unfinished write: Bunny may show another picture). Only a write Bunny confirmed and the result
+--   writer recorded empties it. Here, not in approval_problem: like an open job it is a moment of
+--   the review, not the files being unfit to show, so it must never hide an approved story or stop
+--   one coming back (check_files, restorable).
 -- A SuperAdmin may approve anyway, and the entry records it (storyStatusLog.skippedMediaWait).
 -- Messages start with a code for api-admin (409). $now: the time to judge at (the approval's).
 -- Runs elevated from the event (only the services read mediaJob).
@@ -281,6 +304,12 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_wait($s: any, $now: datetime) {
   IF $until != NONE AND $now < $until {
     RETURN 'media_recently_uploaded: the story’s file was uploaded recently; it can be approved after '
       + <string> time::ceil($until, 1s);
+  };
+  -- T3/T4 (Joel, 2026-11-08/09): the video's picture at Bunny isn't confirmed yet (a writer at
+  -- work, or one that ran out unfinished).
+  LET $lock = IF $s.mediaFile != NONE { (SELECT VALUE thumbnailLockedUntil FROM ONLY $s.mediaFile) };
+  IF $lock != NONE {
+    RETURN 'media_still_processing: the story’s media is still being processed';
   };
   IF $files != [] AND (SELECT VALUE id FROM mediaJob WHERE file IN $files AND doneAt = NONE LIMIT 1) != [] {
     RETURN 'media_still_processing: the story’s media is still being processed';
@@ -311,6 +340,12 @@ DEFINE EVENT OVERWRITE story_files ON story
   THEN {
     LET $media = $after.mediaFile;
     LET $image = $after.image.file;
+    -- 1B: workflow only moves the story from a file to that file's own picture video.
+    IF $auth = service:workflow AND $media != $before.mediaFile
+      AND ($before.mediaFile = NONE OR $media = NONE
+        OR (SELECT VALUE renderOf FROM ONLY $media) != $before.mediaFile) {
+      THROW 'media_not_granted: workflow moves a story only to its file’s own picture video (1B)';
+    };
     IF $media != NONE AND $media != $before.mediaFile
       AND fn::story::pointer_problem($after.id, $media, ['video', 'audio']) {
       THROW 'media_not_granted: a story’s video or audio must be one uploaded for it (D80)';
@@ -978,7 +1013,9 @@ DEFINE TABLE OVERWRITE storyFile SCHEMAFULL PERMISSIONS
   FOR select WHERE person = $auth
     OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping]
     OR (story.currentStatus.status = 'approved' AND (story.mediaFile = id OR story.image.file = id)),
-  FOR create WHERE $auth = service:api_user,
+  -- api-user: a person's upload (storyFile_attach). workflow: an audio file's picture video
+  -- (renderOf, storyFile_render; Joel, 2026-11-07, audio-picture-video decision 1B).
+  FOR create WHERE $auth = service:api_user OR ($auth = service:workflow AND renderOf != NONE),
   FOR update WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
   FOR delete WHERE $auth = service:api_user                          -- erasure
     -- The nightly clean-up: a row that no longer counts towards the limits, once its file is
@@ -1051,6 +1088,40 @@ DEFINE FIELD OVERWRITE renewedAt       ON storyFile TYPE option<datetime>   -- s
   PERMISSIONS FOR select WHERE person = $auth
       OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
     FOR create NONE, FOR update WHERE $auth = service:api_user;
+-- Audio picture video (Joel, 2026-11-07, audio-picture-video decision 1B): on a picture video the
+-- result writer made of an audio file (a new Bunny video), the file whose sound it holds. Only
+-- workflow sets it, when it makes the row (storyFile_render); never changed. Such a row isn't the
+-- person's upload, so the upload limits skip it.
+DEFINE FIELD OVERWRITE renderOf        ON storyFile TYPE option<record<storyFile>> READONLY
+  PERMISSIONS FOR select WHERE person = $auth
+      OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
+    FOR create WHERE $auth = service:workflow, FOR update NONE;
+-- The picture Bunny shows for this video or audio file (Joel: video-bundle-rethink part A,
+-- 2026-11-06; audio-picture-video 1B, 2026-11-07): a picture row of the same story, or NONE
+-- (Bunny's own frame for a video; the site's default background for a picture video). Set by the
+-- result writer once Bunny has it: a video's thumbnail it set at Bunny, or the picture a picture
+-- video was made with. Approval needs it to be the story's picture now (approval_problem).
+DEFINE FIELD OVERWRITE thumbnailOf     ON storyFile TYPE option<record<storyFile>>
+  PERMISSIONS FOR select WHERE person = $auth
+      OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
+    FOR create, update WHERE $auth = service:workflow;
+-- T3 (Joel, 2026-11-08, org-setup-and-picture-video.html): the lock a result writer holds on a
+-- video's row while it changes the video's picture at Bunny, so only one writer at a time does:
+-- until when it is held (the database's clock, now + 2 minutes; Codex r5). Three states (T4 = A,
+-- Joel, 2026-11-09):
+-- - NONE: Bunny confirmed the picture (thumbnailOf);
+-- - in the future: a writer is at work; other writers try again later;
+-- - in the past: unfinished (the writer failed, timed out or crashed), so Bunny may show another
+--   picture; any writer may take it over and finish.
+-- The writer takes it only if it is NONE or past, and empties it with thumbnailOf only if it still
+-- holds this exact value (the holder's mark) and it hasn't run out. Nothing else empties it while
+-- its story shows the video (a job giving up doesn't). A moderator's approval waits while it is
+-- set at all (fn::story::approval_wait). The nightly housekeeping opens a check of any video
+-- left unfinished, so it is retried rather than stuck. Only workflow writes it; housekeeping
+-- reads it for that re-check; nobody else sees it.
+DEFINE FIELD OVERWRITE thumbnailLockedUntil ON storyFile TYPE option<datetime>
+  PERMISSIONS FOR select WHERE $auth IN [service:workflow, service:housekeeping],
+    FOR create, update WHERE $auth = service:workflow;
 -- When its story stopped pointing at it: set by story_files only (events run elevated).
 DEFINE FIELD OVERWRITE detachedAt      ON storyFile TYPE option<datetime>
   PERMISSIONS FOR select WHERE person = $auth
@@ -1091,7 +1162,7 @@ DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>
   IF $user = NONE { RETURN NONE };
   LET $l = fn::limits::effective($user);
   LET $files = (SELECT at, format FROM storyFile
-    WHERE person = $user AND at > time::now() - 7d ORDER BY at ASC);
+    WHERE person = $user AND at > time::now() - 7d AND renderOf = NONE ORDER BY at ASC);
   LET $hour = $files.filter(|$g| $g.at > time::now() - 1h).map(|$g| $g.at);
   LET $week = $files.filter(|$g| $g.format != 'image').map(|$g| $g.at);
   LET $byHour = IF array::len($hour) < $l.uploadRequestsPerHour { NONE }
@@ -1116,7 +1187,7 @@ DEFINE FUNCTION OVERWRITE fn::upload::image_limits() {
 -- on the story, where the person may change it), so api-user passes it to this write as the
 -- query parameter $imageAlt.
 DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
-  WHEN $event = 'CREATE' AND $auth != NONE THEN {
+  WHEN $event = 'CREATE' AND $auth != NONE AND $after.renderOf = NONE THEN {
     fn::person::live($after.person);
     LET $s = (SELECT * FROM ONLY $after.story);
     IF $s = NONE OR $s.submitter != $after.person {
@@ -1164,7 +1235,8 @@ DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
     -- Counted without this row; the fence above makes two overlapping uploads conflict. Every
     -- file counts per hour; only video and audio files per 7 days (Joel, 2026-10-30).
     LET $files = (SELECT at, format FROM storyFile
-      WHERE person = $after.person AND id != $after.id AND at > time::now() - 7d);
+      WHERE person = $after.person AND id != $after.id AND at > time::now() - 7d
+        AND renderOf = NONE);
     IF array::len($files.filter(|$g| $g.at > time::now() - 1h)) >= $l.uploadRequestsPerHour {
       THROW 'limit_upload_hourly: the person has started as many uploads as they may in an hour (D113)';
     };
@@ -1198,6 +1270,30 @@ DEFINE EVENT OVERWRITE storyFile_shape ON storyFile
     IF $after.width != NONE AND !fn::shape::allowed($after.width, $after.height) {
       THROW IF $after.format = 'image' { 'an image’s shape is beyond 1:3 or 3:1' }
         ELSE { 'a video’s or audio thumbnail’s shape is beyond 1:3 or 3:1' };
+    };
+  };
+-- Audio picture video (Joel, 2026-11-07, audio-picture-video decision 1B), whoever writes: a row
+-- with renderOf is a picture video of an audio file of the same story and person, made only by
+-- workflow (or a system user loading data); and a file's thumbnailOf is always a picture of its
+-- own story.
+DEFINE EVENT OVERWRITE storyFile_render ON storyFile
+  WHEN $event IN ['CREATE', 'UPDATE'] THEN {
+    IF $event = 'CREATE' AND $after.renderOf != NONE {
+      IF $auth != NONE AND $auth != service:workflow {
+        THROW 'upload_refused: only the result writer makes a picture video';
+      };
+      LET $src = (SELECT story, person, format FROM ONLY $after.renderOf);
+      IF $src = NONE OR $src.story != $after.story OR $src.person != $after.person
+        OR $src.format != 'audio' OR $after.format != 'audio' {
+        THROW 'upload_refused: a picture video is made of an audio file of the same story';
+      };
+    };
+    IF $after.thumbnailOf != NONE AND $after.thumbnailOf != $before.thumbnailOf {
+      LET $pic = (SELECT story, format FROM ONLY $after.thumbnailOf);
+      IF $pic = NONE OR $pic.story != $after.story OR $pic.format != 'image'
+        OR $after.format = 'image' {
+        THROW 'a video’s or audio file’s thumbnailOf is a picture of its own story';
+      };
     };
   };
 -- Db review 2, section 6 item 2: every write to a story's file rows bumps its owner's fence, as
@@ -1264,8 +1360,9 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 --   housekeeping's tidy-up) takes its jobs with it (storyFile_jobs), so a job never outlives the
 --   person's data.
 -- - kind: 'check' (is the media ready at Bunny?) or 'render' (an audio story's picture video,
---   which madeFile records so a retry reuses it; built later).
--- - reasons: why it exists. At most one open job per file and kind (J1 check a): a new reason for
+--   made from the job's file; madeFile is the new Bunny video, so a retry reuses it).
+-- - reasons: why it exists ('rendered': the check of a picture video the writer just made). At
+--   most one open job per file and kind (J1 check a): a new reason for
 --   an open job is added to it (fn::media::queue_job), never a second row.
 -- - queuedAt: when it was first written; sentAt and sends: when it last went to the queue and how
 --   often (the first send and later resends).
@@ -1274,14 +1371,17 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 --   the table replaces dead letters).
 -- - doneAt and outcome: set once, when it ends: applied (the answer was saved), stale (a newer
 --   answer was already in), gone (the file or story was deleted) or gave_up.
--- Services only (no person's session sees it): api-user and workflow create jobs; api-user records
--- its sends and new reasons, housekeeping its resends; only workflow ends a job. Housekeeping
+-- Services only (no person's session sees it): api-user and workflow create jobs, housekeeping only
+-- the nightly re-check of a video whose picture at Bunny is unfinished (T4: a check, reason
+-- resent); api-user records its sends and new reasons, housekeeping its resends; only workflow
+-- ends a job. Housekeeping
 -- deletes done jobs 30 days after they ended (J2). Person-linked through its file: every write
 -- needs the person to exist and not be erased, and bumps their fence, so it conflicts with an
 -- erasure that overlaps it (docs/db-permissions.md, "Person-linked tables").
 DEFINE TABLE OVERWRITE mediaJob SCHEMAFULL PERMISSIONS          -- id = mediaJob:<ulid>
   FOR select WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
-  FOR create WHERE $auth IN [service:api_user, service:workflow],
+  FOR create WHERE $auth IN [service:api_user, service:workflow]
+    OR ($auth = service:housekeeping AND kind = 'check' AND reasons = ['resent']),
   FOR update WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
   FOR delete WHERE $auth = service:housekeeping AND doneAt != NONE AND doneAt <= time::now() - 30d;
 DEFINE FIELD OVERWRITE file       ON mediaJob TYPE record<storyFile> READONLY;
@@ -1289,7 +1389,7 @@ DEFINE FIELD OVERWRITE kind       ON mediaJob TYPE string READONLY
   ASSERT $value IN ['check', 'render'];
 DEFINE FIELD OVERWRITE reasons    ON mediaJob TYPE array<string>
   ASSERT array::len($value) > 0 AND $value.all(|$r| $r IN ['bunny_finished', 'bunny_failed',
-    'bunny_deleted', 'submitted', 'picture_changed', 'resent']);
+    'bunny_deleted', 'submitted', 'picture_changed', 'resent', 'rendered']);
 DEFINE FIELD OVERWRITE queuedAt   ON mediaJob TYPE datetime READONLY
   VALUE $before OR time::now();
 DEFINE FIELD OVERWRITE sentAt     ON mediaJob TYPE option<datetime>;
@@ -1349,3 +1449,26 @@ DEFINE FUNCTION OVERWRITE fn::media::queue_job($file: record<storyFile>, $kind: 
   RETURN { job: <string> record::id($job), story: <string> record::id($f.story),
     video: <string> record::id($file) };
 };
+-- The jobs a person's own steps need (Joel, 2026-11-07: media-worker-final.html section 1 steps 1
+-- to 3, media-job-table.html J1 check e; audio-picture-video "also assumed"), written in the
+-- same transaction as the step, so none is lost if sending it fails (api-user sends it after,
+-- and the 18:00 resend sends any it couldn't):
+-- - submitting a video or audio story: a check of its file (reason submitted), so the result
+--   writer gives Bunny the picture the story has now (the video's own picture, or an audio
+--   story's picture video);
+-- - an audio story's picture put on, replaced or taken off while it can still be edited: a render
+--   of its file (reason picture_changed), so its picture video is made again with the new one.
+-- Elevated (an event): the person's session can't see mediaJob.
+DEFINE EVENT OVERWRITE story_media_jobs ON story
+  WHEN $event = 'UPDATE' AND $after.mediaFile != NONE AND $after.primaryFormat IN ['video', 'audio']
+  THEN {
+    LET $was = fn::story::status_of($before);
+    LET $now = fn::story::status_of($after);
+    IF $now = 'pending' AND $was IN ['draft', 'changes_requested'] {
+      fn::media::queue_job($after.mediaFile, 'check', 'submitted');
+    };
+    IF $after.primaryFormat = 'audio' AND $after.image.file != $before.image.file
+      AND $after.mediaFile = $before.mediaFile AND $now IN ['draft', 'changes_requested'] {
+      fn::media::queue_job($after.mediaFile, 'render', 'picture_changed');
+    };
+  };

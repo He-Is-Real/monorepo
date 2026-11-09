@@ -52,6 +52,8 @@ export interface BunnyVideo {
   height?: unknown;
   length?: unknown;
   thumbnailFileName?: unknown;
+  /** The encoded sizes, e.g. "360p,480p,720p" (the MP4 copies a picture video's sound comes from). */
+  availableResolutions?: unknown;
 }
 
 export interface BunnyLibrary {

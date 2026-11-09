@@ -2,7 +2,12 @@
  * The media worker (M2 plan item 13; D78, D126, D129; media-worker-final.html): runs on Joel's
  * machine beside Dapr's sidecar, which pulls `media-jobs` for it. For each check job it asks
  * Bunny (read-only key) about the video and calls the result writer on Cloud Run with what it
- * found. It never touches the database, stores nothing on disk and listens on 127.0.0.1 only.
+ * found. For each render job it makes an audio story's picture video (render.ts) with a one-hour
+ * upload pass from the writer (audio-picture-video.html, K1) and, asked for just before each
+ * download, a 2-minute link to one copy of the story's sound (R3). It holds no Bunny key but the
+ * library's read-only one. It never touches the database,
+ * keeps a job's files only in memory ($XDG_RUNTIME_DIR) while the job runs and listens on
+ * 127.0.0.1 only.
  *
  * Start it with tools/scripts/media-worker.sh (docs/media-runbook.md, "Media ready"): that signs
  * it in as the media-worker Google account through Joel's own gcloud login (no key file) and
@@ -11,9 +16,12 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { SecretsService } from '@heisreal/secrets';
 import { GoogleAuth } from 'google-auth-library';
+import { existsSync, readFileSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { BunnyStreamReader, checkAnswer } from './bunny';
+import { FfmpegRenderer, isPicture } from './render';
 import { workerServer } from './server';
-import type { LogEntry } from './worker';
+import { type LogEntry, RenderSlot } from './worker';
 import { httpWriter } from './writer';
 
 /** How long the read-only key is used before it is read again (a rotated key arrives). */
@@ -52,6 +60,20 @@ async function main() {
   const audience = writerUrl.origin;
   const library = env('BUNNY_STREAM_LIBRARY_ID', LIBRARY);
   const keySecret = env('BUNNY_STREAM_READONLY_KEY_SECRET', NAME);
+  const workDir = env('MEDIA_WORKER_WORK_DIR');
+  const defaultPicture = env('MEDIA_WORKER_DEFAULT_PICTURE');
+  if (!isAbsolute(workDir) || !existsSync(workDir)) {
+    throw new Error('MEDIA_WORKER_WORK_DIR must be an existing absolute path');
+  }
+  if (
+    !isAbsolute(defaultPicture) ||
+    !existsSync(defaultPicture) ||
+    !isPicture(readFileSync(defaultPicture).subarray(0, 12), 'jpeg')
+  ) {
+    throw new Error(
+      'MEDIA_WORKER_DEFAULT_PICTURE must be an existing absolute path to a JPEG',
+    );
+  }
   const port = Number(env('APP_PORT', /^[0-9]{2,5}$/));
   // Dapr's sidecar sends it with every call; the server refuses anything without it.
   const appApiToken = env('APP_API_TOKEN', /^[A-Za-z0-9_-]{32,}$/);
@@ -78,9 +100,16 @@ async function main() {
   const bunny = new BunnyStreamReader(library, () =>
     secrets.get(keySecret, 'latest', { maxAgeMs: KEY_MAX_AGE_MS }),
   );
+  const renderer = new FfmpegRenderer({
+    bunny,
+    workDir,
+    defaultPicture,
+  });
   const server = workerServer(
     {
       check: (video) => checkAnswer(bunny, video),
+      renderer,
+      renderSlot: new RenderSlot(),
       writer: httpWriter(writerUrl.toString(), idToken),
       log,
     },

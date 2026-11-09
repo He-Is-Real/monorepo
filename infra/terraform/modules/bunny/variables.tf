@@ -124,6 +124,16 @@ variable "readonly_key_readers" {
   }
 }
 
+variable "result_writer_readers" {
+  description = "Audio picture videos (K1) and a video's own picture (part A): the result writer, as serviceAccount:workflow@<project>.iam.gserviceaccount.com. It may read the Stream library key (it makes picture videos and signs the worker's one-hour upload pass), the images token key (10-minute links to a story's picture) and the sound zone's token key (2-minute links to one MP4 copy of an audio file, R3), and no other bunny-* secret. Empty: no reader."
+  type        = set(string)
+  default     = []
+  validation {
+    condition     = alltrue([for m in var.result_writer_readers : m == "serviceAccount:workflow@${var.project_id}.iam.gserviceaccount.com"])
+    error_message = "Only this project's workflow service account (the result writer) may read these through this grant; never the media worker."
+  }
+}
+
 variable "stream_webhook_url" {
   description = "Media ready: where Bunny posts the library's video events (api-user's POST /v1/webhooks/bunny), an https URL. null: leave the library's setting as it is."
   type        = string

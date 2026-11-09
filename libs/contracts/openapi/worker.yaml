@@ -35,6 +35,16 @@ info:
     marked taken. After anything else (the writer unreachable, a `5xx`) the queue redelivers it
     later. Messages are JSON in the message's `data` (no
     CloudEvents envelope).
+
+    **Audio picture videos (Joel, 2026-11-07: audio-picture-video.html decisions 1B, 2 = K1 and
+    4).** The database writes a check job when a person submits a video or audio story, and a
+    `render` job when an audio story's picture changes; api-user sends them after the person's
+    write. The result writer opens a `render` job itself when a check finds an audio file ready, and
+    a check of each picture video it records; it sends those on `media-jobs` too. For a `render`
+    job the worker asks `upload-pass` for a one-hour pass to upload to one new Bunny video, asks
+    `sound-link` for a 2-minute link to one copy of the audio's sound just before downloading it
+    (Joel, 2026-11-08, R3), makes the video with ffmpeg (the story's picture, or the site's default background, over the audio's
+    sound) and uploads it, then calls `rendered`. The full library key never leaves Google Cloud.
   contact:
     name: He Is Real Today
     url: https://www.heisreal.today
@@ -76,13 +86,32 @@ paths:
       operationId: answerMediaJob
       summary: Record the media worker's answer to a check job
       description: |
+        For a `ready` audio file whose story still shows it, the writer also opens a `render` job
+        (its picture video) and sends it after the transaction; the file stays `processing`
+        until its picture video is ready. For a `ready` video (a person's own; a picture video's
+        frames are already its picture), the writer sets the picture its story wants at Bunny (the
+        story's own, or Bunny's own frame when it has none; Joel, 2026-11-06, video-bundle-rethink.html
+        part A) on every ready check, under the video's lock (Joel, 2026-11-08, T3): the answer's
+        transaction leaves a check job open (if the job had already ended, it opens a check of the
+        file first), so approval waits; the writer takes the lock (`thumbnailLockedUntil`, 2 minutes
+        by the database's clock, only if empty or run out), reads the story's picture, sets it at
+        Bunny (every call cut off 20 seconds after taking the lock), then, only if the lock is still
+        its own, records it, empties the lock and closes the job (`applied`), sending the new picture
+        first if it changed. A lock that ran out without being emptied keeps approval waiting (Joel,
+        2026-11-09, T4) until a later writer takes it over and finishes. The
+        reply is `retry: true` (the job stays open, nothing is counted as a failure, the worker leaves
+        it in the queue) when another writer holds the lock, when Bunny refuses, can't be reached or
+        is cut off (the lock is then left to run out), or when the lock ran out before it could
+        record.
+
         The worker's answer about the job's Bunny video, made fresh at Bunny just before the call. In one
         database transaction, signed in as `service:workflow` (Joel, 2026-11-07: F1, J5 and the round 3
         fix), the writer applies it to the job's storyFile row and ends the job:
         - `gone`: the file isn't one its story shows now (replaced, removed, the story deleted), or a
           `ready` answer's `title` isn't the story's id. Nothing is written to the file.
         - `stale`: an answer that reached the writer at or after this one is already in
-          (`storyFile.checkedAt`). Nothing is written to the file.
+          (`storyFile.checkedAt`). Nothing is written to the file but, for a ready video, the
+          picture Bunny shows (`thumbnailOf`, above).
         - `applied`: every fact is written with `checkedAt` = when this call arrived. `ready` sets
           `processing` and, for a video, its width, height, length and Bunny's thumbnail; for an audio
           file only its length (its picture comes from the default-picture step). `encoding` sets
@@ -107,16 +136,21 @@ paths:
               $ref: '#/components/schemas/MediaAnswer'
       responses:
         '200':
-          description: Answered; the outcome of this answer.
+          description: |
+            Answered; the outcome of this answer. Or `retry: true` when a ready video's picture isn't
+            set at Bunny and recorded yet (above): the job stays open and no failure is counted.
           content:
             application/json:
               schema:
-                type: object
-                required: [outcome]
-                properties:
-                  outcome:
-                    type: string
-                    enum: [applied, stale, gone]
+                oneOf:
+                  - type: object
+                    required: [outcome]
+                    additionalProperties: false
+                    properties:
+                      outcome:
+                        type: string
+                        enum: [applied, stale, gone]
+                  - $ref: '#/components/schemas/MediaFailureReply'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
@@ -159,16 +193,180 @@ paths:
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/MediaFailureReply'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/media-jobs/{jobId}/upload-pass:
+    post:
+      tags: [Media ready]
+      operationId: mediaJobUploadPass
+      summary: A render job's one-hour pass to upload its picture video
+      description: |
+        Decided in one transaction (Joel, 2026-11-07, K1). A job that has ended answers its
+        outcome. Otherwise, if the job's audio file isn't the one its story shows now (a new
+        recording, removed, the story deleted): `gone`, and the job ends. If its sound isn't ready
+        at Bunny (no length yet: the check that finds it ready opens a render then), it failed, or
+        it is already a picture video made with the story's picture now: `stale`, and the job
+        ends. Otherwise `render`: the writer makes one new Bunny video titled with the story's id
+        (D69), or reuses the one an earlier try of this job made while Bunny still has it, and
+        answers a TUS upload pass for that one video, valid one hour, the picture's path and a
+        10-minute link to it (both null: the site's default background). `503` while the writer
+        has no Bunny settings. Bunny refusing or unreachable counts as the job's failure: the
+        reply is then `/failed`'s.
+      security:
+        - mediaWorkerOidc: []
+      x-milestone: M2
+      parameters:
+        - $ref: '#/components/parameters/MediaJobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [videoId]
+              properties:
+                videoId:
+                  $ref: '#/components/schemas/MediaVideoId'
+      responses:
+        '200':
+          description: What the worker does next.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/UploadPassReply'
+                  - type: object
+                    description: Nothing to make; the job has ended with this outcome.
+                    required: [outcome]
+                    additionalProperties: false
+                    properties:
+                      outcome:
+                        type: string
+                        enum: [applied, stale, gone, gave_up]
+                  - $ref: '#/components/schemas/MediaFailureReply'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/media-jobs/{jobId}/sound-link:
+    post:
+      tags: [Media ready]
+      operationId: mediaJobSoundLink
+      summary: A render job's 2-minute link to one copy of its audio file's sound
+      description: |
+        Joel, 2026-11-08 (R3): single-file links on a need-to-use basis. The worker asks for it only
+        when it holds its render slot and is about to download that copy, after the job's pass; one
+        link per file and per download, never issued up front, kept or reused. The writer signs a
+        link to the audio file's one MP4 copy of `height` (`/<videoId>/play_<height>p.mp4`) on the
+        sound zone, a Bunny pull zone over the library's storage with no cache (so it reads the
+        stored file, never an old copy), valid 2 minutes, with a key only the writer reads. A job
+        that has ended answers its outcome; if its audio file isn't the one its story shows now:
+        `gone`, and the job ends. `400` (`validation_failed`) before the job's pass, for a height
+        Bunny doesn't make or a job that isn't a render; `video_mismatch` for another video than the
+        job's. `503` while the writer has no Bunny settings. Its key unavailable counts as the job's
+        failure: the reply is then `/failed`'s.
+      security:
+        - mediaWorkerOidc: []
+      x-milestone: M2
+      parameters:
+        - $ref: '#/components/parameters/MediaJobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [videoId, height]
+              properties:
+                videoId:
+                  $ref: '#/components/schemas/MediaVideoId'
+                height:
+                  type: integer
+                  enum: [240, 360, 480, 720, 1080]
+                  description: The MP4 copy to download (Bunny's MP4 sizes).
+      responses:
+        '200':
+          description: The link, or what the worker does instead.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SoundLinkReply'
+                  - type: object
+                    description: Nothing to download; the job has ended with this outcome.
+                    required: [outcome]
+                    additionalProperties: false
+                    properties:
+                      outcome:
+                        type: string
+                        enum: [applied, stale, gone, gave_up]
+                  - $ref: '#/components/schemas/MediaFailureReply'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/media-jobs/{jobId}/rendered:
+    post:
+      tags: [Media ready]
+      operationId: mediaJobRendered
+      summary: Record a render job's picture video
+      description: |
+        The worker uploaded the picture video to the video its pass was for. In one transaction
+        (Joel, 2026-11-07, 1B) the writer adds the new video's file row (`renderOf`: the audio file;
+        `thumbnailOf`: the picture it was made with), moves the story to it only while the story
+        still shows the audio file (the story keeps its version; the audio file is detached and
+        the nightly clean-up deletes it at Bunny), opens a check of the new video and ends the job
+        (`applied`); the check is sent after the transaction. If the story no longer shows the
+        audio file: `gone`, and nothing is written but the job's end. A job that has ended answers
+        its outcome and writes nothing. `400` (`validation_failed`) for a video that isn't the one
+        the job's pass made, or a picture that isn't the story's own.
+      security:
+        - mediaWorkerOidc: []
+      x-milestone: M2
+      parameters:
+        - $ref: '#/components/parameters/MediaJobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaRendered'
+      responses:
+        '200':
+          description: Recorded; the job's outcome.
+          content:
+            application/json:
+              schema:
                 type: object
-                required: [retry]
+                required: [outcome]
                 properties:
-                  retry:
-                    type: boolean
-                    description: true = leave the job in the queue; false = mark it taken.
                   outcome:
                     type: string
                     enum: [applied, stale, gone, gave_up]
-                    description: The job's outcome once it has ended.
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
         '401':
@@ -260,8 +458,10 @@ components:
           description: The job's id (mediaJob:<id>), which the worker answers on.
         kind:
           type: string
-          enum: [check]
-          description: '`check`: is the video or audio file ready at Bunny? (`render` comes later.)'
+          enum: [check, render]
+          description: |
+            `check`: is the video or audio file ready at Bunny? `render`: make the audio file's
+            picture video (`videoId`: the audio file whose sound is used).
         videoId:
           type: string
           description: The Bunny video id (a GUID).
@@ -302,6 +502,103 @@ components:
         The job's Bunny video id, from its `MediaJob` message (Joel, 2026-11-08). The writer refuses
         the call (`400`, `video_mismatch`) if it isn't the job's video, so a mixed-up message can
         never write one video's facts onto another's file.
+    MediaFailureReply:
+      type: object
+      required: [retry]
+      properties:
+        retry:
+          type: boolean
+          description: true = leave the job in the queue; false = mark it taken.
+        outcome:
+          type: string
+          enum: [applied, stale, gone, gave_up]
+          description: The job's outcome once it has ended.
+    SoundLinkReply:
+      type: object
+      required: [outcome, url, expiresAt]
+      additionalProperties: false
+      properties:
+        outcome:
+          type: string
+          enum: [sound]
+        url:
+          type: string
+          format: uri
+          description: A signed https link to that one MP4 copy, for one download.
+        expiresAt:
+          type: string
+          format: date-time
+          description: 2 minutes from when it was signed; the download must start before then.
+    UploadPassReply:
+      type: object
+      required: [outcome, renderVideoId, title, upload, picture, pictureUrl]
+      properties:
+        outcome:
+          type: string
+          enum: [render]
+        renderVideoId:
+          $ref: '#/components/schemas/MediaVideoId'
+        title:
+          type: string
+          description: The new video's title at Bunny, its story's id (D69); the upload's metadata names it too.
+        upload:
+          type: object
+          description: A TUS 1.0 pass for the new video only, the same as a person's upload's.
+          required: [uploadUrl, headers, expiresAt]
+          properties:
+            uploadUrl:
+              type: string
+              const: https://video.bunnycdn.com/tusupload
+            headers:
+              type: object
+              required:
+                [
+                  AuthorizationSignature,
+                  AuthorizationExpire,
+                  VideoId,
+                  LibraryId,
+                ]
+              properties:
+                AuthorizationSignature:
+                  type: string
+                AuthorizationExpire:
+                  type: string
+                VideoId:
+                  type: string
+                LibraryId:
+                  type: string
+            expiresAt:
+              type: string
+              format: date-time
+              description: One hour after the pass was made.
+        picture:
+          type:
+            - string
+            - 'null'
+          description: The story's picture's path in the images zone, or null for the site's default background.
+        pictureUrl:
+          type:
+            - string
+            - 'null'
+          format: uri
+          description: A 10-minute signed link to the picture, or null.
+    MediaRendered:
+      type: object
+      required: [videoId, renderVideoId, picture, sizeBytes]
+      properties:
+        videoId:
+          $ref: '#/components/schemas/MediaVideoId'
+        renderVideoId:
+          $ref: '#/components/schemas/MediaVideoId'
+        picture:
+          type:
+            - string
+            - 'null'
+          description: The picture's path the video was made with (the pass's), or null.
+        sizeBytes:
+          type: integer
+          minimum: 1
+          description: The uploaded file's size.
     MediaFailure:
       type: object
       required: [videoId, code]

@@ -92,7 +92,7 @@ const EVENT_ID = /^[A-Za-z0-9_.:-]{1,100}$/;
  */
 export interface MediaJob {
   jobId: string;
-  kind: 'check';
+  kind: 'check' | 'render';
   videoId: string;
   /** Bunny's event id, the same on every redelivery; for the logs. */
   eventId?: string;
@@ -114,6 +114,53 @@ export interface MediaJobs {
   publish(job: MediaJob, orderingKey: string): Promise<void>;
 }
 export const MEDIA_JOBS = Symbol('MEDIA_JOBS');
+
+const sendLogger = new Logger('MediaJobs');
+
+/**
+ * Sends a story's open jobs that haven't been sent yet. The database writes them itself when a
+ * person submits a video or audio story (the check before it can be approved) or changes an
+ * audio story's picture (a new picture video): Joel, 2026-11-07, audio-picture-video.html and
+ * media-job-table.html J1. Runs on api-user's own login after the person's write; never throws,
+ * as a job that couldn't be sent stays in the table for the 18:00 resend.
+ */
+export async function sendStoryJobs(
+  db: Surreal,
+  jobs: MediaJobs | null,
+  story: string,
+): Promise<void> {
+  if (!jobs) return;
+  try {
+    const open = (
+      (await runQuery(
+        db,
+        `SELECT <string> record::id(id) AS job, kind, <string> record::id(file) AS video
+           FROM mediaJob
+          WHERE doneAt = NONE AND sentAt = NONE
+            AND file IN (SELECT VALUE id FROM storyFile WHERE story = type::record('story', $story))
+          ORDER BY queuedAt`,
+        { story },
+      )) as [{ job: string; kind: 'check' | 'render'; video: string }[]]
+    )[0];
+    for (const j of open) {
+      await jobs.publish(
+        { jobId: j.job, kind: j.kind, videoId: j.video },
+        story,
+      );
+      await retryOnConflict(() =>
+        runQuery(
+          db,
+          `UPDATE type::record('mediaJob', $job) SET sentAt = time::now(), sends += 1 RETURN NONE`,
+          { job: j.job },
+        ),
+      );
+    }
+  } catch (err) {
+    sendLogger.warn(
+      `Couldn't send story ${story}'s media jobs (${err instanceof Error ? err.name : 'error'}); the 18:00 resend sends them`,
+    );
+  }
+}
 
 /** What the webhook needs, or null with it off (it then answers 503 and Bunny retries). */
 export interface BunnyWebhookConfig {
@@ -299,5 +346,7 @@ export function mediaJobsFromEnv(env: Env = process.env): MediaJobs | null {
     },
     { provide: MEDIA_JOBS, useFactory: () => mediaJobsFromEnv() },
   ],
+  // The stories routes send the jobs a person's submit or picture change wrote.
+  exports: [MEDIA_JOBS],
 })
 export class BunnyWebhookModule {}

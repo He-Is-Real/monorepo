@@ -8,6 +8,8 @@ import {
   agree,
   agreeAll,
   createPeople,
+  draft,
+  grantUpload,
   publishVersion,
   rows,
   run,
@@ -15,6 +17,7 @@ import {
   TestDatabase,
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
+import { randomUUID } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 
@@ -465,6 +468,41 @@ describe('the submit flow for written stories', () => {
            changedBy = user:limadmin`,
       );
     }
+  });
+
+  it('counts a person’s own audio upload in the week’s uploads, never the picture video made of it', async () => {
+    await person('renders');
+    const story = 'renders_story';
+    await draft(await t.person('user_renders'), story, {
+      primaryFormat: 'audio',
+    });
+    const audio = randomUUID();
+    const [version] = await rows<number>(
+      migrator,
+      `SELECT VALUE version FROM ONLY type::record('story', $story)`,
+      { story },
+    );
+    expect(
+      await grantUpload(await t.service('api_user'), {
+        video: audio,
+        story,
+        person: 'renders',
+        version,
+        format: 'audio',
+      }),
+    ).toMatchObject({ ok: true });
+    // The result writer's picture video of it (audio-picture-video.html decision 1B).
+    await run(
+      await t.service('workflow'),
+      `CREATE type::record('storyFile', $render) CONTENT {
+         story: type::record('story', $story), person: user:renders, format: 'audio',
+         contentType: 'video/mp4', sizeBytes: 2000, storyVersion: $version,
+         renderOf: type::record('storyFile', $audio) }`,
+      { render: randomUUID(), story, version, audio },
+    );
+    expect(
+      (await call('GET', '/v1/account/limits', 'renders')).body.uploads,
+    ).toMatchObject({ usedIn7Days: 1, nextAvailableAt: null });
   });
 
   it('a draft over a newly lowered maximum can’t be submitted until edited; trimming saves are accepted (Joel, 2026-10-30)', async () => {

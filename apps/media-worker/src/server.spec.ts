@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { BunnyStreamReader, checkAnswer } from './bunny';
 import { SUBSCRIPTIONS, workerServer } from './server';
+import { RenderSlot } from './worker';
 import { httpWriter } from './writer';
 
 /**
@@ -43,6 +44,12 @@ async function start(writerStatus: number, writerBody: unknown) {
   const server = workerServer(
     {
       check: (video) => checkAnswer(bunny, video),
+      renderer: {
+        render: async () => {
+          throw new Error('no render here');
+        },
+      },
+      renderSlot: new RenderSlot(),
       writer,
       log: (entry) => logs.push(entry),
     },

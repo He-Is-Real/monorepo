@@ -225,7 +225,16 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
         { video: V[k], version },
       );
     }
-    for (const k of ['young', 'site', 'devSeed', 'undated']) V[k] = guid();
+    for (const k of ['young', 'site', 'devSeed', 'undated', 'rendering'])
+      V[k] = guid();
+    // An audio story's picture video, made at Bunny for an open render job's earlier try: no row
+    // names it yet, and the job's next try reuses it.
+    await run(
+      migrator,
+      `CREATE mediaJob CONTENT { file: type::record('storyFile', $source), kind: 'render',
+         reasons: ['bunny_finished'], madeFile: type::record('storyFile', $made) }`,
+      { source: V.pendingRef, made: V.rendering },
+    );
 
     library = new FakeLibrary([
       story(V.expired, ago(240)),
@@ -239,6 +248,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
       story(V.site, ago(2000), { collectionId: 'site-assets-collection' }),
       story(V.devSeed, ago(2000), { title: 'dev-seed/clip-01' }),
       story(V.undated, null),
+      story(V.rendering, ago(480)),
     ]);
   });
   afterAll(() => t?.close());
@@ -358,6 +368,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
         V.site,
         V.devSeed,
         V.undated,
+        V.rendering,
       ].sort(),
     );
   });

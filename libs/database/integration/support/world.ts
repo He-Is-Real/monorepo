@@ -176,12 +176,32 @@ export async function processed(
        width = width ?? (IF format = 'video' { 1080 } ELSE { 1280 }),
        height = height ?? (IF format = 'video' { 1920 } ELSE { 720 }),
        thumbnailPath = IF format = 'audio' {
-         thumbnailPath ?? (record::id(id) + '/thumbnail_0a1b2c3d.jpg') } ELSE { thumbnailPath }) };
+         thumbnailPath ?? (record::id(id) + '/thumbnail_0a1b2c3d.jpg') } ELSE { thumbnailPath },
+       thumbnailOf = $s.image.file) };
      LET $i = IF $s.image != NONE { (UPDATE ONLY $s.image.file SET processing = 'ready') };
      RETURN [$m, $i].filter(|$f| $f != NONE);`,
     { id, durationSeconds },
   );
+  await answered(workflow, id);
   return results.at(-1) as Row[];
+}
+
+/**
+ * The result writer has answered every open media job for the story's files (a check at Submit,
+ * Bunny's notices, a picture video), as it does once the media worker has looked: they end, so a
+ * moderator's approval no longer waits for them (J6).
+ */
+export async function answered(
+  workflow: SurrealQueryable,
+  id: string,
+): Promise<void> {
+  await run(
+    workflow,
+    `LET $s = (SELECT mediaFile, image FROM ONLY type::record('story', $id));
+     UPDATE mediaJob SET doneAt = time::now(), outcome = 'applied'
+       WHERE file IN [$s.mediaFile, $s.image.file] AND doneAt = NONE RETURN NONE;`,
+    { id },
+  );
 }
 
 /**

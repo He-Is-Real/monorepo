@@ -141,3 +141,69 @@ resource "google_secret_manager_secret_iam_member" "readonly_key_readers" {
   role      = "roles/secretmanager.secretAccessor"
   member    = each.value
 }
+
+# Audio picture videos (Joel, 2026-11-07: audio-picture-video.html decision 2 = K1). The result
+# writer (apps/workflow on Cloud Run) makes each audio story's picture video at Bunny and signs
+# the worker a one-hour upload pass for that one video with the library key, and signs 10-minute
+# links to a story's picture with the images token key (for the worker, and for Bunny when it
+# shows a video's own picture: video-bundle-rethink part A). Only this project's workflow account,
+# and only these two keys (and the sound zone's token key, below): the full library key never
+# leaves Google Cloud.
+locals {
+  result_writer_key_ids = ["bunny-stream-api-key", "bunny-images-token-key"]
+}
+
+resource "google_secret_manager_secret_iam_member" "result_writer_readers" {
+  for_each = {
+    for pair in setproduct(local.result_writer_key_ids, var.result_writer_readers) :
+    "${pair[0]} ${pair[1]}" => { secret = pair[0], member = pair[1] }
+  }
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.app[each.value.secret].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value.member
+}
+
+# The sound zone's token key (R3; main.tf, bunnynet_pullzone.sound): the result writer signs the
+# worker a 2-minute link to one MP4 copy of an audio file with it, when the worker is about to
+# download it. Only once the library's storage zone is adopted (stream_storage_zone), kept in
+# London, and only the result writer reads it: the media worker holds no key to Bunny's storage.
+resource "google_secret_manager_secret" "sound_token" {
+  count = var.stream_storage_zone == null ? 0 : 1
+
+  project   = var.project_id
+  secret_id = "bunny-sound-token-key"
+  labels = {
+    app         = "heisreal"
+    environment = var.environment
+    managed-by  = "terraform"
+    component   = "bunny"
+  }
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region # GDPR: stays in the UK
+      }
+    }
+  }
+}
+
+resource "google_secret_manager_secret_version" "sound_token" {
+  count = var.stream_storage_zone == null ? 0 : 1
+
+  secret                 = google_secret_manager_secret.sound_token[0].id
+  secret_data_wo         = bunnynet_pullzone.sound[0].token_auth_key
+  secret_data_wo_version = parseint(substr(sha256(bunnynet_pullzone.sound[0].token_auth_key), 0, 12), 16)
+  deletion_policy        = "ABANDON"
+}
+
+resource "google_secret_manager_secret_iam_member" "result_writer_sound_readers" {
+  for_each = var.stream_storage_zone == null ? toset([]) : toset(var.result_writer_readers)
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.sound_token[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value
+}

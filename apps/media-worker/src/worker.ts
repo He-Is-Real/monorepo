@@ -1,4 +1,5 @@
 import { VIDEO_ID, type CheckResult } from './bunny';
+import type { RenderPass, Renderer } from './render';
 import type { Writer, WriterReply } from './writer';
 
 /**
@@ -29,9 +30,36 @@ export interface LogEntry {
   delivery: Delivery;
 }
 
+/**
+ * The worker's one render at a time (Codex review of PR 201, round 2): each render holds a story's
+ * sound and picture and an ffmpeg, and Joel's machine is shared. A render job that finds it taken
+ * isn't queued here: it goes back to Pub/Sub (RETRY), which redelivers it 10 seconds to 10
+ * minutes later. So no render waits on the machine holding a pass that is getting older, and no
+ * waiting render holds one of the delivery slots check jobs need.
+ */
+export class RenderSlot {
+  private taken = false;
+
+  /** The slot and how to give it back, or null if a render is running. */
+  take(): (() => void) | null {
+    if (this.taken) return null;
+    this.taken = true;
+    let given = false;
+    return () => {
+      if (given) return;
+      given = true;
+      this.taken = false;
+    };
+  }
+}
+
 export interface JobDeps {
   /** Asks Bunny about the video now (bunny.ts checkAnswer). */
   check(videoId: string): Promise<CheckResult>;
+  /** Makes and uploads a picture video (render.ts). */
+  renderer: Renderer;
+  /** Taken before a render asks for its pass, given back when it ends. */
+  renderSlot: RenderSlot;
   writer: Writer;
   log(entry: LogEntry): void;
 }
@@ -69,8 +97,7 @@ export async function handleJob(
   }
   const job = { jobId, videoId: ids.video };
   const fail = (code: string) => failed(job, code, deps, done);
-  // Audio picture videos come with the next pull request.
-  if (ids.kind === 'render') return fail('not_supported');
+  if (ids.kind === 'render') return render(job, deps, done, fail);
 
   let result: CheckResult;
   try {
@@ -88,7 +115,17 @@ export async function handleJob(
     body: { videoId: ids.video, ...result.answer },
   });
   if (isStatus(reply, 200)) {
-    const outcome = (reply.body as { outcome?: unknown } | null)?.outcome;
+    const body = reply.body as { outcome?: unknown; retry?: unknown } | null;
+    // A video's picture isn't settled at Bunny yet (Bunny wouldn't take it, or another delivery
+    // may be mid-way): the job is still open, and nothing was counted as a failure.
+    if (typeof body?.retry === 'boolean') {
+      return done({
+        step: 'answered',
+        code: 'not_yet',
+        delivery: body.retry ? 'RETRY' : 'SUCCESS',
+      });
+    }
+    const outcome = body?.outcome;
     return done({
       step: 'answered',
       code: `${result.answer.outcome}:${typeof outcome === 'string' ? outcome : '?'}`,
@@ -102,6 +139,202 @@ export async function handleJob(
   // failure, so the job gives up after 5 instead of looping (Joel, 2026-11-08).
   if (isStatus(reply, 400)) return fail('answer_rejected');
   return done({ step: 'answered', status: statusOf(reply), delivery: 'RETRY' });
+}
+
+const BUNNY_TUS = 'https://video.bunnycdn.com/tusupload';
+const PICTURE = /^stories\/[A-Za-z0-9_]{1,64}\/[0-9a-f]{32}\.webp$/;
+const STORY_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
+/** The writer's pass, checked: only Bunny's upload address and one video. */
+function readPass(body: unknown): RenderPass | null {
+  const b = body as Record<string, unknown> | null;
+  const upload = b?.['upload'] as Record<string, unknown> | undefined;
+  const headers = upload?.['headers'] as Record<string, unknown> | undefined;
+  const picture = b?.['picture'];
+  const pictureUrl = b?.['pictureUrl'];
+  if (
+    !b ||
+    typeof b['renderVideoId'] !== 'string' ||
+    !VIDEO_ID.test(b['renderVideoId']) ||
+    typeof b['title'] !== 'string' ||
+    !STORY_ID.test(b['title']) ||
+    upload?.['uploadUrl'] !== BUNNY_TUS ||
+    typeof upload?.['expiresAt'] !== 'string' ||
+    !headers ||
+    headers['VideoId'] !== b['renderVideoId'] ||
+    !Object.values(headers).every((v) => typeof v === 'string') ||
+    !(
+      picture === null ||
+      (typeof picture === 'string' && PICTURE.test(picture))
+    ) ||
+    !(picture === null
+      ? pictureUrl === null
+      : typeof pictureUrl === 'string' && pictureUrl.startsWith('https://'))
+  ) {
+    return null;
+  }
+  return {
+    renderVideoId: b['renderVideoId'],
+    title: b['title'],
+    upload: {
+      uploadUrl: BUNNY_TUS,
+      headers: headers as Record<string, string>,
+      expiresAt: upload['expiresAt'] as string,
+    },
+    picture: picture as string | null,
+    pictureUrl: pictureUrl as string | null,
+  };
+}
+
+/**
+ * A render job (audio-picture-video.html decisions 1B and 2 = K1): take the render slot, ask the
+ * writer for the pass, ask it for a link to the sound just before downloading it (R3), make and
+ * upload the picture video, tell the writer it's done. With the slot
+ * taken by another render, the job goes back to the queue before anything is asked (its pass and
+ * picture link are fresh when its render starts). The writer may answer that no picture video is
+ * needed (the job's outcome): the job is then taken. A step that fails counts as the job's
+ * failure, and a retry gets a pass for the same new video (the writer's madeFile).
+ */
+async function render(
+  job: { jobId: string; videoId: string },
+  deps: JobDeps,
+  done: (entry: LogEntry) => Delivery,
+  fail: (code: string) => Promise<Delivery>,
+): Promise<Delivery> {
+  const giveBack = deps.renderSlot.take();
+  if (!giveBack) return done({ step: 'busy', delivery: 'RETRY' });
+  try {
+    return await renderInSlot(job, deps, done, fail);
+  } finally {
+    giveBack();
+  }
+}
+
+async function renderInSlot(
+  job: { jobId: string; videoId: string },
+  deps: JobDeps,
+  done: (entry: LogEntry) => Delivery,
+  fail: (code: string) => Promise<Delivery>,
+): Promise<Delivery> {
+  const passReply = await deps.writer({
+    route: 'upload-pass',
+    jobId: job.jobId,
+    body: { videoId: job.videoId },
+  });
+  if (isStatus(passReply, 404)) {
+    return done({ step: 'pass', status: 404, delivery: 'DROP' });
+  }
+  if (isStatus(passReply, 400)) return fail('pass_rejected');
+  if (!isStatus(passReply, 200)) {
+    return done({
+      step: 'pass',
+      status: statusOf(passReply),
+      delivery: 'RETRY',
+    });
+  }
+  const body = passReply.body as { outcome?: unknown; retry?: unknown } | null;
+  // Bunny wouldn't make the video: the writer counted it as the job's failure.
+  if (typeof body?.retry === 'boolean') {
+    return done({
+      step: 'pass',
+      code: 'failed',
+      delivery: body.retry ? 'RETRY' : 'SUCCESS',
+    });
+  }
+  if (body?.outcome !== 'render') {
+    return done({
+      step: 'pass',
+      code: typeof body?.outcome === 'string' ? body.outcome : '?',
+      delivery: 'SUCCESS',
+    });
+  }
+  const pass = readPass(passReply.body);
+  if (!pass) return fail('pass_malformed');
+
+  // R3: each MP4 copy's link is asked for just before its download, and used once.
+  let stopped: Delivery | undefined;
+  const soundLinks = async (height: number): Promise<string | null> => {
+    const stop = (d: Delivery) => {
+      stopped = d;
+      return null;
+    };
+    const reply = await deps.writer({
+      route: 'sound-link',
+      jobId: job.jobId,
+      body: { videoId: job.videoId, height },
+    });
+    if (isStatus(reply, 404)) {
+      return stop(done({ step: 'sound', status: 404, delivery: 'DROP' }));
+    }
+    if (isStatus(reply, 400)) return stop(await fail('sound_rejected'));
+    if (!isStatus(reply, 200)) {
+      return stop(
+        done({ step: 'sound', status: statusOf(reply), delivery: 'RETRY' }),
+      );
+    }
+    const b = reply.body as {
+      outcome?: unknown;
+      retry?: unknown;
+      url?: unknown;
+    } | null;
+    if (typeof b?.retry === 'boolean') {
+      return stop(
+        done({
+          step: 'sound',
+          code: 'failed',
+          delivery: b.retry ? 'RETRY' : 'SUCCESS',
+        }),
+      );
+    }
+    if (b?.outcome !== 'sound') {
+      return stop(
+        done({
+          step: 'sound',
+          code: typeof b?.outcome === 'string' ? b.outcome : '?',
+          delivery: 'SUCCESS',
+        }),
+      );
+    }
+    if (!isSoundLink(b.url, job.videoId, height)) {
+      return stop(await fail('sound_malformed'));
+    }
+    return b.url;
+  };
+
+  let result;
+  try {
+    result = await deps.renderer.render(job.videoId, pass, soundLinks);
+  } catch {
+    return fail('worker_error');
+  }
+  if ('stopped' in result) {
+    return stopped ?? done({ step: 'sound', delivery: 'RETRY' });
+  }
+  if ('failure' in result) return fail(result.failure);
+
+  const reply = await deps.writer({
+    route: 'rendered',
+    jobId: job.jobId,
+    body: {
+      videoId: job.videoId,
+      renderVideoId: pass.renderVideoId,
+      picture: pass.picture,
+      sizeBytes: result.sizeBytes,
+    },
+  });
+  if (isStatus(reply, 200)) {
+    const outcome = (reply.body as { outcome?: unknown } | null)?.outcome;
+    return done({
+      step: 'rendered',
+      code: typeof outcome === 'string' ? outcome : '?',
+      delivery: 'SUCCESS',
+    });
+  }
+  if (isStatus(reply, 404)) {
+    return done({ step: 'rendered', status: 404, delivery: 'DROP' });
+  }
+  if (isStatus(reply, 400)) return fail('answer_rejected');
+  return done({ step: 'rendered', status: statusOf(reply), delivery: 'RETRY' });
 }
 
 /**
@@ -141,6 +374,24 @@ async function failed(
     status: statusOf(reply),
     delivery: 'RETRY',
   });
+}
+
+/** A link the writer signed for exactly this video's `height`p MP4 copy, over https. */
+function isSoundLink(
+  url: unknown,
+  videoId: string,
+  height: number,
+): url is string {
+  if (typeof url !== 'string') return false;
+  try {
+    const u = new URL(url);
+    return (
+      u.protocol === 'https:' &&
+      u.pathname === `/${videoId}/play_${height}p.mp4`
+    );
+  } catch {
+    return false;
+  }
 }
 
 function isStatus(

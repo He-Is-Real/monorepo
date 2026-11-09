@@ -1,7 +1,11 @@
 import { expiredDraftsTask } from './drafts';
 import { pendingDeletionsTask } from './erasure';
 import { detachedFilesTask, oldFileRowsTask } from './files';
-import { mediaResendTask, oldMediaJobsTask } from './media-jobs';
+import {
+  mediaResendTask,
+  oldMediaJobsTask,
+  unfinishedPicturesTask,
+} from './media-jobs';
 import { expiredRequestKeysTask } from './request-keys';
 import type { Task } from './tasks';
 import { orphanVideosTask } from './videos';
@@ -10,7 +14,8 @@ import { orphanVideosTask } from './videos';
  * The nightly chores, run in this order: expired request keys first (nothing depends on them),
  * then expired drafts before orphaned videos, so their videos are orphans the same night; the
  * files stories stopped showing (R12), then the file rows that no longer count (whose media jobs
- * go with them), then ended media jobs 30 days old (J2), last.
+ * go with them), a check of each video whose picture at Bunny is unfinished (T4), then ended
+ * media jobs 30 days old (J2), last.
  *
  * To add a chore: a Task in its own file, listed here, with the database permission it needs
  * for service:housekeeping (docs/db-permissions.md) and any secret granted to the housekeeping
@@ -23,6 +28,7 @@ export const CHORES: readonly Task[] = [
   orphanVideosTask,
   detachedFilesTask,
   oldFileRowsTask,
+  unfinishedPicturesTask,
   oldMediaJobsTask,
 ];
 
