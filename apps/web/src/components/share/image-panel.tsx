@@ -75,6 +75,14 @@ const QUALITY = 0.85;
 /** `uploading`: being prepared or sent now; `unfinished`: chosen or on the story, its file not there. */
 export type PictureState = 'none' | 'uploading' | 'unfinished' | 'done';
 
+/** The description's save, for the step to wait on before it moves on. */
+export interface PictureSave {
+  /** Saves a changed description (and anything typed meanwhile); answers whether all is saved. */
+  save: () => Promise<boolean>;
+  /** Whether nothing typed is left unsaved, now. */
+  clean: () => boolean;
+}
+
 interface Prepared {
   blob: Blob;
   url: string;
@@ -94,6 +102,16 @@ interface Shown {
   /** Whether its file is there (its PUT succeeded, or the story says so). */
   arrived: boolean;
 }
+
+/** What the step is told about a phase. */
+const stateOf = (phase: Phase): PictureState =>
+  phase.at === 'done' && phase.arrived
+    ? 'done'
+    : phase.at === 'idle'
+      ? 'none'
+      : phase.at === 'reading' || phase.at === 'sending'
+        ? 'uploading'
+        : 'unfinished';
 
 const shownOf = (p: StoryPicture | null): Shown | null =>
   p
@@ -238,15 +256,19 @@ export function ImagePanel({
   current: () => { draftId: string | null; version: number | null };
   reload: (draftId: string) => Promise<boolean>;
   onState?: (state: PictureState) => void;
-  /** Set to a save of a changed description, for the step to wait on before it moves on. */
-  saveRef?: MutableRefObject<(() => Promise<boolean>) | null>;
+  /** Set to the description's save, for the step to wait on before it moves on. */
+  saveRef?: MutableRefObject<PictureSave | null>;
 }) {
   const noun = NOUN[format];
   const [phase, setPhaseState] = useState<Phase>({ at: 'idle' });
   const phaseRef = useRef<Phase>(phase);
+  const onStateRef = useRef(onState);
+  onStateRef.current = onState;
+  /** The step hears of each phase as it's set, not a render later: its Continue checks it after waiting. */
   const setPhase = (next: Phase) => {
     phaseRef.current = next;
     setPhaseState(next);
+    onStateRef.current?.(stateOf(next));
   };
   /** The picture on the draft at the server, as last known: what a removal takes off. */
   const [attached, setAttachedState] = useState<Shown | null>(null);
@@ -272,6 +294,24 @@ export function ImagePanel({
   const savedAlt = useRef('');
   /** The description save under way: saves run one after another, at the draft's version. */
   const saving = useRef<Promise<boolean>>(Promise.resolve(true));
+  /** Whether the panel is still on the page (the step, the person and the draft it was made for). */
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  /**
+   * Taken when work is queued behind a save: answers whether it's obsolete by the time it may
+   * start, because the panel left the page (Continue, sign-out) or the tab moved to another draft.
+   * Obsolete work sends nothing and keeps nothing: a PATCH or version kept after the flow
+   * left could write the cleared draft (its testimony text) back to the tab (Codex #211).
+   */
+  const queued = () => {
+    const id = current().draftId;
+    return () => !alive.current || (id !== null && current().draftId !== id);
+  };
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { begin } = useRuns();
@@ -288,25 +328,12 @@ export function ImagePanel({
     attachedRef.current = shown;
     setAttachedState(shown);
     if (phaseRef.current.at === 'idle' && shown) {
-      phaseRef.current = { at: 'done', ...shown };
-      setPhaseState(phaseRef.current);
+      setPhase({ at: 'done', ...shown });
     }
     altRef.current = earlier.alt ?? '';
     setAltState(altRef.current);
     savedAlt.current = altRef.current;
   }, [earlier]);
-
-  useEffect(() => {
-    onState?.(
-      phase.at === 'done' && phase.arrived
-        ? 'done'
-        : phase.at === 'idle'
-          ? 'none'
-          : phase.at === 'reading' || phase.at === 'sending'
-            ? 'uploading'
-            : 'unfinished',
-    );
-  }, [phase, onState]);
 
   // A blob: link is freed once nothing shows it and it isn't the draft's picture (which a
   // discarded replacement goes back to).
@@ -379,10 +406,13 @@ export function ImagePanel({
     setProblem(null);
     setNotice(null);
     setPending(null);
-    // A description saved as its box was left finishes first (each run supersedes the last).
-    await saving.current;
-    const gone = begin();
+    // Uploading from the moment it's chosen, so a Continue already waiting won't move on without it.
     setPhase({ at: 'reading' });
+    // A description saved as its box was left finishes first (each run supersedes the last).
+    const obsolete = queued();
+    await saving.current;
+    if (obsolete()) return;
+    const gone = begin();
     const prepared = await prepare(file);
     if (gone()) return;
     if (typeof prepared === 'string') {
@@ -403,7 +433,9 @@ export function ImagePanel({
     setProblem(null);
     setNotice(null);
     setPending(null);
+    const obsolete = queued();
     await saving.current;
+    if (obsolete()) return;
     const description = altRef.current.trim();
     const gone = begin();
     setPhase({ at: 'sending', picture });
@@ -576,7 +608,9 @@ export function ImagePanel({
   }
 
   async function remove() {
+    const obsolete = queued();
     await saving.current;
+    if (obsolete()) return;
     const gone = begin();
     setProblem(null);
     setNotice(null);
@@ -593,11 +627,13 @@ export function ImagePanel({
         ? 'Thumbnail removed. Your video shows the thumbnail our video host picks.'
         : `${noun[0].toUpperCase()}${noun.slice(1)} removed.`;
     const id = current().draftId;
+    // As the panel is now, after the wait: a save before it may have changed what it shows.
+    const was = phaseRef.current;
     // A replacement not granted is only on this device: the story keeps the picture it has. Which
     // one that is, and whether its file arrived, is read from the story, never assumed.
-    if (phase.at === 'preview' && !phase.granted) {
+    if (was.at === 'preview' && !was.granted) {
       if (!id) return cleared(removed);
-      const knew = attached;
+      const knew = attachedRef.current;
       let now: Shown | null;
       try {
         now = await read(id);
@@ -634,7 +670,7 @@ export function ImagePanel({
     }
     // On the draft (added, or granted with its file still to arrive): taken off at the server
     // first, at the draft's version.
-    if (phase.at === 'done' || phase.at === 'preview') {
+    if (was.at === 'done' || was.at === 'preview') {
       const edited = await edit({ image: null }, gone);
       if (!edited) return;
       forgetAttempt(owner, 'image-request', edited);
@@ -648,19 +684,33 @@ export function ImagePanel({
    * Saves the description if it changed, after any save still under way; answers whether nothing
    * is left unsaved. Only a picture on the story is described this way: one still being added is
    * sent with the description typed when it was chosen, and the rest is saved once it's added.
+   * Text typed while a save is under way is saved too before it answers (Codex #211), so a step
+   * that moves on once it answers loses nothing typed. Queued work that's obsolete by the time it
+   * runs sends nothing.
    */
   function saveAlt(): Promise<boolean> {
+    const obsolete = queued();
     const next = saving.current.then(async () => {
-      const description = altRef.current.trim();
-      if (phaseRef.current.at !== 'done' || description === savedAlt.current) {
-        return true;
+      let saved = false;
+      for (;;) {
+        if (obsolete()) return false;
+        const description = altRef.current.trim();
+        if (
+          phaseRef.current.at !== 'done' ||
+          description === savedAlt.current
+        ) {
+          break;
+        }
+        const gone = begin();
+        const edited = await edit(
+          { image: { alt: description || null } },
+          () => gone() || obsolete(),
+        );
+        if (!edited) return false;
+        savedAlt.current = description;
+        saved = true;
       }
-      const gone = begin();
-      if (!(await edit({ image: { alt: description || null } }, gone))) {
-        return false;
-      }
-      savedAlt.current = description;
-      setNotice('Description saved.');
+      if (saved) setNotice('Description saved.');
       return true;
     });
     saving.current = next;
@@ -668,7 +718,12 @@ export function ImagePanel({
   }
   useEffect(() => {
     if (!saveRef) return;
-    saveRef.current = saveAlt;
+    saveRef.current = {
+      save: saveAlt,
+      clean: () =>
+        phaseRef.current.at !== 'done' ||
+        altRef.current.trim() === savedAlt.current,
+    };
     return () => {
       saveRef.current = null;
     };
