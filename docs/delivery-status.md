@@ -194,9 +194,10 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   worker gets its own identity, so it no longer stops when Joel's Google login lapses: a
   certificate from our own authority (a Cloud KMS key), renewed every 6 hours and valid 24, through
   a small signing service on Cloud Run. Only the newest certificate for each machine may renew,
-  so a stolen copy can't keep going alongside the real worker (Joel, 2026-11-09). Built; needs the
-  bootstrap apply, the authority's certificate made once, two gcp applies and the machine enrolled
-  (docs/media-runbook.md, "Worker identity"). The nightly clean-ups and the 18:00 resend
+  so a stolen copy can't keep going alongside the real worker (Joel, 2026-11-09), and a renewal
+  whose answer was lost is asked again and gets the same certificate (Joel, 2026-11-09). Built;
+  needs the bootstrap apply, the authority's certificate made once, two gcp applies and the
+  machine enrolled (docs/media-runbook.md, "Worker identity"). The nightly clean-ups and the 18:00 resend
   now really act on dev instead of only logging (Joel, 2026-11-07). Fourth part built (Joel,
   2026-11-07, `project/context/research/audio-picture-video.html`): an audio story becomes a video
   of its picture (or the default waveform picture) with its sound, made by ffmpeg on Joel's

@@ -257,9 +257,19 @@ lifetimes are the safety net.
   certificate and key renews first, the real worker's next renewal is refused and it logs
   `identity_renewal_failed` saying so; `cert-signer`'s log says "not the newest certificate for
   <machine>: possible copy; cancel and enrol a new name". Do exactly that (below).
+  A lost answer doesn't strand the machine (W3-1 A; Joel, 2026-11-09): the worker saves its new
+  key (`keys/pending.pem`, owner-only) before asking and asks again with that same key until a
+  certificate for it is installed; `cert-signer` keeps the newest certificate itself, the hash of
+  its key and the serial it replaced, and answers such a retry with that same certificate
+  (`certificate_replayed` in its log; nothing new is signed). Any other key is still refused.
+  `503 signing_unavailable` means Cloud KMS or the records bucket is down: the worker waits and
+  tries again.
   The certificate and key live in one file at a fixed path (`keys/current.pem`); the new pair is
   renamed over it, so the old key is deleted in the same step and Dapr's sidecar (which keeps the
   path it read at start-up but reads the file again for every sign-in) follows without a restart.
+  Google's libraries read the certificate and the key with two separate reads, so a sign-in at
+  the very moment of the swap can pair the old certificate with the new key and fail once; the
+  worker's own sign-in tries again at once, and Dapr's Pub/Sub connection reconnects on its own.
   A certificate shorter-lived than the interval is renewed in the last quarter of its life
   instead. A failure logs one `identity_renewal_failed` line and tries again after 1, 2, 4 … up
   to 30 minutes, sooner if the certificate would expire first. `IDENTITY_RENEW_HOURS` above 596
@@ -277,8 +287,7 @@ lifetimes are the safety net.
   has the KMS key sign a certificate for it (with your login, an owner's right; no key file
   anywhere), records it as the machine's newest (so any older copy can't renew any more), and
   writes the identity directory. Then start the worker.
-- **A renewal refused as "not the newest" (a possible copy), or after a renewal's answer was
-  lost:** cancel the name (below) and enrol the machine under a **new** name (e.g. `joel-pc-2`:
+- **A renewal refused as "not the newest" (a possible copy):** cancel the name (below) and enrol the machine under a **new** name (e.g. `joel-pc-2`:
   add it, apply gcp, enrol). Not the same name: a copy's certificate would still get Google tokens
   under that name until it expires (up to 24 hours).
 - **Cancel a machine:** take its name out of `worker_identity.machines` and apply gcp. Google

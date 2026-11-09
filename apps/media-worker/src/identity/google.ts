@@ -39,17 +39,56 @@ function expiry(token: string): number {
   return typeof payload.exp === 'number' ? payload.exp * 1000 : 0;
 }
 
+/** What idTokens needs of Google's client (tests pass their own). */
+export interface TokenClient {
+  request<T>(options: {
+    url: string;
+    method: 'POST';
+    data: unknown;
+    responseType: 'json';
+  }): Promise<{ data: T }>;
+}
+
 /**
  * Google ID tokens as media-worker, for Cloud Run (the result writer, the signing service).
  * The external_account client has no ID tokens of its own, so the federated identity (the
  * machine's principal, which holds roles/iam.workloadIdentityUser on media-worker only) asks
  * IAM Credentials for one, over mTLS with the current certificate. Cached per audience.
+ *
+ * A failed sign-in is tried once more at once. google-auth-library (11.3,
+ * certificatesubjecttokensupplier.js) reads the certificate and the key with two separate reads
+ * of keys/current.pem; each read sees one whole file (renewal renames, never rewrites in place),
+ * but a renewal between the two can pair the old certificate with the new key, and that one TLS
+ * handshake fails. The next try reads both again from the one new file.
  */
 export function idTokens(
   credentials: Record<string, unknown>,
   serviceAccount: string,
+  client: TokenClient = externalAccountClient(credentials),
 ): (audience: string) => Promise<string> {
-  // The same configuration without the impersonation step: the machine's own federated token.
+  const cache = new Map<string, { token: string; expires: number }>();
+  return async (audience) => {
+    const hit = cache.get(audience);
+    if (hit && hit.expires - ID_TOKEN_MARGIN_MS > Date.now()) return hit.token;
+    const ask = () =>
+      client.request<{ token?: string }>({
+        url: `https://iamcredentials.mtls.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccount}:generateIdToken`,
+        method: 'POST',
+        data: { audience, includeEmail: true },
+        responseType: 'json',
+      });
+    const res = await ask().catch(ask);
+    const token = res.data.token;
+    if (!token) throw new Error('IAM Credentials returned no ID token');
+    cache.set(audience, { token, expires: expiry(token) });
+    return token;
+  };
+}
+
+/** The machine's own federated client: the configuration without the impersonation step. */
+function externalAccountClient(
+  credentials: Record<string, unknown>,
+): TokenClient {
   const federated = { ...credentials };
   delete federated['service_account_impersonation_url'];
   const client = ExternalAccountClient.fromJSON(
@@ -59,19 +98,5 @@ export function idTokens(
   );
   if (!client)
     throw new Error('not an external_account credential configuration');
-  const cache = new Map<string, { token: string; expires: number }>();
-  return async (audience) => {
-    const hit = cache.get(audience);
-    if (hit && hit.expires - ID_TOKEN_MARGIN_MS > Date.now()) return hit.token;
-    const res = await client.request<{ token?: string }>({
-      url: `https://iamcredentials.mtls.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccount}:generateIdToken`,
-      method: 'POST',
-      data: { audience, includeEmail: true },
-      responseType: 'json',
-    });
-    const token = res.data.token;
-    if (!token) throw new Error('IAM Credentials returned no ID token');
-    cache.set(audience, { token, expires: expiry(token) });
-    return token;
-  };
+  return client;
 }

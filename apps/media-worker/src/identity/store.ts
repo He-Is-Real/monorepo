@@ -10,6 +10,9 @@
  *   keys/current.pem          the current certificate, then its private key, in one file.
  *                             Renewal renames a new file over it, so the old key is gone at once
  *                             and nothing ever sees a certificate without its key.
+ *   keys/pending.pem          the next key (private), saved before it is sent for a certificate
+ *                             and used for every retry until that certificate is installed, so a
+ *                             lost reply can be asked for again (W3-1 A; Joel, 2026-11-09).
  *
  * Default place: $XDG_STATE_HOME/heisreal/worker-identity (~/.local/state/...), so it survives a
  * restart; WORKER_IDENTITY_DIR overrides it. Nothing here is ever printed.
@@ -99,6 +102,25 @@ export class IdentityStore {
     return join(this.keysDir, 'current.pem');
   }
 
+  /** The next key, saved before renewal asks for its certificate (W3-1 A). */
+  get pendingPath(): string {
+    return join(this.keysDir, 'pending.pem');
+  }
+
+  /** The saved next key (PEM), or null if there is none. */
+  async pending(): Promise<string | null> {
+    try {
+      return await readFile(this.pendingPath, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  async savePending(keyPem: string): Promise<void> {
+    await writePrivate(this.pendingPath, keyPem);
+  }
+
   /** Makes the directory (0700), refusing one anybody else can read. */
   async prepare(): Promise<void> {
     await mkdir(this.keysDir, { recursive: true, mode: 0o700 });
@@ -162,7 +184,8 @@ export class IdentityStore {
   /**
    * Makes a new pair current: certificate then key in one file, renamed over keys/current.pem
    * (writePrivate), so the old key is deleted in the same step. certificate_config.json always
-   * names that path; it is written too, for a first enrolment.
+   * names that path; it is written too, for a first enrolment. Then the pending key goes: it is
+   * either this pair's key or (enrol) one no certificate was asked for.
    */
   async install(keyPem: string, certPem: string): Promise<void> {
     await writePrivate(this.pairPath, `${certPem.trim()}\n${keyPem.trim()}\n`);
@@ -178,14 +201,16 @@ export class IdentityStore {
         2,
       ),
     );
+    await rm(this.pendingPath, { force: true });
   }
 
   /**
-   * Files in keys/ that are neither the pair file nor named by certificate_config.json
-   * (interrupted writes; an older layout's files once a renewal has replaced them).
+   * Files in keys/ that are neither the pair file, the pending key nor named by
+   * certificate_config.json (interrupted writes; an older layout's files once a renewal has
+   * replaced them).
    */
   async unused(): Promise<string[]> {
-    const keep = new Set([this.pairPath]);
+    const keep = new Set([this.pairPath, this.pendingPath]);
     try {
       const { certPath, keyPath } = await this.current();
       keep.add(certPath).add(keyPath);

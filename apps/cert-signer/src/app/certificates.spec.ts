@@ -299,6 +299,60 @@ describe('POST /v1/certificates (the worker renews its certificate)', () => {
     expect(again.status).toBe(200);
   });
 
+  it('after a lost reply, gives the same certificate again for the same key, and nothing new', async () => {
+    const current = await enrolled('joel-pc', ours, records);
+    const next = p256();
+    const request = renewalRequest(
+      current.certificate,
+      current.key,
+      next.publicKey,
+    );
+    const first = await post(request);
+    expect(first.status).toBe(200);
+    const issued = (await first.json()) as {
+      certificate: string;
+      notAfter: string;
+    };
+    // The reply was lost: the worker still holds the old certificate and asks again, later, with
+    // the same saved key (a freshly signed proof). It gets that exact certificate: same serial,
+    // same expiry, so a replay never extends the lifetime.
+    const retry = await post(
+      renewalRequest(current.certificate, current.key, next.publicKey),
+    );
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual(issued);
+    const replayed = logs.filter((l) => l.includes('certificate_replayed'));
+    expect(JSON.parse(replayed.at(-1) ?? '{}')).toMatchObject({
+      machine: 'joel-pc',
+      notAfter: issued.notAfter,
+    });
+    expect(replayed.at(-1)).not.toContain('BEGIN');
+    // Still one line of renewals: that certificate renews as normal.
+    const onward = await post(
+      renewalRequest(issued.certificate, next.privateKey, p256().publicKey),
+    );
+    expect(onward.status).toBe(200);
+    // And once it has, the old certificate can't fetch anything any more, not even with the
+    // key it once asked for.
+    const late = await post(
+      renewalRequest(current.certificate, current.key, next.publicKey),
+    );
+    expect(late.status).toBe(403);
+  });
+
+  it('refuses a retry from the replaced certificate that asks for any other key', async () => {
+    const current = await enrolled('joel-pc', ours, records);
+    const first = await post(
+      renewalRequest(current.certificate, current.key, p256().publicKey),
+    );
+    expect(first.status).toBe(200);
+    const other = await post(
+      renewalRequest(current.certificate, current.key, p256().publicKey),
+    );
+    expect(other.status).toBe(403);
+    expect(await other.json()).toMatchObject({ code: 'certificate_refused' });
+  });
+
   it('refuses a machine with no record (enrolled before the newest-only check: enrol again)', async () => {
     const current = await held('church-1', ours);
     const res = await post(
@@ -375,9 +429,9 @@ describe('the signing service after the last machine was cancelled', () => {
 });
 
 describe('two renewals of the same certificate at once', () => {
-  it('lets exactly one win (the record is written only if it is unchanged)', async () => {
+  /** Both requests read the same record before either writes (Cloud Storage held back). */
+  async function raced(bodies: (cert: string, key: KeyObject) => unknown[]) {
     const ours = await authority('He Is Real test worker authority');
-    // Hold the first two reads until both renewals have read the same record.
     let waiting = 0;
     let release: () => void = () => undefined;
     const bothRead = new Promise<void>((resolve) => (release = resolve));
@@ -385,7 +439,7 @@ describe('two renewals of the same certificate at once', () => {
     const records = fakeStorage(async () => {
       if (!gate) return;
       if (++waiting === 2) release();
-      await bothRead;
+      if (waiting <= 2) await bothRead;
     });
     const { app, url } = await startService(
       {
@@ -402,18 +456,32 @@ describe('two renewals of the same certificate at once', () => {
     try {
       const current = await enrolled('joel-pc', ours, records);
       gate = true;
-      const results = await Promise.all(
-        [p256(), p256()].map((next) =>
-          postTo(
-            url,
-            renewalRequest(current.certificate, current.key, next.publicKey),
-          ),
-        ),
+      return await Promise.all(
+        bodies(current.certificate, current.key).map(async (body) => {
+          const res = await postTo(url, body);
+          return { status: res.status, body: (await res.json()) as unknown };
+        }),
       );
-      expect(results.map((r) => r.status).sort()).toEqual([200, 403]);
     } finally {
       vi.restoreAllMocks();
       await app.close();
     }
+  }
+
+  it('lets exactly one win (the record is written only if it is unchanged)', async () => {
+    const results = await raced((cert, key) =>
+      [p256(), p256()].map((next) => renewalRequest(cert, key, next.publicKey)),
+    );
+    expect(results.map((r) => r.status).sort()).toEqual([200, 403]);
+  });
+
+  it("gives a retry racing the first request (same key) the winner's certificate", async () => {
+    const next = p256();
+    const results = await raced((cert, key) => [
+      renewalRequest(cert, key, next.publicKey),
+      renewalRequest(cert, key, next.publicKey),
+    ]);
+    expect(results.map((r) => r.status)).toEqual([200, 200]);
+    expect(results[0].body).toEqual(results[1].body);
   });
 });

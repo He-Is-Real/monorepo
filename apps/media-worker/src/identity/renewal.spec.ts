@@ -158,6 +158,39 @@ describe('the worker renews its certificate', () => {
     expect(await store.current()).toEqual(before);
   });
 
+  it('after a lost reply, asks again with the same saved key and installs the certificate it gets back', async () => {
+    const before = await store.current();
+    const asked: string[] = [];
+    let issued: string | undefined;
+    // The service issues a certificate, but the first reply never arrives; the retry gets that
+    // same certificate back (what cert-signer's replay does).
+    const lostOnce: RequestCertificate = async (request) => {
+      asked.push(request.publicKey);
+      if (issued) return issued;
+      issued = await signingService(request);
+      throw new Error('fetch failed');
+    };
+    await expect(renewOnce(store, lostOnce)).rejects.toThrow('fetch failed');
+    // The new key waits on disk, owner-only, and the current pair is untouched.
+    expect((await stat(store.pendingPath)).mode & 0o777).toBe(0o600);
+    expect(await store.current()).toEqual(before);
+
+    await renewOnce(store, lostOnce);
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toBe(asked[0]);
+    expect((await store.current()).certificate.trim()).toBe(issued?.trim());
+    // Installed: the pending key is now the current one, and only the pair file is left.
+    expect(await readdir(join(store.dir, 'keys'))).toEqual(['current.pem']);
+  });
+
+  it("makes a fresh key if the saved one is already the current certificate's", async () => {
+    // Stopped after installing but before the pending file was removed.
+    await store.savePending((await store.current()).key);
+    const before = await store.current();
+    await renewOnce(store, signingService);
+    expect((await store.current()).key).not.toBe(before.key);
+  });
+
   it('logs one clear line per refusal without key material and retries with a growing wait', async () => {
     const waits: number[] = [];
     const pending: (() => void)[] = [];

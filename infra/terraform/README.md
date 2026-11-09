@@ -358,8 +358,9 @@ with its own certificate, not a person's login and not a Google key file.
   list, `certificate_lifetime_hours` (default 24) and its records bucket.
 - **Records bucket** `<project>-worker-certificates` (London, uniform access, public access
   prevented, no versioning; W2-1 A "newest only", Joel 2026-11-09): one small JSON object per
-  machine holding the serial and expiry of the newest certificate issued for it (no personal
-  data). `cert-signer` renews only that certificate and updates the object only if nobody changed
+  machine holding the newest certificate issued for it (public), its serial and expiry, the
+  SHA-256 of its key and the serial of the certificate it replaced (no personal data; the last
+  two let a retry after a lost reply get the same certificate back, W3-1 A, Joel 2026-11-09). `cert-signer` renews only that certificate and updates the object only if nobody changed
   it since it read it (a generation precondition). Only `cert-signer` is granted on it
   (authoritative bucket policy, `roles/storage.objectUser`); developers reach it through their
   project-level `storage.admin` when `worker-identity.sh enrol` overwrites a machine's record.

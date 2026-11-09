@@ -597,7 +597,9 @@ For developers. Details are in the linked documents.
   Only the newest certificate issued for a machine may renew ("newest only", W2-1 A, Joel
   2026-11-09; church machines have no security chip, so there is no chip-based option later
   either): a copied certificate and key can't keep a second line going, and if a copy renews
-  first, the real worker is refused at its next renewal and says so. A
+  first, the real worker is refused at its next renewal and says so. A renewal whose answer was
+  lost isn't refused: the worker saved its new key first and asks again with it, and gets the same
+  certificate back, never a new one (W3-1 A, Joel 2026-11-09). A
   machine off for longer than the lifetime is enrolled again by a developer with one command; a
   machine is cancelled by taking its name out of the OpenTofu list. After a refusal as "not the
   newest", the name is cancelled and the machine enrolled under a new name. The worker uses only Dapr's

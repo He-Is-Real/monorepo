@@ -13,8 +13,10 @@ import {
   isNewest,
   issueWorkerCertificate,
   newestOf,
+  type NewestRecord,
   type NewestRecords,
   type RenewalRequest,
+  replayFor,
   type Signer,
 } from '@heisreal/worker-identity';
 import { X509Certificate } from 'node:crypto';
@@ -54,7 +56,9 @@ const problem = (status: HttpStatus, code: string, title: string) =>
  * a current certificate from our authority by signing the request with that certificate's key;
  * the new certificate names the same machine, never one the caller didn't prove. Only the newest
  * certificate issued for the machine may renew (W2-1 A, Joel 2026-11-09; newest.ts), so a copied
- * certificate and key can't keep renewing alongside the real worker.
+ * certificate and key can't keep renewing alongside the real worker. A retry after a lost reply
+ * (the certificate that newest one replaced, asking for the same key) gets the very same
+ * certificate back, nothing new signed (W3-1 A, Joel 2026-11-09; replayFor).
  */
 @Controller('v1/certificates')
 export class CertificatesController {
@@ -117,13 +121,29 @@ export class CertificatesController {
       });
       return problem(HttpStatus.FORBIDDEN, 'certificate_refused', 'Forbidden');
     };
-    let record;
-    try {
-      record = await this.newest.read(machine);
-    } catch (err) {
-      throw unavailable('record_unavailable', err);
-    }
-    if (!record || !isNewest(current, record)) throw notNewest();
+    const readRecord = async () => {
+      try {
+        return await this.newest.read(machine);
+      } catch (err) {
+        throw unavailable('record_unavailable', err);
+      }
+    };
+    // A retry of the renewal that made the newest certificate: that certificate, unchanged.
+    const replay = (latest: NewestRecord | null) => {
+      const found = replayFor(latest, current, publicKey);
+      if (!found) throw notNewest();
+      log('INFO', {
+        step: 'certificate_replayed',
+        machine,
+        notAfter: found.notAfter.toISOString(),
+      });
+      return {
+        certificate: found.certificate,
+        notAfter: found.notAfter.toISOString(),
+      };
+    };
+    const record = await readRecord();
+    if (!record || !isNewest(current, record)) return replay(record);
     let issued: { certificate: string; notAfter: Date };
     try {
       issued = await issueWorkerCertificate(
@@ -146,13 +166,15 @@ export class CertificatesController {
     try {
       won = await this.newest.write(
         machine,
-        newestOf(new X509Certificate(certificate)),
+        newestOf(new X509Certificate(certificate), current),
         record.generation,
       );
     } catch (err) {
       throw unavailable('record_unavailable', err);
     }
-    if (!won) throw notNewest();
+    // Lost the race: if the winner was this same renewal asked twice (a retry while the first
+    // was still running), the caller gets the winner's certificate; anyone else is refused.
+    if (!won) return replay(await readRecord());
     log('INFO', {
       step: 'certificate_issued',
       machine,

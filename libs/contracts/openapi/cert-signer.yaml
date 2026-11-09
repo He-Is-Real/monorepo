@@ -20,7 +20,14 @@ info:
       default 24 hours) from now. The worker renews every 6 hours by default.
     - A machine whose certificate has expired can't renew: a developer enrols it again with their
       own gcloud login (`tools/scripts/worker-identity.sh enrol <machine>`, outside this API).
-    - No database; nothing is stored. Each renewal is logged with the machine name and expiry only.
+    - Only the newest certificate issued for a machine may renew (W2-1 A, "newest only"; Joel,
+      2026-11-09). No database: the service keeps one small record per machine in a private
+      London Cloud Storage bucket (that certificate, its serial and expiry, the SHA-256 of its key
+      and the serial of the certificate it replaced). Each renewal is logged with the machine name
+      and expiry only.
+    - A lost reply (W3-1 A; Joel, 2026-11-09): a retry from the certificate the newest one
+      replaced, for the **same** new key, gets the newest certificate back unchanged (same
+      serial, same expiry; nothing new is signed). Any other key is refused.
   contact:
     name: He Is Real Today
     url: https://www.heisreal.today
@@ -45,9 +52,13 @@ paths:
       description: |
         Checks, in order: the current certificate was issued by our authority, isn't a CA, is valid
         now, and names an allowed machine; the new key is EC P-256 and differs from the current one;
-        `proof` verifies with the current certificate's key. Then signs a certificate for the new
-        key with the same machine name. Any failed check is `403 certificate_refused`; the reason is
-        logged by the service, not returned.
+        `proof` verifies with the current certificate's key; the current certificate is the
+        machine's newest. Then signs a certificate for the new key with the same machine name and
+        records it as the newest (only if nobody else did since it read the record). If the
+        current certificate is instead the one the newest replaced, and the new key is the one the
+        newest was issued for (a retry after a lost reply), the answer is that recorded newest
+        certificate, unchanged. Any failed check is `403 certificate_refused`; the reason is logged
+        by the service, not returned.
       x-milestone: M2
       requestBody:
         required: true
@@ -68,15 +79,16 @@ paths:
           description: No Google ID token, or not the media-worker account (Cloud Run answers before the service).
         '403':
           description: |
-            `certificate_refused`: the current certificate isn't ours, has expired, or names a machine
-            that isn't allowed (any more); or the proof or new key is wrong. Also Cloud Run's own 403
-            for a caller without run.invoker.
+            `certificate_refused`: the current certificate isn't ours, has expired, names a machine
+            that isn't allowed (any more), or isn't the machine's newest (and this isn't a retry of
+            the renewal that replaced it, for the same key); or the proof or new key is wrong. Also
+            Cloud Run's own 403 for a caller without run.invoker.
           content:
             application/problem+json:
               schema:
                 $ref: './components.yaml#/components/schemas/Problem'
         '503':
-          description: "`signing_unavailable`: Cloud KMS couldn't sign just now. Try again later."
+          description: "`signing_unavailable`: a Google service the signing needs is down (Cloud KMS, which holds the authority's key, or the records bucket). Try again later. (W3-2; Joel, 2026-11-09.)"
           content:
             application/problem+json:
               schema:
@@ -119,7 +131,7 @@ components:
       properties:
         certificate:
           type: string
-          description: The new certificate (PEM), same machine name, signed by our authority.
+          description: The new certificate (PEM), same machine name, signed by our authority (on a retry after a lost reply, the same one again).
         notAfter:
           type: string
           format: date-time

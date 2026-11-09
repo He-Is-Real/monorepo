@@ -4,10 +4,16 @@
  * current one with the current key), check what came back, swap it in, delete the old key.
  * A copied certificate dies within its lifetime; the key it belongs to is gone the moment the
  * new pair is renamed over it.
+ *
+ * The new key is saved (keys/pending.pem) before it is sent, and every retry sends that same key
+ * until its certificate is installed: if the signing service issued one but the reply was lost,
+ * the retry gets that same certificate back (W3-1 A; Joel, 2026-11-09).
  */
 import {
   createPrivateKey,
+  createPublicKey,
   generateKeyPairSync,
+  type KeyObject,
   X509Certificate,
 } from 'node:crypto';
 import { renewalRequest, type RenewalRequest } from '@heisreal/worker-identity';
@@ -23,6 +29,37 @@ const MIN_RETRY_MS = 10_000;
 /** Node's timers take at most 2^31-1 ms (about 24.8 days); longer ones fire at once. */
 export const MAX_TIMER_MS = 2 ** 31 - 1;
 
+const spki = (key: KeyObject) =>
+  key.export({ type: 'spki', format: 'der' }) as Buffer;
+
+/**
+ * The key to ask a certificate for: the saved pending one, or a new one saved first. A pending
+ * key that is already the current certificate's (stopped between installing and tidying up) or
+ * can't be read is replaced.
+ */
+async function nextKey(
+  store: IdentityStore,
+  currentCert: X509Certificate,
+): Promise<{ privateKey: KeyObject; publicKey: KeyObject }> {
+  const saved = await store.pending();
+  if (saved !== null) {
+    try {
+      const privateKey = createPrivateKey(saved);
+      const publicKey = createPublicKey(privateKey);
+      if (!spki(publicKey).equals(spki(currentCert.publicKey))) {
+        return { privateKey, publicKey };
+      }
+    } catch {
+      // Unreadable: a new one below.
+    }
+  }
+  const next = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  await store.savePending(
+    next.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
+  );
+  return next;
+}
+
 /** Renews once. Returns the new certificate's expiry. */
 export async function renewOnce(
   store: IdentityStore,
@@ -30,7 +67,7 @@ export async function renewOnce(
 ): Promise<{ notAfter: Date }> {
   const current = await store.current();
   const currentCert = new X509Certificate(current.certificate);
-  const next = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const next = await nextKey(store, currentCert);
   const pem = await requestCertificate(
     renewalRequest(
       current.certificate,
@@ -41,9 +78,7 @@ export async function renewOnce(
   // Use it only if it is what we asked for: our authority, our name, our new key.
   const cert = new X509Certificate(pem);
   const ca = new X509Certificate(await store.ca());
-  const sameKey = cert.publicKey
-    .export({ type: 'spki', format: 'der' })
-    .equals(next.publicKey.export({ type: 'spki', format: 'der' }) as Buffer);
+  const sameKey = spki(cert.publicKey).equals(spki(next.publicKey));
   if (
     !cert.verify(ca.publicKey) ||
     cert.subject !== currentCert.subject ||
