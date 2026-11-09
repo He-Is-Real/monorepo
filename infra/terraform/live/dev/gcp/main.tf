@@ -196,7 +196,7 @@ module "gcp" {
   worker_identity = {
     machines                   = ["joel-pc"]
     certificate_lifetime_hours = 24
-    ca_certificate             = fileexists("${path.module}/worker-ca.pem") ? file("${path.module}/worker-ca.pem") : null
+    ca_certificate             = fileexists("${path.module}/worker-ca.pem") ? trimspace(file("${path.module}/worker-ca.pem")) : null
   }
 
   # The nightly housekeeping Job (abandoned drafts, orphaned story videos), 03:30 London time,
