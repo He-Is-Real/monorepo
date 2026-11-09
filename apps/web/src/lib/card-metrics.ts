@@ -10,7 +10,8 @@ export const CARD = {
    * PLAYER_MIN_HEIGHT: room for Bunny's controls). In rem like the rest of the card, so it grows
    * with the reader's text size: the masonry's spans are in rem, and a minimum in px was predicted
    * at twice its height with 200% text, so cards moved up once measured (Codex review of #207).
-   * Never under these px, though, with text set smaller than the default: the controls need them.
+   * Never under these px, though, with text set smaller than the default: the controls need them
+   * (lib/masonry.ts's MASONRY_CSS predicts that floor in px too).
    */
   playerMinHeight: 184,
   /** Its top line: the label ("Written · 3 min read") and the person's name. */

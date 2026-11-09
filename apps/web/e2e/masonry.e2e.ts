@@ -396,15 +396,22 @@ const SHIFT_DEVICES = [
   'desktop-1280',
 ];
 
-// Also at 200% text (WCAG 1.4.4) on audio's cards, each a player at its minimum height in two
-// columns (Codex review of #207: the minimum, in px, was predicted at twice its height with 200%
-// text, and the cards at 768 px moved up by 192 px once measured). The card and its tap targets
-// grow with the text, so the movement allowed does too: still under half the 88 px heart.
-for (const [text, path] of [
-  [16, '/stories'],
-  [32, '/stories?format=audio'],
+// Also on audio's cards, each a player at its minimum height in two columns, with other text
+// sizes (Codex review of #207): at 200% (WCAG 1.4.4) the minimum, in px, was predicted at twice
+// its height and the cards at 768 px moved up by 192 px once measured; at 12 and 14 px the player
+// keeps its 184 px while the prediction shrank with the text, and at 640 px (the narrowest two
+// columns) cards moved down by up to 72 px. Set here on the 768 px device, at 640 and 768 px:
+// wider, with text this small, the list is wider than the widest band (BANDS end at the site's
+// width at the default text size). The card and its tap targets grow with larger text, so the
+// movement allowed does too: still under half the heart.
+for (const [text, path, width] of [
+  [16, '/stories', undefined],
+  [32, '/stories?format=audio', undefined],
+  [12, '/stories?format=audio', 640],
+  [12, '/stories?format=audio', 768],
+  [14, '/stories?format=audio', 640],
 ] as const)
-  test(`cards on the first screen barely move once the page measures them (${text} px text, ${path})`, async ({
+  test(`cards on the first screen barely move once the page measures them (${text} px text, ${path}${width ? `, ${width} px wide` : ''})`, async ({
     browser,
     page,
   }, info) => {
@@ -416,8 +423,17 @@ for (const [text, path] of [
       text !== 16 && info.project.name === 'phone-320',
       'one card a screen: one column predicts nothing',
     );
+    test.skip(
+      width !== undefined && info.project.name !== 'ipad-mini-portrait',
+      'the width is set here',
+    );
+    const viewport = width
+      ? { width, height: info.project.use.viewport?.height ?? 0 }
+      : info.project.use.viewport;
+    if (width)
+      await page.setViewportSize({ width, height: viewport?.height ?? 0 });
     // The first paint: the server's page as it is before any script runs.
-    const before = await browser.newContext({ ...info.project.use });
+    const before = await browser.newContext({ ...info.project.use, viewport });
     await blockScripts(before);
     const first = await before.newPage();
     if (text !== 16) await textSetting(first, text);
@@ -435,7 +451,7 @@ for (const [text, path] of [
     await expect.poll(() => allMeasured(page)).toBe(true);
     const measured = await boxes(page);
 
-    const screen = info.project.use.viewport?.height ?? 0;
+    const screen = viewport?.height ?? 0;
     const top = (all: typeof predicted, i: number) => all[i].top - all[0].top;
     const moves = predicted
       .filter((card) => top(predicted, card.i) < screen)
@@ -444,6 +460,6 @@ for (const [text, path] of [
         moved: Math.round(top(predicted, card.i) - top(measured, card.i)),
       }));
     expect(moves.length).toBeGreaterThan(1);
-    const most = (MOST_MOVEMENT * text) / 16;
+    const most = (MOST_MOVEMENT * Math.max(text, 16)) / 16;
     expect(moves.filter((m) => Math.abs(m.moved) > most)).toEqual([]);
   });
