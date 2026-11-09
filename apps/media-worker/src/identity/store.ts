@@ -29,7 +29,7 @@ import {
   stat,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export function defaultIdentityDir(
   env: NodeJS.ProcessEnv = process.env,
@@ -68,6 +68,22 @@ async function writePrivate(path: string, content: string): Promise<void> {
     await file.close();
   }
   await rename(tmp, path);
+  await syncDir(dirname(path));
+}
+
+/**
+ * Makes a rename in `dir` survive a power cut: syncing the file alone doesn't keep its new name
+ * (fsync(2)). Without it, a pending key renewal has already used could be gone after a restart,
+ * and its replacement would be refused (W3-1 A). Windows can't open a directory: skipped there.
+ */
+async function syncDir(dir: string): Promise<void> {
+  if (process.platform === 'win32') return;
+  const handle = await open(dir, 'r');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 /** The one PEM block of this type in a file (the pair file holds a certificate and a key). */
@@ -201,7 +217,10 @@ export class IdentityStore {
         2,
       ),
     );
+    // Both writes above are already durable (writePrivate), so the pending key only goes once
+    // its certificate is safely current; its removal is made durable too.
     await rm(this.pendingPath, { force: true });
+    await syncDir(this.keysDir);
   }
 
   /**
