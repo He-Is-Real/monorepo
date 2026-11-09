@@ -1062,12 +1062,18 @@ DEFINE FIELD OVERWRITE lengthSeconds   ON storyFile TYPE option<int> ASSERT $val
 DEFINE FIELD OVERWRITE thumbnailPath   ON storyFile TYPE option<string>
   PERMISSIONS FOR create, update WHERE $auth = service:workflow;
 -- A2: NONE = not processed yet (just uploaded); then 'processing', 'ready' or 'failed'. Only
--- 'ready' can be approved and published (fn::story::approval_problem).
+-- 'ready' can be approved and published (fn::story::approval_problem). Workflow writes it (M7).
+-- A picture is also marked 'ready' by api-user's login, only as part of submitting (Joel,
+-- 2026-10-30, m2-remaining-decisions R3 = A; m2-media-ready-plan D128 B): its 40-byte check at
+-- submit found the file there, of its recorded size, a WebP of its recorded width and height,
+-- with no hidden metadata or animation. storyFile_update holds api-user to that one step.
 DEFINE FIELD OVERWRITE processing      ON storyFile TYPE option<string>
   ASSERT $value = NONE OR $value IN ['processing', 'ready', 'failed']
   PERMISSIONS FOR select WHERE person = $auth
       OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
-    FOR create, update WHERE $auth = service:workflow;
+    FOR create WHERE $auth = service:workflow,
+    FOR update WHERE $auth = service:workflow
+      OR ($auth = service:api_user AND format = 'image');
 -- Media ready (Joel, 2026-11-07, F1 and media-worker-final section 3): the time the newest answer
 -- the result writer applied reached the writer (the writer's clock, taken when the worker's call
 -- arrives). The writer applies an answer only if it arrived later, in the same transaction that
@@ -1317,6 +1323,10 @@ DEFINE EVENT OVERWRITE storyFile_fence ON storyFile
 --   (fn::story::check_files), and its version steps (D29: the owner's ETag and If-Match) when
 --   something its owner's story shows changed (fn::story::file_view): once, so not again if
 --   that write already hid it or showed it again. As before R12, when processing wrote the story.
+-- - processing (api-user, the picture check at submit; Joel, 2026-10-30, R3 = A): only 'ready',
+--   only on a picture not marked yet, only the one the person's draft (or story sent back for
+--   changes) shows now. It doesn't step the version: the owner's story never shows a picture's
+--   processing, and the submit that follows is still at the version the person's page sent.
 DEFINE FUNCTION OVERWRITE fn::story::file_view($f: any) {
   RETURN $f.{ format, thumbnailPath, width, height, lengthSeconds, processing };
 };
@@ -1330,6 +1340,12 @@ DEFINE EVENT OVERWRITE storyFile_update ON storyFile
       IF fn::story::status_of($s) NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
       fn::legal::require_testimony($after.person);
     };
+    IF $auth = service:api_user AND $after.processing != $before.processing
+      AND ($after.format != 'image' OR $before.processing != NONE OR $after.processing != 'ready'
+        OR $s = NONE OR $s.image.file != $after.id OR $after.detachedAt != NONE
+        OR fn::story::status_of($s) NOT IN ['draft', 'changes_requested']) {
+      THROW 'picture_check: api-user only marks the picture a draft shows now as checked, at submit';
+    };
     IF $after.removedAt != $before.removedAt AND $auth != NONE
       AND ($before.removedAt != NONE OR $after.detachedAt = NONE
         OR $after.detachedAt > time::now() - fn::upload::links_expire_after()) {
@@ -1339,6 +1355,7 @@ DEFINE EVENT OVERWRITE storyFile_update ON storyFile
       AND ($s.mediaFile = $after.id OR $s.image.file = $after.id) {
       fn::story::check_files($s);
       IF fn::story::file_view($before) != fn::story::file_view($after)
+        AND $auth != service:api_user
         AND (SELECT VALUE version FROM ONLY $s.id) = $s.version {
         UPDATE $s.id RETURN NONE;
       };

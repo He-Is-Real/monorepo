@@ -926,9 +926,12 @@ paths:
         size the browser declared and Bunny's own length. `503` `uploads_unavailable` when api-user
         can't reach Bunny's settings.
 
-        **A picture (M2 plan PR 10), on any type:** api-user checks its file arrived in the images
-        zone: `400` `image_not_uploaded` if it never did (the person adds it again, or removes it),
-        `503` `uploads_unavailable` when the zone gives no clear answer.
+        **A picture (M2 plan PR 10), on any type:** api-user reads only the first 40 bytes of its file
+        in the images zone (Joel, 2026-10-30, picture check R3 = A): it must be there, of the exact
+        size recorded at upload, a WebP of the width and height recorded, with no hidden metadata
+        (EXIF, XMP) or animation. Otherwise `400` `image_not_uploaded` (the person adds it again, or
+        removes it; the story stays a draft). `503` `uploads_unavailable` when the zone gives no clear
+        answer (never a pass). A picture that passes is marked checked, which approval needs.
 
         **Social media sharing (plan 4e):** the optional body's `socialMediaSharingConsent` is the box at
         the end of the upload, ticked, with the version the page showed: it is recorded on this story in

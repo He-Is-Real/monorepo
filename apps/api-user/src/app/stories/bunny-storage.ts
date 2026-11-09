@@ -5,6 +5,7 @@ import {
   presignStorageUrl,
   type StorageZone,
 } from '@heisreal/story-cards';
+import { PICTURE_START_BYTES, type PictureStart } from './picture-check';
 
 /**
  * The images storage zone for uploads (M2 plan PR 10; D68, D80): api-user signs the browser's S3
@@ -39,6 +40,12 @@ export interface ImageStore {
   /** Whether the file at that path has arrived; throws when the zone gives no clear answer. */
   exists(path: string): Promise<boolean>;
   /**
+   * The picture check at submit (picture-check.ts): the file's size and its first
+   * PICTURE_START_BYTES bytes, or null when the zone has no file there. Throws when the zone gives
+   * no clear answer, so an outage is never a pass.
+   */
+  start(path: string): Promise<PictureStart | null>;
+  /**
    * A deleted story's queued folder (pendingDeletion `image`, D40), `stories/<id>/`, always from
    * the database, which queues it when the story goes (story_picture_folder): deletes the folder
    * with every picture in it (`deleteStoryFolder`). Throws unless it's done.
@@ -47,7 +54,11 @@ export interface ImageStore {
 }
 
 export class BunnyImageStore implements ImageStore {
-  constructor(private readonly zone: StorageZone) {}
+  constructor(
+    private readonly zone: StorageZone,
+    /** The HTTP client (a stand-in zone in api-user's integration tests). */
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
 
   sign(path: string, sizeBytes: number, now = Date.now()): SignedImageUpload {
     return signImageUpload(this.zone, path, sizeBytes, now);
@@ -59,7 +70,7 @@ export class BunnyImageStore implements ImageStore {
    * arrives through its PUT (one use), so once there it's the picture the grant named.
    */
   async exists(path: string): Promise<boolean> {
-    const res = await fetch(
+    const res = await this.fetcher(
       presignStorageUrl(this.zone, {
         method: 'HEAD',
         key: path,
@@ -72,9 +83,64 @@ export class BunnyImageStore implements ImageStore {
     throw new Error(`The images zone answered ${res.status} for a picture`);
   }
 
+  /**
+   * A presigned GET with `Range: bytes=0-39` (the R3 research read a picture's first 40 bytes and
+   * its exact size this way on dev): S3 answers 206 with `Content-Range: bytes 0-39/<size>`. A 200
+   * (the range ignored) gives the size in `Content-Length`; only the first bytes are read either
+   * way. An empty file is 416.
+   */
+  async start(path: string): Promise<PictureStart | null> {
+    const res = await this.fetcher(
+      presignStorageUrl(this.zone, { method: 'GET', key: path, expiresIn: 60 }),
+      {
+        headers: { Range: `bytes=0-${PICTURE_START_BYTES - 1}` },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (res.status === 404 || res.status === 416) {
+      await res.body?.cancel();
+      return res.status === 404 ? null : { size: 0, bytes: new Uint8Array() };
+    }
+    const size =
+      res.status === 206
+        ? /^bytes 0-\d+\/(\d+)$/.exec(
+            res.headers.get('content-range') ?? '',
+          )?.[1]
+        : res.status === 200
+          ? res.headers.get('content-length')
+          : null;
+    if (!size || !/^\d+$/.test(size)) {
+      await res.body?.cancel();
+      throw new Error(
+        `The images zone answered ${res.status} without a size for a picture's first bytes`,
+      );
+    }
+    return { size: Number(size), bytes: await firstBytes(res) };
+  }
+
   deleteFolder(folder: string): Promise<void> {
     return deleteStoryFolder(this.zone, folder);
   }
+}
+
+/** Up to PICTURE_START_BYTES bytes of the answer's body; the rest is never downloaded. */
+async function firstBytes(res: Response): Promise<Uint8Array> {
+  const out = new Uint8Array(PICTURE_START_BYTES);
+  let got = 0;
+  const reader = res.body?.getReader();
+  if (!reader) return out.subarray(0, 0);
+  try {
+    while (got < PICTURE_START_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const take = value.subarray(0, PICTURE_START_BYTES - got);
+      out.set(take, got);
+      got += take.length;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return out.subarray(0, got);
 }
 
 export function signImageUpload(

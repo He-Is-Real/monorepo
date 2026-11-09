@@ -7,7 +7,9 @@ loading again; we don't approve the story again.
 
 - Processing records each video, audio file and image as `ready`, `processing` or `failed`,
   with its size and duration: for video and audio, the media-ready step below (the result
-  writer, signed in as `workflow`); for pictures, a later check (M2) and M7's scanning.
+  writer, signed in as `workflow`); for pictures, the picture check at submit (api-user reads the
+  file's first 40 bytes and marks it `ready`; see "Picture check at submit" below) and later
+  M7's scanning.
 - If an approved story's media stops being ready (it fails, it is checked again, or it loses its
   size or duration), the database hides the story in the same write: it adds a `hidden` entry
   (by the system) to the story's status log, so the public site and API no longer show it. Its
@@ -384,6 +386,16 @@ place of Bunny's generated thumbnail (`clipPicture`, `libs/story-cards`). Proces
 media-ready step can't change it: the story points at the picture's own file row (`image.file`,
 R12), and workflow writes only that row's processing fields
 (`libs/database/schema/schema-04-stories.surql`).
+
+**Picture check at submit (Joel, 2026-10-30, R3 = A):** when a person submits a story with a
+picture, api-user reads only the first 40 bytes of the file from the images zone (a presigned GET
+with a `Range` header). The file must be there, of the exact size recorded at upload, a WebP of
+the recorded width and height, and without EXIF, XMP or animation (a canvas never writes them; a
+colour profile and transparency are fine: Chrome writes an sRGB profile into every WebP). If not,
+submit answers `400 image_not_uploaded` and the person adds the picture again; api-user logs
+`Picture <path> refused at submit: <reason>`. If the zone gives no clear answer, submit answers
+`503 uploads_unavailable` and the person tries again. A picture that passes is marked
+`processing = 'ready'` on api-user's login, which is what approval needs for pictures until M7.
 
 **MP4 copies (C1, Joel 2026-11-06):** the library also makes an MP4 file of each video and audio
 item per encoded resolution (`<video id>/play_<height>p.mp4`, up to 1080p; stored with the video in

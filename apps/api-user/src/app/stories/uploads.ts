@@ -25,6 +25,7 @@ import type { RecordId, SurrealQueryable } from 'surrealdb';
 import { recordKey } from '@heisreal/http';
 import { STORY_IMAGE_PATH } from '@heisreal/story-cards';
 import type { ImageStore, SignedImageUpload } from './bunny-storage';
+import { pictureProblem, type RecordedPicture } from './picture-check';
 import type { BunnyStream, SignedUpload } from './bunny-stream';
 import { StaleVersionException } from './story-store';
 import { agreementRefusalOf } from '../account/agreements';
@@ -683,8 +684,8 @@ export class Uploads {
   }
 
   /**
-   * SubmitStory's checks on a story's files. Its picture, if it has one, has arrived in the images
-   * zone (`400 image_not_uploaded`; `503 uploads_unavailable` when the zone can't say). A video or
+   * SubmitStory's checks on a story's files. Its picture, if it has one, passes the picture check
+   * (`checkPicture`: `400 image_not_uploaded`; `503 uploads_unavailable` when the zone can't say). A video or
    * audio story's file (D80, D113) has arrived at Bunny (`409 media_not_uploaded`), Bunny could
    * read it (`409 media_failed`), and it's within the limits in force now (`409
    * media_over_limit`): "new rules apply to everyone" (Joel, 2026-10-30), so a draft started
@@ -692,7 +693,7 @@ export class Uploads {
    */
   async checkBeforeSubmit(person: SurrealQueryable, id: string): Promise<void> {
     const draft = await this.draft(person, id);
-    if (draft.imagePath) await this.checkImageArrived(draft.imagePath);
+    if (draft.imagePath) await this.checkPicture(person, draft.imagePath);
     if (draft.primaryFormat === 'written') return;
     const bunny = this.stream();
     const notUploaded = () =>
@@ -747,25 +748,44 @@ export class Uploads {
     }
   }
 
-  /** Submit's picture check: asks the zone unless this instance has seen the file arrive. */
-  private async checkImageArrived(path: string): Promise<void> {
+  /**
+   * The picture check at submit (Joel, 2026-10-30: m2-remaining-decisions R3 = A, with its extra
+   * suggestion; picture-check.ts): reads only the picture's first 40 bytes from the images zone,
+   * always (never this instance's memory). Missing, incomplete, not a WebP, not the recorded size
+   * or with hidden metadata or animation: `400 image_not_uploaded`, the person adds it again and
+   * the story stays a draft. The zone giving no clear answer: `503 uploads_unavailable`, never a
+   * pass. A passed picture is marked checked (`processing = 'ready'`) on api-user's own login,
+   * which the database allows only for the picture a draft shows now (storyFile_update); it
+   * doesn't step the story's version, so the submit that follows is still at the person's
+   * `If-Match`. If the picture changed in between, that submit answers `412`.
+   */
+  private async checkPicture(
+    person: SurrealQueryable,
+    path: string,
+  ): Promise<void> {
     const images = this.imageStore();
-    let there = this.arrived.has(path);
-    if (!there) {
-      try {
-        there = await images.exists(path);
-      } catch (err) {
-        this.logger.warn(
-          `Couldn’t check whether picture ${path} arrived before submit: ${String(err)}`,
-        );
-        throw new ServiceUnavailableException({
-          code: 'uploads_unavailable',
-          message:
-            'We couldn’t check your picture just now. Your story is saved; please try again.',
-        });
-      }
+    const [recorded] = (await runQuery(
+      person,
+      `SELECT sizeBytes, width, height, processing FROM ONLY type::record('storyFile', $path)`,
+      { path },
+    )) as [(RecordedPicture & { processing?: string }) | null];
+    if (!recorded) throw new StaleVersionException();
+    let start;
+    try {
+      start = await images.start(path);
+    } catch (err) {
+      this.logger.warn(
+        `Couldn’t check picture ${path} before submit: ${String(err)}`,
+      );
+      throw new ServiceUnavailableException({
+        code: 'uploads_unavailable',
+        message:
+          'We couldn’t check your picture just now. Your story is saved; please try again.',
+      });
     }
-    if (!there) {
+    const problem = pictureProblem(start, recorded);
+    if (problem) {
+      this.logger.warn(`Picture ${path} refused at submit: ${problem}`);
       throw new BadRequestException({
         code: 'image_not_uploaded',
         message:
@@ -773,6 +793,26 @@ export class Uploads {
       });
     }
     this.remember(path);
+    if (recorded.processing === 'ready') return;
+    try {
+      await retryOnConflict(() =>
+        runQuery(
+          this.service,
+          `UPDATE type::record('storyFile', $path) SET processing = 'ready'
+             WHERE processing = NONE RETURN NONE`,
+          { path },
+        ),
+      );
+    } catch (err) {
+      // The story moved on meanwhile (another tab changed its picture or submitted it).
+      if (
+        err instanceof DatabaseQueryError &&
+        err.message.includes('picture_check:')
+      ) {
+        throw new StaleVersionException();
+      }
+      throw err;
+    }
   }
 
   private async draft(
