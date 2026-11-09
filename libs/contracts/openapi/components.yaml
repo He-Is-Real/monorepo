@@ -362,6 +362,9 @@ components:
       description: |
         `draft` = saved, not submitted (created before upload); `pending` = submitted, in the moderation
         queue; then `in_review` / `approved` / `rejected` / `changes_requested` / `withdrawn`.
+        The status log has one more, `hidden` (`StoryStatusLogged`: an approved story off the site
+        while its media is fixed, or hidden by a moderator). The person's own views show a hidden
+        story as `approved`, so this list, which they read and filter by, leaves it out.
       enum:
         [
           draft,
@@ -757,19 +760,125 @@ components:
             - $ref: '#/components/schemas/Agreement'
             - type: 'null'
 
+    ModerationQueueItem:
+      type: object
+      description: |
+        M3 (task 3.1): a story waiting for review, as the moderators' queue lists it. Only what
+        choosing the next story needs: no words, files or submitter.
+      required: [id, version, status, title, primaryFormat, submittedAt]
+      properties:
+        id:
+          type: string
+        version:
+          $ref: '#/components/schemas/Version'
+        status:
+          $ref: '#/components/schemas/StoryStatusLogged'
+        title:
+          type: string
+        primaryFormat:
+          $ref: '#/components/schemas/Format'
+        submittedAt:
+          type: string
+          format: date-time
+          description: When it was sent for review (its newest `pending` status entry); the queue's order.
+
     StoryModeration:
-      description: Moderator view of the story write model, including lock state and the submitter reference.
-      allOf:
-        - $ref: '#/components/schemas/StoryMine'
-        - type: object
-          properties:
-            submitterUserId:
-              type: string
-            lockedByUserId:
-              type: [string, 'null']
-            lockedAt:
-              type: [string, 'null']
-              format: date-time
+      type: object
+      description: |
+        M3 (task 3.2): the moderator's view of a story waiting for review or in review, read-only:
+        what the public would see (words, themes, picture, player, byline) plus its processing
+        state and its status log with past moderators' notes. Testimonies are Art 9 data, so it
+        carries the least about the person: no account id, join date, email or name (Clerk's),
+        and nobody's user id on the log entries.
+      required:
+        [
+          id,
+          version,
+          status,
+          title,
+          description,
+          body,
+          bylineName,
+          primaryFormat,
+          media,
+          image,
+          themes,
+          submittedAt,
+          statusLog,
+        ]
+      properties:
+        id:
+          type: string
+        version:
+          $ref: '#/components/schemas/Version'
+        status:
+          $ref: '#/components/schemas/StoryStatusLogged'
+        title:
+          type: string
+        description:
+          type: string
+        body:
+          type: [string, 'null']
+        bylineName:
+          type: [string, 'null']
+          description: '`null` = anonymous.'
+        primaryFormat:
+          $ref: '#/components/schemas/Format'
+        media:
+          type: array
+          description: |
+            The story's video or audio file (one, D53), signed for one hour (the moderators'
+            links, M3 plan concern C6): `playbackUrl` and `thumbnailUrl` are `null` until Bunny
+            has processed it (`processing` is `ready`), and when signing is off. Ask again for
+            fresh links.
+          items:
+            $ref: '#/components/schemas/MediaPlayback'
+        image:
+          description: The story's own picture (D53), signed for one hour; `null` when there is none.
+          oneOf:
+            - $ref: '#/components/schemas/StoryImage'
+            - type: 'null'
+        themes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThemeRef'
+        submittedAt:
+          type: string
+          format: date-time
+          description: When it was last sent for review (its newest `pending` status entry).
+        statusLog:
+          type: array
+          description: Oldest first (R6). Who added each entry by kind only, never by id.
+          items:
+            $ref: '#/components/schemas/ModerationStatusEntry'
+        lockedByUserId:
+          type: [string, 'null']
+          description: |
+            Who has the story picked up for review. Not built yet: where the pick-up lock lives
+            is still to be decided (M3 plan question M3-1), so it isn't sent until then.
+        lockedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Since when it has been picked up. Not sent yet (see `lockedByUserId`).
+
+    ModerationStatusEntry:
+      type: object
+      description: |
+        R6: one entry of a story's status log, as moderators read it: what happened, who added it
+        by kind (the person, a moderator, the system), the moderator's note to the person, and when.
+      required: [status, actor, comment, at]
+      properties:
+        status:
+          $ref: '#/components/schemas/StoryStatusLogged'
+        actor:
+          type: string
+          enum: [person, moderator, system]
+        comment:
+          type: [string, 'null']
+          description: A moderator's note to the person.
+        at:
+          type: string
+          format: date-time
 
     FlaggedStory:
       type: object

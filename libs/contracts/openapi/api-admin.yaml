@@ -72,6 +72,11 @@ paths:
       tags: [Moderation]
       operationId: getModerationQueue
       summary: Pending submissions, oldest first
+      description: |
+        M3 (task 3.1): the stories waiting for review (their current status is `pending`), oldest
+        sent first (then by entry), from the status log's (status, at) index. Moderator and above
+        (D1: the role is checked here; the database knows moderators only as api-admin's login,
+        M3 plan concern C2).
       x-required-role: Moderator
       x-milestone: M3
       parameters:
@@ -96,9 +101,11 @@ paths:
                       data:
                         type: array
                         items:
-                          $ref: './components.yaml#/components/schemas/StoryModeration'
+                          $ref: './components.yaml#/components/schemas/ModerationQueueItem'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -111,6 +118,12 @@ paths:
       tags: [Moderation]
       operationId: getModerationStory
       summary: A story under moderation
+      description: |
+        M3 (task 3.2): one story waiting for review or in review, read-only, with one-hour
+        signed links to its player and picture (M3 plan concern C6). Any other status, or no such
+        story, is `404`. Moderator and above (D1, M3 plan concern C2). The links change on every
+        answer, so the `ETag` is a hash of this answer, not the story's version; commands take
+        `version` in `If-Match`.
       x-required-role: Moderator
       x-milestone: M3
       parameters:
@@ -118,10 +131,10 @@ paths:
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: The story write model, with lock state.
+          description: The story, as moderators review it.
           headers:
             ETag:
-              $ref: './components.yaml#/components/headers/ETag'
+              $ref: './components.yaml#/components/headers/CollectionETag'
             Cache-Control:
               $ref: './components.yaml#/components/headers/CacheControlPrivate'
           content:
@@ -146,7 +159,9 @@ paths:
       summary: Pick up (lock) a story for review
       description: |
         Command. A transaction-guarded update; on a RocksDB optimistic-transaction conflict the handler
-        retries. `409` if another moderator holds the lock.
+        retries. `409` if another moderator holds the lock. Where the lock lives (and so
+        `StoryModeration.lockedByUserId` and `lockedAt`) is still to be decided (M3 plan question
+        M3-1); nothing records a lock yet.
       x-required-role: Moderator
       x-milestone: M3
       parameters:
@@ -205,8 +220,10 @@ paths:
       summary: Approve and publish a story
       description: |
         Command `ApproveStory`. The database checks the submitter has the testimony consent (plan 4e;
-        any version: it covers every story they submit), then creates the `publicStory` row and a `moderationReview` in one transaction. The caller must hold the lock (`409`). The submitter is emailed after
-        the commit (address fetched from Clerk, D16).
+        any version: it covers every story they submit), then adds an `approved` entry to the
+        story's status log (R6), which publishes it (one `story` table, R11): one write. The
+        caller must hold the lock (`409`). Moderation emails come after Go live; until then the
+        submitter sees the outcome on "My submissions".
 
         Approval waits for processing (A2): every video, audio file and image must be `ready`, and a
         video must have its width, height and duration, an audio file its duration. Otherwise `409`
