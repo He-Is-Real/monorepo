@@ -7,7 +7,7 @@ import { CARD_TOP_CSS } from '@/lib/masonry';
 import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
 import { CardHeart } from './heart-button';
-import { PLAYER_MIN_HEIGHT, playerSrc } from './story-media';
+import { playerSrc } from './story-media';
 
 // A story's card (browse, home, related). Its sizes come from lib/card-metrics.ts (custom
 // properties, `--card-…`), which lib/masonry.ts predicts its height from (D55); its parts mirror
@@ -163,7 +163,10 @@ export function StoryCard({
         className="relative w-full shrink-0 overflow-hidden bg-surface"
         style={{
           aspectRatio: String(aspect),
-          ...(playable && { minHeight: PLAYER_MIN_HEIGHT, minWidth: 0 }),
+          ...(playable && {
+            minHeight: 'var(--card-player-min)',
+            minWidth: 0,
+          }),
         }}
       >
         {media.src && !playable ? (

@@ -2,7 +2,7 @@
 
 import { type CSSProperties, useEffect, useId, useRef } from 'react';
 import { connectPlayer } from '@/lib/player-js';
-import { PLAYER_ALLOW, PLAYER_MIN_HEIGHT } from './story-media';
+import { PLAYER_ALLOW } from './story-media';
 
 // A video or audio card's media area (story-card.tsx): Bunny's player itself, as on the story
 // page, with Bunny's own thumbnail and play button (Joel, 2026-11-09: no picture or play button of
@@ -56,11 +56,11 @@ export function CardPlayer({
     return () => observer.disconnect();
   }, [id]);
 
-  // Never shorter than the player's controls need (a 2:1 box on a phone is 144 px); lib/masonry.ts
-  // predicts the same height.
+  // Never shorter than the player's controls need (a 2:1 box on a phone is 144 px), in rem as
+  // lib/masonry.ts predicts it (CARD.playerMinHeight).
   const style: CSSProperties = {
     aspectRatio: String(aspect),
-    minHeight: PLAYER_MIN_HEIGHT,
+    minHeight: 'var(--card-player-min)',
     minWidth: 0, // or aspect-ratio turns the min-height into a wider minimum width
   };
   return (

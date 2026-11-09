@@ -7,8 +7,10 @@ export const CARD = {
   pad: 20,
   /**
    * A video or audio card's player box is never shorter than this (story-media.tsx's
-   * PLAYER_MIN_HEIGHT: Bunny's controls), in px whatever the text size: the player's controls
-   * don't grow with the page's text.
+   * PLAYER_MIN_HEIGHT: room for Bunny's controls). In rem like the rest of the card, so it grows
+   * with the reader's text size: the masonry's spans are in rem, and a minimum in px was predicted
+   * at twice its height with 200% text, so cards moved up once measured (Codex review of #207).
+   * Never under these px, though, with text set smaller than the default: the controls need them.
    */
   playerMinHeight: 184,
   /** Its top line: the label ("Written · 3 min read") and the person's name. */
@@ -57,6 +59,7 @@ const rem = (px: number) => `${px / 16}rem`;
  */
 export const CARD_CSS = `.story-card,[data-new-badge]{${Object.entries({
   pad: rem(CARD.pad),
+  'player-min': `max(${CARD.playerMinHeight}px,${rem(CARD.playerMinHeight)})`,
   'meta-font': rem(CARD.meta.font),
   'meta-line': rem(CARD.meta.line),
   'meta-after': rem(CARD.meta.after),
