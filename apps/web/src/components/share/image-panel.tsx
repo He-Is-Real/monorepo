@@ -298,6 +298,8 @@ export function ImagePanel({
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
+    // A panel mounted afresh tells the step where it starts: an earlier panel's state isn't its own (Codex #211).
+    onStateRef.current?.(stateOf(phaseRef.current));
     return () => {
       alive.current = false;
     };
