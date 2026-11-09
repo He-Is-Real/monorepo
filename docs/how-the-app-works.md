@@ -234,6 +234,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   device: WebP, at most 2048 pixels on the long side, at least 200 pixels a side, at most 5 MB,
   and no more extreme than 1:3 or 3:1. A description for screen readers is optional, on every
   type.
+- **A chosen picture is added straight away** (Joel, 2026-11-09), as a video or audio file
+  uploads once chosen: no "Add" button to press. A line says whether it is being prepared,
+  uploading or added; Continue waits while it uploads. A failed upload keeps one "Try again"
+  button. Its description saves on its own when the person leaves the box (and before Continue).
 - **Videos and audio lose where and on what they were recorded before they leave the device**
   (M2, Joel 2026-11-06): the browser blanks an MP4, MOV or M4A file's location and device
   metadata in place, without re-encoding, so the file is the same size and plays the same. Bunny's

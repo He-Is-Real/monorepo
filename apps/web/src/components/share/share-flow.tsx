@@ -1049,6 +1049,12 @@ function WriteStep({
   const earlier = useEarlierPicture(calls, draft.draftId);
   const [picture, setPicture] = useState<PictureState>('none');
   const [pictureProblem, setPictureProblem] = useState<string | null>(null);
+  const savePicture = useRef<(() => Promise<boolean>) | null>(null);
+  // A problem about the picture is about the picture as it was: gone once it changes.
+  const pictureState = useCallback((state: PictureState) => {
+    setPicture(state);
+    setPictureProblem(null);
+  }, []);
   // The draft exists once it has its title and text (D53), so the picture comes after them.
   const preparePicture = async () => {
     if (!draft.fields.title.trim() || !draft.fields.body.trim()) {
@@ -1077,13 +1083,20 @@ function WriteStep({
         if (!draft.fields.body.trim()) p.body = 'Write your story here.';
         setProblems(p);
         if (p.title || p.body) return;
+        if (picture === 'uploading') {
+          setPictureProblem(
+            'Your picture is still uploading. Wait for it to finish, then continue.',
+          );
+          return;
+        }
         if (picture === 'unfinished') {
           setPictureProblem(
-            'Add the picture you chose, or remove it, before you continue.',
+            'Your picture hasn’t been added yet. Try adding it again, or remove it, before you continue.',
           );
           return;
         }
         setPictureProblem(null);
+        if (savePicture.current && !(await savePicture.current())) return;
         if (await draft.flush()) onNext();
       }}
     >
@@ -1154,7 +1167,8 @@ function WriteStep({
             setVersion={draft.setVersion}
             current={draft.current}
             reload={draft.load}
-            onState={setPicture}
+            onState={pictureState}
+            saveRef={savePicture}
           />
           {pictureProblem && (
             <p role="alert" className="mt-2 text-destructive">
@@ -1204,6 +1218,14 @@ function MediaStep({
   const [problem, setProblem] = useState<string | null>(null);
   const [file, setFile] = useState<FileState>('none');
   const [picture, setPicture] = useState<PictureState>('none');
+  const [pictureProblem, setPictureProblem] = useState<string | null>(null);
+  const savePicture = useRef<(() => Promise<boolean>) | null>(null);
+  const pictureNoun = format === 'video' ? 'thumbnail' : 'picture';
+  // A problem about the picture is about the picture as it was: gone once it changes.
+  const pictureState = useCallback((state: PictureState) => {
+    setPicture(state);
+    setPictureProblem(null);
+  }, []);
   const { draftId } = draft;
   // Whether the story has a file (and a picture) from before (another tab or device).
   const story = useEarlierPicture(calls, draftId);
@@ -1242,13 +1264,21 @@ function MediaStep({
           );
           return;
         }
-        if (picture === 'unfinished') {
-          setProblem(
-            `Add the ${format === 'video' ? 'thumbnail' : 'picture'} you chose, or remove it, before you continue.`,
+        setProblem(null);
+        if (picture === 'uploading') {
+          setPictureProblem(
+            `Your ${pictureNoun} is still uploading. Wait for it to finish, then continue.`,
           );
           return;
         }
-        setProblem(null);
+        if (picture === 'unfinished') {
+          setPictureProblem(
+            `Your ${pictureNoun} hasn’t been added yet. Try adding it again, or remove it, before you continue.`,
+          );
+          return;
+        }
+        setPictureProblem(null);
+        if (savePicture.current && !(await savePicture.current())) return;
         if (await draft.flush()) onNext();
       }}
     >
@@ -1316,15 +1346,16 @@ function MediaStep({
               setVersion={draft.setVersion}
               current={draft.current}
               reload={draft.load}
-              onState={setPicture}
+              onState={pictureState}
+              saveRef={savePicture}
             />
           </div>
         )}
       </div>
       <SaveState draft={draft} />
-      {problem && (
+      {(problem ?? pictureProblem) && (
         <p role="alert" className="mt-2 text-destructive">
-          {problem}
+          {problem ?? pictureProblem}
         </p>
       )}
       <Actions>

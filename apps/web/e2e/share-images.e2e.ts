@@ -176,7 +176,7 @@ test('a written story’s picture is previewed at its real shape, and the step f
     mimeType: 'image/jpeg',
     buffer: await drawn(page, 900, 1200, 'image/jpeg'),
   });
-  // At its real shape (3:4), before anything is sent.
+  // At its real shape (3:4).
   const preview = page.locator('[data-picture-preview]');
   await expect(preview.locator('img')).toBeVisible();
   const box = await preview.boundingBox();
@@ -213,11 +213,11 @@ test.describe('behaviour', () => {
       buffer: photo,
     });
 
-    // The description is never required (Joel, 2026-10-30); it can be added afterwards.
-    await page.getByRole('button', { name: 'Add this picture' }).click();
+    // Added as soon as it's chosen (Joel, 2026-11-09). The description is never required
+    // (Joel, 2026-10-30); typed afterwards, it saves once the box is left.
     await expect(page.getByText('Picture added.')).toBeVisible();
     await page.getByLabel('Describe the picture').fill('A green hill at dawn');
-    await page.getByRole('button', { name: 'Save description' }).click();
+    await page.getByLabel('Describe the picture').blur();
     await expect(page.getByText('Description saved.')).toBeVisible();
 
     const { images } = await me.uploads();
@@ -264,9 +264,63 @@ test.describe('behaviour', () => {
       mimeType: 'image/png',
       buffer: await drawn(page, width, height, 'image/png'),
     });
+  /**
+   * Without a title the picture can't be added yet: one chosen then stays on this device only,
+   * as a replacement not added (nothing is asked of api-user).
+   */
+  const chooseUnsent = async (page: Page, width: number, height: number) => {
+    await page.getByLabel('Title').fill('');
+    await choose(page, width, height);
+    await expect(
+      alert(page, 'Write your title and your story first'),
+    ).toBeVisible();
+    await page.getByLabel('Title').fill('A picture of where it happened');
+  };
   const isImageEdit = (r: { method(): string; postDataJSON(): unknown }) =>
     r.method() === 'PATCH' &&
     'image' in ((r.postDataJSON() as object | null) ?? {});
+
+  test('a chosen picture is added with no click; Continue waits while it uploads, and Enter in its description saves it before moving on', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    // The picture's file is held at the storage until the test lets it through.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    await page.route(`${STUB_USER_URL}/__s3/**`, async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      await held;
+      return route.fallback();
+    });
+    await choose(page, 900, 1200);
+    await expect(page.getByText('Uploading your picture…')).toBeVisible();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(
+      alert(page, 'Your picture is still uploading. Wait for it to finish'),
+    ).toBeVisible();
+
+    release();
+    await expect(
+      page
+        .getByRole('status')
+        .filter({ hasText: 'Picture added. You can continue.' }),
+    ).toBeVisible();
+    await expect(alert(page, 'still uploading')).toHaveCount(0);
+    expect((await me.uploads()).images).toMatchObject([
+      { bytes: expect.any(String) },
+    ]);
+
+    // Enter in the description sends the form without leaving the box: it's saved first.
+    const described = page.waitForRequest(isImageEdit);
+    await page.getByLabel('Describe the picture').fill('A green hill at dawn');
+    await page.getByLabel('Describe the picture').press('Enter');
+    expect((await described).postDataJSON()).toEqual({
+      image: { alt: 'A green hill at dawn' },
+    });
+    await step(page, 'Add some details');
+  });
 
   test('a failed upload is tried again at the same path; a replacement not yet added can be discarded; removing a granted picture takes it off the story (Codex #140, 2 and 3)', async ({
     page,
@@ -290,11 +344,9 @@ test.describe('behaviour', () => {
     });
 
     await choose(page, 900, 1200);
-    await page.getByLabel('Describe the picture').fill('A green hill at dawn');
-    await page.getByRole('button', { name: 'Add this picture' }).click();
     await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
     // Trying again replays the same grant: the same path, found there already (412).
-    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await page.getByRole('button', { name: 'Try again' }).click();
     await expect(page.getByText('Picture added.')).toBeVisible();
     const [first] = (await me.uploads()).images;
     expect((await me.uploads()).images).toEqual([
@@ -302,7 +354,7 @@ test.describe('behaviour', () => {
     ]);
 
     // Another picture, not added yet: discarding it keeps the story's, with nothing sent.
-    await choose(page, 1280, 720);
+    await chooseUnsent(page, 1280, 720);
     await page
       .getByRole('button', { name: 'Keep the earlier picture' })
       .click();
@@ -315,7 +367,6 @@ test.describe('behaviour', () => {
     // Added again, its PUT fails: it's on the draft, so removing it is an edit at the server.
     puts.push('fail');
     await choose(page, 1280, 720);
-    await page.getByRole('button', { name: 'Add this picture' }).click();
     await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
     expect((await me.uploads()).images).toHaveLength(2);
     const removed = page.waitForResponse(
@@ -333,7 +384,6 @@ test.describe('behaviour', () => {
   }) => {
     const me = await person(page, request);
     await written(page);
-    await choose(page, 900, 1200);
     // While this tab asks, another tab of theirs adds a 16:9 picture: this tab's request is stale.
     let other = false;
     await page.route(
@@ -348,7 +398,7 @@ test.describe('behaviour', () => {
         return route.fallback();
       },
     );
-    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await choose(page, 900, 1200);
 
     // The story's picture now is shown, and nothing more was asked for.
     await expect(alert(page, 'was changed in another tab')).toBeVisible();
@@ -389,13 +439,12 @@ test.describe('behaviour', () => {
       if (isImageEdit(r)) edits.push(r.postDataJSON());
     });
     await choose(page, 900, 1200);
-    await page.getByRole('button', { name: 'Add this picture' }).click();
     await expect(alert(page, 'can’t reach our server')).toBeVisible();
     expect((await me.uploads()).images).toHaveLength(1);
 
-    // Another picture chosen, then discarded: the story is read, and its picture shown as it is,
-    // with its file never sent, so not finished.
-    await choose(page, 1280, 720);
+    // Another picture chosen, not added, then discarded: the story is read, and its picture
+    // shown as it is, with its file never sent, so not finished.
+    await chooseUnsent(page, 1280, 720);
     await page
       .getByRole('button', { name: /^(Remove|Keep the earlier) picture$/ })
       .click();
@@ -406,7 +455,7 @@ test.describe('behaviour', () => {
     expect(edits).toEqual([]);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(
-      page.getByText('Add the picture you chose, or remove it'),
+      page.getByText('Your picture hasn’t been added yet'),
     ).toBeVisible();
 
     // Removing that one takes it off the story.
@@ -428,12 +477,11 @@ test.describe('behaviour', () => {
       return route.fulfill({ status: 500 });
     });
     await choose(page, 900, 1200);
-    await page.getByRole('button', { name: 'Add this picture' }).click();
     await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
 
-    // Another picture chosen, then the earlier one kept: its file never arrived, so it isn't
-    // finished, and Continue waits for it.
-    await choose(page, 1280, 720);
+    // Another picture chosen, not added, then the earlier one kept: its file never arrived, so
+    // it isn't finished, and Continue waits for it.
+    await chooseUnsent(page, 1280, 720);
     await page
       .getByRole('button', { name: 'Keep the earlier picture' })
       .click();
@@ -443,11 +491,11 @@ test.describe('behaviour', () => {
     expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(0.75, 1);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(
-      page.getByText('Add the picture you chose, or remove it'),
+      page.getByText('Your picture hasn’t been added yet'),
     ).toBeVisible();
 
-    // Adding it again uploads it to the path its grant has, counting nothing new.
-    await page.getByRole('button', { name: 'Add this picture' }).click();
+    // Trying again uploads it to the path its grant has, counting nothing new.
+    await page.getByRole('button', { name: 'Try again' }).click();
     await expect(page.getByText('Picture added.')).toBeVisible();
     expect((await me.uploads()).images).toEqual([
       expect.objectContaining({ bytes: expect.any(String) }),
@@ -461,7 +509,6 @@ test.describe('behaviour', () => {
     const me = await person(page, request);
     await written(page);
     await choose(page, 900, 1200);
-    await page.getByRole('button', { name: 'Add this picture' }).click();
     await expect(page.getByText('Picture added.')).toBeVisible();
 
     // Another tab of theirs puts a 16:9 picture on in place of the one this tab shows. This tab
@@ -470,7 +517,6 @@ test.describe('behaviour', () => {
     await me.otherTab(first.story, 1280, 720);
     await page.getByLabel('Title').fill('Where it happened, on the hill');
     await choose(page, 600, 1200);
-    await page.getByRole('button', { name: 'Add this picture' }).click();
 
     // The story's picture now is shown, and nothing more was granted.
     await expect(alert(page, 'was changed in another tab')).toBeVisible();
@@ -497,8 +543,6 @@ test.describe('behaviour', () => {
     await person(page, request);
     await written(page);
     await choose(page, 900, 1200);
-    await page.getByLabel('Describe the picture').fill('A green hill at dawn');
-    await page.getByRole('button', { name: 'Add this picture' }).click();
     await expect(page.getByText('Picture added.')).toBeVisible();
 
     // Every save is held from here, so the text typed next is on this device only.
@@ -517,7 +561,7 @@ test.describe('behaviour', () => {
       .getByLabel('Your story')
       .fill('Something private, never saved. '.repeat(8));
     await page.getByLabel('Describe the picture').fill('The hill at sunrise');
-    await page.getByRole('button', { name: 'Save description' }).click();
+    await page.getByLabel('Describe the picture').blur();
     await described;
 
     // Signing out (as Clerk's does: Share's storage cleared, the flow gone), in the same page.
@@ -562,7 +606,6 @@ test.describe('behaviour', () => {
       mimeType: 'image/png',
       buffer: await drawn(page, 1280, 720, 'image/png'),
     });
-    await page.getByRole('button', { name: 'Add this thumbnail' }).click();
     await expect(page.getByText('Thumbnail added.')).toBeVisible();
     expect((await me.uploads()).images).toMatchObject([
       { bytes: expect.any(String) },
@@ -615,7 +658,6 @@ test.describe('behaviour', () => {
       await saved(page);
       await me.agreements(again.older);
       await choose(page, 900, 1200);
-      await page.getByRole('button', { name: 'Add this picture' }).click();
       await step(page, again.heading);
       await page.locator('label').filter({ hasText: again.box }).click();
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -645,11 +687,10 @@ test.describe('behaviour', () => {
       return route.fulfill({ status: 500 });
     });
     await choose(page, 900, 1200);
-    await page.getByRole('button', { name: 'Add this picture' }).click();
     await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
     const [granted] = (await me.uploads()).images;
     await me.agreements({ testimony: 1 });
-    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await page.getByRole('button', { name: 'Try again' }).click();
     await step(page, 'Our testimony consent has changed');
     await page
       .locator('label')
@@ -668,7 +709,7 @@ test.describe('behaviour', () => {
     ]);
   });
 
-  test('not agreeing for a picture leaves it to add, with the reason, and adding it asks again', async ({
+  test('not agreeing for a picture leaves it to add, with the reason, and trying again asks again', async ({
     page,
     request,
   }) => {
@@ -677,7 +718,6 @@ test.describe('behaviour', () => {
     await saved(page);
     await me.agreements({ testimony: 1 });
     await choose(page, 900, 1200);
-    await page.getByRole('button', { name: 'Add this picture' }).click();
     await step(page, 'Our testimony consent has changed');
     await page.getByRole('button', { name: 'Back' }).click();
     await step(page, 'Write your story');
@@ -686,7 +726,7 @@ test.describe('behaviour', () => {
     ).toBeVisible();
     await expect(page.locator('[data-picture-preview] img')).toBeVisible();
     expect((await me.uploads()).images).toEqual([]);
-    await page.getByRole('button', { name: 'Add this picture' }).click();
+    await page.getByRole('button', { name: 'Try again' }).click();
     await step(page, 'Our testimony consent has changed');
     await page
       .locator('label')
