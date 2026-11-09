@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-06
+**Last updated:** 2026-11-09
 
 ## Needs Joel to confirm
 
@@ -353,7 +353,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 
 ## Moderation
 
-Built in the database (the pages and the queue are planned, M3):
+Built in the database (the decisions and their pages are planned, M3):
 
 - A story's statuses: draft, waiting for review, in review, approved, sent back for changes,
   rejected, withdrawn, and hidden (approved, but off the site while its media is fixed, or
@@ -416,13 +416,30 @@ Built in the database (the pages and the queue are planned, M3):
 - A person can read moderators' decisions and feedback on their own stories, never who made them.
 - The status log is the moderation history; there is no separate audit log (Joel, 2026-11-05).
 
+Built, read-only (M3 plan, pull request 1; Joel, 2026-11-09):
+
+- **Who:** Moderators, Admins and Super Admins. The staff menu shows "Moderation" to them; the
+  other staff pages stay Admins and up. The database knows moderators only as api-admin's login,
+  so api-admin checks the role on every moderation request and refuses anyone below Moderator.
+- **The queue** (`/moderation`): the stories waiting for review, the one sent longest ago first
+  (a story sent again after changes goes to the back), 20 at a time with "Show more". Each shows
+  its title, kind (video, audio, written) and when it was sent.
+- **The review page** (`/moderation/{id}`): the story as the public would see it, built from the
+  public story page's own parts (player or picture, title, byline, themes, words), with the
+  player's playback-speed menu on; then its history, oldest first: each step, whether the person,
+  a moderator or the system made it, when, and any note a moderator left the person. Only a
+  story waiting for review or in review opens; any other says it isn't waiting for review.
+- **Least about the person:** moderators see the byline the person chose, never their name,
+  email, account id or join date, and never which moderator made a step.
+- **Links last one hour:** the player and picture links are signed for one hour from when the
+  page loads; reloading the page gets fresh ones. A video or audio file is playable once Bunny
+  has processed it; until then the page says it is still being processed.
+
 Planned (M3):
 
-- A queue of stories waiting for review, oldest first. A moderator picks one up, which locks it
-  for them, and can release it.
-- The review view: the player (with playback speed), the text, themes and submitter details,
-  with Approve, Request changes, Reject and Escalate. Reject and Request changes need feedback,
-  written pastorally, which the person sees on their profile.
+- A moderator picks a story up, which locks it for them, and can release it.
+- Approve, Request changes, Reject and Escalate on the review page. Reject and Request changes
+  need feedback, written pastorally, which the person sees on their profile.
 - A story changed after it went public needs approving again. (D59, D66)
 
 ## Donations

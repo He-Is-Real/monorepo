@@ -130,6 +130,15 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
       # secret verifies user.deleted; both are read when first needed, so a secret without a
       # version yet turns off only that. Secret names, never values; secrets.tf (Clerk) and the
       # bunny root grant the access.
+      # Moderation (M3 plan PR 1): api-admin signs moderators' one-hour player and picture
+      # links with the same two token auth keys (the bunny root grants the access).
+      dynamic "env" {
+        for_each = each.key == "api-admin" && var.api_admin_media_signing ? local.api_public_read_media_env : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       dynamic "env" {
         for_each = each.key != "api-user" ? {} : merge(
           {

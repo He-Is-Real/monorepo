@@ -12,7 +12,7 @@ is for) is the delivery plan in the `project` repo (`context/future/delivery-pla
 - The long dated log and the per-step build notes that used to be here are in git history
   (this file before 2026-11-04).
 
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-09
 
 Everything below runs on the **dev** site only, with made-up test stories. Nothing reaches the
 public until the "Go live" milestone; the old prototype and the Squarespace site keep running
@@ -25,7 +25,7 @@ until then.
 | M0 Walking skeleton               | ✅ Done        | The foundations: the code base, the cloud set-up, the database, sign-in and a first public page.                                                   |
 | M1 Browse & view                  | ✅ Done        | Anyone can read, watch and listen to stories, browse and search them, and read the information pages. Done 2026-10-24.                             |
 | M2 Accounts & submission          | 🟡 In progress | People can sign up, agree to the terms, share stories, manage them, keep favourites, download their data and delete their account. Two parts left. |
-| M3 Moderation                     | ⚪ Not started | Moderators review stories before they go public.                                                                                                   |
+| M3 Moderation                     | 🟡 In progress | Moderators review stories before they go public. The queue and a read-only review page are being built.                                            |
 | M4 Donations                      | 🟡 In progress | Giving through Stripe works on dev in Stripe's test mode. Recording donors and Gift Aid are not started.                                           |
 | M5 Admin dashboard                | ⚪ Not started | Three admin pages already exist from M2 (limits, themes, consent texts); the dashboard itself is not started.                                      |
 | M6 Community vetting              | ⚪ Not started |                                                                                                                                                    |
@@ -218,11 +218,22 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 badge); seen tracking; submission emails (moved to the Emails milestone); editing a story that
 was sent back for changes (moves to M3 with moderation).
 
-## M3: Moderation ⚪
+## M3: Moderation 🟡
 
-Not started. Planned: a moderation queue, a review view with approve, request changes, reject
-and escalate, feedback the person sees on their profile, and assigning the moderator role.
-Needs "Media ready" from M2 before video stories can be approved.
+Planned in `project/context/research/m3-plan-and-m2-extras.html` (9 November 2026) as nine pull
+requests in waves; Joel said to start on 2026-11-09. Most of them wait for his answers to that
+page's questions.
+
+**In progress:** the read side (pull request 1 of the plan). Moderators and above get a
+"Moderation" link in the staff menu, a queue of the stories waiting for review (the one sent
+longest ago first), and a review page that shows a story as the public would see it, with the
+player's speed menu and the story's history with past moderators' notes. Read-only: there are no
+buttons yet. Before its links work on dev, apply the bunny root (it lets api-admin read the two
+link-signing keys), then the gcp root.
+
+**Next, once Joel answers:** the person's own preview, editing a story sent back for changes,
+the page that gives people the Moderator role, picking a story up (the lock), the "your video
+couldn't be used" message, then the decision buttons with feedback, and Escalate.
 
 ## M4: Donations 🟡
 

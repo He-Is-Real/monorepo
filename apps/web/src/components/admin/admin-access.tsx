@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useMemo } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
 import {
+  type Account,
   type ApiUser,
   ApiUserProblem,
   apiUser,
@@ -12,14 +13,39 @@ import {
 } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 
-const ADMIN_ROLES = new Set(['Admin', 'SuperAdmin']);
+type Role = Account['role'];
+/** D1's order: each role can do what the ones before it can. */
+const RANK: Record<Role, number> = {
+  Viewer: 0,
+  User: 1,
+  Moderator: 2,
+  Admin: 3,
+  SuperAdmin: 4,
+};
+/** The lowest role a staff page is for. */
+export type StaffRole = 'Moderator' | 'Admin';
+const atLeast = (role: Role | undefined, min: StaffRole) =>
+  role !== undefined && RANK[role] >= RANK[min];
 
-/** The admin pages, each linking the others. */
-const ADMIN_PAGES = [
-  { href: '/admin/consent', label: 'Consent & legal' },
-  { href: '/admin/limits', label: 'Submission limits' },
-  { href: '/admin/themes', label: 'Themes' },
+/**
+ * The staff pages, each linking the others, each shown to its role and up: Moderation to
+ * Moderators and up (M3 plan PR 1), the rest to Admins and up.
+ */
+const ADMIN_PAGES: { href: string; label: string; min: StaffRole }[] = [
+  { href: '/moderation', label: 'Moderation', min: 'Moderator' },
+  { href: '/admin/consent', label: 'Consent & legal', min: 'Admin' },
+  { href: '/admin/limits', label: 'Submission limits', min: 'Admin' },
+  { href: '/admin/themes', label: 'Themes', min: 'Admin' },
 ];
+
+/** The signed-in person's role once api-user has told us, else `undefined`. */
+function useRole(): Role | undefined {
+  const session = usePersonalSession();
+  const account = useAccountState(
+    session.status === 'signed-in' ? session.userId : null,
+  );
+  return account.status === 'ready' ? account.account.role : undefined;
+}
 
 /** A button whose words may wrap (200% text on a 320 px phone): full width there. */
 export const WRAPPING_BUTTON =
@@ -35,13 +61,17 @@ export const problemText = (err: unknown) => {
   return 'api-admin couldn’t be reached. Try again in a moment.';
 };
 
-/** Links to the other admin pages. */
+/**
+ * Links to the staff pages the person's role may use (none until their role is known). The row
+ * keeps its height meanwhile, so the page doesn't jump when the links appear.
+ */
 export function AdminNav() {
   const here = usePathname();
+  const role = useRole();
   return (
-    <nav aria-label="Admin pages" className="mb-8">
+    <nav aria-label="Admin pages" className="mb-8 min-h-11">
       <ul className="flex flex-wrap gap-x-6 gap-y-1">
-        {ADMIN_PAGES.map((p) => (
+        {ADMIN_PAGES.filter((p) => atLeast(role, p.min)).map((p) => (
           <li key={p.href}>
             <Link
               href={p.href}
@@ -58,16 +88,18 @@ export function AdminNav() {
 }
 
 /**
- * The staff gate every admin page shares (D1): api-admin's client for a signed-in Admin or
- * SuperAdmin, or what to tell anyone else. api-admin checks the role again on every call; this
- * only spares others a page of errors. The browser calls api-admin with the person's own token
- * (D31), through the same client as api-user.
+ * The staff gate every admin page shares (D1): api-admin's client for a signed-in person of at
+ * least `min` (Admin unless the page says Moderator), or what to tell anyone else. api-admin
+ * checks the role again on every call; this only spares others a page of errors. The browser
+ * calls api-admin with the person's own token (D31), through the same client as api-user.
  */
 export function AdminAccess({
   apiAdminUrl,
+  min = 'Admin',
   children,
 }: {
   apiAdminUrl?: string;
+  min?: StaffRole;
   children: (client: ApiUser) => React.ReactNode;
 }) {
   const session = usePersonalSession();
@@ -92,7 +124,9 @@ export function AdminAccess({
         className="rounded-2xl border border-border bg-card p-6"
         data-admin-refused=""
       >
-        Sign in with an admin account to use this page.
+        {min === 'Moderator'
+          ? 'Sign in with a moderator account to use this page.'
+          : 'Sign in with an admin account to use this page.'}
       </p>
     );
   }
@@ -103,13 +137,15 @@ export function AdminAccess({
       </p>
     );
   }
-  if (role === undefined || !ADMIN_ROLES.has(role)) {
+  if (!atLeast(role, min)) {
     return (
       <p
         className="rounded-2xl border border-border bg-card p-6"
         data-admin-refused=""
       >
-        This page is for admins.
+        {min === 'Moderator'
+          ? 'This page is for moderators.'
+          : 'This page is for admins.'}
       </p>
     );
   }

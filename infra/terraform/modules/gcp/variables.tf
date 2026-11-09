@@ -157,6 +157,23 @@ variable "api_user_media_signing" {
   }
 }
 
+variable "api_admin_media_signing" {
+  description = <<-EOT
+    Moderation (M3 plan PR 1): api-admin signs one-hour player and picture links
+    for stories waiting for review, with the same settings and keys as
+    api-public-read (api_public_read_media, which must be set). The bunny root
+    must already let api-admin read the two token auth keys
+    (signing_key_readers): a revision that can't read them doesn't start.
+    false = moderators' pages carry no media links.
+  EOT
+  type        = bool
+  default     = false
+  validation {
+    condition     = !var.api_admin_media_signing || var.api_public_read_media != null
+    error_message = "api_admin_media_signing needs api_public_read_media (the identifiers and secret names it reuses)."
+  }
+}
+
 variable "api_user_uploads" {
   description = <<-EOT
     Video and audio uploads (M2 plan PR 7): api-user creates each story's Bunny

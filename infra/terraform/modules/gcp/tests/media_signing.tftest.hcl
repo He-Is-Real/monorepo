@@ -1,7 +1,8 @@
 # D52: api-public-read gets the media-signing settings (identifiers and secret
 # names, never values) only when api_public_read_media is set, and api-user (hearts,
-# M2) only when api_user_media_signing is on too; api-admin never. Mock providers:
-# no Google access.
+# M2) only when api_user_media_signing is on too, and api-admin (moderators' one-hour
+# links, M3 plan PR 1) only when api_admin_media_signing is on. Mock providers: no
+# Google access.
 
 mock_provider "google" {
   mock_resource "google_service_account" {
@@ -114,8 +115,44 @@ run "api_user_signs_like_api_public_read" {
   assert {
     condition = length([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
     e if startswith(e.name, "BUNNY_")]) == 0
-    error_message = "api-admin never signs media links."
+    error_message = "api-admin signs no media links unless api_admin_media_signing is on."
   }
+}
+
+run "api_admin_signs_like_api_public_read" {
+  command = plan
+  variables {
+    api_public_read_media = {
+      stream_library_id   = "786537"
+      stream_cdn_hostname = "vz-da4dce15-a49.b-cdn.net"
+      images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
+    }
+    api_admin_media_signing = true
+  }
+
+  assert {
+    condition = {
+      for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
+      e.name => e.value if startswith(e.name, "BUNNY_")
+      } == {
+      for e in google_cloud_run_v2_service.api_public_read.template[0].containers[0].env :
+      e.name => e.value if startswith(e.name, "BUNNY_")
+    }
+    error_message = "api-admin gets the same five BUNNY_* variables as api-public-read."
+  }
+  assert {
+    condition = length([for e in google_cloud_run_v2_service.signed_in_api["api-user"].template[0].containers[0].env :
+    e if startswith(e.name, "BUNNY_")]) == 0
+    error_message = "api-admin's signing doesn't turn on api-user's."
+  }
+}
+
+run "api_admin_signing_needs_the_settings" {
+  command = plan
+  variables {
+    api_admin_media_signing = true
+  }
+  expect_failures = [var.api_admin_media_signing]
 }
 
 run "api_user_signing_needs_the_settings" {
