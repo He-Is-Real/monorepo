@@ -284,11 +284,12 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
 --   the time, rounded up to the second, from which it can be approved.
 -- - An open media job (J6): a check or render for the story's media file or picture that hasn't
 --   ended (mediaJob doneAt), e.g. the picture video of an audio story whose picture changed.
--- - A video's picture being changed at Bunny (Joel, 2026-11-08, T3): its storyFile
---   thumbnailLockedUntil is set and after $now. Here, not in approval_problem: like an open job it
---   is a moment of the review, not the files being unfit to show, so it must never hide an
---   approved story or stop one coming back (check_files, restorable), and it is judged at the
---   approval's own time.
+-- - A video's picture at Bunny not confirmed (Joel, 2026-11-08, T3; 2026-11-09, T4 = A): its
+--   storyFile thumbnailLockedUntil is set, whether in the future (a writer is at work) or past (an
+--   unfinished write: Bunny may show another picture). Only a write Bunny confirmed and the result
+--   writer recorded empties it. Here, not in approval_problem: like an open job it is a moment of
+--   the review, not the files being unfit to show, so it must never hide an approved story or stop
+--   one coming back (check_files, restorable).
 -- A SuperAdmin may approve anyway, and the entry records it (storyStatusLog.skippedMediaWait).
 -- Messages start with a code for api-admin (409). $now: the time to judge at (the approval's).
 -- Runs elevated from the event (only the services read mediaJob).
@@ -304,10 +305,10 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_wait($s: any, $now: datetime) {
     RETURN 'media_recently_uploaded: the story’s file was uploaded recently; it can be approved after '
       + <string> time::ceil($until, 1s);
   };
-  -- T3 (Joel, 2026-11-08): a writer is changing the video's picture at Bunny (its lock, set and
-  -- not yet run out; one that has run out is ignored).
+  -- T3/T4 (Joel, 2026-11-08/09): the video's picture at Bunny isn't confirmed yet (a writer at
+  -- work, or one that ran out unfinished).
   LET $lock = IF $s.mediaFile != NONE { (SELECT VALUE thumbnailLockedUntil FROM ONLY $s.mediaFile) };
-  IF $lock != NONE AND $now < $lock {
+  IF $lock != NONE {
     RETURN 'media_still_processing: the story’s media is still being processed';
   };
   IF $files != [] AND (SELECT VALUE id FROM mediaJob WHERE file IN $files AND doneAt = NONE LIMIT 1) != [] {
@@ -1106,13 +1107,21 @@ DEFINE FIELD OVERWRITE thumbnailOf     ON storyFile TYPE option<record<storyFile
     FOR create, update WHERE $auth = service:workflow;
 -- T3 (Joel, 2026-11-08, org-setup-and-picture-video.html): the lock a result writer holds on a
 -- video's row while it changes the video's picture at Bunny, so only one writer at a time does:
--- until when it is held (the writer's clock, now + 2 minutes). The writer takes it only if it is
--- empty or already past, and clears it with thumbnailOf, only if it still holds this exact value
--- (the holder's mark). A moderator's approval waits while it is set and in the future
--- (fn::story::approval_wait); one in the past is ignored, so a crashed writer needs no clean-up.
--- Only workflow reads or writes it.
+-- until when it is held (the database's clock, now + 2 minutes; Codex r5). Three states (T4 = A,
+-- Joel, 2026-11-09):
+-- - NONE: Bunny confirmed the picture (thumbnailOf);
+-- - in the future: a writer is at work; other writers try again later;
+-- - in the past: unfinished (the writer failed, timed out or crashed), so Bunny may show another
+--   picture; any writer may take it over and finish.
+-- The writer takes it only if it is NONE or past, and empties it with thumbnailOf only if it still
+-- holds this exact value (the holder's mark) and it hasn't run out. Nothing else empties it while
+-- its story shows the video (a job giving up doesn't). A moderator's approval waits while it is
+-- set at all (fn::story::approval_wait). The nightly housekeeping opens a check of any video
+-- left unfinished, so it is retried rather than stuck. Only workflow writes it; housekeeping
+-- reads it for that re-check; nobody else sees it.
 DEFINE FIELD OVERWRITE thumbnailLockedUntil ON storyFile TYPE option<datetime>
-  PERMISSIONS FOR select, create, update WHERE $auth = service:workflow;
+  PERMISSIONS FOR select WHERE $auth IN [service:workflow, service:housekeeping],
+    FOR create, update WHERE $auth = service:workflow;
 -- When its story stopped pointing at it: set by story_files only (events run elevated).
 DEFINE FIELD OVERWRITE detachedAt      ON storyFile TYPE option<datetime>
   PERMISSIONS FOR select WHERE person = $auth
@@ -1362,14 +1371,17 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 --   the table replaces dead letters).
 -- - doneAt and outcome: set once, when it ends: applied (the answer was saved), stale (a newer
 --   answer was already in), gone (the file or story was deleted) or gave_up.
--- Services only (no person's session sees it): api-user and workflow create jobs; api-user records
--- its sends and new reasons, housekeeping its resends; only workflow ends a job. Housekeeping
+-- Services only (no person's session sees it): api-user and workflow create jobs, housekeeping only
+-- the nightly re-check of a video whose picture at Bunny is unfinished (T4: a check, reason
+-- resent); api-user records its sends and new reasons, housekeeping its resends; only workflow
+-- ends a job. Housekeeping
 -- deletes done jobs 30 days after they ended (J2). Person-linked through its file: every write
 -- needs the person to exist and not be erased, and bumps their fence, so it conflicts with an
 -- erasure that overlaps it (docs/db-permissions.md, "Person-linked tables").
 DEFINE TABLE OVERWRITE mediaJob SCHEMAFULL PERMISSIONS          -- id = mediaJob:<ulid>
   FOR select WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
-  FOR create WHERE $auth IN [service:api_user, service:workflow],
+  FOR create WHERE $auth IN [service:api_user, service:workflow]
+    OR ($auth = service:housekeeping AND kind = 'check' AND reasons = ['resent']),
   FOR update WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
   FOR delete WHERE $auth = service:housekeeping AND doneAt != NONE AND doneAt <= time::now() - 30d;
 DEFINE FIELD OVERWRITE file       ON mediaJob TYPE record<storyFile> READONLY;

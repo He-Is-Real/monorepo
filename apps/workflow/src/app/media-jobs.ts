@@ -303,8 +303,10 @@ export async function answerJob(
  * T3's two timings (Joel, 2026-11-08, org-setup-and-picture-video.html): how long a writer holds
  * a video's lock (`lockMs`, default 2 minutes), and how long all its calls to Bunny under it may
  * take together (`callMs`, default 20 seconds: each call is cut off when that runs out). The rest
- * of the lock (100 seconds) is the margin for a call Bunny might still apply after we gave up on
- * it. `now` is the writer's clock (tests control it).
+ * of the lock (at least 100 seconds) is the margin for a call Bunny might still apply after we
+ * gave up on it. The database's clock judges the lock (Codex r5): the writer never sends a time
+ * of its own. `now` is a monotonic clock in milliseconds, used only for the calls' budget (tests
+ * may replace it).
  */
 export interface ThumbnailLock {
   lockMs: number;
@@ -313,10 +315,13 @@ export interface ThumbnailLock {
 }
 export const THUMBNAIL_LOCK = Symbol('THUMBNAIL_LOCK');
 
+/** The least margin between the calls' end and the lock's (T4; Joel, 2026-11-09). */
+export const LOCK_MARGIN_MS = 100_000;
+
 /**
  * The lock's timings from THUMBNAIL_LOCK_SECONDS and THUMBNAIL_CALL_SECONDS (whole seconds), or
- * the defaults. Fails start-up unless the calls' time is at most a third of the lock's, so a
- * margin of at least two calls' length is left.
+ * the defaults (120 and 20). Fails start-up unless the lock outlasts the calls by at least
+ * {@link LOCK_MARGIN_MS}, so settings can't shrink the safety margin.
  */
 export function thumbnailLockFromEnv(
   env: Record<string, string | undefined> = process.env,
@@ -329,28 +334,31 @@ export function thumbnailLockFromEnv(
   };
   const lockMs = seconds('THUMBNAIL_LOCK_SECONDS', 120) * 1000;
   const callMs = seconds('THUMBNAIL_CALL_SECONDS', 20) * 1000;
-  if (callMs * 3 > lockMs) {
+  if (lockMs - callMs < LOCK_MARGIN_MS) {
     throw new Error(
-      'THUMBNAIL_CALL_SECONDS must be at most a third of THUMBNAIL_LOCK_SECONDS',
+      'THUMBNAIL_LOCK_SECONDS must be at least 100 more than THUMBNAIL_CALL_SECONDS',
     );
   }
-  return { lockMs, callMs, now: () => Date.now() };
+  return { lockMs, callMs, now: () => performance.now() };
 }
 
 /**
- * T3 step a and b, in one transaction: take the video's lock (thumbnailLockedUntil = `$until`)
- * only if it is empty or already past `$now`, and read the story's picture while holding it. A
+ * T3 step a and b, in one transaction: take the video's lock only if it is empty or already past
+ * the database's clock (T4: a past one is an unfinished write, which any writer may take over),
+ * setting it to the database's now + `$lockFor`, and read the story's picture while holding it.
+ * The value the database set, read back as text (to the nanosecond), is this holder's mark. A
  * file its story no longer shows needs no picture: the open job ends as gone.
  */
 const LOCK_SQL = `BEGIN TRANSACTION;
+  LET $now = time::now();
   LET $f = (SELECT id, format, story, detachedAt, removedAt, thumbnailLockedUntil
     FROM ONLY type::record('storyFile', $videoId));
   LET $shown = $f != NONE AND $f.format = 'video' AND $f.detachedAt = NONE
     AND $f.removedAt = NONE AND record::exists($f.story) AND $f.story.mediaFile = $f.id;
-  LET $held = $shown AND $f.thumbnailLockedUntil != NONE
-    AND $f.thumbnailLockedUntil > <datetime> $now;
-  IF $shown AND !$held {
-    UPDATE $f.id SET thumbnailLockedUntil = <datetime> $until RETURN NONE;
+  LET $held = $shown AND $f.thumbnailLockedUntil != NONE AND $f.thumbnailLockedUntil > $now;
+  LET $until = IF $shown AND !$held {
+    (UPDATE ONLY $f.id SET thumbnailLockedUntil = $now + <duration> $lockFor
+      RETURN VALUE thumbnailLockedUntil)
   };
   IF !$shown {
     UPDATE type::record('mediaJob', $job) SET doneAt = time::now(), outcome = 'gone'
@@ -358,22 +366,24 @@ const LOCK_SQL = `BEGIN TRANSACTION;
   };
   LET $picture = IF $shown AND !$held { (SELECT VALUE image.file FROM ONLY $f.story) };
   IF !$shown { { state: 'gone' } } ELSE IF $held { { state: 'held' } }
-    ELSE { { state: 'locked', picture: IF $picture != NONE { <string> record::id($picture) } } };
+    ELSE { { state: 'locked', until: <string> $until,
+      picture: IF $picture != NONE { <string> record::id($picture) } } };
   COMMIT TRANSACTION;`;
 
 /**
  * T3 step d, in one transaction, after Bunny took `$mine` (NONE for its own frame; `$thumb`,
- * Bunny's thumbnail file afterwards): only if the lock is still this writer's (still `$until`,
- * and `$now` before it). Then, if the story's picture is still `$mine`: record it as thumbnailOf,
- * clear the lock and close the job as applied; if it changed meanwhile, answer the new one (the
- * lock kept) for the writer to send. A file its story no longer shows: clear the lock, the job
+ * Bunny's thumbnail file afterwards): only if the lock is still this writer's (still exactly
+ * `$until`, and the database's clock before it). Then, if the story's picture is still `$mine`:
+ * record it as thumbnailOf, empty the lock (T4: the only write that empties it for a video its
+ * story shows) and close the job as applied; if it changed meanwhile, answer the new one (the
+ * lock kept) for the writer to send. A file its story no longer shows: empty the lock, the job
  * ends as gone. A lock lost (run out, or taken by another writer since) records nothing.
  */
 const SETTLE_SQL = `BEGIN TRANSACTION;
   LET $f = (SELECT id, format, story, detachedAt, removedAt, processing, thumbnailLockedUntil
     FROM ONLY type::record('storyFile', $videoId));
   LET $ours = $f != NONE AND $f.thumbnailLockedUntil = <datetime> $until
-    AND <datetime> $now < <datetime> $until;
+    AND time::now() < <datetime> $until;
   LET $shown = $ours AND $f.format = 'video' AND $f.detachedAt = NONE
     AND $f.removedAt = NONE AND record::exists($f.story) AND $f.story.mediaFile = $f.id;
   LET $picture = IF $shown { (SELECT VALUE image.file FROM ONLY $f.story) };
@@ -405,15 +415,18 @@ export type ThumbnailOutcome = 'closed' | 'retry';
 /**
  * Sets a ready video's picture at Bunny under its lock (T3; Joel, 2026-11-08), then closes the
  * job `job` that {@link answerJob} left open:
- * a. takes the lock for `lock.lockMs`, or answers `retry` if another writer holds it;
+ * a. takes the lock for `lock.lockMs` by the database's clock, or answers `retry` if another
+ *    writer holds it;
  * b. reads the story's picture (in the same transaction);
- * c. sets it at Bunny, every call cut off once `lock.callMs` from taking the lock has passed;
- * d. records it and lets go, only if the picture is still that one and the lock still this
- *    writer's; if the picture changed, sends the new one first, still under the lock.
+ * c. sets it at Bunny, every call cut off once `lock.callMs` has passed on the writer's monotonic
+ *    clock, counted from before the lock was taken (so the calls end before the lock's margin);
+ * d. records it and empties the lock, only if the picture is still that one and the lock still
+ *    this writer's; if the picture changed, sends the new one first, still under the lock.
  * e. A Bunny error from `setThumbnail` (or the cut-off) is thrown as it comes, with the job open
  *    and the lock left to run out: a call that failed or was cut off might still be applied at
- *    Bunny, so no other writer may start until the margin has passed. It never counts as the
- *    worker's failure; a redelivery, the 18:00 resend or the nightly sweep finishes it.
+ *    Bunny. Once past, the lock means "unfinished: Bunny may be wrong" (T4; Joel, 2026-11-09):
+ *    approval keeps waiting until a later writer takes it over and finishes. It never counts as
+ *    the worker's failure; a redelivery, the 18:00 resend or the nightly re-check finishes it.
  */
 export async function applyThumbnail(
   db: SurrealQueryable,
@@ -426,24 +439,23 @@ export async function applyThumbnail(
   video: string,
   lock: ThumbnailLock,
 ): Promise<ThumbnailOutcome> {
-  const takenAt = lock.now();
-  const until = new Date(takenAt + lock.lockMs).toISOString();
+  const callsEnd = lock.now() + lock.callMs;
   const taken = await retryOnConflict(async () => {
     const results = await runQuery(db, LOCK_SQL, {
       job,
       videoId: video,
-      now: new Date(takenAt).toISOString(),
-      until,
+      lockFor: `${lock.lockMs}ms`,
     });
     return results[results.length - 2] as {
       state: 'gone' | 'held' | 'locked';
+      until?: string;
       picture?: string | null;
     };
   });
   if (taken.state === 'gone') return 'closed';
   if (taken.state === 'held') return 'retry';
+  const until = taken.until as string;
   let picture = taken.picture ?? null;
-  const callsEnd = takenAt + lock.callMs;
   for (;;) {
     const thumb = await callWithin(callsEnd - lock.now(), (signal) =>
       setThumbnail(video, picture, signal),
@@ -452,7 +464,6 @@ export async function applyThumbnail(
       const results = await runQuery(db, SETTLE_SQL, {
         job,
         videoId: video,
-        now: new Date(lock.now()).toISOString(),
         until,
         mine: picture ?? undefined,
         thumb,

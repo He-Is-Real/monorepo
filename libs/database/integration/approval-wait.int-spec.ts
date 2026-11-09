@@ -26,6 +26,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
   let apiUser: Surreal;
   let admin: Surreal;
   let workflow: Surreal;
+  let housekeeping: Surreal;
   let pat: Surreal;
   let n = 0;
 
@@ -144,6 +145,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     apiUser = await t.service('api_user');
     admin = await t.service('api_admin');
     workflow = await t.service('workflow');
+    housekeeping = await t.service('housekeeping');
     await createPeople(t, { pat: 'user_pat', moderator: 'user_mod' });
     await trustSubmitters(t, 'pat');
     pat = await t.person('user_pat');
@@ -275,7 +277,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
       });
     });
 
-    it('a video’s picture being changed at Bunny counts until its lock runs out (T3)', async () => {
+    it('a video’s picture at Bunny counts until a confirmed write empties its lock, run out or not (T3, T4)', async () => {
       const id = await inReview({ video: '1d' });
       const key = `${id}-media`;
       const lock = (until: string) =>
@@ -284,19 +286,43 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
           `UPDATE type::record('storyFile', $key) SET thumbnailLockedUntil = ${until}`,
           { key },
         );
-      await lock('time::now() + 2m');
-      expect(await approve(id)).toEqual({
+      const waits = {
         ok: false,
         error: expect.stringContaining(
           'media_still_processing: the story’s media is still being processed',
         ),
-      });
-      // Run out (a writer that crashed): ignored, nothing to clean up.
+      };
+      // A writer at work.
+      await lock('time::now() + 2m');
+      expect(await approve(id)).toEqual(waits);
+      // Run out unfinished (T4 = A, Joel 2026-11-09): Bunny may show another picture; still waits,
+      // with no job open.
       await lock('time::now() - 1s');
+      expect(await approve(id)).toEqual(waits);
+      // A SuperAdmin may approve anyway, as with an open job.
+      expect(await approve(id, { skippedMediaWait: true })).toMatchObject({
+        ok: true,
+      });
+    });
+
+    it('once the result writer empties the lock (Bunny confirmed), approval goes ahead', async () => {
+      const id = await inReview({ video: '1d' });
+      const key = `${id}-media`;
+      await run(
+        workflow,
+        `UPDATE type::record('storyFile', $key) SET thumbnailLockedUntil = time::now() - 1s`,
+        { key },
+      );
+      expect(await approve(id)).toMatchObject({ ok: false });
+      await run(
+        workflow,
+        `UPDATE type::record('storyFile', $key) SET thumbnailLockedUntil = NONE`,
+        { key },
+      );
       expect(await approve(id)).toMatchObject({ ok: true });
     });
 
-    it('the lock is workflow’s alone: no other login sees or writes it', async () => {
+    it('the lock is workflow’s to write; only housekeeping also reads it (the nightly re-check)', async () => {
       const id = await inReview({ video: '1d' });
       const key = `${id}-media`;
       const read = (db: Surreal) =>
@@ -313,6 +339,11 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
       for (const db of [apiUser, admin, pat]) {
         // Hidden: no value, whether or not the login sees the row itself.
         expect((await read(db)).filter((v) => v != null)).toEqual([]);
+      }
+      expect((await read(housekeeping)).filter((v) => v != null)).toHaveLength(
+        1,
+      );
+      for (const db of [apiUser, admin, pat, housekeeping]) {
         await outcome(
           db,
           `UPDATE type::record('storyFile', $key) SET thumbnailLockedUntil = NONE`,

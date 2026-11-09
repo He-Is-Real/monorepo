@@ -93,10 +93,12 @@ paths:
         story's own, or Bunny's own frame when it has none; Joel, 2026-11-06, video-bundle-rethink.html
         part A) on every ready check, under the video's lock (Joel, 2026-11-08, T3): the answer's
         transaction leaves a check job open (if the job had already ended, it opens a check of the
-        file first), so approval waits; the writer takes the lock (`thumbnailLockedUntil`, 2 minutes,
-        only if empty or run out), reads the story's picture, sets it at Bunny (every call cut off 20
-        seconds after taking the lock), then, only if the lock is still its own, records it, clears
-        the lock and closes the job (`applied`), sending the new picture first if it changed. The
+        file first), so approval waits; the writer takes the lock (`thumbnailLockedUntil`, 2 minutes
+        by the database's clock, only if empty or run out), reads the story's picture, sets it at
+        Bunny (every call cut off 20 seconds after taking the lock), then, only if the lock is still
+        its own, records it, empties the lock and closes the job (`applied`), sending the new picture
+        first if it changed. A lock that ran out without being emptied keeps approval waiting (Joel,
+        2026-11-09, T4) until a later writer takes it over and finishes. The
         reply is `retry: true` (the job stays open, nothing is counted as a failure, the worker leaves
         it in the queue) when another writer holds the lock, when Bunny refuses, can't be reached or
         is cut off (the lock is then left to run out), or when the lock ran out before it could

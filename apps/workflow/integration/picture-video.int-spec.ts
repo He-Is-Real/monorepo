@@ -18,9 +18,11 @@ import { AppModule } from '../src/app/app.module';
 import { BunnyLibrary, WRITER_BUNNY } from '../src/app/bunny';
 import {
   answerJob,
+  applyThumbnail,
   type MediaAnswer,
   THUMBNAIL_LOCK,
   type ThumbnailLock,
+  thumbnailLockFromEnv,
 } from '../src/app/media-jobs';
 import {
   MEDIA_QUEUE,
@@ -54,6 +56,8 @@ class FakeStream {
   videos = new Map<string, { title: string; thumbnailFileName: string }>();
   thumbnailUrls: string[] = [];
   refuse = false;
+  /** Bunny takes the next thumbnail call, but its reply is lost (a 502 on the way back). */
+  loseReply = false;
   /** Holds a thumbnail call before Bunny takes it, while the promise it answers is pending. */
   hold?: (source: string) => Promise<void> | undefined;
   /** Holds a read of a video (after a thumbnail call Bunny took) the same way. */
@@ -82,6 +86,10 @@ class FakeStream {
         source === 'thumbnail_1.jpg'
           ? 'thumbnail_1.jpg'
           : 'thumbnail_9f8e7d6c.jpg';
+      if (this.loseReply) {
+        this.loseReply = false;
+        return json(502, {});
+      }
       return json(200, {});
     }
     await this.holdRead?.();
@@ -122,21 +130,26 @@ describe('result writer: picture videos and Bunny’s picture', () => {
     }) as MediaAnswer;
   let clock = Date.parse('2026-11-08T10:00:00Z');
   const next = () => new Date((clock += 1000)).toISOString();
-  /**
-   * The writer's clock for T3's lock, moved only by the tests; it starts past every upload link's
-   * cooldown, so approval is judged at it.
-   */
-  const writerClock = {
-    at: Date.now() + 3 * 3600_000,
-    advance(ms: number) {
-      this.at += ms;
-    },
-  };
+  /** When approval is judged: past every upload link's cooldown (fn::story::approval_wait). */
+  const approvalAt = new Date(Date.now() + 3 * 3600_000).toISOString();
+  /** T3's timings; the lock itself is judged by the database's clock (Codex r5). */
   const lock: ThumbnailLock = {
     lockMs: LOCK_MS,
     callMs: 20_000,
-    now: () => writerClock.at,
+    now: () => performance.now(),
   };
+  /**
+   * The video's lock runs out (no sleeps: its time is moved into the past, as the database's
+   * clock would leave it 2 minutes on). The holder's mark no longer matches either, as for a
+   * writer whose lock ran out and was taken over.
+   */
+  const runOut = (video: string) =>
+    rows(
+      migrator,
+      `UPDATE type::record('storyFile', $video)
+         SET thumbnailLockedUntil = time::now() - 1s WHERE thumbnailLockedUntil != NONE`,
+      { video },
+    );
 
   const versionOf = async (story: string) =>
     (
@@ -196,8 +209,8 @@ describe('result writer: picture videos and Bunny’s picture', () => {
     )[0];
   /**
    * Whether a moderator's approval would be refused for the story's media: an open job, a lock
-   * not run out or a file not fit to show (fn::story::approval_wait, judged at the writer's
-   * clock, after the upload cooldown, and fn::story::approval_problem).
+   * set (at work or unfinished, T4) or a file not fit to show (fn::story::approval_wait, judged
+   * after the upload cooldown, and fn::story::approval_problem).
    */
   const approvalBlocked = async (story: string) => {
     const [r] = await rows<{ wait: string | null; problem: string | null }>(
@@ -205,7 +218,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       `LET $s = (SELECT * FROM ONLY type::record('story', $story));
        RETURN { wait: fn::story::approval_wait($s, <datetime> $now) ?? null,
          problem: fn::story::approval_problem($s) ?? null };`,
-      { story, now: new Date(writerClock.at).toISOString() },
+      { story, now: approvalAt },
     );
     return r.wait !== null || r.problem !== null;
   };
@@ -293,6 +306,28 @@ describe('result writer: picture videos and Bunny’s picture', () => {
     bunny = new BunnyLibrary(bunnyConfig, stream.fetch);
   });
   afterAll(() => t?.close());
+
+  it('start-up refuses lock settings that leave Bunny’s calls less than a 100-second margin', () => {
+    expect(thumbnailLockFromEnv({})).toMatchObject({
+      lockMs: 120_000,
+      callMs: 20_000,
+    });
+    expect(
+      thumbnailLockFromEnv({
+        THUMBNAIL_LOCK_SECONDS: '200',
+        THUMBNAIL_CALL_SECONDS: '100',
+      }),
+    ).toMatchObject({ lockMs: 200_000, callMs: 100_000 });
+    expect(() =>
+      thumbnailLockFromEnv({ THUMBNAIL_LOCK_SECONDS: '119' }),
+    ).toThrow(/at least 100 more/);
+    expect(() =>
+      thumbnailLockFromEnv({
+        THUMBNAIL_LOCK_SECONDS: '300',
+        THUMBNAIL_CALL_SECONDS: '201',
+      }),
+    ).toThrow(/at least 100 more/);
+  });
 
   describe('the render decision', () => {
     it('an audio upload Bunny hasn’t finished yet: nothing to make until its check finds it ready', async () => {
@@ -695,7 +730,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         story,
       });
 
-    /** A moderator's approval would be refused at every step below (judged at the writer's clock). */
+    /** A moderator's approval would be refused at every step below. */
     const blocked = async (story: string) => {
       expect(await approvalBlocked(story)).toBe(true);
     };
@@ -809,7 +844,8 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       await blocked(story);
       expect(picturesSent()).toEqual([path]);
 
-      writerClock.advance(LOCK_MS);
+      // Run out, it is unfinished (T4): approval still waits, and the next delivery takes over.
+      await runOut(video);
       await blocked(story);
       expect(await answer(reopened.id, video, story)).toEqual(applied);
       expect(picturesSent()).toEqual([path, 'frame']);
@@ -830,7 +866,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       await takePictureOff(story);
 
       // A's lock runs out while its call waits; B takes it and puts Bunny's frame.
-      writerClock.advance(LOCK_MS);
+      await runOut(video);
       await blocked(story);
       expect(await answer(job, video, story)).toEqual(applied);
       expect(picturesSent()).toEqual(['frame']);
@@ -877,6 +913,103 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       expect(await openJob(video, 'check')).toMatchObject({ id: job });
       expect(await failures(job)).toBe(0);
       await blocked(story);
+      // Run out, the lock still holds approval (T4): Bunny may show another picture.
+      await runOut(video);
+      await blocked(story);
+    });
+
+    it('T4: a lost reply, the picture taken off, the check giving up: approval waits until the nightly re-check finishes it', async () => {
+      const { story, video, path } = await videoStory();
+      // Bunny takes picture P, but its reply is lost: nothing is recorded, the lock stays.
+      const job = await check(video);
+      stream.loseReply = true;
+      expect(await answer(job, video, story)).toEqual(retry);
+      expect(stream.videos.get(video)?.thumbnailFileName).toBe(
+        'thumbnail_9f8e7d6c.jpg',
+      );
+      expect(await file(video)).toMatchObject({
+        locked: true,
+        thumbnailOf: null,
+      });
+
+      // P is taken off and the story submitted again; the check then fails 5 times and gives up.
+      await takePictureOff(story);
+      expect(await check(video, 'submitted')).toBe(job);
+      for (let i = 1; i <= 4; i++) {
+        expect(
+          await post(`/v1/media-jobs/${job}/failed`, {
+            videoId: video,
+            code: 'bunny_unreachable',
+          }),
+        ).toEqual(retry);
+      }
+      expect(
+        await post(`/v1/media-jobs/${job}/failed`, {
+          videoId: video,
+          code: 'bunny_unreachable',
+        }),
+      ).toEqual({ status: 200, body: { retry: false, outcome: 'gave_up' } });
+      expect(await jobRow(job)).toMatchObject({ outcome: 'gave_up' });
+
+      // The lock runs out: unfinished, so approval is still refused with no job open.
+      await runOut(video);
+      expect(await openJob(video, 'check')).toBeUndefined();
+      expect(await file(video)).toMatchObject({ locked: true });
+      await blocked(story);
+
+      // The nightly re-check (housekeeping's own reason) opens a check; its answer takes the
+      // lock over, puts Bunny's frame back and empties the lock.
+      const housekeeping = await t.service('housekeeping');
+      const [reopened] = await rows<{ job: string }>(
+        housekeeping,
+        `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', 'resent')`,
+        { video },
+      );
+      await blocked(story);
+      expect(await answer(reopened.job, video, story)).toEqual(applied);
+      expect(stream.videos.get(video)?.thumbnailFileName).toBe(
+        'thumbnail_1.jpg',
+      );
+      expect(await file(video)).toMatchObject({
+        locked: false,
+        thumbnailOf: null,
+      });
+      expect(await openJob(video, 'check')).toBeUndefined();
+      expect(picturesSent()).toEqual([path, 'frame']);
+      expect(await approvalBlocked(story)).toBe(false);
+    });
+
+    it('Codex r5: a writer whose clock runs fast can’t take a lock another holds (the database’s clock judges it)', async () => {
+      const { story, video, path } = await videoStory();
+      const atBunny = holdPicture();
+      const job = await check(video);
+      const a = answer(job, video, story);
+      await atBunny.at;
+
+      // Its clock a day ahead: it would think A's lock long past, but it never sends its time.
+      const fast: ThumbnailLock = {
+        ...lock,
+        now: () => performance.now() + 24 * 3600_000,
+      };
+      expect(
+        await applyThumbnail(
+          workflow,
+          (v, picture, signal) => bunny.setThumbnail(v, picture, signal),
+          job,
+          video,
+          fast,
+        ),
+      ).toBe('retry');
+      expect(picturesSent()).toEqual([]);
+
+      atBunny.open();
+      expect(await a).toEqual(applied);
+      expect(picturesSent()).toEqual([path]);
+      expect(await file(video)).toMatchObject({
+        locked: false,
+        thumbnailOf: path,
+      });
+      expect(await openJob(video, 'check')).toBeUndefined();
     });
 
     it('sound-link: a 2-minute link to the one MP4 copy asked for, only after the pass, and nothing once the job has ended', async () => {

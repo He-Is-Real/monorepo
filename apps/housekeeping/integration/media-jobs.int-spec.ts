@@ -241,6 +241,74 @@ describe('housekeeping: media jobs', () => {
     ).toEqual([old.job, oldGaveUp.job].sort());
   });
 
+  it('the nightly run opens a check of each video whose picture at Bunny is unfinished (T4), and only those', async () => {
+    /** The result writer's lock on the video, until `delta` from now (SurrealQL). */
+    const lockUntil = (video: string, delta: string) =>
+      run(
+        migrator,
+        `UPDATE type::record('storyFile', $video) SET thumbnailLockedUntil = time::now() ${delta}`,
+        { video },
+      );
+    const openCheck = async (video: string) =>
+      (
+        await rows<{ id: string; reasons: string[] }>(
+          migrator,
+          `SELECT <string> record::id(id) AS id, reasons FROM mediaJob
+             WHERE file = type::record('storyFile', $video) AND kind = 'check'
+               AND doneAt = NONE`,
+          { video },
+        )
+      )[0];
+    // Unfinished: its check gave up, and the lock ran out.
+    const gaveUp = await openJob();
+    await ended(gaveUp.job, 'gave_up');
+    await lockUntil(gaveUp.video, '- 1h');
+    // A writer still at work (lock ahead), and one unfinished whose check is still open.
+    const atWork = await openJob();
+    await ended(atWork.job, 'gave_up');
+    await lockUntil(atWork.video, '+ 1m');
+    const stillOpen = await openJob();
+    await lockUntil(stillOpen.video, '- 1h');
+
+    await sweep(RUNS.nightly, { dryRun: true });
+    expect(lastLog('unfinished-pictures')).toMatchObject({
+      dryRun: true,
+      ids: [gaveUp.video],
+    });
+    expect(await openCheck(gaveUp.video)).toBeUndefined();
+
+    expect(await sweep(RUNS.nightly)).toBe(0);
+    expect(lastLog('unfinished-pictures')).toMatchObject({
+      selected: 1,
+      deleted: 1,
+      ids: [gaveUp.video],
+    });
+    // The 18:00 resend sends it; nothing is sent at night.
+    expect(await openCheck(gaveUp.video)).toMatchObject({
+      reasons: ['resent'],
+    });
+    expect(queue.sent).toEqual([]);
+    expect(await openCheck(atWork.video)).toBeUndefined();
+    expect(await openCheck(stillOpen.video)).toMatchObject({
+      id: stillOpen.job,
+      reasons: ['bunny_finished'],
+    });
+
+    // Housekeeping may open only that: a check with its own reason.
+    for (const [kind, reason] of [
+      ['check', 'bunny_finished'],
+      ['render', 'resent'],
+    ]) {
+      await expect(
+        rows(
+          housekeeping,
+          `RETURN fn::media::queue_job(type::record('storyFile', $video), $kind, $reason)`,
+          { video: atWork.video, kind, reason },
+        ),
+      ).rejects.toThrow();
+    }
+  });
+
   it('a run is the nightly one unless it says media-resend, which needs the topic', () => {
     const env = {
       GCP_PROJECT: 'p',

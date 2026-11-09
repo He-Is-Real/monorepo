@@ -200,7 +200,9 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   machine. The worker reads each audio file through a short link to that one file, asked for just
   before the download (Joel, 2026-11-08), and only one writer at a time may change a video's
   picture at Bunny, under a short lock that approval waits for, so a removed picture can't slip
-  through an approval (Joel, 2026-11-08, T3). Before
+  through an approval (Joel, 2026-11-08, T3). The database's clock judges the lock, and a lock
+  that ran out unfinished keeps approval waiting until a later try confirms the picture; the
+  nightly housekeeping re-checks any such video (Joel, 2026-11-09, T4). Before
   it runs on dev: apply the bunny root (the new sound zone and its key), then the gcp root. Still
   to come: the 40-byte picture check at submit.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.

@@ -156,11 +156,20 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   a video's picture at Bunny: it takes a lock on the video's record (for 2 minutes), reads the
   story's picture, tells Bunny (giving up after 20 seconds), and records it, lets go and closes
   the video's check only if the picture is still the one it sent (sending the new one first if it
-  changed). Approval waits while the lock is held or the check is open. If Bunny refuses or is
-  slow, the lock is left to run out and the check stays open, so a later try finishes it; a lock
-  that has run out is simply ignored, so nothing needs cleaning up (Joel, 2026-11-08, T3:
-  "a lock field is fine"). So a picture the person removed can't go public through a moderator
-  approving in between.
+  changed). The database's clock judges the lock, never a writer's own. The lock has three states
+  (Joel, 2026-11-08, T3: "a lock field is fine"; 2026-11-09, T4: A):
+  - **empty**: Bunny confirmed the picture; approval may go ahead (if nothing else holds it);
+  - **in the future**: a writer is at work; approval waits and other writers try again later;
+  - **in the past but not emptied**: unfinished, Bunny may show another picture (Bunny refused,
+    was slow, or its reply was lost); approval still waits, and any later writer may take it over
+    and finish.
+    Only a write Bunny confirmed and the database recorded empties it; a failed or cut-off call, a
+    lock running out or the check giving up after 5 failures never does. The nightly housekeeping
+    opens a check of any video left unfinished with no check open, and the 18:00 resend sends it, so
+    it is retried rather than stuck. What people see: such a story's moderator gets "can't approve
+    yet: still processing" until a try succeeds; a SuperAdmin can still approve anyway, as with any
+    open job. So a picture the person removed can't go public through a moderator approving in
+    between.
 - **An audio story becomes a picture video (Joel, 2026-11-07, audio-picture-video.html):** once
   its audio file is ready at Bunny, the media worker makes a video of the story's picture (or,
   without one, the site's default waveform picture) in the picture's own shape, at most 1280 px

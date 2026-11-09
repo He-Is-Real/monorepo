@@ -49,7 +49,11 @@ oldest first; the rest wait for the next run. One chore failing doesn't stop the
 6. **`old-file-rows`**: deletes file records that no longer count towards the 7-day upload limits
    and whose file is removed or whose story is gone. Their media jobs go with them. No file is
    deleted here.
-7. **`old-media-jobs`**: deletes media jobs 30 days after they ended. Open jobs are never deleted.
+7. **`unfinished-pictures`**: opens a check job (reason `resent`) for each video whose picture at
+   Bunny is unfinished: the result writer's lock on it ran out without Bunny confirming the
+   picture, and no check of it is open (the last one gave up, say). Approval waits until it is
+   finished (Joel, 2026-11-09, T4). It sends nothing: the 18:00 resend sends the job that evening.
+8. **`old-media-jobs`**: deletes media jobs 30 days after they ended. Open jobs are never deleted.
 
 **18:00:** **`media-resend`** sends every media job that hasn't ended, and was last sent (or, if
 never sent, written) over 12 hours ago, to the `media-jobs` queue again, and records the send.

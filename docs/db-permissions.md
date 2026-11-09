@@ -209,9 +209,12 @@ their fence (see "Transactions").
     `storyFile_render`). Only workflow writes either; both are private (not in the public read).
     `fn::story::approval_problem` refuses a story whose file's `thumbnailOf` isn't its picture now
     (`media_not_ready`). `thumbnailLockedUntil` (Joel 2026-11-08, T3): the lock a result writer
-    holds on a video's row while it changes the video's picture at Bunny; only workflow reads or
-    writes it (no other login sees it). `fn::story::approval_wait` refuses a moderator's approval
-    while it is set and in the future (`media_still_processing`); one in the past is ignored.
+    holds on a video's row while it changes the video's picture at Bunny, judged by the database's
+    clock; only workflow writes it, and housekeeping also reads it for the nightly re-check (T4);
+    no other login sees it. `fn::story::approval_wait` refuses a moderator's approval while it is
+    set at all (`media_still_processing`): in the future a writer is at work, in the past the
+    write is unfinished (Joel 2026-11-09, T4 = A). Only the writer's Bunny-confirmed write empties
+    it.
   - **Update:** workflow the processing fields (`width`, `height`, `lengthSeconds`,
     `thumbnailPath`, `processing`) and `checkedAt` (when the newest answer applied reached the result
     writer; it applies only later ones, in the same transaction, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
@@ -246,7 +249,8 @@ their fence (see "Transactions").
   `madeFile` (a render job's new Bunny video, made before its row; housekeeping never deletes it
   while the job is open), `doneAt` and `outcome` (`applied`, `stale`, `gone`, `gave_up`; set once,
   together). No person's session, api-admin or the public reads it. **Create:** api-user and
-  workflow, through `fn::media::queue_job`, which adds a reason to the file's open job of that
+  workflow, and housekeeping only a `check` with the reason `resent` (the nightly re-check of a
+  video whose picture at Bunny is unfinished; Joel 2026-11-09, T4), through `fn::media::queue_job`, which adds a reason to the file's open job of that
   kind instead (the `mediaJob_rules` event refuses a second open one). **Update:** api-user (new
   reasons, `sentAt`, `sends`), housekeeping (the 18:00 resend: `sentAt`, `sends`, the reason
   `resent`), workflow (all of it); only workflow writes
