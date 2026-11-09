@@ -14,6 +14,10 @@ module.exports = {
       target: 'node',
       compiler: 'tsc',
       main: './src/main.ts',
+      // worker-identity.sh's enrol and ca commands (src/identity/cli.ts).
+      additionalEntryPoints: [
+        { entryName: 'identity', entryPath: './src/identity/cli.ts' },
+      ],
       tsConfig: './tsconfig.app.json',
       optimization: false,
       outputHashing: 'none',

@@ -50,6 +50,12 @@
     },
     {
       "path": "./apps/media-worker"
+    },
+    {
+      "path": "./libs/worker-identity"
+    },
+    {
+      "path": "./apps/cert-signer"
     }
   ],
   "compilerOptions": {}

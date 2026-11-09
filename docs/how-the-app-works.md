@@ -570,7 +570,7 @@ For developers. Details are in the linked documents.
   database goes (`database_unavailable`) and one when it's back (`database_available`, with how
   long). Google's own record of each reclaim is counted by the log-based metric
   `heisreal-<env>/database-spot-reclaims` (bootstrap root). The Cloud Monitoring dashboard
-  "heisreal-<env>: database restarts" (`infra/terraform/modules/gcp/monitoring.tf`) shows them
+  "heisreal-<env>: health" (`infra/terraform/modules/gcp/monitoring.tf`) shows them
   with each service's requests by response code and instance count. Dashboards are made in
   OpenTofu only (Joel, 2026-11-08).
 - **Temporary patched SurrealDB:** v3.2.4 built with the upstream fix so it accepts Clerk's
@@ -585,9 +585,25 @@ For developers. Details are in the linked documents.
 - **Background work (Dapr)** runs off Google Cloud, on Joel's machine and later church
   hardware, pulling from Pub/Sub; it calls a Cloud Run result writer directly, which only its
   Google account may call, and that writes the results (D78; J5, Joel 2026-11-07). Work waits in
-  Pub/Sub (in London, up to 31 days) while that machine is off; the worker signs in with Joel's
-  own gcloud login acting as a narrow `media-worker` account, never a key file (D126), and uses
-  only Dapr's Pub/Sub part, with nothing stored on the machine (D129). Media ready is the first
+  Pub/Sub (in London, up to 31 days) while that machine is off. The worker signs in as a narrow
+  `media-worker` account with **its own certificate**, never a person's gcloud login and never a
+  Google key file (W1-A; Joel, 2026-11-08, worker-and-gcloud-sign-in.html; it replaces D126's
+  "Joel's login acting as it"): our own certificate authority, a Cloud KMS key in London that only
+  the `cert-signer` service may sign with, issues each machine a certificate naming it, and
+  Google's workload identity federation trusts only that authority. The worker makes a new key and
+  gets a new certificate every 6 hours, each valid 24 hours (both settings), by proving its current
+  one to `cert-signer` (one route, only media-worker may call it); the new pair replaces the old
+  one at the same path, so the old key is deleted at once and Dapr follows without a restart.
+  Only the newest certificate issued for a machine may renew ("newest only", W2-1 A, Joel
+  2026-11-09; church machines have no security chip, so there is no chip-based option later
+  either): a copied certificate and key can't keep a second line going, and if a copy renews
+  first, the real worker is refused at its next renewal and says so. A renewal whose answer was
+  lost isn't refused: the worker saved its new key first and asks again with it, and gets the same
+  certificate back, never a new one (W3-1 A, Joel 2026-11-09). A
+  machine off for longer than the lifetime is enrolled again by a developer with one command; a
+  machine is cancelled by taking its name out of the OpenTofu list. After a refusal as "not the
+  newest", the name is cancelled and the machine enrolled under a new name. The worker uses only Dapr's
+  Pub/Sub part, and stores nothing on the machine but its identity (D129). Media ready is the first
   such work (`docs/media-runbook.md`, "Media ready"). Every answer names the job's video, and the
   writer refuses one that names another; anything the worker can't do, the writer refusing its
   answer and the worker's own errors included, counts as a failure, and a job gives up after 5,

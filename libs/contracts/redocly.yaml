@@ -11,6 +11,8 @@ apis:
     root: openapi/api-admin.yaml
   worker:
     root: openapi/worker.yaml
+  cert-signer:
+    root: openapi/cert-signer.yaml
 
 rules:
   info-license: off # private, unlicensed project

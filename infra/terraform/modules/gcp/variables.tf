@@ -454,3 +454,45 @@ variable "media_ready" {
     error_message = "media_ready needs api_public_read_media (the Stream library id api-user checks webhooks against)."
   }
 }
+
+variable "worker_identity" {
+  description = <<-EOT
+    The media worker's own identity (W1-A; Joel, 2026-11-08; worker_identity.tf): our certificate
+    authority (a Cloud KMS key in London), Google's workload identity pool trusting it, and the
+    cert-signer service on Cloud Run. machines: the names that may hold a certificate and act as
+    media-worker (take one out to cancel that machine). certificate_lifetime_hours: how long each
+    certificate lasts (default 24; the worker renews every 6, its own setting). ca_certificate: the
+    authority's certificate (public PEM, `tools/scripts/worker-identity.sh ca`); null until made,
+    which creates only the key. Needs media_ready (the media-worker account). null: none of it.
+  EOT
+  type = object({
+    machines                   = list(string)
+    certificate_lifetime_hours = optional(number, 24)
+    ca_certificate             = optional(string)
+  })
+  default = null
+  validation {
+    condition = var.worker_identity == null || alltrue([for m in var.worker_identity.machines :
+      can(regex("^[a-z][a-z0-9-]{0,28}[a-z0-9]$", m))
+    ])
+    error_message = "worker_identity.machines: lower-case names of 2 to 30 letters, digits and hyphens."
+  }
+  validation {
+    condition = var.worker_identity == null || try(
+      var.worker_identity.certificate_lifetime_hours >= 1 &&
+      var.worker_identity.certificate_lifetime_hours <= 720 &&
+      floor(var.worker_identity.certificate_lifetime_hours) == var.worker_identity.certificate_lifetime_hours,
+    false)
+    error_message = "worker_identity.certificate_lifetime_hours is a whole number of hours from 1 to 720 (30 days)."
+  }
+  validation {
+    condition = var.worker_identity == null || try(var.worker_identity.ca_certificate == null, true) || can(regex(
+      "^-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]+-----END CERTIFICATE-----\n?$", var.worker_identity.ca_certificate
+    ))
+    error_message = "worker_identity.ca_certificate is one PEM certificate (public; never a key)."
+  }
+  validation {
+    condition     = var.worker_identity == null || var.media_ready != null
+    error_message = "worker_identity needs media_ready (the media-worker account it signs in as)."
+  }
+}

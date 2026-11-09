@@ -249,6 +249,10 @@ resource "google_project_iam_member" "tf_deployer" {
     "roles/cloudscheduler.admin",       # the housekeeping Job's nightly trigger (modules/gcp/housekeeping.tf)
     "roles/pubsub.admin",               # media ready's topics, subscriptions and their grants (modules/gcp/media.tf)
     "roles/monitoring.dashboardEditor", # dashboards (modules/gcp/monitoring.tf)
+    # The media worker's workload identity pool (modules/gcp/worker_identity.tf). Project-wide, as
+    # Google can't limit it to one pool by name; it adds no reach the deployer lacks
+    # (iam.serviceAccountAdmin already lets it change who may act as any account).
+    "roles/iam.workloadIdentityPoolAdmin",
   ])
   project = google_project.this.project_id
   role    = each.value
@@ -322,6 +326,70 @@ resource "google_project_iam_member" "tf_deployer_custom" {
     title      = each.value.title
     expression = each.value.expression
   }
+}
+
+# The media worker's certificate authority key (modules/gcp/worker_identity.tf): make and manage
+# the worker-identity key ring and its keys and their IAM, and nothing in any other key ring (the
+# tofu-state and tofu-bunny keys stay out of reach). The role itself can't sign, but setting the
+# key's IAM means the deployer could grant itself signing; accepted (W2-3, Joel 2026-11-09): it
+# already deploys every service and is trusted to manage the signing setup.
+resource "google_project_iam_custom_role" "tf_worker_kms" {
+  project = google_project.this.project_id
+  role_id = "terraformWorkerKms"
+  title   = "Terraform: the worker-identity KMS key ring only"
+  permissions = [
+    "cloudkms.cryptoKeys.create",
+    "cloudkms.cryptoKeys.get",
+    "cloudkms.cryptoKeys.getIamPolicy",
+    "cloudkms.cryptoKeys.setIamPolicy",
+    "cloudkms.cryptoKeys.update",
+    "cloudkms.cryptoKeyVersions.get",
+    "cloudkms.cryptoKeyVersions.list",
+    "cloudkms.keyRings.create",
+    "cloudkms.keyRings.get",
+    "cloudkms.keyRings.getIamPolicy",
+  ]
+}
+
+locals {
+  worker_key_ring = "projects/${google_project.this.project_id}/locations/${var.region}/keyRings/worker-identity"
+}
+
+resource "google_project_iam_member" "tf_deployer_worker_kms" {
+  project = google_project.this.project_id
+  role    = google_project_iam_custom_role.tf_worker_kms.name
+  member  = google_service_account.tf_deployer.member
+
+  # Creating a key ring is checked on its location (not a KMS key ring, so allowed); everything on
+  # a key ring, key or version only inside worker-identity.
+  condition {
+    title = "only-worker-identity-key-ring"
+    expression = join(" || ", [
+      "!(resource.type == 'cloudkms.googleapis.com/KeyRing' || resource.type == 'cloudkms.googleapis.com/CryptoKey' || resource.type == 'cloudkms.googleapis.com/CryptoKeyVersion')",
+      "resource.name == '${local.worker_key_ring}'",
+      "resource.name.startsWith('${local.worker_key_ring}/')",
+    ])
+  }
+}
+
+# Log-based metrics (modules/gcp/worker_identity.tf): metrics only, not sinks or exclusions.
+resource "google_project_iam_custom_role" "tf_log_metrics" {
+  project = google_project.this.project_id
+  role_id = "terraformLogMetrics"
+  title   = "Terraform: log-based metrics"
+  permissions = [
+    "logging.logMetrics.create",
+    "logging.logMetrics.delete",
+    "logging.logMetrics.get",
+    "logging.logMetrics.list",
+    "logging.logMetrics.update",
+  ]
+}
+
+resource "google_project_iam_member" "tf_deployer_log_metrics" {
+  project = google_project.this.project_id
+  role    = google_project_iam_custom_role.tf_log_metrics.name
+  member  = google_service_account.tf_deployer.member
 }
 
 # Project IAM admin, limited to granting the GKE node role (modules/gcp/gke.tf),

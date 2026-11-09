@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Starts the media worker on this machine against dev (docs/media-runbook.md, "Media ready"):
 # Dapr's sidecar (its Pub/Sub building block only, D129) beside apps/media-worker, both signed in
-# as the media-worker Google account through your own gcloud login (D126; never a key file).
+# as the media-worker Google account with this machine's own certificate (W1-A; Joel, 2026-11-08):
+# nobody's gcloud login, never a Google key file. The worker renews the certificate itself.
 #
 #   tools/scripts/media-worker.sh
 #
-# Needs: gcloud signed in with application default credentials (`gcloud auth login --update-adc`),
-# Dapr's runtime (`mise install`, then `dapr init --slim --runtime-version 1.19.1`), ffmpeg 6 or
-# later with libx264 (your system's package: it makes audio stories' picture videos), and the
-# repo's packages (`pnpm install`). Stop it with Ctrl+C. The sign-in it hands the worker and Dapr is a
-# file in $XDG_RUNTIME_DIR (memory, readable by you only), removed when it stops; nothing else is
-# written.
+# Needs: this machine enrolled once (`tools/scripts/worker-identity.sh enrol <machine>`, again
+# only after it was off longer than the certificate lifetime), Dapr's runtime (`mise install`,
+# then `dapr init --slim --runtime-version 1.19.1`), ffmpeg 6 or later with libx264 (your system's
+# package: it makes audio stories' picture videos), and the repo's packages (`pnpm install`). Stop
+# it with Ctrl+C. Settings: IDENTITY_RENEW_HOURS (default 6), WORKER_IDENTITY_DIR. A picture
+# video's files live in $XDG_RUNTIME_DIR (memory, readable by you only), removed when it stops.
 set -euo pipefail
 
 project=heisreal-dev
@@ -27,7 +28,6 @@ die() {
   exit 1
 }
 
-command -v gcloud >/dev/null || die "gcloud isn't installed (docs/tooling-and-accounts.md)"
 command -v node >/dev/null || die "node isn't installed (mise install)"
 command -v ffmpeg >/dev/null || die "ffmpeg isn't installed: install your system's ffmpeg (6 or later, with libx264)"
 ffmpeg_major="$(ffmpeg -hide_banner -version | sed -n '1s/^ffmpeg version n\{0,1\}\([0-9]\{1,\}\).*/\1/p')"
@@ -40,24 +40,24 @@ for decoder in webp mjpeg; do
     die "your ffmpeg can't read $decoder pictures"
 done
 [ -x "$daprd" ] || die "Dapr's runtime isn't installed: run 'mise install', then 'dapr init --slim --runtime-version 1.19.1'"
-# The sign-in file goes in memory, never on disk: no fallback to /tmp.
+# A picture video's files go in memory, never on disk: no fallback to /tmp.
 [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ -O "$XDG_RUNTIME_DIR" ] ||
   die "XDG_RUNTIME_DIR isn't set to a directory you own (your desktop session sets it, e.g. /run/user/$(id -u))"
-adc="${CLOUDSDK_CONFIG:-$HOME/.config/gcloud}/application_default_credentials.json"
-[ -r "$adc" ] || die "no gcloud application default login: run 'gcloud auth login --update-adc'"
-
-# The result writer's address (Cloud Run), read as you.
-writer="$(gcloud run services describe workflow --project "$project" --region "$region" \
-  --format='value(status.url)' 2>/dev/null)" ||
-  die "can't read the result writer's address: is your gcloud login current? ('gcloud auth login --update-adc')"
-[[ "$writer" =~ ^https://[a-z0-9.-]+$ ]] || die "the result writer has no https address yet"
-
 echo "media-worker: building" >&2
 (cd "$root" && pnpm nx run media-worker:build --output-style=static >/dev/null) || die "the build failed"
 
-# Your login, acting as media-worker (D126): the standard "impersonated_service_account"
-# credentials that `gcloud auth application-default login --impersonate-service-account` writes,
-# made from your current login, kept in memory ($XDG_RUNTIME_DIR) and readable by you only.
+# This machine's identity (W1-A): the standard external_account credentials for its certificate,
+# which the worker and Dapr both use. `check` refuses a missing or expired certificate (then:
+# worker-identity.sh enrol) and prints the project number.
+identity_dir="${WORKER_IDENTITY_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/heisreal/worker-identity}"
+export WORKER_IDENTITY_DIR="$identity_dir"
+number="$(node "$app/dist/identity.js" check)" || exit 1
+[[ "$number" =~ ^[0-9]+$ ]] || die "the identity directory has no project number: enrol again"
+export GOOGLE_APPLICATION_CREDENTIALS="$identity_dir/credentials.json"
+# The result writer's address: Cloud Run's deterministic one (no gcloud needed).
+writer="https://workflow-$number.$region.run.app"
+
+# A picture video's files, in memory, each job in a folder of its own removed when it ends.
 runtime="$(mktemp -d "$XDG_RUNTIME_DIR/heisreal-media-worker.XXXXXX")"
 chmod 700 "$runtime"
 pids=()
@@ -68,26 +68,6 @@ cleanup() {
   rm -rf "$runtime"
 }
 trap cleanup EXIT INT TERM
-(
-  umask 077
-  ADC="$adc" ACCOUNT="$account" node -e '
-    const fs = require("node:fs");
-    const source = JSON.parse(fs.readFileSync(process.env.ADC, "utf8"));
-    if (source.type !== "authorized_user") {
-      console.error("media-worker: your application default login must be your own user login (gcloud auth login --update-adc), not " + source.type);
-      process.exit(1);
-    }
-    process.stdout.write(JSON.stringify({
-      type: "impersonated_service_account",
-      service_account_impersonation_url:
-        "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/" + process.env.ACCOUNT + ":generateAccessToken",
-      source_credentials: source,
-      delegates: [],
-    }));
-  ' >"$runtime/credentials.json"
-)
-export GOOGLE_APPLICATION_CREDENTIALS="$runtime/credentials.json"
-# A picture video's files, in memory too, each job in a folder of its own removed when it ends.
 mkdir -m 700 "$runtime/work"
 # Dapr's sidecar sends this with every call to the worker, which refuses anything without it:
 # no other program, and no web page posting to 127.0.0.1, can hand the worker a job. New each run.

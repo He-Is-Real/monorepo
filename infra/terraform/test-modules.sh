@@ -15,6 +15,9 @@
 #     in London, each with its own identity, the trigger allowed to start that Job only; media
 #     ready's job topic keeps messages in London and has no dead letters, the worker's subscription
 #     never expires, only the worker may call the result writer and it reads no database password.
+#     The worker's own identity (W1-A): only allowed machine names get a Google token, each may act
+#     as media-worker only, only cert-signer may sign with the authority's KMS key, and only the
+#     worker may call cert-signer; only cert-signer may use its private London records bucket.
 #   bootstrap: the _Default sink writes to the London log bucket with Google's filter (D101).
 #   org: only London locations are allowed, new projects' logs start in London (D102, D104),
 #     and its admins get only the log settings permissions they need.

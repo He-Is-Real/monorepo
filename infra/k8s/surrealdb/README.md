@@ -454,7 +454,7 @@ What happens and where to look:
 - **How often:** the log-based metric `heisreal-dev/database-spot-reclaims` (bootstrap root,
   `modules/bootstrap/logging.tf`) counts Google's own reclaim records for this cluster's nodes.
   Dev saw three in the 30 days to 7 November 2026, all on 20 October.
-- **The dashboard:** Cloud Monitoring → Dashboards → "heisreal-dev: database restarts"
+- **The dashboard:** Cloud Monitoring → Dashboards → "heisreal-dev: health"
   (`infra/terraform/modules/gcp/monitoring.tf`, gcp root): the reclaims above, and per Cloud Run
   service its requests per second by response code (a restart shows as 503s) and its instances.
   **Dashboards are defined in OpenTofu only** (Joel, 2026-11-08): a change made in the Console is

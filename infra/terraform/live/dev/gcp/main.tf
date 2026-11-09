@@ -188,6 +188,17 @@ module "gcp" {
     sound_cdn_hostname   = "heisreal-dev-sound.b-cdn.net"
   }
 
+  # The media worker's own identity (W1-A; Joel, 2026-11-08): certificates from our KMS-backed
+  # authority, a new one every 6 hours, each valid 24 hours. The authority's certificate is
+  # worker-ca.pem beside this file (`tools/scripts/worker-identity.sh ca`); until it exists only
+  # the KMS key is made (infra/terraform/modules/gcp/worker_identity.tf, "Order"). Cancel a machine
+  # by taking it out of machines.
+  worker_identity = {
+    machines                   = ["joel-pc"]
+    certificate_lifetime_hours = 24
+    ca_certificate             = fileexists("${path.module}/worker-ca.pem") ? file("${path.module}/worker-ca.pem") : null
+  }
+
   # The nightly housekeeping Job (abandoned drafts, orphaned story videos), 03:30 London time,
   # and its media resend at 18:00 London time, when Joel's machine is on (Joel, 2026-11-07).
   # Acting for real (Joel, 2026-11-07: "switch dev housekeeping out of dry run once the worker is
