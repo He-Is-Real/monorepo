@@ -87,7 +87,9 @@ export class BunnyImageStore implements ImageStore {
    * A presigned GET with `Range: bytes=0-39` (the R3 research read a picture's first 40 bytes and
    * its exact size this way on dev): S3 answers 206 with `Content-Range: bytes 0-39/<size>`. A 200
    * (the range ignored) gives the size in `Content-Length`; only the first bytes are read either
-   * way. An empty file is 416.
+   * way. An empty file is 416. Any answer that contradicts itself (a range not from byte 0 to
+   * min(39, size - 1), a `Content-Length` that disagrees, or fewer bytes than that) throws: the
+   * check never passes on an answer it can't trust.
    */
   async start(path: string): Promise<PictureStart | null> {
     const res = await this.fetcher(
@@ -101,21 +103,21 @@ export class BunnyImageStore implements ImageStore {
       await res.body?.cancel();
       return res.status === 404 ? null : { size: 0, bytes: new Uint8Array() };
     }
-    const size =
-      res.status === 206
-        ? /^bytes 0-\d+\/(\d+)$/.exec(
-            res.headers.get('content-range') ?? '',
-          )?.[1]
-        : res.status === 200
-          ? res.headers.get('content-length')
-          : null;
-    if (!size || !/^\d+$/.test(size)) {
+    const size = answeredSize(res);
+    if (size === null) {
       await res.body?.cancel();
       throw new Error(
-        `The images zone answered ${res.status} without a size for a picture's first bytes`,
+        `The images zone answered ${res.status} without a consistent size for a picture's first bytes`,
       );
     }
-    return { size: Number(size), bytes: await firstBytes(res) };
+    const want = Math.min(PICTURE_START_BYTES, size);
+    const bytes = await firstBytes(res, want);
+    if (bytes.length !== want) {
+      throw new Error(
+        `The images zone sent ${bytes.length} of a picture's first ${want} bytes`,
+      );
+    }
+    return { size, bytes };
   }
 
   deleteFolder(folder: string): Promise<void> {
@@ -123,17 +125,40 @@ export class BunnyImageStore implements ImageStore {
   }
 }
 
-/** Up to PICTURE_START_BYTES bytes of the answer's body; the rest is never downloaded. */
-async function firstBytes(res: Response): Promise<Uint8Array> {
-  const out = new Uint8Array(PICTURE_START_BYTES);
+const DIGITS = /^\d{1,15}$/;
+
+/**
+ * The whole file's size from a range answer, or null unless every header agrees: a 206's
+ * `Content-Range` is `bytes 0-<min(39, size - 1)>/<size>` (and its `Content-Length`, if sent, that
+ * range's length); a 200's `Content-Length` is the size.
+ */
+function answeredSize(res: Response): number | null {
+  const length = res.headers.get('content-length');
+  if (length !== null && !DIGITS.test(length)) return null;
+  if (res.status === 200) return length === null ? null : Number(length);
+  if (res.status !== 206) return null;
+  const range = /^bytes (\d{1,15})-(\d{1,15})\/(\d{1,15})$/.exec(
+    res.headers.get('content-range') ?? '',
+  );
+  if (!range) return null;
+  const [start, end, size] = range.slice(1).map(Number);
+  if (size === 0 || start !== 0) return null;
+  if (end !== Math.min(PICTURE_START_BYTES, size) - 1) return null;
+  if (length !== null && Number(length) !== end + 1) return null;
+  return size;
+}
+
+/** Up to `want` bytes of the answer's body; the rest is never downloaded. */
+async function firstBytes(res: Response, want: number): Promise<Uint8Array> {
+  const out = new Uint8Array(want);
   let got = 0;
   const reader = res.body?.getReader();
   if (!reader) return out.subarray(0, 0);
   try {
-    while (got < PICTURE_START_BYTES) {
+    while (got < want) {
       const { done, value } = await reader.read();
       if (done) break;
-      const take = value.subarray(0, PICTURE_START_BYTES - got);
+      const take = value.subarray(0, want - got);
       out.set(take, got);
       got += take.length;
     }

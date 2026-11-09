@@ -95,12 +95,14 @@ function withFaults(db: Surreal): Surreal {
 /**
  * The images zone over HTTP, answering as Bunny's S3 does: a HEAD says whether a file is there; a
  * GET with `Range: bytes=0-N` answers 206 with those bytes and `Content-Range: bytes 0-N/<size>`
- * (the picture check at submit). `down`: it answers 503 to everything.
+ * (the picture check at submit). `down`: it answers 503 to everything. `reply`: the answer to a
+ * GET for a file that's there, in its place (a zone answering oddly).
  */
 class FakeZone {
   readonly files = new Map<string, Uint8Array>();
   asked = 0;
   down = false;
+  reply: ((file: Uint8Array) => Response) | null = null;
   readonly fetch = (async (
     input: string | URL | Request,
     init?: RequestInit,
@@ -113,6 +115,7 @@ class FakeZone {
     const file = this.files.get(path);
     if (!file) return new Response(null, { status: 404 });
     if (init?.method === 'HEAD') return new Response(null, { status: 200 });
+    if (this.reply) return this.reply(file);
     const range = /^bytes=0-(\d+)$/.exec(
       new Headers(init?.headers).get('range') ?? '',
     );
@@ -802,6 +805,144 @@ describe('video and audio uploads', () => {
     expect(sent.body).toEqual({ id, version: 3 });
     expect(await checked()).toBe('ready');
     expect(await status()).toBe('pending');
+  });
+
+  /** A written story with a picture recorded at upload as `fileSizeBytes`, 1200 × 900. */
+  async function pictureStory(who: string, fileSizeBytes = 40_000) {
+    await person(who);
+    const created = await call('POST', '/v1/stories', who, {
+      body: {
+        title: 'Words',
+        primaryFormat: 'written',
+        body: 'x'.repeat(250),
+        themeIds: ['healing'],
+      },
+      headers: { 'idempotency-key': key() },
+    });
+    const id = created.body.id as string;
+    const granted = await upload(who, id, 1, {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes,
+      width: 1200,
+      height: 900,
+      expectedImage: null,
+    });
+    expect(granted.status).toBe(200);
+    return { id, path: granted.body.path as string };
+  }
+
+  /** `file` with the little-endian 32-bit value at `at` set to `value`. */
+  const patched = (file: Uint8Array, at: number, value: number) => {
+    new DataView(file.buffer, file.byteOffset).setUint32(at, value, true);
+    return file;
+  };
+
+  it('the picture check refuses a WebP whose chunks couldn’t be real: an odd RIFF size, a VP8X header not 10 bytes long, a VP8 or VP8L header too short to hold its size, a first chunk that runs past the end (Codex, #208 review)', async () => {
+    const odd = await pictureStory('pod', 40_001);
+    // 40,001 bytes as recorded and as stored, but a RIFF size (39,993) no RIFF file can have.
+    zone.files.set(odd.path, webp({ size: 40_001 }));
+    const refusedOdd = await submit('pod', odd.id, 2);
+    expect(refusedOdd.status).toBe(400);
+    expect(refusedOdd.body.code).toBe('image_not_uploaded');
+
+    const { id, path } = await pictureStory('pyx');
+    const refusals: [string, Uint8Array][] = [
+      ['a VP8X header of 12 bytes', patched(webp(), 16, 12)],
+      ['a VP8X header of 9 bytes', patched(webp(), 16, 9)],
+      ['a VP8 header of 4 bytes', patched(webp({ chunk: 'VP8 ' }), 16, 4)],
+      ['a VP8L header of 2 bytes', patched(webp({ chunk: 'VP8L' }), 16, 2)],
+      [
+        'a first chunk longer than the file',
+        patched(webp({ chunk: 'VP8 ' }), 16, 40_000),
+      ],
+      [
+        'an odd first chunk whose padding runs past the end',
+        patched(webp({ chunk: 'VP8L' }), 16, 39_981),
+      ],
+    ];
+    for (const [what, file] of refusals) {
+      zone.files.set(path, file);
+      const refused = await submit('pyx', id, 2);
+      expect(refused.status, what).toBe(400);
+      expect(refused.body.code, what).toBe('image_not_uploaded');
+    }
+    // An odd first chunk whose padding byte ends the file exactly is a real one.
+    zone.files.set(path, patched(webp({ chunk: 'VP8L' }), 16, 39_979));
+    expect((await submit('pyx', id, 2)).status).toBe(200);
+  });
+
+  it('the picture check never passes on a zone answer that contradicts itself or stops short: 503, the story still a draft; a 200 with the whole file is read to 40 bytes and passes (Codex, #208 review)', async () => {
+    const { id, path } = await pictureStory('rho');
+    zone.files.set(path, webp());
+    const answer = (
+      status: number,
+      body: Uint8Array,
+      headers: Record<string, string>,
+    ) => new Response(body.slice(), { status, headers });
+    const contradictions: [string, (file: Uint8Array) => Response][] = [
+      [
+        'a range not from byte 0',
+        (f) =>
+          answer(206, f.slice(1, 41), {
+            'content-range': 'bytes 1-40/40000',
+          }),
+      ],
+      [
+        'a shorter range than asked',
+        (f) =>
+          answer(206, f.slice(0, 20), {
+            'content-range': 'bytes 0-19/40000',
+          }),
+      ],
+      [
+        'a range past the file’s end',
+        (f) =>
+          answer(206, f.slice(0, 40), { 'content-range': 'bytes 0-39/30' }),
+      ],
+      [
+        'no total size',
+        (f) => answer(206, f.slice(0, 40), { 'content-range': 'bytes 0-39/*' }),
+      ],
+      [
+        'a Content-Length that disagrees with the range',
+        (f) =>
+          answer(206, f.slice(0, 40), {
+            'content-range': 'bytes 0-39/40000',
+            'content-length': '30',
+          }),
+      ],
+      [
+        'fewer bytes than the range says',
+        (f) =>
+          answer(206, f.slice(0, 25), {
+            'content-range': 'bytes 0-39/40000',
+          }),
+      ],
+      ['a 200 without a size', (f) => answer(200, f, {})],
+      [
+        'a 200 that stops short of its Content-Length',
+        (f) => answer(200, f.slice(0, 20), { 'content-length': '40000' }),
+      ],
+      ['another status', () => new Response(null, { status: 302 })],
+    ];
+    try {
+      for (const [what, reply] of contradictions) {
+        zone.reply = reply;
+        const waiting = await submit('rho', id, 2);
+        expect(waiting.status, what).toBe(503);
+        expect(waiting.body.code, what).toBe('uploads_unavailable');
+      }
+      expect(
+        (await call('GET', `/v1/account/stories/${id}`, 'rho')).body.status,
+      ).toBe('draft');
+      // The range ignored: the whole file, its size in Content-Length.
+      zone.reply = (f) =>
+        answer(200, f, { 'content-length': String(f.length) });
+      expect((await submit('rho', id, 2)).status).toBe(200);
+    } finally {
+      zone.reply = null;
+    }
   });
 
   it('the picture check takes what browsers make: Chrome’s WebP with its colour profile and transparency, Firefox’s lossy one, and a lossless one', async () => {

@@ -3,7 +3,8 @@
  * suggestion; m2-media-ready-plan D128 B). api-user reads only the first bytes of the story's
  * picture from the images zone. They say whether it is the clean WebP the person's page made:
  * all of it there (the RIFF header's size and the zone's agree with the size recorded at upload),
- * really a WebP (`RIFF` … `WEBP`, then a `VP8 `, `VP8L` or `VP8X` chunk), of the width and height
+ * really a WebP (`RIFF` … `WEBP` of an even size, then a `VP8 `, `VP8L` or `VP8X` first chunk long
+ * enough for its header, and, padded to an even length, inside the file), of the width and height
  * recorded, and with no hidden metadata or animation (a `VP8X` header's EXIF, XMP or animation
  * flags). A browser's canvas never writes those, so a picture that has them wasn't cleaned on the
  * person's device, and a photo's location could identify the person who shared a testimony.
@@ -51,15 +52,18 @@ const u32 = (b: Uint8Array, at: number) =>
 /** The picture's real pixel size from its first chunk, or a problem. */
 function pixelSize(
   b: Uint8Array,
+  chunk: number,
 ): { width: number; height: number } | PictureProblem {
   switch (ascii(b, 12)) {
     case 'VP8X':
+      // Its payload is exactly 10 bytes: flags, 3 reserved, then 24-bit width - 1 and height - 1.
+      if (chunk !== 10) return 'not_webp';
       if (b[20] & (EXIF | XMP | ANIMATION)) return 'hidden_extras';
       return { width: u24(b, 24) + 1, height: u24(b, 27) + 1 };
     case 'VP8L': {
       // Signature 0x2f, then 14 bits width - 1, 14 bits height - 1, alpha, a 3-bit version (0).
       const bits = u32(b, 21);
-      if (b[20] !== 0x2f || bits >>> 29 !== 0) return 'not_webp';
+      if (chunk < 5 || b[20] !== 0x2f || bits >>> 29 !== 0) return 'not_webp';
       return {
         width: (bits & 0x3fff) + 1,
         height: ((bits >>> 14) & 0x3fff) + 1,
@@ -67,7 +71,13 @@ function pixelSize(
     }
     case 'VP8 ':
       // A key frame (bit 0 of its tag clear), its start code, then 14-bit width and height.
-      if (b[20] & 1 || b[23] !== 0x9d || b[24] !== 0x01 || b[25] !== 0x2a) {
+      if (
+        chunk < 10 ||
+        b[20] & 1 ||
+        b[23] !== 0x9d ||
+        b[24] !== 0x01 ||
+        b[25] !== 0x2a
+      ) {
         return 'not_webp';
       }
       return { width: u16(b, 26) & 0x3fff, height: u16(b, 28) & 0x3fff };
@@ -87,8 +97,14 @@ export function pictureProblem(
   if (b.length < 30 || ascii(b, 0) !== 'RIFF' || ascii(b, 8) !== 'WEBP') {
     return 'not_webp';
   }
-  if (u32(b, 4) + 8 !== start.size) return 'size_mismatch';
-  const size = pixelSize(b);
+  const riff = u32(b, 4);
+  // RIFF sizes are even (every chunk is padded to an even length).
+  if (riff % 2 !== 0) return 'not_webp';
+  if (riff + 8 !== start.size) return 'size_mismatch';
+  // The first chunk (its size at bytes 16–19), padded to even, must fit inside the file.
+  const chunk = u32(b, 16);
+  if (20 + chunk + (chunk % 2) > start.size) return 'not_webp';
+  const size = pixelSize(b, chunk);
   if (typeof size === 'string') return size;
   if (size.width !== recorded.width || size.height !== recorded.height) {
     return 'dimensions_mismatch';
