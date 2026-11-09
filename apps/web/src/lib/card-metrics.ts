@@ -5,6 +5,12 @@
 
 export const CARD = {
   pad: 20,
+  /**
+   * A video or audio card's player box is never shorter than this (story-media.tsx's
+   * PLAYER_MIN_HEIGHT: Bunny's controls), in px whatever the text size: the player's controls
+   * don't grow with the page's text.
+   */
+  playerMinHeight: 184,
   /** Its top line: the label ("Written · 3 min read") and the person's name. */
   meta: {
     font: 13,
@@ -16,11 +22,11 @@ export const CARD = {
     rowGap: 4,
     /** The name keeps at least this much room, or moves to its own line. */
     name: 40,
-    /** On a card without a picture the heart sits in the top line's corner. */
+    /** The heart sits at the top line's end (every card); the line keeps this much room for it. */
     heart: 40,
     /**
-     * A card without a picture too narrow for the NEW badge beside the heart: its top line moves
-     * down this far, below the heart (heart-button.tsx: `top-2`, `size-11`, less the card's pad).
+     * A card too narrow for the NEW badge beside the heart: its top line moves down this far,
+     * below the heart (heart-button.tsx: 0.5rem from the card's edge, `size-11`, less the pad).
      */
     belowHeart: 32,
   },

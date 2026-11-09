@@ -3,7 +3,7 @@ import { expectNoHorizontalOverflow } from './helpers';
 
 // An audio story's shape is its thumbnail's (Joel, 2026-10-24): the person's own picture, or
 // the site's default audio thumbnail (1280 x 720). The player box on the story page and in a
-// card takes that shape, so the picture before playing has no bands, and the player fills it.
+// card takes that shape, so Bunny's picture before playing has no bands, and the player fills it.
 // Stub stories: `audio-story` has the person's own 1080 x 1350 picture, `play-test-audio` the
 // default. The real sizes are checked on dev (apps/dev-seed/behavioural/media.behaviour.ts).
 
@@ -43,25 +43,18 @@ for (const scheme of ['light', 'dark'] as const) {
       await expectNoHorizontalOverflow(page);
     });
 
-    test('an audio card shows its thumbnail at its shape, and plays in the same box', async ({
+    test('an audio card’s player takes its thumbnail’s shape', async ({
       page,
     }) => {
       await page.goto('/stories?theme=play_test');
       const card = page.locator('article').filter({
         has: page.getByRole('heading', { name: 'Play test: audio' }),
       });
-      const box = card.locator('[data-card-media]');
-      await expect(box.locator('img')).toHaveAttribute(
-        'src',
-        /\/media\/1280x720\.svg/,
-      );
-      expect(await ratio(box)).toBeCloseTo(1280 / 720, 2);
-      await page
-        .getByRole('button', { name: 'Play Play test: audio', exact: true })
-        .click();
       const frame = card.locator('iframe[title="Audio: Play test: audio"]');
+      await frame.scrollIntoViewIfNeeded();
       await expectFills(page, frame);
-      // The same shape, unless that's shorter than the player's controls need (184 px).
+      // The default thumbnail's shape, unless that's shorter than the player's controls need
+      // (184 px).
       const f = await frame.boundingBox();
       expect(f?.height ?? 0).toBeCloseTo(
         Math.max(((f?.width ?? 0) * 720) / 1280, 184),

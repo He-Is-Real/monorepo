@@ -29,7 +29,8 @@ export interface StoredImage {
 /**
  * `components.yaml#/components/schemas/StorySummary`: a card. What D55's balanced masonry
  * predicts heights from: the picture's size (clip or image), and a bounded excerpt to measure.
- * No metrics, nothing about the submitter, no playback or storage data.
+ * A video or audio card shows Bunny's player, so it carries the story's signed player link
+ * (Joel, 2026-11-09, "Cards A"). No metrics, nothing about the submitter, no storage data.
  */
 export interface StorySummary {
   id: string;
@@ -39,6 +40,7 @@ export interface StorySummary {
   bylineName: string | null;
   primaryFormat: 'video' | 'audio' | 'written';
   durationSeconds: number | null;
+  playbackUrl: string | null;
   thumbnailUrl: string | null;
   thumbnailWidth: number | null;
   thumbnailHeight: number | null;
@@ -137,7 +139,10 @@ export function clipPicture(
   };
 }
 
-/** A card; thumbnail and image links are signed by the same `MediaUrls` as the story page (D52). */
+/**
+ * A card; its player, thumbnail and image links are signed by the same `MediaUrls` as the story
+ * page (D52), so they are the page's links.
+ */
 export function toSummary(row: SummaryRow, urls: MediaUrls): StorySummary {
   const picture = clipPicture(row.media?.[0], row.image, urls);
   return {
@@ -148,6 +153,7 @@ export function toSummary(row: SummaryRow, urls: MediaUrls): StorySummary {
     bylineName: row.bylineName ?? null,
     primaryFormat: row.primaryFormat,
     durationSeconds: row.durationSeconds ?? null,
+    playbackUrl: urls.playbackUrl(row.media?.[0]?.bunnyVideoId),
     thumbnailUrl: picture.url,
     thumbnailWidth: picture.width,
     thumbnailHeight: picture.height,

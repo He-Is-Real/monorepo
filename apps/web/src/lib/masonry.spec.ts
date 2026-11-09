@@ -18,6 +18,7 @@ const card = (over: Partial<StorySummary> = {}): StorySummary => ({
   bylineName: 'Test Person',
   primaryFormat: 'written',
   durationSeconds: null,
+  playbackUrl: null,
   thumbnailUrl: null,
   thumbnailWidth: null,
   thumbnailHeight: null,

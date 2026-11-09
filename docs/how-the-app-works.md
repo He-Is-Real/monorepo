@@ -304,9 +304,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **No story counts anywhere:** no totals and no counts per theme. (D62) No made-up figures:
   the impact numbers on home stay hidden until real ones exist.
 - **NEW badge:** a story is "new" for 7 days after it is published. Nothing is stored per person;
-  there is no personalised home or "New for you". (D72) On a written card without a picture too
-  narrow for the badge beside the heart (narrow columns with large text), the card's top line
-  moves below the heart and the card grows a little (Joel, 2026-11-08).
+  there is no personalised home or "New for you". (D72) On a card too narrow for the badge beside
+  the heart (narrow columns with large text), the card's top line moves below the heart and the
+  card grows a little (Joel, 2026-11-08; every card since the heart moved to the top line,
+  2026-11-09).
 - **Browse** has search, sort, format and theme filters. Cards are laid out in balanced columns
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
   More stories load on their own as the reader nears the end, to the end of the list, with an end
@@ -326,8 +327,14 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **Themes** are grouped in categories that admins manage. One category, "Other", is fixed: it
   can't be renamed or deleted and takes the themes of a deleted category. A theme with no
   published stories is hidden unless it is highlighted. (D130, D63)
-- Cards of video and audio stories play in place when pressed, one at a time on the page. Nothing
-  ever plays on its own.
+- Cards of video and audio stories show Bunny's player itself, with Bunny's own picture (the
+  story's picture, sent to Bunny as its thumbnail) and play button; there is no picture or play
+  button of our own over it (Joel, 2026-11-09, T2 for the cards). The card's box keeps its shape,
+  never shorter than the player's controls need. The card's list brings the story's signed player
+  link with it (the same link the story page gets, "Cards A", Joel 2026-11-09). Nothing ever
+  plays on its own, and one card plays at a time on the page: starting one pauses any other.
+- Every card's heart sits at the end of its top line (NEW · format · length · name), never over
+  the picture or the player (Joel, 2026-11-09).
 - A **story page** shows the player, picture or text, and 3 related stories (shared themes first,
   then newest). Long written stories show about the first 600 characters with "Continue reading",
   unless that would hide fewer than 100 characters. (A1)

@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import type { CSSProperties } from 'react';
+import { CARD } from '@/lib/card-metrics';
 import { audioSize, imageAlt } from '@/lib/shape';
 import type { PublicStory } from '@/lib/public-stories';
 
@@ -11,18 +12,16 @@ export const PLAYER_ALLOW = 'encrypted-media; picture-in-picture; fullscreen';
 /**
  * The shortest box Bunny's player fits its controls in (AGENTS.md: 44 px targets). Below about
  * 176 px its button row is squeezed and the 44 px buttons spill out of the frame, whatever the
- * width (measured on dev's real player, #77 review). A few pixels to spare.
+ * width (measured on dev's real player, #77 review). A few pixels to spare. Kept with the card's
+ * sizes (lib/card-metrics.ts), as the masonry predicts card players at it too.
  */
-export const PLAYER_MIN_HEIGHT = 184;
+export const PLAYER_MIN_HEIGHT = CARD.playerMinHeight;
 
 /**
- * The signed player URL with autoplay and preload off, or `null` if it isn't http(s). A card's
- * player (card-player.tsx) asks for `autoplay`: it opens only when someone presses play.
+ * The signed player URL with autoplay and preload off, or `null` if it isn't http(s). The story
+ * page and the cards (card-player.tsx) use it: nothing ever plays on its own.
  */
-export function playerSrc(
-  playbackUrl: string,
-  { autoplay = false }: { autoplay?: boolean } = {},
-): string | null {
+export function playerSrc(playbackUrl: string): string | null {
   let url: URL;
   try {
     url = new URL(playbackUrl);
@@ -31,8 +30,8 @@ export function playerSrc(
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
   // The token covers only the video and expiry, so player options can be added.
-  url.searchParams.set('autoplay', String(autoplay));
-  url.searchParams.set('preload', String(autoplay));
+  url.searchParams.set('autoplay', 'false');
+  url.searchParams.set('preload', 'false');
   return url.toString();
 }
 

@@ -55,7 +55,7 @@ async function expectClearOfHeart(c: Locator, what: string) {
   expect(overlaps(label, heart), `${what}: label covers the heart`).toBe(false);
 }
 
-/** The badge sits inside its card, clear of the heart and the media area (play button, player). */
+/** The badge sits inside its card, clear of the heart and the media area (picture, player). */
 async function expectBadgePlaced(c: Locator) {
   const badge = await badgeIn(c).boundingBox();
   const article = await c.boundingBox();
@@ -95,7 +95,7 @@ for (const scheme of ['light', 'dark'] as const) {
         await expect(card(page, title)).toBeVisible();
         await expect(badgeIn(card(page, title))).toHaveCount(0);
       }
-      // The play buttons are still whole 44 px targets, and nothing scrolls sideways.
+      // The hearts are still whole 44 px targets, and nothing scrolls sideways.
       await expectAllTargets(page);
       await expectNoHorizontalOverflow(page);
       expect(hydrationErrors).toEqual([]);

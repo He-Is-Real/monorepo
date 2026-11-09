@@ -12,6 +12,7 @@ const card: StorySummary = {
   bylineName: null,
   primaryFormat: 'video',
   durationSeconds: 12,
+  playbackUrl: null,
   thumbnailUrl: null,
   thumbnailWidth: 360,
   thumbnailHeight: 640,

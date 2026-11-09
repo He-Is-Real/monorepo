@@ -156,9 +156,13 @@ export function lineCount(
   return lines;
 }
 
-/** What a card's height depends on. `aspect` is width ÷ height of its media; null = none. */
+/**
+ * What a card's height depends on. `aspect` is width ÷ height of its media; null = none.
+ * `player`: its media is Bunny's player (video, audio), never shorter than its controls need.
+ */
 export interface CardShape {
   aspect: number | null;
+  player: boolean;
   title: string;
   excerpt: string;
   themes: string[];
@@ -180,6 +184,7 @@ export function cardShape(s: StorySummary): CardShape {
           : null;
   return {
     aspect,
+    player: s.primaryFormat !== 'written',
     title: s.title,
     excerpt: s.excerpt,
     themes: s.themes.map((t) => t.name),
@@ -210,15 +215,15 @@ const BADGE_WIDTH = (() => {
 })();
 
 /**
- * On a card without a picture, a text width (px) under which the NEW badge doesn't fit beside the
- * heart: the top line then moves below the heart and takes the whole width (CARD_TOP_CSS). A
+ * A text width (px) under which the NEW badge doesn't fit beside the heart at the end of the
+ * card's top line: the line then moves below the heart and takes the whole width (CARD_TOP_CSS). A
  * pixel to spare, so a browser's rounding can't leave the badge a fraction too wide.
  */
 const BADGE_BESIDE_HEART = CARD.meta.heart + Math.ceil(BADGE_WIDTH) + 1;
 
 /**
- * story-card.tsx's NEW written card without a picture: its top line in a size container
- * (`.card-top`), moved below the heart when the badge doesn't fit beside it. In rem, as the card.
+ * story-card.tsx's NEW card: its top line in a size container (`.card-top`), moved below the
+ * heart when the badge doesn't fit beside it. In rem, as the card.
  */
 export const CARD_TOP_CSS = `.card-top{container-type:inline-size}@container (width < ${rem(BADGE_BESIDE_HEART)}){.card-top>p{padding-right:0;margin-top:${rem(CARD.meta.belowHeart)}}}`;
 
@@ -231,17 +236,16 @@ const clamped = (
 
 /**
  * The card's top line's height in px at this text width, with the space under it. The label, the
- * gap and the name's 2.5rem minimum on one line, beside the heart's room on a card without a
- * picture (`pr-10`), or below the heart if the badge doesn't fit beside it; otherwise the name
+ * gap and the name's 2.5rem minimum on one line, beside the heart's room (`pr-10`; every card,
+ * Joel 2026-11-09), or below the heart if the badge doesn't fit beside it; otherwise the name
  * drops to a line of its own. A label wider than the line wraps: the badge, then its words.
  */
 function metaHeight(shape: CardShape, text: number): number {
   const m = CARD.meta;
-  const quote = shape.aspect === null;
-  const below = quote && shape.isNew && text < BADGE_BESIDE_HEART;
+  const below = shape.isNew && text < BADGE_BESIDE_HEART;
   const badge = shape.isNew ? BADGE_WIDTH + CARD.badge.after : 0;
   const label = badge + textWidth(shape.label, 'meta');
-  const line = text - (quote && !below ? m.heart : 0);
+  const line = text - (below ? 0 : m.heart);
   const lines =
     label + m.gap + m.name <= line
       ? 1
@@ -268,7 +272,11 @@ export function predictHeight(
   textCardWidth = cardWidth,
 ): number {
   const text = textCardWidth - 2 * CARD.pad;
-  const media = shape.aspect ? cardWidth / shape.aspect : 0;
+  const media = !shape.aspect
+    ? 0
+    : shape.player
+      ? Math.max(cardWidth / shape.aspect, CARD.playerMinHeight)
+      : cardWidth / shape.aspect;
   const t = CARD.title;
   const title = clamped(shape.title, text, 'title') * t.line + t.after;
   const q = CARD.quote;
