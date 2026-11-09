@@ -20,6 +20,7 @@ import { isStoryId, recordKey } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import { isCursorTime } from '../cursor-time';
 
 const ONE_SQL = `
   LET $s = type::record('story', $id);
@@ -118,7 +119,7 @@ function decodeCursor(raw: string | undefined): [string, string] | undefined {
     ) as unknown[];
     if (
       typeof createdAt === 'string' &&
-      !Number.isNaN(Date.parse(createdAt)) &&
+      isCursorTime(createdAt) &&
       typeof id === 'string' &&
       isStoryId(id)
     ) {

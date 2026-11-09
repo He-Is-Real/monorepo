@@ -168,6 +168,16 @@ describe('moderation, the read side (api-admin)', () => {
     });
     expect(again.status).toBe(304);
     expect((await get('/v1/moderation/queue?cursor=forged')).status).toBe(400);
+    // Times Date.parse takes but the database won't cast: a 400, never a 500 (Codex #210).
+    for (const at of ['0', '2026-02-31T00:00:00Z', '2026-01-01T24:00:00Z']) {
+      const cursor = Buffer.from(JSON.stringify([at, 'entry'])).toString(
+        'base64url',
+      );
+      expect(
+        (await get(`/v1/moderation/queue?cursor=${cursor}`)).status,
+        at,
+      ).toBe(400);
+    }
   });
 
   it('a story under review: its words, picture and a one-hour player link, and its history with moderators’ notes', async () => {

@@ -17,6 +17,7 @@ import { RequiresRole } from '@heisreal/roles';
 import { MediaUrls } from '@heisreal/story-cards';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import { isCursorTime } from '../cursor-time';
 
 /** Moderators' links last one hour (M3 plan concern C6), counted from each answer. */
 export const MODERATION_LINK_SECONDS = 60 * 60;
@@ -143,7 +144,7 @@ function decodeCursor(raw: string | undefined): [string, string] | undefined {
     ) as unknown[];
     if (
       typeof at === 'string' &&
-      !Number.isNaN(Date.parse(at)) &&
+      isCursorTime(at) &&
       typeof entry === 'string' &&
       isStoryId(entry)
     ) {
