@@ -4,8 +4,9 @@
 # made (infra/terraform/modules/gcp/media.tf). Dapr must not make or change topics and
 # subscriptions: disableEntityManagement.
 #
-# Credentials: Application Default Credentials, which tools/scripts/media-worker.sh points at
-# Joel's own gcloud login acting as media-worker (D126). No key in this file, ever.
+# Credentials: Application Default Credentials, which tools/scripts/media-worker.sh points at this
+# machine's certificate (W1-A: workload identity federation with X.509, acting as media-worker;
+# Dapr's Go client, cloud.google.com/go/auth, supports it). No key in this file, ever.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:

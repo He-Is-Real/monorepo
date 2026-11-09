@@ -218,30 +218,82 @@ actors, no control plane.
 
 **What it needs (once):**
 
-- gcloud, signed in as Joel with application default credentials:
-  `gcloud auth login --update-adc`. OpenTofu lets Joel's login act as `media-worker`
-  (`media_ready.worker_impersonators`), so there is no key file (D126).
+- The machine enrolled (see "Worker identity" below): `tools/scripts/worker-identity.sh enrol
+<machine>`. No gcloud login is needed to run the worker after that.
 - Dapr's runtime: `mise install` (the pinned `dapr` CLI), then
   `dapr init --slim --runtime-version 1.19.1` (puts `daprd` in `~/.dapr/bin`; no Docker).
 - ffmpeg 6 or later with libx264, from the system's packages (for audio picture videos); the
   script checks the version and the encoder and refuses to start without them.
 - The repo's packages: `pnpm install`.
-- A desktop session's `XDG_RUNTIME_DIR` (`/run/user/<uid>`, in memory): the script refuses to
-  start without it rather than put the sign-in file on disk.
 
-**Start:** `tools/scripts/media-worker.sh` from the monorepo. It builds the worker, looks up the
-result writer's address, and starts the worker and Dapr's sidecar together. The worker first
-checks that Google signs it in as `media-worker` (never as Joel himself) and stops otherwise. Its
-log is one JSON line per job, ids and short codes only (`answered` with the answer and the
-writer's outcome, e.g. `ready:applied`; or `failed` with the code). **Stop:** Ctrl+C (either
-part stopping stops both).
+**Start:** `tools/scripts/media-worker.sh` from the monorepo. It builds the worker, checks the
+machine's certificate is there and still valid, and starts the worker and Dapr's sidecar
+together. The worker first checks that Google signs it in as `media-worker` and stops otherwise.
+Its log is one JSON line per job, ids and short codes only (`answered` with the answer and the
+writer's outcome, e.g. `ready:applied`; or `failed` with the code), plus `identity_renewed` or
+`identity_renewal_failed` for its certificate. **Stop:** Ctrl+C (either part stopping stops both).
 
-How it signs in: the script turns Joel's current login into Google's standard "act as
-media-worker" credentials (the same `impersonated_service_account` form
-`gcloud auth application-default login --impersonate-service-account` writes) in a file in
-`$XDG_RUNTIME_DIR` (memory, readable by Joel only) and removes it when it stops. Dapr's GCP
-component reads it as application default credentials; the worker uses it for Secret Manager and
-for the ID token it calls the writer with.
+How it signs in: with the machine's own certificate (W1-A; Joel, 2026-11-08). The identity
+directory holds Google's standard `external_account` credential configuration for a certificate;
+the script points `GOOGLE_APPLICATION_CREDENTIALS` at it, so Dapr's GCP component and the worker
+(Secret Manager, and the ID token it calls the writer with) get 1-hour Google tokens as
+`media-worker` by themselves, over mTLS with the current certificate.
+
+### Worker identity
+
+Each worker machine has a certificate from our own authority, a Cloud KMS key in London that
+never leaves Google. Google trusts only that authority (a workload identity pool), and only for
+names in `worker_identity.machines` (`infra/terraform/live/dev/gcp/main.tf`); each such name may
+act as `media-worker` and nothing else. Google has no way to cancel one certificate, so short
+lifetimes are the safety net.
+
+- **Renewal (automatic):** while it runs, the worker makes a new key every 6 hours
+  (`IDENTITY_RENEW_HOURS`), proves its current certificate to `cert-signer` (Cloud Run; only
+  `media-worker` may call it) by signing the request with the current key, and gets a certificate
+  for the new key with the same name, valid 24 hours (`worker_identity.certificate_lifetime_hours`).
+  Only the newest certificate issued for a machine may renew (W2-1 A, "newest only"; Joel,
+  2026-11-09): `cert-signer` keeps each machine's newest serial in one small object in a private
+  London bucket (`<project>-worker-certificates`, only `cert-signer` may use it). If a copy of the
+  certificate and key renews first, the real worker's next renewal is refused and it logs
+  `identity_renewal_failed` saying so; `cert-signer`'s log says "not the newest certificate for
+  <machine>: possible copy; cancel and enrol a new name". Do exactly that (below).
+  The certificate and key live in one file at a fixed path (`keys/current.pem`); the new pair is
+  renamed over it, so the old key is deleted in the same step and Dapr's sidecar (which keeps the
+  path it read at start-up but reads the file again for every sign-in) follows without a restart.
+  A certificate shorter-lived than the interval is renewed in the last quarter of its life
+  instead. A failure logs one `identity_renewal_failed` line and tries again after 1, 2, 4 … up
+  to 30 minutes, sooner if the certificate would expire first. `IDENTITY_RENEW_HOURS` above 596
+  (Node's longest timer, about 24.8 days) stops the worker at start-up.
+- **Checking Dapr still follows renewals** (after a Dapr upgrade: `go version -m
+~/.dapr/bin/daprd | grep go/auth`, then move `apps/media-worker/compat/go-auth/go.mod` to that
+  version): `pnpm nx run media-worker:compat-test`, local only (needs Go and openssl). It runs
+  Google's Go client at daprd's version against a fake token service through two renewals.
+- **Where it lives:** `$XDG_STATE_HOME/heisreal/worker-identity` (normally
+  `~/.local/state/heisreal/worker-identity`; `WORKER_IDENTITY_DIR` overrides it), a directory
+  only its user can open, every file readable by that user only. Never copy it to another machine.
+- **Enrol a machine** (first time, or after it was off longer than the lifetime): add its name to
+  `worker_identity.machines` and apply gcp, then on that machine, signed in to gcloud as a
+  developer: `tools/scripts/worker-identity.sh enrol <machine>`. It makes the key on the machine,
+  has the KMS key sign a certificate for it (with your login, an owner's right; no key file
+  anywhere), records it as the machine's newest (so any older copy can't renew any more), and
+  writes the identity directory. Then start the worker.
+- **A renewal refused as "not the newest" (a possible copy), or after a renewal's answer was
+  lost:** cancel the name (below) and enrol the machine under a **new** name (e.g. `joel-pc-2`:
+  add it, apply gcp, enrol). Not the same name: a copy's certificate would still get Google tokens
+  under that name until it expires (up to 24 hours).
+- **Cancel a machine:** take its name out of `worker_identity.machines` and apply gcp. Google
+  refuses its certificate for new tokens at once and `cert-signer` refuses to renew it; tokens it
+  already holds last up to an hour. Then delete its identity directory. Cancelling the last
+  machine leaves the list empty: `cert-signer` keeps running and refuses everyone.
+- **The authority's certificate** (once, after the first apply made the KMS key):
+  `tools/scripts/worker-identity.sh ca` writes `infra/terraform/live/dev/gcp/worker-ca.pem`
+  (public, valid 5 years); commit it and apply gcp, which then makes the pool, `cert-signer` and
+  the machines' grants. To replace it: `worker-identity.sh ca --replace`, commit, apply, and enrol
+  every machine again.
+- **Watching it:** the "heisreal-dev: health" dashboard in Cloud Monitoring ends with two charts:
+  certificates issued per machine (four a day each; none for a day means its renewals stopped, so
+  its certificate is about to expire; more than four may mean a copy of it is renewing too, so
+  cancel and re-enrol it) and renewals refused or failed, by reason.
 
 How it marks jobs: the writer saved the answer, or `/failed` says "give up": taken (acked). The
 job doesn't exist any more (404), or the writer refused to count a failure (400): dropped (acked)
@@ -252,10 +304,9 @@ redelivers it 10 seconds to 10 minutes later (nacked). A message that isn't a jo
 dropped and logged (that includes one without a video id: every call to the writer names the
 job's video).
 
-**When Joel's login lapses:** jobs wait in the queue and the table. Sign in again
-(`gcloud auth login --update-adc`) and restart the worker.
-
-**When the PC is off:** the same: jobs wait, and the worker catches up when it starts. Approving
+**When the PC is off:** jobs wait in the queue and the table, and the worker catches up when it
+starts. Off for longer than the certificate lifetime (24 hours): the script says the certificate
+expired; enrol the machine again (above), then start it. Approving
 a story waits for its open media jobs, so stories with video wait in the moderation queue.
 
 **Is it running?** The worker's last log line, and on Google's side the `media-worker-media-jobs`

@@ -1,0 +1,126 @@
+openapi: 3.1.0
+info:
+  title: He Is Real Today — worker certificate signing service
+  version: 1.0.0
+  description: |
+    **The media worker's own identity (W1-A; Joel, 2026-11-08, worker-and-gcloud-sign-in.html).**
+    Not a public API. `cert-signer` runs on Cloud Run; only the `media-worker` Google account may
+    call it (Cloud Run IAM checks the ID token before the request reaches the service). It has one
+    route: the worker sends the public part of a new key it just made, with its current
+    certificate and a signature by the current key, and gets a certificate for the new key.
+
+    The certificate authority's key is a Cloud KMS key (EC P-256) that never leaves Google; only
+    this service's account may sign with it. Google's workload identity federation trusts that
+    authority, so a certificate lets the worker get Google tokens as `media-worker`.
+
+    - The new certificate names the **same machine** as the current one (its subject CN), never a
+      name the caller didn't prove, and only while that name is in the allowed list (OpenTofu
+      `worker_identity.machines`).
+    - It is valid for the configured lifetime (`worker_identity.certificate_lifetime_hours`,
+      default 24 hours) from now. The worker renews every 6 hours by default.
+    - A machine whose certificate has expired can't renew: a developer enrols it again with their
+      own gcloud login (`tools/scripts/worker-identity.sh enrol <machine>`, outside this API).
+    - No database; nothing is stored. Each renewal is logged with the machine name and expiry only.
+  contact:
+    name: He Is Real Today
+    url: https://www.heisreal.today
+
+servers:
+  - url: https://cert-signer.run.app
+    description: 'cert-signer (Cloud Run, London; only the media-worker Google account may call it)'
+
+security:
+  - mediaWorkerOidc: []
+
+tags:
+  - name: Worker identity
+    description: "The media worker's certificate renewals."
+
+paths:
+  /v1/certificates:
+    post:
+      tags: [Worker identity]
+      operationId: renewWorkerCertificate
+      summary: Get a certificate for the worker's new key
+      description: |
+        Checks, in order: the current certificate was issued by our authority, isn't a CA, is valid
+        now, and names an allowed machine; the new key is EC P-256 and differs from the current one;
+        `proof` verifies with the current certificate's key. Then signs a certificate for the new
+        key with the same machine name. Any failed check is `403 certificate_refused`; the reason is
+        logged by the service, not returned.
+      x-milestone: M2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenewalRequest'
+      responses:
+        '200':
+          description: The new certificate.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenewalResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          description: No Google ID token, or not the media-worker account (Cloud Run answers before the service).
+        '403':
+          description: |
+            `certificate_refused`: the current certificate isn't ours, has expired, or names a machine
+            that isn't allowed (any more); or the proof or new key is wrong. Also Cloud Run's own 403
+            for a caller without run.invoker.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './components.yaml#/components/schemas/Problem'
+        '503':
+          description: "`signing_unavailable`: Cloud KMS couldn't sign just now. Try again later."
+          content:
+            application/problem+json:
+              schema:
+                $ref: './components.yaml#/components/schemas/Problem'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+components:
+  securitySchemes:
+    mediaWorkerOidc:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Google-signed ID token of the `media-worker` service account (audience = this service's URL), checked by Cloud Run (run.invoker) before the request reaches the service.
+  schemas:
+    RenewalRequest:
+      type: object
+      additionalProperties: false
+      required: [certificate, publicKey, proof]
+      properties:
+        certificate:
+          type: string
+          maxLength: 8192
+          description: The worker's current certificate (PEM).
+        publicKey:
+          type: string
+          maxLength: 8192
+          description: The new key's public part (SubjectPublicKeyInfo, PEM). EC P-256.
+        proof:
+          type: string
+          maxLength: 8192
+          description: |
+            base64url of a DER ECDSA (SHA-256) signature by the current certificate's key over the
+            UTF-8 bytes `heisreal worker certificate renewal v1\n` followed by the new key's DER
+            SubjectPublicKeyInfo.
+    RenewalResult:
+      type: object
+      additionalProperties: false
+      required: [certificate, notAfter]
+      properties:
+        certificate:
+          type: string
+          description: The new certificate (PEM), same machine name, signed by our authority.
+        notAfter:
+          type: string
+          format: date-time
+          description: When it expires.

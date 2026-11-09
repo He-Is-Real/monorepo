@@ -324,7 +324,8 @@ failures, and a job gives up after 5.
 - **Identities:** `media-worker` pulls its subscription and may call the result writer
   (`run.invoker` on it), and nothing else (the bunny root's `readonly_key_readers` adds Bunny's
   read-only key); `media_ready.worker_impersonators` (organisation people
-  only, D126) may act as it with their own gcloud login, so no key file exists. `workflow` runs the
+  only, D126) may act as it with their own gcloud login, so no key file exists; the worker itself
+  now signs in with its own certificate ("Worker identity" below). `workflow` runs the
   result writer and reads only its database password. The result writer takes traffic from the
   internet (the worker is off Google Cloud), and Cloud Run refuses anyone without a Google ID token
   of `media-worker` before our code runs. api-user may publish to `media-jobs`.
@@ -335,6 +336,47 @@ failures, and a job gives up after 5.
   `webhook_url`) and then gcp (the topic, identities, the result writer). api-user reads the key when
   a webhook comes, so the order doesn't matter to it. (3) Only then add media-worker to
   `readonly_key_readers` (its account must exist first; done on dev).
+
+## Worker identity
+
+`modules/gcp/worker_identity.tf` (`worker_identity` in the gcp root; W1-A, Joel 2026-11-08,
+`project/context/research/worker-and-gcloud-sign-in.html`; how to run it:
+[docs/media-runbook.md](../../docs/media-runbook.md), "Worker identity"). The media worker signs in
+with its own certificate, not a person's login and not a Google key file.
+
+- **Authority:** KMS key `worker-identity/worker-ca` (London, EC P-256, software, never
+  destroyed). Only `cert-signer`'s account may sign with it (authoritative key policy);
+  developers reach it through `roles/owner` for `worker-identity.sh enrol` and `ca`. Its public
+  certificate is `live/dev/gcp/worker-ca.pem`.
+- **Google's side:** workload identity pool `workers`, provider `worker-ca` trusting only that
+  certificate; the certificate's subject CN is the principal, and the provider's condition lets
+  only names in `worker_identity.machines` in. Each name holds `roles/iam.workloadIdentityUser` on
+  `media-worker` only. The pool is global IAM configuration (no data), like GitHub's.
+- **cert-signer** (Cloud Run, London, `apps/cert-signer`): one route
+  (`libs/contracts/openapi/cert-signer.yaml`); only `media-worker` may call it; no database, no VPC
+  access. Its settings are the KMS key version, the authority's certificate, the same machine
+  list, `certificate_lifetime_hours` (default 24) and its records bucket.
+- **Records bucket** `<project>-worker-certificates` (London, uniform access, public access
+  prevented, no versioning; W2-1 A "newest only", Joel 2026-11-09): one small JSON object per
+  machine holding the serial and expiry of the newest certificate issued for it (no personal
+  data). `cert-signer` renews only that certificate and updates the object only if nobody changed
+  it since it read it (a generation precondition). Only `cert-signer` is granted on it
+  (authoritative bucket policy, `roles/storage.objectUser`); developers reach it through their
+  project-level `storage.admin` when `worker-identity.sh enrol` overwrites a machine's record.
+- **Dashboard:** two log-based metrics (`worker-certificates-issued`, `-refused`) charted at the
+  bottom of the "heisreal-dev: health" dashboard. No alert policy (alerts aren't decided yet).
+- **tf-deployer's rights** (bootstrap): `roles/iam.workloadIdentityPoolAdmin` (project-wide:
+  Google can't limit it to one pool), a custom role on the `worker-identity` key ring only (IAM
+  condition; the `tofu-state` and `tofu-bunny` keys stay out of reach), and a custom role for
+  log-based metrics only. That role doesn't sign, but it sets the signing key's IAM, so
+  tf-deployer could grant itself signing. Accepted (W2-3, Joel 2026-11-09): it already deploys
+  every service and is trusted to manage the signing setup.
+- **Turning it on, in order:** (1) bootstrap, locally (tf-deployer's rights). (2) Apply gcp: the
+  key ring, key, records bucket and cert-signer's account. (3) `tools/scripts/worker-identity.sh ca`, commit
+  `worker-ca.pem`, apply gcp: the pool, provider, cert-signer and the machines' grants (cert-signer
+  runs Google's placeholder until `cert-signer = "main"` is in `images.auto.tfvars`, after its first
+  Release Images build). (4) Enrol each machine. (5) Then `media_ready.worker_impersonators` can be
+  emptied, so no person's login can act as the worker.
 
 ## Encryption
 
@@ -757,6 +799,7 @@ exactly what was checked.
 | Images (Bunny storage)                                  | London                                    | `bunny`                                  |
 | Story videos and audio (Bunny Stream, D89)              | Frankfurt (Bunny's only choice)           | `bunny`                                  |
 | Bunny's CDN caches (D103)                               | EU + US edges (images), worldwide (video) | Bunny's defaults; revisit for production |
+| The worker's sign-in (workload identity pool, W1-A)     | `global` (IAM config only, no data)       | `gcp` (`worker_identity.tf`)             |
 
 **Logs (D101).** Google creates each project's `_Default` and `_Required` log buckets in `global`,
 and a bucket's location is fixed when it's created. So `bootstrap` adds a London bucket and points

@@ -9,16 +9,17 @@
  * keeps a job's files only in memory ($XDG_RUNTIME_DIR) while the job runs and listens on
  * 127.0.0.1 only.
  *
- * Start it with tools/scripts/media-worker.sh (docs/media-runbook.md, "Media ready"): that signs
- * it in as the media-worker Google account through Joel's own gcloud login (no key file) and
- * starts Dapr beside it.
+ * Start it with tools/scripts/media-worker.sh (docs/media-runbook.md, "Media ready"), which starts
+ * Dapr beside it. It signs in as the media-worker Google account with this machine's own
+ * certificate (W1-A, identity/): nobody's gcloud login, no Google key file. The certificate is
+ * renewed here every few hours.
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { SecretsService } from '@heisreal/secrets';
-import { GoogleAuth } from 'google-auth-library';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { BunnyStreamReader, checkAnswer } from './bunny';
+import { workerIdentity } from './identity';
 import { FfmpegRenderer, isPicture } from './render';
 import { workerServer } from './server';
 import { type LogEntry, RenderSlot } from './worker';
@@ -78,17 +79,11 @@ async function main() {
   // Dapr's sidecar sends it with every call; the server refuses anything without it.
   const appApiToken = env('APP_API_TOKEN', /^[A-Za-z0-9_-]{32,}$/);
 
-  // Application Default Credentials: the script points them at Joel's login acting as
-  // media-worker (D126). Every Google call below is made as that account.
-  const auth = new GoogleAuth();
-  const ids = await auth.getIdTokenClient(audience);
-  const idToken = async () => {
-    const headers = await ids.getRequestHeaders();
-    const value = headers.get('authorization') ?? '';
-    return value.replace(/^Bearer /, '');
-  };
-  // Refuse to run as anyone else (Joel's own login, say): the worker may do only what
-  // media-worker may.
+  // The machine's certificate (W1-A): the script points Application Default Credentials at
+  // it, so every Google call below is made as media-worker; ID tokens come from identity/.
+  const identity = await workerIdentity(log);
+  const idToken = () => identity.idToken(audience);
+  // Refuse to run as anyone else: the worker may do only what media-worker may.
   const email = tokenEmail(await idToken());
   if (email !== account) {
     throw new Error(
@@ -118,7 +113,10 @@ async function main() {
   server.listen(port, '127.0.0.1', () =>
     log({ step: 'started', account, port }),
   );
-  const stop = () => server.close(() => process.exit(0));
+  const stop = () => {
+    identity.stop();
+    server.close(() => process.exit(0));
+  };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 }
