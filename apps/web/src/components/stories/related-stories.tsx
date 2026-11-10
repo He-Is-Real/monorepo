@@ -11,7 +11,7 @@ const THUMB = { width: 64, height: 80 } as const;
  * The story page's related stories (GET /v1/stories/{slug}/related: 3 cards), below the story,
  * never beside it (Joel, 2026-10-25). Below 1024 px a small list in the reading column, as it
  * always was on phones; from 1024 px a row of the site's story cards (browse's: each picture at
- * its own clamped shape, D53, with its player), in the story's media band. Each layout is hidden
+ * its own clamped shape, D53, play in place), in the story's media band. Each layout is hidden
  * at the other's widths (display: none), so only one is ever read or focused.
  *
  * Every preview keeps its shape (Joel, 2026-10-31: all were cropped to one 16:10 strip, and a

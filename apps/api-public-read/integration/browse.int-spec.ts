@@ -27,7 +27,6 @@ interface Card {
   bylineName: string | null;
   primaryFormat: string;
   durationSeconds: number | null;
-  playbackUrl: string | null;
   thumbnailUrl: string | null;
   thumbnailWidth: number | null;
   thumbnailHeight: number | null;
@@ -172,7 +171,7 @@ describe('browse API over the dev dataset', () => {
       },
     );
 
-    it('gives a video card its size, duration and themes, and no storage data', async () => {
+    it('gives a video card its size, duration and themes, and no playback or storage data', async () => {
       const { data } = await page('/v1/stories?format=video&limit=50');
       const v01 = data.find((c) => c.id === 'seed_v01') as Card;
       expect(v01).toEqual({
@@ -184,7 +183,6 @@ describe('browse API over the dev dataset', () => {
         bylineName: 'Ruth (test)',
         primaryFormat: 'video',
         durationSeconds: 12,
-        playbackUrl: null, // signing is off here
         thumbnailUrl: null,
         thumbnailWidth: 360,
         thumbnailHeight: 640,
@@ -202,6 +200,7 @@ describe('browse API over the dev dataset', () => {
       for (const leak of [
         'bunnyVideoId',
         'thumbnailPath',
+        'playbackUrl',
         'searchText',
         'body',
         'submitter',
@@ -580,7 +579,7 @@ describe('browse API over the dev dataset', () => {
   });
 
   describe('signed media on cards (D52)', () => {
-    it('signs thumbnails and images with the story page’s MediaUrls', async () => {
+    it('signs thumbnails and images with the story page’s MediaUrls, and gives cards no player', async () => {
       const media = signing(() => Date.UTC(2026, 9, 23, 10, 15));
       const signed = await startPublicRead(t, media);
       try {
@@ -609,9 +608,10 @@ describe('browse API over the dev dataset', () => {
         );
         for (const c of related.filter((x) => x.primaryFormat === 'video'))
           expect(c.thumbnailUrl).toMatch(/^https:\/\/vz-test\.b-cdn\.net\//);
-        // Written cards have no player; no card carries a bare video id or the image's bare path.
-        expect(w01.playbackUrl).toBeNull();
+        // Cards never carry a player link, a bare video id or the image's bare path.
         const text = JSON.stringify(all);
+        expect(text).not.toContain('playbackUrl');
+        expect(text).not.toContain('player.mediadelivery.net');
         expect(text).not.toMatch(/"test-video-clip-\d+"/);
       } finally {
         await signed.app.close();
@@ -691,23 +691,6 @@ describe('browse API over the dev dataset', () => {
       };
       expect(written.image.url).toMatch(
         /^https:\/\/images-test\.b-cdn\.net\/dev-seed\/image-01\.webp\?token=HS256-/,
-      );
-    });
-
-    it('gives the video’s card the story page’s player link (Cards A, Joel 2026-11-09)', async () => {
-      const [media] = (
-        (await (await story(v03.slug)).json()) as {
-          media: { playbackUrl: string }[];
-        }
-      ).media;
-      const cards = async (path: string) =>
-        ((await (await fetch(`${signed.url}${path}`)).json()) as Page).data;
-      const card = (await cards('/v1/stories?limit=50')).find(
-        (c) => c.id === v03.id,
-      );
-      expect(card?.playbackUrl).toBe(media.playbackUrl);
-      expect((await cards(`/v1/stories?id=${v03.id}`))[0]?.playbackUrl).toBe(
-        media.playbackUrl,
       );
     });
 

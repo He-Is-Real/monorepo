@@ -1,85 +1,255 @@
 'use client';
 
-import { type CSSProperties, useEffect, useId, useRef } from 'react';
-import { connectPlayer } from '@/lib/player-js';
-import { PLAYER_ALLOW } from './story-media';
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { cardPlayer } from '@/app/stories/actions';
+import { PLAYER_ALLOW, PLAYER_MIN_HEIGHT } from './story-media';
 
-// A video or audio card's media area (story-card.tsx): Bunny's player itself, as on the story
-// page, with Bunny's own thumbnail and play button (Joel, 2026-11-09: no picture or play button of
-// our own over it). Its link comes with the card (`playbackUrl`, "Cards A"). Nothing plays on its
-// own; one card plays at a time on the whole page: when one starts, Bunny's player control API
-// (lib/player-js.ts) pauses the others. Without JavaScript the players still show and play;
-// only the one-at-a-time rule needs it.
+// A video or audio card's media area (story-card.tsx): pressing it plays the story in place, in
+// Bunny's player, in the same box (D55's measured spans stay right). The player link is signed
+// on demand by a server action (cards never carry one). Playback starts from that press, never
+// on its own. One card plays at a time, on the whole page. Without JavaScript the area is a
+// plain link to the story, like the rest of the card.
 
-/** The cards' players on the page now (home's and browse's cards share them). */
-const players = new Map<string, { pause: () => void }>();
+// The card playing now, page-wide (home's and browse's cards share it).
+let playing: string | null = null;
+const listeners = new Set<() => void>();
+function setPlaying(id: string | null) {
+  playing = id;
+  for (const l of listeners) l();
+}
+function subscribe(l: () => void) {
+  listeners.add(l);
+  return () => listeners.delete(l);
+}
+const noSubscribe = () => () => undefined;
+
+type State =
+  | { status: 'idle' | 'loading' }
+  | { status: 'playing'; src: string }
+  | { status: 'error'; reason: 'gone' | 'unavailable' };
+
+const MESSAGES = {
+  gone: 'This story isn’t available any more.',
+  unavailable: 'The player couldn’t load. Try again in a moment.',
+} as const;
 
 export function CardPlayer({
-  src,
+  slug,
   title,
   format,
   aspect,
+  children,
 }: {
-  /** The signed player link with autoplay off (story-media.tsx's playerSrc). */
-  src: string;
+  slug: string;
   title: string;
   format: 'video' | 'audio';
-  /** The media box's aspect ratio: the player fills the box. */
+  /** The media box's aspect ratio: the player fills the same box. */
   aspect: number;
+  /** The thumbnail or placeholder, with its play badge. */
+  children: ReactNode;
 }) {
   const id = useId();
+  // False on the server and while hydrating: the no-JavaScript link until then.
+  const hydrated = useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
+  );
+  const active = useSyncExternalStore(
+    subscribe,
+    () => playing === id,
+    () => false,
+  );
+  const [state, setState] = useState<State>({ status: 'idle' });
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
+  const shown = active && state.status === 'playing' ? state.src : null;
 
+  async function play() {
+    if (state.status === 'loading') return;
+    setPlaying(id);
+    setState({ status: 'loading' });
+    let result: Awaited<ReturnType<typeof cardPlayer>>;
+    try {
+      result = await cardPlayer(slug);
+    } catch {
+      result = { ok: false, reason: 'unavailable' }; // offline, server unreachable
+    }
+    setState(
+      result.ok
+        ? { status: 'playing', src: result.src }
+        : { status: 'error', reason: result.reason },
+    );
+  }
+
+  function stop() {
+    returnFocus.current = true;
+    if (playing === id) setPlaying(null);
+    setState({ status: 'idle' });
+  }
+
+  // Into the player once it's there; back to the play button once it's closed.
   useEffect(() => {
-    const el = frame.current;
-    if (!el) return;
-    const player = connectPlayer(el, () => {
-      for (const [other, p] of players) if (other !== id) p.pause();
-    });
-    players.set(id, player);
-    return () => {
-      players.delete(id);
-      player.disconnect();
-    };
-  }, [id, src]);
+    if (shown) frame.current?.focus();
+    else if (returnFocus.current) {
+      returnFocus.current = false;
+      button.current?.focus();
+    }
+  }, [shown]);
 
-  // Hidden while playing (story-view's Related cards are display: none below 1024 px, so a tablet
-  // rotating would leave it playing out of sight): pause it. A hidden box has no client rects.
+  // Escape closes the player while focus is in this card (not inside the player's own frame:
+  // its keys stay there). Closing is the only way out besides another card.
+  useEffect(() => {
+    if (!shown) return;
+    const onKey = (e: KeyboardEvent) => {
+      const card = box.current?.closest('article');
+      if (e.key === 'Escape' && card?.contains(document.activeElement)) stop();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
+
+  // Hidden while playing (story-view's Related cards are display: none below 1024 px, so a
+  // tablet rotating would leave the player playing out of sight with no way to close it): stop
+  // it. A box that is no longer rendered has no client rects.
   useEffect(() => {
     const el = box.current;
-    if (!el) return;
+    if (!shown || !el) return;
     const observer = new ResizeObserver(() => {
-      if (el.getClientRects().length === 0) players.get(id)?.pause();
+      if (el.getClientRects().length > 0) return;
+      if (playing === id) setPlaying(null);
+      setState({ status: 'idle' });
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [id]);
+  }, [shown, id]);
 
-  // Never shorter than the player's controls need (a 2:1 box on a phone is 144 px), in rem as
-  // lib/masonry.ts predicts it (CARD.playerMinHeight).
-  const style: CSSProperties = {
-    aspectRatio: String(aspect),
-    minHeight: 'var(--card-player-min)',
-    minWidth: 0, // or aspect-ratio turns the min-height into a wider minimum width
-  };
+  // Unmounting (a new list) stops it for good.
+  useEffect(
+    () => () => {
+      if (playing === id) setPlaying(null);
+    },
+    [id],
+  );
+
+  const kind = format === 'video' ? 'Video' : 'Audio';
+  const style: CSSProperties = { aspectRatio: String(aspect) };
+  const boxClass = 'relative w-full shrink-0 overflow-hidden';
+
+  if (!hydrated)
+    return (
+      <div
+        data-card-media=""
+        className={`${boxClass} bg-surface`}
+        style={style}
+      >
+        <a
+          href={`/stories/${slug}`}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="block h-full w-full"
+        >
+          {children}
+        </a>
+      </div>
+    );
+
+  // Playing: never shorter than the player's controls need (a 2:1 box on a phone is 144 px).
+  // The box grows once, when the player opens; browse's masonry re-measures the card.
+  if (shown)
+    return (
+      <div
+        ref={box}
+        data-card-media=""
+        data-card-playing=""
+        className={`${boxClass} bg-black`}
+        style={{ ...style, minHeight: PLAYER_MIN_HEIGHT, minWidth: 0 }}
+      >
+        <button
+          type="button"
+          onClick={stop}
+          aria-label="Close player"
+          className="absolute top-2 right-2 z-10 flex size-11 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white backdrop-blur-sm hover:bg-black/80"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className="size-5 fill-none stroke-current"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+        <iframe
+          ref={frame}
+          src={shown}
+          title={`${kind}: ${title}`}
+          allow={`autoplay; ${PLAYER_ALLOW}`}
+          allowFullScreen
+          className="absolute inset-0 block h-full w-full border-0"
+        />
+      </div>
+    );
+
+  // Shown while this card is the one last pressed.
+  const error =
+    active && state.status === 'error' ? MESSAGES[state.reason] : null;
   return (
     <div
       ref={box}
       data-card-media=""
-      data-card-player=""
-      className="relative w-full shrink-0 overflow-hidden bg-black"
+      className={`${boxClass} bg-surface`}
       style={style}
     >
-      <iframe
-        ref={frame}
-        src={src}
-        title={`${format === 'video' ? 'Video' : 'Audio'}: ${title}`}
-        allow={PLAYER_ALLOW}
-        allowFullScreen
-        loading="lazy"
-        className="absolute inset-0 block h-full w-full border-0"
-      />
+      <button
+        ref={button}
+        type="button"
+        onClick={() => void play()}
+        aria-label={`Play ${title}`}
+        aria-busy={state.status === 'loading'}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className="group/play block h-full w-full cursor-pointer outline-none focus-visible:outline-none"
+      >
+        {children}
+        {/* A quiet scrim says “this plays” on hover and keyboard focus. */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/play:bg-black/15 group-focus-visible/play:bg-black/15 motion-reduce:transition-none"
+        />
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-t-2xl ring-ring ring-inset group-focus-visible/play:ring-[3px]"
+        />
+        {state.status === 'loading' && (
+          <span
+            aria-hidden="true"
+            className="absolute right-3 bottom-3 size-11 animate-spin rounded-full border-2 border-white/25 border-t-white motion-reduce:animate-none"
+          />
+        )}
+      </button>
+      {/* Always present, so screen readers hear the message when it appears. */}
+      <p
+        id={`${id}-error`}
+        role="status"
+        className={
+          error
+            ? 'pointer-events-none absolute inset-x-3 top-3 rounded-lg bg-black/75 px-3 py-2 text-sm leading-5 text-white backdrop-blur-sm'
+            : 'sr-only'
+        }
+      >
+        {error}
+      </p>
     </div>
   );
 }
