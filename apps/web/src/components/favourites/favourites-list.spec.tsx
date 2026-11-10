@@ -57,7 +57,6 @@ const card = (id: string, title: string): StorySummary => ({
   bylineName: null,
   primaryFormat: 'written',
   durationSeconds: null,
-  playbackUrl: null,
   thumbnailUrl: null,
   thumbnailWidth: null,
   thumbnailHeight: null,

@@ -544,10 +544,9 @@ components:
       type: object
       description: |
         Card view for browse, related, favourites and feed. From `publicStory`; no metrics, no
-        submitter data, no storage data. Carries what D55's balanced masonry predicts a card's
-        height from: the picture's size (`thumbnailWidth`/`thumbnailHeight` or `image`) and the
-        `excerpt` to measure. A video or audio card shows Bunny's player directly, so it carries
-        the story's signed player link (`playbackUrl`; Joel, 2026-11-09, "Cards A").
+        submitter data, no playback or storage data. Carries what D55's balanced masonry predicts a
+        card's height from: the picture's size (`thumbnailWidth`/`thumbnailHeight` or `image`) and
+        the `excerpt` to measure.
       required:
         [
           id,
@@ -557,7 +556,6 @@ components:
           bylineName,
           primaryFormat,
           durationSeconds,
-          playbackUrl,
           thumbnailUrl,
           thumbnailWidth,
           thumbnailHeight,
@@ -590,18 +588,10 @@ components:
           type: [integer, 'null']
           minimum: 1
           description: The clip's length (video and audio); `null` for written stories.
-        playbackUrl:
-          type: [string, 'null']
-          format: uri
-          description: |
-            The story's Bunny Stream player for an iframe, signed and expiring like the story page's
-            (`MediaPlayback.playbackUrl`, D52: the same link). Clients may append player options
-            (e.g. `autoplay=false`). `null` for written stories, or when signing is off.
-          example: https://player.mediadelivery.net/embed/786537/b8a77258-abfd-469d-ba63-9b89b62fcce6?token=0f1e2d3c&expires=1792789200
         thumbnailUrl:
           type: [string, 'null']
           format: uri
-          description: The video's or audio file's thumbnail, signed like the story page's (`MediaPlayback.thumbnailUrl`, D52). `null` for written stories, or when signing is off.
+          description: The video's or audio file's thumbnail, signed like the story page's (`MediaPlayback.thumbnailUrl`, D52). `null` for written stories, or when signing is off. Cards never carry a player link.
         thumbnailWidth:
           type: [integer, 'null']
           minimum: 1

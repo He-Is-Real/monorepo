@@ -296,8 +296,8 @@ const hideStory = (slug) => {
   };
 };
 
-// Card playback (card-playback.e2e.ts): stories listed only under `theme=play_test`. Each video or
-// audio card shows its player.
+// Card playback (card-playback.e2e.ts): stories listed only under `theme=play_test`. Each card
+// plays from its media area; "gone" answers 404 and "down" 503 when the player is asked for.
 const PLAY_TEST = 'play_test';
 const playTheme = { id: PLAY_TEST, name: 'Play test' };
 const playStory = (slug, over) => {
@@ -335,6 +335,16 @@ playStory('play-test-audio', {
 playStory('play-test-written', {
   title: 'Play test: written',
   body: 'Placeholder text for a written story in the playback tests.',
+});
+playStory('play-test-gone', {
+  primaryFormat: 'video',
+  title: 'Play test: a story that has gone',
+  media: clip('video', '33333333-3333-4333-8333-333333333333', 1080, 1080),
+});
+playStory('play-test-down', {
+  primaryFormat: 'video',
+  title: 'Play test: the API is down',
+  media: clip('video', '44444444-4444-4444-8444-444444444444', 1080, 1350),
 });
 // Prefetch check (card-playback.e2e.ts): each run makes its own video story (POST /__test/story,
 // `prefetch-test-…`), listed only under `theme=prefetch_test`, so no two tests (or repeats) ever
@@ -393,6 +403,9 @@ for (const [slug, title, format, publishedAt] of [
   });
 }
 const reads = new Map();
+
+/** Listed (as cards) but not readable: the story was hidden, or the API is failing. */
+const UNREADABLE = { 'play-test-gone': 404, 'play-test-down': 503 };
 
 // Hearts (favourites.e2e.ts): a story per behaviour device to heart, listed only under
 // `theme=heart_test`. A test that hides a story makes its own first (POST /__test/story), listed
@@ -548,7 +561,7 @@ stories[WITHDRAWN] = {
 // D30: an old slug answers 301 to the story's current one, as api-public-read does.
 const ALIASES = { 'old-video-story': 'video-story' };
 
-/** `StorySummary` (libs/contracts): a card, with its story's player link (Cards A). */
+/** `StorySummary` (libs/contracts): a card, never a player link. */
 function summaryOf(s) {
   const media = s.media?.[0];
   return {
@@ -559,7 +572,6 @@ function summaryOf(s) {
     bylineName: s.bylineName,
     primaryFormat: s.primaryFormat,
     durationSeconds: media?.durationSeconds ?? null,
-    playbackUrl: media?.playbackUrl ?? null,
     thumbnailUrl: media?.thumbnailUrl ?? null,
     thumbnailWidth: media?.width ?? null,
     thumbnailHeight: media?.height ?? null,
@@ -743,34 +755,9 @@ const WIDE_SVG =
   '<rect width="1600" height="640" fill="#336"/><text x="40" y="340" font-size="64" fill="#fff">DEV TEST 2.5:1</text></svg>';
 // A stand-in for Bunny's player: its 44 px button proves nothing about the real one. The real
 // player's control sizes are checked on dev (apps/dev-seed/behavioural/media.behaviour.ts).
-// Bunny's player stand-in: a Play button, and the player's control API (Player.js, as Bunny's
-// player speaks it: `ready`, `play` and `pause` events, the `pause` method). It says whether it is
-// playing, and plays on its own if its link asks for `autoplay=true`, as Bunny's would.
-const PLAYER_HTML = `<!doctype html><title>Stub player</title><body style="margin:0;background:#000;color:#fff;font:16px sans-serif">
-<button style="min-width:44px;min-height:44px">Play</button><p data-state>Paused</p>
-<script>
-const say = (msg) => parent.postMessage(JSON.stringify({ context: 'player.js', version: '0.0.11', ...msg }), '*');
-const listeners = {};
-const ready = () => say({ event: 'ready', value: { src: location.href, events: ['ready', 'play', 'pause'], methods: ['play', 'pause'] } });
-const state = document.querySelector('[data-state]');
-const set = (playing) => {
-  state.textContent = playing ? 'Playing' : 'Paused';
-  for (const l of listeners[playing ? 'play' : 'pause'] ?? []) say({ event: playing ? 'play' : 'pause', listener: l });
-};
-addEventListener('message', (e) => {
-  let d;
-  try { d = JSON.parse(e.data); } catch { return; }
-  if (d?.context !== 'player.js') return;
-  if (d.method === 'addEventListener') {
-    if (d.value === 'ready') return ready();
-    (listeners[d.value] ??= []).push(d.listener);
-  } else if (d.method === 'pause') set(false);
-  else if (d.method === 'play') set(true);
-});
-document.querySelector('button').onclick = () => set(true);
-ready();
-if (new URLSearchParams(location.search).get('autoplay') === 'true') set(true);
-</script></body>`;
+const PLAYER_HTML =
+  '<!doctype html><title>Stub player</title><body style="margin:0;background:#000;color:#fff;font:16px sans-serif">' +
+  '<button style="min-width:44px;min-height:44px">Play</button></body>';
 
 /** Site video key → stand-in GUID (site-videos.e2e.ts checks each page plays its own). */
 const SITE_VIDEOS = {
@@ -912,7 +899,18 @@ const handler = (mode) => (req, res) => {
     return res.end();
   }
   if (match) reads.set(match[1], (reads.get(match[1]) ?? 0) + 1);
-  const story = match && stories[match[1]];
+  const unreadable = match && UNREADABLE[match[1]];
+  if (unreadable === 503) {
+    res.writeHead(503, { 'content-type': 'application/problem+json' });
+    return res.end(
+      JSON.stringify({
+        type: 'about:blank',
+        title: 'Unavailable',
+        status: 503,
+      }),
+    );
+  }
+  const story = !unreadable && match && stories[match[1]];
   if (story && onPort(mode, story)) {
     res.writeHead(200, { 'content-type': 'application/json', etag: '"1"' });
     return res.end(JSON.stringify(story));

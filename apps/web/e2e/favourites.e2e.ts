@@ -758,18 +758,6 @@ test('My favourites keeps each card at its media’s shape, in browse’s masonr
       await expect(media, title).toHaveCount(0);
       continue;
     }
-    if (title.includes('video')) {
-      // Its player, at its shape, never shorter than the player's controls need (184 px).
-      await expect(media.locator('iframe'), title).toBeVisible();
-      const box = await media.boundingBox();
-      expect(
-        Math.abs(
-          (box?.height ?? 0) - Math.max((box?.width ?? 0) / aspect, 184),
-        ),
-        title,
-      ).toBeLessThanOrEqual(1);
-      continue;
-    }
     await expect(media.locator('img'), title).toBeVisible();
     const box = await media.boundingBox();
     expect(box && box.width / box.height, title).toBeCloseTo(aspect, 1);

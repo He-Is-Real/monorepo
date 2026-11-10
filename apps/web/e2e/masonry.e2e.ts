@@ -381,8 +381,8 @@ test('the site serves the DM Sans the card widths were measured from', async ({
  * JavaScript runs; if it then jumps, the tap hits a gap or the wrong story, and the page scores
  * worse for layout shift. Before the fix they moved by up to 216 px at 768 px wide.
  *
- * 20 px is under half of the smallest thing on a card a person taps (the 44 px heart; the
- * player's own buttons are larger), so a tap aimed at its middle still lands on it. Only the list's first screenful
+ * 20 px is under half of the smallest thing on a card a person taps (the 44 px heart and play
+ * buttons), so a tap aimed at its middle still lands on it. Only the list's first screenful
  * counts (the cards that start less than a screen below its top): nothing further down can be
  * tapped, or seen to move, before a person scrolls, and the measuring is long done by then. Each
  * card's place is measured from the list's top, so only the masonry's own movement counts. One device per layout: a phone (one column, no predicted
@@ -396,70 +396,35 @@ const SHIFT_DEVICES = [
   'desktop-1280',
 ];
 
-// Also on audio's cards, each a player at its minimum height in two columns, with other text
-// sizes (Codex review of #207): at 200% (WCAG 1.4.4) the minimum, in px, was predicted at twice
-// its height and the cards at 768 px moved up by 192 px once measured; at 12 and 14 px the player
-// keeps its 184 px while the prediction shrank with the text, and at 640 px (the narrowest two
-// columns) cards moved down by up to 72 px. Set here on the 768 px device, at 640 and 768 px:
-// wider, with text this small, the list is wider than the widest band (BANDS end at the site's
-// width at the default text size). The card and its tap targets grow with larger text, so the
-// movement allowed does too: still under half the heart.
-for (const [text, path, width] of [
-  [16, '/stories', undefined],
-  [32, '/stories?format=audio', undefined],
-  [12, '/stories?format=audio', 640],
-  [12, '/stories?format=audio', 768],
-  [14, '/stories?format=audio', 640],
-] as const)
-  test(`cards on the first screen barely move once the page measures them (${text} px text, ${path}${width ? `, ${width} px wide` : ''})`, async ({
-    browser,
-    page,
-  }, info) => {
-    test.skip(
-      !SHIFT_DEVICES.includes(info.project.name),
-      'one device a layout',
-    );
-    test.skip(
-      text !== 16 && info.project.name === 'phone-320',
-      'one card a screen: one column predicts nothing',
-    );
-    test.skip(
-      width !== undefined && info.project.name !== 'ipad-mini-portrait',
-      'the width is set here',
-    );
-    const viewport = width
-      ? { width, height: info.project.use.viewport?.height ?? 0 }
-      : info.project.use.viewport;
-    if (width)
-      await page.setViewportSize({ width, height: viewport?.height ?? 0 });
-    // The first paint: the server's page as it is before any script runs.
-    const before = await browser.newContext({ ...info.project.use, viewport });
-    await blockScripts(before);
-    const first = await before.newPage();
-    if (text !== 16) await textSetting(first, text);
-    await first.goto(path);
-    await expect(cards(first).first()).toBeVisible();
-    const count = await cards(first).count();
-    const predicted = await boxes(first);
-    await before.close();
+test('cards on the first screen barely move once the page measures them', async ({
+  browser,
+  page,
+}, info) => {
+  test.skip(!SHIFT_DEVICES.includes(info.project.name), 'one device a layout');
+  // The first paint: the server's page as it is before any script runs.
+  const before = await browser.newContext({ ...info.project.use });
+  await blockScripts(before);
+  const first = await before.newPage();
+  await first.goto('/stories');
+  await expect(cards(first)).toHaveCount(15);
+  const predicted = await boxes(first);
+  await before.close();
 
-    // Measured: every card spans its own height plus the gap, in rows (--m, story-masonry.tsx).
-    if (text !== 16) await textSetting(page, text);
-    await page.goto(path);
-    await expect(cards(page)).toHaveCount(count);
-    await page.evaluate(() => document.fonts.ready);
-    await expect.poll(() => allMeasured(page)).toBe(true);
-    const measured = await boxes(page);
+  // Measured: every card spans its own height plus the gap, in rows (--m, story-masonry.tsx).
+  await page.goto('/stories');
+  await expect(cards(page)).toHaveCount(15);
+  await page.evaluate(() => document.fonts.ready);
+  await expect.poll(() => allMeasured(page)).toBe(true);
+  const measured = await boxes(page);
 
-    const screen = viewport?.height ?? 0;
-    const top = (all: typeof predicted, i: number) => all[i].top - all[0].top;
-    const moves = predicted
-      .filter((card) => top(predicted, card.i) < screen)
-      .map((card) => ({
-        card: card.i,
-        moved: Math.round(top(predicted, card.i) - top(measured, card.i)),
-      }));
-    expect(moves.length).toBeGreaterThan(1);
-    const most = (MOST_MOVEMENT * Math.max(text, 16)) / 16;
-    expect(moves.filter((m) => Math.abs(m.moved) > most)).toEqual([]);
-  });
+  const screen = info.project.use.viewport?.height ?? 0;
+  const top = (all: typeof predicted, i: number) => all[i].top - all[0].top;
+  const moves = predicted
+    .filter((card) => top(predicted, card.i) < screen)
+    .map((card) => ({
+      card: card.i,
+      moved: Math.round(top(predicted, card.i) - top(measured, card.i)),
+    }));
+  expect(moves.length).toBeGreaterThan(1);
+  expect(moves.filter((m) => Math.abs(m.moved) > MOST_MOVEMENT)).toEqual([]);
+});

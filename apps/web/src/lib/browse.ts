@@ -44,11 +44,6 @@ export interface StorySummary {
   bylineName: string | null;
   primaryFormat: StoryFormat;
   durationSeconds: number | null;
-  /**
-   * The story's signed player link (video, audio; D52): the card shows Bunny's player (Joel,
-   * 2026-11-09, "Cards A"). `null` for written stories or while signing is off.
-   */
-  playbackUrl: string | null;
   thumbnailUrl: string | null;
   thumbnailWidth: number | null;
   thumbnailHeight: number | null;
@@ -256,8 +251,6 @@ function isSummary(value: unknown): value is ApiSummary {
     typeof s.excerpt === 'string' &&
     typeof s.primaryFormat === 'string' &&
     nullableNumber(s.durationSeconds) &&
-    // Absent from an api-public-read older than this web (rolling out): a card without a player.
-    (s.playbackUrl == null || typeof s.playbackUrl === 'string') &&
     nullableNumber(s.thumbnailWidth) &&
     nullableNumber(s.thumbnailHeight) &&
     (s.image === null ||

@@ -1,21 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import {
-  expect,
-  type FrameLocator,
-  type Locator,
-  type Page,
-  test,
-} from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
 import { expectNoHorizontalOverflow, expectTarget } from './helpers';
 import { STUB_PORT } from './servers';
 
-// Video and audio cards show Bunny's player directly (the stub's here), in the card's media box,
-// with no picture or play button of our own over it; its link comes with the card (Joel,
-// 2026-11-09, "Cards A"). Nothing plays on its own; one card plays at a time on the page: starting
-// one pauses the others through the player's control API (Player.js, which the stub speaks). The
-// text below still opens the story's page. Written cards are unchanged. Stub stories:
-// `theme=play_test`.
+// Playing a story from its card (Joel, 2026-10-24): a video or audio card's media area plays the
+// story in place, in Bunny's player (the stub's here), with a player link signed on demand by
+// api-public-read (a server action reads the story, D32). The text below still opens the story's
+// page. Written cards are unchanged. One card plays at a time. Stub stories: `theme=play_test`.
 
 const LIST = '/stories?theme=play_test';
 const VIDEO = 'Play test: a wide video';
@@ -24,18 +16,15 @@ const AUDIO = 'Play test: audio';
 const PLAYER_MIN_HEIGHT = 184;
 const embed = (id: string) => `http://127.0.0.1:${STUB_PORT}/embed/1/${id}?`;
 const VIDEO_ID = '11111111-1111-4111-8111-111111111111';
+const AUDIO_ID = '22222222-2222-4222-8222-222222222222';
 
 const card = (page: Page, title: string) =>
   page.locator('article').filter({
     has: page.getByRole('heading', { name: title, exact: true }),
   });
+const playButton = (page: Page, title: string) =>
+  page.getByRole('button', { name: `Play ${title}`, exact: true });
 const media = (c: Locator) => c.locator('[data-card-media]');
-const frameOf = (c: Locator, title: string) =>
-  c.locator(`iframe[title$=": ${title}"]`);
-/** Inside a card's player: its Play button and what it says it is doing. */
-const playerOf = (c: Locator, title: string): FrameLocator =>
-  c.frameLocator(`iframe[title$=": ${title}"]`);
-const state = (player: FrameLocator) => player.locator('[data-state]');
 
 /**
  * Clicks a card where a person's click would land: on `part` (the excerpt, under the title
@@ -65,30 +54,53 @@ async function size(locator: Locator) {
   };
 }
 
-// Every device: the player box's size depends on the card's width.
-test('a card shows its player in its own box, at its shape, never shorter than the controls need', async ({
+// Every device: the size of a playing card's box depends on the card's width.
+test('a card plays in its own box: same width, only as tall as the controls need, and its messages fit', async ({
   page,
 }) => {
   await page.goto(LIST);
-  for (const [title, aspect] of [
-    [VIDEO, 1920 / 1080],
-    [AUDIO, 1280 / 720], // the default audio thumbnail's shape
-  ] as const) {
-    const c = card(page, title);
-    const frame = frameOf(c, title);
-    await frame.scrollIntoViewIfNeeded();
-    await expect(frame).toBeVisible();
-    // No picture or play button of our own: the player is the box.
-    await expect(media(c).locator('img')).toHaveCount(0);
-    await expect(c.getByRole('button', { name: /^Play / })).toHaveCount(0);
-    const box = await size(media(c));
-    expect(await size(frame)).toEqual(box);
-    expect(
-      Math.abs(box.height - Math.max(box.width / aspect, PLAYER_MIN_HEIGHT)),
-      title,
-    ).toBeLessThanOrEqual(1);
-    await expectTarget(page, playerOf(c, title).getByRole('button'));
-  }
+  const video = card(page, VIDEO);
+  const play = playButton(page, VIDEO);
+  await expectTarget(page, play);
+  const before = await size(media(video));
+
+  await play.click();
+  const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
+  await expect(frame).toBeVisible();
+  await expect(
+    page.frameLocator(`iframe[title="Video: ${VIDEO}"]`).getByRole('button'),
+  ).toBeVisible();
+  // Same page and width; the same height unless that is shorter than the player's controls
+  // need (184 px, PLAYER_MIN_HEIGHT): then the box grows to it once.
+  await expect(page).toHaveURL(LIST);
+  expect(await size(media(video))).toEqual({
+    width: before.width,
+    height: Math.max(before.height, PLAYER_MIN_HEIGHT),
+  });
+  expect(await size(frame)).toEqual(await size(media(video)));
+  await expectNoHorizontalOverflow(page);
+  await expectTarget(page, video.getByRole('button', { name: 'Close player' }));
+
+  // An audio card's 2:1 box is 144 px tall on a 320 px phone: the player gets its 184 px.
+  await playButton(page, AUDIO).click();
+  const audio = page.locator(`iframe[title="Audio: ${AUDIO}"]`);
+  await expect(audio).toBeVisible();
+  expect((await size(audio)).height).toBeGreaterThanOrEqual(PLAYER_MIN_HEIGHT);
+
+  // A failure's message stays inside the card, the longer one too.
+  const gone = card(page, 'Play test: a story that has gone');
+  const goneBefore = await size(media(gone));
+  await playButton(page, 'Play test: a story that has gone').click();
+  await expect(
+    gone.getByText('This story isn’t available any more.'),
+  ).toBeVisible();
+  expect(await size(media(gone))).toEqual(goneBefore);
+  await expectNoHorizontalOverflow(page);
+  const down = card(page, 'Play test: the API is down');
+  await playButton(page, 'Play test: the API is down').click();
+  await expect(
+    down.getByText('The player couldn’t load. Try again in a moment.'),
+  ).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
 
@@ -120,28 +132,19 @@ test.describe('behaviour', () => {
     );
   });
 
-  test('the player comes with the card, nothing plays on its own, and the text below opens the story', async ({
+  test('the media area plays the story in place, signed on demand; the text below opens the story', async ({
     page,
   }) => {
     await page.goto(LIST);
     const video = card(page, VIDEO);
-    const frame = frameOf(video, VIDEO);
-    await frame.scrollIntoViewIfNeeded();
-    // The card's own signed link (api-public-read, D52), with autoplay and preload off.
-    const src = new URL((await frame.getAttribute('src')) ?? '');
-    expect(src.href.startsWith(embed(VIDEO_ID))).toBe(true);
-    expect(src.searchParams.get('token')).toBe('stub');
-    expect(src.searchParams.get('autoplay')).toBe('false');
-    expect(src.searchParams.get('preload')).toBe('false');
-    for (const title of [VIDEO, AUDIO]) {
-      const c = card(page, title);
-      await frameOf(c, title).scrollIntoViewIfNeeded();
-      await expect(state(playerOf(c, title))).toHaveText('Paused');
-    }
-
-    // Playing happens in the card; the page stays.
-    await playerOf(video, VIDEO).getByRole('button', { name: 'Play' }).click();
-    await expect(state(playerOf(video, VIDEO))).toHaveText('Playing');
+    await playButton(page, VIDEO).click();
+    const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
+    await expect(frame).toBeVisible();
+    // Signed on demand by api-public-read, and started by this click.
+    const src = (await frame.getAttribute('src')) ?? '';
+    expect(src.startsWith(embed(VIDEO_ID))).toBe(true);
+    expect(new URL(src).searchParams.get('token')).toBe('stub');
+    expect(new URL(src).searchParams.get('autoplay')).toBe('true');
     await expect(page).toHaveURL(LIST);
 
     // The text part still opens the story's page.
@@ -155,50 +158,37 @@ test.describe('behaviour', () => {
     ).toBeVisible();
   });
 
-  test('starting another card pauses the one playing', async ({ page }) => {
-    await page.goto(LIST);
-    const video = playerOf(card(page, VIDEO), VIDEO);
-    const audio = playerOf(card(page, AUDIO), AUDIO);
-    await frameOf(card(page, VIDEO), VIDEO).scrollIntoViewIfNeeded();
-    await video.getByRole('button', { name: 'Play' }).click();
-    await expect(state(video)).toHaveText('Playing');
-
-    await frameOf(card(page, AUDIO), AUDIO).scrollIntoViewIfNeeded();
-    await audio.getByRole('button', { name: 'Play' }).click();
-    await expect(state(audio)).toHaveText('Playing');
-    await expect(state(video)).toHaveText('Paused');
-
-    // And back again.
-    await frameOf(card(page, VIDEO), VIDEO).scrollIntoViewIfNeeded();
-    await video.getByRole('button', { name: 'Play' }).click();
-    await expect(state(video)).toHaveText('Playing');
-    await expect(state(audio)).toHaveText('Paused');
-  });
-
-  test('the heart sits in the card’s top line, below the player, a whole target', async ({
+  test('a playing card’s Close is a real target: the heart steps aside while it plays', async ({
     page,
   }) => {
+    // Codex, #117 round 3: the card's heart sat on top of Close and took its clicks.
     await page.goto(LIST);
-    for (const title of [VIDEO, 'Play test: written']) {
-      const c = card(page, title);
-      const heart = c.locator('[data-heart]');
-      await expectTarget(page, heart);
-      const h = await heart.boundingBox();
-      const label = await c.locator('[data-card-label]').boundingBox();
-      // Centred on the top line, at its end.
-      expect(
-        Math.abs(
-          (h?.y ?? 0) +
-            (h?.height ?? 0) / 2 -
-            ((label?.y ?? 0) + (label?.height ?? 0) / 2),
-        ),
-        title,
-      ).toBeLessThanOrEqual(2);
-      const box =
-        (await media(c).count()) > 0 ? await media(c).boundingBox() : null;
-      if (box)
-        expect(h?.y ?? 0, title).toBeGreaterThanOrEqual(box.y + box.height);
-    }
+    const video = card(page, VIDEO);
+    const heart = video.locator('[data-heart]');
+    await expect(heart).toBeVisible();
+    await playButton(page, VIDEO).click();
+    const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
+    await expect(frame).toBeVisible();
+    await expect(heart).toBeHidden();
+    // A real click, where a person would tap: no `force`.
+    await video.getByRole('button', { name: 'Close player' }).click();
+    await expect(frame).toHaveCount(0);
+    await expect(heart).toBeVisible();
+  });
+
+  test('starting another card stops the one playing', async ({ page }) => {
+    await page.goto(LIST);
+    await playButton(page, VIDEO).click();
+    await expect(page.locator(`iframe[title="Video: ${VIDEO}"]`)).toBeVisible();
+
+    await playButton(page, AUDIO).click();
+    const audio = page.locator(`iframe[title="Audio: ${AUDIO}"]`);
+    await expect(audio).toBeVisible();
+    expect((await audio.getAttribute('src'))?.startsWith(embed(AUDIO_ID))).toBe(
+      true,
+    );
+    await expect(page.locator('iframe')).toHaveCount(1);
+    await expect(playButton(page, VIDEO)).toBeVisible();
   });
 
   test('written cards open the story from anywhere on the card', async ({
@@ -208,95 +198,187 @@ test.describe('behaviour', () => {
     const written = card(page, 'Play test: written');
     // No player: its only button is the heart (favourites.e2e.ts).
     await expect(written.locator('button:not([data-heart])')).toHaveCount(0);
-    await expect(written.locator('iframe')).toHaveCount(0);
     await clickCardAt(
       written,
       written.getByText('Placeholder story for the card playback tests.'),
     );
     await expect(page).toHaveURL(/\/stories\/play-test-written$/);
   });
-});
 
-test('home’s “Recently shared” cards show their players too', async ({
-  page,
-}, info) => {
-  test.skip(
-    !BEHAVIOUR_DEVICES.includes(info.project.name),
-    'one phone and one desktop',
-  );
-  await page.goto('/');
-  const c = card(page, 'Test story: audio');
-  await frameOf(c, 'Test story: audio').scrollIntoViewIfNeeded();
-  const player = playerOf(c, 'Test story: audio');
-  await expectTarget(page, player.getByRole('button', { name: 'Play' }));
-  await expect(state(player)).toHaveText('Paused');
-  await expectNoHorizontalOverflow(page);
-});
+  test('a story that has gone, or an API that is down, shows a calm message and the link still works', async ({
+    page,
+  }) => {
+    await page.goto(LIST);
+    const gone = card(page, 'Play test: a story that has gone');
+    const before = await size(media(gone));
+    await playButton(page, 'Play test: a story that has gone').click();
+    await expect(
+      gone.getByText('This story isn’t available any more.'),
+    ).toBeVisible();
+    await expect(gone.locator('iframe')).toHaveCount(0);
+    expect(await size(media(gone))).toEqual(before);
 
-// Codex, #77: nothing prefetches a story's page (which reads the story). The stub counts each
-// story's reads; each run makes its own story, so repeats and workers never share a count.
-test('a story’s page is read only when someone opens it, never ahead of it', async ({
-  page,
-  request,
-}, info) => {
-  test.skip(
-    !BEHAVIOUR_DEVICES.includes(info.project.name),
-    'one phone and one desktop',
-  );
-  const slug = `prefetch-test-${randomUUID()}`;
-  const title = `Prefetch test ${slug}`;
-  expect(
-    (
-      await request.post(
-        `http://127.0.0.1:${STUB_PORT}/__test/story?slug=${slug}`,
-      )
-    ).status(),
-  ).toBe(204);
-  const reads = async () =>
-    (
-      await (
-        await request.get(
-          `http://127.0.0.1:${STUB_PORT}/__test/reads?slug=${slug}`,
-        )
-      ).json()
-    ).reads as number;
-  // Every request the browser makes for the story's page (a prefetch is one).
-  const asked: string[] = [];
-  page.on('request', (r) => {
-    if (new URL(r.url()).pathname === `/stories/${slug}`) asked.push(r.url());
+    const down = card(page, 'Play test: the API is down');
+    await playButton(page, 'Play test: the API is down').click();
+    await expect(
+      down.getByText('The player couldn’t load. Try again in a moment.'),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await down
+      .getByRole('link', { name: 'Play test: the API is down' })
+      .click();
+    await expect(page).toHaveURL(/\/stories\/play-test-down$/);
   });
-  await page.goto(`/stories?theme=prefetch_test&q=${slug}`);
-  const c = card(page, title);
-  // Its player is there and the page has hydrated: from then on Next would prefetch the link
-  // in view, and on hover.
-  await expect(frameOf(c, title)).toBeVisible();
-  await expect(c.locator('[data-heart]')).toHaveAttribute(
-    'data-heart-state',
-    /on|off/,
-  );
-  const link = page.getByRole('link', { name: title });
-  await link.scrollIntoViewIfNeeded();
-  await link.hover();
-  await page.waitForLoadState('networkidle');
-  expect(asked, 'nothing asked for the story’s page').toEqual([]);
-  expect(await reads()).toBe(0);
+
+  test('a failed request (offline) shows the message, and playing again works', async ({
+    page,
+  }) => {
+    await page.goto(LIST);
+    // Server actions are POSTs to the page: fail the first one.
+    let failed = false;
+    await page.route('**/stories*', (route) => {
+      if (route.request().method() === 'POST' && !failed) {
+        failed = true;
+        return route.abort('internetdisconnected');
+      }
+      return route.continue();
+    });
+    const video = card(page, VIDEO);
+    await playButton(page, VIDEO).click();
+    await expect(
+      video.getByText('The player couldn’t load. Try again in a moment.'),
+    ).toBeVisible();
+    await playButton(page, VIDEO).click();
+    await expect(
+      video.locator(`iframe[title="Video: ${VIDEO}"]`),
+    ).toBeVisible();
+  });
 });
 
-test("a story page's related cards show their players from 1024 px", async ({
+test.describe('keyboard and home', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !['phone-320', 'desktop-1280'].includes(info.project.name),
+      'checked on one phone and one desktop',
+    );
+  });
+
+  test('Enter and Space play, focus moves into the player, Escape stops it', async ({
+    page,
+  }) => {
+    await page.goto(LIST);
+    const video = card(page, VIDEO);
+    const play = playButton(page, VIDEO);
+    await play.focus();
+    // The card's link comes straight after its play button.
+    await page.keyboard.press('Tab');
+    await expect(video.getByRole('link', { name: VIDEO })).toBeFocused();
+    await play.focus();
+    await page.keyboard.press('Enter');
+    const frame = video.locator(`iframe[title="Video: ${VIDEO}"]`);
+    await expect(frame).toBeFocused();
+
+    const close = video.getByRole('button', { name: 'Close player' });
+    await close.focus();
+    await page.keyboard.press('Escape');
+    await expect(frame).toHaveCount(0);
+    await expect(play).toBeFocused();
+
+    await page.keyboard.press('Space');
+    await expect(frame).toBeFocused();
+    await close.press('Enter');
+    await expect(frame).toHaveCount(0);
+    await expect(play).toBeFocused();
+  });
+
+  test('home’s “Recently shared” cards play in place too', async ({ page }) => {
+    await page.goto('/');
+    const audio = page.getByRole('button', { name: 'Play Test story: audio' });
+    await expectTarget(page, audio);
+    await audio.click();
+    await expect(
+      page.locator('iframe[title="Audio: Test story: audio"]'),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
+    await expectNoHorizontalOverflow(page);
+  });
+});
+
+// Codex, #77: player links are signed only for stories someone plays or opens, so nothing
+// prefetches a story's page (which reads the story, and so signs its links). The stub counts
+// each story's reads; each run makes its own story, so repeats and workers never share a count.
+test.describe('signing on demand', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !['phone-320', 'desktop-1280'].includes(info.project.name),
+      'checked on one phone and one desktop',
+    );
+  });
+
+  test('a story is read only when its card is played, never ahead of it', async ({
+    page,
+    request,
+  }) => {
+    const slug = `prefetch-test-${randomUUID()}`;
+    const title = `Prefetch test ${slug}`;
+    expect(
+      (
+        await request.post(
+          `http://127.0.0.1:${STUB_PORT}/__test/story?slug=${slug}`,
+        )
+      ).status(),
+    ).toBe(204);
+    const reads = async () =>
+      (
+        await (
+          await request.get(
+            `http://127.0.0.1:${STUB_PORT}/__test/reads?slug=${slug}`,
+          )
+        ).json()
+      ).reads as number;
+    // Every request the browser makes for the story's page (a prefetch is one).
+    const asked: string[] = [];
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === `/stories/${slug}`) asked.push(r.url());
+    });
+    await page.goto(`/stories?theme=prefetch_test&q=${slug}`);
+    // The card's Play button shows once the page has hydrated: from then on Next would
+    // prefetch the link in view, and on hover.
+    await expect(playButton(page, title)).toBeVisible();
+    const link = page.getByRole('link', { name: title });
+    await link.scrollIntoViewIfNeeded();
+    await link.hover();
+    await page.waitForLoadState('networkidle');
+    expect(asked, 'nothing asked for the story’s page').toEqual([]);
+    expect(await reads()).toBe(0);
+
+    await playButton(page, title).click();
+    await expect(page.locator(`iframe[title="Video: ${title}"]`)).toBeVisible();
+    expect(await reads()).toBe(1);
+  });
+});
+
+test("a story page's related cards play in place from 1024 px", async ({
   page,
 }, info) => {
   // Below 1024 px, Related is a small list of links (story-view.tsx), as on phones.
   test.skip(info.project.name !== 'desktop-1280', 'one desktop');
   await page.goto('/stories/browse-test-03');
   const related = page.getByRole('region', { name: 'Related stories' });
-  const frame = related.locator('iframe').first();
-  await frame.scrollIntoViewIfNeeded();
-  await expect(frame).toBeVisible();
+  const play = related.getByRole('button', { name: /^Play / }).first();
+  await expectTarget(page, play);
+  const title = ((await play.getAttribute('aria-label')) ?? '').slice(5);
+  await play.click();
+  await expect(related.locator(`iframe[title$=": ${title}"]`)).toBeVisible();
+  await expect(page).toHaveURL(/\/stories\/browse-test-03$/);
   await expectNoHorizontalOverflow(page);
 });
 
 // Joel, 2026-10-31: every related preview keeps its own (clamped, D53) shape, on phones' small
-// list and in the desktop row, and a video's player fills its own shape's box (as browse's cards
+// list and in the desktop row, and a video plays in its own shape's box (as browse's cards
 // do). Stub: `aspect-test`'s related stories.
 test('a story page’s related previews keep their own shapes', async ({
   page,
@@ -345,44 +427,42 @@ test('a story page’s related previews keep their own shapes', async ({
   expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
   for (const [title, aspect] of shapes) {
     const c = cardOf(title);
-    if (!title.includes('video')) {
-      await expect(media(c).locator('img')).toBeVisible();
-      expect(await ratio(media(c)), title).toBeCloseTo(aspect, 1);
-      continue;
+    await expect(media(c).locator('img')).toBeVisible();
+    expect(await ratio(media(c)), title).toBeCloseTo(aspect, 1);
+    if (title.includes('video')) {
+      // Plays in place in that box, as in browse: the player shows the whole clip in it.
+      await playButton(page, title).click();
+      await expect(c.locator(`iframe[title="Video: ${title}"]`)).toBeVisible();
+      const box = await size(media(c));
+      expect(
+        Math.abs(box.height - Math.max(box.width / aspect, PLAYER_MIN_HEIGHT)),
+        `${title}: playing`,
+      ).toBeLessThanOrEqual(1);
     }
-    // The player fills that box, never shorter than its controls need.
-    await expect(frameOf(c, title)).toBeVisible();
-    const box = await size(media(c));
-    expect(await size(frameOf(c, title))).toEqual(box);
-    expect(
-      Math.abs(box.height - Math.max(box.width / aspect, PLAYER_MIN_HEIGHT)),
-      title,
-    ).toBeLessThanOrEqual(1);
   }
 });
 
 // Codex, #82: each Related layout is hidden at the other's widths, so a card playing in the
-// desktop row would keep playing, out of sight, once the screen rotates below 1024 px. Hiding it
-// pauses it.
-test('rotating a tablet so Related’s cards hide pauses the one playing', async ({
+// desktop row would keep playing, out of sight and with no "Close player", once the screen
+// rotates below 1024 px. Hiding it stops it.
+test('rotating a tablet so Related’s cards hide stops the one playing', async ({
   page,
 }, info) => {
   test.skip(info.project.name !== 'ipad-air-landscape', 'one tablet');
   await page.goto('/stories/browse-test-03');
   const related = page.getByRole('region', { name: 'Related stories' });
-  const c = related
-    .locator('article')
-    .filter({ has: page.locator('iframe') })
-    .first();
-  const frame = c.locator('iframe');
-  await frame.scrollIntoViewIfNeeded();
-  const player = c.frameLocator('iframe');
-  await player.getByRole('button', { name: 'Play' }).click();
-  await expect(state(player)).toHaveText('Playing');
+  const play = related.getByRole('button', { name: /^Play / }).first();
+  const title = ((await play.getAttribute('aria-label')) ?? '').slice(5);
+  await play.click();
+  const frame = related.locator(`iframe[title$=": ${title}"]`);
+  await expect(frame).toBeVisible();
 
   await page.setViewportSize({ width: 820, height: 1180 });
-  await expect(frame).toBeHidden();
-  await expect(state(player)).toHaveText('Paused');
+  await expect(frame).toHaveCount(0);
+  // Rotating back shows the card ready to play again, not playing.
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await expect(play).toBeVisible();
+  await expect(frame).toHaveCount(0);
 });
 
 test.describe('without JavaScript', () => {
@@ -392,13 +472,9 @@ test.describe('without JavaScript', () => {
     test.skip(info.project.name !== 'desktop-1280', 'one device');
   });
 
-  test('the cards still show their players, and the text opens the story', async ({
-    page,
-  }) => {
+  test('the media area is a plain link to the story', async ({ page }) => {
     await page.goto(LIST);
-    const video = card(page, VIDEO);
-    await expect(frameOf(video, VIDEO)).toBeVisible();
-    await video.getByRole('link', { name: VIDEO }).click();
+    await media(card(page, VIDEO)).click();
     await expect(page).toHaveURL(/\/stories\/play-test-video$/);
   });
 });
