@@ -7,6 +7,7 @@ import { CARD_TOP_CSS } from '@/lib/masonry';
 import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
 import { CardHeart } from './heart-button';
+import { playerSrc } from './story-media';
 
 // A story's card (browse, home, related). Its sizes come from lib/card-metrics.ts (custom
 // properties, `--card-…`), which lib/masonry.ts predicts its height from (D55); its parts mirror
@@ -14,16 +15,17 @@ import { CardHeart } from './heart-button';
 // (`geometricPrecision`): Chromium on Linux would otherwise round each letter to whole pixels,
 // wider than the font's own widths the masonry wraps text with (lib/card-glyphs.ts). The card's
 // one link is its title, stretched over the whole card, so the link's name is the story's title
-// and themes stay plain text. On video and audio cards the media area plays the story instead
-// (card-player.tsx), so the link covers only the text below it. No counts or metrics of any kind (design principles).
-// The person's heart sits in the top-right corner, over the picture when there is one, so it
-// never changes the card's height; it fills in from the browser (heart-button.tsx, D83).
+// and themes stay plain text. On video and audio cards the media area is Bunny's player
+// (card-player.tsx), so the link covers only the text below it. No counts or metrics of any kind
+// (design principles). The person's heart sits at the end of the card's top line (the NEW · label
+// · name row), never over the media (Joel, 2026-11-09), in room the line keeps for it, so it never
+// changes the card's height; it fills in from the browser (heart-button.tsx, D83).
 
 /** Home's uniform media box (the mockup's 16:10). */
 const UNIFORM_ASPECT = 16 / 10;
 
-// Quiet placeholders from the mockups, for a card without a signed picture: home's written stories
-// without an image, or any card while signing is off. Audio cards show their thumbnail (U2).
+// Quiet placeholders from the mockups, for a card without a signed picture or player: home's
+// written stories without an image, or any card while signing is off.
 const PLACEHOLDERS = [
   ['#1a3a3d', '#0d1f21', '#4e9ba0'],
   ['#1e2e28', '#0f1a14', '#5a7a6a'],
@@ -42,7 +44,7 @@ function placeholderFor(id: string) {
  * D72: "NEW" while the story is less than 7 days old (`story.isNew`, decided on web's server).
  * The mockup's teal pill on the site's tokens: the link-hover teal on a teal tint (about 6:1 in
  * both themes). It sits in the card's top line, at its 20 px height, so it never covers the
- * picture, the play button or the player, and the masonry's predicted heights stay right. Words,
+ * picture or the player, and the masonry's predicted heights stay right. Words,
  * not colour alone: screen readers hear "New: published in the last week".
  */
 export function NewBadge() {
@@ -67,7 +69,8 @@ const CardMetrics = () => (
 
 /**
  * A card's picture and its clamped shape (D53), as browse shows it; null for a written story
- * without an image (home's `uniform` gives it a 16:10 placeholder instead).
+ * without an image (home's `uniform` gives it a 16:10 placeholder instead). A video or audio
+ * card shows its player in a box of this shape; the picture is only Related's small list's.
  */
 export function cardMedia(story: StorySummary, uniform = false) {
   const { primaryFormat: format, image } = story;
@@ -124,61 +127,66 @@ export function StoryCard({
   const format = story.primaryFormat;
   const playable = format !== 'written';
   const aspect = uniform ? UNIFORM_ASPECT : (media?.aspect ?? 1);
+  const player =
+    playable && story.playbackUrl ? playerSrc(story.playbackUrl) : null;
 
-  const picture = media && (
-    <>
-      {media.src ? (
-        <Image
-          src={media.src}
-          alt=""
-          width={media.width ?? 640}
-          height={media.height ?? 400}
-          unoptimized
-          loading={eager ? 'eager' : 'lazy'}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        <div
-          aria-hidden="true"
-          className="flex h-full w-full items-center justify-center"
-          style={{ background: `linear-gradient(145deg, ${from}, ${to})` }}
-        >
-          <span
-            className="flex size-16 items-center justify-center rounded-full text-2xl font-bold text-white shadow-lg"
-            style={{ background: accent }}
-          >
-            {initial}
-          </span>
-        </div>
-      )}
-      {playable && (
-        <span
-          aria-hidden="true"
-          className="absolute right-3 bottom-3 flex size-11 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white backdrop-blur-sm transition-transform group-hover/play:scale-105 motion-reduce:transition-none"
-        >
-          {format === 'video' ? (
-            <svg viewBox="0 0 24 24" className="ml-0.5 size-4 fill-current">
-              <polygon points="8,5 19,12 8,19" />
-            </svg>
-          ) : (
-            <svg
-              viewBox="0 0 24 24"
-              className="size-5 fill-none stroke-current"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" />
-            </svg>
-          )}
-        </span>
-      )}
-    </>
+  const placeholder = (
+    <div
+      aria-hidden="true"
+      className="flex h-full w-full items-center justify-center"
+      style={{ background: `linear-gradient(145deg, ${from}, ${to})` }}
+    >
+      <span
+        className="flex size-16 items-center justify-center rounded-full text-2xl font-bold text-white shadow-lg"
+        style={{ background: accent }}
+      >
+        {initial}
+      </span>
+    </div>
   );
 
+  let mediaBox = null;
+  if (media && player && playable)
+    mediaBox = (
+      <CardPlayer
+        src={player}
+        title={story.title}
+        format={format}
+        aspect={aspect}
+      />
+    );
+  else if (media)
+    // A written story's picture; or, while signing is off, the placeholder in the player's box.
+    mediaBox = (
+      <div
+        data-card-media=""
+        className="relative w-full shrink-0 overflow-hidden bg-surface"
+        style={{
+          aspectRatio: String(aspect),
+          ...(playable && {
+            minHeight: 'var(--card-player-min)',
+            minWidth: 0,
+          }),
+        }}
+      >
+        {media.src && !playable ? (
+          <Image
+            src={media.src}
+            alt=""
+            width={media.width ?? 640}
+            height={media.height ?? 400}
+            unoptimized
+            loading={eager ? 'eager' : 'lazy'}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          placeholder
+        )}
+      </div>
+    );
+
   const top = (
-    <p
-      className={`mb-(--card-meta-after) flex flex-wrap items-center justify-between gap-x-(--card-meta-gap) gap-y-(--card-meta-row-gap) text-(length:--card-meta-font) leading-(--card-meta-line) text-muted-foreground ${media ? '' : 'pr-(--card-meta-heart)'}`}
-    >
+    <p className="mb-(--card-meta-after) flex flex-wrap items-center justify-between gap-x-(--card-meta-gap) gap-y-(--card-meta-row-gap) pr-(--card-meta-heart) text-(length:--card-meta-font) leading-(--card-meta-line) text-muted-foreground">
       <span
         data-card-label=""
         className="flex max-w-full flex-wrap items-center gap-x-(--card-badge-after) gap-y-(--card-meta-row-gap)"
@@ -195,38 +203,24 @@ export function StoryCard({
   return (
     <article className="story-card group relative flex h-full flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-border transition-[box-shadow,background-color] [overflow-wrap:anywhere] [text-rendering:geometricPrecision] hover:ring-border-hover has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring">
       <CardMetrics />
-      {media &&
-        (playable ? (
-          <CardPlayer
-            slug={story.slug}
-            title={story.title}
-            format={format}
-            aspect={aspect}
-          >
-            {picture}
-          </CardPlayer>
-        ) : (
-          <div
-            data-card-media=""
-            className="relative w-full shrink-0 overflow-hidden bg-surface"
-            style={{ aspectRatio: String(aspect) }}
-          >
-            {picture}
-          </div>
-        ))}
+      {mediaBox}
       <div
-        className={`flex flex-1 flex-col p-(--card-pad) ${playable && media ? 'relative' : ''}`}
+        className={`flex flex-1 flex-col p-(--card-pad) ${player && media ? 'relative' : ''}`}
       >
-        {/* One line at normal text sizes: the name shortens with "…" first. It moves to its own line
-            only when under 2.5rem would be left, and with large text the label wraps too, so
-            nothing is ever clipped by the card. A NEW card without a picture too narrow for the badge
-            beside the heart moves the line below the heart (lib/masonry.ts's CARD_TOP_CSS). */}
-        {quote && story.isNew ? <div className="card-top">{top}</div> : top}
+        {/* One line at normal text sizes, with room for the heart at its end: the name shortens with
+            "…" first. It moves to its own line only when under 2.5rem would be left, and with large
+            text the label wraps too, so nothing is ever clipped by the card. A NEW card too narrow
+            for the badge beside the heart moves the line below the heart (lib/masonry.ts's
+            CARD_TOP_CSS). */}
+        <div className={`relative ${story.isNew ? 'card-top' : ''}`}>
+          {top}
+          <CardHeart storyId={story.id} title={story.title} />
+        </div>
         <Heading className="mb-(--card-title-after) line-clamp-(--card-title-lines) text-(length:--card-title-font) leading-(--card-title-line) font-semibold">
           <Link
             href={`/stories/${story.slug}`}
-            // No prefetch: a story's page reads the story, which signs its player link (D52);
-            // links are signed only for stories someone opens or plays.
+            // No prefetch: a story's page reads the whole story from api-public-read; it is read
+            // only for stories someone opens.
             prefetch={false}
             className="text-foreground outline-none after:absolute after:inset-0 after:content-[''] hover:text-foreground"
           >
@@ -258,7 +252,6 @@ export function StoryCard({
           </ul>
         )}
       </div>
-      <CardHeart storyId={story.id} title={story.title} overPicture={!!media} />
     </article>
   );
 }

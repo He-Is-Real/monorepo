@@ -12,7 +12,7 @@ is for) is the delivery plan in the `project` repo (`context/future/delivery-pla
 - The long dated log and the per-step build notes that used to be here are in git history
   (this file before 2026-11-04).
 
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-09
 
 Everything below runs on the **dev** site only, with made-up test stories. Nothing reaches the
 public until the "Go live" milestone; the old prototype and the Squarespace site keep running
@@ -158,6 +158,11 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   to two columns (Joel, 2026-11-07/08).
 
 **In progress (open pull requests):**
+
+- Cards show Bunny's player directly, with no picture or play button of our own over it, and
+  the heart moves from over the picture to the end of each card's top line (Joel, 2026-11-09).
+  The card lists now bring each story's signed player link (Joel's "Cards A"). Starting one card
+  pauses any other, through Bunny's player control API.
 
 - "Download my data" gives people each video or audio as an MP4 file Bunny makes when it encodes
   it, and its links last 7 days instead of an hour (Joel's B and C1, 2026-11-06,

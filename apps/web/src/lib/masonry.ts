@@ -156,9 +156,13 @@ export function lineCount(
   return lines;
 }
 
-/** What a card's height depends on. `aspect` is width ÷ height of its media; null = none. */
+/**
+ * What a card's height depends on. `aspect` is width ÷ height of its media; null = none.
+ * `player`: its media is Bunny's player (video, audio), never shorter than its controls need.
+ */
 export interface CardShape {
   aspect: number | null;
+  player: boolean;
   title: string;
   excerpt: string;
   themes: string[];
@@ -180,6 +184,7 @@ export function cardShape(s: StorySummary): CardShape {
           : null;
   return {
     aspect,
+    player: s.primaryFormat !== 'written',
     title: s.title,
     excerpt: s.excerpt,
     themes: s.themes.map((t) => t.name),
@@ -210,15 +215,15 @@ const BADGE_WIDTH = (() => {
 })();
 
 /**
- * On a card without a picture, a text width (px) under which the NEW badge doesn't fit beside the
- * heart: the top line then moves below the heart and takes the whole width (CARD_TOP_CSS). A
+ * A text width (px) under which the NEW badge doesn't fit beside the heart at the end of the
+ * card's top line: the line then moves below the heart and takes the whole width (CARD_TOP_CSS). A
  * pixel to spare, so a browser's rounding can't leave the badge a fraction too wide.
  */
 const BADGE_BESIDE_HEART = CARD.meta.heart + Math.ceil(BADGE_WIDTH) + 1;
 
 /**
- * story-card.tsx's NEW written card without a picture: its top line in a size container
- * (`.card-top`), moved below the heart when the badge doesn't fit beside it. In rem, as the card.
+ * story-card.tsx's NEW card: its top line in a size container (`.card-top`), moved below the
+ * heart when the badge doesn't fit beside it. In rem, as the card.
  */
 export const CARD_TOP_CSS = `.card-top{container-type:inline-size}@container (width < ${rem(BADGE_BESIDE_HEART)}){.card-top>p{padding-right:0;margin-top:${rem(CARD.meta.belowHeart)}}}`;
 
@@ -231,17 +236,16 @@ const clamped = (
 
 /**
  * The card's top line's height in px at this text width, with the space under it. The label, the
- * gap and the name's 2.5rem minimum on one line, beside the heart's room on a card without a
- * picture (`pr-10`), or below the heart if the badge doesn't fit beside it; otherwise the name
+ * gap and the name's 2.5rem minimum on one line, beside the heart's room (`pr-10`; every card,
+ * Joel 2026-11-09), or below the heart if the badge doesn't fit beside it; otherwise the name
  * drops to a line of its own. A label wider than the line wraps: the badge, then its words.
  */
 function metaHeight(shape: CardShape, text: number): number {
   const m = CARD.meta;
-  const quote = shape.aspect === null;
-  const below = quote && shape.isNew && text < BADGE_BESIDE_HEART;
+  const below = shape.isNew && text < BADGE_BESIDE_HEART;
   const badge = shape.isNew ? BADGE_WIDTH + CARD.badge.after : 0;
   const label = badge + textWidth(shape.label, 'meta');
-  const line = text - (quote && !below ? m.heart : 0);
+  const line = text - (below ? 0 : m.heart);
   const lines =
     label + m.gap + m.name <= line
       ? 1
@@ -267,8 +271,18 @@ export function predictHeight(
   cardWidth: number,
   textCardWidth = cardWidth,
 ): number {
+  const media = !shape.aspect ? 0 : cardWidth / shape.aspect;
+  const rest = predictRest(shape, cardWidth, textCardWidth);
+  return (shape.player ? Math.max(media, CARD.playerMinHeight) : media) + rest;
+}
+
+/** predictHeight without the card's media: its padding, text and SLACK, in px. */
+function predictRest(
+  shape: CardShape,
+  cardWidth: number,
+  textCardWidth: number,
+): number {
   const text = textCardWidth - 2 * CARD.pad;
-  const media = shape.aspect ? cardWidth / shape.aspect : 0;
   const t = CARD.title;
   const title = clamped(shape.title, text, 'title') * t.line + t.after;
   const q = CARD.quote;
@@ -289,7 +303,7 @@ export function predictHeight(
     metaHeight(shape, text),
     beside ? metaHeight(shape, BADGE_BESIDE_HEART) : 0,
   );
-  return media + 2 * CARD.pad + meta + title + excerpt + themes + SLACK;
+  return 2 * CARD.pad + meta + title + excerpt + themes + SLACK;
 }
 
 /** One band of list widths: from `minWidth` px (inclusive) to the next band's. */
@@ -358,11 +372,25 @@ export function place(
 export const spanFor = (heightPx: number) =>
   Math.ceil((heightPx + GAP) / ROW_UNIT);
 
+/**
+ * A player card's rows in a band without its media, gap included, rounded up to a hundredth of
+ * a row: the stylesheet adds the player's least height in px to these (MASONRY_CSS). Null for
+ * any other card.
+ */
+function restRows(shape: CardShape, band: Band): number | null {
+  if (!shape.player || !shape.aspect) return null;
+  const rows =
+    (predictRest(shape, band.widest, band.narrowest) + GAP) / ROW_UNIT;
+  return Math.ceil(rows * 100 - 1e-9) / 100;
+}
+
 export interface CardLayout {
   /** Its column (0-based) at each column count. */
   col: Record<ColumnCount, number>;
   /** Its row span in each band (BANDS' order). */
   span: number[];
+  /** A player card's rows without its media in each band (restRows); null for other cards. */
+  rest: number[] | null;
 }
 export type ColumnHeights = Record<ColumnCount, number[]>;
 
@@ -379,10 +407,14 @@ export function layoutFor(
   const spans = BANDS.map((band) =>
     shapes.map((s) => spanFor(predictHeight(s, band.widest, band.narrowest))),
   );
-  const out: CardLayout[] = cards.map((_, i) => ({
-    col: { 2: 0, 3: 0 },
-    span: spans.map((band) => band[i]),
-  }));
+  const out: CardLayout[] = shapes.map((shape, i) => {
+    const rest = BANDS.map((band) => restRows(shape, band));
+    return {
+      col: { 2: 0, 3: 0 },
+      span: spans.map((band) => band[i]),
+      rest: rest.some((r) => r === null) ? null : (rest as number[]),
+    };
+  });
   const heights = {} as ColumnHeights;
   for (const n of COLUMN_COUNTS) {
     const mid = (listAt(n) + widestList(n)) / 2;
@@ -401,12 +433,18 @@ export function layoutFor(
   return { cards: out, heights };
 }
 
-/** A card's custom properties: its column per column count (`--c2`) and span per band (`--s0`). */
+/**
+ * A card's custom properties: its column per column count (`--c2`), span per band (`--s0`) and,
+ * a player card, its rows without the player per band (`--p0`).
+ */
 export function layoutStyle(layout: CardLayout): Record<string, number> {
   const style: Record<string, number> = {};
   for (const n of COLUMN_COUNTS) style[`--c${n}`] = layout.col[n] + 1;
   layout.span.forEach((span, i) => {
     style[`--s${i}`] = span;
+  });
+  layout.rest?.forEach((rest, i) => {
+    style[`--p${i}`] = rest;
   });
   return style;
 }
@@ -427,7 +465,16 @@ export function layoutStyle(layout: CardLayout): Record<string, number> {
  * which the page measures). Sideways nothing is clipped, and the item starts 0.25rem above its
  * rows (padding, so the card doesn't move) to leave room for the card's focus ring above it;
  * below the card, its span's gap holds the ring.
+ *
+ * A player is never under its 184 px (CARD.playerMinHeight), in px, whatever the text size, so
+ * with text smaller than the default it is taller than the rem the span predicts it at (Codex
+ * review of #207: cards at 640 px with 12 px text moved by up to 72 px once measured). Where the
+ * browser can divide a px length by a rem one, a player card spans at least those px in rows
+ * (184px ÷ 0.25rem) plus the rest of the card (`--p0`…; -1000 rows on other cards, so the
+ * predicted span wins). Elsewhere it keeps the predicted span, and the page's measuring fixes it.
  */
+/** Browsers that divide a length by a length (CSS typed arithmetic): Chrome 140, Safari 26. */
+const PLAYER_FLOOR = '@supports (width:calc(1px*(1px/1px)))';
 export const MASONRY_CSS = [
   `.masonry-box{container-type:inline-size}`,
   `.masonry{display:grid;grid-template-columns:minmax(0,1fr);gap:${rem(GAP)};max-width:30rem;margin-inline:auto}`,
@@ -442,7 +489,7 @@ export const MASONRY_CSS = [
         : '';
       const column = first ? `grid-column:var(--c${n});` : '';
       return [
-        `@container (min-width:${first ? 0 : rem(band.minWidth)}){${grid}.masonry>li{${column}grid-row-end:span var(--m,var(--s${i}))}}`,
+        `@container (min-width:${first ? 0 : rem(band.minWidth)}){${grid}.masonry>li{${column}grid-row-end:span var(--m,var(--s${i}))}${PLAYER_FLOOR}{.masonry>li{grid-row-end:span var(--m,max(var(--s${i}),round(up,${CARD.playerMinHeight / ROW_UNIT}px/1rem*16 + var(--p${i},-1000))))}}}`,
       ];
     });
     return `@media (min-width:${BREAKPOINTS[n]}px){${rules.join('')}}`;

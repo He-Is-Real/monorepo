@@ -22,6 +22,7 @@ const card = (n: number): StorySummary => ({
   bylineName: null,
   primaryFormat: 'written',
   durationSeconds: null,
+  playbackUrl: null,
   thumbnailUrl: null,
   thumbnailWidth: null,
   thumbnailHeight: null,

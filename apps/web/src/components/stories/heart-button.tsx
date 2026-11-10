@@ -28,20 +28,17 @@ function HeartIcon({ on, className }: { on: boolean; className: string }) {
 const pressed = (state: HeartState) => state === 'on';
 
 /**
- * A card's heart, in the card's top-right corner, above the stretched title link. While the
- * card plays in place, the player's Close sits there, so the heart steps aside until it closes
- * (Codex, #117 round 3; the story's page has its own heart). Over a
- * picture (`overPicture`) it's a dark round badge like the play button, readable on any
- * picture; on a card without one it's a quiet icon button in the card's colours.
+ * A card's heart, at the end of the card's top line (story-card.tsx), in the room the line keeps
+ * for it, above the stretched title link; never over the picture or the player (Joel,
+ * 2026-11-09). A quiet icon button in the card's colours, centred on the line: its 44 px target
+ * reaches past the line's 20 px, into the card's padding, so the card's height doesn't change.
  */
 export function CardHeart({
   storyId,
   title,
-  overPicture,
 }: {
   storyId: string;
   title: string;
-  overPicture: boolean;
 }) {
   const { state, failed, busy, press } = useHeart(storyId);
   const on = pressed(state);
@@ -56,10 +53,8 @@ export function CardHeart({
         aria-label={`Favourite: ${title}`}
         title={failed ? FAILED : undefined}
         onClick={press}
-        className={`absolute top-2 right-2 z-10 flex size-11 group-has-[[data-card-playing]]:hidden items-center justify-center rounded-full transition-colors motion-reduce:transition-none ${
-          overPicture
-            ? 'border border-white/20 bg-black/55 text-white backdrop-blur-sm hover:bg-black/70'
-            : `bg-card hover:bg-accent ${on ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`
+        className={`absolute top-[calc(0.5rem-var(--card-pad))] right-[calc(0.5rem-var(--card-pad))] z-10 flex size-11 items-center justify-center rounded-full bg-card transition-colors hover:bg-accent motion-reduce:transition-none ${
+          on ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
         } ${failed ? 'ring-2 ring-destructive' : ''}`}
       >
         <HeartIcon on={on} className="size-5" />
