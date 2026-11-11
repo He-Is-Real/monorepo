@@ -125,8 +125,9 @@ module "bunny" {
   region      = "europe-west2"
 
   # D52: signed, expiring links everywhere; api-public-read signs them for
-  # published stories, and api-user for the cards of a person's favourites
-  # (hearts, M2). Their service accounts are made by the gcp root.
+  # published stories, api-user for the cards of a person's favourites
+  # (hearts, M2), and api-admin one-hour links for moderators (M3 plan PR 1).
+  # Their service accounts are made by the gcp root.
   token_auth = {
     stream_embed = true
     stream_cdn   = true
@@ -135,6 +136,7 @@ module "bunny" {
   signing_key_readers = [
     "serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com",
     "serviceAccount:api-user@heisreal-dev.iam.gserviceaccount.com",
+    "serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com",
   ]
   # M2's uploads (D80): api-user creates and signs them with the library key and
   # the images zone password (infra/terraform/README.md, "Uploads").

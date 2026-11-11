@@ -476,8 +476,8 @@ copied into Secret Manager with write-only versions; apps read them through `lib
 (`upload_key_readers`, which accepts nothing but this project's api-user service account) and,
 each on its own grant, by the housekeeping Job (`stream_key_readers`, `storage_password_readers`:
 only this project's housekeeping account).
-`bunny-stream-token-key` and `bunny-images-token-key` (D52) are read by api-public-read and
-api-user (`signing_key_readers`). Each is a grant on one secret, made by this root.
+`bunny-stream-token-key` and `bunny-images-token-key` (D52) are read by api-public-read,
+api-user and api-admin (moderators' one-hour links, M3) (`signing_key_readers`). Each is a grant on one secret, made by this root.
 
 **The never-public guard.** Before every plan the root reads the IAM policies of the state bucket,
 the project, the `tofu` keyring and both keys, and every `bunny-*` secret, and refuses to plan if

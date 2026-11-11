@@ -11,7 +11,7 @@ import { StoryText } from './story-text';
 /** The reading column (Joel's R1): at most 80 characters a line, centred. */
 const COLUMN = 'mx-auto w-full max-w-measure min-w-0';
 
-const published = (iso: string) =>
+export const published = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', {
     dateStyle: 'long',
     timeZone: 'Europe/London',
@@ -19,17 +19,17 @@ const published = (iso: string) =>
 
 function Meta({
   story,
+  dateLine,
   center = false,
 }: {
-  story: PublicStory;
+  story: StoryContent;
+  dateLine: React.ReactNode;
   center?: boolean;
 }) {
   return (
     <>
       <p className="mt-3 text-sm text-muted-foreground">
-        Shared{' '}
-        <time dateTime={story.publishedAt}>{published(story.publishedAt)}</time>{' '}
-        by {story.bylineName ?? 'Anonymous'}
+        {dateLine} by {story.bylineName ?? 'Anonymous'}
       </p>
       {story.themes.length > 0 && (
         <ul
@@ -78,37 +78,47 @@ function KeepExploring({ related }: { related: StorySummary[] }) {
   );
 }
 
+/** What a story's article shows: the public story page's, and moderators' review (M3). */
+export type StoryContent = Pick<
+  PublicStory,
+  | 'id'
+  | 'title'
+  | 'description'
+  | 'body'
+  | 'bylineName'
+  | 'primaryFormat'
+  | 'media'
+  | 'image'
+  | 'themes'
+>;
+
 /**
- * A published story, server-rendered (D32), from the mockups' story pages. Video and audio:
- * the player first, then the title, then the person's own text. Written: a centred header, the
- * description as a pull quote, then the text. Both: share, themes that lead to browse, and, after
- * the story ends, related stories and "Does this resonate?" (below it at every width, never
- * beside it: Joel, 2026-10-25, a sidebar felt like an ad and took space from the story).
- * No breadcrumb (Joel, 2026-10-24; design principles): it could show only one of a story's
- * themes; the header's Stories link and the theme chips are the ways back.
- * The person's own heart sits beside Share (M2; filled in by the browser, D83). "This helped
- * me" and "Concern" from the mockups come later (M6).
+ * A story's article, from the mockups' story pages: the public story page's and, through the
+ * same parts, the moderators' review page (M3 plan PR 1), so moderators see what the public
+ * will. Video and audio: the player first, then the title, then the person's own text. Written:
+ * a centred header, the description as a pull quote, then the text. `dateLine` says when
+ * ("Shared …"); `toolbar` sits under the media (the public page's heart and Share); `after`
+ * follows the text; `speedMenu` turns on the player's playback-speed menu.
  */
-export function StoryView({
+export function StoryArticle({
   story,
-  related,
+  dateLine,
+  toolbar,
+  after,
+  speedMenu = false,
 }: {
-  story: PublicStory;
-  related: StorySummary[];
+  story: StoryContent;
+  dateLine: React.ReactNode;
+  toolbar?: React.ReactNode;
+  after?: React.ReactNode;
+  speedMenu?: boolean;
 }) {
   const paragraphs = (story.body ?? '').split(/\n{2,}/).filter((p) => p.trim());
   const written = story.primaryFormat === 'written';
   const initial = [
     ...(story.bylineName?.trim() || story.title),
   ][0]?.toUpperCase();
-  const share = (
-    <div
-      className={`${COLUMN} flex flex-wrap items-center justify-between gap-2 border-b border-border py-3 ${written ? 'mt-8' : ''}`}
-    >
-      <StoryHeart storyId={story.id} />
-      <ShareMenu title={story.title} />
-    </div>
-  );
+  const media = <StoryMedia story={story} speedMenu={speedMenu} />;
 
   return (
     // One centred column at every width. The reading column (max-w-measure, Joel's R1) holds
@@ -140,15 +150,15 @@ export function StoryView({
               >
                 {story.title}
               </h1>
-              <Meta story={story} center />
+              <Meta story={story} dateLine={dateLine} center />
             </header>
-            <StoryMedia story={story} />
-            {share}
+            {media}
+            {toolbar}
           </>
         ) : (
           <>
-            <StoryMedia story={story} />
-            {share}
+            {media}
+            {toolbar}
             <header className={`${COLUMN} mt-8`}>
               <h1
                 id={`story-${story.id}`}
@@ -156,7 +166,7 @@ export function StoryView({
               >
                 {story.title}
               </h1>
-              <Meta story={story} />
+              <Meta story={story} dateLine={dateLine} />
             </header>
           </>
         )}
@@ -181,7 +191,49 @@ export function StoryView({
           </>
         )}
       </div>
-      <KeepExploring related={related} />
+      {after}
     </article>
+  );
+}
+
+/**
+ * A published story, server-rendered (D32): the story's article with share, themes that lead
+ * to browse, and, after the story ends, related stories and "Does this resonate?" (below it at
+ * every width, never beside it: Joel, 2026-10-25, a sidebar felt like an ad and took space from
+ * the story).
+ * No breadcrumb (Joel, 2026-10-24; design principles): it could show only one of a story's
+ * themes; the header's Stories link and the theme chips are the ways back.
+ * The person's own heart sits beside Share (M2; filled in by the browser, D83). "This helped
+ * me" and "Concern" from the mockups come later (M6).
+ */
+export function StoryView({
+  story,
+  related,
+}: {
+  story: PublicStory;
+  related: StorySummary[];
+}) {
+  const written = story.primaryFormat === 'written';
+  return (
+    <StoryArticle
+      story={story}
+      dateLine={
+        <>
+          Shared{' '}
+          <time dateTime={story.publishedAt}>
+            {published(story.publishedAt)}
+          </time>
+        </>
+      }
+      toolbar={
+        <div
+          className={`${COLUMN} flex flex-wrap items-center justify-between gap-2 border-b border-border py-3 ${written ? 'mt-8' : ''}`}
+        >
+          <StoryHeart storyId={story.id} />
+          <ShareMenu title={story.title} />
+        </div>
+      }
+      after={<KeepExploring related={related} />}
+    />
   );
 }

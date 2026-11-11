@@ -122,6 +122,10 @@ module "gcp" {
   # Hearts (M2): api-user signs the media links on favourites' cards with the same keys. Apply
   # the bunny root first (it lets api-user read them), or api-user's new revision won't start.
   api_user_media_signing = true
+  # Moderation (M3 plan PR 1): api-admin signs moderators' one-hour links with the same keys.
+  # Apply the bunny root first (it lets api-admin read them), or api-admin's new revision won't
+  # start.
+  api_admin_media_signing = true
   # Video and audio uploads (M2 plan PR 7): api-user creates and signs Bunny Stream uploads with
   # the library key. The bunny root's upload_key_readers grant (#123) must be applied first.
   api_user_uploads = true

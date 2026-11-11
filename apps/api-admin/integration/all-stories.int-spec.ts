@@ -103,5 +103,10 @@ describe('every story, for super admins (api-admin)', () => {
       const one = await get(`/v1/admin/stories/${id}`);
       expect([one.status, one.body.id]).toEqual([200, id]);
     }
+    // A cursor time Date.parse takes but the database won't cast: a 400, never a 500 (Codex #210).
+    const bad = Buffer.from(JSON.stringify(['0', 'ann_draft'])).toString(
+      'base64url',
+    );
+    expect((await get(`/v1/admin/stories?cursor=${bad}`)).status).toBe(400);
   });
 });

@@ -38,6 +38,11 @@ brackets).
   route gives counts. Signed out, hearts stay in the browser (Joel, 2026-10-28); their cards
   come from api-public-read's anonymous `GET /v1/stories?id=…` (up to 50 ids), through web's
   server like every other card.
+- **Moderation (M3):** the browser's staff pages call api-admin's `GET /v1/moderation/queue` and
+  `GET /v1/moderation/stories/{id}` (Moderator and up). The review answer signs the story's
+  player and picture for one hour from that answer (M3 plan concern C6), so it carries a weak
+  `ETag` of the answer itself, not the story's version (later commands take `version` in
+  `If-Match`). It names nobody: no account id, and no user id on its status log.
 - **The account bootstrap:** web's header calls `GET /v1/account` once each time a page loads
   signed in. The first call creates the person's `user` row (so staff can use `api-admin`), and
   `termsOfUse` and `testimonyConsent` say which version the person agreed to and whether it is the

@@ -18,10 +18,14 @@ export const PLAYER_MIN_HEIGHT = 184;
 /**
  * The signed player URL with autoplay and preload off, or `null` if it isn't http(s). A card's
  * player (card-player.tsx) asks for `autoplay`: it opens only when someone presses play.
+ * `speed`: Bunny's playback-speed menu, for moderators (M3 task 3.2); the public player has none.
  */
 export function playerSrc(
   playbackUrl: string,
-  { autoplay = false }: { autoplay?: boolean } = {},
+  {
+    autoplay = false,
+    speed = false,
+  }: { autoplay?: boolean; speed?: boolean } = {},
 ): string | null {
   let url: URL;
   try {
@@ -33,13 +37,25 @@ export function playerSrc(
   // The token covers only the video and expiry, so player options can be added.
   url.searchParams.set('autoplay', String(autoplay));
   url.searchParams.set('preload', String(autoplay));
+  if (speed) url.searchParams.set('showSpeed', 'true');
   return url.toString();
 }
 
-/** A story's player (video, audio) or image, above its text. Nothing without a signed URL. */
-export function StoryMedia({ story }: { story: PublicStory }) {
+/**
+ * A story's player (video, audio) or image, above its text. Nothing without a signed URL.
+ * `speedMenu`: the player's playback-speed menu (the moderators' review page).
+ */
+export function StoryMedia({
+  story,
+  speedMenu = false,
+}: {
+  story: Pick<PublicStory, 'title' | 'media' | 'image'>;
+  speedMenu?: boolean;
+}) {
   const media = story.media?.[0]; // `media` may be absent (isPublicStory allows it)
-  const src = media?.playbackUrl ? playerSrc(media.playbackUrl) : null;
+  const src = media?.playbackUrl
+    ? playerSrc(media.playbackUrl, { speed: speedMenu })
+    : null;
   if (media && src) {
     const isVideo = media.format === 'video';
     // The player keeps the real shape, no taller than most of the screen: a video's, or an audio

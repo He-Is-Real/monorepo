@@ -57,6 +57,11 @@
 //   session from a small catalogue (Topics, Feelings, Journeys and Other, with story counts); a
 //   save of the whole picture is checked like the real one (Other kept, names tidied, no
 //   duplicates ignoring case, 428 without If-Match, 412 unless it's the version read).
+// - api-admin's moderation read side (M3 plan PR 1): `GET /v1/moderation/queue` (pages of 20, or
+//   `limit`, oldest sent first; a cursor it gave out) and `GET /v1/moderation/stories/{id}`, the
+//   same fixed queue for every session, Moderators and up only (sessions starting `moderator`
+//   are Moderators, `admin` Admins; everyone else 403 `role_required`). Its player and picture
+//   links point at the stub api-public-read's stand-in player and pictures.
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -438,6 +443,167 @@ async function saveAdminThemes(req, res, session) {
   state.categories = categories;
   res.setHeader('etag', `"${state.version}"`);
   return send(res, 200, { id: 'current', version: state.version });
+}
+
+// --- api-admin: moderation, the read side (M3 plan PR 1) ---------------------------------------
+/** A session's role: `moderator…` Moderators, `admin…` Admins, everyone else a User. */
+const roleOf = (token) =>
+  token.startsWith('admin')
+    ? 'Admin'
+    : token.startsWith('moderator')
+      ? 'Moderator'
+      : 'User';
+const MOD_TEXT =
+  'I grew up going to church every Sunday, but it never felt like more than a habit.\n\n' +
+  'Then one winter everything I relied on fell apart at once. '.repeat(12) +
+  '\n\nThat was when I first prayed and meant it.';
+const MOD_NOTE =
+  'Thank you for sharing this. Could you say a little more about what changed that winter?';
+const modHour = (n) => new Date(Date.UTC(2026, 10, 1, 9 + n, 5)).toISOString();
+/** The waiting stories, oldest sent first, as api-admin's StoryModeration. */
+const MODERATION = [
+  {
+    id: 'mod_video',
+    title: 'The night I stopped running',
+    primaryFormat: 'video',
+    bylineName: 'Sam',
+    themes: [{ id: 'healing', name: 'Healing' }],
+    media: [
+      {
+        format: 'video',
+        playbackUrl: `${publicUrl}/embed/1/3f1c2a4b-5d6e-4f70-8a9b-0c1d2e3f4a5b?token=stub&expires=4102444800`,
+        thumbnailUrl: null,
+        width: 1920,
+        height: 1080,
+        captionsUrl: null,
+        durationSeconds: 184,
+        processing: 'ready',
+      },
+    ],
+    image: null,
+  },
+  {
+    id: 'mod_written',
+    title: 'A habit that became a faith',
+    primaryFormat: 'written',
+    bylineName: null,
+    themes: [
+      { id: 'doubt', name: 'Doubt' },
+      { id: 'prayer', name: 'Prayer' },
+    ],
+    media: [],
+    image: {
+      url: `${publicUrl}/media/900x1200.svg`,
+      width: 900,
+      height: 1200,
+      alt: 'A church in the snow',
+      processing: 'ready',
+    },
+    // Sent back once with a note, then sent again.
+    revised: true,
+  },
+  {
+    id: 'mod_processing',
+    title: 'Singing again',
+    primaryFormat: 'audio',
+    bylineName: 'Jo',
+    themes: [],
+    media: [
+      {
+        format: 'audio',
+        playbackUrl: null,
+        thumbnailUrl: null,
+        width: null,
+        height: null,
+        captionsUrl: null,
+        durationSeconds: null,
+        processing: 'processing',
+      },
+    ],
+    image: null,
+  },
+  {
+    id: 'mod_long_title',
+    title:
+      'Averyveryverylongwordthatkeepsgoingwithoutanyspacesatalltoseethatitwraps',
+    primaryFormat: 'written',
+    bylineName: 'Alex',
+    themes: [],
+    media: [],
+    image: null,
+  },
+  // Enough more for a second page.
+  ...Array.from({ length: 20 }, (_, i) => ({
+    id: `mod_wait_${String(i + 5).padStart(2, '0')}`,
+    title: `Waiting story ${i + 5}`,
+    primaryFormat: 'written',
+    bylineName: null,
+    themes: [],
+    media: [],
+    image: null,
+  })),
+].map((s, i) => {
+  const sent = modHour(i);
+  const statusLog = s.revised
+    ? [
+        { status: 'pending', actor: 'person', comment: null, at: modHour(-30) },
+        {
+          status: 'in_review',
+          actor: 'moderator',
+          comment: null,
+          at: modHour(-29),
+        },
+        {
+          status: 'changes_requested',
+          actor: 'moderator',
+          comment: MOD_NOTE,
+          at: modHour(-28),
+        },
+        { status: 'pending', actor: 'person', comment: null, at: sent },
+      ]
+    : [{ status: 'pending', actor: 'person', comment: null, at: sent }];
+  const { revised: _revised, ...story } = s;
+  return {
+    ...story,
+    version: s.revised ? 5 : 2,
+    status: 'pending',
+    description: `How ${s.title.toLowerCase()} came about`,
+    body: s.primaryFormat === 'written' ? MOD_TEXT : null,
+    submittedAt: sent,
+    statusLog,
+  };
+});
+
+/** `GET /v1/moderation/queue` (getModerationQueue): pages, oldest sent first. */
+function sendQueue(req, res, url) {
+  const limit = url.searchParams.get('limit') ?? '20';
+  const take = Number(limit);
+  if (!Number.isInteger(take) || take < 1 || take > 50)
+    return invalid(res, '/limit', 'validation_failed', 'limit is 1–50');
+  const cursor = url.searchParams.get('cursor');
+  let from = 0;
+  if (cursor !== null) {
+    const n = Number(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (!Number.isInteger(n) || n < 1 || n >= MODERATION.length)
+      return invalid(res, '/cursor', 'validation_failed');
+    from = n;
+  }
+  const page = MODERATION.slice(from, from + take);
+  const next = from + take;
+  return cached(req, res, {
+    data: page.map((s) => ({
+      id: s.id,
+      version: s.version,
+      status: s.status,
+      title: s.title,
+      primaryFormat: s.primaryFormat,
+      submittedAt: s.submittedAt,
+    })),
+    nextCursor:
+      next < MODERATION.length
+        ? Buffer.from(String(next)).toString('base64url')
+        : null,
+  });
 }
 
 const readBody = (req) =>
@@ -1850,7 +2016,7 @@ createServer(async (req, res) => {
     const s = shareSession(token);
     return cached(req, res, {
       ...ACCOUNT,
-      role: token.startsWith('admin') ? 'Admin' : 'User',
+      role: roleOf(token),
       termsOfUse: agreementState(s.terms, 'terms-of-use'),
       testimonyConsent: agreementState(s.testimony, 'testimony-consent'),
     });
@@ -1918,6 +2084,23 @@ createServer(async (req, res) => {
     return req.method === 'GET'
       ? sendAdminThemes(res, token)
       : void saveAdminThemes(req, res, token);
+  }
+  if (path === '/v1/moderation/queue' && req.method === 'GET') {
+    if (!signedIn()) return;
+    if (roleOf(token) === 'User')
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return sendQueue(req, res, url);
+  }
+  const reviewed = /^\/v1\/moderation\/stories\/([^/]+)$/.exec(path);
+  if (reviewed && req.method === 'GET') {
+    if (!signedIn()) return;
+    if (roleOf(token) === 'User')
+      return problem(res, 403, 'Forbidden', 'role_required');
+    const story = MODERATION.find(
+      (s) => s.id === decodeURIComponent(reviewed[1]),
+    );
+    if (!story) return problem(res, 404, 'Not found', 'not_found');
+    return cached(req, res, story);
   }
   if (path === '/v1/account/favourites' && req.method === 'GET') {
     const mine = signedIn();
