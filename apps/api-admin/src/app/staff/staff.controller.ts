@@ -78,7 +78,10 @@ const lastAdmin = () =>
     'There must always be at least one admin. Make someone else an admin first.',
   );
 
-/** 502: Clerk, which holds the roles, couldn't make the change; nothing was changed here. */
+/**
+ * 502: Clerk, which holds the roles, couldn't make the change, or couldn't be confirmed to agree
+ * with the list afterwards. Saving the person again puts the two in step.
+ */
 const clerkUnavailable = () =>
   new ProblemException(
     HttpStatus.BAD_GATEWAY,
@@ -186,45 +189,50 @@ export class Staff {
       await this.toClerk(email, role);
     } catch (err) {
       // Clerk may have made part of the change: put it back as the table says.
-      await this.quietly(this.toClerkAsTable(email));
+      await this.toClerkAsTable(email);
       throw err;
     }
     try {
       await retryOnConflict(() => this.write(email, role, addedBy));
     } catch (err) {
       // Put Clerk back as the table still says, then refuse.
-      await this.quietly(this.toClerkAsTable(email));
+      await this.toClerkAsTable(email);
       if (isLastAdmin(err) || isTransactionConflict(err)) throw lastAdmin();
       throw err;
     }
     // Another change to the same person may have reached Clerk and the table in between, in
     // either order; Clerk is set again to exactly what the table now says, so whichever change
-    // finishes last leaves the two agreeing. The change itself is done, so a failure here is
-    // logged, not answered.
-    await this.quietly(this.toClerkAsTable(email));
+    // finishes last leaves the two agreeing. If that can't be confirmed the request fails (502)
+    // even though the table changed: saving the person again makes Clerk agree.
+    await this.toClerkAsTable(email);
     return before === null ? 'added' : role === null ? 'removed' : 'changed';
   }
 
   /**
    * Sets `email`'s Clerk role to exactly their row's (no row: none), reading the row again after
-   * each Clerk change and repeating (a few times) while it moved meanwhile.
+   * each Clerk change and repeating (a few times) while it moved meanwhile. Throws
+   * `clerk_unavailable` when it can't confirm Clerk agrees: a Clerk call failed, or the row was
+   * still moving after the last round.
    */
   private async toClerkAsTable(email: string): Promise<void> {
     let role = await this.current(email);
     for (let round = 0; round < 3; round++) {
-      await this.toClerk(email, role);
+      try {
+        await this.toClerk(email, role);
+      } catch (err) {
+        this.logger.error(
+          "Clerk couldn't be made to match the staff list: a Clerk call failed; saving the person again fixes it",
+        );
+        throw err;
+      }
       const now = await this.current(email);
       if (now === role) return;
       role = now;
     }
-  }
-
-  private async quietly(sync: Promise<void>): Promise<void> {
-    await sync.catch((err: unknown) =>
-      this.logger.error(
-        `Clerk couldn't be made to match the staff list: ${err instanceof Error ? err.message : 'error'}`,
-      ),
+    this.logger.error(
+      "Clerk couldn't be made to match the staff list: the role kept changing; saving the person again fixes it",
     );
+    throw clerkUnavailable();
   }
 
   private async toClerk(email: string, role: StaffRole | null) {
@@ -331,6 +339,8 @@ export class StaffBaseline implements OnApplicationBootstrap {
   private readonly logger = new Logger(StaffBaseline.name);
   /** Settles when the step has finished, succeeded or not (tests wait for it). */
   done: Promise<void> = Promise.resolve();
+  /** The wait between attempts (tests shorten it). */
+  retryMs = BASELINE_RETRY_MS;
 
   constructor(
     private readonly staff: Staff,
@@ -370,7 +380,7 @@ export class StaffBaseline implements OnApplicationBootstrap {
           `Baseline admins: attempt ${attempt} of ${BASELINE_ATTEMPTS} failed (${err instanceof Error ? err.message : 'error'})`,
         );
         if (attempt < BASELINE_ATTEMPTS) {
-          await new Promise((r) => setTimeout(r, BASELINE_RETRY_MS).unref());
+          await new Promise((r) => setTimeout(r, this.retryMs).unref());
         }
       }
     }

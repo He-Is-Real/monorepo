@@ -524,7 +524,8 @@ paths:
         is next renewed, within about a minute. `400` for an email outside `@heisreal.today` or a role
         other than Moderator or Admin; `409 last_admin` for demoting the last Admin (the database refuses
         it too, and Clerk is put back); `502 clerk_unavailable` if Clerk couldn't make the change
-        (nothing changed).
+        (nothing changed), or couldn't be confirmed to agree with the list afterwards (the list may
+        have changed; saving the person again puts Clerk in step).
       x-required-role: Admin
       x-milestone: M3
       requestBody:

@@ -85,7 +85,9 @@ code does what it does today; nobody should build on either reading.
   change goes to Clerk first (the person's role, or, for someone with no account yet, a Clerk
   invitation carrying it, with no invitation email), then to the staff list in our database. A
   change takes effect within about a minute (the sign-in token's lifetime). There is always at least
-  one Admin: removing or demoting the last one is refused.
+  one Admin: removing or demoting the last one is refused. If Clerk fails, or can't be confirmed to
+  agree with the list afterwards, the page says it couldn't save; saving that person again puts
+  Clerk and the list back in step.
 - **Baseline admins (S-4):** `info@heisreal.today` and `joel@heisreal.today`, listed in
   `apps/api-admin/src/app/staff/baseline-admins.json`. Each time api-admin starts (every deploy,
   and after it has been idle), it makes both Admin in Clerk and on the list, adding them back if

@@ -32,8 +32,12 @@ class FakeClerk implements StaffClerk {
     reached: () => void;
     gate: Promise<void>;
   } | null = null;
+  /** Runs before each change reaches Clerk; throwing is Clerk failing (nothing changed). */
+  beforeSet: ((email: string, role: StaffRole | null) => Promise<void>) | null =
+    null;
   async setRole(email: string, role: StaffRole | null) {
     if (this.failing) throw new Error('Clerk answered 500');
+    await this.beforeSet?.(email, role);
     this.roles.set(email, role);
     const hold = this.hold;
     if (hold && hold.email === email && hold.role === role) {
@@ -218,6 +222,66 @@ describe('the staff list (api-admin)', () => {
     expect(fake.roles.get(eve)).toBe(null);
   });
 
+  it('fails (502) when Clerk can’t be put back as the list says after an overlap; saving again fixes it', async () => {
+    const fay = 'fay@heisreal.today';
+    await put(fay, 'Moderator');
+    let reached!: () => void;
+    let release!: () => void;
+    const atClerk = new Promise<void>((r) => (reached = r));
+    fake.hold = {
+      email: fay,
+      role: null,
+      reached,
+      gate: new Promise<void>((r) => (release = r)),
+    };
+    // The removal has told Clerk "no role"; fay is made Admin; then the removal reaches the list,
+    // but Clerk fails when told again that fay has no role, so Clerk still says Admin.
+    const removal = remove(fay);
+    await atClerk;
+    expect((await put(fay, 'Admin')).status).toBe(200);
+    fake.failing = true;
+    release();
+    try {
+      const res = await removal;
+      expect(res.status).toBe(502);
+      expect(res.body.code).toBe('clerk_unavailable');
+    } finally {
+      fake.failing = false;
+    }
+    expect((await table()).map((r) => r.email)).not.toContain(fay);
+    expect(fake.roles.get(fay)).toBe('Admin');
+    // The Admin's retry puts Clerk in step with the list.
+    expect((await remove(fay)).status).toBe(204);
+    expect(fake.roles.get(fay)).toBe(null);
+  });
+
+  it('fails (502) when the list keeps changing while Clerk is put back; saving again fixes it', async () => {
+    const gus = 'gus@heisreal.today';
+    await put(gus, 'Moderator');
+    // From the second Clerk call on (the putting back), another change moves gus's row each time.
+    let calls = 0;
+    fake.beforeSet = async (email) => {
+      if (email !== gus || ++calls < 2) return;
+      await migrator.query(
+        `UPDATE type::record('staffMember', $email) SET role = IF role = 'Admin' { 'Moderator' } ELSE { 'Admin' } RETURN NONE`,
+        { email: gus },
+      );
+    };
+    try {
+      const res = await put(gus, 'Admin');
+      expect(res.status).toBe(502);
+      expect(res.body.code).toBe('clerk_unavailable');
+    } finally {
+      fake.beforeSet = null;
+    }
+    const row = (await table()).find((r) => r.email === gus);
+    expect(fake.roles.get(gus)).not.toBe(row?.role);
+    expect((await put(gus, 'Admin')).status).toBe(200);
+    expect(fake.roles.get(gus)).toBe('Admin');
+    expect(await table()).toContainEqual({ email: gus, role: 'Admin' });
+    expect((await remove(gus)).status).toBe(204);
+  });
+
   it('takes only @heisreal.today emails and the two staff roles (G7)', async () => {
     for (const [email, role] of [
       ['ann@example.com', 'Moderator'],
@@ -257,6 +321,29 @@ describe('the staff list (api-admin)', () => {
       { email: 'info@heisreal.today', role: 'Admin' },
       { email: 'joel@heisreal.today', role: 'Admin' },
     ]);
+  });
+
+  it('retries the baseline step when Clerk can’t be put back as the list says', async () => {
+    const info = 'info@heisreal.today';
+    expect((await remove(info)).status).toBe(204);
+    // Clerk takes the change, then fails once when told again (the putting back).
+    let calls = 0;
+    fake.beforeSet = async (email) => {
+      if (email === info && ++calls === 2)
+        throw new Error('Clerk answered 500');
+    };
+    baseline.retryMs = 0;
+    try {
+      await baseline.onApplicationBootstrap();
+      await baseline.done;
+    } finally {
+      fake.beforeSet = null;
+      baseline.retryMs = 30_000;
+    }
+    // A second attempt ran: it found info already Admin on the list and put Clerk in step.
+    expect(calls).toBe(3);
+    expect(fake.roles.get(info)).toBe('Admin');
+    expect(await table()).toContainEqual({ email: info, role: 'Admin' });
   });
 
   it('changes nothing when Clerk can’t make the change', async () => {
