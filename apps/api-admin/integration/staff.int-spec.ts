@@ -385,6 +385,8 @@ describe('the staff list (api-admin)', () => {
         { email: kim },
       );
       expect((await put(kim, 'Admin')).status).toBe(400);
+      // Saving the role they're already listed with is refused too: no account holds it.
+      expect((await put(kim, 'Moderator')).status).toBe(400);
       expect(await table()).toContainEqual({ email: kim, role: 'Moderator' });
       expect((await remove(kim)).status).toBe(204);
       expect((await table()).map((r) => r.email)).not.toContain(kim);

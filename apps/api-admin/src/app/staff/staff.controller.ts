@@ -199,6 +199,9 @@ export class Staff {
     if (before === role) {
       // Nothing to change here; Clerk is still made to agree (it is the source of truth).
       const accounts = await this.toClerkAsTable(email);
+      // Saving a listed role again still needs an account (S-7), or the page would say they're
+      // staff when no account has the role. Removal (null) and the baseline step are exempt.
+      if (role !== null && accounts === 0 && !anyAccount) throw noAccount();
       return { change: 'unchanged', accounts };
     }
     // Checked before Clerk is touched, so the usual refusal changes nothing anywhere. The
