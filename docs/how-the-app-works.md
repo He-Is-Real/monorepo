@@ -215,10 +215,12 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   nothing lost (drafts save as the person goes). A later step opens only once every step before it
   would pass its own Continue; otherwise the page stops at the first step that still needs
   something and shows that step's usual message. The later steps open once a story is started or
-  a draft is carried on. Leaving the upload step backwards while a video, audio file or picture is
-  still uploading asks first ("Stay on this step" / "Leave this step"): leaving stops the upload,
-  which carries on from where it stopped when the person chooses the same file again. The step's
-  own Back button leaves without asking, as before. A later step chosen while the story is saving
+  a draft is carried on. Leaving the upload step while a video, audio file or picture is still
+  uploading never asks (Joel, 2026-11-11, V-2: "if someone leaves mid upload just let them and have
+  it cancel"), whether by Back or the steps at the top: the step changes and the upload stops,
+  with no message. A video or audio file carries on from where it stopped when the person chooses
+  the same file again; a picture is chosen again. Going forward past the upload step, and sending,
+  still wait until its file and picture are complete. A later step chosen while the story is saving
   is decided again once it has saved, from what's on screen then: if the person chose another file
   meanwhile, they stay on the upload step with its usual message.
 - **Seeing your own upload** (Joel, 2026-11-10, part 1b; P1b-1 C, P1b-2): once Bunny has

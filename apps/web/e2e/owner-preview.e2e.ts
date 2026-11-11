@@ -297,7 +297,7 @@ test.describe('behaviour', () => {
     await step(page, 'Prepare your story');
   });
 
-  test('going back from an upload under way asks first: staying keeps it going', async ({
+  test('Back during an upload just goes back and stops it (V-2); forward waits for the file again', async ({
     page,
     request,
   }, info) => {
@@ -318,28 +318,26 @@ test.describe('behaviour', () => {
     await page.getByLabel('Choose a file').setInputFiles(path);
     await expect(page.getByRole('progressbar')).toBeVisible();
 
-    await stepButton(page, /^2\. Prepare/).click();
-    const ask = page.getByRole('alertdialog');
-    await expect(ask).toContainText('Your video hasn’t finished uploading.');
-    await ask.getByRole('button', { name: 'Stay on this step' }).click();
-    await expect(ask).toHaveCount(0);
+    // No question: the step changes and the upload's progress goes with it.
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await step(page, 'Prepare your story');
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    await expect(page.getByRole('progressbar')).toHaveCount(0);
+    // No message either (the page's empty announcer region aside).
     await expect(
-      page.getByRole('heading', { level: 2, name: 'Upload your video' }),
-    ).toBeVisible();
-    await expect(page.getByRole('progressbar')).toBeVisible();
+      page.getByRole('alert').filter({ hasText: /\S/ }),
+    ).toHaveCount(0);
 
-    // Forward isn't asked about: the upload step's own rule says to wait.
+    // Forward stops at the upload step until the file is chosen again.
     await stepButton(page, /^4\. Details/).click();
+    await step(page, 'Upload your video');
     await expect(
       alert(page, 'Your video hasn’t finished uploading.'),
     ).toBeVisible();
-
-    await stepButton(page, /^2\. Prepare/).click();
-    await page
-      .getByRole('alertdialog')
-      .getByRole('button', { name: 'Leave this step' })
-      .click();
-    await step(page, 'Prepare your story');
+    await expect(stepButton(page, /^3\. Upload/)).toHaveAttribute(
+      'aria-current',
+      'step',
+    );
   });
 
   // A picture on the story whose file never arrived holds the Write or Upload step back even
@@ -382,10 +380,6 @@ test.describe('behaviour', () => {
       await expect(alert(page, 'hasn’t been added yet')).toBeVisible();
 
       await stepButton(page, /^2\. Prepare/).click();
-      await page
-        .getByRole('alertdialog')
-        .getByRole('button', { name: 'Leave this step' })
-        .click();
       await step(page, 'Prepare your story');
       // Forward from Prepare: the story still has that picture, so it stops at its step.
       await stepButton(page, /^5\. Review/).click();
@@ -428,9 +422,6 @@ test.describe('behaviour', () => {
     ).toBeVisible();
     await page.getByLabel('Title').fill('Found');
     await stepButton(page, /^2\. Prepare/).click();
-    const ask = page.getByRole('alertdialog');
-    await expect(ask).toContainText('you’ll need to choose it again');
-    await ask.getByRole('button', { name: 'Leave this step' }).click();
     await step(page, 'Prepare your story');
     await stepButton(page, /^5\. Review/).click();
     await step(page, 'Review and submit');

@@ -269,8 +269,6 @@ function SignedInFlow({
     step: 'choose',
     n: 0,
   });
-  /** An earlier step chosen at the top while an upload is under way: asked first. */
-  const [leaving, setLeaving] = useState<Step | null>(null);
   /** A step chosen at the top couldn't be checked (the story couldn't be read). */
   const [navProblem, setNavProblem] = useState<string | null>(null);
   const [missingDraft, setMissingDraft] = useState(false);
@@ -581,8 +579,8 @@ function SignedInFlow({
   };
   live.current = { step, generation: draft.generation, complete };
   /**
-   * A step chosen at the top (Joel, 2026-11-10): any earlier one at once (drafts already save),
-   * except that leaving an upload under way asks first; a later one only past steps whose
+   * A step chosen at the top (Joel, 2026-11-10): any earlier one at once (drafts already save;
+   * an upload under way just stops, Joel's V-2 answer); a later one only past steps whose
    * Continue checks pass, else the first that still needs something, with its usual message.
    */
   const goTo = async (target: Step) => {
@@ -593,10 +591,6 @@ function SignedInFlow({
     const from = at(step);
     const to = at(target);
     if (to < from) {
-      if (step === 'write' && (file === 'unfinished' || picture.pending())) {
-        setLeaving(target);
-        return;
-      }
       go(target);
       return;
     }
@@ -692,41 +686,6 @@ function SignedInFlow({
           <p role="alert" className="mb-6 text-center text-destructive">
             {navProblem}
           </p>
-        )}
-        {leaving && (
-          <div
-            role="alertdialog"
-            aria-labelledby="leaving-upload"
-            data-leaving-upload=""
-            className="mb-6 rounded-xl border border-border-hover bg-card p-4"
-          >
-            <p id="leaving-upload" className="mb-3">
-              {file === 'unfinished'
-                ? `Your ${NOUN[draft.format]} hasn’t finished uploading. If you leave this step now, the upload stops. Your story is saved, and you can carry on from where it stopped by choosing the same file again.`
-                : `The ${draft.format === 'video' ? 'thumbnail' : 'picture'} you chose hasn’t been added yet. If you leave this step now, you’ll need to choose it again.`}
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                className={primary}
-                autoFocus
-                onClick={() => setLeaving(null)}
-              >
-                Stay on this step
-              </button>
-              <button
-                type="button"
-                className={secondary}
-                onClick={() => {
-                  const target = leaving;
-                  setLeaving(null);
-                  go(target);
-                }}
-              >
-                Leave this step
-              </button>
-            </div>
-          </div>
         )}
         <Card className="p-[16px] sm:p-8">
           {agreeing && (

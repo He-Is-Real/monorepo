@@ -322,11 +322,11 @@ test.describe('behaviour', () => {
     await step(page, 'Add some details');
   });
 
-  test('the steps at the top keep a picture’s rules: forward waits while it uploads, back asks first', async ({
+  test('the steps at the top keep a picture’s rules: forward waits while it uploads, back just goes and stops it (V-2)', async ({
     page,
     request,
   }) => {
-    const me = await person(page, request);
+    await person(page, request);
     await written(page);
     const stepButton = (name: RegExp) =>
       page
@@ -337,7 +337,8 @@ test.describe('behaviour', () => {
     await page.route(`${STUB_USER_URL}/__s3/**`, async (route) => {
       if (route.request().method() !== 'PUT') return route.fallback();
       await held;
-      return route.fallback();
+      // Stopped by the browser meanwhile: there's nothing left to send.
+      return route.fallback().catch(() => undefined);
     });
     await choose(page, 900, 1200);
     await expect(page.getByText('Uploading your picture…')).toBeVisible();
@@ -351,25 +352,22 @@ test.describe('behaviour', () => {
       page.getByRole('heading', { level: 2, name: 'Write your story' }),
     ).toBeVisible();
 
-    // Back: the upload can't go on once the step is gone, so it asks first.
-    await stepButton(/^3\. Prepare/).click();
-    const ask = page.getByRole('alertdialog');
-    await expect(ask).toContainText(
-      'The picture you chose hasn’t been added yet.',
+    // Back: no question; the step changes and the picture's upload stops with it.
+    const stopped = page.waitForEvent(
+      'requestfailed',
+      (r) => r.method() === 'PUT' && r.url().includes('/__s3/'),
     );
-    await ask.getByRole('button', { name: 'Stay on this step' }).click();
-    await expect(ask).toHaveCount(0);
-
+    await stepButton(/^3\. Prepare/).click();
+    await step(page, 'Prepare your story');
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    await expect(page.getByText('Uploading your picture…')).toHaveCount(0);
+    await stopped;
     release();
-    await expect(
-      page
-        .getByRole('status')
-        .filter({ hasText: 'Picture added. You can continue.' }),
-    ).toBeVisible();
-    expect((await me.uploads()).images).toHaveLength(1);
-    // Added: forward goes on, past Details only if its theme is chosen.
+
+    // The story has that picture without its file: forward stops at its step until it's added.
     await stepButton(/^6\. Review/).click();
-    await step(page, 'Add some details');
+    await step(page, 'Write your story');
+    await expect(page.getByText('didn’t finish uploading')).toBeVisible();
   });
 
   test('Continue saves a description typed while its save is under way, and waits for a picture chosen meanwhile (Codex #211, 2 and 3)', async ({
