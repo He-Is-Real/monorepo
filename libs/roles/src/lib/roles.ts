@@ -29,3 +29,25 @@ export function isRole(value: unknown): value is Role {
 export function hasRole(role: Role, minimum: Role): boolean {
   return ROLES.indexOf(role) >= ROLES.indexOf(minimum);
 }
+
+/** The only email domain staff may have (G7, Joel 2026-11-11). */
+export const STAFF_EMAIL_DOMAIN = 'heisreal.today';
+
+/**
+ * The role a token's claims actually give (S-5 A, Joel 2026-11-11): a Moderator or Admin role
+ * counts only with a verified `@heisreal.today` email in the same token; otherwise the person is
+ * a User, so taking that email off an account ends their staff powers at the next token.
+ * `verifiedEmail` is the token's email only when the token says it is verified, else undefined.
+ */
+export function effectiveRole(
+  role: Role,
+  verifiedEmail: string | undefined,
+): Role {
+  if (role !== 'Moderator' && role !== 'Admin') return role;
+  const domain = verifiedEmail?.toLowerCase().split('@');
+  return domain?.length === 2 &&
+    domain[0] !== '' &&
+    domain[1] === STAFF_EMAIL_DOMAIN
+    ? role
+    : DEFAULT_ROLE;
+}

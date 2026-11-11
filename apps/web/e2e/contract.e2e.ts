@@ -531,6 +531,13 @@ test('the stub api-admin’s staff list fits the contract', async ({
       })
     ).status,
   ).toBe(400);
+  expect(
+    (
+      await call('PUT', '/v1/admin/staff/nobody%40heisreal.today', {
+        data: { role: 'Moderator' },
+      })
+    ).status,
+  ).toBe(400);
   expect((await call('DELETE', ann)).status).toBe(204);
   expect(
     (await call('DELETE', '/v1/admin/staff/info%40heisreal.today')).status,

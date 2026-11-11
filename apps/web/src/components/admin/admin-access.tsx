@@ -40,7 +40,12 @@ const ADMIN_PAGES: { href: string; label: string; min: StaffRole }[] = [
   { href: '/admin/staff', label: 'Staff', min: 'Admin' },
 ];
 
-/** The signed-in person's role once api-user has told us, else `undefined`. */
+/**
+ * The signed-in person's role once api-user has told us, else `undefined`. It is the role as it
+ * counts (S-5 A): api-user reads it with the same check as api-admin (`effectiveRole`), so a
+ * Moderator or Admin without a verified @heisreal.today email comes back as a User and sees no
+ * staff links or pages.
+ */
 function useRole(): Role | undefined {
   const session = usePersonalSession();
   const account = useAccountState(

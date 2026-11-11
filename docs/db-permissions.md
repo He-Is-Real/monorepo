@@ -557,7 +557,8 @@ removes `DEFINE ACCESS clerk`, so no token opens a person session.
 
 - The default session token carries `{ "ns": "heisreal", "db": "main", "ac": "clerk", "role": …,
 "email": …, "email_verified": … }` (`infra/clerk/dev.json`), so one token serves api-user's guard
-  and SurrealDB. `email` (only when `email_verified`) names who added a staff member; nothing is
+  and SurrealDB. `email` (only when `email_verified`) names who added a staff member, and api-admin and api-user
+  count a Moderator or Admin `role` only with a verified `@heisreal.today` one (S-5 A); nothing else is
   authorized by it. JWT templates were
   the fallback; not needed.
 - api-user and api-admin verify the token before it reaches SurrealDB (signature,

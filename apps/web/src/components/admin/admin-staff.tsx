@@ -210,8 +210,8 @@ function Staff({ client }: { client: ApiUser }) {
           </Button>
         </div>
         <p id={`${id}-email-hint`} className="text-sm text-secondary-text">
-          Only @heisreal.today addresses. Someone without an account gets the
-          role when they sign up with that address.
+          Only @heisreal.today addresses. They create an account with that
+          address first, then you add them here.
         </p>
         {emailError && (
           <p id={`${id}-email-error`} className="text-sm text-destructive">

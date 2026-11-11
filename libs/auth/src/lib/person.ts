@@ -38,7 +38,10 @@ export interface AuthenticatedPerson {
   readonly sessionId?: string;
   /** When `token` expires (`exp`, seconds since the epoch). */
   readonly expiresAt?: number;
-  /** Their verified primary email, lower-case, from the token (`email` claim); never authorizes. */
+  /**
+   * Their verified primary email, lower-case, from the token (`email` claim). `role` already
+   * reflects it: a staff role counts only with an `@heisreal.today` one (S-5 A).
+   */
   readonly email?: string;
 }
 

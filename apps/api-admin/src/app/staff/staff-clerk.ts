@@ -4,9 +4,9 @@ import type { SecretsService } from '@heisreal/secrets';
 /**
  * Clerk's Backend API for staff roles (G8 B, Joel 2026-11-11: "clerk as a source of truth and
  * the table just to make it easy for admins to say who is admin"). A staff member's role is their
- * Clerk `publicMetadata.role`, which the session token carries as `role` (infra/clerk/dev.json);
- * someone with no Clerk account yet gets a Clerk invitation carrying the role (no email sent), so
- * it applies when they sign up. The one place api-admin talks to Clerk, so tests can fake it.
+ * Clerk `publicMetadata.role`, which the session token carries as `role` (infra/clerk/dev.json).
+ * No invitations (S-7, Joel 2026-11-11): a person signs up as an ordinary user first, then an
+ * Admin adds their email. The one place api-admin talks to Clerk, so tests can fake it.
  *
  * The key (`clerk-secret-key`) comes from Secret Manager when first needed, and again once it is
  * more than five minutes old (a rotated key is used without a redeploy). Never logged.
@@ -20,26 +20,22 @@ export interface StaffClerk {
   /** Whether a key is configured; when not, staff changes and the baseline step are off. */
   readonly enabled: boolean;
   /**
-   * Makes `email`'s Clerk role `role` (or none): every Clerk user with that verified email gets it in
-   * `publicMetadata.role`; with no such user, a pending invitation carries it instead (an
-   * existing one with the same role is kept; a new one is created before the old ones go, so a
-   * refusal leaves them as they were). Either way, no pending invitation for the email is left
-   * carrying another role (`null` revokes them all). Throws if Clerk can't be reached or answers
-   * an error.
+   * Makes `email`'s Clerk role `role` (or none): every Clerk user with that verified email gets it
+   * in `publicMetadata.role`. With no such user nothing changes (`count` 0). Throws if Clerk can't
+   * be reached or answers an error.
    */
   setRole(email: string, role: StaffRole | null): Promise<StaffClerkChange>;
 }
 
-/** What Clerk was asked to change, for the log (no ids or emails). */
-export type StaffClerkChange =
-  | { kind: 'users'; count: number; revoked: number }
-  | { kind: 'invitation'; created: boolean; revoked: number };
+/** What Clerk changed, for the log (no ids or emails): how many accounts got the role. */
+export interface StaffClerkChange {
+  count: number;
+}
 
 const API = 'https://api.clerk.com/v1';
 const TIMEOUT_MS = 15_000;
 export const SECRET_MAX_AGE_MS = 5 * 60_000;
 const CLERK_USER_ID = /^user_[A-Za-z0-9]{1,64}$/;
-const CLERK_INVITATION_ID = /^inv_[A-Za-z0-9]{1,64}$/;
 const SECRET_NAME = /^[A-Za-z0-9_-]{1,255}$/;
 
 type Secrets = Pick<SecretsService, 'get'>;
@@ -65,73 +61,24 @@ export class ClerkStaffApi implements StaffClerk {
     const users = list(
       await this.json('GET', `/users?${query({ email_address: email })}`),
     ).filter((u) => emailsOf(u).includes(email));
-    for (const user of users) {
+    // Ids checked before anything changes, so a bad answer changes nothing.
+    const ids = users.map((user) => {
       const id = user['id'];
       if (typeof id !== 'string' || !CLERK_USER_ID.test(id)) {
         throw new Error('Clerk answered a user without a valid id');
       }
+      return id;
+    });
+    for (const id of ids) {
       await this.json('PATCH', `/users/${id}/metadata`, {
         public_metadata: { role },
       });
     }
-
-    // The email's pending invitations, with or without an account: none may carry another role.
-    const pending = list(
-      await this.json(
-        'GET',
-        `/invitations?${query({ status: 'pending', query: email })}`,
-      ),
-    ).filter((i) => i['email_address'] === email);
-    const carries = (i: Json) =>
-      (i['public_metadata'] as Json | null)?.['role'] ?? null;
-    const stale = pending.filter((i) => role === null || carries(i) !== role);
-    // Ids checked before anything is created, so a bad answer changes nothing.
-    for (const invitation of stale) invitationId(invitation);
-
-    // The new invitation comes first: if Clerk refuses it, the old one still stands.
-    let created: string | null = null;
-    if (
-      !users.length &&
-      role !== null &&
-      !pending.some((i) => carries(i) === role)
-    ) {
-      const invitation = await this.json('POST', '/invitations', {
-        email_address: email,
-        public_metadata: { role },
-        // S-2 A: no invitation email; they sign up themselves and get the role then.
-        notify: false,
-        // Lets it sit beside the old invitation until that is revoked.
-        ignore_existing: true,
-      });
-      const id = (invitation as Json | null)?.['id'];
-      created =
-        typeof id === 'string' && CLERK_INVITATION_ID.test(id) ? id : null;
-    }
-    let revoked = 0;
-    try {
-      for (const invitation of stale) {
-        await this.json(
-          'POST',
-          `/invitations/${invitationId(invitation)}/revoke`,
-        );
-        revoked++;
-      }
-    } catch (err) {
-      // Withdraw the new one too, so the email's invitations are as they were (best effort).
-      if (created) {
-        await this.json('POST', `/invitations/${created}/revoke`).catch(
-          () => undefined,
-        );
-      }
-      throw err;
-    }
-    return users.length
-      ? { kind: 'users', count: users.length, revoked }
-      : { kind: 'invitation', created: created !== null, revoked };
+    return { count: ids.length };
   }
 
   private async json(
-    method: 'GET' | 'PATCH' | 'POST',
+    method: 'GET' | 'PATCH',
     path: string,
     body?: object,
   ): Promise<unknown> {
@@ -171,14 +118,6 @@ export class ClerkStaffApi implements StaffClerk {
 
 const query = (params: Record<string, string>) =>
   new URLSearchParams(params).toString();
-
-function invitationId(invitation: Json): string {
-  const id = invitation['id'];
-  if (typeof id !== 'string' || !CLERK_INVITATION_ID.test(id)) {
-    throw new Error('Clerk answered an invitation without a valid id');
-  }
-  return id;
-}
 
 /** A list answer: a bare array, or `{ data: [...] }` (Clerk's paginated form). */
 function list(value: unknown): Json[] {

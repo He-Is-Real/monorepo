@@ -20,10 +20,14 @@ import {
 } from '../src/app/staff/staff-clerk';
 import { StaffBaseline } from '../src/app/staff/staff.controller';
 
-/** Clerk as api-admin sees it: each email's role (Clerk is never called in tests). */
+/**
+ * Clerk as api-admin sees it: each email's role (Clerk is never called in tests). Every email has
+ * an account with it verified, except those in `noAccount`, whose roles Clerk never holds.
+ */
 class FakeClerk implements StaffClerk {
   readonly enabled = true;
   roles = new Map<string, StaffRole | null>();
+  noAccount = new Set<string>();
   failing = false;
   /** Once: after setting this email's role, wait at `gate` (a slow Clerk answer). */
   hold: {
@@ -38,6 +42,7 @@ class FakeClerk implements StaffClerk {
   async setRole(email: string, role: StaffRole | null) {
     if (this.failing) throw new Error('Clerk answered 500');
     await this.beforeSet?.(email, role);
+    if (this.noAccount.has(email)) return { count: 0 };
     this.roles.set(email, role);
     const hold = this.hold;
     if (hold && hold.email === email && hold.role === role) {
@@ -45,7 +50,7 @@ class FakeClerk implements StaffClerk {
       hold.reached();
       await hold.gate;
     }
-    return { kind: 'users' as const, count: 1, revoked: 0 };
+    return { count: 1 };
   }
 }
 
@@ -358,6 +363,72 @@ describe('the staff list (api-admin)', () => {
     expect((await table()).map((r) => r.email)).not.toContain(
       'cat@heisreal.today',
     );
+  });
+
+  it('refuses to add or change someone with no account (S-7); removing them just takes them off the list', async () => {
+    const kim = 'kim@heisreal.today';
+    fake.noAccount.add(kim);
+    try {
+      for (const role of ['Moderator', 'Admin']) {
+        const res = await put(kim, role);
+        expect(res.status, role).toBe(400);
+        expect(res.body.code).toBe('validation_failed');
+        expect(res.body.errors[0].message).toBe(
+          'Ask them to create an account first, then add them.',
+        );
+      }
+      expect((await table()).map((r) => r.email)).not.toContain(kim);
+      // Listed while they had no account (as the baseline step does): a change is refused, a
+      // removal goes through.
+      await migrator.query(
+        `CREATE type::record('staffMember', $email) CONTENT { email: $email, role: 'Moderator' }`,
+        { email: kim },
+      );
+      expect((await put(kim, 'Admin')).status).toBe(400);
+      expect(await table()).toContainEqual({ email: kim, role: 'Moderator' });
+      expect((await remove(kim)).status).toBe(204);
+      expect((await table()).map((r) => r.email)).not.toContain(kim);
+    } finally {
+      fake.noAccount.delete(kim);
+    }
+    expect(fake.roles.has(kim)).toBe(false);
+  });
+
+  it('lists a baseline admin with no account yet, and gives them the role on a start after they sign up', async () => {
+    const info = 'info@heisreal.today';
+    expect((await remove(info)).status).toBe(204);
+    fake.roles.delete(info);
+    fake.noAccount.add(info);
+    try {
+      await baseline.onApplicationBootstrap();
+      await baseline.done;
+      expect(await table()).toContainEqual({ email: info, role: 'Admin' });
+      expect(fake.roles.has(info)).toBe(false);
+    } finally {
+      fake.noAccount.delete(info);
+    }
+    // They sign up; the next start sets their Clerk role.
+    await baseline.onApplicationBootstrap();
+    await baseline.done;
+    expect(fake.roles.get(info)).toBe('Admin');
+  });
+
+  it('counts an Admin role only with a verified @heisreal.today email in the token (S-5 A)', async () => {
+    for (const claims of [
+      { email: 'joel@gmail.com', email_verified: true },
+      { email: 'joel@heisreal.today', email_verified: false },
+      { email: undefined, email_verified: undefined },
+    ]) {
+      const who = {
+        authorization: `Bearer ${clerk.token('user_admin', { role: 'Admin', ...claims })}`,
+      };
+      const res = await call('GET', '', who);
+      expect(res.status, JSON.stringify(claims)).toBe(403);
+      expect(res.body.code).toBe('role_required');
+      expect((await put('dan@heisreal.today', 'Admin', who)).status).toBe(403);
+    }
+    expect(fake.roles.has('dan@heisreal.today')).toBe(false);
+    expect((await call('GET', '', admin())).status).toBe(200);
   });
 
   it('is for Admins only (G24): a Moderator or User gets 403 everywhere', async () => {

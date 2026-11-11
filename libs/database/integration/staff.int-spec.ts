@@ -1,5 +1,5 @@
 import type { Surreal } from 'surrealdb';
-import { outcome, rows, TestDatabase } from './support/harness';
+import { createPeople, outcome, rows, TestDatabase } from './support/harness';
 
 /**
  * The Staff page's list, `staffMember` (S-1 to S-4, G7, G8 B; Joel 2026-11-11). Clerk holds the
@@ -135,6 +135,29 @@ describe('staffMember: the Staff page list', () => {
       { email: 'joel@heisreal.today', role: 'Admin' },
     ]);
     await other.close();
+  });
+
+  it('gives a person’s own session nothing for an Admin role claim, with any email (S-5 A)', async () => {
+    // Roles live in Clerk and only api-admin acts on them (it counts a staff role only with a
+    // verified @heisreal.today email); the database never reads the claim, so a person's token
+    // saying Admin opens no staff power here, whatever its email.
+    await add(admin, 'joel@heisreal.today', 'Admin');
+    await createPeople(t, { s5: 'user_s5' });
+    for (const email of ['s5@gmail.com', 's5@heisreal.today']) {
+      const db = await t.connect();
+      await db.authenticate(
+        t.token('user_s5', {
+          claims: { role: 'Admin', email, email_verified: true },
+        }),
+      );
+      expect(await rows(db, 'SELECT * FROM staffMember'), email).toEqual([]);
+      await add(db, 's5@heisreal.today', 'Admin');
+      await outcome(db, `DELETE staffMember:⟨joel@heisreal.today⟩`);
+      await db.close();
+    }
+    expect(await list()).toEqual([
+      { email: 'joel@heisreal.today', role: 'Admin' },
+    ]);
   });
 
   it('is api-admin’s alone: no other service reads or writes it', async () => {

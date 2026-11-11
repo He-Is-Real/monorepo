@@ -65,7 +65,8 @@
 // - api-admin's staff list (M3 plan PR 4): `GET /v1/admin/staff`, `PUT`/`DELETE
 //   /v1/admin/staff/{email}`, Admins only, kept per session from two baseline admins and a
 //   Moderator; checked like the real one (@heisreal.today only, the two roles, never the last
-//   Admin: 409 `last_admin`). A session starting `admin-clerk-down` gets 502 `clerk_unavailable`.
+//   Admin: 409 `last_admin`; an email starting `nobody` has no account, so adding it is 400). A
+//   session starting `admin-clerk-down` gets 502 `clerk_unavailable`.
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -498,6 +499,14 @@ async function changeStaff(req, res, session, raw) {
   }
   if (session.startsWith('admin-clerk-down'))
     return problem(res, 502, 'Bad gateway', 'clerk_unavailable');
+  // S-7: an email starting `nobody` has no account, so adding or changing it is refused.
+  if (role !== null && email.startsWith('nobody'))
+    return invalid(
+      res,
+      '/email',
+      'staff_email',
+      'Ask them to create an account first, then add them.',
+    );
   const i = staff.findIndex((m) => m.email === email);
   const before = i < 0 ? null : staff[i].role;
   if (

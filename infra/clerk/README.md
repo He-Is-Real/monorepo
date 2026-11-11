@@ -37,7 +37,8 @@ merge. If you change one in the dashboard, copy it into `dev.json` too: `check` 
     staff (set from the Staff page, G8 B), `User` for everyone else;
   - `email` and `email_verified`: `{{user.primary_email_address}}` and `{{user.email_verified}}`
     (M3, staff roles). api-admin uses the email only when it is verified, to record which Admin
-    added someone to the staff list; nothing is authorized by it.
+    added someone to the staff list, and a Moderator or Admin role counts only when it is a verified
+    `@heisreal.today` email (S-5 A; otherwise the person is a User).
 - **No Clerk legal-consent checkbox.** Our own database is the record (plan 4e, 2026-11-01): each
   person's account points at the version of the terms of use and of the testimony consent they
   agreed to, with the time, and the versions are kept for ever. The terms step after sign-up

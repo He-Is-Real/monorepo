@@ -517,12 +517,13 @@ paths:
       summary: Add someone to the staff list with a role, or change their role
       description: |
         Command `SetStaffRole` (S-1 to S-3, G8 B). api-admin first writes the role to Clerk, the source of
-        truth: `publicMetadata.role` on the Clerk user with that verified email, or, with no such user, a
-        Clerk invitation carrying the role (no invitation email), so it applies when they sign up. Then
-        it adds or updates the list. Clerk holds no version, so there is no `If-Match` and `version` is
+        truth: `publicMetadata.role` on the Clerk user with that verified email. There are no invitations
+        (S-7): the person creates an account with that email first, and with no such account the change
+        is refused (`400`, nothing changed). Then it adds or updates the list. The role counts only while
+        their sign-in token carries that verified `@heisreal.today` email (S-5 A). Clerk holds no version, so there is no `If-Match` and `version` is
         `null`; setting the same role again changes nothing. Takes effect when the person's session token
-        is next renewed, within about a minute. `400` for an email outside `@heisreal.today` or a role
-        other than Moderator or Admin; `409 last_admin` for demoting the last Admin (the database refuses
+        is next renewed, within about a minute. `400` for an email outside `@heisreal.today`, an email
+        no Clerk account has verified, or a role other than Moderator or Admin; `409 last_admin` for demoting the last Admin (the database refuses
         it too, and Clerk is put back); `502 clerk_unavailable` if Clerk couldn't make the change
         (nothing changed), or couldn't be confirmed to agree with the list afterwards (the list may
         have changed; saving the person again puts Clerk in step).
@@ -558,8 +559,8 @@ paths:
       operationId: removeStaffMember
       summary: Remove someone from the staff list
       description: |
-        Command `RemoveStaffMember`. Clerk first: the person's role goes back to none (a User) and any
-        pending invitation is revoked; then the list. Removing someone not on the list changes nothing.
+        Command `RemoveStaffMember`. Clerk first: the person's role goes back to none (a User), on any
+        account with that verified email (with none, nothing changes there); then the list. Removing someone not on the list changes nothing.
         `409 last_admin` for the last Admin; `502 clerk_unavailable` as for `PUT`. A baseline admin
         removed here is added back on the next deploy.
       x-required-role: Admin

@@ -73,6 +73,11 @@ code does what it does today; nobody should build on either reading.
   the old Admin became Moderator, the old Super Admin became Admin). Roles are set in Clerk, on the
   person's account (`publicMetadata.role`), and travel in their sign-in token, which api-admin reads
   on every request; someone without one is a User. (D1, G8 B)
+- **A staff role needs the staff email (S-5 A, Joel 2026-11-11):** a Moderator or Admin role counts
+  only while the sign-in token also carries a verified `@heisreal.today` email (the account's
+  primary email). Otherwise the person is a User everywhere (api-admin, api-user and the site's
+  staff menu), so taking that email off an account ends their staff powers at the next token,
+  within about a minute.
 
   | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                                        |
   | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -81,17 +86,21 @@ code does what it does today; nobody should build on either reading.
   | Admin     | Everything a Moderator can, plus themes, submission limits, legal texts, "approve anyway", reading drafts (every story), the block list (planned) and the Staff page |
 
 - **Staff (S-1 to S-4, G7, G8 B; Joel 2026-11-11):** Admins add, change and remove Moderators and
-  Admins on the Staff page (`/admin/staff`). Only `@heisreal.today` emails can be staff (G7). Each
-  change goes to Clerk first (the person's role, or, for someone with no account yet, a Clerk
-  invitation carrying it, with no invitation email), then to the staff list in our database. A
+  Admins on the Staff page (`/admin/staff`). Only `@heisreal.today` emails can be staff (G7). There
+  are no invitations (S-7, Joel 2026-11-11): a person first creates an ordinary account with that
+  email, then an Admin adds them; adding or changing someone with no such account is refused ("Ask
+  them to create an account first, then add them."), and removing them just takes them off the
+  list. Each change goes to Clerk first (the role on their account), then to the staff list in our
+  database. A
   change takes effect within about a minute (the sign-in token's lifetime). There is always at least
   one Admin: removing or demoting the last one is refused. If Clerk fails, or can't be confirmed to
   agree with the list afterwards, the page says it couldn't save; saving that person again puts
   Clerk and the list back in step.
 - **Baseline admins (S-4):** `info@heisreal.today` and `joel@heisreal.today`, listed in
   `apps/api-admin/src/app/staff/baseline-admins.json`. Each time api-admin starts (every deploy,
-  and after it has been idle), it makes both Admin in Clerk and on the list, adding them back if
-  missing; it never removes anyone. So removing one on the Staff page lasts only until then, which
+  and after it has been idle), it makes both Admin on the list, adding them back if missing, and in
+  Clerk where an account has the email; one with no account yet is logged, and a later start gives
+  them the role once they have signed up. Start-up never fails over it; it never removes anyone. So removing one on the Staff page lasts only until then, which
   the page says.
 - The parts of a page that are about the signed-in person (hearts, their stories, their profile)
   are filled in by the browser, with space kept so nothing jumps. Pages for signed-in people

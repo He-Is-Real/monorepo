@@ -242,10 +242,12 @@ and Admin (the old Admin is now called Moderator, the old Super Admin is now Adm
 see only Moderation; themes, limits, legal texts and every story are for Admins. A new Staff page
 (`/admin/staff`, Admins only) lists the staff and adds, changes and removes Moderators and Admins
 (`@heisreal.today` emails only): each change goes to Clerk, where roles live, then to the list.
-There is always at least one Admin, and `info@heisreal.today` and `joel@heisreal.today` are made
+There are no invitations: someone signs up as an ordinary user first, then an Admin adds them. A
+staff role counts only while the person's sign-in token carries a verified `@heisreal.today`
+email; anyone else is treated as a User. There is always at least one Admin, and `info@heisreal.today` and `joel@heisreal.today` are made
 Admin again on every deploy. Before it works on dev: apply the gcp root (api-admin reads Clerk's
 secret key), and apply the Clerk settings (`infra/clerk/clerk-config.mjs`, the token's new email
-claim). Until api-admin has started on the new image, accounts whose Clerk role is still
+claim; without it nobody, Joel included, counts as staff). Until api-admin has started on the new image, accounts whose Clerk role is still
 `SuperAdmin` are refused (that role no longer exists); the baseline step fixes Joel's and info@'s.
 
 **Next:** the person's own preview, Edit and Delete, the "your video couldn't be used" message,

@@ -63,6 +63,14 @@ test.describe('/admin/staff', () => {
     ).toBeVisible();
     await expect(member(page, 'ann@example.com')).toHaveCount(0);
 
+    // S-7: no account with that email yet, so nothing is added.
+    await page.getByLabel('Email').fill('nobody@heisreal.today');
+    await page.getByRole('button', { name: 'Add' }).click();
+    await expect(page.locator('[data-staff-status="error"]')).toHaveText(
+      'Ask them to create an account first, then add them.',
+    );
+    await expect(member(page, 'nobody@heisreal.today')).toHaveCount(0);
+
     await page.getByLabel('Email').fill('Ann@heisreal.today');
     await page
       .getByRole('combobox', { name: 'Role', exact: true })

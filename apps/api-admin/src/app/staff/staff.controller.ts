@@ -53,6 +53,12 @@ for (const email of BASELINE_ADMINS) {
 /** What a change did to the list. */
 export type StaffChange = 'added' | 'changed' | 'removed' | 'unchanged';
 
+/** A change's outcome: what it did to the list, and how many Clerk accounts have the email. */
+export interface StaffOutcome {
+  change: StaffChange;
+  accounts: number;
+}
+
 interface StaffRow {
   email: string;
   role: StaffRole;
@@ -67,6 +73,17 @@ const invalid = (pointer: string, code: string, message: string) =>
     'Validation failed',
     undefined,
     [{ pointer, code, message }],
+  );
+
+/**
+ * 400: no Clerk account has this verified email (S-7, Joel 2026-11-11: no invitations; they sign
+ * up as an ordinary user first). The Staff page shows the message.
+ */
+const noAccount = () =>
+  invalid(
+    '/email',
+    'staff_email',
+    'Ask them to create an account first, then add them.',
   );
 
 /** 409: the change would leave no Admin (the database refuses it too). */
@@ -167,31 +184,37 @@ export class Staff {
 
   /**
    * Gives `email` the role `role` (or removes them, `null`) in Clerk, then in the table.
-   * `addedBy` names the Admin adding someone new (NONE: the baseline step). Throws the API's
-   * problems: `last_admin`, `clerk_unavailable`.
+   * `addedBy` names the Admin adding someone new (NONE: the baseline step). Adding or changing a
+   * role needs a Clerk account with the verified email (S-7) unless `anyAccount` (the baseline
+   * step, which lists them anyway). Throws the API's problems: `validation_failed` (no account),
+   * `last_admin`, `clerk_unavailable`.
    */
   async set(
     email: string,
     role: StaffRole | null,
     addedBy: string | null,
-  ): Promise<StaffChange> {
+    { anyAccount = false }: { anyAccount?: boolean } = {},
+  ): Promise<StaffOutcome> {
     const before = await this.current(email);
     if (before === role) {
       // Nothing to change here; Clerk is still made to agree (it is the source of truth).
-      await this.toClerkAsTable(email);
-      return 'unchanged';
+      const accounts = await this.toClerkAsTable(email);
+      return { change: 'unchanged', accounts };
     }
     // Checked before Clerk is touched, so the usual refusal changes nothing anywhere. The
     // database checks it again, in the write's own transaction.
     if (before === 'Admin' && (await this.admins()) <= 1) throw lastAdmin();
 
+    let accounts: number;
     try {
-      await this.toClerk(email, role);
+      ({ count: accounts } = await this.toClerk(email, role));
     } catch (err) {
       // Clerk may have made part of the change: put it back as the table says.
       await this.toClerkAsTable(email);
       throw err;
     }
+    // No account had the email, so Clerk changed nothing: refuse before the list does.
+    if (role !== null && accounts === 0 && !anyAccount) throw noAccount();
     try {
       await retryOnConflict(() => this.write(email, role, addedBy));
     } catch (err) {
@@ -204,21 +227,26 @@ export class Staff {
     // either order; Clerk is set again to exactly what the table now says, so whichever change
     // finishes last leaves the two agreeing. If that can't be confirmed the request fails (502)
     // even though the table changed: saving the person again makes Clerk agree.
-    await this.toClerkAsTable(email);
-    return before === null ? 'added' : role === null ? 'removed' : 'changed';
+    accounts = await this.toClerkAsTable(email);
+    return {
+      change: before === null ? 'added' : role === null ? 'removed' : 'changed',
+      accounts,
+    };
   }
 
   /**
    * Sets `email`'s Clerk role to exactly their row's (no row: none), reading the row again after
-   * each Clerk change and repeating (a few times) while it moved meanwhile. Throws
+   * each Clerk change and repeating (a few times) while it moved meanwhile. Returns how many
+   * Clerk accounts have the email. Throws
    * `clerk_unavailable` when it can't confirm Clerk agrees: a Clerk call failed, or the row was
    * still moving after the last round.
    */
-  private async toClerkAsTable(email: string): Promise<void> {
+  private async toClerkAsTable(email: string): Promise<number> {
     let role = await this.current(email);
     for (let round = 0; round < 3; round++) {
+      let accounts: number;
       try {
-        await this.toClerk(email, role);
+        ({ count: accounts } = await this.toClerk(email, role));
       } catch (err) {
         this.logger.error(
           "Clerk couldn't be made to match the staff list: a Clerk call failed; saving the person again fixes it",
@@ -226,7 +254,7 @@ export class Staff {
         throw err;
       }
       const now = await this.current(email);
-      if (now === role) return;
+      if (now === role) return accounts;
       role = now;
     }
     this.logger.error(
@@ -294,7 +322,10 @@ export class StaffController {
     };
   }
 
-  /** SetStaffRole: add someone with a role, or change their role. */
+  /**
+   * SetStaffRole: add someone with a role, or change their role. They need a Clerk account with
+   * the verified email first (S-7).
+   */
   @Put(':email')
   @RequiresRole('Admin')
   async put(
@@ -309,7 +340,7 @@ export class StaffController {
     return { id: email, version: null };
   }
 
-  /** RemoveStaffMember: back to a User, in Clerk and on the list. */
+  /** RemoveStaffMember: back to a User, in Clerk and on the list (with or without an account). */
   @Delete(':email')
   @RequiresRole('Admin')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -328,8 +359,9 @@ const BASELINE_STARTUP_WAIT_MS = 15_000;
  * S-4 (Joel, 2026-11-11): "hardcode in the config file a baseline set of admin emails
  * info@heisreal.today and joel@heisreal.today incase we need to reset in the future via pipeline
  * or accidentally lock ourselves out". Each time api-admin starts (so on every deploy), every
- * baseline admin is made Admin in Clerk and on the list, added back if missing; nobody else is
- * touched. It runs here, in api-admin, because api-admin already holds the one Clerk client and
+ * baseline admin is made Admin on the list, added back if missing, and in Clerk where an account
+ * has the email; one with no account yet (S-7: no invitations) is logged, and the next start
+ * gives them the role once they have signed up. Nobody else is touched. It runs here, in api-admin, because api-admin already holds the one Clerk client and
  * the table's login; a separate job would need both again. Idempotent: an admin already in
  * place costs one Clerk update. Start-up waits up to 15 s for it, then carries on, retrying
  * (the database may be restarting) every 30 s for ten minutes. It logs what it did.
@@ -366,13 +398,18 @@ export class StaffBaseline implements OnApplicationBootstrap {
       try {
         const done: string[] = [];
         for (const email of BASELINE_ADMINS) {
-          const change = await this.staff.set(email, 'Admin', null);
+          const { change, accounts } = await this.staff.set(
+            email,
+            'Admin',
+            null,
+            { anyAccount: true },
+          );
           done.push(
-            `${email} ${change === 'unchanged' ? 'already Admin' : change === 'added' ? 'added as Admin' : 'made Admin again'}`,
+            `${email} ${change === 'unchanged' ? 'already Admin' : change === 'added' ? 'added as Admin' : 'made Admin again'}${accounts === 0 ? ' (no Clerk account with this email yet: the next start gives it the role once they sign up)' : ''}`,
           );
         }
         this.logger.log(
-          `Baseline admins in place in Clerk and on the staff list: ${done.join('; ')}`,
+          `Baseline admins in place on the staff list, and in Clerk where they have an account: ${done.join('; ')}`,
         );
         return;
       } catch (err) {
