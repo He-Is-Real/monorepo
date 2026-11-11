@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { cardPlayer } from '@/app/stories/actions';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { PLAYER_ALLOW, PLAYER_MIN_HEIGHT } from './story-media';
 
 // A video or audio card's media area (story-card.tsx): pressing it plays the story in place, in
@@ -38,7 +39,7 @@ type State =
 
 const MESSAGES = {
   gone: 'This story isn’t available any more.',
-  unavailable: 'The player couldn’t load. Try again in a moment.',
+  unavailable: TRY_AGAIN_LATER,
 } as const;
 
 export function CardPlayer({

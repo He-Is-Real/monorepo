@@ -1,32 +1,37 @@
 'use client';
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { aboutMinutes } from '@/lib/restarting';
+import { tryAgainIn } from '@/lib/restarting';
+
+// While the database restarts (SurrealDB on Spot; Joel, 2026-11-07), web says so, with when to
+// try again: the one error web names (Joel, 2026-11-09: "reveal when compute is restarting with a
+// count down but for any other error it should be generic").
 
 export const RESTARTING_HEADING = 'Our compute is currently restarting';
 
 /**
- * "about N minutes", counted down in the browser from `seconds` (the API's estimate, read by
- * web's server or by api-user's client). The server's HTML has the estimate as it was, so it
- * reads right without JavaScript; once the countdown passes zero it stays at "about 1 minute".
+ * "Please try again in about N minutes.", counted down in the browser from `seconds` (the API's
+ * estimate, read by web's server or by api-user's client), then "Please try again later." once it
+ * has run out. The server's HTML has the estimate as it was, so it reads right without JavaScript.
  */
-function useAboutMinutes(seconds: number): string {
+function useTryAgainIn(seconds: number): string {
   const [left, setLeft] = useState(seconds);
   useEffect(() => {
     const deadline = Date.now() + seconds * 1000;
     setLeft(seconds);
-    const timer = setInterval(
-      () => setLeft(Math.max(0, (deadline - Date.now()) / 1000)),
-      1000,
-    );
+    const timer = setInterval(() => {
+      const now = Math.max(0, (deadline - Date.now()) / 1000);
+      setLeft(now);
+      if (now === 0) clearInterval(timer);
+    }, 1000);
     return () => clearInterval(timer);
   }, [seconds]);
-  return aboutMinutes(left);
+  return tryAgainIn(left);
 }
 
 /**
- * The calm message while the database restarts (SurrealDB on Spot; Joel, 2026-11-07), as a
- * page's whole content (`page`) or as a short note in place of a section (`inline`).
+ * The calm message while the database restarts, as a page's whole content (`page`) or as a short
+ * note in place of a section (`inline`).
  */
 export function RestartingMessage({
   seconds,
@@ -35,7 +40,7 @@ export function RestartingMessage({
   seconds: number;
   variant: 'page' | 'inline';
 }) {
-  const about = useAboutMinutes(seconds);
+  const when = useTryAgainIn(seconds);
   if (variant === 'inline') {
     return (
       <p
@@ -43,8 +48,7 @@ export function RestartingMessage({
         data-restarting=""
         className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
       >
-        {RESTARTING_HEADING}. Please refresh the page in{' '}
-        <span data-restarting-estimate="">{about}</span>.
+        {RESTARTING_HEADING}. <span data-restarting-estimate="">{when}</span>
       </p>
     );
   }
@@ -56,8 +60,7 @@ export function RestartingMessage({
     >
       <h1 className="text-3xl font-semibold">{RESTARTING_HEADING}</h1>
       <p role="status" className="text-secondary-text">
-        Please refresh the page in{' '}
-        <span data-restarting-estimate="">{about}</span>.
+        <span data-restarting-estimate="">{when}</span>
       </p>
     </main>
   );
@@ -114,11 +117,31 @@ export function RestartingNotice() {
 }
 
 function NoticeText({ seconds }: { seconds: number }) {
-  const about = useAboutMinutes(seconds);
   return (
     <p role="status" className="text-[0.9375rem]">
-      {RESTARTING_HEADING}. Please try again in{' '}
-      <span data-restarting-estimate="">{about}</span>.
+      <RestartingText seconds={seconds} />
     </p>
+  );
+}
+
+/**
+ * The restart in one sentence, counted down from `seconds`, for a message of its own (the notice
+ * at the bottom of the screen, a share step's problem after a submit or an upload): "Our compute
+ * is currently restarting. Please try again in about N minutes.", then "… Please try again
+ * later." once it has run out, followed by `kept` if given (e.g. "Your story is saved.").
+ */
+export function RestartingText({
+  seconds,
+  kept,
+}: {
+  seconds: number;
+  kept?: string;
+}) {
+  const when = useTryAgainIn(seconds);
+  return (
+    <>
+      {RESTARTING_HEADING}. <span data-restarting-estimate="">{when}</span>
+      {kept ? ` ${kept}` : null}
+    </>
   );
 }

@@ -17,6 +17,7 @@ import {
 } from '@/lib/api-user';
 import { type AgreementName, documentHref, shortDate } from '@/lib/legal-text';
 import { SomeoneElseSignedIn } from '@/lib/personal-session';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 const KEY: Record<AgreementName, 'termsOfUse' | 'testimonyConsent'> = {
   'terms-of-use': 'termsOfUse',
@@ -115,7 +116,7 @@ export function AgreementStep({
         {heading(title(document, agreed))}
         <div data-agreement-unavailable="">
           <p role="alert" className="mb-4 text-secondary-text">
-            This can’t be shown right now. Please try again in a moment.
+            {TRY_AGAIN_LATER}
           </p>
           <Button
             variant="outline"
@@ -358,5 +359,5 @@ function messageFor(err: unknown): React.ReactNode {
     (err instanceof ApiUserProblem && err.status === 401)
   )
     return 'You’ve been signed out. Sign in again to continue.';
-  return 'We couldn’t save your answer just now. Please try again in a moment.';
+  return TRY_AGAIN_LATER;
 }

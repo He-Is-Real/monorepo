@@ -510,6 +510,30 @@ Planned (M3):
   code. Exceptions: video and audio files at Bunny in Frankfurt (D89); Clerk in the US (D6);
   Bunny's delivery network serves files worldwide.
 
+## When something goes wrong on our side
+
+- **People never see error codes or backend state (Joel, 2026-11-09:** "dont reveal to the users
+  the error code from the backed or its error type/ state, just say try again later"**),
+  except that a restart is named, with its countdown** (Joel, 2026-11-09: "for errors we should
+  reveal when compute is restarting with a count down but for any other error it should be
+  generic"; "When the database restarts", below). Whatever else went wrong on our side (a server
+  error, no answer, a technical refusal), web says only "Something went wrong. Please try again
+  later." on every page, admin pages included: no HTTP status, error code, error type, request
+  id or what the server is doing. Where it helps, it adds what of the person's is safe ("Your
+  story is saved."). The logs keep the full detail.
+- **Mistakes people can fix stay visible** (Joel, 2026-11-09: "errors caused by user mistakes
+  should be visible. errors where the backend is crashing or would be useful for attackers should
+  be generic to the public (except for the restart countdown)"): a field too long, a file too
+  big, a limit reached, a story changed in another tab. The APIs keep their own codes; only what
+  web shows changed. Web shows an API's own message only for the codes on a fixed list of input
+  refusals (`INPUT_REFUSALS` in `apps/web/src/lib/api-user.ts`); the codes about our side are
+  listed too (`SYSTEM_CODES`), and a test (`error-codes.spec.ts`) fails when an API answers a code
+  that is on neither list, so someone decides which it is before it ships. Any code web doesn't
+  know still gets the plain message.
+- Pages that expect "not found" or "not allowed" explain it themselves ("This draft no longer
+  exists", a story page that isn't there, "This page is for admins" or "for moderators"): that is
+  not backend state.
+
 ## When the database restarts
 
 The database runs on Google's cheap "Spot" capacity in dev and production, which Google can take
@@ -517,13 +541,18 @@ back at any time; it then restarts elsewhere within a few minutes, and no data i
 2026-11-07: "we can handle occasional forced restarts")
 
 - Public browsing keeps working from the public API's kept copies (Browse and themes, above).
-- Anything else (signed-in pages, saving, sharing, uploads, admin pages)
-  shows a calm message: "Our compute is currently restarting. Please refresh the page in about 2
-  minutes." The minutes count down in the browser from the server's estimate; when the countdown
-  reaches zero and it's still restarting, it stays at "about 1 minute", never 0. Without
-  JavaScript the page shows the server's estimate as it was.
-- After a save, a submit or an upload, the message shows at the bottom of the screen ("Please try
-  again in about N minutes") and the page keeps what the person typed.
+- Anything else (signed-in pages, saving, sharing, uploads, admin pages) shows a calm message:
+  "Our compute is currently restarting. Please try again in about 2 minutes." It's the one error
+  web names (Joel, 2026-11-09). The minutes count down in the browser from the server's estimate
+  (whole minutes, rounded up); when the countdown runs out it says "Please try again later."
+  instead, never "about 1 minute" or 0. Without JavaScript the page shows the server's estimate
+  as it was.
+- After a save, a submit or an upload, the message shows at the bottom of the screen ("Our
+  compute is currently restarting. Please try again in about N minutes.", then "… Please try
+  again later.") and the page keeps what the person typed. A submit or an upload in the share
+  flow says the same where it was tried, adding "Your story is saved."; other places that show
+  their own error after an action (saving a draft, admin pages) show the plain "Something went
+  wrong. Please try again later." there, with the named countdown at the bottom.
 - The estimate: 2 minutes (a setting, `DATABASE_RESTART_ESTIMATE_SECONDS`) counted from when that
   copy of the service first saw the database go, never less than 1 minute.
 - The message at the bottom of the screen goes as soon as the next thing the browser asks

@@ -416,7 +416,9 @@ test.describe('behaviour', () => {
     });
 
     await choose(page, 900, 1200);
-    await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
     // Trying again replays the same grant: the same path, found there already (412).
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect(page.getByText('Picture added.')).toBeVisible();
@@ -439,7 +441,9 @@ test.describe('behaviour', () => {
     // Added again, its PUT fails: it's on the draft, so removing it is an edit at the server.
     puts.push('fail');
     await choose(page, 1280, 720);
-    await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
     expect((await me.uploads()).images).toHaveLength(2);
     const removed = page.waitForResponse(
       (r) => isImageEdit(r.request()) && r.ok(),
@@ -511,7 +515,9 @@ test.describe('behaviour', () => {
       if (isImageEdit(r)) edits.push(r.postDataJSON());
     });
     await choose(page, 900, 1200);
-    await expect(alert(page, 'can’t reach our server')).toBeVisible();
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
     expect((await me.uploads()).images).toHaveLength(1);
 
     // Another picture chosen, not added, then discarded: the story is read, and its picture
@@ -549,7 +555,9 @@ test.describe('behaviour', () => {
       return route.fulfill({ status: 500 });
     });
     await choose(page, 900, 1200);
-    await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
 
     // Another picture chosen, not added, then the earlier one kept: its file never arrived, so
     // it isn't finished, and Continue waits for it.
@@ -768,7 +776,9 @@ test.describe('behaviour', () => {
       return route.fulfill({ status: 500 });
     });
     await choose(page, 900, 1200);
-    await expect(alert(page, 'couldn’t be uploaded')).toBeVisible();
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
     const [granted] = (await me.uploads()).images;
     await me.agreements({ testimony: 1 });
     await page.getByRole('button', { name: 'Try again' }).click();

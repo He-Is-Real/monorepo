@@ -20,21 +20,25 @@ import {
 import { LegalHtml } from '@/components/legal/legal-html';
 import { PrivacyNoticeLink } from '@/components/legal/privacy-notice-link';
 import { Redline } from '@/components/legal/redline';
+import { RestartingText } from '@/components/restarting/restarting-message';
 import {
   type Account,
   type Agreement,
   type ApiUser,
   ApiUserProblem,
   ApiUserUnavailable,
+  isSystemError,
+  plainMessage,
+  restartWait,
   StaleVersion,
 } from '@/lib/api-user';
 import type { AgreementName } from '@/lib/legal-text';
 import type { RedlineItem } from '@/lib/redline';
 import type { SharingConsent, ShareLegal } from '@/lib/share-legal';
 import { signInHref } from '@/lib/return-path';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import {
   type MyStory,
-  plainMessage,
   shareApi,
   type StoryFormat,
   type SubmissionLimits,
@@ -423,11 +427,10 @@ function SignedInFlow({
     return (
       <Card className="p-6 text-center sm:p-8">
         <h2 role="alert" className="mb-3 text-2xl font-normal">
-          We can’t reach our server right now
+          Something went wrong
         </h2>
         <p className="mb-6 text-secondary-text">
-          Anything you wrote on this device is kept. Please try again in a
-          moment.
+          Please try again later. Anything you wrote on this device is kept.
         </p>
         <button type="button" className={primary} onClick={() => void start()}>
           Try again
@@ -955,8 +958,7 @@ function SaveState({ draft }: { draft: DraftState }) {
         : 'Kept on this device. It’s saved to your account once it has a title.',
     saving: 'Saving…',
     saved: 'Saved',
-    offline:
-      'We can’t reach our server. Your story is kept on this device; we’ll save it when you try again.',
+    offline: `${TRY_AGAIN_LATER} Your story is kept on this device.`,
     conflict: '',
     error: draft.error ?? '',
     submitted: '',
@@ -1669,6 +1671,7 @@ export function ReviewStep({
         (err instanceof ApiUserProblem &&
           (err.code === 'story_not_submittable' ||
             err.code === 'story_locked'));
+      const restarting = restartWait(err);
       if (
         err instanceof ApiUserProblem &&
         err.code === 'agreement_version_changed'
@@ -1728,10 +1731,15 @@ export function ReviewStep({
             'Your story was changed in another tab or window. Check it, then submit again.',
           );
         }
-      } else if (err instanceof ApiUserUnavailable) {
+      } else if (restarting !== undefined) {
+        // The database restarting: named, with when to try again (Joel, 2026-11-09).
         setProblem(
-          'We can’t reach our server right now. Your story is saved; please try again in a moment.',
+          <RestartingText seconds={restarting} kept="Your story is saved." />,
         );
+      } else if (isSystemError(err)) {
+        // On our side (no answer, a server error, a technical refusal): only the plain message
+        // (Joel, 2026-11-09).
+        setProblem(`${TRY_AGAIN_LATER} Your story is saved.`);
       } else if (err instanceof ApiUserProblem) {
         const p = err.problem as ApiUserProblem['problem'] & {
           availableAt?: string;

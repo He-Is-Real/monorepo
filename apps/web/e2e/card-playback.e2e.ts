@@ -99,7 +99,7 @@ test('a card plays in its own box: same width, only as tall as the controls need
   const down = card(page, 'Play test: the API is down');
   await playButton(page, 'Play test: the API is down').click();
   await expect(
-    down.getByText('The player couldn’t load. Try again in a moment.'),
+    down.getByText('Something went wrong. Please try again later.'),
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
@@ -221,7 +221,7 @@ test.describe('behaviour', () => {
     const down = card(page, 'Play test: the API is down');
     await playButton(page, 'Play test: the API is down').click();
     await expect(
-      down.getByText('The player couldn’t load. Try again in a moment.'),
+      down.getByText('Something went wrong. Please try again later.'),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
@@ -247,7 +247,7 @@ test.describe('behaviour', () => {
     const video = card(page, VIDEO);
     await playButton(page, VIDEO).click();
     await expect(
-      video.getByText('The player couldn’t load. Try again in a moment.'),
+      video.getByText('Something went wrong. Please try again later.'),
     ).toBeVisible();
     await playButton(page, VIDEO).click();
     await expect(

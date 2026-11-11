@@ -32,6 +32,7 @@ import {
   reportRestarting,
 } from '@/components/restarting/restarting-message';
 import { restartingSeconds } from './restarting';
+import { TRY_AGAIN_LATER } from './try-again-later';
 
 /** Clerk's `getToken()`: the current session token, or null when signed out. */
 export type GetToken = () => Promise<string | null>;
@@ -76,7 +77,14 @@ export interface AgreementState {
 
 /** api-user answered with an error (anything but 2xx and 304). */
 export class ApiUserProblem extends Error {
-  constructor(readonly problem: Problem) {
+  /**
+   * `restartingSeconds`: set on a `503 service_restarting` (the database is restarting): when to
+   * try again, from `retryAfterSeconds` or `Retry-After`.
+   */
+  constructor(
+    readonly problem: Problem,
+    readonly restartingSeconds?: number,
+  ) {
     super(
       `api-user answered ${problem.status}${problem.code ? ` ${problem.code}` : ''}`,
     );
@@ -103,6 +111,126 @@ export class ApiUserUnavailable extends Error {
 /** There is no Clerk session, so no request was sent. */
 export class NotSignedIn extends Error {
   override name = 'NotSignedIn';
+}
+
+/**
+ * The API codes that refuse what the person sent or chose (validation, limits, their content's
+ * state, a change made meanwhile in another tab, an agreement to give first). Their own message is
+ * about the person's input, so web may show it. Every other answer (a technical or protocol 4xx
+ * such as `if_match_required` or `idempotency_key_reused`, an unknown or missing code, any 5xx) is
+ * shown only as `TRY_AGAIN_LATER` (Joel, 2026-11-09; Codex review of #206).
+ */
+export const INPUT_REFUSALS: ReadonlySet<string> = new Set([
+  // What they wrote or chose
+  'validation_failed',
+  'story_text_too_long',
+  'story_text_too_short',
+  'theme_count',
+  'themes_changed',
+  // Limits
+  'weekly_submission_limit_reached',
+  'draft_limit_reached',
+  'upload_limit_reached',
+  // Their upload or picture
+  'media_over_limit',
+  'media_failed',
+  'media_not_uploaded',
+  'media_processing',
+  'image_not_uploaded',
+  'image_changed',
+  'nothing_to_resume',
+  // An admin approving a story whose file isn't ready yet (Joel, 2026-11-10, E-9; the route is still to be built)
+  'media_not_ready',
+  'media_recently_uploaded',
+  'media_still_processing',
+  // Their story's state
+  'story_locked',
+  'story_not_submittable',
+  'story_not_withdrawable',
+  'story_not_deletable',
+  // Changed meanwhile (another tab, another admin)
+  'stale_version',
+  'agreement_version_changed',
+  'document_changed',
+  // An agreement to give first
+  'terms_agreement_required',
+  'testimony_consent_required',
+]);
+
+/**
+ * The API codes that are about our side, never what the person sent: protocol and technical
+ * refusals (a bug in how our page called the API), the backend failing or unavailable, and what
+ * would help an attacker. People see only `TRY_AGAIN_LATER` for these, as for any code in neither
+ * list (Joel, 2026-11-09: "errors caused by user mistakes should be visible. errors where the
+ * backend is crashing or would be useful for attackers should be generic to the public (except
+ * for the restart countdown)"). `service_restarting` is here too, but web names a restart and
+ * counts down to when to try again (`restartWait`). The list doesn't change behaviour; it's there
+ * so error-codes.spec.ts can check every code the APIs answer is in one list or the other.
+ */
+export const SYSTEM_CODES: ReadonlySet<string> = new Set([
+  // How our page called the API
+  'if_match_required',
+  'idempotency_key_required',
+  'idempotency_key_reused',
+  'invalid_cursor',
+  'unknown_parameter',
+  'not_with_paging',
+  'invalid_signature',
+  // Who's asking: handled by the page itself (sign-in, "This page is for admins")
+  'unknown_person',
+  'role_required',
+  // Not found: pages that expect it explain it themselves ("this draft no longer exists")
+  'not_found',
+  'story_not_found',
+  // The backend failing or unavailable
+  'database_refused',
+  'sign_in_unavailable',
+  'uploads_unavailable',
+  'upload_outcome_unknown',
+  'export_unavailable',
+  'service_restarting',
+]);
+
+/** Whether `err` is a 4xx refusing what the person sent, by a code in `INPUT_REFUSALS`. */
+export const isInputRefusal = (err: unknown): boolean =>
+  err instanceof ApiUserProblem &&
+  err.status < 500 &&
+  err.code !== undefined &&
+  INPUT_REFUSALS.has(err.code);
+
+/**
+ * Whether people see only `TRY_AGAIN_LATER` for `err`: anything but being signed out or an input
+ * refusal (`isInputRefusal`). That covers a 5xx answer, the database restarting, no answer, a
+ * technical 4xx and anything else unexpected; never its code, status or detail (Joel, 2026-11-09).
+ */
+export const isSystemError = (err: unknown): boolean =>
+  !(err instanceof NotSignedIn) && !isInputRefusal(err);
+
+/**
+ * The seconds until it's worth trying again if `err` is the database restarting (a `503
+ * service_restarting`), else undefined. Web names a restart and counts down (Joel, 2026-11-09:
+ * "reveal when compute is restarting with a count down but for any other error it should be
+ * generic").
+ */
+export const restartWait = (err: unknown): number | undefined =>
+  err instanceof ApiUserProblem ? err.restartingSeconds : undefined;
+
+/**
+ * What to tell the person: an input refusal's own message (its `detail`, about what they sent) or
+ * `fallback`; for anything else, only `TRY_AGAIN_LATER` (Joel, 2026-11-09), then `kept` if given
+ * (what of theirs is safe, e.g. "Your story is kept on this device.").
+ */
+export function plainMessage(
+  err: unknown,
+  fallback: string,
+  kept?: string,
+): string {
+  if (isSystemError(err))
+    return kept ? `${TRY_AGAIN_LATER} ${kept}` : TRY_AGAIN_LATER;
+  if (err instanceof ApiUserProblem && err.problem.detail) {
+    return err.problem.detail;
+  }
+  return fallback;
 }
 
 /** A strong `If-Match` for an aggregate's `version` (D29). */
@@ -249,13 +377,13 @@ async function problemOf(res: Response): Promise<ApiUserProblem> {
       // Not JSON after all: keep the bare problem.
     }
   }
+  let restarting: number | undefined;
   if (problem.status === 503 && problem.code === 'service_restarting') {
-    reportRestarting(
-      restartingSeconds(
-        (problem as { retryAfterSeconds?: unknown }).retryAfterSeconds,
-        res.headers.get('Retry-After'),
-      ),
+    restarting = restartingSeconds(
+      (problem as { retryAfterSeconds?: unknown }).retryAfterSeconds,
+      res.headers.get('Retry-After'),
     );
+    reportRestarting(restarting);
   }
   if (res.status === 428) {
     // Our bug: a command that modifies a resource went without If-Match.
@@ -263,5 +391,5 @@ async function problemOf(res: Response): Promise<ApiUserProblem> {
   }
   return res.status === 412
     ? new StaleVersion(problem)
-    : new ApiUserProblem(problem);
+    : new ApiUserProblem(problem, restarting);
 }

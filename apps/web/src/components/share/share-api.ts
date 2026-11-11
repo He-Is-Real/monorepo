@@ -4,7 +4,6 @@ import {
   type Account,
   type Agreement,
   type ApiUser,
-  ApiUserProblem,
   type ApiUserResponse,
   ApiUserUnavailable,
   newIdempotencyKey,
@@ -182,14 +181,6 @@ export function mergePatch(
     patch[k] = k === 'bylineName' ? n.bylineName || null : n[k];
   }
   return patch;
-}
-
-/** A problem's plain message for the person, or a fallback. */
-export function plainMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiUserProblem && err.problem.detail) {
-    return err.problem.detail;
-  }
-  return fallback;
 }
 
 /**

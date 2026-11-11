@@ -15,6 +15,7 @@ import {
   parseBrowseSearch,
 } from '@/lib/browse-query';
 import { type CardLayout, type ColumnHeights, layoutFor } from '@/lib/masonry';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 interface Loaded {
   cards: StorySummary[];
@@ -186,7 +187,7 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
         {status === 'error' && (
           <>
             <p role="alert" className="text-secondary-text">
-              More stories couldn’t load.
+              {TRY_AGAIN_LATER}
             </p>
             <Button
               variant="outline"

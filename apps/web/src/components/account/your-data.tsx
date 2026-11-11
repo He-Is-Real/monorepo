@@ -16,6 +16,7 @@ import {
   usePersonalSession,
 } from '@/lib/personal-session';
 import { forgetShareStorageOf } from '@/lib/share-storage';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { signedInAs, useOwnNotice } from './use-own-data';
 
 /** What the person types to delete their account (D88: a typed confirmation). */
@@ -144,7 +145,7 @@ function DownloadMyData() {
     } catch {
       say(owner, {
         alert: true,
-        text: 'We couldn’t prepare your file just now. Please try again in a moment.',
+        text: TRY_AGAIN_LATER,
       });
     } finally {
       setBusy(false);
@@ -199,14 +200,13 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   const inputId = useId();
   const ready = typed.trim().toLowerCase() === CONFIRM_WORD;
 
-  /** Whether the account is gone, asked again after an unknown outcome; null if still unknown. */
-  const recheck = async (api: ApiUser): Promise<boolean | null> => {
+  /** Whether the account is gone, asked again after an unknown outcome. */
+  const recheck = async (api: ApiUser): Promise<boolean> => {
     try {
       await api.get('/v1/account');
       return false;
     } catch (err) {
-      if (accountGone(err)) return true;
-      return outcomeUnknown(err) ? null : false;
+      return accountGone(err);
     }
   };
 
@@ -224,20 +224,10 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
         deleted = true;
       } else if (outcomeUnknown(err)) {
         uncertain.current = true;
-        const gone = await recheck(api);
-        if (gone) deleted = true;
-        else
-          say(
-            owner,
-            gone === null
-              ? 'We couldn’t tell whether your account was deleted. Please try again in a moment.'
-              : 'We couldn’t delete your account just now. Please try again in a moment.',
-          );
+        if (await recheck(api)) deleted = true;
+        else say(owner, TRY_AGAIN_LATER);
       } else {
-        say(
-          owner,
-          'We couldn’t delete your account just now. Please try again in a moment.',
-        );
+        say(owner, TRY_AGAIN_LATER);
       }
     }
     if (!deleted) {

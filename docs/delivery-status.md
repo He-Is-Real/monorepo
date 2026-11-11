@@ -261,12 +261,15 @@ Not started.
 
 - **Database restarts (Spot), built 2026-11-07:** the services notice when the database is
   restarting, public pages keep working from the last copy, and everything else shows a calm
-  "restarting, refresh in about 2 minutes" message. A copy of an API that starts while the
+  "Our compute is currently restarting. Please try again in about 2 minutes" message, counted
+  down to "Please try again later." (2026-11-09; no more "about 1 minute" floor). Every other
+  error people can see is the plain "Something went wrong. Please try again later.", except
+  mistakes they can fix (2026-11-09). A copy of an API that starts while the
   database is away now starts anyway and gives the same message until it has connected; one
   whose sign-in the database refuses (a wrong password, a missing namespace) doesn't start at
   all, so Cloud Run keeps the previous version (2026-11-08). A Cloud Monitoring dashboard
-  (OpenTofu) shows 503s, instances and Google's reclaims per service. Not covered yet: the legal text pages show their usual "can't be shown" message rather than the
-  restarting one.
+  (OpenTofu) shows 503s, instances and Google's reclaims per service. Not covered yet: the legal text pages show the plain "Something went wrong. Please try again
+  later." rather than the countdown.
 
 - **The nightly clean-up only reports on dev.** It will start deleting once someone has read a
   night's report and it looks right.

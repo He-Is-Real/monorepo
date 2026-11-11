@@ -606,7 +606,7 @@ test.describe('hearts', () => {
     await prompt.getByRole('button', { name: 'Add' }).click(); // queued behind it
     save.release();
     await expect(prompt.getByRole('alert')).toHaveText(
-      'It couldn’t be added. Try again in a moment.',
+      'Something went wrong. Please try again later.',
     );
     await expect(prompt).toContainText(
       'Add the story you hearted on this device to your account?',
@@ -640,7 +640,7 @@ test.describe('hearts', () => {
     await failing.seen;
     failing.release(); // browse_08's save fails (503)
     await expect(prompt.getByRole('alert')).toHaveText(
-      'It couldn’t be added. Try again in a moment.',
+      'Something went wrong. Please try again later.',
     );
     await expect(prompt).toContainText(
       'Add the story you hearted on this device to your account?',
@@ -716,7 +716,9 @@ test.describe('hearts', () => {
     await expect(heart).toHaveAttribute('data-heart-state', 'off');
     await heart.click();
     await expect(
-      page.getByRole('status').filter({ hasText: 'couldn’t be saved' }),
+      page
+        .getByRole('status')
+        .filter({ hasText: 'Something went wrong. Please try again later.' }),
     ).toHaveCount(1);
     await expect(heart).toHaveAttribute('aria-pressed', 'false');
   });
@@ -912,7 +914,7 @@ test.describe('loading more favourites', () => {
     await expect(list.locator('> li')).toHaveCount(24);
     await scrollToEnd(list);
     await expect(
-      page.getByText('More favourites couldn’t load.'),
+      page.getByText('Something went wrong. Please try again later.'),
     ).toBeVisible();
 
     // At the end of the list again, nothing is asked for until the reader says so.
@@ -921,7 +923,7 @@ test.describe('loading more favourites', () => {
     await scrollToEnd(list);
     expect(await nearEndSettled(page)).toBe(true);
     await expect(
-      page.getByText('More favourites couldn’t load.'),
+      page.getByText('Something went wrong. Please try again later.'),
     ).toBeVisible();
     expect(asked).toBe(1);
 

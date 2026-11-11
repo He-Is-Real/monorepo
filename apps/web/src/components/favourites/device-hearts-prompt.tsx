@@ -12,6 +12,7 @@ import {
 } from '@/lib/device-hearts';
 import { addHeartsToAccount } from '@/lib/favourites';
 import { usePersonalSession } from '@/lib/personal-session';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 /** People who said "Not now" on this page load: asked again on the next one. */
 const notNow = new Set<string>();
@@ -139,9 +140,7 @@ export function DeviceHeartsPrompt() {
         </p>
         {adding === 'failed' && (
           <p role="alert" className="mt-2 text-sm text-secondary-text">
-            {count === 1
-              ? 'It couldn’t be added. Try again in a moment.'
-              : 'Some couldn’t be added. Try again in a moment.'}
+            {TRY_AGAIN_LATER}
           </p>
         )}
         <div className="mt-3 flex flex-wrap justify-end gap-2">
